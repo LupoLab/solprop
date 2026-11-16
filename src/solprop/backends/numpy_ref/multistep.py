@@ -695,23 +695,10 @@ class InteractionHistory(HostHistory):
         defect: its ``k + 1``-node corrector through the new source less its
         ``k``-node predictor. The trial is held for ``_accept``.
 
-        Parameters
-        ----------
-        z, dz : float
-            The anchor and the step, m.
-        nodes : list of float
-            The history's normalised positions, newest first.
-        slots : numpy.ndarray
-            Their store rows, ``int64``.
-        order : int
-            The step's order.
-        orders : list of int
-            The orders scored, the step's own first.
-
-        Returns
-        -------
-        numpy.ndarray
-            One scaled norm per scored order.
+        - ``nodes``: the history's normalised positions, newest first; ``slots`` their
+          store rows.
+        - ``orders``: the orders scored, the step's own (``order``) first.
+        - Returns: one scaled norm per scored order.
         """
         workspace, kernels = self._workspace, self._kernels
         store = self.rows.store
@@ -752,17 +739,8 @@ class InteractionHistory(HostHistory):
     def _accept(self, keep: np.ndarray, free: int) -> AcceptRecord:
         """Adopt the held fused trial: the state, its interpolant, the new sample.
 
-        Parameters
-        ----------
-        keep : numpy.ndarray
-            The history rows kept, ``int64``; each is re-anchored at the step's end.
-        free : int
-            The row the new sample takes.
-
-        Returns
-        -------
-        solprop.backends.engines.AcceptRecord
-            The finish's split collar's sums.
+        - ``keep``: the history rows kept, each re-anchored at the step's end.
+        - Returns: the finish's split collar's sums.
         """
         trial = self._held
         store = self.rows.store
@@ -901,23 +879,10 @@ class ExponentialHistory(HostHistory):
         samples read are rotated and the moments shifted (SEP 35 section 4.1); the flow
         is unchanged. The trial is held for ``_accept``.
 
-        Parameters
-        ----------
-        z, dz : float
-            The anchor and the step, m.
-        nodes : list of float
-            The history's normalised positions, newest first.
-        slots : numpy.ndarray
-            Their store rows, ``int64``.
-        order : int
-            The step's order.
-        orders : list of int
-            The orders scored, the step's own first.
-
-        Returns
-        -------
-        numpy.ndarray
-            One scaled norm per scored order.
+        - ``nodes``: the history's normalised positions, newest first; ``slots`` their
+          store rows.
+        - ``orders``: the orders scored, the step's own (``order``) first.
+        - Returns: one scaled norm per scored order.
         """
         workspace, kernels = self._workspace, self._kernels
         store = self.rows.store
@@ -1025,17 +990,8 @@ class ExponentialHistory(HostHistory):
     def _accept(self, keep: np.ndarray, free: int) -> AcceptRecord:
         """Adopt the held exponential trial; the new sample takes row `free`.
 
-        Parameters
-        ----------
-        keep : numpy.ndarray
-            The history rows kept, ``int64``; nothing moves in this formulation.
-        free : int
-            The row the new sample takes.
-
-        Returns
-        -------
-        solprop.backends.engines.AcceptRecord
-            The finish's split collar's sums.
+        - ``keep``: the history rows kept; nothing moves in this formulation.
+        - Returns: the finish's split collar's sums.
         """
         del keep  # untransported samples are never re-anchored
         trial = self._held
