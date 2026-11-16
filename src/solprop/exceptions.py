@@ -22,6 +22,7 @@ __all__ = [
     "CouplingError",
     "DiluteScalingWarning",
     "DriverError",
+    "ExecutorError",
     "ExponentBudgetWarning",
     "GasFlowWarning",
     "GeneralModalBasisWarning",
@@ -195,6 +196,15 @@ class DriverError(SolpropError, ValueError):
 
     Almost always a refused argument or combination of arguments, so it is a
     ``ValueError``, as the grid, pulse and noise errors are.
+    """
+
+
+class ExecutorError(SolpropError, RuntimeError):
+    """A scan executor, or the machine it runs on, failed while running points.
+
+    The few failures of the environment rather than of the request: a refused memory
+    query, a failed batch submission or lease refresh, a scan point interrupted in its
+    worker. A refused argument is a :class:`DriverError`.
     """
 
 

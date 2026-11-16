@@ -35,7 +35,7 @@ from solprop.driver.executors.queue import Queue, collect
 from solprop.driver.executors.slurm import Slurm
 from solprop.driver.runner import SimulationRunner
 from solprop.driver.simulation import Simulation
-from solprop.exceptions import DriverError, OutputError, StopRequested
+from solprop.exceptions import DriverError, ExecutorError, OutputError, StopRequested
 from solprop.fourier import spectrum_to_optics
 from solprop.log import (
     BarReporter,
@@ -405,7 +405,7 @@ class _ScanEvents:
             error: BaseException = (
                 StopRequested(stop)
                 if stopped and stop is not None
-                else DriverError(f"scan point {index} was interrupted: {text}")
+                else ExecutorError(f"scan point {index} was interrupted: {text}")
             )
             watcher.interrupted(z, error)
 

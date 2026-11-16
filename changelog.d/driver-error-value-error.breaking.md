@@ -5,3 +5,6 @@ a `DriverError` as a `RuntimeError` should catch `DriverError` (or `SolpropError
 `Simulation.run` and the `prop_*` functions refuse a `resume` that is not `False`,
 `True` or `"interpolated"` with a `DriverError` naming `resume`, rather than a bare
 `ValueError`.
+The few failures of a scan's environment rather than of its request -- a refused memory
+query, a failed Slurm submission or queue lease refresh, a scan point interrupted in its
+worker -- raise the new `ExecutorError`, a `RuntimeError`.

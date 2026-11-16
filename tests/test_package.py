@@ -132,6 +132,8 @@ def test_exception_hierarchy_roots_at_solprop_error():
     # A refused argument to the driver is caught as any other refused value.
     assert issubclass(exceptions.DriverError, ValueError)
     assert issubclass(exceptions.BackendError, RuntimeError)
+    # A scan executor or its machine failing is a runtime failure, not a refusal.
+    assert issubclass(exceptions.ExecutorError, RuntimeError)
 
 
 def test_warning_hierarchy_roots_at_solprop_warning():
