@@ -267,7 +267,7 @@ void relate(const std::vector<std::size_t>& shape, const fields::Extent* extents
       message += relation;
       message += ": axis ";
       message += std::to_string(axis);
-      message += " ";
+      message += ' ';
       message += why;
       value_refusal(path, message);
     };

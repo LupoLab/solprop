@@ -3359,7 +3359,8 @@ void bind_testing(nb::module_& testing) {
           throw std::logic_error("no z table's slots were configured");
         const auto known =
             native::names(static_cast<const native::TableKind*>(nullptr));
-        const auto* const found = std::ranges::find_if(
+        // NOLINTNEXTLINE(readability-qualified-auto): an iterator, a class on MSVC
+        const auto found = std::ranges::find_if(
             known, [&kind](const auto& entry) { return kind == entry.first; });
         if (found == known.end())
           throw std::invalid_argument("a z table is phi, prefactor, rate or flux");
