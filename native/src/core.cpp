@@ -4,6 +4,8 @@
 
 #include "solprop_native/core.hpp"
 
+#include "solprop_native/launch.hpp"
+
 #include <KokkosFFT.hpp>
 
 #include <algorithm>

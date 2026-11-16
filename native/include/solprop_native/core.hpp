@@ -6,7 +6,6 @@
 
 #include "solprop_native/fields.hpp"
 #include "solprop_native/host_source.hpp"
-#include "solprop_native/launch.hpp"
 
 #include <Kokkos_Complex.hpp>
 #include <Kokkos_Core.hpp>

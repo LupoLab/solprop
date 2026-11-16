@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include "solprop_native/adams_march.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/dense.hpp"
 #include "solprop_native/stage_tables.hpp"

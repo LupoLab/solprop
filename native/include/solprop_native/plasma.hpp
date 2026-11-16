@@ -6,6 +6,7 @@
 
 #include "solprop_native/core.hpp"
 #include "solprop_native/dispatch.hpp"
+#include "solprop_native/launch.hpp"
 
 #include <Kokkos_Core.hpp>
 
