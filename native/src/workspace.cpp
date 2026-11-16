@@ -4,7 +4,7 @@
 
 #include "solprop_native/workspace.hpp"
 
-#include "solprop_native/dense_output.hpp"
+#include "solprop_native/dense.hpp"
 #include "solprop_native/refuse.hpp"
 #include "solprop_native/run_records.hpp"
 

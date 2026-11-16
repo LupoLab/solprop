@@ -8,7 +8,7 @@
 #include "solprop_native/adams_march.hpp"
 #include "solprop_native/cpu_execution.hpp"
 #include "solprop_native/crossing.hpp"
-#include "solprop_native/dense_output.hpp"
+#include "solprop_native/dense.hpp"
 #include "solprop_native/engines.hpp"
 #include "solprop_native/execution.hpp"
 #include "solprop_native/fftw_wisdom.hpp"
