@@ -14,7 +14,7 @@ The workflow has four parts:
    point, into a {py:class}`~solprop.driver.simulation.Simulation`;
 3. call {py:func}`~solprop.driver.scan.run_scan` with an executor, the reductions to
    compute in the worker, and what to retain;
-4. read the file with {py:func}`solprop.processing.scans.open`.
+4. read the file with {py:func}`solprop.processing.scans.open_scan`.
 
 ## Declaring a scan
 
@@ -383,9 +383,9 @@ fields, energies and reductions are rejected. Step indices keep the single-run
 convention, relative to each plane's interval, with per-plane counts.
 
 ```{code-block} python
-from solprop.processing.scans import open
+from solprop.processing.scans import open_scan
 
-result = open("pressure_energy.h5")
+result = open_scan("pressure_energy.h5")
 indices = result.where(pressure=1.2)
 point = result.point(int(indices[0]))
 layouts = result.layouts

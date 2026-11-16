@@ -101,7 +101,6 @@ print(f"{run.metadata.simulation_kind}, z = {run['z'][-1]:.2f} m; seed 0")
 
 figures = prop_2d(
     run,
-    "wavelength",
     spec_range=(200e-9, 2.6e-6),
     time_range=(-1e-12, 1e-12),
     db_min=-40,

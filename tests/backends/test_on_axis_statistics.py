@@ -36,7 +36,7 @@ from solprop.exceptions import (
     BackendError,
     DriverError,
     MaterialRangeWarning,
-    OutputError,
+    ProcessingError,
     SampledPeakWarning,
 )
 from solprop.grid import FieldGrid
@@ -586,7 +586,7 @@ def test_a_host_backend_s_axis_scan_needs_the_field(grid, table):
 
 
 def test_they_are_saved_plane_statistics_and_tdse_never_defines_them():
-    with pytest.raises(OutputError, match="between save planes"):
+    with pytest.raises(ProcessingError, match="between save planes"):
         StatsSpec(names=ON_AXIS_PLASMA_STATISTICS, periodic=ON_AXIS_PLASMA_STATISTICS)
     assert set(ON_AXIS_PLASMA_STATISTICS) <= TDSE_UNAVAILABLE_STATISTICS
 

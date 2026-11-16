@@ -344,9 +344,8 @@ def prop_gnlse(  # numpydoc ignore=PR01
     Returns
     -------
     solprop.output.store.Output
-        The handler the run was written to, closed. A
-        :class:`solprop.output.memory.MemoryOutput` stays readable; read an HDF5 file
-        back with :func:`solprop.output.hdf5.open_file`.
+        The handler the run was written to, closed and still readable: an HDF5
+        handler opens its file for each read and closes it again.
 
     Raises
     ------
@@ -484,9 +483,8 @@ def prop_capillary(  # numpydoc ignore=PR01
     Returns
     -------
     solprop.output.store.Output
-        The handler the run wrote, closed. A
-        :class:`~solprop.output.memory.MemoryOutput` stays readable; read a file back
-        with :func:`solprop.output.hdf5.open_file`.
+        The handler the run wrote, closed and still readable: an HDF5 handler opens
+        its file for each read and closes it again.
 
     Raises
     ------

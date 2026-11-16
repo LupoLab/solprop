@@ -272,7 +272,11 @@ class TDSEConsistencyError(MaterialError):
 
 
 class ProcessingError(SolpropError, ValueError):
-    """A post-processing or plotting request is invalid."""
+    """A post-processing, plotting or statistics request is invalid.
+
+    Raised for a malformed :class:`~solprop.stats.StatsSpec` too, and for a plane
+    selected both by index and by position.
+    """
 
 
 class ConvergenceError(SolpropError, RuntimeError):

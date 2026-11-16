@@ -29,6 +29,7 @@ from matplotlib.colors import Colormap
 from matplotlib.figure import Figure
 
 from solprop._validation import choice
+from solprop.constants import C
 from solprop.exceptions import ProcessingError
 from solprop.optics import TransferFunction
 from solprop.output.store import Output
@@ -38,19 +39,20 @@ from solprop.plotting.style import (
     Z_TO_CM,
     _display_limits,
     _figure_of,
-    _spec_range,
     cmap_colours,
     field_modes,
     mode_labels,
     per_width,
     power_unit,
     spectral_display,
+    wavelength_to_axis,
 )
 from solprop.processing import spectra, time
 from solprop.processing.axes import (
     ModeSelection,
     SpectralAxis,
     _refuse_by_basis,
+    grid_of,
 )
 from solprop.processing.fields import (
     NoiseFloor,
@@ -62,25 +64,30 @@ from solprop.processing.fields import (
 from solprop.processing.time import _energy
 
 __all__ = [
-    "DEFAULT_SLICE_WAVELENGTH_RANGE",
-    "DEFAULT_TIME_RANGE",
-    "DEFAULT_WAVELENGTH_RANGE",
     "SLICE_QUANTITIES",
+    "TIME_ENERGY_FRACTION",
+    "TIME_MARGIN",
     "SliceQuantity",
+    "default_spec_range",
+    "default_time_range",
     "plot_energy",
     "prop_2d",
     "spec_1d",
     "time_1d",
 ]
 
-DEFAULT_WAVELENGTH_RANGE = (150e-9, 2e-6)
-"""Wavelength range of a propagation map when no ``spec_range`` is given, m."""
+TIME_ENERGY_FRACTION = 5e-4
+"""Fraction of a trace's energy a default time range may leave out on each side.
 
-DEFAULT_SLICE_WAVELENGTH_RANGE = (150e-9, 1.2e-6)
-"""Wavelength range of a spectral slice when no ``spec_range`` is given, m."""
+With no ``time_range``, a plot shows the span between the instants where each drawn
+trace's running energy passes this fraction and one less it, joined over the traces and
+widened by :data:`TIME_MARGIN` of its width on each side, within the run's time window
+(:func:`default_time_range`).
+"""
 
-DEFAULT_TIME_RANGE = (-50e-15, 50e-15)
-"""Time range of a propagation map, s."""
+TIME_MARGIN = 0.25
+"""Fraction of the occupied time span added on each side of a default time range."""
+
 
 SliceQuantity = Literal["power", "field", "field_squared"]
 """What a time-domain slice draws: the power, the real field, or its square."""
@@ -93,12 +100,94 @@ SLICE_QUANTITIES: tuple[SliceQuantity, ...] = ("power", "field", "field_squared"
 _DB_FLOOR_MARGIN = 10.0
 
 
+def default_spec_range(output: Output, axis: SpectralAxis) -> tuple[float, float]:
+    """Return the spectral range a plot shows when it is given none: the run's band.
+
+    The band the run's grid was declared over (its ``wavelength_limits``), on the
+    abscissa asked for, so a deep-ultraviolet, a near-infrared and a mid-infrared run
+    each fill their figure.
+
+    Parameters
+    ----------
+    output : solprop.output.store.Output
+        An opened output handler.
+    axis : {'wavelength', 'f', 'omega'}
+        The spectral abscissa.
+
+    Returns
+    -------
+    tuple of float
+        The ascending limits in m, Hz or rad/s.
+
+    Examples
+    --------
+    >>> from solprop.plotting.propagation import default_spec_range
+    >>> from solprop.processing._examples import example_output
+    >>> low, high = default_spec_range(example_output(), "wavelength")
+    >>> f"{low * 1e9:.0f} nm to {high * 1e9:.0f} nm"
+    '400 nm to 2000 nm'
+    """
+    grid = grid_of(output)
+    band = (2.0 * np.pi * C / grid.omega_max, 2.0 * np.pi * C / grid.omega_min)
+    return wavelength_to_axis(axis, band)
+
+
+def default_time_range(
+    t: Float[np.ndarray, " n_t"], power: Float[np.ndarray, "*traces n_t"]
+) -> tuple[float, float]:
+    """Return the time range a plot shows when it is given none: where the light is.
+
+    Each trace's running energy is followed from the start of the window: the range
+    runs from the earliest instant any trace passes :data:`TIME_ENERGY_FRACTION` of its
+    energy to the latest it passes one less that fraction, widened by
+    :data:`TIME_MARGIN` of its width on each side and kept within the window. A
+    picosecond fibre pulse and a few-cycle one both fill their figure, and a pulse
+    that walks off or spreads along a run is followed, without a fixed window clipping
+    one or drowning the other.
+
+    Parameters
+    ----------
+    t : numpy.ndarray
+        The time axis, s, ascending, shape ``(n_t,)``.
+    power : numpy.ndarray
+        The traces to show, W or any non-negative density in time, with ``t`` as their
+        last axis.
+
+    Returns
+    -------
+    tuple of float
+        The lower and upper limits, s; the whole window when no trace carries energy.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.plotting.propagation import default_time_range
+    >>> t = np.linspace(-1e-12, 1e-12, 2001)
+    >>> low, high = default_time_range(t, np.exp(-(t / 30e-15) ** 2))
+    >>> -0.2e-12 < low < -30e-15 and 30e-15 < high < 0.2e-12
+    True
+    """
+    rows = np.reshape(np.abs(power), (-1, t.size))
+    totals = rows.sum(axis=1)
+    lit = rows[totals > 0.0] / totals[totals > 0.0, np.newaxis]
+    window = (float(t[0]), float(t[-1]))
+    if lit.size == 0:
+        return window
+    running = np.cumsum(lit, axis=1)
+    first = np.argmax(running > TIME_ENERGY_FRACTION, axis=1)
+    last = np.argmax(running >= 1.0 - TIME_ENERGY_FRACTION, axis=1)
+    low, high = float(t[first.min()]), float(t[last.max()])
+    # A trace concentrated in one sample still gets a few samples around it.
+    margin = max(TIME_MARGIN * (high - low), 2.0 * float(t[1] - t[0]))
+    return max(low - margin, window[0]), min(high + margin, window[1])
+
+
 def prop_2d(
     output: Output,
-    axis: SpectralAxis = "f",
+    axis: SpectralAxis = "wavelength",
     *,
     spec_range: tuple[float, float] | None = None,
-    time_range: tuple[float, float] = DEFAULT_TIME_RANGE,
+    time_range: tuple[float, float] | None = None,
     db_min: float = -60.0,
     resolution: float | None = None,
     modes: ModeSelection = None,
@@ -123,16 +212,16 @@ def prop_2d(
     ----------
     output : solprop.output.store.Output
         An opened output handler.
-    axis : {'f', 'wavelength', 'omega'}
-        Spectral abscissa of the left panel; frequency, in Hz, by default, where the
-        other plots default to wavelength.
+    axis : {'wavelength', 'f', 'omega'}
+        Spectral abscissa of the left panel, as for every other plot.
     spec_range : tuple of float or None
-        Spectral limits in the units of ``axis``: m, Hz or rad/s. By default
-        :data:`DEFAULT_WAVELENGTH_RANGE` on that axis;
+        Spectral limits in the units of ``axis``: m, Hz or rad/s. By default the run's
+        band (:func:`default_spec_range`);
         :func:`~solprop.plotting.style.wavelength_to_axis` converts a wavelength range.
         A range that selects no sample of the axis is refused.
-    time_range : tuple of float
-        Time limits, s.
+    time_range : tuple of float or None
+        Time limits, s. By default where the light is at every plane
+        (:func:`default_time_range`).
     db_min : float
         Bottom of the colour scale, dB below the peak.
     resolution : float or None
@@ -177,7 +266,7 @@ def prop_2d(
     >>> plt.close("all")
     """
     _refuse_by_basis(output, "prop_2d")
-    limits = _spec_range(axis, spec_range, DEFAULT_WAVELENGTH_RANGE)
+    limits = _limits(output, axis, spec_range)
     x, density = _spectral_density(
         output,
         axis,
@@ -189,6 +278,7 @@ def prop_2d(
     t, power = _power(output, modes=modes, oversampling=oversampling, bandpass=bandpass)
     z = output["z"] * Z_TO_CM
     density, power = _with_mode_axis(density), _with_mode_axis(power)
+    shown = default_time_range(t, power) if time_range is None else time_range
     labels = _drawn_labels(output, density.shape[1], modes)
     if density.shape[1] > 1:
         density = np.concatenate([density, density.sum(axis=1, keepdims=True)], axis=1)
@@ -220,7 +310,7 @@ def prop_2d(
             cmap=cmap,
             width=per_width(output),
         )
-        temporal.set_xlim(time_range[0] * T_TO_FS, time_range[1] * T_TO_FS)
+        temporal.set_xlim(shown[0] * T_TO_FS, shown[1] * T_TO_FS)
         figure.suptitle(f"Propagation ({name})")
         figure.tight_layout()
         figures.append(figure)
@@ -234,7 +324,7 @@ def time_1d(
     quantity: SliceQuantity = "power",
     modes: ModeSelection = None,
     oversampling: int = 4,
-    time_range: tuple[float, float] = DEFAULT_TIME_RANGE,
+    time_range: tuple[float, float] | None = None,
     bandpass: spectra.Bandpass | None = None,
     widths: bool = True,
     ax: Axes | None = None,
@@ -255,8 +345,9 @@ def time_1d(
         Which modes to draw; only a power may be summed over modes.
     oversampling : int
         Time-domain resampling factor.
-    time_range : tuple of float
-        Time limits, s.
+    time_range : tuple of float or None
+        Time limits, s. By default where the drawn traces' light is
+        (:func:`default_time_range`).
     bandpass : tuple of float, Passband, numpy.ndarray or None
         Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
         axis, of a window applied before the transform.
@@ -336,6 +427,11 @@ def time_1d(
             if widths:
                 entry += f" [{time.fwhm(t * T_TO_FS, np.abs(trace)):.2f} fs]"
             ax.plot(t * T_TO_FS, trace, color=colour, dashes=_dashes(mode), label=entry)
+    if time_range is None:
+        # A field's square is what is distributed in time, not the signed field.
+        time_range = default_time_range(
+            traces[0][1], drawn**2 if quantity == "field" else drawn
+        )
     ax.set_xlim(time_range[0] * T_TO_FS, time_range[1] * T_TO_FS)
     ax.set_xlabel("Time (fs)")
     ax.set_ylabel(("Field" if quantity == "field" else "Power") + f" ({unit})")
@@ -353,7 +449,7 @@ def spec_1d(
     modes: ModeSelection = None,
     spec_range: tuple[float, float] | None = None,
     log: bool = True,
-    log_min: float = 1e-6,
+    db_min: float = -60.0,
     resolution: float | None = None,
     ax: Axes | None = None,
     noise_floor: NoiseFloor = "keep",
@@ -371,13 +467,13 @@ def spec_1d(
     modes : int, sequence of int, 'sum' or None
         Which modes to draw.
     spec_range : tuple of float or None
-        Spectral limits in the units of ``axis``: m, Hz or rad/s. By default
-        :data:`DEFAULT_SLICE_WAVELENGTH_RANGE` on that axis;
+        Spectral limits in the units of ``axis``: m, Hz or rad/s. By default the run's
+        band (:func:`default_spec_range`);
         :func:`~solprop.plotting.style.wavelength_to_axis` converts a wavelength range.
     log : bool
         Whether to use a logarithmic ordinate.
-    log_min : float
-        Bottom of a logarithmic ordinate, as a fraction of the largest value drawn.
+    db_min : float
+        Bottom of a logarithmic ordinate, dB below the largest value drawn.
     resolution : float or None
         Instrument resolution, in the units of ``axis``.
     ax : matplotlib.axes.Axes or None
@@ -411,7 +507,7 @@ def spec_1d(
     _refuse_by_basis(output, "spec_1d")
     ax = _axis(ax, (8.5, 5.0))
     planes = _plane_indices(output, z)
-    limits = _spec_range(axis, spec_range, DEFAULT_SLICE_WAVELENGTH_RANGE)
+    limits = _limits(output, axis, spec_range)
     factor, label = spectral_display(axis)
     traces = [
         _spectral_density(
@@ -446,7 +542,7 @@ def spec_1d(
             )
     if log:
         ax.set_yscale("log")
-        ax.set_ylim(log_min * peak, 3.0 * peak)
+        ax.set_ylim(10.0 ** (db_min / 10.0) * peak, 3.0 * peak)
     ax.set_xlim(*_display_limits(axis, limits))
     ax.set_xlabel(label)
     ax.set_ylabel(_density_label(axis, per_width(output)))
@@ -566,6 +662,18 @@ def _drawn_labels(output: Output, count: int, modes: ModeSelection) -> list[str]
         return every[:count]
     chosen = [modes] if isinstance(modes, int) else list(modes)
     return [every[one] for one in chosen]
+
+
+def _limits(
+    output: Output, axis: SpectralAxis, spec_range: tuple[float, float] | None
+) -> tuple[float, float]:
+    """Return a plot's spectral limits, ascending, in the units of ``axis``.
+
+    - ``spec_range``: the range asked for, in either order; ``None`` for the run's band.
+    """
+    if spec_range is None:
+        return default_spec_range(output, axis)
+    return float(min(spec_range)), float(max(spec_range))
 
 
 def _plane_indices(output: Output, z: float | Sequence[float] | None) -> list[int]:

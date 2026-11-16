@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from compressor_reference import MALITSON_SILICA, reference_phase
+from solprop import fourier
 from solprop.constants import C
 from solprop.exceptions import MaterialError, OpticsGeometryError, ProcessingError
 from solprop.grid import EnvelopeGrid, FieldGrid
@@ -37,6 +38,11 @@ from solprop.pulses import GaussianPulse
 WAVELENGTH = 800e-9
 BAND = (600e-9, 1100e-9)
 SILICA = MALITSON_SILICA
+
+
+def as_optics(grid, stored):
+    """Return an internal-convention spectrum in the optics convention."""
+    return fourier.spectrum_to_optics(stored, kind=grid.kind)
 
 
 def grating(distance=0.0004, band=BAND):
@@ -86,7 +92,7 @@ def test_grating_search_recovers_known_separation(kind):
         pair=replace(target, separation=0.0007),
         separation_range=(0.0, 0.001),
         grid=grid,
-        spectrum=stored,
+        spectrum=as_optics(grid, stored),
     )
     assert found.success, found.message
     assert isinstance(found.transfer, GratingPair)
@@ -118,7 +124,10 @@ def test_prism_insertion_search_at_fixed_separation():
     grid, stored = inverse_pulse(target)
     start = replace(target, geometry=replace(target.geometry, insertion=0.012))
     found = compression.compress_prisms(
-        pair=start, insertion_range=(0.008, 0.021), grid=grid, spectrum=stored
+        pair=start,
+        insertion_range=(0.008, 0.021),
+        grid=grid,
+        spectrum=as_optics(grid, stored),
     )
     assert found.success, found.message
     assert isinstance(found.transfer, PrismPair)
@@ -142,7 +151,7 @@ def test_prism_joint_search_and_feasible_boundaries():
         "insertion_range": (0.006, 0.02),
         "separation_range": (0.3, 0.8),
         "grid": grid,
-        "spectrum": stored,
+        "spectrum": as_optics(grid, stored),
     }
     first = compression.compress_prisms(**options)
     again = compression.compress_prisms(**options)
@@ -185,7 +194,7 @@ def test_prism_joint_search_reports_each_motor_bound(coordinate, side):
     found = compression.compress_prisms(
         pair=prism(),
         grid=grid,
-        spectrum=stored,
+        spectrum=as_optics(grid, stored),
         insertion_range=bounds["insertion"],
         separation_range=bounds["separation"],
     )
@@ -198,7 +207,10 @@ def test_separation_only_and_partly_infeasible_prism_search():
     target = prism(insertion=0.007, separation=0.03, band=(700e-9, 900e-9))
     grid, stored = inverse_pulse(target)
     found = compression.compress_prisms(
-        pair=target, separation_range=(0.0, 0.06), grid=grid, spectrum=stored
+        pair=target,
+        separation_range=(0.0, 0.06),
+        grid=grid,
+        spectrum=as_optics(grid, stored),
     )
     assert found.success
     assert isinstance(found.transfer, PrismPair)
@@ -210,7 +222,7 @@ def test_separation_only_and_partly_infeasible_prism_search():
             compression.compress_prisms(
                 pair=target,
                 grid=grid,
-                spectrum=stored,
+                spectrum=as_optics(grid, stored),
                 insertion_range=(0.0, 1e-4),
                 separation_range=separation_range,
             )
@@ -222,7 +234,10 @@ def test_grating_unachievable_sign_keeps_boundary_answer():
     clean = GaussianPulse(wavelength=WAVELENGTH, fwhm=30e-15, energy=1e-6).build(grid)
     wrong_sign = clean * stored_factor(grid, pair)
     found = compression.compress_gratings(
-        pair=pair, separation_range=(0.0, 0.0006), grid=grid, spectrum=wrong_sign
+        pair=pair,
+        separation_range=(0.0, 0.0006),
+        grid=grid,
+        spectrum=as_optics(grid, wrong_sign),
     )
     assert not found.success
     assert "lower bound" in found.message
@@ -237,9 +252,10 @@ def test_fixed_band_cannot_improve_trial_by_clipping():
     pulse = compression._pair_pulse(
         None,
         grid,
-        stored,
+        as_optics(grid, stored),
         pair=target,
         plane=-1,
+        z=None,
         modes=None,
         bandpass=None,
         oversampling=2,
@@ -263,7 +279,7 @@ def test_fixed_band_cannot_improve_trial_by_clipping():
                 pair=target,
                 insertion_range=(0.01, 0.02),
                 grid=grid,
-                spectrum=spectrum,
+                spectrum=as_optics(grid, spectrum),
                 bandpass=bandpass,
             )
 
@@ -282,7 +298,7 @@ def test_compressors_input_and_grid_parity(kind, family):
     )
     selection = {"modes": [0, 2], "bandpass": (700e-9, 950e-9), "oversampling": 3}
     saved = function(run, **optics, **selection)
-    raw = function(grid=grid, spectrum=stored, **optics, **selection)
+    raw = function(grid=grid, spectrum=as_optics(grid, stored), **optics, **selection)
     # Exactly the same selected arrays and deterministic search path.
     assert saved.quality == raw.quality
     assert saved.peak_power_after == raw.peak_power_after
@@ -291,8 +307,8 @@ def test_compressors_input_and_grid_parity(kind, family):
         assert saved.transfer == raw.transfer
     else:
         assert saved.transfer.geometry == raw.transfer.geometry
-    single = function(grid=grid, spectrum=stored[0, 0], **optics)
-    shaped = function(grid=grid, spectrum=stored[0:1, 0:1], **optics)
+    single = function(grid=grid, spectrum=as_optics(grid, stored[0, 0]), **optics)
+    shaped = function(grid=grid, spectrum=as_optics(grid, stored[0:1, 0:1]), **optics)
     assert single.quality == shaped.quality
 
 
@@ -377,7 +393,7 @@ def test_pair_recovery_converges_with_temporal_sampling():
                 pair=target,
                 insertion_range=(0.008, 0.021),
                 grid=grid,
-                spectrum=stored,
+                spectrum=as_optics(grid, stored),
                 oversampling=2 * sampling,
             )
         )
@@ -395,7 +411,10 @@ def test_pair_without_band_keeps_the_full_active_selection():
     stored = GaussianPulse(wavelength=WAVELENGTH, fwhm=30e-15, energy=1e-6).build(grid)
     pair = GratingPair(100.0, 0.0, littrow_angle(100.0, WAVELENGTH), WAVELENGTH)
     found = compression.compress_gratings(
-        grid=grid, spectrum=stored, pair=pair, separation_range=(0.0, 0.001)
+        grid=grid,
+        spectrum=as_optics(grid, stored),
+        pair=pair,
+        separation_range=(0.0, 0.001),
     )
     assert not found.success
     assert "all active frequencies" in str(found)
@@ -493,7 +512,7 @@ def test_joint_prism_search_accepts_a_partly_infeasible_motor_box():
     found = compression.compress_prisms(
         pair=target,
         grid=grid,
-        spectrum=stored,
+        spectrum=as_optics(grid, stored),
         insertion_range=(0.0, 0.012),
         separation_range=(0.0, 0.06),
     )

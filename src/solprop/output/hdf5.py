@@ -66,7 +66,8 @@ The manual page is ``docs/guide/results/output.md``.
 import json
 import logging
 import math
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import cast
@@ -720,10 +721,13 @@ class ResumeState(Displayed):
 class HDF5Output(PlaneStore):
     """Stream a run to one HDF5 file, opened once and extended plane by plane.
 
-    Reading through ``__getitem__`` and
-    :meth:`~solprop.output.store.PlaneStore.fields` works while the handler is
-    open and stops when it is closed, because the arrays live in the file rather than in
-    memory; :func:`open_file` opens a finished file for reading afterwards.
+    Reading through ``__getitem__``, :meth:`~solprop.output.store.PlaneStore.fields`
+    and :meth:`~solprop.output.store.PlaneStore.plane_field` works throughout. While
+    the handler is open the reads go through its handle; once the run has closed it,
+    each read opens the file for reading, reads, and closes it again, so a finished run
+    returned by ``prop_*(..., output="run.h5")`` or ``Simulation.run`` reads like one in
+    memory and holds no handle between reads. :func:`open_file` keeps one handle open
+    for many reads.
 
     Parameters
     ----------
@@ -1156,12 +1160,36 @@ class HDF5Output(PlaneStore):
         file.flush()
 
     def _require_file(self) -> h5py.File:
-        """Return the open file, refusing once the handler is closed."""
+        """Return the open handle a write goes through, refusing without one."""
         if self._file is None:
-            action = "reopen it" if self._closed else "call open(metadata) first"
-            msg = f"the output file {self._path} is not open; {action}"
+            if self._suspended_identity is not None:
+                action = "the run holding it is suspended; resume the run first"
+            elif self._closed:
+                action = "the run has finished, so it can only be read"
+            else:
+                action = "call open(metadata) first"
+            msg = f"the output file {self._path} is not open for writing; {action}"
             raise OutputError(msg)
         return self._file
+
+    @contextmanager
+    def _reading(self) -> Iterator[h5py.File]:
+        """Yield a handle to read through: the open one, or a read-only one for a read.
+
+        A finished handler opens its file read-only for the one read and closes it
+        again, so a closed run stays readable without holding a handle; a suspended
+        writer keeps refusing, because its run still owns the file.
+        """
+        if self._file is not None or not self._closed:
+            yield self._require_file()
+            return
+        try:
+            file = h5py.File(self._path, "r")
+        except OSError as error:
+            msg = f"cannot read the output file {self._path}: {error}"
+            raise OutputError(msg) from error
+        with file:
+            yield file
 
     def _write_metadata(self, metadata: RunMetadata) -> None:
         """Open the file if it is not open yet, and write the run record.
@@ -1490,11 +1518,15 @@ class HDF5Output(PlaneStore):
                 dataset.resize(length, axis=0)
 
     def _read(self, group: str, name: str) -> np.ndarray:
-        """Return one stored array, read out of the open file.
+        """Return one stored array, through the open handle or a read-only one.
 
         - ``group``: ``''``, ``'stats'``, ``'step_history'`` or ``'step_stats'``.
         """
-        file = self._require_file()
+        with self._reading() as file:
+            return self._read_from(file, group, name)
+
+    def _read_from(self, file: h5py.File, group: str, name: str) -> np.ndarray:
+        """Return one stored array, read out of a handle (:meth:`_read`)."""
         if group == "step_stats" and (
             group not in file
             or (name not in _group(file, group) and not self.step_stat_names)
@@ -1529,7 +1561,8 @@ class HDF5Output(PlaneStore):
 
         - Returns: the stored field, optics convention.
         """
-        return np.asarray(_dataset(self._require_file(), "field")[slot])
+        with self._reading() as file:
+            return np.asarray(_dataset(file, "field")[slot])
 
     def _write_recipe(self, record: RecipeRecord) -> None:
         """Write the recipe group into the open file (SEP 41, S2)."""

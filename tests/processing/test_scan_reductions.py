@@ -256,7 +256,7 @@ def test_spectrum_wavelength_refuses_ambiguous_or_missing_axes(tmp_path):
         writer.commit(_spectrum_point(index, grid, reduction))
     writer.commit(_spectrum_point(2, grids[0], impostor))
     writer.close()
-    result = scans.open(path)
+    result = scans.open_scan(path)
     for index, grid in enumerate(grids):
         expected = scans._band_wavelength(GridRecord.from_grid(grid), (400e-9, 1.2e-6))
         np.testing.assert_array_equal(result.spectrum_wavelength(index), expected)

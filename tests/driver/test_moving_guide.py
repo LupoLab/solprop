@@ -195,7 +195,7 @@ def test_a_moving_guide_runs_ten_steps_end_to_end_and_records_its_path(
         kinked, grin_grid(), z_max=LENGTH, omega_reference=float(grin_grid().omega0)
     ).tables
     nodes = path_rule(kinked.field_provider, sampling.nodes, LENGTH).weights.size
-    assert electric_field(run, tables, plane=-1, guide=kinked).shape == (
+    assert electric_field(run, tables=tables, plane=-1, guide=kinked).shape == (
         nodes,
         3,
         grin_grid().n_t,
@@ -1084,7 +1084,7 @@ def test_a_moving_guide_s_plane_is_reconstructed_on_that_plane_s_own_modes(
         (magnetic_field, "magnetic"),
     ):
         rebuilt = accessor(
-            run, tables, z=MID, analytic=True, convention="fft", guide=kinked
+            run, tables=tables, z=MID, analytic=True, convention="fft", guide=kinked
         )
         expected = analytic_field(
             grid, np.einsum("qcmw,mw->qcw", getattr(reference, stored)[0], amplitudes)
@@ -1138,7 +1138,7 @@ def test_a_moving_guide_s_reconstructed_flux_integrates_to_its_physical_energy(
         (reference.electric[0], reference.magnetic[0]), reference.weights[0]
     )
     record_property("gram_departure", bound)
-    flux = reconstructed_flux(run, tables, plane=index, guide=kinked)
+    flux = reconstructed_flux(run, tables=tables, plane=index, guide=kinked)
     integrated = float(np.sum(flux)) * float(grid.dt)
     recorded = float(np.ravel(run.planes()[index].stats["physical_energy"])[0])
     departure = abs(integrated - recorded) / recorded
@@ -1169,15 +1169,17 @@ def test_a_moving_plane_s_nodes_are_where_its_flux_density_lives(kinked, kinked_
     """
     run, tables = kinked_run
     index = int(np.argmin(np.abs(run["z"] - MID)))
-    xy, weights = plane_nodes(run, tables, z=MID, guide=kinked)
+    xy, weights = plane_nodes(run, tables=tables, z=MID, guide=kinked)
     moved = path_rule(kinked.field_provider, kinked.sampling.nodes, MID)
     np.testing.assert_array_equal(xy, moved.xy)
     np.testing.assert_array_equal(weights, moved.weights)
-    entrance, _ = plane_nodes(run, tables, plane=0, guide=kinked)
+    entrance, _ = plane_nodes(run, tables=tables, plane=0, guide=kinked)
     np.testing.assert_array_equal(entrance, kinked.sampling.nodes.xy)
     assert not np.array_equal(entrance, xy)
-    density = reconstructed_flux(run, tables, plane=index, density=True, guide=kinked)
-    flux = reconstructed_flux(run, tables, plane=index, guide=kinked)
+    density = reconstructed_flux(
+        run, tables=tables, plane=index, density=True, guide=kinked
+    )
+    flux = reconstructed_flux(run, tables=tables, plane=index, guide=kinked)
     # One weighted sum over the node axis on each side: rounding, 64 eps of cover.
     np.testing.assert_allclose(
         weights @ density, flux, rtol=0, atol=64 * np.finfo(float).eps * flux.max()

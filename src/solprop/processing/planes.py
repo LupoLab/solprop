@@ -48,7 +48,12 @@ from solprop.modes.protocol import Mode
 from solprop.modes.slab import PlanarGrid
 from solprop.output.metadata import RunMetadata
 from solprop.output.store import Output
-from solprop.processing.axes import _plane_field, grid_of, spatial_grid_of
+from solprop.processing.axes import (
+    _check_plane_or_z,
+    _plane_field,
+    grid_of,
+    spatial_grid_of,
+)
 from solprop.processing.modal import _checked_tables, _plane_rule, _spectra
 from solprop.spatial import (
     SpatialFlux,
@@ -82,9 +87,11 @@ def _source_part(source: object, name: str) -> object:
 def _selected(output: Output, plane: int, z: float | None) -> tuple[int, float]:
     """Return the index and stored position of the plane a selection names.
 
-    - ``z``: position that must match a stored plane, m.
+    - ``z``: position that must match a stored plane, m; refused beside a `plane`
+      other than the default.
     - Returns: the index counted from the start, and its stored position in m.
     """
+    _check_plane_or_z(plane, z, default=-1)
     positions = np.asarray(output["z"], dtype=float)
     if positions.size == 0:
         msg = "the output holds no saved plane"
@@ -203,8 +210,9 @@ def fluence_map(
     Raises
     ------
     ProcessingError
-        If the run has no transverse grid, the plane is not stored, the record
-        carries no plane measure, or the run is a hybrid planar file.
+        If the run has no transverse grid, the plane is not stored or is named both
+        by index and by position, the record carries no plane measure, or the run is
+        a hybrid planar file.
 
     Examples
     --------
@@ -410,7 +418,7 @@ def _general_parts(
         # The E/H synthesis is electric_field's and magnetic_field's, admitted by
         # that name on every general basis.
         electric, magnetic, _ = _spectra(
-            output, checked, index, None, "electric_field", guide
+            output, index, "electric_field", guide, checked
         )
         nodes, weights = _plane_rule(checked, guide, z)
     except OutputError as refused:
@@ -518,9 +526,6 @@ def field_plane(
             "reconstructed into a plane, so its planes are not exchanged: rerun with "
             "noise='input' or noise=None to couple the output"
         )
-        raise ProcessingError(msg)
-    if z is not None and plane != -1:
-        msg = f"give a plane index or a position, not both: plane={plane}, z={z}"
         raise ProcessingError(msg)
     index, position = _selected(output, plane, z)
     samples = _plane_field(output, index, None, convention="optics")

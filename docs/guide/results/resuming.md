@@ -403,9 +403,12 @@ from the guide's reference and needs no metric at all.
 ## Reading E and H back
 
 A general modal file stores channel amplitudes, not fields. {py:mod}`solprop.processing.modal`
-is the way back: given the run's own reference tables, rebuilt from the guide the record
-names, it synthesises `E(x, y, t)` in V/m and `H(x, y, t)` in A/m at the guide's
-quadrature nodes and forms what a detector would see.
+is the way back: given the guide the run was made with, it rebuilds the run's own
+reference tables, synthesises `E(x, y, t)` in V/m and `H(x, y, t)` in A/m at the guide's
+quadrature nodes and forms what a detector would see. Each accessor reads one saved
+plane, the last unless `plane=` or `z=` names another, and takes the tables from
+{py:func}`~solprop.processing.modal.reference_tables` as `tables=` to skip the rebuild
+in a loop.
 
 ```{code-block} python
 from solprop.processing.modal import (
@@ -414,14 +417,12 @@ from solprop.processing.modal import (
     plane_nodes,
     reconstructed_flux,
 )
-from solprop.translate.general import general_modal_route
 
 with open_file("run.h5") as stored:
     print([one.display_label for one in channel_labels(stored)])
-    tables = general_modal_route(guide, grid, z_max=length, omega_reference=w0).tables
-    field = electric_field(stored, tables, plane=-1, guide=guide)  # (n_nodes, 3, n_t)
-    power = reconstructed_flux(stored, tables, plane=-1, guide=guide)  # (n_t,), W
-    xy, weights = plane_nodes(stored, tables, plane=-1, guide=guide)  # m, m^2
+    field = electric_field(stored, guide=guide)  # (n_nodes, 3, n_t), V/m
+    power = reconstructed_flux(stored, guide=guide)  # (n_t,), W
+    xy, weights = plane_nodes(stored, guide=guide)  # m, m^2
 ```
 
 {py:func}`~solprop.processing.modal.plane_nodes` says where those values are: the
@@ -450,7 +451,7 @@ checked against `metadata.modal["guide"]` — the sampling with its knots, and t
 `modal.guide.regions.0.kerr.chi3`. The keyword has **no default** on any of the six
 accessors that reconstruct from the tables (`electric_field`, `magnetic_field`,
 `reconstructed_flux`, `instantaneous_flux`, `coordinate_intensity` and `plane_nodes`):
-every caller has the guide, because that is what the tables were rebuilt from, and a check that
+the tables are rebuilt from it unless they are passed as `tables=`, and a check that
 closes the hole only when it is asked for is not a gate. A call that omits it raises
 `TypeError`. A record whose identity block is a **subset** of the rebuilt one is
 refused as incomplete rather than passing on the entries it happens to carry: what was

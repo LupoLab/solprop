@@ -53,7 +53,7 @@ __all__ = [
     "field_at_plane",
     "mode_energies",
     "on_axis_intensity",
-    "open",
+    "open_scan",
     "peak_power",
     "spectrum_in_band",
 ]
@@ -819,7 +819,7 @@ class ScanOutput(Displayed):
             return np.flatnonzero(mask)
 
 
-def open(path: Path | str) -> ScanOutput:
+def open_scan(path: Path | str) -> ScanOutput:
     """Open a collected scan reader.
 
     Parameters

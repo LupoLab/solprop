@@ -78,7 +78,6 @@ run = prop_capillary(
 
 figures = prop_2d(
     run,
-    "wavelength",
     spec_range=(300e-9, 1.6e-6),
     time_range=(-125e-15, 50e-15),
     db_min=-40,
