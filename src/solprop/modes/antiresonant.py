@@ -155,7 +155,7 @@ def _tube_angle(n_tubes: int) -> float:
     return math.sin(math.pi / n_tubes)
 
 
-def tube_gap(core_radius: float, tube_radius: float, n_tubes: int) -> float:
+def tube_gap(core_radius: float, *, tube_radius: float, n_tubes: int) -> float:
     """Return the gap between neighbouring tubes.
 
     Parameters
@@ -182,7 +182,7 @@ def tube_gap(core_radius: float, tube_radius: float, n_tubes: int) -> float:
     return 2 * ((core_radius + tube_radius) * _tube_angle(n_tubes) - tube_radius)
 
 
-def core_radius_from_gap(tube_radius: float, n_tubes: int, gap: float) -> float:
+def core_radius_from_gap(tube_radius: float, *, n_tubes: int, gap: float) -> float:
     """Return the inscribed core radius for a tube gap.
 
     Parameters
@@ -209,7 +209,7 @@ def core_radius_from_gap(tube_radius: float, n_tubes: int, gap: float) -> float:
     return (tube_radius + gap / 2) / _tube_angle(n_tubes) - tube_radius
 
 
-def tube_radius_from_gap(core_radius: float, n_tubes: int, gap: float) -> float:
+def tube_radius_from_gap(core_radius: float, *, n_tubes: int, gap: float) -> float:
     """Return the outer tube radius for an inscribed core and gap.
 
     Parameters
@@ -336,12 +336,13 @@ class TubeLattice(Displayed):
         float
             Gap in m, negative for overlapping tubes.
         """
-        return tube_gap(core_radius, self.tube_radius, self.n_tubes)
+        return tube_gap(core_radius, tube_radius=self.tube_radius, n_tubes=self.n_tubes)
 
     @classmethod
     def from_inner_diameter_ratio(
         cls,
         core_radius: float,
+        *,
         wall_thickness: float,
         inner_diameter_ratio: float,
         n_tubes: int,
@@ -381,7 +382,7 @@ class TubeLattice(Displayed):
 
     @classmethod
     def from_gap(
-        cls, core_radius: float, gap: float, n_tubes: int, wall_thickness: float
+        cls, core_radius: float, *, gap: float, n_tubes: int, wall_thickness: float
     ) -> "TubeLattice":
         """Construct a lattice from a core radius and gap.
 
@@ -402,7 +403,9 @@ class TubeLattice(Displayed):
             Lattice with the implied outer radius and eight fit terms.
         """
         return cls(
-            wall_thickness, tube_radius_from_gap(core_radius, n_tubes, gap), n_tubes
+            wall_thickness,
+            tube_radius_from_gap(core_radius, n_tubes=n_tubes, gap=gap),
+            n_tubes,
         )
 
     def core_radius_for(self, gap: float) -> float:
@@ -418,7 +421,7 @@ class TubeLattice(Displayed):
         float
             Inscribed core radius in m.
         """
-        return core_radius_from_gap(self.tube_radius, self.n_tubes, gap)
+        return core_radius_from_gap(self.tube_radius, n_tubes=self.n_tubes, gap=gap)
 
 
 @dataclass(frozen=True)

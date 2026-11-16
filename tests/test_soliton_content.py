@@ -213,7 +213,9 @@ def test_default_refuses_a_pulse_without_a_discrete_soliton():
 
 
 def test_the_inner_diameter_ratio_uses_the_inner_resonator_diameter():
-    lattice = TubeLattice.from_inner_diameter_ratio(20e-6, 0.3e-6, 0.6, 6)
+    lattice = TubeLattice.from_inner_diameter_ratio(
+        20e-6, wall_thickness=0.3e-6, inner_diameter_ratio=0.6, n_tubes=6
+    )
     # Geometry is just a product and sum: rounding only.
     assert lattice.tube_radius == pytest.approx(12.3e-6, rel=1e-15)
     assert lattice.n_tubes == 6
@@ -233,7 +235,9 @@ def test_the_inner_diameter_ratio_uses_the_inner_resonator_diameter():
 )
 def test_invalid_diameter_geometry_is_rejected(radius, wall, ratio, count):
     with pytest.raises(ModeError):
-        TubeLattice.from_inner_diameter_ratio(radius, wall, ratio, count)
+        TubeLattice.from_inner_diameter_ratio(
+            radius, wall_thickness=wall, inner_diameter_ratio=ratio, n_tubes=count
+        )
 
 
 # A pressure search over full mode solves: tens of seconds, not under one. One shape
@@ -245,7 +249,9 @@ def test_pressure_search_inverts_constituent_phase_for_both_modes(vincetti):
     shape = "sech"
     radius, pressure = (20e-6 if vincetti else 125e-6), 2.0
     lattice = (
-        TubeLattice.from_inner_diameter_ratio(radius, 0.3e-6, 0.6, 6)
+        TubeLattice.from_inner_diameter_ratio(
+            radius, wall_thickness=0.3e-6, inner_diameter_ratio=0.6, n_tubes=6
+        )
         if vincetti
         else None
     )

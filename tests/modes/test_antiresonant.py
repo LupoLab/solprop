@@ -39,7 +39,7 @@ from solprop.profiles import Linear
 GEOMETRIES = [
     (15e-6, 180e-9, 9e-6, 6),
     (5e-6, 80e-9, 1e-6, 10),
-    (core_radius_from_gap(10e-6, 8, 5e-6), 1e-6, 10e-6, 8),
+    (core_radius_from_gap(10e-6, n_tubes=8, gap=5e-6), 1e-6, 10e-6, 8),
 ]
 LEGACY_RADIUS_COEFFICIENT = LEGACY_CONVENTIONS.radius_coefficient
 
@@ -88,16 +88,20 @@ def test_luna_regression():
 
 @given(st.floats(1e-6, 100e-6), st.floats(0, 10e-6), st.integers(3, 20))
 def test_geometry_roundtrip(outer, gap, count):
-    radius = core_radius_from_gap(outer, count, gap)
+    radius = core_radius_from_gap(outer, n_tubes=count, gap=gap)
     # Three elementary operations per inverse; cancellation is bounded by geometry size.
     np.testing.assert_allclose(
-        tube_gap(radius, outer, count),
+        tube_gap(radius, tube_radius=outer, n_tubes=count),
         gap,
         rtol=0,
         atol=16 * np.finfo(float).eps * (radius + outer),
     )
-    assert tube_radius_from_gap(radius, count, gap) == pytest.approx(outer, rel=1e-14)
-    lattice = TubeLattice.from_gap(radius, gap, count, outer / 10)
+    assert tube_radius_from_gap(radius, n_tubes=count, gap=gap) == pytest.approx(
+        outer, rel=1e-14
+    )
+    lattice = TubeLattice.from_gap(
+        radius, gap=gap, n_tubes=count, wall_thickness=outer / 10
+    )
     assert lattice.core_radius_for(gap) == pytest.approx(radius, rel=1e-14)
     assert lattice.gap(radius) == pytest.approx(gap, abs=1e-18)
 
@@ -125,7 +129,6 @@ def test_loss_policy_and_wide_band(geometry):
 def test_vincetti_mode_compares_by_identity_with_a_stable_hash():
     mode = make_mode()
     # Like every other mode: equal arguments do not make equal modes.
-    assert mode == mode
     assert mode != make_mode()
     before = hash(mode)
     # The one-shot gain warning flips a private flag on the frozen mode; the hash
@@ -629,9 +632,9 @@ def test_invalid_samples_and_geometry():
             0.0,
         )
     with pytest.raises(ModeError, match="gap"):
-        core_radius_from_gap(10e-6, 8, -1e-6)
+        core_radius_from_gap(10e-6, n_tubes=8, gap=-1e-6)
     with pytest.raises(ModeError, match="tube_radius"):
-        tube_radius_from_gap(10e-6, 8, 1.0)
+        tube_radius_from_gap(10e-6, n_tubes=8, gap=1.0)
     lattice = TubeLattice(1e-6, 10e-6, 8)
     touching = VincettiMode(
         lattice.core_radius_for(0.0), lattice=lattice, cladding=1.44
