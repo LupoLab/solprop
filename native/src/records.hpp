@@ -30,11 +30,14 @@
  * (`solprop_native/fields.hpp`) and writes the record back as a dictionary, and the
  * schema export of every table.
  *
- * Reading takes two passes over the input, both under the interpreter lock: the first
- * checks every field -- a missing or unknown field, a wrong type or dtype, an array
- * that is not C-contiguous or overlaps itself, a wrong rank, extents that disagree with
- * their relations, a size whose product overflows -- and allocates nothing; the second
- * copies each value into the record's own storage. Inputs are borrowed for the call:
+ * Reading takes one pass over the input, under the interpreter lock, into a new
+ * record: each field is checked -- a missing or unknown field, a wrong type or dtype,
+ * an array that is not C-contiguous or overlaps itself, a wrong rank, extents that
+ * disagree with their relations, a size whose product overflows -- before its value is
+ * copied, and a refusal discards the record, so nothing reaches native state from a
+ * malformed one. A dataclass type's field names are read once and held, and each field
+ * is looked up by an interned name, since a run's records cross at every start. Inputs
+ * are borrowed for the call:
  * read-only arrays are admitted, since nothing writes them. A refusal names the
  * field's path (`run.records.planes.planes`). Arrays written back own their storage
  * through a capsule.
@@ -69,7 +72,11 @@ public:
   [[nodiscard]] bool has(const char* name, std::size_t index) const;
   [[nodiscard]] nb::object get(const char* name, std::size_t index) const;
   /** The given names (empty for a tuple). */
-  [[nodiscard]] const std::vector<std::string>& names() const { return names_; }
+  [[nodiscard]] const std::vector<std::string>& names() const { return *names_; }
+  /** Whether the input is a dataclass instance, whose type's fields were read once. */
+  [[nodiscard]] bool dataclass() const { return dataclass_; }
+  /** The input's type. */
+  [[nodiscard]] PyTypeObject* type() const { return Py_TYPE(value_.ptr()); }
   [[nodiscard]] bool positional() const { return positional_; }
   [[nodiscard]] std::size_t size() const { return size_; }
 
@@ -78,7 +85,10 @@ private:
   bool positional_ = false;
   bool mapping_ = false;
   std::size_t size_ = 0;
-  std::vector<std::string> names_;
+  bool dataclass_ = false;
+  // A dataclass type's names, held for the process; a mapping's, owned here.
+  const std::vector<std::string>* names_ = &owned_;
+  std::vector<std::string> owned_;
 };
 
 /** A checked array: its data, shape and dtype, borrowed for the conversion. */
@@ -163,6 +173,12 @@ template <class R> std::vector<const char*> table_names() {
   });
   return out;
 }
+
+/** Whether a dataclass type was already found to name exactly the fields of the table
+    named `table`, a pointer that identifies it (one conversion checks each pair once).
+ */
+[[nodiscard]] bool checked(PyTypeObject* type, const char* table);
+void mark_checked(PyTypeObject* type, const char* table);
 
 /** Whether `source` names exactly `R`'s fields (every one, nothing else). */
 template <class R> bool matches(const Source& source) {
@@ -402,7 +418,7 @@ template <class R> void read_record(nb::handle value, R* out, const std::string&
       value_refusal(path, std::string("is a ") + table.name + " of " +
                               std::to_string(wanted.size()) + " fields, given " +
                               std::to_string(source.size()));
-  } else {
+  } else if (!source.dataclass() || !checked(source.type(), table.name)) {
     for (const auto& name : source.names()) {
       bool known = false;
       for (const char* entry : wanted)
@@ -411,6 +427,8 @@ template <class R> void read_record(nb::handle value, R* out, const std::string&
         value_refusal(path, std::string("has an unknown field '") + name + "' for a " +
                                 table.name);
     }
+    if (source.dataclass())
+      mark_checked(source.type(), table.name);
   }
   Symbols symbols;
   std::size_t index = 0;
@@ -489,9 +507,8 @@ template <class R> void read_record(nb::handle value, R* out, const std::string&
   });
 }
 
-/** Read `value` into a new `R`: check everything, then copy. */
+/** Read `value` into a new `R`, which a refusal discards. */
 template <class R> R read(nb::handle value, const std::string& path) {
-  read_value<R>(value, static_cast<R*>(nullptr), path);
   R out{};
   read_value<R>(value, &out, path);
   return out;

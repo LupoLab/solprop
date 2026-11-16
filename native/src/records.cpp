@@ -7,7 +7,10 @@
 #include <nanobind/stl/string.h>
 
 #include <limits>
+#include <map>
+#include <set>
 #include <stdexcept>
+#include <utility>
 
 namespace solprop_native::records {
 
@@ -30,12 +33,12 @@ std::string child(const std::string& path, const std::size_t index) {
 bool is_bool(const nb::handle value) {
   if (PyBool_Check(value.ptr()))
     return true;
-  // NumPy's bool scalar.
-  const auto type =
-      nb::borrow<nb::object>(reinterpret_cast<PyObject*>(Py_TYPE(value.ptr())));
-  return nb::hasattr(type, "__module__") &&
-         nb::cast<std::string>(nb::str(type.attr("__module__"))) == "numpy" &&
-         nb::cast<std::string>(nb::str(type.attr("__name__"))) == "bool";
+  // NumPy's bool scalar, its type looked up once (under the interpreter lock, which
+  // every conversion holds): asking each number's type for its module and name by
+  // string cost most of a run record's conversion.
+  static PyObject* const numpy_bool =
+      nb::object(nb::module_::import_("numpy").attr("bool_")).release().ptr();
+  return reinterpret_cast<PyObject*>(Py_TYPE(value.ptr())) == numpy_bool;
 }
 
 bool is_integer(const nb::handle value) { return PyIndex_Check(value.ptr()) != 0; }
@@ -56,13 +59,59 @@ bool is_mapping(const nb::handle value) {
           !is_sequence(value));
 }
 
+namespace {
+
+/** A dataclass type's field names, read once a type and held for the process (types are
+    long-lived; the cache holds a reference to each). Under the interpreter lock. */
+const std::vector<std::string>* dataclass_names(PyTypeObject* type) {
+  static std::map<PyTypeObject*, std::vector<std::string>> cache;
+  const auto found = cache.find(type);
+  if (found != cache.end())
+    return &found->second;
+  const auto handle = nb::handle(reinterpret_cast<PyObject*>(type));
+  std::vector<std::string> names;
+  for (const auto key :
+       nb::borrow<nb::dict>(handle.attr("__dataclass_fields__")).keys())
+    names.push_back(nb::cast<std::string>(key));
+  Py_INCREF(handle.ptr());
+  return &cache.emplace(type, std::move(names)).first->second;
+}
+
+/** A field name as an interned Python string, made once a name (the names are the
+    tables' literals, so their addresses identify them). */
+PyObject* interned(const char* name) {
+  static std::map<const char*, PyObject*> cache;
+  const auto found = cache.find(name);
+  if (found != cache.end())
+    return found->second;
+  PyObject* text = PyUnicode_InternFromString(name);
+  if (text == nullptr)
+    throw nb::python_error();
+  return cache.emplace(name, text).first->second;
+}
+
+std::set<std::pair<PyTypeObject*, const char*>>& checked_pairs() {
+  static std::set<std::pair<PyTypeObject*, const char*>> pairs;
+  return pairs;
+}
+
+} // namespace
+
+bool checked(PyTypeObject* type, const char* table) {
+  return checked_pairs().contains({type, table});
+}
+
+void mark_checked(PyTypeObject* type, const char* table) {
+  checked_pairs().insert({type, table});
+}
+
 Source::Source(const nb::handle value, const std::string& path) : value_(value) {
-  const auto type = nb::handle(reinterpret_cast<PyObject*>(Py_TYPE(value.ptr())));
-  if (nb::hasattr(type, "__dataclass_fields__") &&
-      !nb::isinstance<nb::type_object>(value)) {
-    for (const auto key :
-         nb::borrow<nb::dict>(type.attr("__dataclass_fields__")).keys())
-      names_.push_back(nb::cast<std::string>(key));
+  PyTypeObject* type = Py_TYPE(value.ptr());
+  if (PyType_HasFeature(type, Py_TPFLAGS_TYPE_SUBCLASS) == 0 &&
+      PyObject_HasAttrString(reinterpret_cast<PyObject*>(type),
+                             "__dataclass_fields__") != 0) {
+    dataclass_ = true;
+    names_ = dataclass_names(type);
     return;
   }
   if (is_mapping(value)) {
@@ -73,7 +122,7 @@ Source::Source(const nb::handle value, const std::string& path) : value_(value) 
     for (const auto key : nb::steal<nb::list>(keys)) {
       if (!nb::isinstance<nb::str>(key))
         type_refusal(path, "must have str keys");
-      names_.push_back(nb::cast<std::string>(key));
+      owned_.push_back(nb::cast<std::string>(key));
     }
     return;
   }
@@ -88,7 +137,7 @@ Source::Source(const nb::handle value, const std::string& path) : value_(value) 
 bool Source::has(const char* name, const std::size_t index) const {
   if (positional_)
     return index < size_;
-  for (const auto& entry : names_)
+  for (const auto& entry : *names_)
     if (entry == name)
       return true;
   return false;
@@ -99,7 +148,10 @@ nb::object Source::get(const char* name, const std::size_t index) const {
     return nb::borrow<nb::sequence>(value_)[index];
   if (mapping_)
     return value_[name];
-  return value_.attr(name);
+  PyObject* found = PyObject_GetAttr(value_.ptr(), interned(name));
+  if (found == nullptr)
+    throw nb::python_error();
+  return nb::steal(found);
 }
 
 namespace {
@@ -146,20 +198,23 @@ std::string shape_text(const std::vector<std::size_t>& shape) {
 Borrowed borrow(const nb::handle value, const fields::Dtype dtype,
                 const std::size_t rank, const std::string& path) {
   using Any = nb::ndarray<nb::ro, nb::device::cpu>;
-  const std::string wanted = fields::dtype_name(dtype);
-  const std::string axes = rank == 0 ? "" : " of rank " + std::to_string(rank);
+  // The refusals' wording, formed only when one is raised.
+  const auto wanted = [dtype] { return std::string(fields::dtype_name(dtype)); };
+  const auto axes = [rank] {
+    return rank == 0 ? std::string() : " of rank " + std::to_string(rank);
+  };
   Any array;
   if (!nb::try_cast(value, array, false))
-    type_refusal(path, "must be a C-contiguous " + wanted + " array" + axes);
+    type_refusal(path, "must be a C-contiguous " + wanted() + " array" + axes());
   if (array.dtype() != numpy_dtype(dtype))
-    type_refusal(path, "must be a C-contiguous " + wanted + " array" + axes +
+    type_refusal(path, "must be a C-contiguous " + wanted() + " array" + axes() +
                            ", not another dtype");
   Borrowed out;
   out.shape.resize(array.ndim());
   for (std::size_t axis = 0; axis < array.ndim(); ++axis)
     out.shape[axis] = array.shape(axis);
   if (rank != 0 && array.ndim() != rank)
-    value_refusal(path, "must be a C-contiguous " + wanted + " array" + axes +
+    value_refusal(path, "must be a C-contiguous " + wanted() + " array" + axes() +
                             ", given shape " + shape_text(out.shape));
   // C order, element strides: an axis of one may take any stride; a stride of zero
   // elsewhere is an overlapping (broadcast) view.
@@ -171,7 +226,7 @@ Borrowed borrow(const nb::handle value, const fields::Dtype dtype,
   for (std::size_t axis = array.ndim(); axis-- > 0;) {
     const std::size_t size = out.shape[axis];
     if (!empty && size != 1 && array.stride(axis) != static_cast<std::int64_t>(count))
-      value_refusal(path, "must be a C-contiguous " + wanted + " array" + axes +
+      value_refusal(path, "must be a C-contiguous " + wanted() + " array" + axes() +
                               ", not a strided or overlapping view");
     if (size != 0 && count > std::numeric_limits<std::size_t>::max() / size)
       value_refusal(path, "has a size whose product overflows");

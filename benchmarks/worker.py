@@ -22,6 +22,7 @@ import dataclasses
 import importlib
 import importlib.metadata
 import logging
+import os
 import shutil
 import sys
 import tempfile
@@ -45,6 +46,7 @@ from benchmarks.records import (
 __all__ = [
     "HOST_SPACES",
     "SNAPSHOT_CAPACITY",
+    "WINDOW_SETTING",
     "Diagnostics",
     "count",
     "emit",
@@ -242,6 +244,12 @@ class _Loaded:
             raise SuiteError(msg)
 
 
+WINDOW_SETTING = "SOLPROP_BENCHMARK_WINDOW"
+"""``run`` times a run from before its load (``ab --baseline-env`` and
+``--candidate-env``); unset, the window starts once the backend's load returns, as the
+recorded history's does."""
+
+
 def timed_run(
     simulation: Simulation,
     problem: PropagationProblem,
@@ -311,6 +319,11 @@ def timed_run(
                 problem, engine, handler, start=Start.entrance(problem), **observed
             )
         before, loaded_at = loaded.calls, loaded.ended
+        if os.environ.get(WINDOW_SETTING) == "run":
+            # The whole run, its load included: two builds that load the state at
+            # different points (before the session, or in its start) then time the
+            # same work. The history's window stays the default.
+            loaded_at = began
     ended = time.perf_counter_ns()
     seconds = (ended - loaded_at) * 1e-9
     after = source_calls(engine)
