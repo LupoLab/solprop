@@ -117,17 +117,11 @@ def _check_initial_position(
     """Validate an absolute launch before translation can normalize its field.
 
     - ``simulation``: declared optical input, grid and absolute launch position in m.
+
+    The position itself, finite, nonnegative and before the end, with every plane
+    after it, is already checked where the settings were adopted (SEP 51).
     """
     z = simulation.initial_z
-    if (
-        not np.isfinite(z)
-        or z < 0
-        or z >= simulation.grid.length
-        or np.any(np.asarray(settings.save_planes) <= z)
-    ):
-        raise DriverError(
-            "initial_z must be finite, nonnegative and before every save plane"
-        )
     if z == 0:
         return
     if (
