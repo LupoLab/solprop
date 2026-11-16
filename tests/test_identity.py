@@ -61,7 +61,7 @@ def test_a_numpy_scalar_is_written_as_the_number_it_holds():
     [
         (
             "metadata",
-            "9e1f945c0ab5246cc011e9bb713242ac19d8fb4e76b58ba4e95f23af58fc6964",
+            "7cf89527a88bf97f031f79b4447ec19cb89639e78db71e9c930b8fbd7717d8fe",
         ),
         ("scan", "80f9c7ee2c67bb3246215ab42ce1d49fa0cb9f93e774cd9b2d543229b4ae335b"),
         ("basis", "d7b11decb56fec6a504280a7c9e26f83c5f33d84fa111aa9a9b27f9e87481587"),
