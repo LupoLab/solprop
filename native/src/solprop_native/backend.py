@@ -198,57 +198,6 @@ The native ``adams_max_channels``. Either build steps any width (solprop SEP 47 
 and a device build's passes take a thread per (bin, channel) and hold none.
 """
 
-_SPATIAL_STAT_FLAGS = {
-    "energy": 1,
-    "on_axis_intensity": 2,
-    "peak_intensity": 4,
-    "on_axis_spectrum": 8,
-    "beam_radius": 16,
-    "fwhm_r": 16,
-}
-
-_FAR_FIELD_FLAGS = {
-    "beam_spectrum": 1 << 5,
-    "absorbed_power": 1 << 7,
-    "region_spectrum": 1 << 8,
-    "aperture_spectrum": 1 << 9,
-    "aperture_on_axis_spectrum": 1 << 10,
-    "on_axis_spectrum": 1 << 11,
-}
-"""The native far-field pass's flags (solprop SEP 23 section 6), from 32.
-
-``on_axis_spectrum`` is the pass's ``W = 1`` slot on a Cartesian or line grid; on the
-other spatial kinds it stays ``spatial_statistics``' flag 8.
-"""
-
-_FAR_FIELD_ORDER = (
-    "beam_spectrum",
-    "absorbed_power",
-    "region_spectrum",
-    "aperture_spectrum",
-    "aperture_on_axis_spectrum",
-    "on_axis_spectrum",
-)
-"""The order in which the native pass packs its statistics."""
-
-_STAT_FLAGS = {
-    "omega0": 1 << 0,
-    "energy": 1 << 1,
-    "energy_window": 1 << 2,
-    "peak_power": 1 << 3,
-    "peak_power_window": 1 << 4,
-    "peak_power_total": 1 << 5,
-    "fwhm_t": 1 << 6,
-    "fwhm_t_outer": 1 << 6,
-    "electron_density": 1 << 7,
-    "peak_ionisation_rate": 1 << 8,
-    "peak_intensity": 1 << 9,
-    "quadrature_error": 1 << 10,
-}
-
-_STATISTICS_PLANS = 16
-"""The most native statistics plans a backend keeps, one per spec and names."""
-
 
 class NativeBackend:
     """Propagate modal, radial or Cartesian fields with persistent Kokkos state.

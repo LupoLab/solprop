@@ -69,8 +69,8 @@ rk::Policy to_native(const RungeKuttaPolicyRecord& record) {
   policy.max_factor = controller.max_factor;
   policy.lag = static_cast<std::size_t>(controller.lag);
   policy.reject_free = controller.reject_free;
-  // `_records.rk_policy`: the equivalent norm's power and its reciprocal, as solprop
-  // forms them from the estimator's order.
+  // The equivalent norm's power and its reciprocal, as solprop's controller forms them
+  // from the estimator's order (`solprop.stepper.controller`).
   const auto power = static_cast<double>(controller.estimator_order + 1);
   policy.power = power;
   policy.exponent = 1.0 / power;
@@ -146,7 +146,8 @@ watch::Resumption to_native(const ResumptionRecord& record) {
 transverse::Resumption to_native(const EdgeResumptionRecord& record) {
   transverse::Resumption out;
   out.record = record.record;
-  // `_records.edge_resumption`: a record that is none carries nothing else.
+  // As `solprop.backends.records.edge_resumption` reads it: a record that is none
+  // carries nothing else.
   if (!record.record)
     return out;
   const std::array<std::pair<const char*, std::optional<double>*>, 15> known{{

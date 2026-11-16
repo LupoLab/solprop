@@ -49,7 +49,8 @@ following and refuses every other feature by name before allocating anything
   and a stop a terminal failure, the edge's readings and a collar's current are taken
   from the resident state with no return to Python, and a monitored resume continues
   both records natively from solprop's run records
-  (:mod:`solprop.backends.records`, converted by :mod:`solprop_native._records`);
+  (:mod:`solprop.backends.records`, read by the extension's record converter,
+  ``native/src/records.hpp``);
 - dense output (``interpolate_planes``), for Adams and the embedded Runge-Kutta
   tableau alike: a plane the march steps across is interpolated natively inside the
   step that crossed it, the committed state held aside, and observed in order before

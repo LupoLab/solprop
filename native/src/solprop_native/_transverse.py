@@ -9,11 +9,11 @@ native session owns a free-space run's transverse edge (SEP 40 section 5.3) with
 decision and record (``transverse::Edge``,
 ``native/include/solprop_native/transverse.hpp``). The edge's configuration and a
 resume's continuation are solprop's run records (:mod:`solprop.backends.records`, SEP
-52), which :mod:`solprop_native._records` converts. This module only translates the
-rest: it forms the input noise's readings a launch carries, formats the native record
-as :meth:`~solprop.transverse_monitor.TransverseEdge.summary` lays it out, and formats
-a native verdict as the edge's warning or exception with the edge's own texts. It
-decides nothing.
+52), which the extension's record converter (``native/src/records.hpp``) reads. This
+module only translates the rest: it forms the input noise's readings a launch carries,
+formats the native record as :meth:`~solprop.transverse_monitor.TransverseEdge.summary`
+lays it out, and formats a native verdict as the edge's warning or exception with the
+edge's own texts. It decides nothing.
 """
 
 from __future__ import annotations
