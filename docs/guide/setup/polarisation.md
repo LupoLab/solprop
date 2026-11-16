@@ -9,8 +9,8 @@ the plasma and Raman responses act on the synthesised Cartesian field, and the
 non-degenerate partners of a rectangular guide.
 
 **Where the polarisation is declared.** The keyword drivers propagate one transverse
-component per mode row, and `polarisation=` on `prop_capillary` and `prop_waveguide` is
-refused by name. Polarisation enters through the **mode set** instead: pass `modes=` a set
+component per mode row and take no polarisation keyword. Polarisation enters through the
+**mode set** instead: pass `modes=` a set
 that holds both partners, or TE, TM and higher-order HE modes.
 {py:meth}`~solprop.modes.collection.ModeCollection.with_polarisations` adds the
 orthogonal partner of every degenerate mode, `mode.rotated(np.pi / 2)` gives one by
@@ -18,8 +18,8 @@ hand, and {py:meth}`~solprop.modes.collection.ModeCollection.marcatili` builds a
 HE, TE and TM capillary modes. The keyword pulse then excites the first row only; an
 input spread over several rows, such as the elliptical launch below, is given as an
 explicit initial field to a `Simulation` or to `solprop.translate.assembly.assemble`. A
-polarisation-resolved capillary run through the drivers is not validated end to end
-(the refusal of `polarisation=` says so). The free-space routes take a Jones vector on
+polarisation-resolved capillary run through the keyword drivers is not validated end to
+end. The free-space routes take a Jones vector on
 {py:class}`~solprop.pulses.SpatialPulse` (`jones=`), and a
 [general modal guide](../waveguides/general-modal.md) can declare circular and split channel bases.
 
