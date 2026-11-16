@@ -978,11 +978,11 @@ if(BUILD_TESTING)
     tests/native/test_fft.cpp
     tests/native/test_fp.cpp
     tests/native/test_general_modal.cpp
-    tests/native/test_helpers.cpp
+    tests/native/test_chebyshev.cpp
     tests/native/test_z_table.cpp
     tests/native/test_coupled_flow.cpp
     tests/native/test_dispersive.cpp
-    tests/native/test_aperture.cpp
+    tests/native/test_far_field.cpp
     tests/native/test_vmath.cpp
     tests/native/test_workspace.cpp
   )
