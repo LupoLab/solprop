@@ -4,66 +4,33 @@
 
 """The boundary monitor: guard and collar occupancy, and the energy the collar removes.
 
-SEP 21 decisions D5 and D7. At the launch and at every committed step the monitor
-reads the field's time-domain energy density, ``P(t)``, summed over modes,
-polarisations and transverse columns (with their quadrature weights), and forms:
+SEP 21 decisions D5 and D7. At the launch and at every checked step,
+:class:`BoundaryMonitor` reads the field's time-domain energy density ``P(t)`` (summed
+over modes, polarisations and weighted transverse columns) and forms each edge's
+**guard occupancy** (the share in the outer :attr:`BoundaryCheck.guard_fraction` of
+the window), the **collar occupancy** (weighted by ``1 - W``) and the collar's
+**removal**, integrated along z into the removed fraction of the launch energy. Under
+the ``"split_step"`` scheme the removal is summed exactly per step and the occupancies
+are judged halfway through the split's factor (:attr:`BoundaryEnergies.found`), the
+Strang state.
 
-- the **guard occupancy** of each edge, the share of ``P`` within the outer
-  :attr:`BoundaryCheck.guard_fraction` of the realised window: what has reached the
-  window's edge and is about to wrap or be absorbed;
-- the **collar occupancy**, the share of ``P`` weighted by ``1 - W`` of the temporal
-  collar;
-- the **removal rate** ``int alpha(t) P(t) dt`` of the temporal collar, integrated
-  along z by the trapezoid over committed steps into the removed fraction of the
-  launch energy. Under the ``"split_step"`` scheme the backend adds up what each
-  accepted step's split takes instead, ``sum_t P(t) (1 - exp(-alpha(t) h))`` of the
-  power ``P`` it finds, which is exact on unchecked steps too
-  (:attr:`BoundaryEnergies.removed`).
+- :class:`BoundaryCheck` holds the policy (:data:`DEFAULT_BOUNDARY_CHECK`): a guard
+  occupancy whose square root exceeds ``budget`` warns, ``stop_factor`` times it stops
+  the run or refuses it at the launch, and the removed fraction is reported at the end.
+  The opt-in quiet collar leaves the in-stage term out below :data:`QUIET` for
+  :data:`QUIET_CHECKS` checks; :data:`CADENCE`, :data:`CHECKS` and :data:`ACTIVE` set
+  the check cadence.
+- :class:`BoundaryEnergies` is the five numbers a check needs, which each backend forms
+  where its state lives (``HostSession._energies``); :meth:`BoundaryMonitor.energies`
+  and :meth:`BoundaryMonitor.split_sums` are the host reductions every backend is held
+  to.
+- Light below an input-noise launch's shot-noise floor is not judged: each region's
+  energy has :data:`FLOOR_MARGIN` times the floor's expected share subtracted, with
+  the raw values recorded beside.
 
-Under the ``"split_step"`` scheme the occupancies are judged on the power the last
-accepted step's split found, taken halfway through its factor
-(:attr:`BoundaryEnergies.found`). The state the split leaves has its deep collar
-multiplied by ``exp(-alpha h)``, about ``exp(-10)`` at an adaptive step, so it shows no
-light at the window's edge however much arrived there; the state before it holds what
-walked into the guard during the step unabsorbed. Each verdict would depend on the
-step. Half the factor, ``exp(-alpha h / 2)`` on the power, is the symmetric (Strang)
-splitting's state at the step's end, second order in the step where the one-sided
-split is first: the guards then read as the in-stage scheme's do. Every share of one
-verdict, the guards', the collar's and the no-light test, is of that one state.
-
-``P`` is the energy-density proxy of SEP 21 section 4.6: exact for modal true-power
-amplitudes, and on spatial routes the quadrature-weighted field norm rather than the
-admittance-weighted flux. The quantities are relative, so the proxy's scale cancels.
-
-**Where the reduction runs.** A check needs five numbers of the state, its energy and
-its four weighted energies (:class:`BoundaryEnergies`), and the backend forms them
-where its state lives (``HostSession._energies``): only the five cross to the
-host. :meth:`BoundaryMonitor.energies` and :meth:`BoundaryMonitor.split_sums` are
-the host reductions, the reference every backend is held to.
-
-**The shot-noise floor (Q24).** An input-noise launch carries one photon per mode
-across the whole window, guards and collar included. Light below that floor cannot be
-told from the vacuum, so the monitor judges what lies above it: from each region's
-energy it subtracts :data:`FLOOR_MARGIN` times the floor's expected share before
-taking that energy's share of the whole field (the floor is stationary, so its expected
-density is uniform in time; the removal rate subtracts the expectation alone). Without
-noise nothing is subtracted; with a weak launch the field is mostly floor and what lies
-above it is a small share. The raw values, of the whole field, are recorded beside the
-judged ones.
-
-Policy (D7, one rule from the launch on): the square root of a guard occupancy above
-:attr:`BoundaryCheck.budget` warns, and above ``stop_factor`` times it stops the run, or
-refuses it at the launch before a step is spent. At the end of a run the removed
-fraction is reported, and warns when its square root exceeds the budget (D5).
-
-**The quiet collar is opt-in** (:attr:`BoundaryCheck.quiet_collar`, SEP 21 D15 as
-amended by ADR-057). When asked for, a collar that held less than :data:`QUIET` of the
-field's energy, the shot-noise floor included, at :data:`QUIET_CHECKS` consecutive
-checks may be left out of the in-stage stages until light returns. It is judged on the
-whole field because light below the floor is still light the collar would have
-absorbed: judged above the floor, the threshold became a few times the floor itself
-and dropped a term that moved the field by up to a percent. By default the collar
-stays in every stage.
+The transverse edge of a free-space run is :mod:`solprop.transverse_monitor`. The
+policy, the cadence, the floor, the split scheme's readings and the record are in
+``docs/guide/numerics/boundaries.md``, section "Watching the window's edges".
 """
 
 from __future__ import annotations

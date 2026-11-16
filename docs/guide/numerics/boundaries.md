@@ -725,7 +725,12 @@ the late edge.
 Every run watches its time window ({py:class}`solprop.monitor.BoundaryCheck`, on by default
 through `SimulationSettings.boundary_check`). At the launch and at every committed step it
 measures the share of the field's energy in the outer 5 % of the realised window at each
-edge, the guards, and in the collar:
+edge, the guards, and in the collar. The energy is the time-domain density summed over
+modes, polarisations and transverse columns with their quadrature weights, the proxy of
+[SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md) section 4.6: exact for
+modal true-power amplitudes, and on the spatial routes the quadrature-weighted field norm
+rather than the admittance-weighted flux. Every reading is a share, so the proxy's scale
+cancels.
 
 - from the launch on, a guard occupancy whose square root exceeds the field-error budget
   (`1e-3` by default, a millionth of the energy) warns once
@@ -751,7 +756,10 @@ at every step; the record, the warning and a stop are the same, at the same step
 **The quiet collar, on request.** `BoundaryCheck(quiet_collar=True)` also leaves the
 in-stage temporal collar's term, whose transform is a stage's largest cost after the
 response's, out of the stages while the collar is quiet: while it held less than `1e-12`
-of the field's energy, the shot-noise floor included, at two checks in a row. A check
+of the field's energy, the shot-noise floor included, at two checks in a row. It is
+judged on the whole field because light below the floor is still light the collar would
+have absorbed: judged above the floor, the threshold became a few times the floor itself
+and dropped a term that moved the field by up to a percent. A check
 that finds light in it puts the term back at once. While the term is out no step is
 longer than `length / 256`, so light cannot cross into the collar unabsorbed within one
 long step, and the exponential Adams march no longer limits its order by the collar's
