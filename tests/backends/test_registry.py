@@ -143,6 +143,7 @@ def test_select_builds_the_reference_backend(linear_problem, narrow_grid, caplog
     assert isinstance(backend, NumpyRefBackend)
     assert isinstance(backend, Backend)
     assert backend.name == "numpy_ref"
+    assert backend.available_device_memory() is None
     backend.close()
     assert caplog.messages == ["Using numpy_ref backend"]
 
