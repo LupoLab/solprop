@@ -770,10 +770,11 @@ def test_a_wall_declared_on_another_route_is_refused_by_name():
     spatial.wall = CoherentWall()
     with pytest.raises(TranslationError, match="a spatial geometry"):
         spatial.translate()
-    grid = general_grid()
+    # Refused before any step: the grid is the tenth it would run (SEP 51).
+    grid = general_grid(GENERAL_Z_END / 10)
     general = Simulation.from_waveguide(
         (),
-        GENERAL_Z_END,
+        GENERAL_Z_END / 10,
         provider=general_guide(grid=grid),
         grid=grid,
         wavelength=835e-9,

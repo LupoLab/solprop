@@ -15,6 +15,7 @@ from typing import TypedDict
 import numpy as np
 import pytest
 
+from builders import grid_at
 from legacy_geometry import LEGACY_GRID
 from solprop.backends.registry import select
 from solprop.driver import (
@@ -95,6 +96,8 @@ def test_public_interfaces_share_the_default_and_preserve_explicit_choices(
         return output
 
     monkeypatch.setattr(Simulation, "run", run)
+    # Nothing runs: the grid is the millimetre the calls ask for (SEP 51).
+    narrow_grid = grid_at(narrow_grid, 0.001)
     keywords: _BackendChoice = {"backend": "numpy_ref"} if explicit else {}
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)

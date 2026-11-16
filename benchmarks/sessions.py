@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from benchmarks.builders import SOLITON_PEAK, SOLITON_WIDTH, soliton
+from benchmarks.builders import SOLITON_PEAK, SOLITON_WIDTH, soliton, window
 from benchmarks.records import Record, SuiteError
 from benchmarks.registry import CASES
 from solprop.driver import Simulation
@@ -100,13 +100,16 @@ def fibre(
         extra["integrator"] = Multistep() if name.endswith("adams") else RungeKutta()
     if case.snapshots is not None:
         extra["step_planes"] = 1
+    replay: dict[str, Any] = {}
     if case.step is not None:
-        extra["schedule"] = FixedSchedule.uniform(
+        replay["schedule"] = FixedSchedule.uniform(
             0.0, stop, case.step, save_planes=itinerary
         )
         # The in-stage collar is stable only up to 0.42 mm steps on this window.
         extra["absorber_scheme"] = "split_step"
-    return soliton(case.length, options, save_planes=itinerary, **extra)
+    # The case over its length, then run to `stop` on its grid cut there (SEP 51).
+    whole = soliton(case.length, options, **extra)
+    return window(whole, stop, save_planes=itinerary, **replay)
 
 
 class _Steps(NullReporter):

@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 from optmat.gas.models.registry import default_model
 
+from builders import grid_at, held_collar
 from former_raman import FORMER_SILICA_TENSOR
 from modal_provider_cases import (
     GENERAL_CHI3,
@@ -697,12 +698,18 @@ def test_a_derived_run_keeps_its_own_log_from_its_parents():
 
 
 def general(guide, grid, materials: MaterialSelection | None = SELECTION) -> Any:
-    """A general modal run of `guide`, a tenth of a millimetre in two steps."""
+    """A general modal run of `guide`, a tenth of a millimetre in two steps.
+
+    A run ends at its grid's length (SEP 51): the grid is cut at that tenth, with the
+    collar the full grid gave.
+    """
+    short = grid_at(grid, GENERAL_Z_END / 10)
     return Simulation.from_waveguide(
         (),
-        GENERAL_Z_END,
+        GENERAL_Z_END / 10,
         provider=guide,
-        grid=grid,
+        grid=short,
+        absorber=held_collar(short, grid.length),
         wavelength=835e-9,
         fwhm=20e-15,
         energy=1e-12,
