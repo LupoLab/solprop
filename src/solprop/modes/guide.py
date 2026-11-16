@@ -18,7 +18,7 @@ from solprop._process import host_blas
 from solprop.constants import C
 from solprop.exceptions import ModeError
 from solprop.grid import TimeGrid
-from solprop.modes._stepindex_vector import _fields, _power
+from solprop.modes.stepindex_vector import _fields, _power
 from solprop.modes.collection import ModeCollection
 from solprop.modes.material import (
     JsonValue,

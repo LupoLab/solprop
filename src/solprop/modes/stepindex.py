@@ -1527,7 +1527,7 @@ class StepIndexMode(Displayed):
         Maxwell curl equations use exp(i omega t - i beta z). The radial
         roots, family counting and analytic dispersion derivative are unchanged.
         """
-        from solprop.modes import _stepindex_vector  # noqa: PLC0415 - type cycle
+        from solprop.modes import stepindex_vector  # noqa: PLC0415 - type cycle
 
         omega, z = float(omega), float(z)
         # A public boundary owes its caller a ModeError, not the AttributeError a
@@ -1538,8 +1538,8 @@ class StepIndexMode(Displayed):
                 f"xy must be Cartesian (x, y) pairs of shape (n_points, 2), got "
                 f"{points.shape}"
             )
-        electric, magnetic = _stepindex_vector._fields(self, points, omega, z)
-        power, error = _stepindex_vector._power(self, omega, z)
+        electric, magnetic = stepindex_vector._fields(self, points, omega, z)
+        power, error = stepindex_vector._power(self, omega, z)
         if power <= error:
             raise ModeError("full-domain power norm is non-positive or unresolved")
         return electric / np.sqrt(power), magnetic / np.sqrt(power)

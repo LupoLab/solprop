@@ -12,7 +12,7 @@ import pytest
 from numpy.testing import assert_allclose
 from witness_materials import absorbing_silica, malitson_silica
 
-import solprop.modes._stepindex_vector as vector_module
+import solprop.modes.stepindex_vector as vector_module
 import solprop.modes.guide as guide_module
 from modal_provider_cases import OMEGA, make_provider
 from solprop.constants import EPS0, C

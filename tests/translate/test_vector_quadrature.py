@@ -10,7 +10,7 @@ from numpy.testing import assert_allclose
 
 from modal_provider_cases import OMEGA, make_provider
 from solprop.exceptions import ModeError
-from solprop.modes._stepindex_vector import _power
+from solprop.modes.stepindex_vector import _power
 from solprop.modes.guide import radial_node_rule
 
 

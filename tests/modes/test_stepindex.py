@@ -25,7 +25,7 @@ from witness_materials import malitson_silica
 from solprop.constants import C
 from solprop.exceptions import ModeError
 from solprop.modes import StepIndexMode, stepindex
-from solprop.modes._stepindex_vector import _radial
+from solprop.modes.stepindex_vector import _radial
 from solprop.modes.base import beta2, zdw
 from solprop.modes.stepindex import (
     _MAX_V,
