@@ -883,7 +883,7 @@ class PlaneStore(Displayed, ABC):
         try:
             z = np.asarray(self["z"], dtype=float)
         except OutputError:
-            return "positions unavailable while the store is closed"
+            return "positions unavailable"
         return f"{engineering(float(z[0]), 'm')} to {engineering(float(z[-1]), 'm')}"
 
     def __repr__(self) -> str:

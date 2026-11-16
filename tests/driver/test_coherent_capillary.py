@@ -715,9 +715,9 @@ def test_a_varying_section_takes_the_frozen_residual_route():
 def test_a_vector_state_or_a_noise_draw_refuses_a_wall_beside_it():
     """A wall block is scalar and refuses a polarisation axis and a noise draw.
 
-    The capillary route refuses a `polarisation=` keyword long before translation,
-    so these two doors are exercised on the check itself. The routes that *can* be
-    reached with a wall beside them are the test below.
+    The capillary route takes no `polarisation=` keyword, so these two doors are
+    exercised on the check itself. The routes that *can* be reached with a wall beside
+    them are the test below.
     """
     build = _Assembly(
         quadrature=None,
@@ -1852,8 +1852,6 @@ def test_a_varying_wall_refuses_every_declaration_it_would_otherwise_override():
         ).translate()
     with pytest.raises(TranslationError, match="refuses the 'modified' noise"):
         varying(wall=CoherentWall(), noise="modified", seed=1).translate()
-    with pytest.raises(DriverError, match="polarisation"):
-        varying(wall=CoherentWall(), polarisation="linear").translate()
 
 
 def test_a_frozen_residual_flow_is_refused_beside_a_carrier_it_cannot_share(

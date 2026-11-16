@@ -773,7 +773,8 @@ def test_an_hdf5_output_says_what_state_its_file_is_in(tmp_path):
     assert str(path)[-40:] in str(handler)
     handler.close()
     assert "closed, read-only" in repr(handler)
-    assert "positions unavailable" in str(handler)
+    # A closed handler still reads its file, one read at a time.
+    assert "0 m to 100 mm" in str(handler)
     state = resume(path)
     assert repr(state).startswith("ResumeState(5 planes saved")
     assert "last plane" in str(state)
