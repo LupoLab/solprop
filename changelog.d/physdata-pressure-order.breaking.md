@@ -7,4 +7,6 @@ to `pressure` (write `ReferenceState(pressure=1.0, temperature=273.15)`).
 `sound_speed(gas, pressure=None, temperature=293.15)`: replace
 `sound_speed(gas, T)` with `sound_speed(gas, temperature=T)` and
 `sound_speed(gas, T, p)` with `sound_speed(gas, p, T)`. `viscosity`,
-`heat_capacity_ratio` and `mean_free_path` now default the temperature to 293.15 K.
+`heat_capacity_ratio` and `mean_free_path` now default the temperature to 293.15 K. A gas law's
+recorded reference state names `pressure`, so a run's configuration hash differs from
+one written before.
