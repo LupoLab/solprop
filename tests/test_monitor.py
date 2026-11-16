@@ -134,6 +134,17 @@ def test_the_check_refuses_bad_thresholds() -> None:
     for edge in (0.0, math.inf):
         with pytest.raises(BoundaryError, match="transverse_budget"):
             BoundaryCheck(transverse_budget=edge)
+    for spacing in (0.0, -1.0, math.nan, math.inf):
+        with pytest.raises(BoundaryError, match="interval"):
+            BoundaryCheck(interval=spacing)
+
+
+def test_the_check_spacing_follows_the_length_unless_pinned() -> None:
+    grid = EnvelopeGrid.from_limits(0.5, 800e-9, (600e-9, 1.2e-6), 1e-12)
+    default = BoundaryMonitor.build(grid, None, BoundaryCheck())
+    assert default.interval == 0.5 / CHECKS
+    pinned = BoundaryMonitor.build(grid, None, BoundaryCheck(interval=0.1))
+    assert pinned.interval == 0.1
 
 
 def test_a_pulse_that_stays_clear_leaves_the_guards_empty() -> None:
@@ -531,7 +542,7 @@ def test_a_run_stopped_at_the_edge_resumes_without_a_launch_check(
     assert executions == 2
     assert len(record["resumed_at"]) == 1
     assert record["guard_high_max"] >= stopped["guard_high_max"]
-    check = dataclasses.asdict(BoundaryCheck())
+    check = BoundaryCheck().thresholds()
     assert {name: record[name] for name in check} == check
 
 

@@ -16,7 +16,6 @@ as solprop's warning or exception. It decides nothing.
 
 from __future__ import annotations
 
-import dataclasses
 import math
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, cast
@@ -74,7 +73,7 @@ def record_of(check: BoundaryCheck, native: Mapping[str, object]) -> dict[str, o
         number = float(cast("float", value))
         return number if math.isfinite(number) else None
 
-    record: dict[str, object] = dict(dataclasses.asdict(check))
+    record: dict[str, object] = check.thresholds()
     for name in (
         "launch_energy",
         "resumed_at",

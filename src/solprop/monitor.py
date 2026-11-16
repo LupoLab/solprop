@@ -116,7 +116,8 @@ every saved plane, are checked regardless."""
 
 CHECKS = 256
 """The fewest checks over the guide's length: a quiet window is checked at least every
-``length / CHECKS`` (or at every committed step, when the steps are longer), so light
+``length / CHECKS`` (or at every committed step, when the steps are longer), unless
+:attr:`BoundaryCheck.interval` sets that distance, so light
 must walk about twenty windows over the run to cross the collar and guards between two
 checks. While an opted-in quiet collar is left out of the stages no step is longer than
 that interval, so the premise holds where an unabsorbed crossing would matter."""
@@ -251,6 +252,11 @@ class BoundaryCheck:
         The budget of a free-space run's transverse edge (SEP 40 section 5.3), a field
         amplitude like `budget`; ``None``, the default, takes `budget`, so relaxing the
         transverse edge does not relax time.
+    interval : float or None
+        The longest distance, m, a quiet window goes unchecked; ``None``, the default,
+        takes the grid's length over :data:`CHECKS`. Setting it keeps a run's checks
+        where they were when its length changes. While an opted-in quiet collar is out
+        of the stages, no step is longer than this.
 
     Examples
     --------
@@ -265,6 +271,7 @@ class BoundaryCheck:
     stop_factor: float = 10.0
     quiet_collar: bool = False
     transverse_budget: float | None = None
+    interval: float | None = None
 
     def __post_init__(self) -> None:
         """Validate the thresholds.
@@ -293,6 +300,33 @@ class BoundaryCheck:
                 f"{self.transverse_budget!r}"
             )
             raise BoundaryError(msg)
+        if self.interval is not None and not (
+            math.isfinite(self.interval) and self.interval > 0.0
+        ):
+            msg = f"interval must be finite and positive, got {self.interval!r}"
+            raise BoundaryError(msg)
+
+    def thresholds(self) -> dict[str, object]:
+        """Return the fields a monitor's record carries: every one but `interval`.
+
+        The interval is a spacing, not a threshold, so a record (Python's and a
+        native session's alike) keeps the same keys whether or not it is set.
+
+        Returns
+        -------
+        dict
+            ``guard_fraction``, ``budget``, ``stop_factor``, ``quiet_collar`` and
+            ``transverse_budget``.
+
+        Examples
+        --------
+        >>> from solprop.monitor import BoundaryCheck
+        >>> sorted(BoundaryCheck(interval=0.1).thresholds())
+        ['budget', 'guard_fraction', 'quiet_collar', 'stop_factor', 'transverse_budget']
+        """
+        values = dataclasses.asdict(self)
+        del values["interval"]
+        return values
 
     @property
     def edge_budget(self) -> float:  # numpydoc ignore=RT01
@@ -372,7 +406,8 @@ class BoundaryMonitor:
     columns : numpy.ndarray or None
         Quadrature weights of the transverse columns, or ``None`` for modal routes.
     interval : float
-        The longest distance, m, a quiet window goes unchecked (:data:`CHECKS`).
+        The longest distance, m, a quiet window goes unchecked (:data:`CHECKS`, or
+        :attr:`BoundaryCheck.interval`).
     transverse : solprop.transverse_monitor.TransverseEdge or None
         A free-space run's transverse edge (SEP 40 section 5.3), read on its own
         spacing; its record joins this monitor's under ``transverse``.
@@ -507,7 +542,8 @@ class BoundaryMonitor:
         )
         weights = np.stack([low, high, collar, rate])
         weights.setflags(write=False)
-        return cls(check, weights, grid.kind, columns, split, grid.length / CHECKS)
+        interval = grid.length / CHECKS if check.interval is None else check.interval
+        return cls(check, weights, grid.kind, columns, split, interval)
 
     def power(
         self, field_spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"]
@@ -1231,8 +1267,10 @@ class BoundaryMonitor:
         -------
         dict
             The thresholds of this execution (``guard_fraction``, ``budget``,
-            ``stop_factor``, ``quiet_collar``); the launch's energy in the monitor's
-            own units, the denominator of every fraction
+            ``stop_factor``, ``quiet_collar``, ``transverse_budget``; the check's
+            ``interval`` is a spacing, not a threshold, and is left out); the
+            launch's energy in the monitor's own units, the denominator of every
+            fraction
             (``launch_energy``), and where the run was resumed (``resumed_at``,
             empty for an uninterrupted one). Launch occupancies, the largest guard
             and collar occupancies and where the guards peaked, the removed fraction
@@ -1265,7 +1303,7 @@ class BoundaryMonitor:
             return value if math.isfinite(value) else None
 
         record: dict[str, object] = {
-            **dataclasses.asdict(self.check),
+            **self.check.thresholds(),
             "launch_energy": _finite(self._launch),
             "resumed_at": list(self._resumed_at),
             "launch_guard_low": _finite(self._launch_occupancy[0]),

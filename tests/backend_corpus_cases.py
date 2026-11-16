@@ -40,6 +40,7 @@ from typing import Any
 
 import numpy as np
 
+from builders import grid_at, held_collar
 from capability_routes import general_constant
 from solprop.backends.registry import select
 from solprop.backends.session import Start
@@ -50,7 +51,7 @@ from solprop.exceptions import BackendError, SolpropWarning
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.log import NullReporter
 from solprop.modes import PlanarGrid, SlabMode
-from solprop.monitor import BoundaryCheck
+from solprop.monitor import CHECKS, BoundaryCheck
 from solprop.nonlinear.responses import KerrResponse
 from solprop.output.hdf5 import open_file, resume
 from solprop.output.records import HISTORY_FIELDS
@@ -96,11 +97,13 @@ FIBRE_BETA2 = 2e-25
 200 fs pulse keeps it compact over the fibre."""
 
 SPARSE = 100.0
-"""How much longer the fibre's grid is declared than the fibre, so that the boundary
-monitor checks a quiet window every ``SPARSE FIBRE / 256`` (``monitor.CHECKS``): about
-every fourth step, and the saved planes' states regardless. The split collar's removal
-then adds over several accepted steps between two readings. The declared length also
-sets the collar's default reference length, which weakens its rate."""
+"""How much longer than the fibre the run is that the fibre's checks and collar are
+pinned to: the boundary monitor checks a quiet window every ``SPARSE FIBRE / 256``
+(``monitor.CHECKS``, through ``BoundaryCheck.interval``), about every fourth step, and
+the saved planes' states regardless, so the split collar's removal adds over several
+accepted steps between two readings; and the collar keeps the default rate of a grid
+that long (``builders.held_collar``), which is weaker than the fibre's own. The grid
+itself ends at the fibre, where the run does (SEP 51)."""
 
 
 def walking_fibre(
@@ -123,7 +126,8 @@ def walking_fibre(
     landing on `planes`, or with `interpolated` on its own edges only, the planes then
     observed by dense output; unscheduled, the march is adaptive at `rtol`.
     """
-    grid = EnvelopeGrid.from_limits(SPARSE * FIBRE, 1e-6, (0.8e-6, 1.25e-6), 1e-12)
+    pinned = EnvelopeGrid.from_limits(SPARSE * FIBRE, 1e-6, (0.8e-6, 1.25e-6), 1e-12)
+    grid = grid_at(pinned, FIBRE)
     omega0 = 2 * np.pi * C / 1e-6
     offset = 0.3e-12 / (FIBRE_BETA2 * FIBRE)
     extra: dict[str, Any] = {"interpolate_planes": interpolated}
@@ -141,7 +145,9 @@ def walking_fibre(
         )],
         noise=None, raman=False, shock=False, save_planes=list(planes),
         backend=backend, integrator=integrator, absorber_scheme="split_step",
-        boundary_check=RELAXED, **extra,
+        absorber=held_collar(grid, SPARSE * FIBRE),
+        boundary_check=dataclasses.replace(RELAXED, interval=SPARSE * FIBRE / CHECKS),
+        **extra,
     )  # fmt: skip
 
 

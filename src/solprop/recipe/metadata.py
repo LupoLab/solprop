@@ -2200,6 +2200,14 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
             "The budget of a free-space run's transverse edge; the default is the "
             "budget.",
         ),
+        _keyword(
+            "interval",
+            _LENGTH,
+            "advanced",
+            "The longest distance a quiet window goes unchecked; the default is the "
+            "length over 256.",
+            display="mm",
+        ),
     ),
     "FixedSchedule.uniform": _type(
         "numerics",
