@@ -83,3 +83,16 @@ def test_a_state_of_another_shape_is_refused_rather_than_squeezed(tmp_path, shap
         pytest.raises(OutputError, match="one trajectory's"),
     ):
         _read_march(file, 0.5)
+
+
+def test_a_snapshot_whose_state_was_never_written_is_ignored(tmp_path, caplog):
+    """A write cut short before the state leaves a snapshot to skip, not a refusal."""
+    with h5py.File(tmp_path / "cut.h5", "w") as file:
+        _write_march(
+            file.require_group("march_snapshot"), snapshot(np.zeros((1, 1, 4), complex))
+        )
+        group = file["march_snapshot"]
+        assert isinstance(group, h5py.Group)
+        del group["state"]
+        assert _read_march(file, 0.5) is None
+    assert "ignoring the unreadable march snapshot" in caplog.text
