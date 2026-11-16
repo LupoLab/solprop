@@ -188,11 +188,13 @@ def _case(
 ) -> Case:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", GeneralModalBasisWarning)
+        # The run ends at its grid's length (SEP 51): the millimetre grid cut at the
+        # ten-step window, whose collar is removed below.
         simulation = Simulation.from_waveguide(
             (),
-            FIBRE,
+            Z_END,
             provider=guide,
-            grid=grid,
+            grid=dataclasses.replace(grid, length=Z_END),
             backend="numpy_ref",
             kerr_form=kerr_form,
             save_planes=[Z_END],
