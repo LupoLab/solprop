@@ -26,6 +26,7 @@ import numpy as np
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
+from builders import load_reference
 from mixture_cases import mixture_translation
 from sessions.runs import launch_statistics as state_statistics
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -70,12 +71,11 @@ def launch_case(kerr, n_pol):
     )
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
+        state = load_reference(reference)
         reference.workspace.hoist(0.0)
-        state = reference._require_state()
         peak = max(
             float(np.max(abs(one)))
-            for one in reference.workspace._plasma_nodes(state, reference._z)
+            for one in reference.workspace._plasma_nodes(state, problem.initial.z)
         )
     finally:
         reference.close()

@@ -19,6 +19,7 @@ from scipy.integrate import quad
 from scipy.optimize import brentq
 from scipy.special import jn_zeros, jv
 
+from builders import load_reference
 from solprop import tools
 from solprop._validation import choice
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -924,10 +925,13 @@ def test_the_predicted_peak_intensity_is_the_statistic_a_run_reports_at_its_entr
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
-    backend.set_initial(problem.initial.field0, None)
-    reported = float(
-        backend.stats(StatsSpec(names=("peak_intensity",)))["peak_intensity"]
-    )
+    try:
+        load_reference(backend)
+        spec = StatsSpec(names=("peak_intensity",))
+        stats = backend.workspace.stats(spec, float(problem.initial.z))
+    finally:
+        backend.close()
+    reported = float(stats["peak_intensity"])
     predicted = tools.capillary_params(
         125e-6, "He", 1.0, energy=energy, fwhm=fwhm, wavelength=PUMP, cladding=GLASS
     ).peak_intensity

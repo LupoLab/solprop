@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from bounds import gamma
-from builders import reference_trial
+from builders import load_reference, reference_trial
 from sessions.runs import load_native, native_trial
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import C
@@ -73,7 +73,7 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
+        load_reference(reference)
         reference.workspace.hoist(position)
         expected = reference.workspace.nonlinear(
             rotated,
@@ -104,7 +104,7 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
                 return stage
 
             monkeypatch.setattr(backend.workspace, "nonlinear", capture)
-            backend.set_initial(problem.initial.field0, noise)
+            load_reference(backend, noise=noise)
             reference_trial(backend, position, 0.0)
             actual = captured[0].reshape(expected.shape)
         scale = np.max(np.abs(expected))

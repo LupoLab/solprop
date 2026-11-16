@@ -26,11 +26,13 @@ from typing import TYPE_CHECKING, Literal, cast
 import numpy as np
 from jaxtyping import Complex
 
+from solprop._helpers import Helpers
 from solprop.backends.exponential import (
     CarrierReference,
     refuse_carrier_frame,
     refuse_formulation,
 )
+from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.host.runge_kutta import RungeKuttaMarch
 from solprop.backends.host.session import HostMethod, HostPrepared, start_position
@@ -170,16 +172,16 @@ class NumpyRefBackend:
     >>> session.close()
     """
 
-    reads_transverse_edge = True
+    reads_transverse_edge: bool = True
 
-    name = "numpy_ref"
+    name: str = "numpy_ref"
     # The oracle evaluates its stage tables and Adams bases with the uncompiled forms,
     # never with the compiled code it exists to check (SEP 29 section 6.6).
-    helpers = NumpyWorkspace.helpers
+    helpers: Helpers = NumpyWorkspace.helpers
     # The reference forms `exp(+dPhi)` and `exp(-dPhi)` afresh at every stage, so
     # keeping the six distinct exponents of a step is worth its memory here where it is
     # not on a backend that takes both signs from one transcendental.
-    propagator_default = "tabulate"
+    propagator_default: PropagatorMode = "tabulate"
 
     def __init__(
         self,
@@ -334,7 +336,6 @@ class NumpyRefBackend:
         """Return the Adams march over a fresh engine, its dense output and rows."""
         # The engine reads this package's passes, so it is imported when a run asks
         # for it rather than with the package.
-        from solprop.backends.host.adams import HostAdamsMarch  # noqa: PLC0415
         from solprop.backends.numpy_ref.dense import AdamsDense  # noqa: PLC0415
         from solprop.backends.numpy_ref.multistep import (  # noqa: PLC0415
             AdamsKernels,
@@ -401,7 +402,9 @@ class NumpyRefBackend:
         return self._workspace
 
     @property
-    def march(self) -> object:  # numpydoc ignore=RT01
+    def march(
+        self,
+    ) -> RungeKuttaMarch | HostAdamsMarch | HostLowStorageMarch:  # numpydoc ignore=RT01
         """The latest run's march: a session's, the timing probe's, or a fresh one."""
         return self._run.march
 

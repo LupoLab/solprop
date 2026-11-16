@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from backends.spatial_cases import make_problem
+from builders import load_reference
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import BackendError, GridError
 from solprop.grid import EnvelopeGrid, FreeGrid
@@ -34,7 +35,7 @@ def test_cartesian_reference_stage_names_missing_geometry(free_backend_problem):
     grid, problem, run_request = free_backend_problem
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
+        load_reference(backend)
         backend.workspace.hoist(0.0)
         bundle = backend.workspace.stage_scalars(0.0, 0.0)
         transform = copy.copy(problem.transform)

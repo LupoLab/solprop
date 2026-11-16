@@ -17,7 +17,9 @@ import numpy as np
 import pytest
 
 from bounds import EPS, assert_within, departure, gamma
+from builders import load_reference
 from sessions.executors import IDENTITY, Started, drive, entrance
+from sessions.runs import bare, run, to_planes
 from solprop.backends import Backend
 from solprop.backends.events import ObservationReady
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -180,17 +182,6 @@ def test_the_observation_is_the_state_in_the_fft_convention(
     assert plane.noise_phase is None
 
 
-def test_a_plane_already_reached_costs_no_steps(soliton_problem, narrow_grid):
-    """The reference driver's own call; a session's launch plane costs no attempt
-    (:func:`test_the_observation_is_the_state_in_the_fft_convention`)."""
-    problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
-    backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    summary = backend.propagate_to(0.0)
-    assert (summary.n_steps, summary.max_norm, summary.met_tolerance) == (0, 0.0, True)
-    backend.close()
-
-
 def test_the_history_covers_only_what_happened_since_the_last_observation(
     backend_class, soliton_problem, narrow_grid
 ):
@@ -304,41 +295,30 @@ def test_the_initial_state_must_match_the_contract(
         backend.close()
 
 
-def test_propagating_without_a_state_is_refused(soliton_problem, narrow_grid):
-    """The reference driver's own call: a session always loads its start."""
+def test_an_unloaded_workspace_is_refused(soliton_problem, narrow_grid):
+    """The reference's workspace holds no state until a session loads its start."""
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
     backend = NumpyRefBackend(problem, run_request)
-    with pytest.raises(BackendError, match="call set_initial"):
-        backend.propagate_to(LENGTH)
-    backend.close()
-
-
-@pytest.mark.parametrize("target", [-1.0, 10.0, float("nan")])
-def test_an_unreachable_plane_is_refused(soliton_problem, narrow_grid, target):
-    """The reference driver's own call: a session's targets are its request's planes."""
-    problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
-    backend = NumpyRefBackend(problem, run_request)
-    backend.set_initial(problem.initial.field0, None)
-    with pytest.raises(BackendError):
-        backend.propagate_to(target)
+    with pytest.raises(BackendError, match="no initial state"):
+        backend.workspace.committed()
     backend.close()
 
 
 def test_close_is_idempotent_and_use_after_close_is_refused(
     soliton_problem, narrow_grid
 ):
-    """The reference driver's own calls (:func:`test_a_closed_backend_starts_nothing`
-    is every backend's)."""
+    """The reference's own entries after a close (:func:`test_a_closed_backend_starts_
+    nothing` is every backend's)."""
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
+    load_reference(backend)
     backend.close()
     backend.close()
     for call in (
-        lambda: backend.propagate_to(LENGTH),
-        backend.observe,
-        lambda: backend.stats(StatsSpec(names=("energy",))),
-        lambda: backend.set_initial(problem.initial.field0, None),
+        lambda: backend.timing_probe(entrance(problem)),
+        lambda: start_session(
+            backend, problem, run_request, entrance(problem), owns=False
+        ),
     ):
         with pytest.raises(BackendError, match="closed"):
             call()
@@ -595,13 +575,13 @@ def test_statistics_reproduce_the_reference(
 def test_statistics_without_a_grid_say_what_is_missing(soliton_problem, narrow_grid):
     """The contract carries no grid, so the backend has to be told which one it is.
 
-    The reference driver's own call: a session's statistics are its request's.
+    The reference's workspace, which a session's statistics are evaluated by.
     """
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
     backend = NumpyRefBackend(problem, run_request)
-    backend.set_initial(problem.initial.field0, None)
+    load_reference(backend)
     with pytest.raises(BackendError, match="grid=grid"):
-        backend.stats(StatsSpec(names=("energy",)))
+        backend.workspace.stats(StatsSpec(names=("energy",)), 0.0)
     backend.close()
 
 
@@ -703,9 +683,9 @@ def test_the_alarm_is_weighted_at_the_stage_it_was_scored_from(
     stage.
     """
     problem, run_request = capillary_problem()
-    backend = NumpyRefBackend(problem, run_request, grid=field_grid)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(0.1)
+    request = to_planes(run_request, [0.1])
+    backend = NumpyRefBackend(problem, request, grid=field_grid)
+    run(backend, problem, bare(request), export=None)
     bundle = backend.workspace._last_bundle
     assert bundle is not None
     stage_z = bundle.z1
@@ -786,7 +766,7 @@ def test_a_step_too_large_for_the_tolerance_is_rejected_and_retried(
     assert np.all(plane.step_history.error_norm[accepted] <= 1.0)
 
 
-def test_the_realisation_passed_to_set_initial_is_the_one_carried(
+def test_the_realisation_a_start_passes_is_the_one_carried(
     backend_class, soliton_problem, narrow_grid
 ):
     """The protocol loads the noise; the problem's own realisation is the fallback."""

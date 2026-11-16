@@ -12,10 +12,10 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from builders import reference_trial
+from builders import load_reference, reference_trial
 from capability_routes import ROUTES
 from sessions.runs import load_native, native_trial
-from solprop.backends.protocol import stepping as host_stepping
+from solprop.backends.numpy_ref.engines import NumpyRungeKutta
 from solprop.backends.registry import available, select
 from solprop.backends.session import SessionError, Start
 from solprop.driver import Simulation
@@ -141,10 +141,11 @@ def test_a_low_storage_estimate_times_the_march_s_own_step(backend, monkeypatch)
 
     def spy(constructed, problem, run_request):
         step, evaluations = build(constructed, problem, run_request)
-        engine = getattr(constructed, "_runge_kutta_engine", None)
+        # The reference's Runge-Kutta engine, built afresh for each run, or native's.
+        reference = constructed.name == "numpy_ref"
         monkeypatch.setattr(
-            constructed if engine is None else engine,
-            "_trial_step" if engine is None else "trial",
+            NumpyRungeKutta if reference else constructed,
+            "trial" if reference else "_trial_step",
             lambda *_: pytest.fail("a low-storage estimate took a trial step"),
         )
 
@@ -263,16 +264,12 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
         if backend == "native":
             trial = _native_committed_nothing(problem, probed, fresh, dz)
         else:
-            # Nothing was committed: no attempt, the launch position, the loaded state.
-            host_stepping(fresh).set_initial(
-                problem.initial.field0, None, z=problem.initial.z
+            # Nothing was committed: the probed workspace holds the loaded state.
+            expected = load_reference(
+                fresh, problem.initial.field0, z=problem.initial.z
             )
-            expected = host_stepping(fresh).observe()
-            observed = host_stepping(probed).observe()
-            assert observed.n_steps == 0
-            assert observed.z == problem.initial.z
-            assert observed.field is not None and expected.field is not None
-            assert np.array_equal(observed.field, expected.field)
+            observed = cast("Any", probed).workspace.committed()
+            assert np.array_equal(observed, expected)
             # The readback is the trial's own state as a kept step finishes it: the
             # same arithmetic again, on one thread layout in one process, so agreement
             # to a few roundings of the field's largest magnitude bounds it (SEP 25).

@@ -744,12 +744,11 @@ MODULES = {
         Module(
             "backends/host/",
             (
-                "driver",
+                "session",
                 "marches",
                 "runge_kutta",
                 "adams",
                 "low_storage",
-                "session",
             ),
         ),
         Module(
@@ -758,6 +757,7 @@ MODULES = {
                 "backend",
                 "workspace",
                 "engines",
+                "dense",
                 "passes",
                 "multistep",
                 "populations",
@@ -974,13 +974,13 @@ RUN_STAGES = (
             "the march, the replay, the landing, the controller,",
             "the history, the noise, the per-stage bundle",
         ),
-        "HostDriver for numpy_ref; native's session",
+        "HostSession for numpy_ref; native's session",
     ),
     Stage(
         "D",
         "run loop over save planes",
         (
-            "obs = backend.observe()        stats = backend.stats(spec)",
+            "event = session.advance()     field = session.export(ticket, recipe)",
             "output.save(SavedPlane(z, field, stats, step_history, step_stats))",
         ),
         "small host arrays, one fused pass",
@@ -1250,24 +1250,24 @@ SEAM_METHODS = (
     ("available_device_memory", "free device bytes for scan admission; None on hosts"),
     ("close", "idempotent"),
 )
-"""The methods of `backends.protocol.Backend`; the reference's stepping seam is
-`HostStepping`'s, which its session drives."""
+"""The methods of `backends.protocol.Backend`: a run is its session's, on every
+backend."""
 
 DRIVER_PARTS = (
-    ("the planes and the halts", ("propagate_to", "_natural_stop", "request_halt")),
-    ("the replay's cursor", ("_schedule_index_at",)),
-    ("the history", ("_record", "observe")),
-    ("the progress reporter", ("set_progress",)),
-    ("the statistics channel", ("_take_step_stats", "stats")),
-    ("the boundary monitor", ("attach_monitor", "_absorb", "_boundary_energies")),
-    ("the caps a march asks for", ("_quiet_capped", "_transverse_capped")),
-    ("the march's state, read", ("_z", "_proposal", "_schedule_index")),
-    ("the quadrature alarm", ("_begin_plane", "_on_accepted_step")),
+    ("the planes and the halts", ("advance", "natural_stop", "request_snapshot")),
+    ("the load and the cursor", ("_load", "_restore_march")),
+    ("the history", ("record", "_observe")),
+    ("the dense observation", ("_after_march", "_here")),
+    ("the statistics channel", ("_account_step", "_observation")),
+    ("the boundary monitor", ("_attach", "absorb", "_energies", "_warning")),
+    ("the caps a march asks for", ("cap", "collar_quiet")),
+    ("the march, driven", ("_propagate", "stepped")),
+    ("the quadrature alarm", ("record", "_propagate")),
 )
-"""What `backends/host/driver.py` owns, and the `HostDriver` members of each part."""
+"""What `backends/host/session.py` owns, and the `HostSession` members of each part."""
 
 CONTROLLER_PARTS = ("propose", "accepts", "rejection_factor", "equivalent_norm")
-"""The methods of `stepper.controller.PIController` the driver calls."""
+"""The methods of `stepper.controller.PIController` the marches call."""
 
 SCHEDULE_PARTS = ("landing", "discover", "calibrate", "replay")
 """The functions of `stepper.schedule` behind the landing and the fixed schedules."""
@@ -2554,8 +2554,8 @@ def _step_panel(
             _text(drawing, line, x + PAD + 8, cursor, size=SMALL_SIZE, klass="dim")
 
 
-BACKEND_OVERRIDES = ("NumpyWorkspace", "engines", "marches")
-"""What the reference backend supplies to `HostDriver`, and nothing else of the loop."""
+BACKEND_OVERRIDES = ("NumpyWorkspace", "engines", "marches", "dense output")
+"""What the reference backend supplies to `HostSession`, and nothing else of the loop."""
 
 DEVICE_SLOT = (
     "solprop-native distribution, native/",
@@ -2567,7 +2567,7 @@ DEVICE_SLOT = (
 
 
 def backends() -> drawsvg.Drawing:
-    """Draw figure 5: the seam, the shared driver, and the backends behind it.
+    """Draw figure 5: the seam, the reference's session, and the backends behind it.
 
     Returns
     -------
@@ -2615,7 +2615,7 @@ def backends() -> drawsvg.Drawing:
     )
     footer = (
         "Three things every backend owes beyond the methods: deterministic "
-        "reductions, the device form of the stage, and the driver's bookkeeping. The "
+        "reductions, the device form of the stage, and the session's bookkeeping. The "
         "error norm is control flow, so a sum whose association depends on the thread "
         "count forks the trajectory."
     )
@@ -2635,7 +2635,7 @@ def backends() -> drawsvg.Drawing:
 
     drawing = _canvas(height)
     _header(
-        drawing, "One seam, a shared driver, and the backends behind them", subtitle
+        drawing, "One seam, a session, and the backends behind them", subtitle
     )
 
     y = top
@@ -2659,7 +2659,7 @@ def backends() -> drawsvg.Drawing:
     _table(
         drawing,
         Slot(MARGIN, y, left_width),
-        "HostDriver (the reference's scheduler)",
+        "HostSession (the reference's schedule)",
         driver_rows,
         168,
         Paint("fill-d", "ink-d"),

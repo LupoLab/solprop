@@ -26,6 +26,7 @@ import numpy as np
 import pytest
 
 import flow_parity
+from builders import load_reference
 from general_parity import conditioning, moving_count, source_bound
 from moving_guide_cases import (
     BOUND_STEP_LENGTH,
@@ -68,7 +69,7 @@ def source_at(implementation, problem, run_request, grid, positions):
     if implementation is NumpyRefBackend:
         backend = implementation(problem, run_request, grid=grid)
         try:
-            backend.set_initial(state, None)
+            load_reference(backend, state)
             return [np.array(backend.workspace.lab_source(state, z)) for z in positions]
         finally:
             backend.close()

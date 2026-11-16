@@ -524,7 +524,7 @@ class NumpyWorkspace:
             If no state is loaded.
         """
         if self._state is None:
-            msg = "no initial state: call set_initial before propagating or observing"
+            msg = "no initial state: start a session before propagating or observing"
             raise BackendError(msg)
         return self._state
 

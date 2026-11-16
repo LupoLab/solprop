@@ -20,8 +20,6 @@ from solprop.backends import (
 )
 from solprop.backends.host.session import HostPrepared
 from solprop.exceptions import BackendError
-from solprop.log import NullReporter
-from solprop.stats import StatsSpec
 from solprop.translate.run_request import RunRequest
 
 
@@ -386,11 +384,10 @@ def test_a_negative_or_infinite_measure_is_refused(name):
 
 
 class Stub:
-    """The smallest object that satisfies the seam."""
+    """The smallest object that satisfies the seam: SEP 52 section 5.1's members."""
 
     name = "stub"
     reads_transverse_edge = False
-    in_flight = None
     closed = False
 
     @property
@@ -398,56 +395,23 @@ class Stub:
         """The run's request: the stub runs nothing, so it holds none."""
         raise NotImplementedError
 
-    def set_initial(self, field, noise, *, z=0.0, resume=False):
-        self.field = field
-
     def prepare(self, problem, request):
         return HostPrepared(self, problem, request)
-
-    def restore_call_ledgers(self, logical, atomic=None):
-        return None
-
-    def set_progress(self, reporter):
-        self.reporter = reporter
-
-    def set_stop(self, flag):
-        return None
 
     def edge_memory(self, space):
         return 0
 
-    def attach_monitor(self, monitor):
-        return None
-
-    def march_snapshot(self):
-        return None
-
-    def march_snapshot_nbytes(self, z):
-        return None
-
     def march_export_refusal(self):
-        return None
-
-    def restore_march(self, snapshot):
         return None
 
     def timing_probe(self, start):
         raise NotImplementedError
 
-    def propagate_to(self, z):
-        return StepSummary(z, 1, 0, 0.5, 0.5, 0.0, True)
-
-    def observe(self, *, field=True):
-        return Observation(0.0, self.field if field else None, None, history(1), 1, 0)
-
-    def stats(self, spec):
-        return {name: np.zeros(1) for name in spec.names}
-
     def metadata(self) -> dict[str, object]:
         return {"backend": self.name, "propagator_mode": "tabulate"}
 
     def memory_ledger(self):
-        return {"state": self.field.nbytes}
+        return {"state": 64}
 
     def available_device_memory(self):
         return None
@@ -459,12 +423,8 @@ class Stub:
 def test_a_minimal_backend_satisfies_the_protocol():
     backend = Stub()
     assert isinstance(backend, Backend)
-    backend.set_initial(np.zeros((1, 1, 4), complex), None)
-    assert backend.restore_call_ledgers({}) is None
-    backend.set_progress(NullReporter())
-    assert backend.propagate_to(0.5).z == 0.5
-    assert backend.observe().require_field().shape == (1, 1, 4)
-    assert backend.stats(StatsSpec(names=("energy",))) == {"energy": pytest.approx(0.0)}
+    assert backend.edge_memory(None) == 0
+    assert backend.march_export_refusal() is None
     assert backend.memory_ledger() == {"state": 64}
     assert backend.available_device_memory() is None
     assert backend.metadata()["backend"] == "stub"
@@ -475,7 +435,7 @@ def test_an_object_missing_a_method_is_not_a_backend():
     class Partial:
         name = "partial"
 
-        def set_initial(self, field, noise):
+        def prepare(self, problem, request):
             return None
 
     assert not isinstance(Partial(), Backend)

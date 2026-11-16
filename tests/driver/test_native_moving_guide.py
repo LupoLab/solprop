@@ -46,6 +46,7 @@ from moving_guide_cases import (
     kinked_radius,
     moving_parity_bound,
 )
+from sessions.runs import bare, final_field
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
 from solprop.driver import Simulation
@@ -86,9 +87,10 @@ def test_the_moving_maps_are_combined_per_stage_not_frozen():
     # The reference's trial reads each stage's bundle through `stage_scalars`.
     backend.workspace.stage_scalars = frozen
     try:
-        backend.set_initial(case.problem.initial.field0, None)
-        backend.propagate_to(case.length)
-        actual = backend.observe().require_field().copy()
+        actual = final_field(
+            backend, case.problem, bare(case.run_request), ended=True
+        ).copy()
+        assert float(case.run_request.stepper.save_planes[-1]) == case.length
     finally:
         backend.close()
     assert float(np.max(np.abs(actual - expected))) > 100 * bound

@@ -202,7 +202,7 @@ def test_the_reference_s_adams_march_reads_the_shared_policy():
     records = run_records(problem, request, _entrance(problem))
     backend: Any = select("numpy_ref", problem, request)
     try:
-        assert backend._adams._policy == records.policy
+        assert backend.march._policy == records.policy
     finally:
         backend.close()
 
@@ -248,10 +248,9 @@ def test_the_reference_s_runge_kutta_march_reads_the_shared_policy():
     backend: Any = select("numpy_ref", problem, request)
     try:
         assert (
-            backend._march._policy
+            backend.march._policy
             == run_records(problem, request, _entrance(problem)).policy
         )
-        assert backend._collar_can_rest() is collar_rests(problem, request.stepper)
     finally:
         backend.close()
 

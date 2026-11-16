@@ -16,7 +16,7 @@ import warnings
 import numpy as np
 import pytest
 
-from builders import reference_trial
+from builders import load_reference, reference_trial
 from legacy_geometry import bare_absorber
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import SpatialAbsorber, absorber
@@ -333,7 +333,7 @@ def test_a_backend_handed_the_refused_step_forms_a_non_finite_stage():
     run_request = simulation._run_request()
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
+        load_reference(backend)
         # A trial of the refused length, as only a direct caller can take one: the
         # inverse factor exp(lambda h) is infinite and so is the stage it scales.
         backend.workspace.hoist(0.0)
@@ -460,7 +460,7 @@ def test_a_radial_backend_handed_the_refused_step_forms_a_non_finite_stage():
     run_request = simulation._run_request()
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
+        load_reference(backend)
         backend.workspace.hoist(0.0)
         # The radial inverse factor exp(-dPhi) overflows as the separable one does.
         with np.errstate(over="ignore", invalid="ignore"):

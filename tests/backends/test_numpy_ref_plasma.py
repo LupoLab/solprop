@@ -23,6 +23,7 @@ import numpy as np
 import pytest
 
 from bounds import fft_bound, scan_bound
+from builders import load_reference
 from plasma_cases import (
     CARRIER,
     CHARGE_MASS_RATIO,
@@ -369,7 +370,7 @@ def test_one_stage_matches_the_responses_composed_by_hand(
     """The whole chain against the two oracles, with nothing of the backend in it."""
     problem, run_request, kerr, plasma = ionising_capillary(preionisation)
     backend = NumpyRefBackend(problem, run_request)
-    backend.set_initial(problem.initial.field0, None)
+    load_reference(backend)
     state = problem.initial.field0
     ones = np.ones_like(state)
     got = backend.workspace.nonlinear(
@@ -718,7 +719,7 @@ def test_the_on_axis_matrix_follows_a_taper(field_grid, backend_class):
     try:
         observed = run(backend, problem, run_request).final
         if isinstance(backend, NumpyRefBackend):
-            rescaled = backend.workspace._on_axis_synthesis([mode], backend._z)
+            rescaled = backend.workspace._on_axis_synthesis([mode], observed.z)
         else:
             # Native keeps the entrance matrix (its statistics' own) and rescales it
             # by the transform's taper factor where it reads it. This is that law on

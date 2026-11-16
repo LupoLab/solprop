@@ -14,7 +14,6 @@ from contextlib import closing
 import pytest
 
 from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.host.session import HostSession
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -25,18 +24,14 @@ from solprop.exceptions import BackendError
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep
 
 
-def test_the_reference_backend_inherits_the_host_driver():
-    assert issubclass(NumpyRefBackend, HostDriver)
-
-
 def test_the_reference_marches_with_the_host_copies(soliton_problem, narrow_grid):
     length = 1e-3
     schedule = FixedSchedule.uniform(0.0, length, length / 4, save_planes=[length])
     marches = {
-        "_adams": (Multistep(), HostAdamsMarch),
-        "_low_storage": (LowStorageRungeKutta(), HostLowStorageMarch),
+        "adams": (Multistep(), HostAdamsMarch),
+        "low_storage": (LowStorageRungeKutta(), HostLowStorageMarch),
     }
-    for attribute, (integrator, march) in marches.items():
+    for integrator, march in marches.values():
         problem, run_request = soliton_problem(
             narrow_grid,
             1,
@@ -49,7 +44,8 @@ def test_the_reference_marches_with_the_host_copies(soliton_problem, narrow_grid
         with closing(
             NumpyRefBackend(problem, run_request, grid=narrow_grid)
         ) as backend:
-            assert type(getattr(backend, attribute)) is march
+            assert type(backend.march) is march
+            assert type(backend.method(None).march) is march
 
 
 def test_the_run_layer_serves_the_reference_with_the_host_session(
@@ -74,7 +70,7 @@ def test_an_injected_adams_engine_is_gated_and_checked_as_the_bridge_s(
         HostAdamsMarch(
             object(),
             Multistep(),
-            backend._hooks,
+            None,
             policy=adams_policy(
                 backend._problem, run_request.stepper, Multistep(), carrier=False
             ),

@@ -28,7 +28,8 @@ from backends.planar_cases import planar_case
 from backends.planar_plate_cases import chunked
 from backends.planar_plate_cases import planar_case as collar_family_case
 from bounds import assert_within, fft_bound, gamma
-from sessions.runs import launch_statistics, load_native
+from builders import load_reference
+from sessions.runs import bare, final_field, launch_statistics, load_native
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stats import StatsSpec
 
@@ -83,9 +84,9 @@ def run(backend_class, problem, run_request, grid, length):
     """Propagate the problem's launch and return the state."""
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(length)
-        return backend.observe().require_field().copy()
+        result = final_field(backend, problem, bare(run_request))
+        assert math.isclose(float(run_request.stepper.z_end), length, rel_tol=1e-12)
+        return result.copy()
     finally:
         backend.close()
 
@@ -166,7 +167,7 @@ def finished(problem, run_request, grid, rows, dz, options=None):
     """Return each backend's finish of the rows it is handed, the reference's first."""
     reference = NumpyRefBackend(problem, run_request, grid=grid, options=options)
     try:
-        reference.set_initial(problem.initial.field0, None)
+        load_reference(reference)
         reference.workspace.hoist(0.0)
         expected = np.array(reference.workspace.finish(rows.copy(), dz)[0])
     finally:

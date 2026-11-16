@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 
 from backends.conftest import EQUIVALENCE_BACKENDS
+from sessions.runs import bare, final_field
 from sessions.runs import run as session_run
 from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -88,14 +89,12 @@ def march(simulation, backend_class=NumpyRefBackend, *, compensation=None, plane
         method = run_request.stepper.integrator
         backend._use_adams(method, compensation=compensation)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        steps, fields = [], []
-        for position in run_request.stepper.save_planes:
-            backend.propagate_to(float(position))
-            observed = backend.observe()
-            steps += list(observed.step_history.dz)
-            fields.append(observed.field)
-        return fields[plane], backend._adams, np.array(steps)
+        result = session_run(backend, problem, bare(run_request))
+        # Every attempt's step, rejected ones included, and each save plane's field.
+        steps = list(result.joined[0].dz)
+        fields = result.fields[1:]
+        assert len(fields) == len(run_request.stepper.save_planes)
+        return fields[plane], cast("Any", backend.march), np.array(steps)
     finally:
         backend.close()
 
@@ -290,10 +289,7 @@ def _table_field(candidate, simulation, backend_class):
         candidate, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        backend.set_initial(candidate.initial.field0, None)
-        for position in run_request.stepper.save_planes:
-            backend.propagate_to(float(position))
-        return backend.observe().require_field()
+        return final_field(backend, candidate, bare(run_request), ended=True)
     finally:
         backend.close()
 

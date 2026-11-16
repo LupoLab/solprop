@@ -70,7 +70,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 .ink-x { fill: var(--x-edge); }
 </style>
 <rect x="0" y="0" width="1200" height="733.0" class="ground" />
-<text x="32" y="44.0" font-size="21" class="bold">One seam, a shared driver, and the backends behind them</text>
+<text x="32" y="44.0" font-size="21" class="bold">One seam, a session, and the backends behind them</text>
 <text x="32" y="64.0" font-size="12" class="dim">backends.md §1: the protocol is drawn at the level of operations on the propagated state, never at the array-namespace level. A backend is constructed from a validated</text>
 <text x="32" y="79.5" font-size="12" class="dim">PropagationProblem and host arrays and returns host arrays; its buffers, layout and plans are private.</text>
 <rect x="32" y="115.0" width="1136" height="165.0" rx="7" ry="7" class="fill-b" />
@@ -95,23 +95,23 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <path d="M600.0,318.0 L596.4,309.0 L603.6,309.0 Z" class="head" />
 <text x="600.0" y="294.0" font-size="12" class="mid dim">backends.registry.select(name, problem, grid=, modes=, profiles=)</text>
 <rect x="32" y="324.0" width="560.0" height="165.0" rx="7" ry="7" class="fill-d" />
-<text x="42.0" y="346.0" font-size="15" class="bold ink-d">HostDriver (the reference's scheduler)</text>
+<text x="42.0" y="346.0" font-size="15" class="bold ink-d">HostSession (the reference's schedule)</text>
 <text x="42.0" y="367.5" font-size="12" class="bold ink-d">the planes and the halts</text>
-<text x="210.0" y="367.5" font-size="12" class="dim">propagate_to · _natural_stop · request_halt</text>
-<text x="42.0" y="383.0" font-size="12" class="bold ink-d">the replay's cursor</text>
-<text x="210.0" y="383.0" font-size="12" class="dim">_schedule_index_at</text>
+<text x="210.0" y="367.5" font-size="12" class="dim">advance · natural_stop · request_snapshot</text>
+<text x="42.0" y="383.0" font-size="12" class="bold ink-d">the load and the cursor</text>
+<text x="210.0" y="383.0" font-size="12" class="dim">_load · _restore_march</text>
 <text x="42.0" y="398.5" font-size="12" class="bold ink-d">the history</text>
-<text x="210.0" y="398.5" font-size="12" class="dim">_record · observe</text>
-<text x="42.0" y="414.0" font-size="12" class="bold ink-d">the progress reporter</text>
-<text x="210.0" y="414.0" font-size="12" class="dim">set_progress</text>
+<text x="210.0" y="398.5" font-size="12" class="dim">record · _observe</text>
+<text x="42.0" y="414.0" font-size="12" class="bold ink-d">the dense observation</text>
+<text x="210.0" y="414.0" font-size="12" class="dim">_after_march · _here</text>
 <text x="42.0" y="429.5" font-size="12" class="bold ink-d">the statistics channel</text>
-<text x="210.0" y="429.5" font-size="12" class="dim">_take_step_stats · stats</text>
+<text x="210.0" y="429.5" font-size="12" class="dim">_account_step · _observation</text>
 <text x="42.0" y="445.0" font-size="12" class="bold ink-d">the boundary monitor</text>
-<text x="210.0" y="445.0" font-size="12" class="dim">attach_monitor · _absorb · _boundary_energies</text>
+<text x="210.0" y="445.0" font-size="12" class="dim">_attach · absorb · _energies · _warning</text>
 <text x="42.0" y="460.5" font-size="12" class="bold ink-d">the caps a march asks for</text>
-<text x="210.0" y="460.5" font-size="12" class="dim">_quiet_capped · _transverse_capped</text>
-<text x="42.0" y="476.0" font-size="12" class="bold ink-d">the march's state, read</text>
-<text x="210.0" y="476.0" font-size="12" class="dim">_z · _proposal · _schedule_index</text>
+<text x="210.0" y="460.5" font-size="12" class="dim">cap · collar_quiet</text>
+<text x="42.0" y="476.0" font-size="12" class="bold ink-d">the march, driven</text>
+<text x="210.0" y="476.0" font-size="12" class="dim">_propagate · stepped</text>
 <rect x="640.0" y="324.0" width="528.0" height="118.5" rx="7" ry="7" class="fill-d" />
 <text x="650.0" y="346.0" font-size="15" class="bold ink-d">the stepper it drives</text>
 <text x="650.0" y="367.5" font-size="12" class="bold ink-d">stepper.tableau</text>
@@ -122,7 +122,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="650.0" y="414.0" font-size="12" class="bold ink-d">stepper.schedule</text>
 <text x="816.0" y="414.0" font-size="12" class="dim">landing, discover, calibrate, replay</text>
 <text x="650.0" y="429.5" font-size="12" class="bold ink-d">the quadrature alarm</text>
-<text x="816.0" y="429.5" font-size="12" class="dim">_begin_plane · _on_accepted_step</text>
+<text x="816.0" y="429.5" font-size="12" class="dim">record · _propagate</text>
 <path d="M600.0,495.0 L600.0,511.0 L307.0,511.0 L307.0,527.0" class="arrow" />
 <path d="M307.0,527.0 L303.4,518.0 L310.6,518.0 Z" class="head" />
 <rect x="32.0" y="533.0" width="550.0" height="97.0" rx="7" ry="7" class="fill-b" />
@@ -131,7 +131,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="42.0" y="586.0" font-size="12" class="dim">one named function per pass</text>
 <text x="42.0" y="601.5" font-size="12" class="dim">the general representation, the z table included</text>
 <text x="42.0" y="617.0" font-size="12" class="dim">propagator_mode auto → tabulate</text>
-<text x="42.0" y="644.0" font-size="12" class="bold dim">NumpyWorkspace · engines · marches</text>
+<text x="42.0" y="644.0" font-size="12" class="bold dim">NumpyWorkspace · engines · marches · dense output</text>
 <path d="M600.0,495.0 L600.0,511.0 L893.0,511.0 L893.0,527.0" class="arrow" />
 <path d="M893.0,527.0 L889.4,518.0 L896.6,518.0 Z" class="head" />
 <rect x="618.0" y="533.0" width="550.0" height="97.0" rx="7" ry="7" class="fill-b" />
@@ -140,7 +140,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="628.0" y="586.0" font-size="12" class="dim">C++20 Kokkos + persistent Kokkos-FFT plans</text>
 <text x="628.0" y="601.5" font-size="12" class="dim">one native call per seven-stage trial</text>
 <text x="628.0" y="617.0" font-size="12" class="dim">OpenMP on CPUs; CUDA and HIP on GPUs</text>
-<text x="628.0" y="644.0" font-size="12" class="bold dim">NumpyWorkspace · engines · marches</text>
-<text x="32" y="685.5" font-size="12" class="dim">Three things every backend owes beyond the methods: deterministic reductions, the device form of the stage, and the driver's bookkeeping. The error norm is control flow, so</text>
-<text x="32" y="701.0" font-size="12" class="dim">a sum whose association depends on the thread count forks the trajectory.</text>
+<text x="628.0" y="644.0" font-size="12" class="bold dim">NumpyWorkspace · engines · marches · dense output</text>
+<text x="32" y="685.5" font-size="12" class="dim">Three things every backend owes beyond the methods: deterministic reductions, the device form of the stage, and the session's bookkeeping. The error norm is control flow,</text>
+<text x="32" y="701.0" font-size="12" class="dim">so a sum whose association depends on the thread count forks the trajectory.</text>
 </svg>

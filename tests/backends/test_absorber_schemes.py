@@ -48,7 +48,7 @@ import warnings
 import numpy as np
 import pytest
 
-from sessions.runs import final_field
+from sessions.runs import bare, final_field
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.passes import apply_temporal_rate
 from solprop.boundaries import STABILITY_RADIUS, absorber, stable_step
@@ -116,9 +116,7 @@ def exit_field(grid, scheme, n_steps):
     problem, run_request = biting_case(grid, scheme, n_steps)
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(LENGTH)
-        return backend.observe().require_field()[0, 0].copy()
+        return final_field(backend, problem, bare(run_request), z=LENGTH)[0, 0].copy()
     finally:
         backend.close()
 

@@ -126,10 +126,15 @@ def evaluate(
             native_trial(backend, 0.0, 0.0)
             stage = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
         else:
-            backend.set_initial(problem.initial.field0, None)
+            backend.workspace.load(
+                np.ascontiguousarray(problem.initial.field0, dtype=complex),
+                None,
+                z=0.0,
+                resume=False,
+            )
             backend.workspace.hoist(0.0)
             stage = backend.workspace.nonlinear(  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage, reportUnknownMemberType, reportUnknownVariableType]
-                backend._require_state(),  # pyright: ignore[reportArgumentType, reportPrivateUsage]
+                backend.workspace.committed(),
                 backend.workspace.stage_scalars(0.0, 0.0),  # pyright: ignore[reportAttributeAccessIssue]
                 np.ones(problem.shape, complex),
             )
@@ -144,10 +149,15 @@ def node_magnitude(
     """Return the largest node field the reference synthesises, V/m."""
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
+        state = reference.workspace.committed()  # pyright: ignore[reportPrivateUsage]
         nodes = np.concatenate(
-            list(reference.workspace._plasma_nodes(state, reference._z))  # pyright: ignore[reportPrivateUsage]
+            list(reference.workspace._plasma_nodes(state, 0.0))  # pyright: ignore[reportPrivateUsage]
         )
         return float(np.max(np.abs(nodes)))
     finally:

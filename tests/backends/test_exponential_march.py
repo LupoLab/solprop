@@ -24,6 +24,8 @@ import pytest
 
 from bounds import assert_within, gamma, step_evaluations
 from legacy_geometry import LEGACY_GRID
+from sessions.runs import bare
+from sessions.runs import run as session_run
 from solprop._helpers import PLAIN
 from solprop.backends.exponential import refuse_formulation
 from solprop.backends.host.adams import HostAdamsMarch
@@ -92,16 +94,12 @@ def replay_bound(run_request, steps: int) -> float:
 def run(problem, run_request, grid):
     """Propagate to the last plane; return the final field, the march and its steps."""
     backend = NumpyRefBackend(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
-    steps, field = [], None
-    for plane in run_request.stepper.save_planes:
-        backend.propagate_to(float(plane))
-        observed = backend.observe()
-        steps += list(observed.step_history.dz)
-        field = observed.require_field()[0, 0]
-    march = backend._adams
+    result = session_run(backend, problem, bare(run_request))
+    # Every attempt's step, rejected ones included, and the last plane's field.
+    steps = list(result.joined[0].dz)
+    field = result.fields[-1][0, 0]
+    march = backend.march
     backend.close()
-    assert field is not None
     return field, march, np.array(steps)
 
 
@@ -337,12 +335,10 @@ def test_exponential_dense_observation_matches_landing(narrow_grid, soliton_prob
             interpolate_planes=interpolate,
         )
         backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-        backend.set_initial(problem.initial.field0, None)
-        fields = []
-        for plane in planes:
-            backend.propagate_to(float(plane))
-            fields.append(backend.observe().require_field()[0, 0])
-        ledger = ledger_of(backend._adams)
+        result = session_run(backend, problem, bare(run_request))
+        assert [event.z for event in result.observations[1:]] == planes
+        fields = [field[0, 0] for field in result.fields[1:]]
+        ledger = ledger_of(backend.march)
         backend.close()
         return np.array(fields), ledger
 
@@ -367,9 +363,9 @@ def test_exponential_dense_observation_is_the_linear_flow_without_a_source(
         dz_max=0.3,
     )
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(planes[0])
-    observed = backend.observe().require_field()[0, 0]
+    result = session_run(backend, problem, bare(run_request), observations=2)
+    assert result.observations[-1].z == planes[0]
+    observed = result.fields[-1][0, 0]
     backend.close()
     start = problem.initial.field0[0, 0] * problem.grids.active_mask
     exact = np.exp(delta_phi(problem.linear, 0.0, planes[0]))[0, 0] * start
@@ -520,27 +516,22 @@ def test_a_replayed_schedule_stops_to_save_and_refuses_to_run_out(
             soliton_problem, narrow_grid, fixed(method), schedule, length, **overrides
         )
         backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-        backend.set_initial(problem.initial.field0, None)
-        return backend
+        return backend, session_run(backend, problem, bare(run_request))
 
-    def field_of(runner):
-        return runner.observe().field[0, 0, 0]
-
-    # Every third step's end is saved: each call stops there, and the steps, so the
+    # Every third step's end is saved: the march stops there, and the steps, so the
     # field, are those of the uninterrupted replay.
-    whole = start()
-    whole.propagate_to(length)
-    stopping = start(step_planes=3)
-    calls = 0
-    while stopping._z < length * (1 - 1e-12):
-        stopping.propagate_to(length)
-        calls += 1
-    assert calls == 3
+    whole, uninterrupted = start()
+    stopping, stopped = start(step_planes=3)
+    assert len(stopped.observations) - 1 == 3
     matched = scheduled(soliton_problem, narrow_grid, fixed(method), schedule, length)
-    assert_within(field_of(stopping), field_of(whole), replay_bound(matched.request, 9))
+    assert_within(
+        stopped.fields[-1][0, 0, 0],
+        uninterrupted.fields[-1][0, 0, 0],
+        replay_bound(matched.request, 9),
+    )
     # Past its last edge the schedule cannot take the march.
     with pytest.raises(BackendError, match="cannot reach"):
-        whole.propagate_to(1.01 * length)
+        cast("Any", whole.march).advance(1.01 * length)
     whole.close()
     stopping.close()
 
@@ -555,13 +546,14 @@ def test_a_replayed_step_with_a_non_finite_norm_is_refused(
         soliton_problem, narrow_grid, method, schedule, length
     )
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
     # A diverged field: a replay cannot reject the step, so it stops and says why.
     monkeypatch.setattr(
-        backend._adams, "_attempt", lambda dz, *, fixed, landing: (None, math.nan)
+        HostAdamsMarch,
+        "_attempt",
+        lambda self, dz, *, fixed, landing: (None, math.nan),
     )
     with pytest.raises(ConvergenceError, match="non-finite error norm"):
-        backend.propagate_to(length)
+        session_run(backend, problem, bare(run_request))
     backend.close()
 
 
@@ -726,8 +718,8 @@ def test_only_the_exponential_formulation_reads_the_collar(integrator):
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        march = backend._adams
-        assert march is not None
+        march = cast("Any", backend.march)
+        assert isinstance(march, HostAdamsMarch)
         collar = problem.responses.temporal_absorber
         assert collar is not None
         expected = 0.5 * float(np.max(collar))

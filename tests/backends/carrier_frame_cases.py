@@ -12,6 +12,7 @@ Shared by ``test_carrier_frame.py`` and the catalogue's march rows
 import dataclasses
 import functools
 import warnings
+from typing import Any, cast
 
 import numpy as np
 
@@ -153,7 +154,7 @@ def matched_window(simulation: Simulation, *, compensated: bool = False) -> Buil
     try:
         result = run(backend, problem, run_request, record={})
         attempts = result.joined[0]
-        march = backend._adams
+        march = cast("Any", backend.march)
         assert march is not None
         assert not compensated or march._engine.compensated
     finally:

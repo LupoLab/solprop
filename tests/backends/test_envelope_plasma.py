@@ -22,6 +22,7 @@ from backends.host_cases_envelope_qualification import (
 )
 from envelope_oracle_angular import BUDGETS, order_record
 from rate_oracles import adk_oracle
+from sessions.runs import bare, final_field
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import CHARGE_MASS_RATIO, EPS0, C
 from solprop.grid import EnvelopeGrid
@@ -175,9 +176,7 @@ def test_prescribed_density_drude_conserves_energy_with_fifth_order_steps():
         )
         owner = NumpyRefBackend(problem, run_request, grid=grid)
         try:
-            owner.set_initial(problem.initial.field0, None)
-            owner.propagate_to(grid.length)
-            actual = owner.observe().require_field()
+            actual = final_field(owner, problem, bare(run_request), ended=True)
         finally:
             owner.close()
         error = np.linalg.norm(actual - exact) / norm

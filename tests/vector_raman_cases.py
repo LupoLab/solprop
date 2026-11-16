@@ -16,6 +16,7 @@ import math
 
 import numpy as np
 
+from builders import load_reference
 from former_raman import (
     FORMER_CH4,
     FORMER_D2,
@@ -135,7 +136,7 @@ def result(backend_class, problem, run_request, grid, modes, options=CHUNK):
     )
     try:
         if backend.name == "numpy_ref":
-            backend.set_initial(problem.initial.field0, None)
+            load_reference(backend)
             backend.workspace.hoist(0.0)
             bundle = backend.workspace.stage_scalars(0.0, 0.0)
             rhs = backend.workspace.nonlinear(
