@@ -520,14 +520,14 @@ void bind_setup(nb::class_<native::Problem>& problem, const char* name,
     `Problem::validate`; a group without one keeps none. Overloads rather than an
     `if constexpr` inside the setter, which nvcc's front end does not discard. */
 template <class Group>
-auto keep_shape(Group& group, const char* label, std::vector<std::size_t>& shape, int)
-    -> decltype(group.shapes, void()) {
+auto keep_shape(Group& group, const char* label, std::vector<std::size_t>& shape,
+                int /*preferred*/) -> decltype(group.shapes, void()) {
   group.shapes[label] = std::move(shape);
 }
 
 template <class Group>
 void keep_shape(Group& /*group*/, const char* /*label*/,
-                std::vector<std::size_t>& /*shape*/, long) {}
+                std::vector<std::size_t>& /*shape*/, long /*fallback*/) {}
 
 /** One group of the problem's fields, bound as a nested class from its field table
     (solprop SEP 52 section 5.3): scalars read and written as they are, arrays as exact
@@ -1293,6 +1293,8 @@ using Ticket = std::pair<std::uint64_t, std::uint64_t>;
 
 namespace solprop_native {
 
+namespace {
+
 // An export's conversion (`solprop.backends.export.ExportRecipe`) with the route's
 // power weight at the ticket's position, none unless `power`.
 struct ExportRecipe {
@@ -1307,6 +1309,8 @@ struct ExportRecipe {
                           fields::value("optics", &R::optics),
                           fields::array("weight", &R::weight, fields::Extent::any()));
 }
+
+} // namespace
 
 } // namespace solprop_native
 
@@ -1327,7 +1331,7 @@ public:
   BoundSession(BoundSession&&) = delete;
   BoundSession& operator=(BoundSession&&) = delete;
 
-  native::session::Session& session() const { return run_->session(); }
+  [[nodiscard]] native::session::Session& session() const { return run_->session(); }
 
   // The advance runs without the interpreter lock; its batch becomes a record with it.
   BatchRecord advance(const std::size_t work_limit, const double deadline) {
@@ -2241,8 +2245,9 @@ public:
     return owner_->raman_terms();
   }
   [[nodiscard]] bool raman() const noexcept { return owner_->raman(); }
-  std::vector<double> trial_step(const double dz, const native::TrialScalars& scalars,
-                                 const bool prepare_only) const {
+  [[nodiscard]] std::vector<double> trial_step(const double dz,
+                                               const native::TrialScalars& scalars,
+                                               const bool prepare_only) const {
     auto& state = open_state();
     if (prepare_only) {
       state.prepare_trial(dz, scalars);
@@ -2265,8 +2270,9 @@ public:
   weighted_error(const std::vector<double>& scale) const {
     return open_state().weighted_error(scale);
   }
-  std::vector<double> form_flow_actions(const std::size_t section, const double dz,
-                                        const std::vector<double>& fractions) const {
+  [[nodiscard]] std::vector<double>
+  form_flow_actions(const std::size_t section, const double dz,
+                    const std::vector<double>& fractions) const {
     auto& state = open_state();
     workspace_->forget_flow_key();
     return state.form_flow_actions(section, dz, fractions);
@@ -2402,31 +2408,31 @@ public:
     owner_->release(this);
     owner_ = nullptr;
   }
-  native::GeneralState& state() const {
+  [[nodiscard]] native::GeneralState& state() const {
     if (owner_ == nullptr)
       throw std::logic_error("the engines are closed");
     return owner_->leased_state(this);
   }
-  native::rk::Engine& runge_kutta() const {
-    state();
+  [[nodiscard]] native::rk::Engine& runge_kutta() const {
+    static_cast<void>(state());
     if (!runge_kutta_)
       throw std::logic_error("this workspace has no Runge-Kutta engine");
     return *runge_kutta_;
   }
-  native::march::Engine& adams() const {
-    state();
+  [[nodiscard]] native::march::Engine& adams() const {
+    static_cast<void>(state());
     if (!adams_)
       throw std::logic_error("this workspace has no Adams engine");
     return *adams_;
   }
-  ComplexOutput field() const {
+  [[nodiscard]] ComplexOutput field() const {
     const std::size_t count = owner_ == nullptr ? 0 : owner_->elements();
     auto storage = native::crossing::host_buffer(2 * count);
     state().field_to_host({reinterpret_cast<native::Complex*>(storage.get()), count});
     return complex_buffer_output(std::move(storage),
                                  {owner_->columns(), count / owner_->columns()});
   }
-  ComplexOutput stage(const std::size_t index) const {
+  [[nodiscard]] ComplexOutput stage(const std::size_t index) const {
     const std::size_t count = owner_ == nullptr ? 0 : owner_->elements();
     auto storage = native::crossing::host_buffer(2 * count);
     state().stage_to_host(index,
@@ -2485,11 +2491,11 @@ native::march::Stencil stencil_from(const nb::handle value) {
   if (nodes.size() != rows.size() || nodes.size() > native::march::max_history ||
       orders.size() > native::march::max_orders)
     throw std::invalid_argument("a stencil's nodes and rows are one per held entry");
-  std::copy(nodes.begin(), nodes.end(), stencil.nodes.begin());
-  std::copy(rows.begin(), rows.end(), stencil.rows.begin());
+  std::ranges::copy(nodes, stencil.nodes.begin());
+  std::ranges::copy(rows, stencil.rows.begin());
   stencil.held = nodes.size();
   stencil.order = nb::cast<std::size_t>(value.attr("order"));
-  std::copy(orders.begin(), orders.end(), stencil.orders.begin());
+  std::ranges::copy(orders, stencil.orders.begin());
   stencil.n_orders = orders.size();
   return stencil;
 }
@@ -3353,7 +3359,7 @@ void bind_testing(nb::module_& testing) {
           throw std::logic_error("no z table's slots were configured");
         const auto known =
             native::names(static_cast<const native::TableKind*>(nullptr));
-        const auto found = std::ranges::find_if(
+        const auto* const found = std::ranges::find_if(
             known, [&kind](const auto& entry) { return kind == entry.first; });
         if (found == known.end())
           throw std::invalid_argument("a z table is phi, prefactor, rate or flux");
