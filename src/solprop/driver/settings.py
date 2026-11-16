@@ -277,9 +277,12 @@ class SimulationSettings(Displayed):
         is authoritative.
     stats : solprop.stats.StatsSpec or None
         Which statistics to collect at every saved plane. ``None`` takes the route's
-        default in every ``Simulation.from_*`` constructor
-        (:func:`solprop.stats.default_spec`) and collects none on a
-        :class:`~solprop.driver.simulation.Simulation` built directly;
+        default in every ``Simulation.from_*`` constructor and collects none on a
+        :class:`~solprop.driver.simulation.Simulation` built directly, which knows
+        the objects it is given but not the route they came from. There, pass
+        :func:`solprop.stats.default_spec` of the run's kind for the basic set, or
+        read a route's full default -- which adds the backend, plasma and species
+        statistics -- from ``Simulation.from_*(...).settings.stats``.
         ``StatsSpec(names=())`` collects none anywhere.
     polarisation_taper : bool
         Whether the spectral collar tapers the nonlinear polarisation as well as

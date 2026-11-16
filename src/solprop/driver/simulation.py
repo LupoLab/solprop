@@ -323,7 +323,10 @@ class Simulation(Displayed):
         copy rather than another; on a modal route it holds the launch converted to
         its internal amplitude beside the simulation's copy, two states in all.
     settings : SimulationSettings
-        How to step it, what to record and which backend to use.
+        How to step it, what to record and which backend to use. Its ``stats=None``
+        records no statistics here, unlike the ``from_*`` constructors: pass
+        :func:`solprop.stats.default_spec` of the run's kind, or a route's resolved
+        ``settings.stats`` (:attr:`~solprop.driver.settings.SimulationSettings.stats`).
     initial_z : float, optional
         Absolute position of an array input, m, default zero, before
         ``grid.length``: the run records ``[initial_z, grid.length]`` (SEP 51), a count

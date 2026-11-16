@@ -80,7 +80,10 @@ that is not ordered, a periodic statistic the run does not record, all raise
 up rather than at the first save plane.
 
 {py:func}`~solprop.stats.default_spec` returns what a run of each kind records unless
-told otherwise; it names no periodic subset, so the channel is off unless asked for.
+told otherwise; it names no periodic subset, so the channel is off unless asked for. The
+`prop_*` interfaces and `Simulation.from_*` start from it and add their route's
+statistics; a `Simulation` built directly records none until given a spec
+([configure before running](../setup/running.md#configure-before-running)).
 
 ```{code-block} python
 import numpy as np

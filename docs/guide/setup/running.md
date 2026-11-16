@@ -477,6 +477,27 @@ simulation.run("run.h5")              # and again, into a file, without translat
 the controller and its tolerances, the save planes, the step limits, a fixed schedule,
 the tableau, the absorber and how it is applied, the transverse quadrature, the
 statistics and the backend.
+
+**Statistics on a simulation built directly.** Every `Simulation.from_*` constructor, and
+so every `prop_*` interface, resolves `stats=None` to its route's default. A
+`Simulation` built from objects records **no** statistics with `stats=None`: it is given
+the grid, the modes and the responses, not the route they would have come from, and the
+route's default depends on that (mode-averaged or multimode, plasma or none, a mixture).
+Ask for them explicitly:
+
+```{code-block} python
+from solprop.stats import default_spec
+
+settings = SimulationSettings(..., stats=default_spec("multimode", with_profiles=True))
+```
+
+{py:func}`~solprop.stats.default_spec` gives the basic set of each kind
+(`"mode_averaged"`, `"multimode"`, `"radial"`, `"free"`), which is all a GNLSE or
+free-space route records in a single gas. A capillary or waveguide route adds the
+statistics only a backend can compute (`peak_intensity`, `quadrature_error`), the plasma
+statistics when the run has a plasma, and the species statistics of a mixture; to record
+exactly what such a route would, read its resolved spec,
+`Simulation.from_capillary(...).settings.stats`, and pass that.
 {py:meth}`~solprop.driver.simulation.Simulation.translate` does everything expensive that
 does not depend on the state — the cumulative linear operator, the masks, the modal
 transform, the compiled responses — and caches it, so a second run of the same simulation
