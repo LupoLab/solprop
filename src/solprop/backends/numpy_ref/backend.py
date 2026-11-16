@@ -10,8 +10,8 @@ workspace that holds the state and does every state-sized operation
 engines a march asks of it
 (:class:`~solprop.backends.numpy_ref.engines.NumpyRungeKutta`,
 :class:`~solprop.backends.numpy_ref.multistep.HostHistory`,
-:class:`~solprop.backends.low_storage.HostLowStorage`), the run's march and its dense
-output (:meth:`NumpyRefBackend.method`); it keeps ``prepare``, the metadata, the
+:class:`~solprop.backends.numpy_ref.engines.NumpyLowStorage`), the run's march and its
+dense output (:meth:`NumpyRefBackend.method`); it keeps ``prepare``, the metadata, the
 memory ledger, the timing probe and ``close``. Every run is the reference's own
 session's (:class:`~solprop.backends.host.session.HostSession`), which schedules it.
 The step control follows ``docs/dev/stepper.md`` section 3 exactly: the controller's
@@ -38,10 +38,9 @@ from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.host.runge_kutta import RungeKuttaMarch
 from solprop.backends.host.session import HostMethod, HostPrepared, start_position
 from solprop.backends.ledger import CallLedger
-from solprop.backends.low_storage import HostLowStorage
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.numpy_ref.dense import AdamsDense, RungeKuttaDense
-from solprop.backends.numpy_ref.engines import NumpyRungeKutta
+from solprop.backends.numpy_ref.engines import NumpyLowStorage, NumpyRungeKutta
 from solprop.backends.numpy_ref.multistep import (
     ExponentialHistory,
     HostHistory,
@@ -282,7 +281,7 @@ class NumpyRefBackend:
             # The host engine is the oracle (SEP 24 section 6.5).
             schedule = stepper.schedule
             assert schedule is not None  # the translation refused it without one
-            engine = HostLowStorage(
+            engine = NumpyLowStorage(
                 self._workspace, integrator, schedule, self._propagator_mode
             )
             method = HostMethod(
@@ -600,7 +599,7 @@ class NumpyRefBackend:
         march = self._run.march
         if isinstance(march, HostLowStorageMarch):
             engine = march.engine
-            assert isinstance(engine, HostLowStorage)
+            assert isinstance(engine, NumpyLowStorage)
             engine.close()
         self._closed = True
 
@@ -656,7 +655,7 @@ class _TrialProbe:
             assert schedule is not None  # the translation refuses the march without one
             index = min(self._index, schedule.n_steps - 1)
             length = float(schedule.steps[index]) if dz is None else float(dz)
-            cast("HostLowStorage", self._engine).trial(start, length)
+            cast("NumpyLowStorage", self._engine).trial(start, length)
             return
         length = float(stepper.dz_init) if dz is None else float(dz)
         cast("NumpyRungeKutta", self._engine).trial(start, length)

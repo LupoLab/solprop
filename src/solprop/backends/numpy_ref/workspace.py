@@ -12,7 +12,8 @@ host source's reservation. It holds no march state -- no position, proposal, his
 or ledger -- and is reused across a scan's points, a load replacing its state. The
 engines (:mod:`solprop.backends.numpy_ref.engines`,
 :class:`~solprop.backends.numpy_ref.multistep.HostHistory`,
-:class:`~solprop.backends.low_storage.HostLowStorage`) are what the marches ask of it.
+:class:`~solprop.backends.numpy_ref.engines.NumpyLowStorage`) are what the marches ask
+of it.
 
 The contract is consumed only through its evaluation functions --
 :func:`solprop.translate.linop.delta_phi`,

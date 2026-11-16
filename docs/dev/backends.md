@@ -210,7 +210,7 @@ operation (SEP 52 §5.1). The backend builds a fresh march and engines for each 
 | `RungeKuttaMarch.replay_to` | Runge-Kutta on a fixed schedule | the same engine |
 | `HostAdamsMarch.march_to`, in `backends/host/adams.py` | adaptive Adams | an `AdamsEngine`: `HostHistory` |
 | `HostAdamsMarch._replay_to` | Adams on a fixed schedule | the same engine |
-| `HostLowStorageMarch.replay_to`, in `backends/host/low_storage.py` | low-storage, always on a schedule | a `RungeKuttaEngine` with a destructive trial: `HostLowStorage` |
+| `HostLowStorageMarch.replay_to`, in `backends/host/low_storage.py` | low-storage, always on a schedule | a `RungeKuttaEngine` with a destructive trial: `NumpyLowStorage` |
 | the native session's Adams march, `native/src/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine (`engines::ResidentEngine`, a `march::Engine`), the march's state from the run record (`_NativeAdamsMarch.start_state`) |
 | the native session's Runge-Kutta march, `native/src/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)) | the staged trial and native norm |
 | the native session's low-storage replay | low-storage, always on a schedule | one in-place native step a schedule step |

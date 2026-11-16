@@ -8,7 +8,7 @@ SEP 52 section 6.5: a parity case is written once, against
 :class:`~solprop.backends.engines.RungeKuttaEngine` and
 :class:`~solprop.backends.engines.AdamsEngine`, and run on each backend's engines. The
 reference's are its own (:class:`~solprop.backends.numpy_ref.engines.NumpyRungeKutta`,
-:class:`~solprop.backends.low_storage.HostLowStorage`,
+:class:`~solprop.backends.numpy_ref.engines.NumpyLowStorage`,
 :class:`~solprop.backends.numpy_ref.multistep.HostHistory`) over its workspace;
 native's are its workspace's C++ engines, reached through the private test module
 (``_testing.engines``), whose prefixed methods :class:`NativeRungeKutta` and

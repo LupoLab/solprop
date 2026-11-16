@@ -56,8 +56,9 @@ from sessions.executors import IDENTITY
 from sessions.runs import bare
 from sessions.runs import run as session_run
 from solprop.backends.events import Eligibility, ObservationKind, ObservationReady
-from solprop.backends.low_storage import HostLowStorage, schedule_key, table_steps
+from solprop.backends.low_storage import schedule_key, table_steps
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.engines import NumpyLowStorage
 from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.registry import resolve_name
 from solprop.backends.session import Start
@@ -1032,7 +1033,7 @@ def test_an_atomic_engine_commits_its_step_whole(lifecycle, narrow_grid, atomic)
         Start.entrance(problem), owns=False
     )
     engine = cast("Any", session._march.engine)
-    assert isinstance(engine, HostLowStorage) is not atomic
+    assert isinstance(engine, NumpyLowStorage) is not atomic
     original = engine.trial
 
     def interrupted(z, dz):
@@ -1226,7 +1227,7 @@ def test_the_ledger_holds_three_registers_the_scratch_and_the_table(mode, collar
     ledger = backend.memory_ledger()
     # The run's own engine, which the backend keeps after it.
     engine = cast("Any", backend.march).engine
-    assert isinstance(engine, HostLowStorage)
+    assert isinstance(engine, NumpyLowStorage)
     assert engine.held() == {
         row: ledger[row]
         for row in ("register_accumulator", "register_stage", "propagators")
@@ -1458,7 +1459,7 @@ def test_the_table_is_keyed_on_its_run_and_rebuilt_where_the_run_changes(
     cast("Any", backend.workspace).propagator = counted
     session_run(backend, problem, bare(run_request), export=None)
     engine = cast("Any", backend.march).engine
-    assert isinstance(engine, HostLowStorage)
+    assert isinstance(engine, NumpyLowStorage)
     assert len(built) == 1
     assert engine._table_step == float(keys[0])
     backend.close()
@@ -1484,7 +1485,7 @@ def test_the_table_is_keyed_on_its_run_and_rebuilt_where_the_run_changes(
         Start.entrance(varied), owns=False
     ) as session:
         engine = cast("Any", session)._march.engine
-        assert isinstance(engine, HostLowStorage) and engine._table is None
+        assert isinstance(engine, NumpyLowStorage) and engine._table is None
     backend.close()
 
 
@@ -1554,7 +1555,7 @@ def test_a_linear_step_is_rk4_s_stability_function_and_reads_its_stiffness(rate)
     start = state.copy()
     step = 0.05
     workspace = LinearSource(rate, state)
-    engine = HostLowStorage(cast("Any", workspace), MARCH, None, "recompute")
+    engine = NumpyLowStorage(cast("Any", workspace), MARCH, None, "recompute")
     squared = engine._step(state, 0.0, step)
     x = step * rate
     expected = (1 + x + x**2 / 2 + x**3 / 6 + x**4 / 24) * start
@@ -1571,7 +1572,7 @@ def test_the_march_warns_once_when_a_step_passes_the_interval(
     """A stiffness past 2.785 is logged once per replay, never in the norm column."""
     problem, run_request, length = lifecycle()
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    step = HostLowStorage.trial
+    step = NumpyLowStorage.trial
 
     def stiff(engine, z, dz):
         squared = step(engine, z, dz)
@@ -1580,7 +1581,7 @@ def test_the_march_warns_once_when_a_step_passes_the_interval(
 
     # The session's own engine, built for its run; no bounded yield splits the plane's
     # replay into two march calls, each of which warns once.
-    monkeypatch.setattr(HostLowStorage, "trial", stiff)
+    monkeypatch.setattr(NumpyLowStorage, "trial", stiff)
     monkeypatch.setattr(YieldDue, "__call__", lambda self: False)
     with caplog.at_level(logging.WARNING, logger="solprop.backends.host.low_storage"):
         result = session_run(
