@@ -124,12 +124,12 @@ the gate.
 - Use RAII, Kokkos views, `Kokkos::complex`, device-callable math, named kernels and
   allocations (`solprop_native.*` labels), explicit `LayoutRight` and explicit
   execution-space instances. Dispatch top-level kernels through `launch::parallel_for`,
-  `parallel_reduce` and `parallel_scan` (`include/solprop_native/launch.hpp`), which pass
+  `parallel_reduce` and `parallel_scan` (`include/solprop_native/runtime/launch.hpp`), which pass
   a device kernel's functor as its launch argument; team-level loops stay `Kokkos::`.
 - Allocate field-sized views, scratch and FFT plans once, when a workspace is built.
   A trial step performs no allocation, planning, logging, Python call or unplanned
   fence. The one exception is the host source hook (solprop SEP 49,
-  `include/solprop_native/host_source.hpp`): on a CPU build, a bound host source is
+  `include/solprop_native/runtime/host_source.hpp`): on a CPU build, a bound host source is
   called from the thread that called `advance`, outside every parallel region, and the
   binding layer takes the interpreter lock for each call; device builds refuse it.
 - Keep data resident in the execution space until it is observed; `field_to_host` is
@@ -150,13 +150,13 @@ the gate.
   `fast` makes Clang ignore the pragmas). A protected block (a stable
   increment, a small-argument function, a defect or a compensated sum) stays strict
   with `SOLPROP_NATIVE_STRICT_FUNCTION` and `SOLPROP_NATIVE_STRICT_BLOCK`
-  (`include/solprop_native/fp.hpp`; GCC ignores `#pragma STDC FP_CONTRACT`) and spells
+  (`include/solprop_native/runtime/fp.hpp`; GCC ignores `#pragma STDC FP_CONTRACT`) and spells
   its complex arithmetic with the `strict_*` helpers, since `Kokkos::complex`'s
   operators keep their header's contraction when inlined. Reassociation is scoped to
   the loops that need it. No umbrella fast-math, `nnan`/`ninf`, `nsz`, approximate
   functions or reciprocals, or flush-to-zero; the `__FAST_MATH__` refusal stays.
   The marches' and the session's strict files (`adams_march.cpp`, `watch.cpp`,
-  `rk_march.cpp`, `session.cpp`, `session_statistics.cpp`, `session_widths.cpp`,
+  `rk_march.cpp`, `session.cpp`, `statistics_plan.cpp`, `session_widths.cpp`,
   `low_storage.cpp`, `transverse.cpp`, `session_edge.cpp`, `dense.cpp`) are compiled with
   `-ffp-contract=off` and carry `#pragma GCC optimize("fp-contract=off")`, so that GCC
   never inlines them into a contracting caller. Their probes are checked in the
@@ -167,7 +167,7 @@ the gate.
   CUDA and HIP builds leave the strict blocks empty and follow their compilers'
   contraction defaults, held to the measured device envelopes (solprop's ADR-049,
   amended) until device round-to-nearest helpers land.
-- A host kernel's hot transcendentals go through `include/solprop_native/vmath.hpp`
+- A host kernel's hot transcendentals go through `include/solprop_native/runtime/vmath.hpp`
   (solprop's ADR-059): form a block's arguments into a buffer, call the batch function
   once over it, and finish each element from the results, behind
   `if constexpr (vmath::vectorised)` where the per-element form is faster with the
@@ -185,20 +185,22 @@ the gate.
 - The contract with solprop is its kernel contract, whose fields solprop's frozen
   tables hold. The backend inherits no solprop driver: a run is its native session
   (`session.py`), and the load, the Adams record and the timing probe are its own
-  (`_load.py`, `backend.py`, `_probe.py`). A backend holds one `_core.Workspace`,
+  (`_load.py`, `_march.py`, `_probe.py`). A backend holds one `_core.Workspace`,
   built from one `_core.Problem` with every set-once table; a run starts from one run
   record and the probe from the run's start (solprop SEP 52 section 5.3), and nothing
   configures the workspace after it is built. `check_build()` refuses, in an editable
   checkout, an extension built from other sources than `native/`
-  (`build_info().source_digest`; `cmake/SourceDigest.cmake` and `_source_digest`
+  (`build_info().source_digest`; `cmake/SourceDigest.cmake` and `_build._source_digest`
   compute it, and stay in step). It records solprop's version without comparing it;
   never pin solprop's version.
 - A record that crosses declares its fields once, in a field table beside its C++
-  definition (`include/solprop_native/fields.hpp`), and is read by the one converter
-  (`src/records.hpp`), never by a hand-written dictionary reader; `_core.schemas()`
+  definition (`include/solprop_native/runtime/fields.hpp`), and is read by the one converter
+  (`src/bindings/records.hpp`), never by a hand-written dictionary reader; `_core.schemas()`
   exports the tables, which a test holds to the Python records. A binding only
   converts, releases the GIL and forwards: logic goes in the C++ library, where ctest
-  reaches it.
+  reaches it. The bindings live in `src/bindings/`, one file a bound concept;
+  `module.cpp` holds `NB_MODULE` and calls each file's entry point in the order
+  `bind.hpp` records, which later signatures and the stubs depend on.
 - Accept the documented NumPy dtype, rank, shape and C-contiguity exactly and refuse
   hidden O(n) conversions. Read-only input is valid. Returned host arrays own their
   memory.
@@ -262,4 +264,5 @@ in a repository-root `changelog.d/` fragment
 Code is `GPL-3.0-or-later` and documentation `CC-BY-4.0`. Every code file starts with
 the SPDX header that `uv run reuse annotate --copyright "John C. Travers and
 contributors" --year 2026 --license GPL-3.0-or-later <file>` writes (above
-`#pragma once` and any shebang); the repository's `REUSE.toml` covers the rest.
+`#pragma once` and any shebang; a fragment a unit includes, `*.inc`, needs
+`--style cpp`); the repository's `REUSE.toml` covers the rest.

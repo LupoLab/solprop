@@ -6,10 +6,10 @@
 
 The host column runs whole-row passes: each running integral is a band filter and a
 chunked scan, a team may split a row between its threads, and each pass is limited to
-its row's live window (``include/solprop_native/plasma.hpp``). These cases aim at what
-that can get wrong: a preionised field whose rate is identically zero (the current
-lives with no exposure), a field just above threshold (a tiny exposure from a few
-cycle peaks), pulses cut by either end of the window (the point reflections and the
+its row's live window (``include/solprop_native/response/plasma.hpp``). These cases aim
+at what that can get wrong: a preionised field whose rate is identically zero (the
+current lives with no exposure), a field just above threshold (a tiny exposure from a
+few cycle peaks), pulses cut by either end of the window (the point reflections and the
 windows reaching an end), a mixture there (several channels), and a two-component
 field on the radial route. Each is compared at one evaluation, one fixed step and ten,
 under a fixed-order method, with :mod:`test_band_plasma`'s bounds, decided before these

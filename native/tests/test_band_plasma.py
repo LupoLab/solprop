@@ -8,8 +8,8 @@ The band rule filters each of the column's two running integrals with the grid's
 symmetric taps before the cumulative trapezoid, closes the window's ends by point
 reflection and floors the exposure at zero (solprop ``RunningIntegral``). Every build
 runs it as a team column in whole-row passes, a band filter then a chunked scan per
-running integral (``include/solprop_native/plasma.hpp``); a host team splits a row
-between its threads when a chunk has fewer nodes than threads, and skips each row's
+running integral (``include/solprop_native/response/plasma.hpp``); a host team splits a
+row between its threads when a chunk has fewer nodes than threads, and skips each row's
 quiet samples. Its statistics and run diagnostics come from the band scan. The bounds
 are the equivalence ladder's (solprop's ``accelerator_bounds``): the transforms' depth
 plus the plasma column's sums, which the band rule widens by its ``2K + 1`` taps per
@@ -62,7 +62,7 @@ from bounds import fft_bound
 from conftest import PhaseACase
 from plasma_bounds import assert_regression_guard, plasma_stage_bound, rate_roundoff
 from solprop_native import NativeBackend, _core
-from solprop_native.backend import (
+from solprop_native._lowering import (
     _lower,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
     _LowerPlan,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
 )
@@ -392,7 +392,7 @@ def test_overlapping_stencil_windows_refuse_uncertified_collar(
         jones=(1, 0.5j),
     )
     # These stencil stress windows cannot certify the held-source collar.
-    # Their raw band closures remain tested natively in test_core.cpp.
+    # Their raw band closures remain tested natively in test_plasma_scan.cpp.
     assert grid.n_to < 3 * half + 2 * half + 1
     with pytest.raises(TranslationError, match="held plasma current"):
         assemble(

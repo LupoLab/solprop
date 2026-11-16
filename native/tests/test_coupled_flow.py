@@ -7,7 +7,7 @@
 The engine carries each stage input forward and
 its source back by the step's actions, adds a frozen-residual flow's explicit
 residual, and carries the accepted step by the whole action
-(``src/coupled_flow.cpp``); it also forms the actions, from each
+(``src/response/coupled_flow.cpp``); it also forms the actions, from each
 section's eigenbasis or by the reference's scaling and squaring, and measures the
 whole step's conditioning, which the adapter checks against the certificate. Two
 capillary cases are propagated ten fixed steps on both backends: a scalar coherent
@@ -45,9 +45,11 @@ from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend, _core
 from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
+from solprop_native._lowering import (
+    _lower_flow,  # pyright: ignore[reportPrivateUsage]
+)
 from solprop_native.backend import (
     _host_flow,  # pyright: ignore[reportPrivateUsage]
-    _lower_flow,  # pyright: ignore[reportPrivateUsage]
 )
 
 type ComplexArray = npt.NDArray[np.complex128]

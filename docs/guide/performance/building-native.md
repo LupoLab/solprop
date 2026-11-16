@@ -192,7 +192,8 @@ python -c "import solprop_native as sn; sn.check_build(); print(sn.build_info().
 object suitable for a run log:
 
 - **provenance:** `package_version`, `git_commit` (with `+dirty` for a modified tree),
-  `source_digest` (the SHA-256 of the C++ sources and `CMakeLists.txt` it was compiled from),
+  `source_digest` (the SHA-256 of the C++ sources, `CMakeLists.txt` and the CMake modules
+  it was compiled from),
   `solprop_version_built_against`;
 - **dependencies:** `kokkos_version`, `kokkos_kernels_version`, `kokkos_fft_version`,
   `nanobind_version`;
@@ -334,7 +335,7 @@ the compiler, the profile or a library provider. The default build directory is
 
 ## Option reference
 
-The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.cmake`.
+The options are read by `native/CMakeLists.txt` and the modules it includes from `native/cmake/`.
 
 **Profile and optimisation**
 
@@ -427,7 +428,7 @@ access, point it at source trees of the same versions:
 The CPU kernels form their transcendentals (the stage and step propagators, the
 exponential Adams method's flows, phi-functions and compensation, the ionisation rates
 and fractions) in passes over blocks of elements through one layer,
-`native/include/solprop_native/vmath.hpp` ([ADR-059](../../dev/decisions.md)). On x86-64
+`native/include/solprop_native/runtime/vmath.hpp` ([ADR-059](../../dev/decisions.md)). On x86-64
 it calls [SLEEF](https://sleef.org)'s vector functions, each within 1.0 ulp of the
 correctly rounded value over its whole domain: AVX2 where the build's target has it (the
 wheels' x86-64-v3 baseline and any local build on a processor from 2013 or later), SSE2

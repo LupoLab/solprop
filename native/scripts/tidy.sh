@@ -25,9 +25,26 @@ else
   base=$(git merge-base "${SOLPROP_TIDY_BASE:-origin/main}" HEAD)
   while IFS= read -r -d '' file; do
     [[ -f $file ]] && files+=("$file")
-  done < <({ git diff -z --name-only "$base" -- 'native/*.cpp' 'native/*.hpp' 'native/*.h'
-             git ls-files -z --others --exclude-standard -- 'native/*.cpp' 'native/*.hpp' 'native/*.h'; } |
+  done < <({ git diff -z --name-only "$base" -- 'native/*.cpp' 'native/*.hpp' 'native/*.h' 'native/*.inc'
+             git ls-files -z --others --exclude-standard -- 'native/*.cpp' 'native/*.hpp' 'native/*.h' 'native/*.inc'; } |
            sort -zu)
+fi
+# A fragment (.inc) never compiles alone: check the units beside it that include it.
+units=()
+for file in ${files[@]+"${files[@]}"}; do
+  if [[ $file == *.inc ]]; then
+    while IFS= read -r unit; do
+      units+=("$unit")
+    done < <(grep -l -F "#include \"$(basename "$file")\"" "$(dirname "$file")"/*.cpp || true)
+  else
+    units+=("$file")
+  fi
+done
+files=()
+if [[ ${#units[@]} -gt 0 ]]; then
+  while IFS= read -r -d '' file; do
+    files+=("$file")
+  done < <(printf '%s\0' "${units[@]}" | sort -zu)
 fi
 if [[ ${#files[@]} -eq 0 ]]; then
   echo "tidy-native: no C++ files to check"
@@ -38,10 +55,14 @@ fi
 source "$native/scripts/compiler.sh"
 command_file="$build/clang_tidy_command.txt"
 # Configure the cpu-tidy preset when its compile commands or clang-tidy command are
-# missing or older than the build configuration.
-if [[ ! -f "$build/compile_commands.json" || ! -f "$command_file" ||
-      "$native/CMakeLists.txt" -nt "$build/compile_commands.json" ||
-      "$native/CMakeLists.txt" -nt "$command_file" ]]; then
+# missing or older than the build configuration (CMakeLists.txt and its cmake/ modules).
+stale=false
+for config in "$native/CMakeLists.txt" "$native"/cmake/*.cmake; do
+  if [[ $config -nt "$build/compile_commands.json" || $config -nt "$command_file" ]]; then
+    stale=true
+  fi
+done
+if [[ ! -f "$build/compile_commands.json" || ! -f "$command_file" || $stale == true ]]; then
   mkdir -p "$native/build"
   log="$native/build/tidy-configure.log"
   echo "tidy-native: configuring the cpu-tidy preset (log: $log)"

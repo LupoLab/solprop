@@ -281,7 +281,7 @@ closes the workspace afterwards, SEP 52 §5.5). The native execution session ([S
 `solprop_native.session`) owns the loop itself: the native Runge-Kutta march replays the
 schedule, and each step is one in-place native step whose stage scalars, the table keys
 of `table_steps` and the flows' increments, the native state forms from its stage
-tables (`native/src/low_storage.cpp`), with no return to Python; a failure partway
+tables (`native/src/march/low_storage.cpp`), with no return to Python; a failure partway
 through a step leaves no consistent state, so the session's terminal event is poisoned
 and claims no checkpoint. There is no estimate: the history's norm is 0.0, "not estimated". The step
 is **in flight** from its start to its commit (the engine's `in_flight`, which the march
@@ -405,13 +405,13 @@ frozen-residual flow's generator applied once per sample.
 **The native Runge–Kutta march** (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)):
 `RungeKuttaMarch.march_to`'s decisions are pure functions of a `RungeKuttaPolicy`
 (`backends/rk_core.py`), held to a decision corpus recorded before the refactor
-(`tests/data/rk_traces.json.gz`), and `native` executes them (`native/src/rk_march.cpp`) on
+(`tests/data/rk_traces.json.gz`), and `native` executes them (`native/src/march/rk_march.cpp`) on
 its staged trial and native norm, a call of attempts at a time, returning only at a host
 event and taking the boundary checks itself; the kernel contract's section 12 is the
 interface. It covers interpolated planes (the step across a plane returns to solprop, which
 holds its extension; in SEP 47's native session the march holds it through its engine,
 `rk::Engine::extend`, finishes the step itself and the session observes the plane where the
-state lives, `native/src/dense.cpp`), a replayed schedule, a coupled flow (its guards transcribed), a z table
+state lives, `native/src/march/dense.cpp`), a replayed schedule, a coupled flow (its guards transcribed), a z table
 the transverse edge (read on the host, as the Adams march reads it) and a weighted norm
 (reduced natively in both loops), on CPU and device builds alike. `PIController` is final
 (ADR-077): defining a subclass raises `StepperError`, so its decisions and its norm are the
@@ -425,7 +425,7 @@ record, `MarchPolicy`, formed by `march_policy` from the method and the settings
 the decisions are pure functions of the policy, the march's state and a trial's norms
 (`backends/adams_core.py`). The kernel contract's section 11 specifies them. `native`
 executes `Multistep()` in either formulation and replayed schedules from that record on its resident engine
-(`native/src/adams_march.cpp`), a run of attempts per call, and returns to solprop
+(`native/src/march/adams_march.cpp`), a run of attempts per call, and returns to solprop
 only at an event: the target reached or crossed, an accepted step on which the driver
 has work (a statistics row, a natural stop), a boundary check whose verdict needs
 solprop, the call's bound, the budget, the floor or a native error. The march takes the

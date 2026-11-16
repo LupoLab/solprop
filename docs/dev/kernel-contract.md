@@ -619,7 +619,7 @@ it is prepared, from the problem and its `ExecutionOptions` -- an explicit `node
 which is authoritative, or the automatic choice
 (`solprop.backends.node_chunk.plan_node_chunk`) -- records it in its execution metadata,
 and keeps it out of every identity and resume key. The native backend lowers the plan
-further (`solprop_native.backend.native_node_chunk`: whole y rows on the planar kind, and
+further (`solprop_native._device.native_node_chunk`: whole y rows on the planar kind, and
 `device_node_chunk` for a device build's automatic plan: the host rule at a quarter of the
 accelerator's free bytes, never fewer nodes than the host plan, solprop issue #361).
 
@@ -1342,7 +1342,7 @@ stripped extension labels only exported functions). The boundary checks above an
 ## 12. The Runge–Kutta march
 
 *Normative from [SEP 45](seps/archive/sep-0045-native-rk-march.md) phase 3. `native` executes it
-(`native/src/rk_march.cpp`), adaptive or replayed, with `PIController`'s norm, weighted or
+(`native/src/march/rk_march.cpp`), adaptive or replayed, with `PIController`'s norm, weighted or
 not, on CPU and device builds. `PIController` is final (ADR-077), so its decisions are
 the only ones either backend takes.*
 

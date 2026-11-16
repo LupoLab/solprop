@@ -36,6 +36,7 @@ from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule, reached, replay_tolerance
 
 backend_module = pytest.importorskip("solprop_native.backend")
+march_module = pytest.importorskip("solprop_native._march")
 session_module = pytest.importorskip("solprop_native.session")
 native = pytest.importorskip("solprop_native")
 _testing = pytest.importorskip("solprop_native._core")._testing
@@ -73,15 +74,15 @@ WATCH_STATE_FIELDS = (
 change, compared with solprop's monitor after every drain (SEP 45 section 4.8)."""
 
 SPLIT_RATE_BUCKETS = __import__("solprop.boundaries", fromlist=["x"]).SPLIT_RATE_BUCKETS
-_REACHED = backend_module._REACHED
-_HOST_STEP = backend_module._HOST_STEP
-_MONITOR = backend_module._MONITOR
-_WATCH = backend_module._WATCH
-_FLOOR = backend_module._FLOOR
-_BUDGET = backend_module._BUDGET
-_DIVERGED = backend_module._DIVERGED
-_DENSE = backend_module._DENSE
-_envelope_errors = backend_module._envelope_errors
+_REACHED = march_module._REACHED
+_HOST_STEP = march_module._HOST_STEP
+_MONITOR = march_module._MONITOR
+_WATCH = march_module._WATCH
+_FLOOR = march_module._FLOOR
+_BUDGET = march_module._BUDGET
+_DIVERGED = march_module._DIVERGED
+_DENSE = march_module._DENSE
+_envelope_errors = march_module._envelope_errors
 _raise_rk = session_module._raise_rk
 
 logger = logging.getLogger(__name__)
@@ -146,7 +147,7 @@ def _verify_watch_of(monitor: BoundaryMonitor, result: dict[str, Any]) -> None:
         )
 
 
-class TraceAdamsMarch(backend_module._NativeAdamsMarch):
+class TraceAdamsMarch(march_module._NativeAdamsMarch):
     """The native Adams record, driven a call at a time over a scripted harness.
 
     Parameters

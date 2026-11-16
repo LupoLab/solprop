@@ -3,9 +3,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // The general workspace's construction: its allocations, uploads, FFT plans and
-// memory ledger.
+// memory ledger, all made once when a GeneralWorkspace is built, since a trial step
+// allocates and plans nothing (native/AGENTS.md).
+// Functions: the constructor (refusals, route choices and execution pools, then
+// allocate, upload and plan, the planning timed and its opaque allocations measured
+// through memory.hpp); allocate and its parts by concern (allocate_separable,
+// allocate_low_storage, allocate_statistics, allocate_raman, allocate_transforms,
+// allocate_forward_rows, allocate_absorbers, allocate_envelope_plasma,
+// allocate_plasma, allocate_split, allocate_parts); upload; the measured FFTW wisdom
+// (seed_free_wisdom, seed_modal_wisdom, seed_stream_wisdom); plan with
+// plan_transverse, plan_raman and plan_split; and memory_ledger with
+// base_memory_ledger, each persistent allocation's bytes by row.
 
-#include "workspace.hpp"
+#include "general_workspace.hpp"
+#include "memory.hpp"
 
 namespace solprop_native {
 

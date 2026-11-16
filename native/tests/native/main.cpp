@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The native tests' entry point: GoogleTest's initialisation, then one Kokkos runtime
+// for the whole run (a ScopeGuard), with a failure to initialise reported on stderr.
+
 #include <Kokkos_Core.hpp>
 #include <gtest/gtest.h>
 

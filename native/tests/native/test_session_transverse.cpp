@@ -12,7 +12,7 @@
 // a plane read before its observation, and a collar's current taken at every step
 // with no more batches than the planes'.
 
-#include "solprop_native/session.hpp"
+#include "solprop_native/session/session.hpp"
 
 #include <gtest/gtest.h>
 
