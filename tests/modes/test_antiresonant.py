@@ -122,6 +122,19 @@ def test_loss_policy_and_wide_band(geometry):
     assert np.all(np.isfinite(mode.dneff_domega(omega)))
 
 
+def test_vincetti_mode_compares_by_identity_with_a_stable_hash():
+    mode = make_mode()
+    # Like every other mode: equal arguments do not make equal modes.
+    assert mode == mode
+    assert mode != make_mode()
+    before = hash(mode)
+    # The one-shot gain warning flips a private flag on the frozen mode; the hash
+    # must not follow it, or a mode stored in a set or dict would be lost.
+    object.__setattr__(mode, "_gain_warned", True)
+    assert hash(mode) == before
+    assert mode in {mode}
+
+
 def test_protocol_and_freezing():
     mode = replace(
         make_mode(),

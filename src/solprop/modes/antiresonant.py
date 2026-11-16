@@ -641,7 +641,7 @@ def _resonance_sums(
     )
 
 
-@dataclass(frozen=True, kw_only=True, repr=False)
+@dataclass(frozen=True, eq=False, kw_only=True, repr=False)
 class VincettiMode(MarcatiliMode):
     """Model a single-ring tube-lattice fibre with the Vincetti fits.
 
