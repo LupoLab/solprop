@@ -31,7 +31,7 @@ from modal_provider_cases import (
 )
 from solprop import fourier
 from solprop.backends.numpy_ref.general_modal import general_source
-from solprop.backends.numpy_ref.workspace import _general_maps
+from solprop.backends.numpy_ref.source import _general_maps
 from solprop.constants import EPS0
 from solprop.driver import Simulation
 from solprop.exceptions import GeneralModalBasisWarning, TranslationError

@@ -68,11 +68,11 @@ from solprop._helpers import PLAIN
 from solprop.backends.events import ObservationReady, Outcome
 from solprop.backends.exponential import carrier_reference
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.multistep import (
+from solprop.backends.numpy_ref.adams_kernels import (
     CoupledBlock,
     coupled_moments,
-    trial_tables,
 )
+from solprop.backends.numpy_ref.adams_tables import trial_tables
 from solprop.backends.registry import available
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session

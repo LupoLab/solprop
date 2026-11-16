@@ -97,7 +97,7 @@ def _operands(backend, reference, problem, run_request, dz):
     load_reference(reference)
     reference_trial(reference, 0.0, dz)
     step = reference.workspace.stage_scalars(0.0, dz)
-    propagator = np.exp(reference.workspace.exponents(0.0, dz)(1.0, step))
+    propagator = np.exp(reference.workspace.exponents()(1.0, step))
     return stages, propagator
 
 
@@ -116,7 +116,7 @@ def _difference(stages, weights, propagator, dz):
 def test_the_rk_norm_is_the_reference_norm_of_native_s_operands(
     capillary_problem, field_grid, dz, record_property
 ):
-    """The masked norm against ``passes.error_norm``, the bound fixed from operands."""
+    """The masked norm against ``error_norm``, the bound fixed from operands."""
     problem, run_request = _problem(capillary_problem)
     assert not np.all(problem.grids.norm_mask), "the mask has to act"
     reference = NumpyRefBackend(problem, run_request, grid=field_grid)

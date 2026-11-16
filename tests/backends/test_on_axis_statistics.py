@@ -115,7 +115,7 @@ def entrance_stats(grid, problem, run_request, modes, spec):
         load_reference(backend)
         values = backend.workspace.stats(spec, problem.initial.z)
         # select() returns the seam's protocol; the counter is the shared driver's.
-        return values, cast("Any", backend).workspace.axis_scans
+        return values, cast("Any", backend).workspace.statistics.axis_scans
 
 
 RULES: list[tuple[RadialRule, int]] = [
@@ -273,7 +273,7 @@ def test_consecutive_planes_scan_their_own_field(grid, table, name):
         landed = run(backend, problem, run_request)
         if name == "numpy_ref":
             # select() returns the seam's protocol; the counter is the driver's.
-            assert cast("Any", backend).workspace.axis_scans == 2
+            assert cast("Any", backend).workspace.statistics.axis_scans == 2
         first, second = (
             float(observation.stats["on_axis_electron_density"])
             for observation in landed.observations
@@ -398,7 +398,7 @@ def backend_stats(name, grid, problem, run_request, modes, spec):
         if name == "native":
             return _stats(observation), _native_axis_scans(session)
         # select() returns the seam's protocol; the counter is the driver's.
-        return _stats(observation), cast("Any", backend).workspace.axis_scans
+        return _stats(observation), cast("Any", backend).workspace.statistics.axis_scans
 
 
 @pytest.mark.parametrize("name", BACKENDS)
@@ -569,20 +569,6 @@ def test_the_native_row_refuses_a_matrix_that_is_not_one_or_two_rows(grid, table
             _testing.axis_spectrum(state, np.ones((3, 1)))
         with pytest.raises(ValueError, match="two-dimensional"):
             _testing.axis_spectrum(state, np.ones(1))
-
-
-def test_a_host_backend_s_axis_scan_needs_the_field(grid, table):
-    mode = argon()
-    rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
-    problem, run_request = problem_on(grid, table, [mode], rule)
-    with closing(
-        NumpyRefBackend(problem, run_request, grid=grid, modes=[mode])
-    ) as backend:
-        load_reference(backend)
-        with pytest.raises(BackendError, match="needs the field"):
-            backend.workspace._axis_row_populations(  # pyright: ignore[reportPrivateUsage]
-                None, np.zeros((2, 1)), problem.initial.z
-            )
 
 
 def test_they_are_saved_plane_statistics_and_tdse_never_defines_them():

@@ -22,7 +22,7 @@ from builders import grid_at, load_reference
 from sessions.runs import run as session_run
 from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.envelope_plasma import (
+from solprop.backends.numpy_ref.passes.plasma import (
     _cycle_quantities,  # pyright: ignore[reportPrivateUsage]
     envelope_sources,
 )
@@ -107,9 +107,11 @@ def test_envelope_population_values_do_not_depend_on_retaining_node_scans(host_c
     with closing(NumpyRefBackend(problem, run_request, grid=grid)) as backend:
         load_reference(backend)
         field = problem.initial.field0
-        plain = backend.workspace._species_statistics(field, problem.initial.z)
+        plain = backend.workspace.statistics._species_statistics(
+            field, problem.initial.z
+        )
         scans = []
-        retained = backend.workspace._species_statistics(
+        retained = backend.workspace.statistics._species_statistics(
             field, problem.initial.z, scans
         )
         assert len(scans) == 1

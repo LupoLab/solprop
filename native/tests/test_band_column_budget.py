@@ -289,9 +289,7 @@ def launch_fraction_bound(
         state = reference.workspace.committed()  # pyright: ignore[reportPrivateUsage]
         bundle = reference.workspace.stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         fields = np.real(
-            np.concatenate(
-                list(reference.workspace._plasma_nodes(state, 0.0))  # pyright: ignore[reportPrivateUsage]
-            )
+            np.concatenate(list(reference.workspace.statistics.node_fields(state, 0.0)))
         )
         field_error = node_field_error(reference, problem, fields)
     finally:

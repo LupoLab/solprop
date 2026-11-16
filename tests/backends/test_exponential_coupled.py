@@ -7,7 +7,8 @@
 On a coupled section the step's reference is ``(Delta Phi / h) I + G_s``, the frozen
 block of the section beside the cumulative diagonal, which is a multiple of the identity
 in the channel axis; the trial's flow and moments are matrix functions of it on the bins
-that carry a block (:func:`solprop.backends.numpy_ref.multistep.coupled_moments`). These
+that carry a block
+(:func:`solprop.backends.numpy_ref.adams_kernels.coupled_moments`). These
 tests check the matrix moments against independent evaluations, the march against the
 Runge-Kutta march on the constant-Schur cases of ``tests/flow_parity.py``, exactness
 without a source, and what stays refused: the interaction formulation.
@@ -28,15 +29,15 @@ from sessions.runs import adams_ledger
 from sessions.runs import run as session_run
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.multistep import (
+from solprop.backends.numpy_ref.adams_kernels import (
     CoupledBlock,
-    CoupledExponentialKernels,
+    ExponentialKernels,
     coupled_moments,
 )
 from solprop.exceptions import BackendError, SolpropWarning
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
-from solprop.translate.coupled import schur_blocks, schur_eigenbasis
+from solprop.translate.coupled import schur_blocks
 
 pytestmark = pytest.mark.medium
 
@@ -67,66 +68,16 @@ def test_the_matrix_moments_are_the_integrals_they_stand_for():
     assert math.isclose(moments.matrices[0].shape[-1], 3)
 
 
-def test_the_eigenbasis_route_matches_the_augmented_exponential():
-    # The compiled backends' evaluation: on the bins of the flow actions' route each
-    # function is W f(x + h lambda) Y. On a nonnormal block whose eigenvalues are well
-    # separated it equals the reference's augmented exponential; a bin with a
-    # coincident pair is off the route and keeps the augmented exponential.
-    rng = np.random.default_rng(17)
-    generator = rng.normal(size=(2, 3, 3)) + 1j * rng.normal(size=(2, 3, 3))
-    generator[:, 2, 1] = generator[:, 1, 2] = 0.0
-    generator[1] = np.triu(generator[1])
-    generator[1, 1, 1] = generator[1, 0, 0]
-    vectors, triangular = schur_blocks(np.moveaxis(generator, 0, -1))
-    basis = schur_eigenbasis(vectors, triangular)
-    assert basis[3].tolist() == [True, False]
-    exponent = np.full((3, 1, 2), -0.3 + 4.0j)
-    reference = CoupledBlock(
-        active=np.array([True, True]),
-        vectors=vectors,
-        triangular=triangular,
-        section=0,
-    )
-    routed = dataclasses.replace(reference, basis=basis)
-    # No bin on the route: every function is the augmented exponential's.
-    left, right, eigenvalues, _ = basis
-    unrouted = dataclasses.replace(
-        reference, basis=(left, right, eigenvalues, np.zeros(2, dtype=bool))
-    )
-    for dz in (1e-2, 0.4):
-        expected = coupled_moments(exponent, 7, reference, dz)
-        for block in (routed, unrouted):
-            found = coupled_moments(exponent, 7, block, dz)
-            np.testing.assert_allclose(
-                found.flow_matrix, expected.flow_matrix, atol=1e-13
-            )
-            np.testing.assert_allclose(found.matrices, expected.matrices, atol=1e-13)
-        # The flow alone, no moment: what a startup or an order-one step asks for.
-        flow = coupled_moments(exponent, 0, routed, dz)
-        np.testing.assert_allclose(flow.flow_matrix, expected.flow_matrix, atol=1e-13)
-
-
-def test_the_reference_carry_keeps_a_span_zero_sample_on_and_off_the_route():
-    # Each sample's compensation carried to the step's end, on a block wholly on the
-    # eigenbasis route, beside a bin off it and with no route, and in every case a
-    # sample with no flow weights (no residual term) and one of span zero (the
-    # untransported witness's, carried by nothing).
+def test_the_reference_carry_keeps_a_span_zero_sample():
+    # Each sample's compensation carried to the step's end, with a sample with no flow
+    # weights (no residual term) and one of span zero (the untransported witness's,
+    # carried by nothing).
     rng = np.random.default_rng(18)
     generator = rng.normal(size=(2, 3, 3)) + 1j * rng.normal(size=(2, 3, 3))
     vectors, triangular = schur_blocks(np.moveaxis(generator, 0, -1))
-    basis = schur_eigenbasis(vectors, triangular)
-    assert basis[3].tolist() == [True, True]
-    plain = CoupledBlock(
+    block = CoupledBlock(
         active=np.array([True, True]), vectors=vectors, triangular=triangular, section=0
     )
-    left, right, eigenvalues, _ = basis
-    blocks = {
-        "routed": dataclasses.replace(plain, basis=basis),
-        "partly routed": dataclasses.replace(
-            plain, basis=(left, right, eigenvalues, np.array([True, False]))
-        ),
-        "no route": plain,
-    }
     exponent = np.full((3, 1, 2), -0.3 + 4.0j)
     shape = (3, *exponent.shape)
     rates = rng.normal(size=shape) + 1j * rng.normal(size=shape)
@@ -135,11 +86,9 @@ def test_the_reference_carry_keeps_a_span_zero_sample_on_and_off_the_route():
     rows = (rates, states, no_weights)
     slots, spans = np.array([0, 1, 2]), np.array([0.5, 0.25, 0.0])
     dz = 0.3
-    reference = CoupledExponentialKernels()
-    # The object's coupled passes are itself.
-    assert reference.coupled() is reference
+    reference = ExponentialKernels()
     # The carry written out with SciPy's matrix exponential, by no route of the
-    # kernels', so that "no route" is compared with something other than itself.
+    # kernels', so that the augmented exponential is compared with something else.
     unrouted = np.empty_like(rates)
     for row, span in enumerate(spans):
         for index in range(generator.shape[0]):
@@ -148,16 +97,14 @@ def test_the_reference_carry_keeps_a_span_zero_sample_on_and_off_the_route():
             )
             term = (rates[row] - exponent / dz)[:, 0, index] * states[row][:, 0, index]
             unrouted[row, :, 0, index] = action @ term
-    for name, block in blocks.items():
-        expected = reference.carry_coupled(exponent, dz, rows, slots, spans, block)
-        # The route forms W f(x + h lambda) Y where its absence forms the augmented
-        # exponential: within a few hundred ulp of these O(10) rows.
-        scale = float(np.max(np.abs(unrouted)))
-        assert float(np.max(np.abs(expected - unrouted))) <= 1e-13 * scale, name
-        # The span-zero sample is the compensation itself, carried by nothing.
-        np.testing.assert_allclose(
-            expected[2], (rates[2] - exponent / dz) * states[2], rtol=1e-15
-        )
+    expected = reference.carry_coupled(exponent, dz, rows, slots, spans, block)
+    # Within a few hundred ulp of these O(10) rows.
+    scale = float(np.max(np.abs(unrouted)))
+    assert float(np.max(np.abs(expected - unrouted))) <= 1e-13 * scale
+    # The span-zero sample is the compensation itself, carried by nothing.
+    np.testing.assert_allclose(
+        expected[2], (rates[2] - exponent / dz) * states[2], rtol=1e-15
+    )
 
 
 def run(name, integrator, rtol, backend_class=NumpyRefBackend, **overrides):

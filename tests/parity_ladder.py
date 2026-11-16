@@ -31,7 +31,7 @@ from sessions.runs import launch_statistics, native_source, saved, to_planes
 from sessions.runs import run as session_run
 from sessions.runs import summary as run_summary
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.passes import apply_hard_mask
+from solprop.backends.numpy_ref.passes.stepping import apply_hard_mask
 from solprop.backends.session import ExecutionOptions, Start
 from solprop.driver import Simulation
 from solprop.stats import StatsSpec
@@ -346,9 +346,11 @@ def projected(backend_class: type, built: Built) -> list[np.ndarray | None]:
         launch = masked_launch(problem)
         load_reference(backend, launch)
         backend.workspace.lab_source(launch, 0.0)
-        coarse = backend.workspace._last_coarse
+        coarse = backend.workspace.stage_source._last_coarse
         return [
-            forward(np.asarray(backend.workspace._last_projected), axis=-1),
+            forward(
+                np.asarray(backend.workspace.stage_source._last_projected), axis=-1
+            ),
             None if coarse is None else forward(np.asarray(coarse), axis=-1),
         ]
     finally:

@@ -69,7 +69,7 @@ from solprop.backends.numpy_ref.general_modal import (
     symmetric_cubic,
     symmetric_kerr_coefficients,
 )
-from solprop.backends.numpy_ref.workspace import _general_maps
+from solprop.backends.numpy_ref.source import _general_maps
 from solprop.constants import EPS0
 from solprop.grid import FieldGrid
 from solprop.modes.guide import ModalGuide

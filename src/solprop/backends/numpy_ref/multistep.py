@@ -2,57 +2,33 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The reference's interaction-picture Adams march (SEP 13, SEP 14).
+"""The reference's Adams engine: the history and its trials (SEP 13, SEP 14, SEP 16).
 
 One accepted step of the PEC method costs one expensive source evaluation, against
-seven for the reference backend's IP-DOPRI5. The march keeps a short history of
-**transported** derivatives, re-anchored at every accepted step, and decides each step
-on a local-defect estimate formed from that history without another evaluation (SEP 13
-sections 4.1--4.3).
-
-The interaction picture is anchored at the start of each step, ``z_n``. With
-``U(z_2, z_1) = exp(Phi(z_2) - Phi(z_1))``, the variable ``v(z) = U(z_n, z) a(z)``
-obeys ``v' = g(z) = U(z_n, z) N(U(z, z_n) v, z)``. A history derivative is stored in
-the current anchor's frame; accepting a step re-anchors every one of them by the step's
-own propagator, which is the multiplication the Runge-Kutta march already performs on
-its state, so no table is queried backwards. Every derivative keeps its position and
-the identity of the field it was evaluated at -- the accepted field, or the predicted
-one PEC stores in its place.
-
-The march is shared by its two copies: a backend supplies two hooks of the step driver,
-``_adams_source`` (one source evaluation at a lab-frame field, returned in the step's
-anchor frame) and ``_adams_propagator``, and the driver's own state, landing and
-recording do the rest. ``numpy_ref`` evaluates through its reference passes (SEP 14
-phase 2).
-
-Lifecycle, owned here and not by the shared driver's Runge-Kutta march (SEP 13
-section 6.1):
-
-- a trial computes its predictor, its single source call and its estimate without
-  touching the history; only an accepted step commits, so a rejection leaves the
-  accepted history exactly as it was;
-- a hard kink is landed on and the history restarted on its far side; a save plane is
-  a pure observation and keeps the history;
-- a load or a resume starts afresh, at order one, and its startup calls are counted.
-
-**Who marches.** The NumPy reference marches with
-:class:`solprop.backends.host.adams.HostAdamsMarch`; the native backend's session
-marches natively from one policy record (SEP 39, SEP 47). This module holds the
-reference's kernels, its host engine :class:`HostHistory` and the tables; the call
-ledger both backends keep is :mod:`solprop.backends.ledger`.
+DOPRI5's seven (six with first-same-as-last, which the reference does not take). The
+engine keeps a short history of source samples and decides each step on a local-defect
+estimate formed from that history without another evaluation (SEP 13 sections 4.1--4.3);
+a trial touches no row, so a rejection leaves the history as it was.
+:class:`HostHistory` is the engine the march
+(:class:`solprop.backends.host.adams.HostAdamsMarch`) drives, with its two formulations:
+:class:`InteractionHistory` keeps **transported** sources, re-anchored at every accepted
+step by the step's propagator, and :class:`ExponentialHistory` keeps untransported ones
+and integrates them exactly against the step's flow, with a coupled flow's frozen block,
+a varying operator's compensation and the carrier frame (SEP 35). :class:`AdamsRows` is
+where the rows live, which the session exports and installs. The field arithmetic is
+:mod:`~solprop.backends.numpy_ref.adams_kernels`', the coefficients
+:mod:`~solprop.backends.numpy_ref.adams_tables`'.
 """
 
 import logging
-import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float
-from scipy.linalg import expm
 
-from solprop._helpers import PLAIN, Helpers
+from solprop._helpers import PLAIN
 from solprop.backends.adams_core import Stencil
 from solprop.backends.engines import (
     AcceptRecord,
@@ -60,13 +36,15 @@ from solprop.backends.engines import (
     BoundaryReading,
     HistoryEntry,
 )
-from solprop.backends.exponential import (
-    CarrierReference,
-    carrier_reference,
-    phi_functions,
-)
+from solprop.backends.exponential import CarrierReference, carrier_reference
 from solprop.backends.ledger import source_absent
-from solprop.backends.numpy_ref import passes
+from solprop.backends.numpy_ref.adams_kernels import (
+    AdamsKernels,
+    CoupledBlock,
+    ExponentialKernels,
+    coupled_moments,
+)
+from solprop.backends.numpy_ref.adams_tables import defect_rows, exponential_corrector
 from solprop.exceptions import BackendError
 from solprop.stepper.multistep import (
     Multistep,
@@ -79,27 +57,13 @@ if TYPE_CHECKING:
     from solprop.backends.numpy_ref.workspace import NumpyWorkspace
     from solprop.stepper.controller import PIController
 
-__all__ = [
-    "AdamsKernels",
-    "AdamsRows",
-    "CoupledBlock",
-    "CoupledExponentialKernels",
-    "ExponentialKernels",
-    "HostHistory",
-    "compensation_tables",
-    "coupled_moments",
-    "exponential_tables",
-    "factored_defect_rows",
-    "fused_tables",
-    "trial_tables",
-]
+__all__ = ["AdamsRows", "ExponentialHistory", "HostHistory", "InteractionHistory"]
 
 logger = logging.getLogger(__name__)
 
 _State = Complex[np.ndarray, "n_modes n_pol n_omega"]
-_StoreRows = Complex[np.ndarray, "n_slots n_modes n_pol n_omega"]
 _Shift = Complex[np.ndarray, "1 1 #n_omega"]
-"""A carrier frame's shift (SEP 35); a bin axis broadcasts."""
+"""A carrier frame's shift (SEP 35), shape ``(1, 1, 1)``."""
 _Factors = Complex[np.ndarray, "n_used 1 1 #n_omega"]
 """A carrier frame's rotation of each history row a trial reads, in its slots' order."""
 
@@ -116,1002 +80,6 @@ class _DenseStep:
     dz: float
     start: _State
     slopes: list[_State]
-
-
-class AdamsKernels:
-    """The field arithmetic of a fused Adams step, in NumPy (SEP 14 phase 2).
-
-    Three passes serve a step of the one-order-higher PEC family: the predictor's
-    lab-frame field, the corrected field with the defects of the current and the
-    neighbouring orders, and the history's transport to the new anchor. The history is
-    a store of rows, newest first by ``slots``. This is the reference a compiled form
-    is checked against.
-
-    Parameters
-    ----------
-    helpers : solprop._helpers.Helpers, optional
-        The owning backend's implementation of the Adams basis (SEP 29 section 6.6);
-        the plain Python forms by default.
-    """
-
-    def __init__(self, *, helpers: Helpers = PLAIN) -> None:
-        """Hold the backend's basis implementation."""
-        self._helpers = helpers
-
-    def weights(
-        self, nodes: list[float] | np.ndarray, upper: float = 1.0
-    ) -> np.ndarray:
-        """Return the integrated weights of an interpolant on distinct nodes.
-
-        Parameters
-        ----------
-        nodes : list of float or numpy.ndarray
-            The normalised nodes, accepted positions and so distinct.
-        upper : float, optional
-            The integral's upper limit.
-
-        Returns
-        -------
-        numpy.ndarray
-            One weight per node, as ``integrated_weights`` gives them.
-        """
-        return integrated_weights(nodes, upper, check=False, helpers=self._helpers)
-
-    def predict(  # noqa: PLR0917 - called positionally
-        self,
-        state: _State,
-        propagator: _State,
-        store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
-        slots: np.ndarray,
-        weights: np.ndarray,
-        dz: float,
-    ) -> _State:
-        """Return the predictor's lab-frame field ``U (a_n + dz sum_t w_t g_t)``.
-
-        Parameters
-        ----------
-        state : numpy.ndarray
-            The accepted state at the anchor.
-        propagator : numpy.ndarray
-            ``U(z_n + dz, z_n)``.
-        store : numpy.ndarray
-            The history rows.
-        slots : numpy.ndarray
-            The rows the predictor combines, newest first, ``int64``.
-        weights : numpy.ndarray
-            One integrated weight per row.
-        dz : float
-            The step, m.
-
-        Returns
-        -------
-        numpy.ndarray
-            The predicted field at the end of the step.
-        """
-        total = np.zeros_like(state)
-        for weight, slot in zip(weights, slots, strict=True):
-            total = passes.accumulate(total, store[slot], float(weight))
-        return propagator * (state + dz * total)
-
-    def correct(  # noqa: PLR0917 - buffers are a kernel's parameters
-        self,
-        state: _State,
-        propagator: _State,
-        source: _State,
-        store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
-        slots: np.ndarray,
-        corrector: np.ndarray,
-        rows: np.ndarray,
-        dz: float,
-        mask: np.ndarray,
-        divisor: np.ndarray,
-    ) -> tuple[_State, np.ndarray]:
-        """Return the corrected lab-frame field and the scaled norms of the defects.
-
-        With ``X = (source, store[slots[0]], ...)``, the field is
-        ``U (a_n + dz sum_t c_t X_t)`` and each norm is the weak norm of
-        ``U dz sum_t rows[r, t] X_t`` over the in-band bins.
-
-        Parameters
-        ----------
-        state, propagator : numpy.ndarray
-            As for :meth:`predict`.
-        source : numpy.ndarray
-            The source at the predicted field, in the anchor's frame.
-        store : numpy.ndarray
-            The history rows.
-        slots : numpy.ndarray
-            The rows after the source, newest first, ``int64``.
-        corrector : numpy.ndarray
-            The corrector's weights over ``X``, zero past its own nodes.
-        rows : numpy.ndarray
-            One defect's weights over ``X`` per row, shape ``(n_rows, 1 + n_slots)``.
-        dz : float
-            The step, m.
-        mask : numpy.ndarray
-            The in-band bins, Boolean.
-        divisor : numpy.ndarray
-            The norm's scale per bin.
-
-        Returns
-        -------
-        tuple
-            The corrected field and one norm per row.
-        """
-        values = [source, *(store[slot] for slot in slots)]
-        total = np.zeros_like(state)
-        for weight, value in zip(corrector, values, strict=True):
-            total = passes.accumulate(total, value, float(weight))
-        norms = np.empty(rows.shape[0])
-        for index, row in enumerate(rows):
-            defect = np.zeros_like(state)
-            for weight, value in zip(row, values, strict=True):
-                defect = passes.accumulate(defect, value, float(weight))
-            scaled = (propagator * (dz * defect))[..., mask] / divisor[mask]
-            norms[index] = float(np.linalg.norm(scaled))
-        return propagator * (state + dz * total), norms
-
-    def transport(
-        self,
-        store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
-        slots: np.ndarray,
-        propagator: _State,
-        new_slot: int,
-        source: _State,
-    ) -> None:
-        """Re-anchor the history at the step's end and store the new derivative.
-
-        Parameters
-        ----------
-        store : numpy.ndarray
-            The history rows, updated in place.
-        slots : numpy.ndarray
-            The rows of the kept history, ``int64``.
-        propagator : numpy.ndarray
-            ``U(z_n + dz, z_n)``.
-        new_slot : int
-            The free row the new derivative goes to.
-        source : numpy.ndarray
-            The new derivative in the step's anchor frame.
-        """
-        for slot in slots:
-            store[slot] *= propagator
-        np.multiply(propagator, source, out=store[new_slot])
-
-
-@dataclass(frozen=True)
-class CoupledBlock:
-    """A step's frozen coupled block on the bins that carry one (SEP 16 phase 5).
-
-    Beside a coupled flow the cumulative diagonal ``Phi`` is a multiple of the identity
-    in the channel axis (``docs/dev/kernel-contract.md``, ``coupled_flow``), so the
-    step's reference is ``B = (Delta Phi / h) I + G_s`` with ``G_s = Z T Z^H`` the
-    frozen block of the section the step is anchored in, and the two parts commute.
-
-    Attributes
-    ----------
-    active : numpy.ndarray
-        Which bins carry a block, bool, shape ``(n_omega,)``.
-    vectors, triangular : numpy.ndarray
-        ``Z`` and ``T`` of the section's block, 1/m for ``T``, shape
-        ``(n_active, n_modes, n_modes)``.
-    section : int
-        The section the step is anchored in.
-    end_weights : numpy.ndarray or None
-        The flow's term weights at the step's end, read on the step's side of a
-        section edge (``StageScalars.flow_weights``); ``None`` without a residual.
-    residual : callable or None
-        ``(state, weights) -> R_s(z) state`` for a frozen-residual flow: the
-        generator at the position the weights belong to less this section's frozen
-        block, on the active bins the error norm scores and zero elsewhere, as the
-        Runge-Kutta stage applies it; ``None`` for a constant-Schur flow.
-    basis : tuple or None
-        The section's eigenbasis ``(W, Y, lambda, route)``, as
-        :func:`solprop.translate.coupled.schur_eigenbasis` returns it: the bins on the
-        route take their matrix functions as ``W f(x + h lambda) Y``, the compiled
-        backends' evaluation. ``None``, the reference's, takes every bin from the
-        augmented exponential.
-    """
-
-    active: np.ndarray
-    vectors: np.ndarray
-    triangular: np.ndarray
-    section: int
-    end_weights: np.ndarray | None = None
-    residual: Callable[[np.ndarray, np.ndarray], np.ndarray] | None = None
-    basis: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None = None
-
-
-@dataclass(frozen=True)
-class _MatrixMoments:
-    """A coupled trial's flow and moments: scalar per element, matrices on a block.
-
-    Off the block's bins the step's flow and moments are the diagonal ones, per
-    element; on them each is a matrix in the channel axis, applied to the channel
-    vector of every polarisation. ``matrices`` and ``flow_matrix`` are
-    laid out by bin, ``(..., n_bins, n_modes, n_modes)``; the products read the same
-    matrices with the bin axis last, as the state holds it.
-    """
-
-    scalar: np.ndarray
-    flow_scalar: np.ndarray
-    matrices: np.ndarray
-    flow_matrix: np.ndarray
-    active: np.ndarray
-    _columns: np.ndarray = field(init=False, repr=False, compare=False)
-    _flow_columns: np.ndarray = field(init=False, repr=False, compare=False)
-
-    def __post_init__(self) -> None:
-        """Hold the matrices with the bin axis last, for the products."""
-        object.__setattr__(
-            self, "_columns", np.ascontiguousarray(np.moveaxis(self.matrices, -3, -1))
-        )
-        object.__setattr__(
-            self,
-            "_flow_columns",
-            np.ascontiguousarray(np.moveaxis(self.flow_matrix, -3, -1)),
-        )
-
-    def _product(
-        self, columns: np.ndarray, scalar: np.ndarray, values: _State
-    ) -> _State:
-        """Return the scalar product off the block and the matrix product on it.
-
-        - ``scalar``: the diagonal factor, in the state's layout.
-        - ``values``: the array, in the state's layout.
-        """
-        out = scalar * values
-        selected = values[..., self.active]
-        block = columns[:, 0][:, np.newaxis] * selected[np.newaxis, 0]
-        for column in range(1, columns.shape[1]):
-            block += columns[:, column][:, np.newaxis] * selected[np.newaxis, column]
-        out[..., self.active] = block
-        return out
-
-    def apply(self, k: int, values: _State) -> _State:
-        """Return ``M_k`` applied to a state-shaped array.
-
-        - ``values``: the array, in the state's layout.
-        """
-        columns = self._columns
-        return self._product(columns[k], self.scalar[k], values)
-
-    def flow(self, values: _State) -> _State:
-        """Return the step's flow ``exp(h B)`` applied to a state-shaped array.
-
-        - ``values``: the array, in the state's layout.
-        """
-        columns = self._flow_columns
-        return self._product(columns, self.flow_scalar, values)
-
-
-def _through(
-    pair: tuple[np.ndarray, np.ndarray], values: np.ndarray
-) -> Complex[np.ndarray, "n_bins n_modes_out n_modes_in"]:
-    """Return ``W diag(values) Y`` per bin, for an eigenbasis pair ``(W, Y)``.
-
-    - ``pair``: ``W`` and ``Y``, shape ``(n_bins, n_modes, n_modes)``.
-    - ``values``: the function's values at the eigenvalues, shape ``(n_bins, n_modes)``.
-    """
-    left, right = pair
-    return (left * values[:, np.newaxis, :]) @ right
-
-
-def _eigen_functions(  # noqa: PLR0917 - called through a reference
-    shift: np.ndarray,
-    dz: float,
-    count: int,
-    basis: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
-    matrices: np.ndarray,
-    flow_matrix: np.ndarray,
-) -> None:
-    """Write the flow and moments of the bins on an eigenbasis route, in NumPy.
-
-    - ``dz``: the step, m.
-    - ``basis``: ``(W, Y, lambda, route)`` of :attr:`CoupledBlock.basis`.
-    """
-    left, right, eigenvalues, route = basis
-    if not np.any(route):
-        return
-    arguments = shift[route, np.newaxis] + dz * eigenvalues[route]
-    pair = (left[route], right[route])
-    flow_matrix[route] = _through(pair, np.exp(arguments))
-    if count:
-        phi = phi_functions(arguments, count)
-        for k in range(count):
-            matrices[k, route] = math.factorial(k) * _through(pair, phi[k + 1])
-
-
-def coupled_moments(
-    exponent: _State,
-    count: int,
-    block: CoupledBlock,
-    dz: float,
-    *,
-    eigen: Callable[..., None] = _eigen_functions,
-    diagonal: Callable[[np.ndarray, int], np.ndarray] | None = None,
-    carrier: _Shift | None = None,
-) -> _MatrixMoments:
-    """Return a coupled trial's flow and moments ``k! phi_{k+1}(h B)``, ``k < count``.
-
-    The reference's evaluation (SEP 16 section 4.5): on each bin of the block the
-    functions of ``X = Delta Phi I + h T``, upper triangular, are read off the first
-    block row of the exponential of the augmented matrix
-    ``[[X, I, 0, ...], [0, 0, I, ...], ..., [0, ..., 0]]`` -- ``exp(X)``,
-    ``phi_1(X)``, ..., ``phi_count(X)`` -- and carried back by ``Z``; off the block the
-    diagonal functions of :class:`ExponentialKernels`. With the block's eigenbasis
-    (``CoupledBlock.basis``), the bins on its route instead take ``W f(Delta Phi + h
-    lambda) Y``, every bin in one pass: the route and its gate are the compiled flow
-    actions' (:func:`solprop.translate.coupled.eigenbasis_limit`), and the bins off it
-    keep the augmented exponential.
-
-    Parameters
-    ----------
-    exponent : numpy.ndarray
-        ``Delta Phi`` over the step, the same in every channel.
-    count : int
-        The moments formed.
-    block : CoupledBlock
-        The step's frozen block.
-    dz : float
-        The step, m.
-    eigen : callable, optional
-        Writes the eigenbasis route's bins, ``(shift, dz, count, basis, matrices,
-        flow_matrix)``: ``_eigen_functions``, or a compiled backend's kernel.
-    diagonal : callable or None, optional
-        ``(exponent, count) -> moments`` off the block; ``None`` for the reference's
-        :meth:`ExponentialKernels.moments`.
-    carrier : numpy.ndarray or None, optional
-        A carrier frame's ``sigma`` (SEP 35 section 4.5), broadcasting against
-        `exponent`. The moments are then those of the shifted block
-        ``h B - sigma I``, and the flow is ``exp(sigma)`` times its ``phi_0``:
-        ``sigma I`` commutes with ``B``, so ``exp(h B) = exp(sigma) exp(h B - sigma
-        I)`` and one evaluation gives both, in the augmented and eigenbasis paths
-        alike. ``None`` for the unshifted step.
-
-    Returns
-    -------
-    _MatrixMoments
-        The flow ``exp(h B)`` and the moments.
-    """
-    unshifted = exponent
-    if carrier is not None:
-        exponent = np.ascontiguousarray(exponent - carrier)
-    active = block.active
-    # The block's bins take matrix moments below: the scalar ones are formed off it.
-    scalar = np.zeros((count, *exponent.shape), dtype=np.complex128)
-    if count and not np.all(active):
-        moments = ExponentialKernels().moments if diagonal is None else diagonal
-        scalar[..., ~active] = moments(
-            np.ascontiguousarray(exponent[..., ~active]), count
-        )
-    flow_scalar = np.exp(unshifted)
-    n_modes = block.triangular.shape[-1]
-    shift = exponent[0, 0, active]
-    matrices = np.empty((count, *block.triangular.shape), dtype=np.complex128)
-    flow_matrix = np.empty(block.triangular.shape, dtype=np.complex128)
-    size = n_modes * (count + 1)
-    identity = np.eye(n_modes)
-    route = np.zeros(block.triangular.shape[0], dtype=bool)
-    if block.basis is not None:
-        route = block.basis[3]
-        eigen(shift, dz, count, block.basis, matrices, flow_matrix)
-    for index in np.flatnonzero(~route):
-        augmented = np.zeros((size, size), dtype=np.complex128)
-        augmented[:n_modes, :n_modes] = (
-            shift[index] * identity + dz * block.triangular[index]
-        )
-        for row in range(count):
-            start = (row + 1) * n_modes
-            augmented[row * n_modes : start, start : start + n_modes] = identity
-        functions = expm(augmented)[:n_modes]
-        vectors = block.vectors[index]
-        adjoint = np.conj(vectors.T)
-        flow_matrix[index] = vectors @ functions[:, :n_modes] @ adjoint
-        for k in range(count):
-            column = (k + 1) * n_modes
-            matrices[k, index] = (
-                math.factorial(k)
-                * vectors
-                @ functions[:, column : column + n_modes]
-                @ adjoint
-            )
-    if carrier is not None:
-        factor = np.exp(np.broadcast_to(carrier, unshifted.shape)[0, 0, active])
-        flow_matrix = factor[:, np.newaxis, np.newaxis] * flow_matrix
-    return _MatrixMoments(scalar, flow_scalar, matrices, flow_matrix, active)
-
-
-class ExponentialKernels:
-    """The field arithmetic of an exponential Adams step, in NumPy (SEP 16 phase 2).
-
-    The history is a store of **untransported** source rows, newest first by
-    ``slots``. A trial forms ``M_k = k! phi_{k+1}(x)``, ``x = h D`` per element, once,
-    and applies every formula it needs in the monomial basis of its interpolant,
-    ``h sum_k M_k (sum_j c_jk F_j)`` (``solprop.backends.exponential``), so no
-    per-node weight volume is formed. Accepting a step re-anchors nothing. The
-    native backend's kernels are checked against these passes.
-
-    Under a carrier frame (SEP 35) the same passes take the moments at ``x - sigma``
-    and rows rotated by ``exp(sigma (1 - theta_j))``; the caller forms both
-    (:class:`HostHistory`), so the passes themselves do not change.
-
-    Parameters
-    ----------
-    helpers : solprop._helpers.Helpers, optional
-        The owning backend's implementation of the Adams basis (SEP 29 section 6.6);
-        the plain Python forms by default.
-    """
-
-    def __init__(self, *, helpers: Helpers = PLAIN) -> None:
-        """Hold the backend's basis implementation."""
-        self._helpers = helpers
-
-    def coupled(self) -> "CoupledExponentialKernels":
-        """Return the passes this backend takes beside a coupled flow.
-
-        Returns
-        -------
-        CoupledExponentialKernels
-            The reference's; a compiled backend returns its own.
-        """
-        return CoupledExponentialKernels(helpers=self._helpers)
-
-    def _times_moment(self, moments: Any, k: int, values: _State) -> _State:
-        """Return ``M_k values``: elementwise here, through a block in a subclass.
-
-        - ``values``: the array, in the state's layout.
-        """
-        return moments[k] * values
-
-    def _times_flow(self, flow: Any, values: _State) -> _State:
-        """Return the step's flow applied to an array, elementwise here.
-
-        - ``values``: the array, in the state's layout.
-        """
-        return flow * values
-
-    def moments(
-        self, exponent: _State, count: int, *, shift: _Shift | None = None
-    ) -> Complex[np.ndarray, "n_k n_modes n_pol n_omega"]:
-        """Return ``k! phi_{k+1}(x)`` for ``k < count`` along a new leading axis.
-
-        Parameters
-        ----------
-        exponent : numpy.ndarray
-            ``x = Phi(z + h) - Phi(z)``, in the canonical layout.
-        count : int
-            The most interpolation nodes any formula of the trial has.
-        shift : numpy.ndarray or None, optional
-            A carrier frame's ``sigma`` (SEP 35): the moments are then those of
-            ``x - sigma``, and the step's flow stays ``exp(x)`` (:meth:`flow`).
-
-        Returns
-        -------
-        numpy.ndarray
-            Shape ``(count, *x.shape)``.
-        """
-        if shift is not None:
-            exponent = exponent - shift
-        phi = phi_functions(exponent, count)
-        factors = np.array([math.factorial(k) for k in range(count)], dtype=np.float64)
-        return phi[1:] * factors.reshape((count, *([1] * exponent.ndim)))
-
-    def carry(  # noqa: PLR0917 - called positionally
-        self,
-        exponent: _State,
-        dz: float,
-        rates: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
-        states: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
-        slots: np.ndarray,
-        spans: np.ndarray,
-    ) -> Complex[np.ndarray, "n_used n_modes n_pol n_omega"]:
-        """Return each history sample's compensation carried to the step's end.
-
-        ``exp(s_j x) (D(z_j) - x / dz) u_j`` with ``s_j = 1 - theta_j``, the
-        difference of rates formed before the state multiplies it (SEP 16 4.2).
-
-        Parameters
-        ----------
-        exponent : numpy.ndarray
-            ``x = Phi(z + h) - Phi(z)``.
-        dz : float
-            The step, m.
-        rates, states : numpy.ndarray
-            The history's rates and states, by slot.
-        slots : numpy.ndarray
-            The samples carried, newest first, ``int64``.
-        spans : numpy.ndarray
-            ``1 - theta_j`` per sample: the flow's length in steps.
-
-        Returns
-        -------
-        numpy.ndarray
-            One carried row per sample.
-        """
-        reference = exponent / dz
-        return np.stack(
-            [
-                np.exp(span * exponent) * ((rates[slot] - reference) * states[slot])
-                for slot, span in zip(slots, spans, strict=True)
-            ]
-        )
-
-    def flow(self, exponent: _State) -> _State:
-        """Return the step's exact linear flow ``exp(x)``.
-
-        Parameters
-        ----------
-        exponent : numpy.ndarray
-            ``x = Phi(z + h) - Phi(z)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``exp(x)``, the propagator the interaction formulation would apply.
-        """
-        return np.exp(exponent)
-
-    def apply(
-        self,
-        moments: Complex[np.ndarray, "n_k n_modes n_pol n_omega"],
-        coefficients: np.ndarray,
-        values: list[_State],
-        dz: float,
-    ) -> _State:
-        """Return ``dz sum_k M_k (sum_j c_jk X_j)`` over the given rows.
-
-        Parameters
-        ----------
-        moments : numpy.ndarray
-            ``M_k`` from :meth:`moments`.
-        coefficients : numpy.ndarray
-            ``c_jk``, shape ``(len(values), n_k)`` with ``n_k <= len(moments)``.
-        values : list of numpy.ndarray
-            The samples ``X_j``.
-        dz : float
-            The step, m.
-
-        Returns
-        -------
-        numpy.ndarray
-            The increment.
-        """
-        return self._applied(moments, coefficients, values, dz)
-
-    def _applied(
-        self,
-        moments: Any,
-        coefficients: np.ndarray,
-        values: list[_State],
-        dz: float,
-    ) -> _State:
-        """Return :meth:`apply`'s increment; shared with the coupled passes.
-
-        - ``dz``: the step, m.
-        """
-        total = np.zeros_like(values[0])
-        for k in range(coefficients.shape[1]):
-            combined = np.zeros_like(values[0])
-            for weight, value in zip(coefficients[:, k], values, strict=True):
-                if weight != 0.0:
-                    combined = passes.accumulate(combined, value, float(weight))
-            total += self._times_moment(moments, k, combined)
-        return dz * total
-
-    def predict(  # noqa: PLR0917 - buffers are a kernel's parameters
-        self,
-        state: _State,
-        flow: _State,
-        moments: Complex[np.ndarray, "n_k n_modes n_pol n_omega"],
-        store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
-        slots: np.ndarray,
-        coefficients: np.ndarray,
-        dz: float,
-        *,
-        factors: _Factors | None = None,
-    ) -> _State:
-        """Return the predicted field ``exp(x) u_n + dz sum_k M_k sum_j c_jk F_j``.
-
-        Parameters
-        ----------
-        state : numpy.ndarray
-            The accepted state at the anchor.
-        flow : numpy.ndarray
-            ``exp(x)``, the step's exact linear flow.
-        moments : numpy.ndarray
-            ``M_k`` from :meth:`moments`.
-        store : numpy.ndarray
-            The history rows.
-        slots : numpy.ndarray
-            The rows the predictor combines, newest first, ``int64``.
-        coefficients : numpy.ndarray
-            The predictor's Lagrange coefficients, shape ``(len(slots), len(slots))``.
-        dz : float
-            The step, m.
-        factors : numpy.ndarray or None, optional
-            A carrier frame's rotation of each row read, ``exp(sigma (1 - theta_j))``
-            in the slots' order (SEP 35 section 6.2); ``None`` for none.
-
-        Returns
-        -------
-        numpy.ndarray
-            The predicted lab-frame field at the end of the step.
-        """
-        return self._predicted(
-            state, flow, moments, store, slots, coefficients, dz, factors=factors
-        )
-
-    def _predicted(  # noqa: PLR0917 - buffers are a kernel's parameters
-        self,
-        state: _State,
-        flow: Any,
-        moments: Any,
-        store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
-        slots: np.ndarray,
-        coefficients: np.ndarray,
-        dz: float,
-        *,
-        factors: _Factors | None = None,
-    ) -> _State:
-        """Return :meth:`predict`'s field; shared with the coupled passes.
-
-        - ``dz``: the step, m.
-        """
-        values = _rows_read(store, slots, factors)
-        return self._times_flow(flow, state) + self._applied(
-            moments, coefficients, values, dz
-        )
-
-    def defect_rows(
-        self, nodes: list[float], orders: list[int], width: int
-    ) -> np.ndarray:
-        """Return the defects' coefficients in the form :meth:`correct` takes.
-
-        Parameters
-        ----------
-        nodes : list of float
-            The history's normalised positions, newest first.
-        orders : list of int
-            The orders scored, the step's own first.
-        width : int
-            ``1 + max(orders)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            The monomial rows of ``_exponential_rows``, shape
-            ``(len(orders), width, width)``.
-        """
-        return _exponential_rows(nodes, orders, width, helpers=self._helpers)
-
-    def correct(  # noqa: PLR0917 - buffers are a kernel's parameters
-        self,
-        state: _State,
-        flow: _State,
-        moments: Complex[np.ndarray, "n_k n_modes n_pol n_omega"],
-        source: _State,
-        store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
-        slots: np.ndarray,
-        corrector: np.ndarray,
-        rows: np.ndarray,
-        dz: float,
-        mask: np.ndarray,
-        divisor: np.ndarray,
-        extra: tuple[_State, list[_State]] | None = None,
-        *,
-        factors: _Factors | None = None,
-    ) -> tuple[_State, np.ndarray]:
-        """Return the corrected field and the scaled norms of the defects.
-
-        With ``X = (source, store[slots[0]], ...)``, the field is
-        ``exp(x) u_n + dz sum_k M_k sum_j corrector[j, k] X_j`` and each norm is the
-        weak norm of ``dz sum_k M_k sum_j rows[r, j, k] X_j`` over the in-band bins;
-        both are already at the end of the step. A varying operator's compensation
-        adds its own corrector term to the field and one term to each defect.
-
-        Parameters
-        ----------
-        state, flow, moments : numpy.ndarray
-            As for :meth:`predict`.
-        source : numpy.ndarray
-            The untransported source at the predicted field.
-        store : numpy.ndarray
-            The history rows.
-        slots : numpy.ndarray
-            The rows after the source, newest first, ``int64``.
-        corrector : numpy.ndarray
-            The corrector's coefficients over ``X``, shape ``(width, n_k)``, zero past
-            its own nodes.
-        rows : numpy.ndarray
-            One defect's coefficients over ``X`` per row, shape ``(n_rows, width,
-            n_k)``.
-        dz : float
-            The step, m.
-        mask : numpy.ndarray
-            The in-band bins, Boolean.
-        divisor : numpy.ndarray
-            The norm's scale per bin.
-        extra : tuple or None, optional
-            The compensation's corrector term and its term in each defect, or
-            ``None`` for a constant operator.
-        factors : numpy.ndarray or None, optional
-            A carrier frame's rotation of each history row read, in the slots'
-            order; the new source's is one.
-
-        Returns
-        -------
-        tuple
-            The corrected field and one norm per row.
-        """
-        return self._corrected(
-            state,
-            flow,
-            moments,
-            source,
-            (store, slots, factors),
-            (corrector, rows),
-            dz,
-            (mask, divisor),
-            extra,
-        )
-
-    def _corrected(  # noqa: PLR0917 - buffers are a kernel's parameters
-        self,
-        state: _State,
-        flow: Any,
-        moments: Any,
-        source: _State,
-        history: tuple[np.ndarray, np.ndarray, _Factors | None],
-        tables: tuple[np.ndarray, np.ndarray],
-        dz: float,
-        scoring: tuple[np.ndarray, np.ndarray],
-        extra: tuple[_State, list[_State]] | None,
-    ) -> tuple[_State, np.ndarray]:
-        """Return :meth:`correct`'s field and norms; shared with the coupled passes.
-
-        - ``history``: the store, the rows after the source and their carrier-frame
-          rotations (``None`` for none).
-        - ``tables``: the corrector's coefficients and the defect rows.
-        - ``dz``: the step, m.
-        - ``scoring``: the in-band mask and the norm's scale per bin.
-        - Returns: the corrected field and one norm per row.
-        """
-        store, slots, factors = history
-        corrector, rows = tables
-        mask, divisor = scoring
-        values = [source, *_rows_read(store, slots, factors)]
-        advanced = self._times_flow(flow, state) + self._applied(
-            moments, corrector, values, dz
-        )
-        if extra is not None:
-            advanced = advanced + extra[0]
-        norms = np.empty(rows.shape[0])
-        for index, row in enumerate(rows):
-            defect = self._applied(moments, row, values, dz)
-            if extra is not None:
-                defect = defect + extra[1][index]
-            norms[index] = float(np.linalg.norm(defect[..., mask] / divisor[mask]))
-        return advanced, norms
-
-
-class CoupledExponentialKernels(ExponentialKernels):
-    """The reference passes beside a coupled flow (SEP 16 phase 5).
-
-    A coupled trial's flow and moments are ``_MatrixMoments``
-    (:func:`coupled_moments`): matrices in the channel axis on the bins that carry a
-    block, elementwise elsewhere. The passes are :class:`ExponentialKernels`' with
-    those products.
-    """
-
-    def coupled(self) -> "CoupledExponentialKernels":
-        """Return these passes.
-
-        Returns
-        -------
-        CoupledExponentialKernels
-            This object.
-        """
-        return self
-
-    def coupled_moments(
-        self,
-        exponent: _State,
-        count: int,
-        block: CoupledBlock,
-        dz: float,
-        *,
-        shift: _Shift | None = None,
-    ) -> _MatrixMoments:
-        """Return a coupled trial's flow and moments (:func:`coupled_moments`).
-
-        Parameters
-        ----------
-        exponent : numpy.ndarray
-            ``Delta Phi`` over the step.
-        count : int
-            The moments formed.
-        block : CoupledBlock
-            The step's frozen block.
-        dz : float
-            The step, m.
-        shift : numpy.ndarray or None, optional
-            A carrier frame's ``sigma``: the shifted block's moments, the true flow.
-
-        Returns
-        -------
-        _MatrixMoments
-            The flow and the moments.
-        """
-        return coupled_moments(exponent, count, block, dz, carrier=shift)
-
-    def _times_moment(self, moments: Any, k: int, values: _State) -> _State:
-        """Return ``M_k values`` through the trial's block.
-
-        - ``values``: the array, in the state's layout.
-        """
-        return cast("_MatrixMoments", moments).apply(k, values)
-
-    def _times_flow(self, flow: Any, values: _State) -> _State:
-        """Return the coupled trial's flow applied to an array.
-
-        - ``values``: the array, in the state's layout.
-        """
-        return cast("_MatrixMoments", flow).flow(values)
-
-    def carry_coupled(  # noqa: PLR0917 - called positionally
-        self,
-        exponent: _State,
-        dz: float,
-        rows: tuple[_StoreRows, _StoreRows, list[np.ndarray | None]],
-        slots: np.ndarray,
-        spans: np.ndarray,
-        block: CoupledBlock,
-    ) -> Complex[np.ndarray, "n_used n_modes n_pol n_omega"]:
-        """Return each sample's compensation carried to the step's end (SEP 16 4.5).
-
-        ``C_j = (D(z_j) - x / h) u_j + R_s(z_j) u_j``: the diagonal chord's
-        difference of rates and the frozen-residual's residual relative to the
-        **step's** section, formed from the sample's own flow weights -- so that a
-        step in a new section rebuilds the history's residual against its block --
-        and carried by the reference's forward flow ``exp((1 - theta_j) h B)``.
-
-        Parameters
-        ----------
-        exponent : numpy.ndarray
-            ``x = Delta Phi`` over the step.
-        dz : float
-            The step, m.
-        rows : tuple
-            The history's rates and states, by slot, and each slot's flow weights.
-        slots : numpy.ndarray
-            The samples carried, newest first.
-        spans : numpy.ndarray
-            ``1 - theta_j`` per sample.
-        block : CoupledBlock
-            The step's frozen block.
-
-        Returns
-        -------
-        numpy.ndarray
-            One carried row per sample.
-        """
-        rates, states, weights = rows
-        reference = exponent / dz
-        carried = []
-        for slot, span in zip(slots, spans, strict=True):
-            term = (rates[slot] - reference) * states[slot]
-            sample_weights = weights[slot]
-            if block.residual is not None and sample_weights is not None:
-                term = term + block.residual(states[slot], sample_weights)
-            if span != 0.0:
-                flow = self.coupled_moments(span * exponent, 0, block, span * dz)
-                term = flow.flow(term)
-            carried.append(term)
-        return np.stack(carried)
-
-    def predict(  # noqa: PLR0917 - buffers are a kernel's parameters
-        self,
-        state: _State,
-        flow: _State | _MatrixMoments,
-        moments: Complex[np.ndarray, "n_k n_modes n_pol n_omega"] | _MatrixMoments,
-        store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
-        slots: np.ndarray,
-        coefficients: np.ndarray,
-        dz: float,
-        *,
-        factors: _Factors | None = None,
-    ) -> _State:
-        """Return the predicted field through the trial's block.
-
-        Parameters
-        ----------
-        state : numpy.ndarray
-            The accepted state at the anchor.
-        flow, moments : _MatrixMoments or numpy.ndarray
-            The coupled trial's flow and moments.
-        store : numpy.ndarray
-            The history rows.
-        slots : numpy.ndarray
-            The rows the predictor combines, newest first, ``int64``.
-        coefficients : numpy.ndarray
-            The predictor's Lagrange coefficients.
-        dz : float
-            The step, m.
-        factors : numpy.ndarray or None, optional
-            The rows' carrier-frame rotations, in the slots' order.
-
-        Returns
-        -------
-        numpy.ndarray
-            The predicted lab-frame field at the end of the step.
-        """
-        return self._predicted(
-            state, flow, moments, store, slots, coefficients, dz, factors=factors
-        )
-
-    def correct(  # noqa: PLR0917 - buffers are a kernel's parameters
-        self,
-        state: _State,
-        flow: _State | _MatrixMoments,
-        moments: Complex[np.ndarray, "n_k n_modes n_pol n_omega"] | _MatrixMoments,
-        source: _State,
-        store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
-        slots: np.ndarray,
-        corrector: np.ndarray,
-        rows: np.ndarray,
-        dz: float,
-        mask: np.ndarray,
-        divisor: np.ndarray,
-        extra: tuple[_State, list[_State]] | None = None,
-        *,
-        factors: _Factors | None = None,
-    ) -> tuple[_State, np.ndarray]:
-        """Return the corrected field and the defects' norms through the block.
-
-        Parameters
-        ----------
-        state : numpy.ndarray
-            The accepted state at the anchor.
-        flow, moments : _MatrixMoments or numpy.ndarray
-            The coupled trial's flow and moments.
-        source : numpy.ndarray
-            The untransported source at the predicted field.
-        store : numpy.ndarray
-            The history rows.
-        slots : numpy.ndarray
-            The rows after the source, newest first, ``int64``.
-        corrector : numpy.ndarray
-            The corrector's coefficients.
-        rows : numpy.ndarray
-            One defect's coefficients per row.
-        dz : float
-            The step, m.
-        mask : numpy.ndarray
-            The in-band bins, Boolean.
-        divisor : numpy.ndarray
-            The norm's scale per bin.
-        extra : tuple or None, optional
-            A varying operator's compensation terms.
-        factors : numpy.ndarray or None, optional
-            The history rows' carrier-frame rotations, in the slots' order.
-
-        Returns
-        -------
-        tuple
-            The corrected field and one norm per row.
-        """
-        return self._corrected(
-            state,
-            flow,
-            moments,
-            source,
-            (store, slots, factors),
-            (corrector, rows),
-            dz,
-            (mask, divisor),
-            extra,
-        )
 
 
 @dataclass
@@ -1139,17 +107,12 @@ class _ExponentialTrial:
     dz: float
     state: _State
     exponent: _State
-    corrector: np.ndarray
     source: _State
     lab: _State
     advanced: _State
     slots: np.ndarray
     order: int
     compensation: "_Compensation | None"
-    shift: np.ndarray | None = None
-    """The trial's carrier shift (SEP 35), ``None`` without one."""
-    factors: np.ndarray | None = None
-    """The rotations of the history rows the trial read, in its slots' order."""
 
 
 @dataclass
@@ -1162,7 +125,6 @@ class _FusedTrial:
     propagator: _State
     source: _State
     advanced: _State
-    nodes: list[float]
     slots: np.ndarray
     order: int
 
@@ -1174,9 +136,10 @@ class _Compensation:
     The transported treatment integrates it in the reference flow's frame,
     ``h sum_j a_j exp((1 - theta_j) h B_n) C_j`` with the ordinary Adams weights
     ``a_j``; every factor is a forward flow over at least the step. The carried rows
-    are formed once per trial (:meth:`ExponentialKernels.carry`) and every formula is
-    one weighted sum over them. The untransported treatment, a test witness only
-    (Q8), interpolates ``C_j`` with the source's exponential weights instead.
+    are formed once per trial (:meth:`ExponentialKernels.carry
+    <solprop.backends.numpy_ref.adams_kernels.ExponentialKernels.carry>`) and every
+    formula is one weighted sum over them. The untransported treatment, a test witness
+    only (Q8), interpolates ``C_j`` with the source's exponential weights instead.
     """
 
     exponent: _State
@@ -1186,8 +149,6 @@ class _Compensation:
     carried: Complex[np.ndarray, "n_used n_modes n_pol n_omega"]
     dz: float
     treatment: str
-    helpers: Helpers
-    """The owning backend's implementation of the Adams basis."""
     endpoint_rate: _State | None = None
     endpoint: _State | None = None
     _weights: dict[tuple[float, ...], np.ndarray] = field(default_factory=dict)
@@ -1235,7 +196,7 @@ class _Compensation:
             weights = self._weights.get(key)
             if weights is None:
                 weights = integrated_weights(
-                    np.asarray(nodes), check=False, helpers=self.helpers
+                    np.asarray(nodes), check=False, helpers=PLAIN
                 )
                 self._weights[key] = weights
             total = np.tensordot(weights[len(nodes) - count :], rows, axes=1)
@@ -1243,9 +204,9 @@ class _Compensation:
                 total = total + weights[0] * first
             return self.dz * total
         values = ([] if first is None else [first]) + list(rows)
-        return ExponentialKernels(helpers=self.helpers).apply(
+        return ExponentialKernels().apply(
             self.moments[: len(nodes)],
-            lagrange_coefficients(nodes, check=False, helpers=self.helpers),
+            lagrange_coefficients(nodes, check=False, helpers=PLAIN),
             values,
             self.dz,
         )
@@ -1429,12 +390,15 @@ class HostHistory:
     (:class:`~solprop.backends.host.adams.HostAdamsMarch`) keeps the controller -- the
     orders, the entries, rejection, restarts, the budget and the ledger -- and hands
     every state-sized operation to this engine over the workspace: the startup sample,
-    a trial's predictor, source, corrector and defect norms, and the adoption and
-    transport of an accepted step. The engine writes the history's rows into
-    :class:`AdamsRows`, which the session exports and installs; between a trial and its
-    acceptance it holds the trial, and an interpolated run's accepted step keeps what
-    its dense observation reads (:attr:`dense`, :attr:`exponential_dense`;
-    :mod:`solprop.backends.numpy_ref.dense`).
+    a trial's predictor, source, corrector and defect norms, and the adoption of an
+    accepted step. The engine writes the history's rows into :class:`AdamsRows`, which
+    the session exports and installs; between a trial and its acceptance it holds the
+    trial, and an interpolated run's accepted step keeps what its dense observation
+    reads (``dense``; :mod:`solprop.backends.numpy_ref.dense`).
+
+    This base holds the lifecycle the two formulations share; each formulation is a
+    subclass, :class:`InteractionHistory` or :class:`ExponentialHistory`, which forms
+    the startup sample, the trial and the acceptance.
 
     Parameters
     ----------
@@ -1442,12 +406,8 @@ class HostHistory:
         The workspace whose state, source evaluation and propagators are used.
     method : solprop.stepper.multistep.Multistep
         The method.
-    kernels : AdamsKernels
-        The interaction formulation's fused arithmetic.
-    exponential : ExponentialKernels or None
-        The exponential formulation's arithmetic, ``None`` for the interaction one.
-    compensation : {'transported', 'untransported'}
-        A varying operator's compensation treatment (SEP 16 Q8).
+    compensated : bool
+        Whether the rows keep each sample's state, rate and flow weights.
     interpolate : bool, optional
         Whether an accepted step keeps its interpolant for dense observation.
     rows : AdamsRows or None, optional
@@ -1458,76 +418,33 @@ class HostHistory:
     rows : AdamsRows
         The history's rows.
     dense : object
-        The interaction formulation's last accepted step, for dense observation;
-        ``None`` before one.
-    exponential_dense : object
-        The exponential formulation's, likewise.
-    compensated : bool
-        Whether a varying operator's linear compensation is integrated.
+        The last accepted step, for dense observation; ``None`` before one.
     carrier : solprop.backends.exponential.CarrierReference or None
-        The exponential formulation's carrier frame; ``None`` for the interaction one.
+        The exponential formulation's carrier frame; ``None`` without one.
     """
 
     def __init__(
         self,
         workspace: "NumpyWorkspace",
         method: Multistep,
-        kernels: AdamsKernels,
-        exponential: ExponentialKernels | None,
-        compensation: Literal["transported", "untransported"],
         *,
+        compensated: bool,
         interpolate: bool = False,
         rows: AdamsRows | None = None,
     ) -> None:
-        """Hold the workspace, the kernels and an empty store."""
+        """Hold the workspace and an empty store."""
         self._workspace = workspace
         self._method = method
-        self._kernels = kernels
-        self._exponential = exponential
-        self._compensation = compensation
         self._interpolate = interpolate
         self._controller = workspace.stepper.controller
-        linear = workspace.problem.linear
-        # SEP 16 phase 4: a varying operator's linear compensation, integrated in the
-        # reference flow's frame (Q8); the untransported treatment is a test witness.
-        # A structurally absent source takes the exact chord instead (section 4.2).
-        # SEP 16 phase 5: a frozen-residual coupled flow's residual is linear in the
-        # state and joins the compensation, whatever the diagonal's representation.
-        flow = linear.coupled_flow
-        residual = flow is not None and "frozen_residual" in flow.section_methods
-        self.compensated = exponential is not None and (
-            residual
-            or (
-                linear.phi_representation in ("expansion", "table")
-                and not source_absent(workspace.problem)
-            )
-        )
-        if self.compensated and flow is not None and compensation != "transported":
-            msg = "the untransported compensation is a witness for diagonal operators"
-            raise BackendError(msg)
         self.rows = (
-            AdamsRows(method.order + 2, self.compensated, name=workspace.name)
+            AdamsRows(method.order + 2, compensated, name=workspace.name)
             if rows is None
             else rows
         )
-        self._trial_weights: np.ndarray | None = None
         self.dense: Any = None
-        self.exponential_dense: Any = None
-        self._fused_trial: _FusedTrial | None = None
-        self._exponential_trial: _ExponentialTrial | None = None
-        # SEP 35: the carrier phase each exponential trial removes from the samples
-        # it reads, from a reference fixed for the run; None when off. An inert one
-        # (sigma = 0) takes the unshifted arithmetic exactly.
-        self.carrier: CarrierReference | None = (
-            None
-            if exponential is None
-            else carrier_reference(workspace.problem, method)
-        )
-        if self.carrier is not None:
-            logger.info(
-                "carrier frame %r: %s", self.carrier.policy, self.carrier.reason
-            )
-        # The last exponential trial's carrier shift and row rotations (SEP 35).
+        self.carrier: CarrierReference | None = None
+        # The last trial's carrier shift and row rotations (SEP 35); None without.
         self._carrier_rows: tuple[np.ndarray, np.ndarray] | None = None
 
     @property
@@ -1535,52 +452,12 @@ class HostHistory:
         """The history store's rows: the method's order and two more."""
         return self.rows.n_slots
 
-    @property
-    def exponential(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the exponential formulation's arithmetic steps the history."""
-        return self._exponential is not None
-
-    # The rows' arrays under the names the arithmetic below reads them by.
-
-    @property
-    def _store(self) -> np.ndarray | None:
-        return self.rows.store
-
-    @_store.setter
-    def _store(self, value: np.ndarray | None) -> None:
-        self.rows.store = value
-
-    @property
-    def _states(self) -> np.ndarray | None:
-        return self.rows.states
-
-    @_states.setter
-    def _states(self, value: np.ndarray | None) -> None:
-        self.rows.states = value
-
-    @property
-    def _rates(self) -> np.ndarray | None:
-        return self.rows.rates
-
-    @_rates.setter
-    def _rates(self, value: np.ndarray | None) -> None:
-        self.rows.rates = value
-
-    @property
-    def _weights(self) -> list[np.ndarray | None]:
-        return self.rows.weights
-
-    @_weights.setter
-    def _weights(self, value: list[np.ndarray | None]) -> None:
-        self.rows.weights = value
-
     # --- startup ----------------------------------------------------------------------
 
     def start(self, z: float) -> None:
         """Evaluate the source at the accepted state, the history's first sample.
 
-        The sample goes to the store's row zero: the transported source in the
-        interaction formulation, the untransported one in the exponential formulation.
+        The sample goes to the store's row zero (the subclass's ``_startup``).
 
         Parameters
         ----------
@@ -1590,30 +467,24 @@ class HostHistory:
         workspace = self._workspace
         state = workspace.committed()
         workspace.hoist(z)
-        if self._exponential is not None:
-            value = workspace.lab_source(state, z, purpose="startup")
-        else:
-            value, _ = workspace.source(state, z, z, purpose="startup")
-        if self._store is None or self._store.shape[1:] != value.shape:
+        value = self._startup(state, z)
+        rows = self.rows
+        if rows.store is None or rows.store.shape[1:] != value.shape:
             # Zeroed, not empty: the rows a short history has not reached go into a
             # resume snapshot as they are, and a file has to be reproducible.
-            self._store = np.zeros((self.n_slots, *value.shape), dtype=np.complex128)
-            if self.compensated:
-                self._states = np.zeros_like(self._store)
-                self._rates = np.zeros(self._store.shape, dtype=np.complex128)
-        self._store[0] = value
-        if self.compensated:
-            assert self._states is not None and self._rates is not None
-            # The startup sample's state and rate, read on the far side of a kink
-            # that restarted the history.
-            self._states[0] = state
-            self._rates[0] = phi_rate(
-                workspace.problem.linear, z, helpers=workspace.helpers
-            )
-            # A frozen-residual flow's weights at the sample, on the far side too.
-            start = cast("CoupledBlock | None", workspace.coupled_block(z, 0.0))
-            self._weights = [None] * self.n_slots
-            self._weights[0] = None if start is None else start.end_weights
+            rows.store = np.zeros((self.n_slots, *value.shape), dtype=np.complex128)
+            if rows.compensated:
+                rows.states = np.zeros_like(rows.store)
+                rows.rates = np.zeros(rows.store.shape, dtype=np.complex128)
+        rows.store[0] = value
+        self._started(state, z)
+
+    def _startup(self, state: _State, z: float) -> _State:
+        """Return the startup sample at the accepted state, as the store keeps it."""
+        raise NotImplementedError
+
+    def _started(self, state: _State, z: float) -> None:
+        """Keep what else the startup sample's row needs; nothing by default."""
 
     # --- the protocol's trial and accept -------------------------------------------
 
@@ -1622,8 +493,8 @@ class HostHistory:
     ) -> Float[np.ndarray, " n_orders"]:
         """Form a trial from `z` over `dz`; return its scored orders' norms.
 
-        The method's own formulation's trial (:meth:`fused_trial`,
-        :meth:`exponential_trial`), held for :meth:`accept`.
+        The formulation's own trial (the subclass's ``_trial``), held for
+        :meth:`accept`.
 
         Parameters
         ----------
@@ -1639,10 +510,21 @@ class HostHistory:
         numpy.ndarray
             One scaled norm per scored order, the step's own first.
         """
-        trial = (
-            self.fused_trial if self._exponential is None else self.exponential_trial
+        return self._trial(
+            z, dz, stencil.nodes, stencil.rows, stencil.order, stencil.orders
         )
-        return trial(z, dz, stencil.nodes, stencil.rows, stencil.order, stencil.orders)
+
+    def _trial(  # noqa: PLR0917 - called positionally
+        self,
+        z: float,
+        dz: float,
+        nodes: list[float],
+        slots: np.ndarray,
+        order: int,
+        orders: list[int],
+    ) -> np.ndarray:
+        """Form and hold one trial; return the scaled norms of its scored defects."""
+        raise NotImplementedError
 
     def accept(
         self, dz: float, free: int, stencil: Stencil, kept: Sequence[HistoryEntry]
@@ -1668,10 +550,11 @@ class HostHistory:
         """
         del dz, stencil  # the held trial carries both
         rows = np.array([entry.row for entry in kept], dtype=np.int64)
-        adopt = (
-            self.fused_accept if self._exponential is None else self.exponential_accept
-        )
-        return adopt(rows, free, interpolate=self._interpolate)
+        return self._accept(rows, free)
+
+    def _accept(self, keep: np.ndarray, free: int) -> AcceptRecord:
+        """Adopt the held trial, keeping rows `keep`; the new sample takes `free`."""
+        raise NotImplementedError
 
     def chord_phase(self, z1: float, z2: float) -> float:
         """Return the carrier chord's largest phase over ``[z1, z2]``.
@@ -1750,9 +633,53 @@ class HostHistory:
         """
         return self._workspace.reading()
 
-    # --- the interaction formulation's fused path -------------------------------------
+    def _adopt(self, advanced: _State, dz: float) -> AcceptRecord:
+        """Finish an accepted step's state and commit it as the workspace's."""
+        finished, record = self._workspace.finish(advanced, dz)
+        self._workspace.install(finished)
+        return record
 
-    def fused_trial(  # noqa: PLR0917 - called positionally
+
+class InteractionHistory(HostHistory):
+    """The interaction formulation's history (SEP 13, SEP 14).
+
+    The history keeps **transported** sources, re-anchored at every accepted step by
+    the step's own propagator; a trial's predictor, source and corrector are
+    :class:`~solprop.backends.numpy_ref.adams_kernels.AdamsKernels`' fused passes.
+
+    Parameters
+    ----------
+    workspace : solprop.backends.numpy_ref.workspace.NumpyWorkspace
+        The workspace whose state, source evaluation and propagators are used.
+    method : solprop.stepper.multistep.Multistep
+        The method.
+    interpolate : bool, optional
+        Whether an accepted step keeps its interpolant for dense observation.
+    rows : AdamsRows or None, optional
+        The rows to write; new ones by default.
+    """
+
+    def __init__(
+        self,
+        workspace: "NumpyWorkspace",
+        method: Multistep,
+        *,
+        interpolate: bool = False,
+        rows: AdamsRows | None = None,
+    ) -> None:
+        """Hold the workspace, the kernels and an empty store."""
+        super().__init__(
+            workspace, method, compensated=False, interpolate=interpolate, rows=rows
+        )
+        self._kernels = AdamsKernels()
+        self._held: _FusedTrial | None = None
+
+    def _startup(self, state: _State, z: float) -> _State:
+        """Return the transported source at the accepted state."""
+        value, _ = self._workspace.source(state, z, z, purpose="startup")
+        return value
+
+    def _trial(  # noqa: PLR0917 - called positionally
         self,
         z: float,
         dz: float,
@@ -1766,36 +693,23 @@ class HostHistory:
         The predictor's lab-frame field, the source there (one call, labelled a
         predictor), and in one pass the corrected field and each scored order's
         defect: its ``k + 1``-node corrector through the new source less its
-        ``k``-node predictor. The trial is held for :meth:`fused_accept`.
+        ``k``-node predictor. The trial is held for ``_accept``.
 
-        Parameters
-        ----------
-        z, dz : float
-            The anchor and the step, m.
-        nodes : list of float
-            The history's normalised positions, newest first.
-        slots : numpy.ndarray
-            Their store rows, ``int64``.
-        order : int
-            The step's order.
-        orders : list of int
-            The orders scored, the step's own first.
-
-        Returns
-        -------
-        numpy.ndarray
-            One scaled norm per scored order.
+        - ``nodes``: the history's normalised positions, newest first; ``slots`` their
+          store rows.
+        - ``orders``: the orders scored, the step's own (``order``) first.
+        - Returns: one scaled norm per scored order.
         """
         workspace, kernels = self._workspace, self._kernels
-        store = self._store
+        store = self.rows.store
         assert store is not None
         state = workspace.committed()
         workspace.hoist(z)
         propagator = workspace.propagator(z, z + dz, hold=True)
-        predictor = kernels.weights(nodes[:order])
+        predictor = integrated_weights(nodes[:order], check=False, helpers=PLAIN)
         lab = kernels.predict(state, propagator, store, slots[:order], predictor, dz)
         source, _ = workspace.source(lab, z, z + dz, purpose="predictor")
-        rows, corrector = _defect_rows(kernels, nodes, orders)
+        rows, corrector = defect_rows(nodes, orders)
         width = rows.shape[1]
         mask = workspace.problem.grids.norm_mask
         advanced, norms = kernels.correct(
@@ -1810,45 +724,31 @@ class HostHistory:
             mask,
             _divisor(mask, self._controller, state),
         )
-        self._fused_trial = _FusedTrial(
+        self._held = _FusedTrial(
             z=z,
             dz=dz,
             state=state,
             propagator=propagator,
             source=source,
             advanced=advanced,
-            nodes=nodes,
             slots=slots,
             order=order,
         )
         return norms
 
-    def fused_accept(
-        self, keep: np.ndarray, free: int, *, interpolate: bool
-    ) -> AcceptRecord:
+    def _accept(self, keep: np.ndarray, free: int) -> AcceptRecord:
         """Adopt the held fused trial: the state, its interpolant, the new sample.
 
-        Parameters
-        ----------
-        keep : numpy.ndarray
-            The history rows kept, ``int64``; each is re-anchored at the step's end.
-        free : int
-            The row the new sample takes.
-        interpolate : bool
-            Whether the step's interpolant is kept for dense observation.
-
-        Returns
-        -------
-        solprop.backends.engines.AcceptRecord
-            The finish's split collar's sums.
+        - ``keep``: the history rows kept, each re-anchored at the step's end.
+        - Returns: the finish's split collar's sums.
         """
-        trial = self._fused_trial
-        store = self._store
+        trial = self._held
+        store = self.rows.store
         assert trial is not None and store is not None
-        self._fused_trial = None
+        self._held = None
         record = self._adopt(trial.advanced, trial.dz)
         order = trial.order
-        if interpolate:
+        if self._interpolate:
             # Copied before the transport re-anchors the rows in place: the step's own
             # interpolant is in its anchor's frame.
             slopes = [
@@ -1864,15 +764,103 @@ class HostHistory:
         self._kernels.transport(store, keep, trial.propagator, free, trial.source)
         return record
 
-    def _adopt(self, advanced: _State, dz: float) -> AcceptRecord:
-        """Finish an accepted step's state and commit it as the workspace's."""
-        finished, record = self._workspace.finish(advanced, dz)
-        self._workspace.install(finished)
-        return record
 
-    # --- the exponential formulation --------------------------------------------------
+class ExponentialHistory(HostHistory):
+    """The exponential formulation's history (SEP 16, SEP 35).
 
-    def exponential_trial(  # noqa: PLR0917 - called positionally
+    The history keeps **untransported** sources; a trial integrates its interpolants
+    exactly against the step's flow ``exp(x)``, ``x = Phi(z + h) - Phi(z)``
+    (:class:`~solprop.backends.numpy_ref.adams_kernels.ExponentialKernels`), steps a
+    coupled flow's section against its frozen block, adds a varying operator's linear
+    compensation of its samples, and under a carrier frame rotates the samples it reads.
+
+    Parameters
+    ----------
+    workspace : solprop.backends.numpy_ref.workspace.NumpyWorkspace
+        The workspace whose state, source evaluation and propagators are used.
+    method : solprop.stepper.multistep.Multistep
+        The method.
+    compensation : {'transported', 'untransported'}
+        A varying operator's compensation treatment (SEP 16 Q8); the untransported
+        one is a test witness.
+    interpolate : bool, optional
+        Whether an accepted step keeps its interpolant for dense observation.
+    rows : AdamsRows or None, optional
+        The rows to write; new ones by default.
+
+    Attributes
+    ----------
+    compensated : bool
+        Whether a varying operator's linear compensation is integrated.
+    """
+
+    def __init__(
+        self,
+        workspace: "NumpyWorkspace",
+        method: Multistep,
+        compensation: Literal["transported", "untransported"],
+        *,
+        interpolate: bool = False,
+        rows: AdamsRows | None = None,
+    ) -> None:
+        """Hold the workspace, the kernels, the carrier frame and an empty store."""
+        linear = workspace.problem.linear
+        # SEP 16 phase 4: a varying operator's linear compensation, integrated in the
+        # reference flow's frame (Q8); the untransported treatment is a test witness.
+        # A structurally absent source takes the exact chord instead (section 4.2).
+        # SEP 16 phase 5: a frozen-residual coupled flow's residual is linear in the
+        # state and joins the compensation, whatever the diagonal's representation.
+        flow = linear.coupled_flow
+        residual = flow is not None and "frozen_residual" in flow.section_methods
+        self.compensated = residual or (
+            linear.phi_representation in ("expansion", "table")
+            and not source_absent(workspace.problem)
+        )
+        if self.compensated and flow is not None and compensation != "transported":
+            msg = "the untransported compensation is a witness for diagonal operators"
+            raise BackendError(msg)
+        super().__init__(
+            workspace,
+            method,
+            compensated=self.compensated,
+            interpolate=interpolate,
+            rows=rows,
+        )
+        self._kernels = ExponentialKernels()
+        self._compensation = compensation
+        self._held: _ExponentialTrial | None = None
+        # A frozen-residual flow's weights at the held trial's end.
+        self._trial_weights: np.ndarray | None = None
+        # SEP 35: the carrier phase each trial removes from the samples it reads, from
+        # a reference fixed for the run; None when off. An inert one (sigma = 0) takes
+        # the unshifted arithmetic exactly.
+        self.carrier = carrier_reference(workspace.problem, method)
+        if self.carrier is not None:
+            logger.info(
+                "carrier frame %r: %s", self.carrier.policy, self.carrier.reason
+            )
+
+    def _startup(self, state: _State, z: float) -> _State:
+        """Return the untransported source at the accepted state."""
+        return self._workspace.lab_source(state, z, purpose="startup")
+
+    def _started(self, state: _State, z: float) -> None:
+        """Keep a compensated history's startup state, rate and flow weights."""
+        rows = self.rows
+        if not rows.compensated:
+            return
+        assert rows.states is not None and rows.rates is not None
+        workspace = self._workspace
+        # The startup sample's state and rate, read on the far side of a kink that
+        # restarted the history.
+        rows.states[0] = state
+        rows.rates[0] = phi_rate(workspace.problem.linear, z, helpers=PLAIN)
+        # A frozen-residual flow's weights at the sample, on the far side too.
+        start = workspace.coupled_block(z, 0.0)
+        rows.weights = [None] * self.n_slots
+        rows.weights[0] = None if start is None else start.end_weights
+
+    def _trial(  # noqa: PLR0917 - called positionally
         self,
         z: float,
         dz: float,
@@ -1883,35 +871,21 @@ class HostHistory:
     ) -> np.ndarray:
         """Form one exponential trial and return the scaled norms of its defects.
 
-        The arithmetic of :meth:`fused_trial` with untransported samples: the predictor
-        and the corrector integrate their interpolants exactly against the step's flow
-        ``exp(x)``, ``x = Phi(z + h) - Phi(z)``; the defects of the neighbouring orders
-        are scored from the same moments. A varying operator adds the compensation of
-        its samples (SEP 16 section 4.2). Under a carrier frame the samples read are
-        rotated and the moments shifted (SEP 35 section 4.1); the flow is unchanged.
-        The trial is held for :meth:`exponential_accept`.
+        The interaction formulation's arithmetic with untransported samples: the
+        predictor and the corrector integrate their interpolants exactly against the
+        step's flow ``exp(x)``, ``x = Phi(z + h) - Phi(z)``; the defects of the
+        neighbouring orders are scored from the same moments. A varying operator adds
+        the compensation of its samples (SEP 16 section 4.2). Under a carrier frame the
+        samples read are rotated and the moments shifted (SEP 35 section 4.1); the flow
+        is unchanged. The trial is held for ``_accept``.
 
-        Parameters
-        ----------
-        z, dz : float
-            The anchor and the step, m.
-        nodes : list of float
-            The history's normalised positions, newest first.
-        slots : numpy.ndarray
-            Their store rows, ``int64``.
-        order : int
-            The step's order.
-        orders : list of int
-            The orders scored, the step's own first.
-
-        Returns
-        -------
-        numpy.ndarray
-            One scaled norm per scored order.
+        - ``nodes``: the history's normalised positions, newest first; ``slots`` their
+          store rows.
+        - ``orders``: the orders scored, the step's own (``order``) first.
+        - Returns: one scaled norm per scored order.
         """
-        workspace, kernels = self._workspace, self._exponential
-        assert kernels is not None
-        store = self._store
+        workspace, kernels = self._workspace, self._kernels
+        store = self.rows.store
         assert store is not None
         state = workspace.committed()
         workspace.hoist(z)
@@ -1924,7 +898,7 @@ class HostHistory:
         # A coupled section's step (SEP 16 phase 5): its flow and moments are matrix
         # functions of the frozen block on the bins that carry one, applied by the
         # reference passes.
-        block = cast("CoupledBlock | None", workspace.coupled_block(z, dz))
+        block = workspace.coupled_block(z, dz)
         # SEP 35 section 4.1: with F(z_n + s) = exp(-sigma (1 - s/h)) G(s), the
         # step interpolates G_j = exp(sigma (1 - theta_j)) F_j and integrates it
         # against the moments at x - sigma; exact for any sigma, the flow untouched.
@@ -1932,25 +906,30 @@ class HostHistory:
         shift = (
             None if carrier is None or not carrier.active else carrier.shift(exponent)
         )
+        # The moments at the shifted exponent and the true flow exp(x); a coupled
+        # step's are the shifted block's, its flow exp(sigma) times their phi_0, the
+        # true exp(h B) (section 4.5): one evaluation, never the shifted flow.
+        moments: Any
+        flow: Any
         if block is not None:
-            kernels = kernels.coupled()
-        moments, flow = _trial_propagators(kernels, exponent, width, block, dz, shift)
+            moments = coupled_moments(exponent, width, block, dz, carrier=shift)
+            flow = moments
+        else:
+            moments = kernels.moments(exponent, width, shift=shift)
+            flow = kernels.flow(exponent)
         rows_read = slots[: width - 1]
         factors = (
             None if shift is None else _carrier_factors(nodes, len(rows_read), shift)
         )
-        rotation = {} if factors is None else {"factors": factors[:order]}
         lab = kernels.predict(
             state,
             flow,
             moments,
             store,
             rows_read[:order],
-            lagrange_coefficients(
-                nodes[:order], check=False, helpers=workspace.helpers
-            ),
+            lagrange_coefficients(nodes[:order], check=False, helpers=PLAIN),
             dz,
-            **rotation,
+            factors=None if factors is None else factors[:order],
         )
         compensation = None
         if self.compensated:
@@ -1961,14 +940,12 @@ class HostHistory:
                 compensation.rotate(shift)
             lab = lab + compensation.predictor(order)
         source = workspace.lab_source(lab, z + dz, purpose="predictor")
-        corrector = _exponential_corrector(
-            nodes, order, width, helpers=workspace.helpers
-        )
+        corrector = exponential_corrector(nodes, order, width)
         rows = kernels.defect_rows(nodes, orders, width)
         extra = None
         if compensation is not None:
             rate = phi_rate(
-                workspace.problem.linear, z + dz, before=True, helpers=workspace.helpers
+                workspace.problem.linear, z + dz, before=True, helpers=PLAIN
             )
             residual = None
             if block is not None and block.residual is not None:
@@ -1991,58 +968,45 @@ class HostHistory:
             mask,
             _divisor(mask, self._controller, state),
             extra,
-            **({} if factors is None else {"factors": factors}),
+            factors=factors,
         )
-        self._exponential_trial = _ExponentialTrial(
+        self._held = _ExponentialTrial(
             z=z,
             dz=dz,
             state=state,
             exponent=exponent,
-            corrector=corrector,
             source=source,
             lab=lab,
             advanced=advanced,
             slots=slots,
             order=order,
             compensation=compensation,
-            shift=shift,
-            factors=factors,
         )
         self._carrier_rows = (
             None if shift is None or factors is None else (shift, factors)
         )
         return norms
 
-    def exponential_accept(
-        self, keep: np.ndarray, free: int, *, interpolate: bool
-    ) -> AcceptRecord:
+    def _accept(self, keep: np.ndarray, free: int) -> AcceptRecord:
         """Adopt the held exponential trial; the new sample takes row `free`.
 
-        Parameters
-        ----------
-        keep : numpy.ndarray
-            The history rows kept, ``int64``; nothing moves in this formulation.
-        free : int
-            The row the new sample takes.
-        interpolate : bool
-            Whether the step's interpolant is kept for dense observation.
-
-        Returns
-        -------
-        solprop.backends.engines.AcceptRecord
-            The finish's split collar's sums.
+        - ``keep``: the history rows kept; nothing moves in this formulation.
+        - Returns: the finish's split collar's sums.
         """
         del keep  # untransported samples are never re-anchored
-        trial = self._exponential_trial
-        store = self._store
+        trial = self._held
+        store = self.rows.store
         assert trial is not None and store is not None
-        self._exponential_trial = None
+        self._held = None
         record = self._adopt(trial.advanced, trial.dz)
         z, dz, order, slots = trial.z, trial.dz, trial.order, trial.slots
         compensation = trial.compensation
-        if interpolate:
+        if self._interpolate:
+            # Dense output refuses a coupled flow, whose residual the history terms
+            # below leave out (they are the diagonal chord's alone).
+            assert self._workspace.problem.linear.coupled_flow is None
             # Copied: the store's rows are overwritten by later steps.
-            self.exponential_dense = _ExponentialStep(
+            self.dense = _ExponentialStep(
                 z=z,
                 dz=dz,
                 start=trial.state.copy(),
@@ -2061,12 +1025,12 @@ class HostHistory:
             )
         store[free] = trial.source
         if compensation is not None:
-            assert self._states is not None and self._rates is not None
+            assert self.rows.states is not None and self.rows.rates is not None
             assert compensation.endpoint_rate is not None
-            self._states[free] = trial.lab
-            self._rates[free] = compensation.endpoint_rate
+            self.rows.states[free] = trial.lab
+            self.rows.rates[free] = compensation.endpoint_rate
             # One entry per slot, set with the startup sample or a resumed history.
-            self._weights[free] = self._trial_weights
+            self.rows.weights[free] = self._trial_weights
         return record
 
     def _history_terms(
@@ -2077,9 +1041,12 @@ class HostHistory:
         - ``exponent``: ``x = h B_n``.
         - ``dz``: the step, m.
         """
-        assert self._states is not None and self._rates is not None
+        assert self.rows.states is not None and self.rows.rates is not None
         reference = exponent / dz
-        return [(self._rates[slot] - reference) * self._states[slot] for slot in slots]
+        return [
+            (self.rows.rates[slot] - reference) * self.rows.states[slot]
+            for slot in slots
+        ]
 
     def _compensation_terms(  # noqa: PLR0917 - called positionally
         self,
@@ -2098,24 +1065,24 @@ class HostHistory:
         - ``block``: a coupled step's frozen block: the samples' residuals against it
           join their compensation, carried by its forward flow.
         """
-        assert self._states is not None and self._rates is not None
-        assert self._exponential is not None
+        rows = self.rows
+        assert rows.states is not None and rows.rates is not None
         used = list(nodes[: len(slots)])
         transported = self._compensation == "transported"
         # The untransported witness keeps the samples in their own frame: a span of 0.
         spans = np.array([1.0 - node if transported else 0.0 for node in used])
         if block is not None:
-            carried = self._exponential.coupled().carry_coupled(
+            carried = self._kernels.carry_coupled(
                 exponent,
                 dz,
-                (self._rates, self._states, self._weights),
+                (rows.rates, rows.states, rows.weights),
                 slots,
                 spans,
                 block,
             )
         else:
-            carried = self._exponential.carry(
-                exponent, dz, self._rates, self._states, slots, spans
+            carried = self._kernels.carry(
+                exponent, dz, rows.rates, rows.states, slots, spans
             )
         return _Compensation(
             exponent=exponent,
@@ -2124,47 +1091,7 @@ class HostHistory:
             carried=carried,
             dz=dz,
             treatment=self._compensation,
-            helpers=self._workspace.helpers,
         )
-
-
-def _trial_propagators(  # noqa: PLR0917 - called positionally
-    kernels: Any,
-    exponent: Any,
-    width: int,
-    block: CoupledBlock | None,
-    dz: float,
-    shift: _Shift | None,
-) -> tuple[Any, Any]:
-    """Return a trial's moments and flow, shifted by `shift` when it is given.
-
-    - ``exponent``: the step's increment of Phi, the true linear exponent.
-    - ``width``: the number of moments, one more than the highest order scored.
-    - ``block``: the section's frozen block, or None off a coupled section.
-    - ``shift``: the carrier shift sigma per member, or None when no frame is active.
-    - Returns: the moments at the shifted exponent and the true flow exp(x).
-    """
-    moments: Any
-    flow: Any
-    if block is not None:
-        # The moments are the shifted block's and the flow exp(sigma) times its
-        # phi_0, the true exp(h B) (section 4.5): one evaluation, never the
-        # shifted flow.
-        moments = (
-            kernels.coupled_moments(exponent, width, block, dz)
-            if shift is None
-            else kernels.coupled_moments(exponent, width, block, dz, shift=shift)
-        )
-        flow = moments
-    else:
-        moments = (
-            kernels.moments(exponent, width)
-            if shift is None
-            else kernels.moments(exponent, width, shift=shift)
-        )
-        # After the moments: a compiled backend forms exp(x) in their pass.
-        flow = kernels.flow(exponent)
-    return moments, flow
 
 
 def _carrier_factors(nodes: list[float], count: int, shift: _Shift) -> _Factors:
@@ -2178,21 +1105,6 @@ def _carrier_factors(nodes: list[float], count: int, shift: _Shift) -> _Factors:
     - Returns: one factor per row, ``(count, *shift.shape)``.
     """
     return np.stack([np.exp(shift * (1.0 - nodes[index])) for index in range(count)])
-
-
-def _rows_read(
-    store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
-    slots: np.ndarray,
-    factors: _Factors | None,
-) -> list[_State]:
-    """Return the history rows a pass combines, rotated when a carrier frame asks.
-
-    - ``factors``: their rotations, in the slots' order; ``None`` for the rows
-      themselves.
-    """
-    if factors is None:
-        return [store[slot] for slot in slots]
-    return [factor * store[slot] for factor, slot in zip(factors, slots, strict=False)]
 
 
 def _divisor(
@@ -2218,294 +1130,3 @@ def _divisor(
         if isinstance(scale, np.ndarray)
         else np.full(state.shape[-1], float(scale))
     )
-
-
-def _defect_rows(
-    kernels: AdamsKernels, nodes: list[float], orders: list[int]
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return each order's defect weights and the first order's corrector weights.
-
-    Over ``(source, newest, ...)``, order ``k``'s defect is its ``k + 1``-node
-    corrector through the new source less its ``k``-node predictor.
-
-    - ``nodes``: the history's normalised positions, newest first.
-    - Returns: the defect rows, shape ``(len(orders), 1 + max(orders))``, and the step's
-      own corrector weights, zero past its nodes.
-    """
-    width = 1 + max(orders)
-    rows = np.zeros((len(orders), width))
-    corrector = np.zeros(width)
-    for index, order in enumerate(orders):
-        stencil = nodes[:order]
-        through = kernels.weights([1.0, *stencil])
-        rows[index, : order + 1] = through
-        rows[index, 1 : order + 1] -= kernels.weights(stencil)
-        if index == 0:
-            corrector[: order + 1] = through
-    return rows, corrector
-
-
-def fused_tables(
-    nodes: list[float], order: int, orders: list[int], *, helpers: Helpers
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return a fused trial's coefficient tables, for an engine that applies them.
-
-    The interaction formulation's tables of :meth:`HostHistory.fused_trial`, which a
-    resident engine (ADR-043) receives instead of forming them.
-
-    Parameters
-    ----------
-    nodes : list of float
-        The history's normalised positions, newest first.
-    order : int
-        The step's order.
-    orders : list of int
-        The orders scored, the step's own first.
-    helpers : solprop._helpers.Helpers
-        The engine's backend's implementation of the Adams basis.
-
-    Returns
-    -------
-    tuple
-        The predictor's integrated weights over the ``order`` newest rows; the
-        corrector's weights over ``(source, newest, ...)``, zero past its nodes; and
-        one defect row per scored order over the same samples.
-    """
-    kernels = AdamsKernels(helpers=helpers)
-    rows, corrector = _defect_rows(kernels, nodes, orders)
-    return kernels.weights(nodes[:order]), corrector, rows
-
-
-def factored_defect_rows(
-    nodes: list[float], orders: list[int], width: int
-) -> np.ndarray:
-    """Return each exponential defect factored: a divided difference and a polynomial.
-
-    Order ``k``'s defect, its ``k + 1``-node corrector through the new sample less its
-    ``k``-node predictor, vanishes at the predictor's nodes, so it is
-    ``f[1, theta_0, ..., theta_{k-1}] prod_{j<k} (theta - theta_j)``: one divided
-    difference of the samples times one polynomial, whose integral against the flow is
-    one combination of the moments. That is ``2 (k + 1)`` products an element instead
-    of ``(k + 1) n_k``, the monomial rows of ``_exponential_rows``.
-
-    Parameters
-    ----------
-    nodes : list of float
-        The history's normalised positions, newest first.
-    orders : list of int
-        The orders scored, the step's own first.
-    width : int
-        ``1 + max(orders)``: the samples and the moments of the trial.
-
-    Returns
-    -------
-    numpy.ndarray
-        Shape ``(len(orders), 2 width)``: the divided-difference coefficients over
-        ``(source, newest, ...)``, then the node polynomial's ascending monomial
-        coefficients.
-    """
-    rows = np.zeros((len(orders), 2 * width))
-    for index, order in enumerate(orders):
-        points = [1.0, *nodes[:order]]
-        row = rows[index]
-        for t, node in enumerate(points):
-            denominator = 1.0
-            for s, other in enumerate(points):
-                if s != t:
-                    denominator *= node - other
-            row[t] = 1.0 / denominator
-        # The node polynomial one linear factor at a time, newest node first, as the
-        # Adams basis builds its numerators (`_basis_rows`); in plain floats, since
-        # `numpy.polynomial.polyfromroots` costs four fifths of this function. Every
-        # node is at or below zero, so every coefficient is positive: no cancellation.
-        coefficients = [1.0]
-        for root in nodes[:order]:
-            product = [0.0, *coefficients]
-            for power, value in enumerate(coefficients):
-                product[power] -= root * value
-            coefficients = product
-        row[width : width + order + 1] = coefficients
-    return rows
-
-
-def exponential_tables(
-    nodes: list[float], order: int, orders: list[int], *, helpers: Helpers
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return an exponential trial's coefficient tables, for a resident engine.
-
-    Parameters
-    ----------
-    nodes : list of float
-        The history's normalised positions, newest first.
-    order : int
-        The step's order.
-    orders : list of int
-        The orders scored, the step's own first.
-    helpers : solprop._helpers.Helpers
-        The engine's backend's implementation of the Adams basis.
-
-    Returns
-    -------
-    tuple
-        The predictor's Lagrange coefficients over the ``order`` newest rows, shape
-        ``(order, order)``; the corrector's over ``(source, newest, ...)``, shape
-        ``(width, width)`` with ``width = 1 + max(orders)``; and the factored defect
-        rows of :func:`factored_defect_rows`.
-    """
-    width = 1 + max(orders)
-    corrector = _exponential_corrector(nodes, order, width, helpers=helpers)
-    predictor = lagrange_coefficients(nodes[:order], check=False, helpers=helpers)
-    return predictor, corrector, factored_defect_rows(nodes, orders, width)
-
-
-def compensation_tables(
-    nodes: list[float], order: int, orders: list[int], *, helpers: Helpers
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Return a trial's transported-compensation tables, for a resident engine.
-
-    The weights ``_Compensation`` applies (SEP 16 section 4.2, ADR-042), over the
-    carried rows ``exp((1 - theta_j) x) (D(z_j) - x / h) u_j`` of the history samples
-    and the endpoint term ``(D(z + h) - x / h) u_pred``, each sum still to be
-    multiplied by the step.
-
-    Parameters
-    ----------
-    nodes : list of float
-        The history's normalised positions, newest first.
-    order : int
-        The step's order.
-    orders : list of int
-        The orders scored, the step's own first.
-    helpers : solprop._helpers.Helpers
-        The engine's backend's implementation of the Adams basis.
-
-    Returns
-    -------
-    tuple
-        The spans ``1 - theta_j`` of the ``width - 1`` carried samples; the
-        predictor's weights over the ``order`` newest of them; the corrector's over
-        ``(endpoint, newest, ...)``; and each scored order's defect weights over the
-        same, shape ``(len(orders), width)``, with ``width = 1 + max(orders)``.
-    """
-    width = 1 + max(orders)
-    spans = np.array([1.0 - node for node in nodes[: width - 1]])
-    # Each count's predictor and corrector once: the step's own pair is also its
-    # defect's, so a trial forms two weights per scored order, not two more.
-    weights = {
-        count: (
-            integrated_weights(nodes[:count], check=False, helpers=helpers),
-            integrated_weights([1.0, *nodes[:count]], check=False, helpers=helpers),
-        )
-        for count in dict.fromkeys([order, *orders])
-    }
-    rows = np.zeros((len(orders), width))
-    for index, scored in enumerate(orders):
-        predicted, through = weights[scored]
-        rows[index, : scored + 1] = through
-        rows[index, 1 : scored + 1] -= predicted
-    predictor, corrector = weights[order]
-    return spans, predictor, corrector, rows
-
-
-def trial_tables(
-    nodes: list[float],
-    order: int,
-    orders: list[int],
-    *,
-    compensated: bool,
-    helpers: Helpers,
-) -> tuple[
-    np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray
-]:
-    """Return all of an exponential trial's coefficient tables, for a resident engine.
-
-    :func:`exponential_tables`' three and, compensated, :func:`compensation_tables`'
-    four, composed over the record's basis, read once a trial instead of from a dozen
-    small calls. The native march forms the same tables in C++ with the same
-    operations in the same order.
-
-    Parameters
-    ----------
-    nodes : list of float
-        The history's normalised positions, newest first.
-    order : int
-        The step's order.
-    orders : list of int
-        The orders scored, the step's own first.
-    compensated : bool
-        Whether the trial carries a varying operator's transported compensation.
-    helpers : solprop._helpers.Helpers
-        The engine's backend's implementation of the Adams basis.
-
-    Returns
-    -------
-    tuple
-        The predictor, the corrector and the factored defect rows; then the
-        compensation's spans, predictor, corrector and defect rows, shapes ``(0,)``
-        and ``(0, 0)`` when not compensated.
-    """
-    predictor, corrector, factored = exponential_tables(
-        nodes, order, orders, helpers=helpers
-    )
-    if not compensated:
-        return predictor, corrector, factored, *_NO_COMPENSATION
-    spans, carried, endpoint, defects = compensation_tables(
-        nodes, order, orders, helpers=helpers
-    )
-    return predictor, corrector, factored, spans, carried, endpoint, defects
-
-
-_NO_COMPENSATION = (np.empty(0), np.empty(0), np.empty(0), np.empty((0, 0)))
-"""An uncompensated trial's compensation tables: spans, weights and defect rows."""
-
-
-def _exponential_rows(
-    nodes: list[float], orders: list[int], width: int, *, helpers: Helpers
-) -> np.ndarray:
-    """Return each order's defect coefficients in the monomial basis.
-
-    Over ``X = (source, newest, ...)`` in the monomial basis of the moments, order
-    ``k``'s defect is its ``k + 1``-node corrector through the new source less its
-    ``k``-node predictor, as for :func:`_defect_rows`; the weights are the Lagrange
-    coefficients, which the trial's moments turn into exponential weights.
-
-    - ``nodes``: the history's normalised positions, newest first.
-    - Returns: the defect rows, shape ``(len(orders), width, width)``.
-    """
-    rows = np.zeros((len(orders), width, width))
-    for index, order in enumerate(orders):
-        stencil = nodes[:order]
-        rows[index, : order + 1, : order + 1] = lagrange_coefficients(
-            [1.0, *stencil], check=False, helpers=helpers
-        )
-        rows[index, 1 : order + 1, :order] -= lagrange_coefficients(
-            stencil, check=False, helpers=helpers
-        )
-    return rows
-
-
-def _exponential_corrector(
-    nodes: list[float], order: int, width: int, *, helpers: Helpers
-) -> np.ndarray:
-    """Return the step's own corrector's Lagrange coefficients, padded to `width`.
-
-    - ``nodes``: the history's normalised positions, newest first.
-    - Returns: the coefficients over ``X = (source, newest, ...)``, shape ``(width,
-      width)``, zero past its nodes.
-    """
-    corrector = np.zeros((width, width))
-    corrector[: order + 1, : order + 1] = lagrange_coefficients(
-        [1.0, *nodes[:order]], check=False, helpers=helpers
-    )
-    return corrector
-
-
-def _combine(weights: np.ndarray, values: list[_State], dz: float) -> _State:
-    """Return ``dz * sum_j w_j g_j``.
-
-    - ``dz``: the step, m.
-    """
-    total = np.zeros_like(values[0])
-    for weight, value in zip(weights, values, strict=True):
-        total = passes.accumulate(total, value, float(weight))
-    return dz * total

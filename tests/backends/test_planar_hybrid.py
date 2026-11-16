@@ -31,7 +31,8 @@ from builders import grid_at, load_reference
 from legacy_geometry import bare_absorber
 from sessions.runs import bare, final_field
 from sessions.runs import run as session_run
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.transforms import synthesise, to_time
 from solprop.backends.spatial import (
     slab_columns,
     slab_projection,
@@ -164,10 +165,8 @@ def field_peak_rate_allowance(problem, reference, field_bound, n_y):
         * (fft_bound(grids.n_to) + fft_bound(n_y) + gamma(problem.shape[0]))
         * float(np.max(synthesis @ absolute_modes))
     )
-    modal_time = passes.to_time(reference, grids.crop_index, grids.n_to, kind="field")
-    peak = float(
-        np.max(abs(passes.synthesise(modal_time, transform.synthesis, 1.0, 1)))
-    )
+    modal_time = to_time(reference, grids.crop_index, grids.n_to, kind="field")
+    peak = float(np.max(abs(synthesise(modal_time, transform.synthesis, 1.0, 1))))
     table = problem.responses.plasma_channels[0].rate
     # Check each quadratic log-cubic derivative at its endpoints and any interior
     # vertex: monotone knot values alone would not exclude spline overshoot.

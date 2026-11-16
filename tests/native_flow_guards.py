@@ -10,7 +10,7 @@ these functions raise (``flow_guard_configure``). Until SEP 47's phase 5 the bac
 also ran them itself on its host-packed Runge-Kutta trial; that path is gone, and the
 transcription lives here, read against the backend's constants at call time, so the
 native guards stay held to solprop's reference rule
-(``numpy_ref.backend._flow_squarings`` and ``_check_flow_conditioning``).
+(``numpy_ref.coupled_flow._flow_squarings`` and ``check_flow_conditioning``).
 """
 
 import math

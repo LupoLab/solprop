@@ -174,7 +174,7 @@ def measured_scales(simulation) -> tuple[float, float]:
     """
     from general_parity import conditioning  # noqa: PLC0415
     from solprop.backends.numpy_ref import NumpyRefBackend  # noqa: PLC0415
-    from solprop.backends.numpy_ref.workspace import _general_maps  # noqa: PLC0415
+    from solprop.backends.numpy_ref.source import _general_maps  # noqa: PLC0415
 
     problem = simulation.translate()
     run_request = simulation._run_request()

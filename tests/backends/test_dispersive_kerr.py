@@ -26,7 +26,12 @@ from backends.dispersive_cases import capillary as dispersive_capillary
 from backends.matched import dispersive_response_bound
 from bounds import assert_within
 from builders import numpy_ref_launch_derivative as stage_derivative
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.responses import (
+    dispersive_kerr_polarisation,
+    nonlinear_polarisation,
+)
+from solprop.backends.numpy_ref.passes.transforms import synthesise, to_time
 from solprop.boundaries import Absorber
 from solprop.constants import EPS0
 from solprop.driver import Simulation
@@ -75,17 +80,17 @@ def capillary(policy: str = "gas-polynomial", **overrides: object) -> Simulation
 def node_field(problem, bundle):
     """Return the launch field at the mode-averaged route's one node."""
     grids = problem.grids
-    modal = passes.to_time(
+    modal = to_time(
         problem.initial.field0, grids.crop_index, grids.n_to, kind=problem.grid_kind
     )
-    return passes.synthesise(
+    return synthesise(
         modal, problem.transform.synthesis, bundle.taper_scale, problem.transform.n_pol
     )
 
 
 def response_pass(problem, field_t, bundle):
     """Return the fused response pass over one chunk, with no temporal window."""
-    return passes.nonlinear_polarisation(
+    return nonlinear_polarisation(
         field_t,
         problem.responses,
         np.ones(problem.grids.n_to),
@@ -358,15 +363,15 @@ def test_the_pass_refuses_stage_inputs_that_do_not_match_the_leaf():
         backend.close()
     field_t = node_field(problem, bundle)
     with pytest.raises(BackendError, match="the stage carries 0 densities"):
-        passes.dispersive_kerr_polarisation(
+        dispersive_kerr_polarisation(
             field_t, leaf, (), kind="envelope", carrier=problem.grids.carrier_2w0
         )
     with pytest.raises(BackendError, match="no harmonic carrier was given"):
-        passes.dispersive_kerr_polarisation(
+        dispersive_kerr_polarisation(
             field_t, leaf, bundle.dispersive_kerr_densities, kind="envelope"
         )
     with pytest.raises(BackendError, match="from the stage scalars"):
-        passes.nonlinear_polarisation(
+        nonlinear_polarisation(
             field_t,
             problem.responses,
             np.ones(problem.grids.n_to),
