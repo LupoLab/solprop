@@ -190,7 +190,7 @@ the gate.
   record and the probe from the run's start (solprop SEP 52 section 5.3), and nothing
   configures the workspace after it is built. `check_build()` refuses, in an editable
   checkout, an extension built from other sources than `native/`
-  (`build_info().source_digest`; `cmake/SourceDigest.cmake` and `_source_digest`
+  (`build_info().source_digest`; `cmake/SourceDigest.cmake` and `_build._source_digest`
   compute it, and stay in step). It records solprop's version without comparing it;
   never pin solprop's version.
 - A record that crosses declares its fields once, in a field table beside its C++
