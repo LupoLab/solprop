@@ -788,11 +788,11 @@ def admission_from_record(record: Mapping[str, object]) -> AdiabaticAdmission:
         The certificate.
     """
 
-    def number(name: str) -> float:
+    def _number(name: str) -> float:
         """Return one stored scalar."""
         return float(cast("float", record[name]))
 
-    def optional(name: str) -> float | None:
+    def _optional(name: str) -> float | None:
         """Return one stored scalar that may be absent.
 
         - Returns: the value, or None where it was not recorded.
@@ -805,20 +805,20 @@ def admission_from_record(record: Mapping[str, object]) -> AdiabaticAdmission:
         identity={"recorded": record["identity"]},
         z_span=(float(span[0]), float(span[1])),
         accuracy=AdiabaticAccuracy(
-            field_error=number("field_error_budget"),
-            reflected_energy=number("reflected_energy_budget"),
+            field_error=_number("field_error_budget"),
+            reflected_energy=_number("reflected_energy_budget"),
         ),
-        variation=number("variation"),
-        reflection=number("reflection"),
-        field_error=number("field_error"),
-        worst_kperp_sq=optional("worst_kperp_sq"),
-        worst_omega=optional("worst_omega"),
+        variation=_number("variation"),
+        reflection=_number("reflection"),
+        field_error=_number("field_error"),
+        worst_kperp_sq=_optional("worst_kperp_sq"),
+        worst_omega=_optional("worst_omega"),
         omega=_recorded_array(record["omega"], float),
         spectral_variation=_recorded_array(record["spectral_variation"], float),
         support=_recorded_array(record["support"], bool),
         jumps=_recorded_array(record["jumps"], float),
         exact=bool(record["exact"]),
-        interpolation_envelope=number("interpolation_envelope"),
+        interpolation_envelope=_number("interpolation_envelope"),
     )
 
 
