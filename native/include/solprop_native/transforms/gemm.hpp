@@ -15,6 +15,7 @@
 // (`one_mode_products_enabled`). Each kernel's comment gives its measured evidence and
 // the rounding it keeps.
 
+#include "solprop_native/runtime/graph.hpp"
 #include "solprop_native/runtime/launch.hpp"
 
 #include <KokkosBlas3_gemm.hpp>
