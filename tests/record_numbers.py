@@ -146,3 +146,33 @@ def without_sep21_absorber(
     if spatial and configuration.get("absorber_scheme") == "split_step":
         configuration["absorber_scheme"] = "nonlinear"
     return {**record, "configuration": configuration}
+
+
+def with_former_names(value: object) -> object:
+    """Return a record with the names that later renames changed restored.
+
+    A reference state's ``pressure`` was ``pressure_bar``.
+
+    Parameters
+    ----------
+    value : object
+        A record, or any part of one, as JSON-like values.
+
+    Returns
+    -------
+    object
+        The projected record; `value` is not modified.
+    """
+    if isinstance(value, list):
+        return [with_former_names(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    if "reference_state" in value and isinstance(value["reference_state"], dict):
+        state = value["reference_state"]
+        value = value | {
+            "reference_state": {
+                ("pressure_bar" if name == "pressure" else name): item
+                for name, item in state.items()
+            }
+        }
+    return {key: with_former_names(child) for key, child in value.items()}

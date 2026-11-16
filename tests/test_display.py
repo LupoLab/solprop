@@ -20,6 +20,7 @@ from record_numbers import (
     assert_record_numbers,
     record_skeleton,
     skeleton_hash,
+    with_former_names,
     without_sep21_absorber,
 )
 from solprop import _display, tools
@@ -642,26 +643,6 @@ def without_optmat_release(value: object, *, materials: bool = False) -> object:
     if isinstance(value, str):
         return OPTMAT_RELEASE.sub("optmat <release>", value)
     return value
-
-
-def with_former_names(value: object) -> object:
-    """Return a record with the names a later rename changed restored.
-
-    A reference state's ``pressure`` was ``pressure_bar``.
-    """
-    if isinstance(value, list):
-        return [with_former_names(item) for item in value]
-    if not isinstance(value, dict):
-        return value
-    if "reference_state" in value and isinstance(value["reference_state"], dict):
-        state = value["reference_state"]
-        value = value | {
-            "reference_state": {
-                ("pressure_bar" if name == "pressure" else name): item
-                for name, item in state.items()
-            }
-        }
-    return {key: with_former_names(child) for key, child in value.items()}
 
 
 RUN_RECORD_SKELETON = "f21c76f5c17db893aa436cc88749c124d41e7052ceb28cdd8c01a20e4e442121"
