@@ -52,6 +52,7 @@ from typing import Final, Protocol, cast, runtime_checkable
 import numpy as np
 from jaxtyping import Bool, Float, Int
 from numpy.polynomial import Chebyshev
+from scipy.integrate import quad
 from scipy.interpolate import CubicSpline
 
 from solprop._display import Displayed, engineering, line, summarise
@@ -2582,6 +2583,51 @@ def _probe_positions(path: ZProfile) -> Float[np.ndarray, " n_probes"]:
     return np.unique(
         np.concatenate([np.asarray(path.breakpoints, dtype=float), interior])
     )
+
+
+def _weighted_mean(
+    value: ZProfile,
+    weight: ZProfile,
+    start: float,
+    end: float,
+    kinks: Float[np.ndarray, " n_kinks"],
+) -> float | None:
+    """Return the mean of one path weighted by another over a finite span.
+
+    The integrals are taken by adaptive quadrature between the span's ends and the
+    kinks, so that each piece is smooth.
+
+    - ``start``, ``end``: the finite span in m.
+    - ``kinks``: positions in m inside the span where the value or the weight kinks.
+    - Returns: ``int w v dz / int w dz``, or ``None`` when ``int w dz`` is not positive.
+    """
+    edges = np.unique(np.concatenate([[start, end], kinks]))
+
+    def weighted(z: float, power: int) -> float:
+        """Return ``w(z) v(z)^power`` at one position.
+
+        - ``z``: position in m.
+        """
+        position = np.array([z])
+        scale = float(weight(position)[0])
+        return scale * float(value(position)[0]) ** power
+
+    totals = [0.0, 0.0]
+    for left, right in itertools.pairwise(edges):
+        for power in (0, 1):
+            part, _ = quad(
+                weighted,
+                left,
+                right,
+                args=(power,),
+                epsabs=0.0,
+                epsrel=1e-10,
+                limit=200,
+            )
+            totals[power] += part
+    if not totals[0] > 0.0:
+        return None
+    return totals[1] / totals[0]
 
 
 def _checked_temperature(value: object, owner: str = "") -> float | ZProfile:
