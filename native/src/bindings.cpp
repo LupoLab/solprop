@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "bindings_helpers.hpp"
 #include "bindings_transverse.hpp"
-#include "helpers.hpp"
 #include "records.hpp"
 #include "solprop_native/adams_march.hpp"
 #include "solprop_native/cpu_execution.hpp"

@@ -902,7 +902,7 @@ add_custom_command(
 )
 
 nanobind_add_module(_core STABLE_ABI NOMINSIZE NB_SUPPRESS_WARNINGS src/bindings.cpp
-  src/bindings_transverse.cpp src/helpers.cpp src/records.cpp
+  src/bindings_transverse.cpp src/bindings_helpers.cpp src/records.cpp
   "${SOLPROP_NATIVE_SOURCE_DIGEST_CPP}")
 target_link_libraries(_core PRIVATE solprop_native_core ${CMAKE_DL_LIBS})
 solprop_native_mark_dependency_headers_system(_core)
