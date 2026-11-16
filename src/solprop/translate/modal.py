@@ -4,27 +4,24 @@
 
 """The transform between modal amplitudes and the field at quadrature nodes.
 
-A nonlinear response is a statement about the field at a point of the cross-section, in
-volts per metre; the propagated state is a set of modal amplitudes in the square root of
-watts. Two matrices carry the state between them — synthesis onto the nodes, projection
-back onto the modes with the quadrature weights folded in — and a scalar path along z
-rescales both when the waveguide tapers. Section 4 of ``docs/dev/kernel-contract.md`` is
-the class :class:`Transform`, field for field.
+A nonlinear response acts on the field at a point of the cross-section, in V/m; the
+propagated state is a set of modal amplitudes in sqrt(W). Two matrices carry the state
+between them -- synthesis onto the nodes, projection back onto the modes with the
+quadrature weights folded in -- and a scalar path along z rescales both when the
+waveguide tapers.
 
-Mode-averaged propagation explicitly selects an effective-area transform. It has
-one node, but a resolved quadrature with one node remains a modal transform. In
-the mode-averaged case the matrices are one by one and
-the conversion factor is ``1 / sqrt(eps0 c A_eff / 2)`` (``conventions.md`` section 4).
+- :class:`Transform`: section 4 of ``docs/dev/kernel-contract.md``, field for field.
+- :func:`mode_averaged_transform`: the effective-area transform a mode-averaged run
+  selects explicitly, 1x1 with the conversion factor ``1 / sqrt(eps0 c A_eff / 2)``
+  (``conventions.md`` section 4); a resolved quadrature with one node stays modal;
+  :func:`multimode_transform`: a resolved fixed quadrature; and
+  :func:`general_modal_transform`: a general guide's tables and placeholders.
+- :func:`warn_quadrature` logs a quadrature score past :data:`QUADRATURE_ALARM`.
 
-**The oversampling pad scale lives here.** The state is zero-padded onto the fine
-spectral grid before the inverse transform, and the factor ``n_to / n_t`` that keeps the
-two time-domain signals equal at coincident samples (``conventions.md`` section 3) is
-folded into the synthesis rather than into a response coefficient. It has to be: a
-response coefficient absorbs a field scale only when the response is homogeneous in the
-field, which the Kerr term is and an ionisation rate emphatically is not. Folded into
-the synthesis, the field every response sees is the physical one in volts per metre. The
-crop scale on the way back is folded into the prefactor instead
-(:mod:`solprop.translate.responses`), where it meets no such condition.
+The synthesis carries the oversampling **pad** scale ``n_to / n_t``, so every response
+sees the physical field (an ionisation rate is not homogeneous in the field, so no
+response coefficient can absorb it); the crop scale is in the prefactor
+(``docs/dev/kernel-problem.md``, "Where the normalisations live").
 """
 
 import logging

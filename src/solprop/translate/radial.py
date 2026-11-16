@@ -2,7 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Translate radial Hankel geometry and bulk propagation into the spatial seam."""
+"""Translate radial (Hankel) free-space propagation into the spatial seam.
+
+:func:`radial_transform` freezes the quasi-discrete Hankel transform pair applied to
+each polarisation; :func:`radial_operators` builds the cumulative radial dispersion,
+constant or varying along z (with the adiabatic amplitude term of SEP 34 section 4.4),
+and the matching nonlinear prefactor; :func:`radial_rate_bounds` bounds the operator's
+real part for the exponent budget. :func:`solprop.translate.assembly.assemble` calls
+them for a :class:`solprop.grid.RadialGrid`; the physics is
+``docs/guide/free-space/hankel.md``.
+"""
 
 import logging
 from collections.abc import Callable, Mapping

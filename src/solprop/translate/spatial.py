@@ -4,11 +4,20 @@
 
 """Freeze spatial geometry and separable coefficients for the kernel contract.
 
-These records contain arrays and scalars only. Geometry is independent of the
-temporal grid. A separable operator keeps frequency-only material coefficients and
-one transverse-frequency square per column, avoiding a full coefficient volume.
-Kernel schema 15 adds the hybrid planar kind ``"slab"`` (slab modes in x, an FFT in
-y) and the one per-channel table it needs, ``kappa_sq``.
+These records hold arrays and scalars only, and the geometry is independent of the
+temporal grid.
+
+- :class:`SpatialGeometry`: the transverse axes, quadrature, reconstruction and
+  absorption of a ``"radial"``, ``"free"`` or ``"slab"`` (hybrid planar) grid.
+- :class:`SeparableOperator`: a constant operator and prefactor kept as frequency-only
+  material coefficients and one transverse square per column (``kappa_sq`` per slab
+  channel), never a full coefficient volume; :func:`separable_values` evaluates it on
+  the host and :func:`rate_bounds` (:class:`RateBounds`) bounds its real part.
+- The plane measure: :func:`longitudinal_root`, the one ``k_z`` every evaluation
+  reads, :func:`axial_admittance`, :func:`axial_factors` and :class:`FluxPlan`, the
+  coefficients at any position (SEP 34).
+- :func:`aperture_tables`: the far-field statistics' tables, formed once for every
+  backend (SEP 23).
 """
 
 import math
