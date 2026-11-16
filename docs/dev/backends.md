@@ -52,7 +52,7 @@ class Backend(Protocol):
 ```
 
 Each backend also sets the class attribute `helpers` (SEP 29). That is the whole
-protocol (SEP 52 §5.1): a run goes through the backend's session
+protocol ([SEP 52](seps/archive/sep-0052-backend-shape.md) §5.1): a run goes through the backend's session
 (`prepare(...).start(...)`, SEP 47 §5.2), which loads the start, schedules the run,
 reports its events and exports its fields, on both backends. Each backend has the same
 five parts behind it: a lowering, a workspace that holds the state and does every

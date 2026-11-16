@@ -35,13 +35,6 @@ being implemented.
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
 
-- [SEP 52 — One backend shape and a small native seam](seps/sep-0052-backend-shape.md):
-  `numpy_ref` and `native` built from the same workspace, engines, marches and session,
-  reading shared run records; `HostDriver` removed; the `Batch` executor, every group path
-  and the unit batch axis removed, the snapshot layout included; the native binding reduced
-  to a workspace, one run record, a probe and a session, with test-only entry points in a
-  private `_testing` module.
-
 ## Draft enhancement proposals
 
 SEPs under discussion; their scope may change and implementation has not been accepted.

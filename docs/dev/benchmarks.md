@@ -3088,7 +3088,7 @@ The shape rule alone (pack off) gave `line` 0.91 and 0.90 (Xeon 18 and 36) and 0
 
 ### The native workspace seam (SEP 52)
 
-[SEP 52](seps/sep-0052-backend-shape.md)'s phase 4 replaced the native binding's
+[SEP 52](seps/archive/sep-0052-backend-shape.md)'s phase 4 replaced the native binding's
 configuration calls with one `Problem` and one run record per start, and the per-step
 probe paths with the workspace's own probe; the marches did not change. Measured on an
 exclusive node of two AMD EPYC 7763 (32 cores), `--threading bound`, `--calibrate none`,
