@@ -58,15 +58,23 @@ prisms = PrismPair(
 )
 
 # %%
-# Stored spectra use the internal Fourier convention. The conjugate of
-# ``stored_factor`` applies the inverse phase and the same fixed band selection.
+# A pulse's ``build`` and ``stored_factor`` use the internal Fourier convention. The
+# conjugate of ``stored_factor`` applies the inverse phase and the same fixed band
+# selection. The compressors take a spectrum in the optics convention, the one a saved
+# field is read in, so each input is converted on the way in.
 grating_input = clean * stored_factor(grid, gratings).conj()
 prism_input = clean * stored_factor(grid, prisms).conj()
 grating_fit = compress_gratings(
-    grid=grid, spectrum=grating_input, pair=gratings, separation_range=(0.0, 1e-3)
+    grid=grid,
+    spectrum=fourier.spectrum_to_optics(grating_input, kind=grid.kind),
+    pair=gratings,
+    separation_range=(0.0, 1e-3),
 )
 prism_fit = compress_prisms(
-    grid=grid, spectrum=prism_input, pair=prisms, insertion_range=(0.008, 0.021)
+    grid=grid,
+    spectrum=fourier.spectrum_to_optics(prism_input, kind=grid.kind),
+    pair=prisms,
+    insertion_range=(0.008, 0.021),
 )
 assert grating_fit.success and prism_fit.success
 assert min(grating_fit.quality, prism_fit.quality) >= 1 - 1e-6

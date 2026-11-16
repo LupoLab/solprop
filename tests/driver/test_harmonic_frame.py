@@ -126,14 +126,14 @@ def test_declares_harmonic_carrier_is_false_on_a_field_grid():
 
 def test_a_beta0_removing_frame_beside_the_harmonic_is_refused():
     simulation = capillary(thg=True, raman=False)
-    simulation.frame = Frame(simulation.grid.omega0, subtract_beta0=True)
+    simulation._frame = Frame(simulation.grid.omega0, subtract_beta0=True)
     with pytest.raises(TranslationError, match="subtract_beta0=True"):
         simulation.translate()
 
 
 def test_a_beta0_keeping_frame_beside_the_harmonic_is_taken():
     simulation = capillary(thg=True, raman=False)
-    simulation.frame = Frame(simulation.grid.omega0, subtract_beta0=False)
+    simulation._frame = Frame(simulation.grid.omega0, subtract_beta0=False)
     problem = simulation.translate()
     assert problem.responses.harmonic_carrier
     assert problem.grids.carrier_2w0 is not None

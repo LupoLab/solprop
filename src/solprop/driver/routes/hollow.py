@@ -63,11 +63,11 @@ from solprop.modes.antiresonant import TubeLattice
 from solprop.modes.capillary import (
     CoherentWall,
     GlassIndex,
-    LossSpec,
     MarcatiliMode,
     MarcatiliModel,
 )
 from solprop.modes.collection import ModeCollection
+from solprop.modes.fill import LossFunction
 from solprop.modes.protocol import Mode
 from solprop.modes.quadrature import (
     RadialRule,
@@ -240,7 +240,8 @@ class _HollowRequest:
       (``docs/guide/waveguides/capillaries.md``, "Tapers").
     - ``model``: which Marcatili model the modes use; beside a supplied set, refused
       unless it is the default or the modes' own.
-    - ``loss``: propagation loss of the modes; beside a supplied set, refused unless
+    - ``alpha``: an absolute power attenuation in 1/m replacing the modes' loss;
+      ``loss_scale``: a factor on it. Beside a supplied set, each is refused unless
       it is the default or the modes' own.
     - ``cladding``: cladding index; ``None`` is the package's cited silica. Beside a
       supplied set, refused unless it is the default or the modes' own.
@@ -362,7 +363,8 @@ class _HollowRequest:
     wall: CoherentWall | None = None
     taper_coupling: bool = True
     model: MarcatiliModel = "full"
-    loss: LossSpec = True
+    alpha: float | LossFunction | None = None
+    loss_scale: float = 1.0
     cladding: GlassIndex | complex | None = None
     susceptibility: GasSusceptibility | None = None
     temperature: float | ZProfile | None = None
@@ -396,7 +398,6 @@ class _HollowRequest:
     polarisation_taper: bool = False
     node_budget: int | None = None
     backend: str = "auto"
-    polarisation: str | float | None = None
     materials: MaterialSelection | None = None
     tdse: TDSEGasResponse | None = None
     tdse_execution: TDSEExecution | None = None
@@ -474,22 +475,11 @@ def _from_hollow(  # noqa: PLR0915 - the route's whole build, keyword by keyword
             "kernel through the Kerr term (docs/guide/media/raman.md)"
         )
         raise DriverError(msg, parameter=("raman", "kerr"), rule="raman-needs-kerr")
-    if request.polarisation is not None:
-        msg = (
-            f"polarisation={request.polarisation!r}: this path is scalar and "
-            "propagates one transverse component per mode row. Declare the "
-            "polarisation in the modes instead -- a rectangular or slab guide's own "
-            "polarisation, each partner a row of its own -- or, for a vector "
-            "capillary run, a polarisation-resolved mode set, which is not "
-            "validated end to end yet"
-        )
-        raise DriverError(
-            msg, parameter="polarisation", rule="scalar-capillary-polarisation"
-        )
     _check_wall_declaration(
         request.wall,
         model=request.model,
-        loss=request.loss,
+        alpha=request.alpha,
+        loss_scale=request.loss_scale,
         lattice=request.lattice,
         taper_coupling=request.taper_coupling,
     )
@@ -558,7 +548,8 @@ def _from_hollow(  # noqa: PLR0915 - the route's whole build, keyword by keyword
             length=request.length,
             lattice=request.lattice,
             model=request.model,
-            loss=request.loss,
+            alpha=request.alpha,
+            loss_scale=request.loss_scale,
             cladding=_default_cladding(request.cladding)
             if isinstance(request.modes, int)
             else request.cladding,
@@ -880,7 +871,8 @@ def _check_wall_declaration(
     wall: CoherentWall | None,
     *,
     model: MarcatiliModel,
-    loss: LossSpec,
+    alpha: float | LossFunction | None,
+    loss_scale: float,
     lattice: TubeLattice | None,
     taper_coupling: bool = True,
 ) -> None:
@@ -907,15 +899,20 @@ def _check_wall_declaration(
         raise DriverError(
             msg, parameter=("wall", "taper_coupling"), rule="wall-keeps-taper-coupling"
         )
-    if loss is not True:
+    if alpha is not None or loss_scale != 1.0:
+        if alpha is None:
+            declared, shown = "loss_scale", repr(loss_scale)
+        else:
+            declared, shown = "alpha", "a callable" if callable(alpha) else repr(alpha)
         msg = (
             f"a coherent wall block is the loss model, and this run declares "
-            f"loss={loss!r}: the condensed Robin boundary condition replaces the "
-            "Marcatili attenuation of every channel, so a LossSpec beside it would "
-            "be discarded in silence. Pass loss=True with wall=, or leave wall=None "
-            "and keep the uncoupled loss you asked for"
+            f"{declared}={shown}: the condensed Robin boundary "
+            "condition replaces the Marcatili attenuation of every channel, so a "
+            "loss setting beside it would be discarded in silence. Leave alpha and "
+            "loss_scale at their defaults with wall=, or leave wall=None and keep "
+            "the uncoupled loss you asked for"
         )
-        raise DriverError(msg, parameter=("wall", "loss"), rule="wall-is-the-loss")
+        raise DriverError(msg, parameter=("wall", declared), rule="wall-is-the-loss")
     if model != "full":
         msg = (
             f"a coherent wall block needs one capillary model, the full one, and "
@@ -1153,7 +1150,8 @@ def _capillary_modes(
     length: float,
     lattice: TubeLattice | None = None,
     model: MarcatiliModel,
-    loss: LossSpec,
+    alpha: float | LossFunction | None,
+    loss_scale: float,
     cladding: GlassIndex | complex | None,
 ) -> ModeCollection:
     """Return the mode set under the declared capillary material.
@@ -1184,7 +1182,8 @@ def _capillary_modes(
             count=modes,
             mixture=mixture,
             lattice=lattice,
-            loss=loss,
+            alpha=alpha,
+            loss_scale=loss_scale,
             cladding=cladding,
         )
     if isinstance(modes, int):
@@ -1195,7 +1194,8 @@ def _capillary_modes(
                     mixture=mixture,
                     m=index + 1,
                     model=model,
-                    loss=loss,
+                    alpha=alpha,
+                    loss_scale=loss_scale,
                     cladding=cladding,
                 )
                 for index in range(modes)
@@ -1209,7 +1209,13 @@ def _capillary_modes(
         )
     given = _given_gas_modes(modes, mixture)
     _refuse_ignored_geometry(
-        given, radius, length=length, model=model, loss=loss, cladding=cladding
+        given,
+        radius,
+        length=length,
+        model=model,
+        alpha=alpha,
+        loss_scale=loss_scale,
+        cladding=cladding,
     )
     return given
 
@@ -1227,19 +1233,21 @@ def _refuse_ignored_geometry(
     *,
     length: float,
     model: MarcatiliModel,
-    loss: LossSpec,
+    alpha: float | LossFunction | None,
+    loss_scale: float,
     cladding: GlassIndex | complex | None,
 ) -> None:
     """Refuse, by name, a declared capillary argument a supplied mode set ignores.
 
-    A supplied set is the run's geometry: its modes keep their own radius, model, loss
-    and cladding and are only rebound to the declared fill, so an argument that
+    A supplied set is the run's geometry: its modes keep their own radius, model,
+    loss and cladding and are only rebound to the declared fill, so an argument that
     disagrees with them would be silently discarded. The radius is always declared -- it
     is positional -- and is compared with each mode's own ``core_radius`` path over the
     run, breakpoints included, so a taper beside a constant bore, or a different bore,
-    is named. `model`, `loss` and `cladding` are compared only when they differ from
-    their defaults, which is the only way this layer can tell a declaration from an
-    omission: a default beside a mode that says otherwise was not asked for.
+    is named. `model`, `alpha`, `loss_scale` and `cladding` are compared only when
+    they differ from their defaults, which is the only way this layer can tell a
+    declaration from an omission: a default beside a mode that says otherwise was not
+    asked for.
 
     - ``modes``: the supplied set, non-empty.
     - ``radius``: the declared core radius, m.
@@ -1266,7 +1274,8 @@ def _refuse_ignored_geometry(
             )
             raise DriverError(msg, parameter=("radius", f"modes[{index}]"))
         _refuse_ignored_setting(index, mode, "model", model, default="full")
-        _refuse_ignored_setting(index, mode, "loss", loss, default=True)
+        _refuse_ignored_setting(index, mode, "alpha", alpha, default=None)
+        _refuse_ignored_setting(index, mode, "loss_scale", loss_scale, default=1.0)
         _refuse_ignored_setting(index, mode, "cladding", cladding, default=None)
 
 
@@ -1275,8 +1284,8 @@ def _refuse_ignored_setting(
 ) -> None:
     """Refuse a non-default capillary setting that a supplied mode does not carry.
 
-    - ``name``: the keyword, which is also the mode's attribute: ``"model"``, ``"loss"``
-      or ``"cladding"``.
+    - ``name``: the keyword, which is also the mode's attribute: ``"model"``,
+      ``"alpha"``, ``"loss_scale"`` or ``"cladding"``.
     """
     if declared is default or declared == default:
         return

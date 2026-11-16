@@ -166,10 +166,12 @@ package supplies its library identity through `build_info`. See the
 
 **The X → T edges.** `solprop.processing.modal` imports
 `solprop.translate.modal_tables.ModalTransformTables` and
-`solprop.translate.general.guide_identity`, and that is inherent to the output schema
-rather than incidental. A general modal file records what its E/H reference **is** --
-the table identity, the guide identity -- and not the reference's tens of megabytes,
-so the reference is rebuilt in **T** by `general_modal_route` and read in **X**, which
+`solprop.translate.general.guide_identity` and `reference_tables`, and that is inherent
+to the output schema rather than incidental. A general modal file records what its E/H
+reference **is** -- the table identity, the guide identity -- and not the reference's
+tens of megabytes, so the reference is rebuilt in **T** by `reference_tables` (the
+tables `general_modal_route` builds, over the extent the identity records) and read in
+**X**, which
 checks it against the stored identity, path by path, before it synthesises anything.
 **X** takes the record type and the identity functions, never an execution map, never a
 `PropagationProblem` and never a backend. Two further modules read what a file records the

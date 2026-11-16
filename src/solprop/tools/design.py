@@ -388,6 +388,9 @@ def pressure_rdw(
         Positive input power FWHM in s, required with power for the default phase.
     shape : {'sech', 'gauss'}, optional
         Unchirped input shape.
+        Default ``"sech"``, unlike the ``"gauss"`` default of
+        :func:`~solprop.driver.interface.prop_capillary` and
+        :func:`~solprop.driver.interface.prop_gnlse`.
     nonlinear_phase : {'largest', 'supplied_power', 'linear'}, optional
         Largest constituent by default; supplied power preserves gamma P0/2
         without fwhm. Linear requires omitting pulse numbers.
@@ -727,7 +730,7 @@ class SolitonOrder:
                 "the soliton order is defined for sech and Gaussian pulses, and this "
                 f"is a super-Gaussian of order m={self.pulse.m}"
             )
-        if np.any(np.asarray(self.pulse.phase, dtype=float)[2:] != 0.0):
+        if np.any(np.asarray(self.pulse.phases, dtype=float)[2:] != 0.0):
             # The design numbers take the width and peak power of an unchirped pulse.
             raise ToolsError(
                 "the soliton order is defined for an unchirped pulse; this one has "

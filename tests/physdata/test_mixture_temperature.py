@@ -354,7 +354,7 @@ def test_a_mode_refuses_a_temperature_beside_a_mixture_unless_it_is_the_mixtures
     assert MarcatiliMode(100e-6, "He", 1.0).temperature == room
     # Collection factories leave temperature omitted unless the caller gives one.
     heated = Mixture.fill({"Ar": 1.0}, 1.0, temperature=350.0)
-    (slab,) = ModeCollection.slab(63.5e-6, (1,), mixture=heated)
+    (slab,) = ModeCollection.slab(63.5e-6, orders=(1,), mixture=heated)
     assert isinstance(slab, SlabMode) and slab.temperature == 350.0
     lattice = TubeLattice(180e-9, 9e-6, 6)
     (vincetti,) = ModeCollection.vincetti(

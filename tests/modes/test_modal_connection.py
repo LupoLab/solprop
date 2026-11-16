@@ -704,7 +704,7 @@ def test_a_specified_mode_declares_no_field_to_pair_and_so_has_no_connection():
     # The connection this pair *would* need is the capillary's own, and it is not
     # small: `wall_connection` reads it directly from the profile the fibres were
     # built from.
-    from solprop.modes import wall_connection  # noqa: PLC0415
+    from solprop.modes.capillary import wall_connection  # noqa: PLC0415
 
     link = wall_connection(modes, 1e-4)
     assert float(np.max(abs(link))) > 1e3

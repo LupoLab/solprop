@@ -42,8 +42,8 @@ def case():
     "changes",
     [
         {"waist": 0.0},
-        {"order": 0},
-        {"order": True},
+        {"m": 0},
+        {"m": True},
         {"propz": np.inf},
         {"jones": ()},
         {"jones": (0j,)},

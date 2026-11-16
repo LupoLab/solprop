@@ -111,7 +111,7 @@ def test_vector_mode_rows_match_state_polarisation(
 ):
     mixture, responses = envelope_mixture
     original, original_request, grid = geometry_case(envelope_mixture, "modal", 2)
-    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
+    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss_scale=0.0)
     results = []
     for layout in ("state", "rows"):
         modes = ModeCollection([mode])

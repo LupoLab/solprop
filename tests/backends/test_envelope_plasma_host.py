@@ -214,7 +214,7 @@ def test_direct_simulation_records_carrier_approximation_and_runs(host_case):
     original, original_request, grid = host_case
     assembly = original.responses.envelope_plasma
     assert assembly is not None
-    mode = MarcatiliMode(125e-6, "Ar", 1.0, loss=False)
+    mode = MarcatiliMode(125e-6, "Ar", 1.0, loss_scale=0.0)
     simulation = Simulation(
         # The run ends at its grid's length (SEP 51); no collar reads the length.
         grid_at(grid, 8e-6),
@@ -266,7 +266,7 @@ def test_node_budget_accounts_for_envelope_histories(host_case):
     # the band (SEP 3, Phase 4a).
     problem, run_request = assemble(
         grid,
-        MarcatiliMode(125e-6, "Ar", 1.0, loss=False),
+        MarcatiliMode(125e-6, "Ar", 1.0, loss_scale=0.0),
         [EnvelopePlasmaResponse("Ar", assembly.channels[0].rate)],
         original.initial.field0,
         controller=original_request.stepper.controller,

@@ -39,8 +39,8 @@ GRID = {
 }
 
 
-def make_mode(*, loss=0.0):
-    return SpecifiedMode.from_taylor(BETAS, OMEGA_REF, loss=loss, aeff=8e-11)
+def make_mode(*, alpha=0.0):
+    return SpecifiedMode.from_taylor(BETAS, OMEGA_REF, alpha=alpha, aeff=8e-11)
 
 
 @pytest.fixture
@@ -217,7 +217,7 @@ def expected_operator(mode, grid, *, subtract_beta0, origin):
     out = np.zeros(grid.n_omega, dtype=complex)
     out[active] = -1j * (
         mode.beta(omega) - constant - beta1 * (omega - origin)
-    ) - 0.5 * mode.alpha(omega)
+    ) - 0.5 * mode.attenuation(omega)
     return out
 
 
@@ -270,7 +270,7 @@ def test_the_operator_logs_what_it_built(mode, envelope_grid, caplog):
     # it has to survive a refactor of the operator.
     with caplog.at_level(logging.DEBUG, logger="solprop.linear"):
         dispersion_operator(
-            make_mode(loss=1e6), envelope_grid, Frame.comoving(envelope_grid)
+            make_mode(alpha=1e6), envelope_grid, Frame.comoving(envelope_grid)
         )
     assert "bins active" in caplog.text
     assert "clamped" in caplog.text
@@ -323,7 +323,7 @@ def test_a_non_finite_effective_index_raises(field_grid):
 def test_a_loss_below_the_limit_passes_through_untouched(envelope_grid):
     alpha = attenuation_from_db(20.0)
     operator = dispersion_operator(
-        make_mode(loss=alpha), envelope_grid, Frame.comoving(envelope_grid)
+        make_mode(alpha=alpha), envelope_grid, Frame.comoving(envelope_grid)
     )
     active = envelope_grid.active_mask
     assert np.allclose(-2.0 * np.real(operator[active]), alpha, rtol=1e-15, atol=0.0)
@@ -332,7 +332,7 @@ def test_a_loss_below_the_limit_passes_through_untouched(envelope_grid):
 def test_a_loss_above_the_limit_is_clamped_on_the_operator(envelope_grid):
     limit = LossPolicy().limit(envelope_grid.length)
     operator = dispersion_operator(
-        make_mode(loss=10.0 * limit), envelope_grid, Frame.comoving(envelope_grid)
+        make_mode(alpha=10.0 * limit), envelope_grid, Frame.comoving(envelope_grid)
     )
     active = envelope_grid.active_mask
     # The clamp lands on D itself, so the exponent that the cumulative operator will
@@ -345,7 +345,7 @@ def test_gain_is_represented_rather_than_silently_removed(envelope_grid):
     # Clamping alpha to [0, 3000] would make a negative loss lossless without a word.
     # solprop only limits from above.
     operator = dispersion_operator(
-        make_mode(loss=-2.0), envelope_grid, Frame.comoving(envelope_grid)
+        make_mode(alpha=-2.0), envelope_grid, Frame.comoving(envelope_grid)
     )
     active = envelope_grid.active_mask
     assert np.allclose(-2.0 * np.real(operator[active]), -2.0, rtol=1e-15, atol=0.0)

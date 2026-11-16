@@ -86,7 +86,7 @@ a small permittivity law of our own -- anything with ``permittivity``,
 (:class:`~solprop.modes.material.PermittivityLaw`). The core declares its Kerr
 response by :math:`n_2`, at the wavelength it was measured.
 
-.. GENERATED FROM PYTHON SOURCE LINES 73-155
+.. GENERATED FROM PYTHON SOURCE LINES 73-158
 
 .. code-block:: Python
 
@@ -112,9 +112,12 @@ response by :math:`n_2`, at the wavelength it was measured.
     from solprop.physdata import fused_silica
     from solprop.plotting import prop_2d
     from solprop.processing import get_spectral_density
-    from solprop.processing.modal import physical_energy, reconstructed_flux
+    from solprop.processing.modal import (
+        physical_energy,
+        reconstructed_flux,
+        reference_tables,
+    )
     from solprop.pulses import GaussianPulse, SpatialPulse
-    from solprop.translate.general import general_modal_route
 
     RADIUS = 50e-6
     """Core radius, m."""
@@ -192,7 +195,7 @@ response by :math:`n_2`, at the wavelength it was measured.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 156-163
+.. GENERATED FROM PYTHON SOURCE LINES 159-166
 
 The grid spans 450 nm to 1.8 um, which holds both GPI sidebands, and 1.6 ps. The
 guide is solved at 97 frequencies across the **active** band -- from half the
@@ -202,7 +205,7 @@ interpolated basis's departure from orthonormality where the launched pulse is,
 and would warn if it exceeded its budget anywhere else in the active band; this
 guide's sampling passes without a warning.
 
-.. GENERATED FROM PYTHON SOURCE LINES 163-175
+.. GENERATED FROM PYTHON SOURCE LINES 166-178
 
 .. code-block:: Python
 
@@ -236,14 +239,14 @@ guide's sampling passes without a warning.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 176-180
+.. GENERATED FROM PYTHON SOURCE LINES 179-183
 
 The channels and the self-imaging period. For an ideal infinite parabola the
 ``LP_0m`` propagation constants are equally spaced by ``2 sqrt(2 Delta)/a``, so
 the pattern repeats every ``z_p = pi a / sqrt(2 Delta)``. The solved spacings of
 the finite, dispersive fibre are close to that and not equal to it.
 
-.. GENERATED FROM PYTHON SOURCE LINES 180-203
+.. GENERATED FROM PYTHON SOURCE LINES 183-206
 
 .. code-block:: Python
 
@@ -285,7 +288,7 @@ the finite, dispersive fibre are close to that and not equal to it.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 204-227
+.. GENERATED FROM PYTHON SOURCE LINES 207-230
 
 The run
 -------
@@ -311,7 +314,7 @@ oscillates at that period, and the adaptive stepper would otherwise try steps th
 straddle it. The default cubic is the real one, so the third harmonic is carried
 too.
 
-.. GENERATED FROM PYTHON SOURCE LINES 227-260
+.. GENERATED FROM PYTHON SOURCE LINES 230-267
 
 .. code-block:: Python
 
@@ -328,12 +331,16 @@ too.
 
 
     def propagate(length, n_save):
-        """Propagate the incident beam through `length` of the fibre."""
+        """Propagate the incident beam through `length` of the fibre.
+
+        The run ends at its grid's length, so a shorter run takes the same grid built for
+        its own length.
+        """
         return prop_waveguide(
             (),
-            length,
+            None,
             provider=guide,
-            grid=grid,
+            grid=FieldGrid.from_limits(length, WAVELENGTH, (450e-9, 1.8e-6), 1.6e-12),
             incident=beam,
             coupling=coupling,
             wavelength=WAVELENGTH,
@@ -363,12 +370,12 @@ too.
       statistics:      analytic_flux, fwhm_t, fwhm_t_outer, omega0, physical_energy
       between planes:  none
       run:             RunMetadata(multimode, field grid of 4096, 4 modes, native,
-                       2026-11-04T12:06:27.992047+00:00)
+                       2026-11-16T17:57:20.720635+00:00)
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 261-271
+.. GENERATED FROM PYTHON SOURCE LINES 268-278
 
 The launch account
 ------------------
@@ -381,7 +388,7 @@ launched share is the measure of what the four channels take: here all but a
 few parts in :math:`10^5`, mostly in ``LP_01``. The launched energy is what the
 run's ``physical_energy`` reads at the entrance.
 
-.. GENERATED FROM PYTHON SOURCE LINES 271-295
+.. GENERATED FROM PYTHON SOURCE LINES 278-302
 
 .. code-block:: Python
 
@@ -450,7 +457,7 @@ run's ``physical_energy`` reads at the entrance.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 296-308
+.. GENERATED FROM PYTHON SOURCE LINES 303-317
 
 Self-imaging
 ------------
@@ -461,19 +468,19 @@ run again
 with twenty planes per period. The flux density at the nodes nearest the axis,
 peaked over time, is rebuilt from the saved channel amplitudes and the guide's own
 fields (:func:`solprop.processing.modal.reconstructed_flux` with ``density=True``),
-which is why the guide and its tables are passed beside the output. The dashed
+which is why the guide is passed beside the output; its reference tables are rebuilt
+once (:func:`~solprop.processing.modal.reference_tables`) and reused for every
+plane. The dashed
 lines mark the period the channels' spacings predict. The launch is mostly
 ``LP_01`` with a few per cent of ``LP_02``, so what oscillates is their beat.
 
-.. GENERATED FROM PYTHON SOURCE LINES 308-337
+.. GENERATED FROM PYTHON SOURCE LINES 317-348
 
 .. code-block:: Python
 
 
     imaging = propagate(4.0 * z_p, 81)
-    imaging_route = general_modal_route(
-        guide, grid, z_max=4.0 * z_p, omega_reference=float(grid.omega0)
-    )
+    imaging_tables = reference_tables(imaging, guide=guide)
     radius = np.hypot(nodes.xy[:, 0], nodes.xy[:, 1])
     axis_nodes = radius <= np.min(radius) * 1.0001
     z_imaging = np.asarray(imaging["z"])
@@ -482,7 +489,11 @@ lines mark the period the channels' spacings predict. The launch is mostly
             np.max(
                 np.mean(
                     reconstructed_flux(
-                        imaging, imaging_route.tables, plane=i, density=True, guide=guide
+                        imaging,
+                        tables=imaging_tables,
+                        plane=i,
+                        density=True,
+                        guide=guide,
                     )[axis_nodes],
                     axis=0,
                 )
@@ -510,7 +521,7 @@ lines mark the period the channels' spacings predict. The launch is mostly
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 338-345
+.. GENERATED FROM PYTHON SOURCE LINES 349-356
 
 The spectrum
 ------------
@@ -520,7 +531,7 @@ narrow one near 785 nm from about 4 cm, and a broader one near 1.45 um from abou
 5.5 cm. The pulse spreads in time as it goes, because self-phase modulation in
 normal dispersion broadens it.
 
-.. GENERATED FROM PYTHON SOURCE LINES 345-358
+.. GENERATED FROM PYTHON SOURCE LINES 356-368
 
 .. code-block:: Python
 
@@ -528,7 +539,6 @@ normal dispersion broadens it.
     z = np.asarray(run["z"])
     figures = prop_2d(
         run,
-        "wavelength",
         spec_range=(500e-9, 1.8e-6),
         time_range=(-1e-12, 1e-12),
         db_min=-80,
@@ -549,7 +559,7 @@ normal dispersion broadens it.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 359-369
+.. GENERATED FROM PYTHON SOURCE LINES 369-379
 
 The spectral energy density summed over the channels, at the entrance and every
 2.5 cm, on a logarithmic scale, with the first GPI sideband pair predicted from
@@ -562,7 +572,7 @@ is *not* at the predicted Stokes position (1.58 um), nor at the partner the
 anti-Stokes band would have if the pump's centre drove it (1.64 um). The next
 section shows what it is.
 
-.. GENERATED FROM PYTHON SOURCE LINES 369-410
+.. GENERATED FROM PYTHON SOURCE LINES 379-420
 
 .. code-block:: Python
 
@@ -626,7 +636,7 @@ section shows what it is.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 411-421
+.. GENERATED FROM PYTHON SOURCE LINES 421-431
 
 The two bands are one pair
 --------------------------
@@ -639,7 +649,7 @@ at :math:`\omega_p` become an anti-Stokes photon in ``LP_01`` and a Stokes photo
 =2\beta_{01}(\omega_p)`. The Kerr phase is left out: it is a few per cent of the
 channel spacing.
 
-.. GENERATED FROM PYTHON SOURCE LINES 421-488
+.. GENERATED FROM PYTHON SOURCE LINES 431-498
 
 .. code-block:: Python
 
@@ -729,7 +739,7 @@ channel spacing.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 489-501
+.. GENERATED FROM PYTHON SOURCE LINES 499-511
 
 The photon numbers agree as both bands grow, while the partner of the pump's centre
 stays near the noise. So the long-wavelength band is the anti-Stokes band's partner.
@@ -744,7 +754,7 @@ Why the blue lobe drives the pair is not settled here. The pump's centre has an 
 pair of its own, printed last, at which nothing grows, and the red lobe makes no
 visible pair. This is one noise seed in four channels without Raman scattering.
 
-.. GENERATED FROM PYTHON SOURCE LINES 503-511
+.. GENERATED FROM PYTHON SOURCE LINES 513-521
 
 The channels
 ------------
@@ -755,7 +765,7 @@ orthonormal in true power, so a channel's energy is the frequency sum of its own
 small, fast ripple is the Kerr exchange between the channels at the beat period;
 the slow drift is what the nonlinearity moves over centimetres.
 
-.. GENERATED FROM PYTHON SOURCE LINES 511-534
+.. GENERATED FROM PYTHON SOURCE LINES 521-544
 
 .. code-block:: Python
 
@@ -802,14 +812,14 @@ the slow drift is what the nonlinearity moves over centimetres.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 535-539
+.. GENERATED FROM PYTHON SOURCE LINES 545-549
 
 Which channel carries which band: the exit spectrum of each channel. The pump
 stays mostly in ``LP_01``. So does the anti-Stokes band, while ``LP_02`` carries most
 of the long-wavelength band, as the pair above requires; the other channels hold
 smaller shares of both.
 
-.. GENERATED FROM PYTHON SOURCE LINES 539-554
+.. GENERATED FROM PYTHON SOURCE LINES 549-564
 
 .. code-block:: Python
 
@@ -840,13 +850,13 @@ smaller shares of both.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 555-558
+.. GENERATED FROM PYTHON SOURCE LINES 565-568
 
 Runtime and reproducibility
 ---------------------------
 A ten-centimetre and a 4.5 mm run of four channels on the general modal route.
 
-.. GENERATED FROM PYTHON SOURCE LINES 558-565
+.. GENERATED FROM PYTHON SOURCE LINES 568-575
 
 .. code-block:: Python
 
@@ -865,12 +875,12 @@ A ten-centimetre and a 4.5 mm run of four channels on the general modal route.
 
  .. code-block:: none
 
-    142 s; backend native, 18 threads
+    168 s; backend native, 32 threads
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 566-572
+.. GENERATED FROM PYTHON SOURCE LINES 576-582
 
 Related reading
 ---------------
@@ -882,7 +892,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (2 minutes 21.853 seconds)
+   **Total running time of the script:** (2 minutes 47.617 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_04_graded_index_multimode.py:

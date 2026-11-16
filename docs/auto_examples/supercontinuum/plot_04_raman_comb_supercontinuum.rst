@@ -99,7 +99,7 @@ the monitor warns.
             wavelength=515e-9,
             fwhm=400e-15,
             energy=10e-6,
-            loss=False,
+            loss_scale=0.0,
             plasma=True,
             raman=True,
             trange=4e-12,
@@ -133,14 +133,13 @@ the monitor warns.
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 101-115
+.. GENERATED FROM PYTHON SOURCE LINES 101-114
 
 .. code-block:: Python
 
 
     figures = prop_2d(
         run,
-        "wavelength",
         spec_range=(200e-9, 2.6e-6),
         time_range=(-1e-12, 1e-12),
         db_min=-40,
@@ -163,14 +162,14 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 116-120
+.. GENERATED FROM PYTHON SOURCE LINES 115-119
 
 The comb and the continuum
 --------------------------
 The four positions lie within the 0.4 m calculation. Compare peak locations as
 well as their broadening: a logarithmic plot can make weak features prominent.
 
-.. GENERATED FROM PYTHON SOURCE LINES 120-129
+.. GENERATED FROM PYTHON SOURCE LINES 119-128
 
 .. code-block:: Python
 
@@ -201,7 +200,7 @@ well as their broadening: a logarithmic plot can make weak features prominent.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 130-141
+.. GENERATED FROM PYTHON SOURCE LINES 129-140
 
 The early slices retain conspicuous discrete peaks. By 0.4 m, broadened
 components overlap across much of the visible and near infrared, with weaker
@@ -215,7 +214,7 @@ A quantitative noise study needs repeated independent seeds, as in the MI
 ensemble. For sampling and material checks see :doc:`/guide/setup/grids` and
 :doc:`/guide/media/materials`.
 
-.. GENERATED FROM PYTHON SOURCE LINES 141-143
+.. GENERATED FROM PYTHON SOURCE LINES 140-142
 
 .. code-block:: Python
 
@@ -229,7 +228,7 @@ ensemble. For sampling and material checks see :doc:`/guide/setup/grids` and
 
  .. code-block:: none
 
-    84 s; backend native
+    164 s; backend native
 
 
 
@@ -237,7 +236,7 @@ ensemble. For sampling and material checks see :doc:`/guide/setup/grids` and
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (1 minutes 23.889 seconds)
+   **Total running time of the script:** (2 minutes 43.617 seconds)
 
 
 .. _sphx_glr_download_auto_examples_supercontinuum_plot_04_raman_comb_supercontinuum.py:

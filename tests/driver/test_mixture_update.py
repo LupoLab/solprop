@@ -246,7 +246,7 @@ def test_fixed_density_change_invalidates_radius_expansion(source, caplog):
     material = source.modes[0].mixture.with_densities(
         {label: Constant(1e24) for label in source.modes[0].mixture.labels}
     )
-    source.modes = (
+    source._modes = (
         replace(
             source.modes[0],
             mixture=material,
@@ -264,10 +264,10 @@ def test_fixed_density_change_invalidates_radius_expansion(source, caplog):
 
 def test_update_requires_a_shared_material_declaration(source):
     material = source.modes[0].mixture
-    source.modes = (replace(source.modes[0], mixture=None),)
+    source._modes = (replace(source.modes[0], mixture=None),)
     with pytest.raises(DriverError, match="needs a Mixture"):
         source.with_mixture(material)
-    source.modes = (
+    source._modes = (
         replace(source.modes[0], mixture=material),
         replace(
             source.modes[0],
@@ -282,8 +282,8 @@ def test_update_requires_a_shared_material_declaration(source):
 @pytest.mark.parametrize("populations", [1, 2])
 def test_anonymous_rates_resolve_unique_species_during_update(source, populations):
     material = Mixture.of(*source.modes[0].mixture.components[:populations])
-    source.modes = (replace(source.modes[0], mixture=material),)
-    source.responses = tuple(
+    source._modes = (replace(source.modes[0], mixture=material),)
+    source._responses = tuple(
         replace(response, species=None)
         for response in source.responses
         if isinstance(response, PlasmaResponse) and response.species in material.labels
@@ -315,7 +315,7 @@ def test_custom_broadened_kernel_is_shared_when_its_model_is_unchanged(source):
         thg=False,
         species=material.labels[0],
     )
-    source.responses = (
+    source._responses = (
         *(one for one in source.responses if not isinstance(one, RamanResponse)),
         response,
     )
@@ -352,7 +352,7 @@ def test_input_and_mixture_updates_compose_and_preserve_rate_tables(source):
 
 def test_input_update_replaces_or_removes_constructor_pulse_recipe(source):
     previous = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-9)
-    source.configuration = {"pulse": previous, "label": "kept"}
+    source._configuration = {"pulse": previous, "label": "kept"}
     replacement = GaussianPulse(wavelength=800e-9, fwhm=12e-15, energy=2e-9)
     updated = source.with_input(replacement)
     assert updated.configuration["pulse"] is replacement

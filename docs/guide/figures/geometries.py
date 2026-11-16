@@ -1044,7 +1044,7 @@ def _capillary(radius: float, **changes: object) -> MarcatiliMode:
     solprop.modes.MarcatiliMode
         The mode, whose field and normalisation the figures read.
     """
-    return MarcatiliMode(radius, cladding=1.45, loss=False, **changes)  # type: ignore[arg-type]
+    return MarcatiliMode(radius, cladding=1.45, loss_scale=0.0, **changes)  # type: ignore[arg-type]
 
 
 def _capillary_section(
@@ -1516,7 +1516,7 @@ def antiresonant() -> drawsvg.Drawing:
     """
     core = 15e-6
     lattice = TubeLattice(wall_thickness=180e-9, tube_radius=9e-6, n_tubes=6)
-    mode = VincettiMode(core, cladding=1.45, loss=False, lattice=lattice)
+    mode = VincettiMode(core, cladding=1.45, loss_scale=0.0, lattice=lattice)
     tube = lattice.tube_radius
     count = lattice.n_tubes
     gap = 2 * ((core + tube) * math.sin(math.pi / count) - tube)
@@ -2109,7 +2109,7 @@ def rectangular() -> drawsvg.Drawing:
         The figure.
     """
     half_x, half_y = 50e-6, 25e-6
-    mode = RectMode(half_x, half_y, cladding=1.45, loss=False)
+    mode = RectMode(half_x, half_y, cladding=1.45, loss_scale=0.0)
     order = cartesian_nodes(mode.azimuthal_order)
     rule = quadrature_rule("cartesian", full=True, n_r=order, n_theta=order)
     nodes = rule.nodes(mode.dimlimits())

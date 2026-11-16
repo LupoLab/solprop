@@ -269,6 +269,9 @@ def peak_power(
 ) -> Float[np.ndarray, "*shape"]:
     """Return the peak power of a plane, or of every plane, in watts.
 
+    It measures the squared amplitude, and differs from the run's ``stats/peak_power``,
+    the analytic Poynting flux (``docs/dev/conventions.md`` section 7).
+
     :func:`solprop.stats.peak_power` per mode and
     :func:`solprop.stats.peak_power_total` for ``modes='sum'``, so that a modal sum is
     the peak of the total power and not the largest of the per-mode peaks: modes that
@@ -360,6 +363,9 @@ def fwhm_t(
     outer: bool = False,
 ) -> Float[np.ndarray, "*shape"]:
     """Return the temporal width at half maximum of a plane, or of every plane.
+
+    It measures the squared amplitude, and differs from the run's ``stats/fwhm_t``, of
+    the analytic Poynting flux (``docs/dev/conventions.md`` section 7).
 
     :func:`solprop.stats.fwhm_t`, the width of the central feature of the total power,
     or :func:`solprop.stats.fwhm_t_outer` with ``outer=True``, the total extent above

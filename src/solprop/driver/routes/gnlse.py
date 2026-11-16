@@ -154,7 +154,7 @@ def _gnlse_fibre(
         table = SpecifiedMode.from_table(
             nodes,
             values,
-            loss=attenuation_from_db(0.0 if loss is None else loss),
+            alpha=attenuation_from_db(0.0 if loss is None else loss),
             aeff=mapping.aeff,
         )
     return dataclasses.replace(mapping, mode=table)

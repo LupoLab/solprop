@@ -415,9 +415,11 @@ fig.tight_layout()
 # :func:`~solprop.processing.compression.compress_taylor` searches that phase for
 # the highest peak power of the pulse at the beam centre, summed over the modes: the
 # power per metre of y there. It returns the phase, the durations and the transform
-# limit.
+# limit. It takes the spectrum in the optics convention a saved field is read in, so
+# the centre row, built here from the internal-convention fields, is converted first.
 
-compression = compress_taylor(grid=grid, spectrum=exit_[centre][:, None, :], order=2)
+centre_row = fourier.spectrum_to_optics(exit_[centre][:, None, :], kind=grid.kind)
+compression = compress_taylor(grid=grid, spectrum=centre_row, order=2)
 print(compression)
 gdd = compression.coefficients[2]
 print(

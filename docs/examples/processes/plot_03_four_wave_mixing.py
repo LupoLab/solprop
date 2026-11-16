@@ -97,7 +97,6 @@ with warnings.catch_warnings():
 
 figures = prop_2d(
     run,
-    "wavelength",
     spec_range=(130e-9, 1.2e-6),
     time_range=(-60e-15, 60e-15),
     db_min=-40,

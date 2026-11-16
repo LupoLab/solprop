@@ -12,7 +12,7 @@ the note's two boundaries:
 * **Robin**: ``wall=CoherentWall()``, the condensed outgoing boundary with the HE
   cladding term of a constant ``cladding=1.45``, which is the prototype's ``Wall``
   impedance exactly; the taper connection is carried by the frozen residual flow;
-* **lossless**: ``loss=False`` and no wall.
+* **lossless**: ``loss_scale=0.0`` and no wall.
 
 The production run is linear: the fill is at zero pressure, so the Kerr term the
 entry point requires has no density to act on, and the collar is ``1e9`` m long, so
@@ -216,7 +216,7 @@ def production(case, count, per_straight, validity=None, **settings):
             n_save=2,
             backend="numpy_ref",
             wall=wall,
-            loss=case.robin,
+            loss_scale=1.0 if case.robin else 0.0,
             cladding=1.45,
             plasma=False,
             raman=False,

@@ -104,9 +104,6 @@ _MATERIAL_WARNINGS: Final = (MaterialRangeWarning, MaterialStatusWarning)
 _GRID_KEYWORDS: Final[Mapping[str, str]] = {"reference_wavelength": "wavelength"}
 """The grid constructors' argument names that a keyword route spells otherwise."""
 
-_PULSE_KEYWORDS: Final[Mapping[str, str]] = {"phase": "phases"}
-"""The pulse constructors' argument names that a keyword route spells otherwise."""
-
 
 def _path(*names: str) -> ParameterPath:
     """Return the path of one keyword, or the tuple of several in conflict.

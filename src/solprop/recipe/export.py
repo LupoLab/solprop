@@ -154,6 +154,9 @@ def script(
         # A value built on the grid needs it by name: bind the grid first.
         prelude.append(f"grid = {writer.expression(grid, None, 'grid')}")
         writer.grid = "grid"
+    if "length" in table and "length" not in document["build"]:
+        # The route's length is required, None where the grid supplies it (SEP 51).
+        lines.append(f"{_INDENT}length=None,")
     for name, value in document["build"].items():
         entry = table[name]
         if writer.grid is not None and name == "grid":

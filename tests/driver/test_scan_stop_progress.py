@@ -26,7 +26,7 @@ from solprop.driver.executors import Local, Queue, Slurm, pool
 from solprop.driver.executors.pool import PlaneScalars, Pool, _Channel, _WorkerReporter
 from solprop.driver.scan import Scan, run_scan
 from solprop.driver.simulation import Simulation
-from solprop.exceptions import DriverError, StopRequested
+from solprop.exceptions import DriverError, ExecutorError, StopRequested
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter, NullScanReporter, PlaneSummary, ScanReporter
 from solprop.stepper import FixedSchedule, Multistep
@@ -603,7 +603,7 @@ def test_relayed_calls_reach_the_point_reporter():
     assert isinstance(stopped, StopRequested)
     assert stopped.flag is flag
     # Anything else that ended a worker's run is named, not raised again.
-    assert isinstance(other, DriverError)
+    assert isinstance(other, ExecutorError)
     assert "KeyboardInterrupt" in str(other)
 
 

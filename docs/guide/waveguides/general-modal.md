@@ -329,7 +329,7 @@ they refuse a resume in the other direction.
 {meth}`~solprop.output.memory.MemoryOutput.to_file` and a scan point write the same file.
 
 The file stores channel amplitudes, not fields. {py:mod}`solprop.processing.modal` is the
-way back — given the run's own tables, rebuilt from the guide the record names, it
+way back — given the guide the run was made with, it rebuilds the run's own tables and
 synthesises $\mathbf E$ in V/m and $\mathbf H$ in A/m at the guide's nodes and forms
 `reconstructed_flux` in time, `instantaneous_flux` of the real fields with its
 sum-frequency term, and `coordinate_intensity`, the flux density each channel would

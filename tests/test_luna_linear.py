@@ -238,7 +238,7 @@ def tabulated_mode(grid, key):
     return SpecifiedMode.from_table(
         omega[order],
         stored(f"BETA_{key}")[active][order],
-        loss=alpha,
+        alpha=alpha,
         aeff=stored("CAP_AEFF")[0],
     ), beta
 
@@ -316,7 +316,7 @@ def simple_mode():
     return SpecifiedMode.from_taylor(
         gnlse["betas"],
         2.0 * np.pi * C / gnlse["wavelength"],
-        loss=attenuation_from_db(gnlse["loss_db_per_m"]),
+        alpha=attenuation_from_db(gnlse["loss_db_per_m"]),
         aeff=gnlse["aeff"],
     )
 
@@ -329,9 +329,9 @@ def test_the_dispersion_specified_mode_reproduces_lunas_simple_mode(
     # numpy.polynomial, so only the order of the Horner sum differs.
     assert np.allclose(simple_mode.beta(omega), stored("GN_BETA"), rtol=1e-12, atol=0.0)
     assert np.allclose(
-        simple_mode.alpha(omega), stored("GN_ALPHA"), rtol=1e-15, atol=0.0
+        simple_mode.attenuation(omega), stored("GN_ALPHA"), rtol=1e-15, atol=0.0
     )
-    assert simple_mode.alpha(omega)[0] == pytest.approx(
+    assert simple_mode.attenuation(omega)[0] == pytest.approx(
         stored("GN_ALPHA_SCALAR")[0], rel=1e-15
     )
 

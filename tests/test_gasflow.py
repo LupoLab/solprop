@@ -63,7 +63,7 @@ def _factor(gas, radius, length, *, exit_radius=None):
     """k = 1 / (16 eta c a_e^2 R) of the module docstring, in Pa^-1."""
     resistance = hydraulic_integral(radius, [0.0, length])[0]
     exit_radius = radius if exit_radius is None else exit_radius
-    eta, c = viscosity(gas, ROOM), sound_speed(gas, ROOM)
+    eta, c = viscosity(gas, ROOM), sound_speed(gas, temperature=ROOM)
     return 1.0 / (16.0 * eta * c * exit_radius**2 * resistance)
 
 
@@ -96,7 +96,7 @@ def test_the_choked_pressure_reduces_to_hisols_small_exit_limit(
     # HiSol.jl's choked_pressure: D^2 p0^2 / (64 eta L c), which drops p_e^2 from
     # k (p0^2 - p_e^2) = p_e. The exact root is k p0^2 (1 - (p_e/p0)^2 + ...), so the
     # relative difference is (p_e/p0)^2 to leading order.
-    eta, c = viscosity(gas, ROOM), sound_speed(gas, ROOM)
+    eta, c = viscosity(gas, ROOM), sound_speed(gas, temperature=ROOM)
     hisol = (2 * radius) ** 2 * (high * BAR) ** 2 / (64 * eta * length * c)
     got = choked_pressure(gas, radius, length, high) * BAR
     ratio = got / (high * BAR)
@@ -443,7 +443,7 @@ def test_a_mixture_fill_uses_the_mixtures_flow_properties():
     mixture = Mixture.fill(fractions, fill)
     report = flow_report(fill, mixture, radius=100e-6)
     assert report.viscosity == viscosity(fractions, ROOM)
-    assert report.sound_speed == sound_speed(fractions, ROOM)
+    assert report.sound_speed == sound_speed(fractions, temperature=ROOM)
 
 
 def test_independent_populations_are_not_one_flow():

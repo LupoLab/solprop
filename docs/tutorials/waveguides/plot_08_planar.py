@@ -62,7 +62,7 @@ figure.tight_layout()
 # A centred Gaussian couples to odd orders only. Its shares of the beam's power,
 # and the centre of a beam of 1/e field radius 5 mm in y carrying 12.5 mJ, per
 # metre of y:
-modes = ModeCollection.slab(half_gap, (1, 3, 5), "Ar", 1.0)
+modes = ModeCollection.slab(half_gap, "Ar", 1.0, orders=(1, 3, 5))
 shares = gaussian_coupling(modes.modes, 0.735 * half_gap)
 print(
     {

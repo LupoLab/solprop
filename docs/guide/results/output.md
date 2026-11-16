@@ -134,9 +134,9 @@ Reading a field that was not kept is refused, naming the run's `fields`:
 {py:meth}`~solprop.output.store.PlaneStore.fields` need every plane's field and answer
 only for an `"all"` run; {py:meth}`~solprop.output.store.PlaneStore.plane_field` reads
 one saved plane's field and works for any plane that kept one; `output["field_planes"]`
-lists them. {py:mod}`solprop.processing` reads one plane through `plane_field`, so a
-processing function asked for a kept plane works and one asked for another plane is
-refused by name. {py:meth}`~solprop.output.memory.MemoryOutput.planes` returns
+lists them. `plane_field` is part of the {py:class}`~solprop.output.store.Output`
+protocol, and {py:mod}`solprop.processing` reads one plane through it, so a processing
+function asked for a kept plane works and one asked for another plane is refused by name. {py:meth}`~solprop.output.memory.MemoryOutput.planes` returns
 `field=None` where no field was kept. A run that stops on an error or a signal still
 writes its terminal checkpoint **with** the field ([resuming](resuming.md)).
 
@@ -353,8 +353,8 @@ its first start, once, and never rewrites it:
 The **resolved** recipe is what rebuilds the run: the authored keys, the noise seed that
 was drawn, each keyword written back only where its value gives the same record (`rtol`,
 `atol`, `dz_max`, the integrator, the statistics, the save planes, the capillary's
-temperature, plasma, third harmonic and Raman switches, and the defaults of `loss` and
-`model`), and `[execution]` as the run started. The group is provenance outside the run
+temperature, plasma, third harmonic and Raman switches, and the defaults of
+`loss_scale` and `model`), and `[execution]` as the run started. The group is provenance outside the run
 record and its hash: a file without it is a file from a script, a reader that does not
 know it ignores it, and a later session of the file, from a script or from an edited
 recipe, leaves it as it is and is recorded in its own execution record.

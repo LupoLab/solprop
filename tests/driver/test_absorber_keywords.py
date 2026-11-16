@@ -101,7 +101,8 @@ def test_gnlse_takes_the_absorber_keywords() -> None:
 def test_waveguide_takes_the_scheme() -> None:
     """``from_waveguide`` passes the scheme to a hollow guide's settings."""
     simulation = Simulation.from_waveguide(
-        [MarcatiliMode(100e-6, "Ar", 0.5, loss=False, cladding=1.45)], 0.1, "Ar", 0.5,
+        [MarcatiliMode(100e-6, "Ar", 0.5, loss_scale=0.0, cladding=1.45)],
+        0.1, "Ar", 0.5,
         wavelength=800e-9, fwhm=30e-15, energy=10e-6, wavelength_limits=(200e-9, 2e-6),
         trange=200e-15, noise=None, absorber_scheme="split_step",
     )  # fmt: skip

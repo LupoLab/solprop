@@ -22,20 +22,19 @@ from solprop.exceptions import OutputError
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.noise import input_noise
 from solprop.output import (
-    COMPRESSIONS,
-    HISTORY_FIELDS,
     HDF5Output,
     MemoryOutput,
     Output,
-    PlaneStore,
     check_cache,
     open_file,
     resume,
 )
 from solprop.output import hdf5 as hdf5_module
+from solprop.output.hdf5 import COMPRESSIONS
 from solprop.output.metadata import PEAK_FIELDS_ANNOTATION, SCHEMA_VERSION, RunMetadata
 from solprop.output.provenance import BackendRecord
 from solprop.output.records import (
+    HISTORY_FIELDS,
     GridRecord,
     NoiseRecord,
     SavedPlane,
@@ -44,6 +43,7 @@ from solprop.output.records import (
     StepperRecord,
     StepStats,
 )
+from solprop.output.store import PlaneStore
 from solprop.spatial import ABSORBED_CHANNELS
 from solprop.stepper import DOPRI5, FixedSchedule, PIController
 
@@ -266,6 +266,16 @@ def test_a_handler_refuses_to_work_after_it_is_closed(grid, metadata, tmp_path):
             handler.open(metadata)
 
 
+def test_a_finished_file_run_refuses_a_write_by_saying_it_can_only_be_read(
+    grid, metadata, tmp_path
+):
+    handler = HDF5Output(tmp_path / "run.h5")
+    run_into(handler, grid, metadata, 1)
+    handler.close()
+    with pytest.raises(OutputError, match="has finished, so it can only be read"):
+        handler._require_file()
+
+
 def test_an_unknown_key_names_the_ones_that_exist(grid, metadata):
     memory = MemoryOutput()
     run_into(memory, grid, metadata, 1)
@@ -304,8 +314,9 @@ def test_membership_answers_for_exactly_the_keys_the_accessor_accepts(
     assert 0 not in handler
     assert None not in handler
     handler.close()
-    if factory == "file":
-        assert "z" not in handler
+    # A closed handler still answers, a file handler by opening its file for the read.
+    assert "z" in handler
+    assert "banana" not in handler
 
 
 # --------------------------------------------------------------- the conventions
@@ -422,8 +433,8 @@ def test_open_file_reads_a_finished_run_through_the_protocol(grid, metadata, tmp
         with pytest.raises(OutputError, match="reading only"):
             stored.save(planes[0])
     assert stored.closed
-    with pytest.raises(OutputError, match="not open"):
-        stored["field"]
+    # Closed, it reads the file again for each read rather than holding it.
+    assert np.array_equal(stored["field"], memory["field"])
 
 
 def test_open_file_refuses_what_is_not_a_run(tmp_path):
@@ -569,6 +580,30 @@ def test_the_memory_store_names_what_it_holds_when_a_key_is_missing(grid, metada
         memory["step_history/banana"]
 
 
+@pytest.mark.parametrize(
+    "key",
+    ["field", "z", "noise_phase", "stats/energy", "step_history/h", "step_stats/z"],
+)
+def test_the_memory_store_hands_out_read_only_views(grid, metadata, key):
+    memory = MemoryOutput()
+    run_into(memory, grid, metadata, 2, with_noise=True)
+    stored = memory[key]
+    # A view of the buffer, not a copy, and one that cannot write the run.
+    assert not stored.flags.writeable
+    before = stored.copy()
+    with pytest.raises(ValueError, match="read-only"):
+        stored[...] = 0
+    assert np.array_equal(memory[key], before)
+
+
+def test_the_memory_store_views_share_its_buffers(grid, metadata):
+    memory = MemoryOutput()
+    run_into(memory, grid, metadata, 2)
+    assert np.shares_memory(memory["field"], memory["field"])
+    assert np.shares_memory(memory.plane_field(-1), memory["field"])
+    assert not memory.plane_field(-1).flags.writeable
+
+
 def test_the_memory_store_refuses_a_field_before_the_first_plane(metadata):
     memory = MemoryOutput()
     memory.open(metadata)
@@ -580,13 +615,51 @@ def test_the_memory_store_refuses_a_field_before_the_first_plane(metadata):
     assert memory.stat_names == ()
 
 
-def test_a_closed_file_handler_cannot_be_read(grid, metadata, tmp_path):
+def _open_paths() -> list[str]:
+    """Return the names of the HDF5 files this process holds open."""
+    ids = h5py.h5f.get_obj_ids(types=h5py.h5f.OBJ_FILE)
+    return [h5py.h5f.FileID(id_).name.decode() for id_ in ids]
+
+
+def test_a_closed_file_handler_reads_without_holding_the_file(grid, metadata, tmp_path):
+    handler = HDF5Output(tmp_path / "run.h5")
+    planes = run_into(handler, grid, metadata, 2)
+    handler.close()
+    assert str(tmp_path / "run.h5") not in _open_paths()
+    # Each read opens the file read-only and closes it again: the same stored rows.
+    last = planes[-1].field
+    assert last is not None
+    expected = fourier.spectrum_to_optics(last, kind=grid.kind)
+    assert np.array_equal(handler["field"][-1], expected)
+    assert np.array_equal(handler.plane_field(-1), expected)
+    assert np.array_equal(handler.fields("fft")[-1], last)
+    assert np.array_equal(handler["z"], [plane.z for plane in planes])
+    assert handler["stats/energy"].shape[0] == 2
+    assert str(tmp_path / "run.h5") not in _open_paths()
+    # Nothing is left open, so the file can be written to again at once.
+    with h5py.File(tmp_path / "run.h5", "r+"):
+        pass
+    assert handler.path == tmp_path / "run.h5"
+
+
+def test_a_closed_file_handler_names_a_missing_file(grid, metadata, tmp_path):
     handler = HDF5Output(tmp_path / "run.h5")
     run_into(handler, grid, metadata, 1)
     handler.close()
-    with pytest.raises(OutputError, match="is not open"):
+    (tmp_path / "run.h5").unlink()
+    with pytest.raises(OutputError, match="cannot read the output file"):
         handler["field"]
-    assert handler.path == tmp_path / "run.h5"
+
+
+def test_a_suspended_file_handler_refuses_to_read(grid, metadata, tmp_path):
+    handler = HDF5Output(tmp_path / "run.h5")
+    run_into(handler, grid, metadata, 1)
+    handler.suspend()
+    with pytest.raises(OutputError, match="suspended"):
+        handler["field"]
+    handler.reopen()
+    assert handler["field"].shape[0] == 1
+    handler.close()
 
 
 def test_a_never_opened_file_handler_says_so(tmp_path):

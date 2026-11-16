@@ -89,9 +89,9 @@ the same object as in its home module:
    * - group
      - names
    * - runs
-     - ``prop_capillary``, ``prop_gnlse``, ``prop_waveguide``, ``prop_free``, ``prop_planar``, ``Simulation``, ``SimulationSettings``, ``Multistep``, ``RungeKutta``, ``Scan``, ``ScanPoint``, ``run_scan``, ``Local``, ``Pool``, ``Queue``, ``Slurm``
+     - ``prop_capillary``, ``prop_gnlse``, ``prop_waveguide``, ``prop_free``, ``prop_planar``, ``Simulation``, ``SimulationSettings``, ``StatsSpec``, ``Multistep``, ``RungeKutta``, ``Scan``, ``ScanPoint``, ``run_scan``, ``Local``, ``Pool``, ``Queue``, ``Slurm``
    * - outputs
-     - ``open_file``, ``resume``, ``MemoryOutput``, ``HDF5Output``, ``CallbackOutput``, ``open_scan``, ``ScanOutput``
+     - ``open_file``, ``MemoryOutput``, ``HDF5Output``, ``CallbackOutput``, ``open_scan``, ``ScanOutput``
    * - building blocks
      - the grids, the pulses, ``MarcatiliMode``, ``VincettiMode``, ``TubeLattice``, ``StepIndexMode``, ``RectMode``, ``SlabMode`` (with ``gaussian_coupling``, ``gaussian_projection``, ``per_unit_width_to_gaussian`` and ``gaussian_to_per_unit_width``), ``PlanarGrid``, ``IndexTable``, the tabulated modes, ``ModeCollection``, ``Gas``, ``Mixture``, ``species``, ``MaterialSelection``, the glasses and ``glass``, ``Constant``, ``Linear``, ``PiecewiseLinear``, ``PressureGradient``, ``DensityPath``, ``OptmatRate``, ``KerrResponse``, ``PlasmaResponse``, ``EnvelopePlasmaResponse``, ``RamanResponse``, ``DampedOscillator``, ``RotationalLines``, ``SpecifiedMode``
    * - mode and material numbers
@@ -156,8 +156,8 @@ FieldGrid: a real field grid
 In [2]: simulation
 Simulation: 2 modes
   grid:      FieldGrid(n_t=2048, window=455.4 fs, band=200-2000 nm, reference=800 nm)
-  mode 0:    MarcatiliMode(HE11, a=125 um, He, model=full, loss=True)
-  mode 1:    MarcatiliMode(HE12, a=125 um, He, model=full, loss=True)
+  mode 0:    MarcatiliMode(HE11, a=125 um, He, model=full, loss=model)
+  mode 1:    MarcatiliMode(HE12, a=125 um, He, model=full, loss=model)
   responses: KerrResponse, PlasmaResponse
   input:     <2x1x1025 complex>
   noise:     none
@@ -185,8 +185,8 @@ GaussianPulse
 
 In [5]: modes
 ModeCollection: 2 modes
-  0: MarcatiliMode(HE11, a=125 um, He, model=full, loss=True)
-  1: MarcatiliMode(HE12, a=125 um, He, model=full, loss=True)
+  0: MarcatiliMode(HE11, a=125 um, He, model=full, loss=model)
+  1: MarcatiliMode(HE12, a=125 um, He, model=full, loss=model)
 ```
 
 An {py:class}`~solprop.output.hdf5.HDF5Output` says whether its file is open, closed,

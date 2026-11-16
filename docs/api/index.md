@@ -36,7 +36,7 @@ In scripts and library code, import from the home modules listed below.
 
 | module | what it holds |
 |---|---|
-| {mod}`solprop.modes` | waveguide modes: Marcatili capillary modes and the `CoherentWall`, antiresonant, rectangular, slab and [tabulated](tabulated.md) modes, the step-index and graded-index providers, and `ModalGuide` for the general modal route |
+| {mod}`solprop.modes` | waveguide modes: Marcatili capillary modes and the `CoherentWall`, antiresonant, rectangular, slab and [tabulated](tabulated.md) modes, the step-index and graded-index providers, `ModalGuide` for the general modal route, and the derived quantities of any mode (`beta2`, `zdw`, `aeff`, `db_per_m`, … from {mod}`solprop.modes.base`, also exported by `solprop.modes`) |
 | {mod}`solprop.nonlinear` | the nonlinear responses — Kerr, Raman, plasma and ionisation — and the mode-averaged GNLSE |
 | {mod}`solprop.nonlinear.tdse` | frozen helium TDSE physics, calibration, sampling and execution declarations, the haCC basis, the atomic window and the consistency policy ([the TDSE response](../guide/media/tdse.md#declaring-a-response)) |
 | {mod}`solprop.driver.tdse` | atomic preset resolution (`basis_from_preset`, the haCC `hacc_preset` and `hacc_basis`); its binding interfaces are for developers |
@@ -96,22 +96,32 @@ transport
    solprop
 ```
 
-## The loss specification and the evanescent floor
+## The loss keywords and the evanescent floor
 
 Every gas-filled hollow mode — the capillary's `MarcatiliMode`, the rectangular
-`RectMode`, the planar `SlabMode` and the antiresonant modes — takes its `loss=` in one
-vocabulary, `LossSpec`, and its full model floors the real part of the effective index
-at `EVANESCENT_INDEX_FLOOR` far below the band, where the square root would otherwise
-turn evanescent. Both are defined in {mod}`solprop.modes.fill` and are also importable
-from {mod}`solprop.modes.capillary` and {mod}`solprop.modes`; they are documented here
+`RectMode`, the planar `SlabMode`, the antiresonant `VincettiMode` and the tabulated
+hollow modes — takes its loss in one vocabulary, shared with `prop_capillary`, the
+`ModeCollection` factories and the capillary design tools:
+
+- `loss_scale` (default `1.0`) multiplies the model's own loss: `1.0` is the model,
+  `0.0` lossless. It must be finite and non-negative.
+- `alpha` (default `None`) replaces the model's loss by an **absolute** power
+  attenuation coefficient in 1/m: a number, or a callable `alpha(omega)`, which may
+  carry its analytic slope as a `derivative` attribute. Only the imaginary part of the
+  effective index changes, `Im n_eff = c alpha / (2 omega)`.
+
+The two are alternatives: an `alpha` beside a `loss_scale` other than one is refused.
+`StepIndexMode` and the GNLSE's `SpecifiedMode` have no model loss to scale, and take
+`alpha` alone, with `0.0` (lossless) as the default.
+
+The full model of a hollow mode floors the real part of the effective index at
+`EVANESCENT_INDEX_FLOOR` far below the band, where the square root would otherwise
+turn evanescent. It is defined in {mod}`solprop.modes.fill` and is also importable
+from {mod}`solprop.modes.capillary` and {mod}`solprop.modes`; it is documented here
 under both module paths.
 
 ```{eval-rst}
-.. autodata:: solprop.modes.fill.LossSpec
-
 .. autodata:: solprop.modes.fill.EVANESCENT_INDEX_FLOOR
-
-.. autodata:: solprop.modes.capillary.LossSpec
 
 .. autodata:: solprop.modes.capillary.EVANESCENT_INDEX_FLOOR
 ```

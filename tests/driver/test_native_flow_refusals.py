@@ -266,7 +266,7 @@ def test_the_kerr_half_is_exercised_beside_the_flow(name, march):
     nonlinear = run(NumpyRefBackend, problem, run_request, grid)
     # A fresh one: a simulation holds the problem it translated.
     linear = build(name)
-    object.__setattr__(linear, "responses", ())
+    linear._responses = ()  # what it is built from is read-only, by design
     linear_problem = linear.translate()
     assert len(linear_problem.responses.response_order) == 1
     linear_problem = replace(

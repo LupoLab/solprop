@@ -65,7 +65,7 @@ def construct(mixture, grid, **options):
                     "n_r": 8,
                     "n_save": 2,
                     "plasma": {mixture.labels[0]: AnalyticRate()},
-                    "loss": False,
+                    "loss_scale": 0.0,
                     "cladding": 1.45,
                     "ionisation_field_range": (1e7, 1e11),
                 }
@@ -305,7 +305,7 @@ def test_fraction_mapping_uses_total_pressure(material_grid):
             plasma=False,
             n_r=8,
             n_save=2,
-            loss=False,
+            loss_scale=0.0,
             cladding=1.45,
             noise=None,
         )
@@ -348,7 +348,7 @@ def test_public_propagation_accepts_mixture_and_periodic_species(
         plasma={mixture.labels[0]: AnalyticRate()},
         n_r=8,
         n_save=2,
-        loss=False,
+        loss_scale=0.0,
         cladding=1.45,
         backend=backend,
         ionisation_field_range=(1e7, 1e11),

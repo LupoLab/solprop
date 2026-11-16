@@ -49,7 +49,8 @@ reduced = MarcatiliMode(125e-6, "He", 1.0, model="reduced")
 empty = MarcatiliMode(125e-6)  # evacuated: gas=None, pressure 0
 ```
 
-The defaults are `kind="HE"`, `n=1`, `m=1`, `model="full"`, `loss=True`, a fused-silica
+The defaults are `kind="HE"`, `n=1`, `m=1`, `model="full"`, the model's own loss
+(`alpha=None`, `loss_scale=1.0`), a fused-silica
 cladding and a fill at 293.15 K. A gas named here is the built-in gas, optmat's
 ([SEP 3](../../dev/seps/archive/sep-0003-optmat-materials.md)): its polarisability and its
 equation of state (one species per gas, shared by every mode that names it), as in a
@@ -165,20 +166,33 @@ Marcatili's, and `dneff_dz` refuses it by name.
 
 ## Loss
 
-`loss=True` uses the model's own loss and `loss=False` removes it. A **float** scales the
-model loss, a fitting knob; a **callable** is an absolute $\alpha(\omega)$ in m⁻¹ that
-*replaces* it, for measured fibre loss. The two therefore mean different things, which is
-deliberate and worth remembering. With a callable the real part of the index — and so
-$\beta$ and $\beta_1$ — stays fully analytic; only the imaginary part is differenced, and
-only if the callable carries no `derivative` attribute, in which case the constructor logs
-that it will.
+Two keywords, which mean different things. `loss_scale` multiplies the model's own loss,
+a fitting knob: `1.0`, the default, is the model, and `0.0` removes the loss. `alpha` is
+an **absolute** power attenuation coefficient in m⁻¹ that *replaces* the model's loss, for
+measured fibre loss: a number, or a callable $\alpha(\omega)$. Only
+$\mathrm{Im}\,n_{\rm eff} = c\alpha/(2\omega)$ changes, so the real part of the index —
+and with it $\beta$ and $\beta_1$ — stays fully analytic; with a callable only the
+imaginary part of the derivative is differenced, and only if the callable carries no
+`derivative` attribute, in which case the constructor logs that it will. Giving both — an
+`alpha` beside a `loss_scale` other than one — is refused, because the replacement leaves
+nothing to scale.
+
+```python
+from solprop.modes import MarcatiliMode
+
+model = MarcatiliMode(125e-6, "He", 1.0)  # the model's own loss
+lossless = MarcatiliMode(125e-6, "He", 1.0, loss_scale=0.0)
+half = MarcatiliMode(125e-6, "He", 1.0, loss_scale=0.5)
+measured = MarcatiliMode(125e-6, "He", 1.0, alpha=0.05)  # 0.05 m^-1, about 0.22 dB/m
+```
 
 **The model's loss is never negative.** Where the complex square root lands on the branch
 that reads as gain — a cladding index below unity: a metal, or silica in the extreme
 ultraviolet, outside Marcatili's regime — the imaginary part is clamped at zero, its
 derivative with it, and the mode logs the fact once: a passive waveguide cannot amplify.
-A callable `loss` is the caller's and is not clamped: an explicitly negative $\alpha$ is
-gain the caller asked for, which the linear operator's loss policy allows.
+An `alpha` is the caller's and is not clamped: a callable returning a negative $\alpha$
+is gain the caller asked for, which the linear operator's loss policy allows (a number
+must be non-negative).
 
 ```{note}
 The full model floors $\mathrm{Re}\,n_{\rm eff}$ at $10^{-3}$, so that the

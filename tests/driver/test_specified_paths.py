@@ -321,7 +321,7 @@ def test_an_index_path_carries_its_loss_and_its_dispersion(grid):
     assert float(mode.beta(probe, LENGTH / 2)[0]) == pytest.approx(
         2.0e15 * 1.455 / C, rel=1e-12
     )
-    assert float(mode.alpha(probe, LENGTH)[0]) == pytest.approx(
+    assert float(mode.attenuation(probe, LENGTH)[0]) == pytest.approx(
         2.0 * 2.0e15 * 2e-9 / C, rel=1e-12
     )
     assert not mode.z_constant
@@ -365,7 +365,7 @@ def test_a_short_loss_or_derivative_path_is_refused_by_its_own_name(grid):
     short_loss = InterpolatedDispersion(half, (LOSS_ENTRANCE, LOSS_EXIT))
     area = PiecewiseLinear(half, np.array([ENTRANCE_AREA, EXIT_AREA]))
     fibre = SpecifiedMode(value, value, short_loss, area)
-    with pytest.raises(TranslationError, match="declares its loss over"):
+    with pytest.raises(TranslationError, match="declares its attenuation alpha over"):
         build_phi(fibre, grid, fixed_frame(grid), z_max=LENGTH, index=1.0)
     # The derivative, declared short beside a value that covers the run: the paths
     # are sampled together, so the refusal names the derivative rather than the
@@ -408,8 +408,8 @@ def test_a_fibre_whose_loss_alone_moves_is_constructible(grid):
     assert not fibre.dispersion_is_constant
     assert not fibre.parameters_own_z
     probe = np.array([2.0e15])
-    assert float(fibre.alpha(probe, 0.0)[0]) == pytest.approx(1.0)
-    assert float(fibre.alpha(probe, LENGTH / 2)[0]) == pytest.approx(2500.5)
+    assert float(fibre.attenuation(probe, 0.0)[0]) == pytest.approx(1.0)
+    assert float(fibre.attenuation(probe, LENGTH / 2)[0]) == pytest.approx(2500.5)
     table = build_phi(fibre, grid, fixed_frame(grid), z_max=LENGTH, index=1.0)
     assert table.phi_representation == "table"
 
@@ -757,14 +757,14 @@ def test_a_source_that_does_not_move_declares_no_dispersion_positions(grid):
     source = SpecifiedMode.from_taylor([BETA0, BETA1_ENTRANCE], omega_ref=grid.omega0)
     # The fibre itself: a frequency-only dispersion, wrapped by ConstantDispersion,
     # covers any run and kinks nowhere.
-    for path in (source.dispersion_path, source.derivative_path, source.loss_path):
+    for path in (source.dispersion_path, source.derivative_path, source.alpha_path):
         assert isinstance(path, ConstantDispersion)
         assert path.is_constant
         assert path.breakpoints.size == 0
         assert path.z_span == (0.0, math.inf)
     # And wrapping it keeps that, through the source's own z_constant.
     fibre = SpecifiedMode.from_mode(source)
-    for path in (fibre.dispersion_path, fibre.derivative_path, fibre.loss_path):
+    for path in (fibre.dispersion_path, fibre.derivative_path, fibre.alpha_path):
         assert path.is_constant
         assert path.breakpoints.size == 0
         assert path.z_span == (0.0, math.inf)
@@ -773,11 +773,11 @@ def test_a_source_that_does_not_move_declares_no_dispersion_positions(grid):
 def test_a_wrapped_moving_source_reports_the_same_positions_for_loss_and_beta():
     bore = Linear(15e-6, 12e-6, LENGTH)
     fibre = SpecifiedMode.from_mode(MarcatiliMode(bore, cladding=1.45))
-    assert not fibre.loss_path.is_constant
+    assert not fibre.alpha_path.is_constant
     assert np.array_equal(
-        fibre.loss_path.breakpoints, fibre.dispersion_path.breakpoints
+        fibre.alpha_path.breakpoints, fibre.dispersion_path.breakpoints
     )
-    assert fibre.loss_path.z_span == fibre.dispersion_path.z_span
+    assert fibre.alpha_path.z_span == fibre.dispersion_path.z_span
 
 
 def test_a_table_with_the_wrong_number_of_rows_is_refused(grid):

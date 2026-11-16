@@ -22,7 +22,7 @@ from scipy import integrate, special
 from bounds import EPS, assert_within, gamma
 from solprop import fourier
 from solprop.constants import EPS0, C
-from solprop.exceptions import ApertureEdgeWarning, OutputError
+from solprop.exceptions import ApertureEdgeWarning, OutputError, ProcessingError
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.modes import PlanarGrid, SlabMode
 from solprop.output.records import SavedPlane
@@ -922,17 +922,17 @@ def test_an_aperture_set_owns_its_tables_and_compares_by_content():
 
 
 def test_a_spec_refuses_a_missing_or_malformed_table():
-    with pytest.raises(OutputError, match="aperture_on_axis_spectrum"):
+    with pytest.raises(ProcessingError, match="aperture_on_axis_spectrum"):
         StatsSpec(names=("aperture_on_axis_spectrum",))
-    with pytest.raises(OutputError, match="region_spectrum"):
+    with pytest.raises(ProcessingError, match="region_spectrum"):
         StatsSpec(names=("region_spectrum",))
-    with pytest.raises(OutputError, match="at most 16"):
+    with pytest.raises(ProcessingError, match="at most 16"):
         StatsSpec(spectral_regions=np.tile([0.0, 1.0, 0.0, 1.0], (MAX_REGIONS + 1, 1)))
-    with pytest.raises(OutputError, match="NaN"):
+    with pytest.raises(ProcessingError, match="NaN"):
         StatsSpec(spectral_regions=np.array([[np.nan, 1.0, 0.0, 1.0]]))
-    with pytest.raises(OutputError, match=r"rows \[0\]"):
+    with pytest.raises(ProcessingError, match=r"rows \[0\]"):
         StatsSpec(spectral_regions=np.array([[0.0, 1.0, 1.0, 1.0]]))
-    with pytest.raises(OutputError, match="between save planes"):
+    with pytest.raises(ProcessingError, match="between save planes"):
         StatsSpec(names=("beam_spectrum",), periodic=("beam_spectrum",))
     spec = StatsSpec(names=("energy",), apertures=apertures())
     assert (spec.n_apertures, spec.n_regions, StatsSpec().n_apertures) == (1, 0, 0)

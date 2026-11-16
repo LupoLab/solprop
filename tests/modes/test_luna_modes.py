@@ -47,7 +47,7 @@ def build(spec):
         n=spec["n"],
         m=spec["m"],
         model=spec["model"],
-        loss=spec["loss"],
+        loss_scale=1.0 if spec["loss"] else 0.0,
         cladding=cladding(spec),
         temperature=LUNA_TEMPERATURE,
     )
@@ -210,7 +210,7 @@ def test_zdw_matches_luna(key):
         n=1,
         m=1,
         model=spec["model"],
-        loss=True,
+        loss_scale=1.0,
         cladding=cladding(spec),
         temperature=LUNA_TEMPERATURE,
     )

@@ -65,7 +65,7 @@ def connected_simulation(ffac=6.0, *, passive=False):
         temperature=300.0,
     )
     grid = FieldGrid.from_limits(0.225, 800e-9, (300e-9, 2e-6), 200e-15, ffac=ffac)
-    mode = MarcatiliMode(15e-6, mixture=mixture, cladding=1.45, loss=True)
+    mode = MarcatiliMode(15e-6, mixture=mixture, cladding=1.45, loss_scale=1.0)
     responses = (
         ()
         if passive

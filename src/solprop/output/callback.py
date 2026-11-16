@@ -53,7 +53,14 @@ class CallbackOutput:
     crossed with. The field is as a backend produces it: in the internal FFT convention,
     in the square root of watts. A reduction of the squared modulus does not depend on
     the convention, and :func:`solprop.fourier.spectrum_to_optics` gives the form a file
-    stores, in a second volume.
+    stores, in a second volume. The array functions to reduce it with are
+    :func:`solprop.stats.energy`, :func:`solprop.stats.peak_power` and
+    :func:`solprop.stats.fwhm_t`, given the run's grid (``simulation.grid``) and
+    ``plane.field`` as it arrives: they take the internal convention the plane is in,
+    as the run's own statistics do, and no conversion is needed; the
+    :mod:`solprop.processing` readers of the same names read a stored run instead. Like
+    those readers they measure the squared amplitude, and the plane's own
+    ``plane.stats`` carries what the run recorded.
 
     The run's ``fields`` setting
     (:class:`~solprop.driver.settings.SimulationSettings`) decides what a plane
@@ -64,8 +71,9 @@ class CallbackOutput:
     its field.
 
     What it cannot do, it refuses by name. Reading anything back (``handler[key]``,
-    :meth:`fields`) raises :class:`~solprop.exceptions.OutputError`, and a handler that
-    has served a run refuses another, which would continue it. A resume needs a file
+    :meth:`fields`, :meth:`plane_field`) raises
+    :class:`~solprop.exceptions.OutputError`, and a handler that has served a run
+    refuses another, which would continue it. A resume needs a file
     (:func:`~solprop.output.hdf5.check_cache`, :func:`~solprop.output.hdf5.resume`,
     ``resume=True``), as does a TDSE run's ledger. A stopped run returns the handler
     with no state written.
@@ -261,3 +269,20 @@ class CallbackOutput:
             Always.
         """
         raise _not_held("the fields")
+
+    def plane_field(self, index: int, convention: Convention = "optics") -> np.ndarray:  # noqa: ARG002 - the protocol's signature
+        """Refuse to read a plane's field back.
+
+        Parameters
+        ----------
+        index : int
+            The plane that was asked for.
+        convention : {'optics', 'fft'}, optional
+            The convention that was asked for.
+
+        Raises
+        ------
+        OutputError
+            Always.
+        """
+        raise _not_held(f"the field of plane {index}")

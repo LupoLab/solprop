@@ -160,7 +160,7 @@ def _cases():
         for one in ("x", "y")
     ]
     channels = [MarcatiliMode(125e-6, "He", 1.2, m=m) for m in (1, 2)]
-    planar = ModeCollection.slab(63.5e-6, (1, 3, 5), "Ar", 1.0).modes
+    planar = ModeCollection.slab(63.5e-6, "Ar", 1.0, orders=(1, 3, 5)).modes
     return {
         "planar": (PLANAR, planar, PLANAR_CALL),
         "rectangular": (RECTANGULAR, rectangular, RECTANGULAR_CALL),

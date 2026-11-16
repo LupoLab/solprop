@@ -22,7 +22,7 @@ from solprop.driver.executors._queue_state import atomic_json
 from solprop.driver.executors._request import ScanRequest
 from solprop.driver.executors.pool import Pool
 from solprop.driver.executors.queue import Queue
-from solprop.exceptions import DriverError
+from solprop.exceptions import DriverError, ExecutorError
 
 __all__ = ["Slurm"]
 
@@ -307,7 +307,7 @@ class Slurm:
                 check=True,
             )
         except (FileNotFoundError, subprocess.CalledProcessError) as error:
-            raise DriverError(f"Slurm submission failed: {error}") from error
+            raise ExecutorError(f"Slurm submission failed: {error}") from error
         self.job_id = result.stdout.strip()
         reports = queue / "submissions"
         reports.mkdir(parents=True, exist_ok=True)

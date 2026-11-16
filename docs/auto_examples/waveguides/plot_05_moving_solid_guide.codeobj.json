@@ -234,71 +234,6 @@
    "name": "from_limits"
   }
  ],
- "GeneralModalBasisWarning": [
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "solprop.exceptions",
-   "module_short": "solprop.exceptions",
-   "name": "GeneralModalBasisWarning"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "GeneralModalBasisWarning"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "solprop.exceptions",
-   "module_short": "solprop.exceptions",
-   "name": "SolpropWarning"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "SolpropWarning"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "UserWarning"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "Warning"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "Exception"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "BaseException"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.exceptions",
-   "module_short": "solprop.exceptions",
-   "name": "GeneralModalBasisWarning"
-  }
- ],
  "GradedIndexProvider": [
   {
    "is_class": true,
@@ -410,6 +345,34 @@
    "module": "solprop",
    "module_short": "solprop",
    "name": "Displayed"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.profiles",
+   "module_short": "solprop.profiles",
+   "name": "ZProfile"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ZProfile"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "typing",
+   "module_short": "typing",
+   "name": "Protocol"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "typing",
+   "module_short": "typing",
+   "name": "Generic"
   },
   {
    "is_class": false,
@@ -553,6 +516,34 @@
    "module": "solprop",
    "module_short": "solprop",
    "name": "Displayed"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.profiles",
+   "module_short": "solprop.profiles",
+   "name": "ZProfile"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ZProfile"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "typing",
+   "module_short": "typing",
+   "name": "Protocol"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "typing",
+   "module_short": "typing",
+   "name": "Generic"
   },
   {
    "is_class": false,
@@ -1886,22 +1877,6 @@
    "name": "list"
   }
  ],
- "general_modal_route": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "function"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.translate.general",
-   "module_short": "solprop.translate.general",
-   "name": "general_modal_route"
-  }
- ],
  "get_spectral_density": [
   {
    "is_class": false,
@@ -1987,50 +1962,6 @@
    "name": "ndarray"
   }
  ],
- "grid.omega0": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.grid",
-   "module_short": "solprop.grid",
-   "name": "FieldGrid.omega0"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "FieldGrid.omega0"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.grid",
-   "module_short": "solprop.grid",
-   "name": "TimeGrid.omega0"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "TimeGrid.omega0"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop._display",
-   "module_short": "solprop._display",
-   "name": "Displayed.omega0"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "Displayed.omega0"
-  }
- ],
  "guide": [
   {
    "is_class": false,
@@ -2098,7 +2029,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.modes.vector",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.vector",
    "name": "ModalNodeRule"
   },
   {
@@ -2191,7 +2122,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.modes.connection",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.connection",
    "name": "modal_connection"
   }
  ],
@@ -2243,8 +2174,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.metadata"
   },
   {
@@ -2308,8 +2239,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.metadata"
   },
   {
@@ -2394,7 +2325,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.modes.vector",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.vector",
    "name": "ModalNodeRule"
   },
   {
@@ -2942,21 +2873,21 @@
    "is_explicit": false,
    "module": "solprop.translate.problem",
    "module_short": "solprop.translate",
-   "name": "KernelProblem"
+   "name": "PropagationProblem"
   },
   {
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.translate",
    "module_short": "solprop.translate",
-   "name": "KernelProblem"
+   "name": "PropagationProblem"
   },
   {
    "is_class": false,
    "is_explicit": false,
    "module": "solprop",
    "module_short": "solprop",
-   "name": "KernelProblem"
+   "name": "PropagationProblem"
   }
  ],
  "problem.grids.inband_mask": [
@@ -3264,7 +3195,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.modes.vector",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.vector",
    "name": "ModalNodeRule"
   },
   {
@@ -3415,7 +3346,7 @@
    "is_class": false,
    "is_explicit": true,
    "module": "solprop.modes.connection",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.connection",
    "name": "modal_connection"
   }
  ],
@@ -3589,29 +3520,6 @@
    "name": "float64"
   }
  ],
- "tables": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.translate.modal_tables",
-   "module_short": "solprop.translate.modal_tables",
-   "name": "ModalTransformTables"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.translate",
-   "module_short": "solprop.translate",
-   "name": "ModalTransformTables"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "ModalTransformTables"
-  }
- ],
  "taper_guide": [
   {
    "is_class": false,
@@ -3653,38 +3561,6 @@
    "module": "numpy",
    "module_short": "numpy",
    "name": "ndarray"
-  }
- ],
- "warnings.catch_warnings": [
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "_py_warnings",
-   "module_short": "_py_warnings",
-   "name": "catch_warnings"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "warnings",
-   "module_short": "warnings",
-   "name": "catch_warnings"
-  }
- ],
- "warnings.simplefilter": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "function"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "warnings",
-   "module_short": "warnings",
-   "name": "simplefilter"
   }
  ],
  "wavelength": [

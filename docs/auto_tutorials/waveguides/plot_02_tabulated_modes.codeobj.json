@@ -423,7 +423,7 @@
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.modes.fill",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.fill",
    "name": "GasFillMixin"
   },
   {
@@ -530,7 +530,7 @@
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.modes.fill",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.fill",
    "name": "GasFillMixin"
   },
   {
@@ -1022,7 +1022,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.modes.base",
-   "module_short": "solprop.modes.base",
+   "module_short": "solprop.modes",
    "name": "beta2"
   }
  ],
@@ -1065,7 +1065,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.modes.base",
-   "module_short": "solprop.modes.base",
+   "module_short": "solprop.modes",
    "name": "db_per_m"
   }
  ],
@@ -1646,53 +1646,74 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.grid",
-   "module_short": "solprop.grid",
-   "name": "EnvelopeGrid.active_mask"
+   "module": "solprop.driver.simulation",
+   "module_short": "solprop.driver",
+   "name": "Simulation.grid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.driver",
+   "module_short": "solprop.driver",
+   "name": "Simulation.grid"
   },
   {
    "is_class": false,
    "is_explicit": false,
    "module": "solprop",
    "module_short": "solprop",
-   "name": "EnvelopeGrid.active_mask"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.grid",
-   "module_short": "solprop.grid",
-   "name": "TimeGrid.active_mask"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "TimeGrid.active_mask"
+   "name": "Simulation.grid"
   },
   {
    "is_class": false,
    "is_explicit": false,
    "module": "solprop._display",
    "module_short": "solprop._display",
-   "name": "Displayed.active_mask"
+   "name": "Displayed.grid"
   },
   {
    "is_class": false,
    "is_explicit": false,
    "module": "solprop",
    "module_short": "solprop",
-   "name": "Displayed.active_mask"
+   "name": "Displayed.grid"
   }
  ],
  "simulation.grid.omega": [
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "numpy",
-   "module_short": "numpy",
-   "name": "ndarray"
+   "module": "solprop.driver.simulation",
+   "module_short": "solprop.driver",
+   "name": "Simulation.grid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.driver",
+   "module_short": "solprop.driver",
+   "name": "Simulation.grid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Simulation.grid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.grid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.grid"
   }
  ],
  "simulation.run": [
@@ -1938,7 +1959,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.modes.base",
-   "module_short": "solprop.modes.base",
+   "module_short": "solprop.modes",
    "name": "zdw"
   }
  ]

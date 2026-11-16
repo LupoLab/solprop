@@ -233,10 +233,10 @@ Frequency derivatives sum species derivatives before differentiating the square 
 The frame uses the real group delay. Positive imaginary index contributes loss; in
 the dilute limit gas intensity attenuation approaches `sum_s rho_s * sigma_s`.
 
-Capillary `loss=` controls total loss, including gas absorption: `False` removes it,
-a non-negative number scales it, and a callable replaces it. `loss=` does not touch the
-real shift of the mode index that the cladding causes, which stays as the mode model
-defines it.
+A capillary's `loss_scale=` scales its total loss, including gas absorption: `0`
+removes it and another non-negative number scales it; `alpha=` replaces it with an
+absolute attenuation. Neither touches the real shift of the mode index that the
+cladding causes, which stays as the mode model defines it.
 
 The operator has three possible representations:
 
@@ -474,9 +474,10 @@ Material absorption is attributed through `MarcatiliMode.absorption_by_species` 
 first order in susceptibility: `alpha_s = rho_s omega Im(gamma_s)/c`. The processing
 function multiplies this by spectral energy density and sums the modal contributions;
 spatial outputs use their spectral quadrature measure. Wall leakage and ionisation
-work are separate. `loss=False` removes all attributed loss, numeric `loss` scales it,
-and callable replacement of total loss has no justified species attribution. The
-last case is recorded explicitly and refused by the absorption accessor.
+work are separate. `loss_scale=0` removes all attributed loss, another `loss_scale`
+scales it, and an `alpha` replacing the total loss has no justified species
+attribution. The last case is recorded explicitly and refused by the absorption
+accessor.
 
 Node fluence is `epsilon_0 c/2` times the fine-grid temporal sum of the physical
 analytic flux, summed over polarisation. For a modal run that is

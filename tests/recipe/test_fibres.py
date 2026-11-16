@@ -142,11 +142,11 @@ def test_the_mode_family_and_loss_are_keywords():
     fibre = (
         'fibre = { type = "StepIndexMode", radius = "4 um", '
         'profile_wavelength = "1 um", core = 1.47, cladding = 1.45, kind = "TE", '
-        'n = 0, m = 1, loss = "0.5 m^-1" }'
+        'n = 0, m = 1, alpha = "0.5 m^-1" }'
     )
     built = recipe_of(fibre).keywords()["fibre"]
     assert isinstance(built, StepIndexMode)
-    assert (built.kind, built.n, built.m, built.loss) == ("TE", 0, 1, 0.5)
+    assert (built.kind, built.n, built.m, built.alpha) == ("TE", 0, 1, 0.5)
 
 
 @pytest.mark.medium

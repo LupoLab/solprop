@@ -9,8 +9,8 @@ the plasma and Raman responses act on the synthesised Cartesian field, and the
 non-degenerate partners of a rectangular guide.
 
 **Where the polarisation is declared.** The keyword drivers propagate one transverse
-component per mode row, and `polarisation=` on `prop_capillary` and `prop_waveguide` is
-refused by name. Polarisation enters through the **mode set** instead: pass `modes=` a set
+component per mode row and take no polarisation keyword. Polarisation enters through the
+**mode set** instead: pass `modes=` a set
 that holds both partners, or TE, TM and higher-order HE modes.
 {py:meth}`~solprop.modes.collection.ModeCollection.with_polarisations` adds the
 orthogonal partner of every degenerate mode, `mode.rotated(np.pi / 2)` gives one by
@@ -18,8 +18,8 @@ hand, and {py:meth}`~solprop.modes.collection.ModeCollection.marcatili` builds a
 HE, TE and TM capillary modes. The keyword pulse then excites the first row only; an
 input spread over several rows, such as the elliptical launch below, is given as an
 explicit initial field to a `Simulation` or to `solprop.translate.assembly.assemble`. A
-polarisation-resolved capillary run through the drivers is not validated end to end
-(the refusal of `polarisation=` says so). The free-space routes take a Jones vector on
+polarisation-resolved capillary run through the keyword drivers is not validated end to
+end. The free-space routes take a Jones vector on
 {py:class}`~solprop.pulses.SpatialPulse` (`jones=`), and a
 [general modal guide](../waveguides/general-modal.md) can declare circular and split channel bases.
 
@@ -122,7 +122,7 @@ from solprop.polarisation import horizontal, rotate, waveplate
 from solprop.pulses import GaussianPulse
 
 grid = EnvelopeGrid.from_limits(0.002, 800e-9, (300e-9, 2e-6), 100e-15)
-mode = MarcatiliMode(125e-6, cladding=1.45, loss=False)
+mode = MarcatiliMode(125e-6, cladding=1.45, loss_scale=0.0)
 pulse = GaussianPulse(wavelength=800e-9, fwhm=15e-15, energy=2e-6).build(grid)
 jones = to_internal(rotate(waveplate(np.pi / 2), np.pi / 5) @ horizontal())
 product_input = pulse * jones[None, :, None]
@@ -173,9 +173,9 @@ statistic is recorded during propagation.
 
 ## Angular integration and plasma
 
-`ModeCollection.marcatili(radius, gas, pressure, kinds, n, m)` builds an ordered set
-of hybrid (`"HE"`) and transverse (`"TE"`, `"TM"`) capillary modes, one per entry of the
-three sequences, which must have the same length; `with_polarisations()` then adds the
+`ModeCollection.marcatili(radius, gas, pressure, kinds=..., n=..., m=...)` builds an
+ordered set of hybrid (`"HE"`) and transverse (`"TE"`, `"TM"`) capillary modes, one per
+entry of the three sequences, which must have the same length; `with_polarisations()` then adds the
 degenerate orthogonal partners. The transverse quadrature must resolve their angular
 dependence. The Cartesian harmonic of HE modes is `h=abs(n-1)`; TE and TM have `h=1`.
 A Kerr projection contains four modal factors, so the periodic angular rule must

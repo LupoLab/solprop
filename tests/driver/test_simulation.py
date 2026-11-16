@@ -7,6 +7,7 @@
 import contextlib
 import dataclasses
 import math
+import pickle
 import subprocess
 import sys
 import warnings
@@ -87,6 +88,53 @@ def test_settings_assigned_after_the_first_translation_are_refused(
             settings, dz_max=1e-4, save_planes=[1.234e-4], backend="native"
         )
     assert simulation.settings is settings
+
+
+@pytest.mark.parametrize("name", sorted(simulation_module._FIXED_INPUTS))
+def test_assigning_what_a_simulation_is_built_from_is_refused(build_simulation, name):
+    """The input and the record are built from these at construction, so a new
+    value would run the old input and record the new one; the refusal names the
+    methods that derive a simulation instead."""
+    simulation = build_simulation(n_save=2)
+    before = getattr(simulation, name)
+    with pytest.raises(AttributeError, match=r"with_input\(\.\.\.\).*new Simulation"):
+        setattr(simulation, name, before)
+    assert getattr(simulation, name) is before or name in ("profiles", "configuration")
+
+
+def test_the_recorded_mappings_are_copies(build_simulation):
+    """Changing the configuration or profiles in place would change the record alone,
+    so each read is a plain copy: picklable, and changing it changes nothing."""
+    simulation = build_simulation(n_save=2)
+    configuration = simulation.configuration
+    configuration["label"] = "changed"
+    profiles = simulation.profiles
+    profiles["density"] = Constant(1.0)
+    assert "label" not in simulation.configuration
+    assert "density" not in simulation.profiles
+    assert "label" not in simulation.metadata().configuration
+    pickle.dumps((simulation.configuration, simulation.profiles))
+
+
+def test_with_input_derives_the_run_a_new_pulse_makes(build_simulation):
+    """The way to a new input: the derived run runs and records it, the original
+    keeps its own."""
+    simulation = build_simulation(n_save=2)
+    stronger = dataclasses.replace(
+        simulation.initial,
+        peak_power=2 * simulation.initial.peak_power,  # pyright: ignore[reportAttributeAccessIssue]
+    )
+    derived = simulation.with_input(stronger)
+    assert derived.initial is stronger
+    assert derived.metadata().configuration_hash() != (
+        simulation.metadata().configuration_hash()
+    )
+    # Twice the peak power is twice the energy at the entrance; exact up to rounding.
+    np.testing.assert_allclose(
+        np.sum(np.abs(derived._field0) ** 2),
+        2 * np.sum(np.abs(simulation._field0) ** 2),
+        rtol=1e-12,
+    )
 
 
 def test_the_backend_alone_may_change_after_translation(build_simulation):
@@ -497,8 +545,8 @@ def test_copying_the_callers_inputs_leaves_the_record_and_its_hash_unchanged(
     copied = _caller_simulation(narrow_grid, soliton, tables, configuration)
     shared = _caller_simulation(narrow_grid, soliton, tables, configuration)
     # How a simulation kept them before the copy.
-    shared.profiles = dict(shared.profiles)
-    shared.configuration = dict(configuration)
+    shared._profiles = dict(shared._profiles)
+    shared._configuration = dict(configuration)
     assert shared.configuration["coefficients"] is configuration["coefficients"]
     assert copied.configuration["coefficients"] is not configuration["coefficients"]
     record, before = copied.metadata(), shared.metadata()

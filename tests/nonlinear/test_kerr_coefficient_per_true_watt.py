@@ -57,7 +57,7 @@ def true_watt_slope(problem, run_request, grid):
 @pytest.mark.parametrize("pressure", [1.0, 20.0])
 def test_capillary_kerr_coefficient_per_true_watt(grid_class, resolved, pressure):
     grid = grid_class.from_limits(1e-3, 835e-9, (700e-9, 1e-6), 400e-15)
-    mode = MarcatiliMode(125e-6, "Ar", pressure, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, "Ar", pressure, cladding=1.45, loss_scale=0.0)
     chi3 = 2.2e-26  # Synthetic susceptibility; density=1 isolates the normalisation.
     problem, run_request = assemble(
         grid,

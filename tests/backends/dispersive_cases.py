@@ -130,7 +130,7 @@ def averaged(
     mode, a 24-point radial rule, an elliptical launch.
     """
     grid = grid_for(envelope)
-    mode = MarcatiliMode(75e-6, cladding=1.45, loss=False)
+    mode = MarcatiliMode(75e-6, cladding=1.45, loss_scale=0.0)
     pulse = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=2e-6).build(grid)
     start = pulse
     quadrature = None

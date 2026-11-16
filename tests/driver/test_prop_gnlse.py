@@ -611,7 +611,7 @@ def solid_core_table(*, with_area=True):
     area = 1e-10
     coefficients = [1.45 * omega0 / C, 1.45 / C, -11.83e-27]
     mode = SpecifiedMode.from_taylor(
-        coefficients, omega0, loss=attenuation_from_db(0.2), aeff=area
+        coefficients, omega0, alpha=attenuation_from_db(0.2), aeff=area
     )
     omega = np.linspace(0.3e15, 4.5e15, 200)
     table = IndexTable(
@@ -662,7 +662,7 @@ def test_index_table_fibre_matches_taylor_mapping():
         - mode.dispersion_derivative(np.array([omega0]))[0]
     ) * (omega - omega0)
     operator_error = np.max(abs(phase)) + 0.5 * np.max(
-        abs(table.alpha(omega) - mode.alpha(omega))
+        abs(table.alpha(omega) - mode.attenuation(omega))
     )
     bound = (
         length * operator_error * np.exp(3 * 0.11 * 9.8 * length)

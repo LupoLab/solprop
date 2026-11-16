@@ -161,7 +161,7 @@ def test_collection_covers_every_stepindex_cladding_tail(reverse):
 def test_full_fields_refuse_unqualified_loss_and_invalid_points():
     mode = make_provider().modes[0]
     with pytest.raises(ModeError, match="leaky"):
-        replace(mode, loss=1.0).electromagnetic_field(np.zeros((1, 2)), OMEGA)
+        replace(mode, alpha=1.0).electromagnetic_field(np.zeros((1, 2)), OMEGA)
     with pytest.raises(ModeError, match="finite Cartesian"):
         mode.electromagnetic_field(np.full((1, 2), np.nan), OMEGA)
     with pytest.raises(ModeError, match="omega"):

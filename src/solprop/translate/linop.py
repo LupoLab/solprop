@@ -2175,7 +2175,7 @@ def parameter_paths(
 _SPECTRAL_PATHS = (
     ("dispersion_path", "dispersion"),
     ("derivative_path", "dispersion derivative"),
-    ("loss_path", "loss"),
+    ("alpha_path", "attenuation alpha"),
 )
 """The declared spectral paths of a specified mode, with the name each is refused by."""
 

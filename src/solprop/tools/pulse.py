@@ -51,6 +51,9 @@ def pulse_width(fwhm: float, shape: PulseShape = "sech") -> float:
     shape : {'sech', 'gauss'}, optional
         ``"sech"`` for :math:`P\propto{\rm sech}^2(t/\tau_0)`, ``"gauss"`` for
         :math:`P\propto\exp(-t^2/\tau_0^2)`.
+        Default ``"sech"``, unlike the ``"gauss"`` default of
+        :func:`~solprop.driver.interface.prop_capillary` and
+        :func:`~solprop.driver.interface.prop_gnlse`.
 
     Returns
     -------
@@ -87,6 +90,9 @@ def pulse_peak_power(energy: float, fwhm: float, shape: PulseShape = "sech") -> 
         Full width at half maximum of the power in s, > 0.
     shape : {'sech', 'gauss'}, optional
         The pulse shape; see :func:`pulse_width`.
+        Default ``"sech"``, unlike the ``"gauss"`` default of
+        :func:`~solprop.driver.interface.prop_capillary` and
+        :func:`~solprop.driver.interface.prop_gnlse`.
 
     Returns
     -------
@@ -125,6 +131,9 @@ def pulse_energy(peak_power: float, fwhm: float, shape: PulseShape = "sech") -> 
         Full width at half maximum of the power in s, > 0.
     shape : {'sech', 'gauss'}, optional
         The pulse shape; see :func:`pulse_width`.
+        Default ``"sech"``, unlike the ``"gauss"`` default of
+        :func:`~solprop.driver.interface.prop_capillary` and
+        :func:`~solprop.driver.interface.prop_gnlse`.
 
     Returns
     -------

@@ -281,9 +281,12 @@ Compression by taylor
 The evaluation count is SciPy's and moves with its version; the tests mask it.
 
 The compressors take an {py:class}`~solprop.output.store.Output` (the last plane by
-default; `plane=`, `modes=`, `bandpass=` select) or, for a pulse that has not been
-propagated, `grid=` with the internal-convention `spectrum=` that `pulse.build(grid)`
-returns. `compress_taylor` searches up to `order=2` (the GDD alone) unless told
+default; `plane=` or `z=`, `modes=` and `bandpass=` select) or `grid=` with one plane's
+`spectrum=` in the optics convention, the convention `output["field"]` and `plane_field`
+return, so `compress_taylor(grid=grid, spectrum=run.plane_field(-1))` finds what
+`compress_taylor(run)` finds. A pulse's `build(grid)` is in the internal convention:
+convert it with
+`fourier.spectrum_to_optics(pulse.build(grid), kind=grid.kind)` first. `compress_taylor` searches up to `order=2` (the GDD alone) unless told
 otherwise, `compress_material` and `compress_mirrors` need the `medium` and
 `thickness_range` or `mirror` and `max_reflections` they search, and `optimise_cep`
 takes one `mode`.
