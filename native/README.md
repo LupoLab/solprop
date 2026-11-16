@@ -70,7 +70,7 @@ repository's [`AGENTS.md`](https://github.com/LupoLab/solprop/blob/main/AGENTS.m
 | `include/solprop_native/session/` | The native execution session (solprop SEP 47) and what it consults: the boundary watch, the transverse edge, the statistics plan |
 | `include/solprop_native/general/` | `GeneralState`, the general route's state; its implementation is private to `src/general/` |
 | `src/{runtime,problem,response,march,session}/` | The definitions behind the headers of the same name |
-| `src/general/` | The general workspace: refusals, setup, statistics, and the hot set, one translation unit (`trial.cpp`) in topic fragments (`trial_*.inc`) |
+| `src/general/` | The general workspace: refusals, setup, statistics, its kernel helpers (`kernels.hpp`, an umbrella over topic headers such as `views.hpp`, `traversal.hpp` and `stage_terms.hpp`), and the hot set, one translation unit (`trial.cpp`) in topic fragments (`trial_*.inc`) |
 | `src/bindings/` | The nanobind seam: the `_core` module and its `_testing` submodule, one file a bound concept |
 | `src/solprop_native/` | The Python adapter: `backend.py`, `_lowering.py`, `_load.py`, `_march.py`, `_probe.py`, `_device.py`, `_build.py`, `session.py`, … |
 | `tests/native/` | The GoogleTest unit tests of the C++ library (`ctest`) |

@@ -42,9 +42,9 @@ STRICT_BLOCK = "SOLPROP_NATIVE_STRICT_BLOCK"
 
 PROTECTED = [
     # The ionised fraction (Numba's fraction_at, envelope_population).
-    ("src/general/kernels.hpp", "decayed_fraction"),
-    ("src/general/kernels.hpp", "decayed_fractions"),
-    ("src/general/kernels.hpp", "envelope_fraction"),
+    ("src/general/ionisation.hpp", "decayed_fraction"),
+    ("src/general/ionisation.hpp", "decayed_fractions"),
+    ("src/general/ionisation.hpp", "envelope_fraction"),
     # The small-argument phi-functions (multistep._phi, _weights).
     ("include/solprop_native/march/adams_phi.hpp", "adams_phi_fixed"),
     ("include/solprop_native/march/adams_phi.hpp", "adams_lanes_classify"),
@@ -53,14 +53,14 @@ PROTECTED = [
     ("include/solprop_native/march/lagrange_basis.hpp", "basis_rows"),
     ("include/solprop_native/march/lagrange_basis.hpp", "trial_tables"),
     # The stable phase increments.
-    ("src/general/kernels.hpp", "phase_sum"),
-    ("src/general/kernels.hpp", "phase_block"),
+    ("src/general/stage_terms.hpp", "phase_sum"),
+    ("src/general/stage_terms.hpp", "phase_block"),
     ("src/general/trial.cpp", "adams_phase_sum"),
     ("src/general/trial.cpp", "adams_phase_block"),
     ("src/general/trial.cpp", "adams_lanes_phase"),
     # The multistep defects and compensation (correct, exponential_correct, carry,
     # _coupled_correct, _carry_flows).
-    ("src/general/kernels.hpp", "compensation_residual"),
+    ("src/general/ionisation.hpp", "compensation_residual"),
     ("src/general/trial.cpp", "adams_predicted_compensation"),
     ("src/general/trial.cpp", "adams_corrected_compensation"),
     ("src/general/trial.cpp", "adams_observed_compensation"),
