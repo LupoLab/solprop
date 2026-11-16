@@ -49,7 +49,7 @@ from solprop.modes.tables import (
     solved_in_table_basis,
     validate_modal_table,
 )
-from solprop.modes.tabulated import SampledIndexTable, sample_index_table
+from solprop.modes.tabulated import _SampledIndexTable, sample_index_table
 from solprop.modes.vector import ModalSample, radial_node_rule
 from solprop.profiles import Linear
 
@@ -263,7 +263,7 @@ def test_sampled_table_prints_and_rebuilds_on_replace():
     table = sample_index_table(mode, frequencies)
     # The sampler returns an IndexTable subclass that carries the source slopes
     # and the snapshot provenance beside the public table's own surface.
-    assert isinstance(table, SampledIndexTable)
+    assert isinstance(table, _SampledIndexTable)
     # The subclass must not regenerate a dataclass repr over its arrays.
     assert "\n" not in repr(table) and "array(" not in repr(table)
     assert repr(table).startswith("IndexTable(")
@@ -675,7 +675,7 @@ def test_a_provider_channel_table_reads_beta_off_the_tracked_generator():
         rtol=64 * np.finfo(float).eps,
         atol=0,
     )
-    identity = dict(cast("SampledIndexTable", table).source_identity)
+    identity = dict(cast("_SampledIndexTable", table).source_identity)
     assert identity["channel"] == 1
     assert identity["derivative_model"] == "dense-table-interpolant"
     assert identity["area_model"] == "sampled-vector-surrogate"
@@ -695,7 +695,7 @@ def test_a_provider_channel_table_refuses_what_it_cannot_sample():
     with pytest.raises(ModeError, match="outside the 2 tracked channels"):
         sample_provider_table(provider, 2, omega)
     without = cast(
-        "SampledIndexTable",
+        "_SampledIndexTable",
         sample_provider_table(provider, 0, omega, include_area=False),
     )
     assert without.area is None

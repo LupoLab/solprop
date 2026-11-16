@@ -30,7 +30,7 @@ from solprop._display import Displayed, engineering, line
 from solprop._ownership import frozen_copy
 from solprop.constants import C
 from solprop.exceptions import ModeError
-from solprop.modes.tabulated import IndexTable, SampledIndexTable
+from solprop.modes.tabulated import IndexTable, _SampledIndexTable
 from solprop.modes.vector import (
     BASIS_UNITARY_ATOL,
     ChannelBasis,
@@ -1278,7 +1278,8 @@ def channel_index_table(
     Returns
     -------
     solprop.modes.tabulated.IndexTable
-        A :class:`~solprop.modes.tabulated.SampledIndexTable` carrying the
+        A private :class:`~solprop.modes.tabulated.IndexTable` subclass, as
+        :func:`~solprop.modes.tabulated.sample_index_table` returns, carrying the
         interpolant's slopes and the channel's source identity.
 
     Raises
@@ -1354,7 +1355,7 @@ def channel_index_table(
     )
     # A bound lossless provider has an imaginary index of exactly zero, which has
     # no logarithm and which the table's default policy refuses outright.
-    return SampledIndexTable(
+    return _SampledIndexTable(
         table.omega,
         neff,
         area,

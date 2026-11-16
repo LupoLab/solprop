@@ -30,7 +30,6 @@ from solprop.profiles import as_profile
 __all__ = [
     "MIN_TABLE_POINTS",
     "IndexTable",
-    "SampledIndexTable",
     "TabulatedHollowMode",
     "TabulatedMode",
     "sample_index_table",
@@ -739,40 +738,20 @@ class TabulatedMode(_TableMode):
 
 
 @dataclass(frozen=True, eq=False, repr=False, init=False)
-class SampledIndexTable(IndexTable):
+class _SampledIndexTable(IndexTable):
     """Retain sampled dispersion derivatives and snapshot provenance.
-
-    The table :func:`sample_index_table` and
-    :func:`solprop.modes.tables.channel_index_table` return: an :class:`IndexTable`
-    whose interpolant is a cubic Hermite through the source's own slopes.
 
     ``repr=False``: a regenerated dataclass ``__repr__`` dumped 809 characters of
     arrays and undid :class:`IndexTable`'s one-line description.
 
-    Parameters
-    ----------
-    omega : array_like
-        Positive finite angular frequencies in rad/s, shape ``(n_nodes,)``, in
-        either order.
-    neff_values : array_like
-        Passive effective indices at those frequencies, same shape.
-    area : array_like or None, optional
-        Positive finite effective areas in m^2 at the same samples.
-    loss_interpolation : {"log", "linear"}, optional
-        ``linear`` by default here, because a lossless source has no logarithm.
-    derivative_values : array_like
-        Source ``dneff_domega`` in s/rad at the same frequencies.
-    source_identity : collections.abc.Mapping
-        The sampled mode's type, repr, snapshot position, frequency domain and area
-        model.
-
-    Attributes
-    ----------
-    derivative_values : numpy.ndarray
-        The source slopes in s/rad, stored sorted and read-only, shape
-        ``(n_sampled_derivatives,)``.
-    source_identity : collections.abc.Mapping
-        A copy of the declared source identity.
+    - ``omega``: positive finite angular frequencies in rad/s, shape ``(n_nodes,)``.
+    - ``area``: positive finite effective areas in m^2 at the same samples.
+    - ``loss_interpolation``: ``linear`` by default here, because a lossless source has
+      no logarithm.
+    - ``derivative_values``: source ``dneff_domega`` in s/rad at the same frequencies,
+      stored sorted and read-only, shape ``(n_sampled_derivatives,)``.
+    - ``source_identity``: the sampled mode's type, repr, snapshot position, frequency
+      domain and area model.
     """
 
     derivative_values: Complex[np.ndarray, " n_sampled_derivatives"]
@@ -806,13 +785,7 @@ class SampledIndexTable(IndexTable):
         super().__init__(omega, neff_values, area, loss_interpolation)
 
     def __post_init__(self) -> None:
-        """Sort the derivatives with the samples and fit Hermite interpolants.
-
-        Raises
-        ------
-        ModeError
-            If the derivatives are not finite or do not match the frequencies.
-        """
+        """Sort the derivatives with the samples and fit Hermite interpolants."""
         # The base sorts by frequency and does not report the permutation, so take
         # it from the same input here and apply it to the derivatives.
         order = np.argsort(_positive_vector(self.omega, "omega"))
@@ -867,7 +840,7 @@ def sample_index_table(
     IndexTable
         Sorted, immutable index samples and a Hermite interpolant using the
         supplied derivative. No extrapolation or E/H reconstruction is implied.
-        The object is a :class:`SampledIndexTable`, so it also carries
+        The object is a private :class:`IndexTable` subclass, so it also carries
         ``derivative_values`` (the source slopes in s/rad) and ``source_identity``
         (the mode's type, repr, snapshot position, frequency domain and area
         model); every other attribute and method is the public table's.
@@ -901,7 +874,7 @@ def sample_index_table(
         )
     # A lossless source has an imaginary index of exactly zero, which has no
     # logarithm and which the table's default policy refuses outright.
-    return SampledIndexTable(
+    return _SampledIndexTable(
         frequencies,
         values,
         area,
