@@ -2,17 +2,20 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""A step driver whose numerical outcomes are scripted rather than computed.
+"""A reference backend whose numerical outcomes are scripted rather than computed.
 
 :class:`HostScriptedDriver` is the reference backend with its Runge-Kutta engine
-replaced by a script: a trial multiplies the state by a constant and scores an error
-norm taken from a list, so step control, the session lifecycle and the service loop
-can be tested without any physics being evaluated correctly. ``tests/sessions`` tests
-the execution-session lifecycle with it (SEP 47 section 7.1: "Script the same
-numerical outcomes to test this exact lifecycle property on every executor").
+replaced by a scripted engine under the real march and the real session: a trial
+multiplies the state by a constant and scores an error norm taken from a list, so step
+control, the session lifecycle and the service loop can be tested without any physics
+being evaluated correctly. ``tests/sessions`` tests the execution-session lifecycle
+with it (SEP 47 section 7.1: "Script the same numerical outcomes to test this exact
+lifecycle property on every executor"). Its statistics are scripted too: every name
+reads the position it was taken at.
 """
 
-from typing import TYPE_CHECKING, Any
+from types import MethodType
+from typing import Any
 
 import numpy as np
 
@@ -24,8 +27,14 @@ SCALE = 0.02 / 8
 """The step length, m, whose default scripted norm is one: an eighth of a 2 cm run."""
 
 
-class _Scripted:
-    """A driver whose stage evaluation multiplies by a constant and scores from a list.
+def _scripted_stats(workspace: NumpyWorkspace, spec: Any, z: float) -> dict:
+    """Return one scriptable number per name: the position the row was taken at."""
+    state = workspace.committed()
+    return {name: np.full((state.shape[0],), z) for name in spec.names}
+
+
+class HostScriptedDriver(NumpyRefBackend):
+    """The reference backend over a scripted Runge-Kutta engine.
 
     The state advances by a factor per step so that a rejected step can be seen not to
     have been kept, and the error norms come from a script so that acceptance,
@@ -46,85 +55,55 @@ class _Scripted:
     scale : float, optional
         The step length, m, whose default norm is one.
     **kwargs
-        Passed to the step driver.
+        Passed to the reference backend.
     """
 
     name = "scripted"
 
-    if TYPE_CHECKING:
-        # What the mixin reads of the driver it is mixed into.
-        _problem: Any
-
-        @property
-        def _z(self) -> float: ...
-
-        @property
-        def _proposal(self) -> float: ...
-
-        _closed: bool
-        _workspace: Any
-
-        def _require_state(self) -> Any: ...
-
     def __init__(
         self, problem, run_request, *, norms=(), factor=1.0, scale=SCALE, **kwargs
     ):
-        super().__init__(problem, run_request, **kwargs)  # pyright: ignore[reportCallIssue]
         self._norms = list(norms)
         self._factor = factor
         self._scale = scale
         self.calls: list[tuple[float, float]] = []
-        self.proposals: list[float] = []
-        self.accepted_hooks = 0
-        self.planes_begun = 0
+        super().__init__(problem, run_request, **kwargs)
+        self._workspace.stats = MethodType(_scripted_stats, self._workspace)  # pyright: ignore[reportAttributeAccessIssue]
 
-    def _trial_step(self, z, dz):
+    def _trial_step(self, z: float, dz: float) -> tuple[float, np.ndarray]:
+        """Return a trial's scripted norm and end state, the state times a factor."""
         self.calls.append((z, dz))
-        self.proposals.append(self._proposal)
         # A fifth-order embedded estimate: the norm has to fall like dz^5 or the
         # controller's equivalent_norm reads every short landing step as a failure and
         # the proposal collapses. A constant would test the loop against a stand-in the
         # loop was never written for.
         norm = self._norms.pop(0) if self._norms else (dz / self._scale) ** 5
-        state = self._require_state() * self._factor
-        return norm, self._apply_mask(state)
-
-    def _apply_mask(self, state):
-        return state * self._problem.grids.active_mask
-
-    def _on_accepted_step(self):
-        self.accepted_hooks += 1
-
-    def stats(self, spec) -> dict[str, np.ndarray]:
-        """Return one scriptable number per name: the position the row was taken at."""
-        state = self._require_state()
-        return {name: np.full((state.shape[0],), self._z) for name in spec.names}
-
-    def _begin_plane(self):
-        self.planes_begun += 1
+        state = self._workspace.committed() * self._factor
+        return norm, state * self._problem.grids.active_mask
 
     def _runge_kutta(self, workspace: NumpyWorkspace) -> NumpyRungeKutta:
         """Return the scripted engine in place of the reference's."""
         return _ScriptedEngine(workspace, self)
 
-    def close(self):
-        """Release the state, as the seam requires."""
-        self._workspace.close()
-        self._closed = True
-
 
 class _ScriptedEngine(NumpyRungeKutta):
-    """A Runge-Kutta engine whose trial is the driver's script (``_trial_step``)."""
+    """A Runge-Kutta engine whose trial is the backend's script (``_trial_step``).
 
-    def __init__(self, workspace: NumpyWorkspace, driver: Any) -> None:
+    It is in flight from a trial the script left partway until the next engine is
+    built, as an in-place step abandoned there is (the commit contract).
+    """
+
+    def __init__(self, workspace: NumpyWorkspace, backend: Any) -> None:
         super().__init__(workspace, workspace.stepper.tableau)
-        self._driver = driver
+        self._backend = backend
+        self.left = False
+
+    @property
+    def in_flight(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the script left a trial in flight."""
+        return self.left
 
     def trial(self, z: float, dz: float) -> float:
-        norm, state = self._driver._trial_step(z, dz)
+        norm, state = self._backend._trial_step(z, dz)
         self._trial = (state, [])
         return norm
-
-
-class HostScriptedDriver(_Scripted, NumpyRefBackend):
-    """The script on the reference backend's engine."""

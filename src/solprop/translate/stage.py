@@ -156,7 +156,7 @@ def anchor(
         The step's anchor, m, inside the tabulated range.
     helpers : solprop._helpers.Helpers, optional
         The implementation of the tables' Clenshaw pass: the backend's that runs the
-        step (``HostDriver.helpers``, SEP 29 section 6.6), or the plain Python forms by
+        step (``Backend.helpers``, SEP 29 section 6.6), or the plain Python forms by
         default.
 
     Returns
@@ -447,7 +447,7 @@ def scalars(
         stage that the step did not need. Must be the anchor of `z0`.
     helpers : solprop._helpers.Helpers, optional
         The implementation of the tables' Clenshaw pass: the backend's that runs the
-        stage (``HostDriver.helpers``, SEP 29 section 6.6), or the plain Python forms by
+        stage (``Backend.helpers``, SEP 29 section 6.6), or the plain Python forms by
         default.
 
     Returns
@@ -553,7 +553,7 @@ def scalars_at(
         The anchor's weights from :func:`anchor`; must be the anchor of `z0`.
     helpers : solprop._helpers.Helpers, optional
         The implementation of the tables' Clenshaw pass: the backend's that runs the
-        stages (``HostDriver.helpers``, SEP 29 section 6.6), or the plain Python forms
+        stages (``Backend.helpers``, SEP 29 section 6.6), or the plain Python forms
         by default, for callers outside a backend.
 
     Returns

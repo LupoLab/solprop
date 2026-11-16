@@ -391,7 +391,7 @@ def carrier_capped(
 def quiet_capped(proposal: float, *, quiet: bool, interval: float | None) -> float:
     """Return the proposal, held to the monitor's interval while the collar rests.
 
-    The rule of ``solprop.backends.host.driver.HostDriver._quiet_capped``, with the
+    The rule of :meth:`solprop.backends.host.session.HostSession.cap`, with the
     collar's state and the monitor's interval passed in.
 
     Parameters

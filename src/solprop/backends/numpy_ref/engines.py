@@ -21,15 +21,13 @@ from solprop.backends.engines import AcceptRecord, BoundaryReading
 from solprop.backends.numpy_ref import passes
 from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.exceptions import BackendError
-from solprop.stepper.tableau import (
-    Tableau,
-    extension_coefficients,
-    extension_value,
-)
+from solprop.stepper.tableau import Tableau, extension_coefficients
 
 __all__ = ["NumpyRungeKutta"]
 
 _State = Complex[np.ndarray, "n_modes n_pol n_omega"]
+_Extension = tuple[float, float, list[np.ndarray]]
+"""A continuous extension: its step's start and length, m, and its coefficients."""
 
 
 class NumpyRungeKutta:
@@ -51,8 +49,9 @@ class NumpyRungeKutta:
     Attributes
     ----------
     evaluations : int
-        Physical source evaluations of the trials since :meth:`reset`, rejected trials
-        included (SEP 30 records work rather than estimating it from steps).
+        Physical source evaluations of the trials since the engine was built, for one
+        run, rejected trials included (SEP 30 records work rather than estimating it
+        from steps).
     """
 
     def __init__(self, workspace: NumpyWorkspace, tableau: Tableau) -> None:
@@ -61,12 +60,6 @@ class NumpyRungeKutta:
         self._tableau = tableau
         self._trial: tuple[_State, list[_State]] | None = None
         self._extension: tuple[float, float, list[np.ndarray]] | None = None
-        self.evaluations = 0
-
-    def reset(self) -> None:
-        """Forget the held trial and extension and the count: a state was loaded."""
-        self._trial = None
-        self._extension = None
         self.evaluations = 0
 
     @property
@@ -211,63 +204,10 @@ class NumpyRungeKutta:
         coefficients = extension_coefficients(self._tableau, start, self.stages, dz)
         self._extension = (z, dz, coefficients)
 
-    def observe(self, position: float) -> _State:
-        """Return the masked field at `position` inside the held extension's step.
-
-        Interpolated by the continuous extension and carried to `position` by the
-        exact linear flow; no source is evaluated.
-
-        Parameters
-        ----------
-        position : float
-            The plane, m, inside the extended step.
-
-        Returns
-        -------
-        numpy.ndarray
-            The field in the state's layout.
-        """
-        if self._extension is None:
-            raise BackendError("no accepted step is held for a dense observation")
-        workspace = self._workspace
-        z, dz, coefficients = self._extension
-        start = coefficients[0]
-        value = extension_value(coefficients, (position - z) / dz)
-        # A bin the linear flow attenuates or amplifies by more than an e-fold over the
-        # step -- the spectral collar's, outside the controlled band -- has an
-        # interaction-picture derivative growing exponentially across it, which no
-        # polynomial in theta follows: interpolated there it returns orders of
-        # magnitude more than the field. Its source is negligible beside its own loss,
-        # so the anchor's linear flow is its honest value.
-        stiff = (
-            np.abs(np.real(workspace.delta_phi(workspace.stage_scalars(z, z + dz))))
-            > 1.0
-        )
-        value = np.where(stiff, start, value)
-        return workspace.mask(workspace.propagator(z, position) * value)
-
-    def hold(self) -> object:
-        """Return the committed state, to restore after a dense observation.
-
-        Returns
-        -------
-        object
-            The workspace's state array.
-        """
-        return self._workspace.committed()
-
-    def restore(self, z: float, held: object) -> None:
-        """Make a held or observed state the workspace's committed state.
-
-        Parameters
-        ----------
-        z : float
-            Its position, m.
-        held : object
-            The array.
-        """
-        del z
-        self._workspace.install(held)  # pyright: ignore[reportArgumentType]
+    @property
+    def extension(self) -> "_Extension | None":  # numpydoc ignore=RT01
+        """The held extension: its step's start and length, m, and its coefficients."""
+        return self._extension
 
     def reading(self) -> BoundaryReading:
         """Return the committed state's boundary reading.

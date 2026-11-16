@@ -15,8 +15,8 @@ statistic — and that structure is precisely what a fast backend exists to chan
 A backend is constructed from a validated
 :class:`solprop.translate.problem.PropagationProblem`, takes host arrays and returns
 host arrays; its buffers, layout and plans are private, and the state is never a
-parameter of :meth:`HostStepping.propagate_to` or :meth:`HostStepping.observe`.
-Selection by name and the availability rules are in :mod:`solprop.backends.registry`.
+parameter of anything a run's session is asked. Selection by name and the availability
+rules are in :mod:`solprop.backends.registry`.
 
 **Sign convention.** Every complex array crossing this seam, in either direction, is in
 the **FFT convention** of ``docs/dev/conventions.md`` section 2, with the phase origin
@@ -37,11 +37,6 @@ from jaxtyping import Bool, Complex, Float, Int
 from solprop._ownership import frozen_copy, hold
 from solprop._process import parallel_rows
 from solprop.exceptions import BackendError
-from solprop.log import ProgressReporter, StopFlag
-from solprop.monitor import BoundaryMonitor
-from solprop.noise import NoiseRealisation
-from solprop.output.records import MarchSnapshot
-from solprop.stats import StatsSpec
 
 if TYPE_CHECKING:
     # The session module builds on this one's records, so its start is a forward name.
@@ -52,12 +47,10 @@ if TYPE_CHECKING:
 __all__ = [
     "Backend",
     "BackendHistory",
-    "HostStepping",
     "Observation",
     "StepStats",
     "StepSummary",
     "TimingProbe",
-    "stepping",
 ]
 
 logger = logging.getLogger(__name__)
@@ -487,7 +480,7 @@ class Observation:
 
 @dataclass(frozen=True, eq=False)
 class StepSummary:
-    """What one call to :meth:`HostStepping.propagate_to` cost and achieved.
+    """What one march of a session towards a plane cost and achieved.
 
     A handful of host scalars, so that a driver can report progress and warn about a
     tolerance that was not met without pulling the whole step history across the seam
@@ -763,237 +756,3 @@ class Backend(Protocol):
     def closed(self) -> bool:  # numpydoc ignore=RT01
         """Whether the backend has released its buffers, as a failure may."""
         ...
-
-
-@runtime_checkable
-class HostStepping(Backend, Protocol):
-    """The host stepping seam a host-owned session drives (SEP 47 section 6.6).
-
-    The reference (:class:`solprop.backends.host.driver.HostDriver`) loads, steps,
-    observes and restores its state through these members, which its own session
-    (:class:`solprop.backends.host.session.HostSession`) calls.
-    They are no part of :class:`Backend`: the native backend runs only in its native
-    session and has none of them (SEP 47 section 6.8). A caller holding a
-    :class:`Backend` it knows steps on the host narrows it with :func:`stepping`.
-
-    Examples
-    --------
-    >>> from solprop.backends.protocol import Backend, HostStepping
-    >>> added = set(dir(HostStepping)) - set(dir(Backend))
-    >>> sorted(name for name in added if not name.startswith("_"))[:4]
-    ['attach_monitor', 'in_flight', 'march_snapshot', 'march_snapshot_nbytes']
-    """
-
-    def set_initial(
-        self,
-        field: Complex[np.ndarray, "n_modes n_pol n_omega"],
-        noise: NoiseRealisation | None,
-        *,
-        z: float = 0.0,
-        resume: bool = False,
-    ) -> None:
-        """Load a state and the noise realisation at a position, host to device, once.
-
-        Parameters
-        ----------
-        field : numpy.ndarray
-            The state, shape ``(n_modes, n_pol, n_omega)``, FFT convention.
-        noise : solprop.noise.NoiseRealisation or None
-            The realisation to carry along the run, or ``None``.
-        z : float, optional
-            The position the state belongs to, m, inside the operator table. Zero is
-            the entrance; a positive value is a **resume** from a plane the run reached
-            before, so the backend takes
-            its position -- and its place in a replayed schedule -- from here. A state
-            past the entrance already carries an ``input``-model noise realisation, and
-            a backend must not add one to it a second time. The step controller starts
-            afresh either way, so an adaptive run resumed agrees with an uninterrupted
-            one to the controller's tolerance and not bitwise, while a replayed
-            schedule agrees bitwise on a backend that recycles no stage and to
-            round-off on one that does (``docs/dev/stepper.md`` section 3).
-        resume : bool, optional
-            Whether `field` came back from a saved plane of this run, and so already
-            carries the ``input`` realisation even at the launch position, where a file
-            holding only that plane resumes. ``False`` by default.
-        """
-        ...
-
-    def set_progress(self, reporter: ProgressReporter) -> None:
-        """Attach the reporter the step loop calls as it goes.
-
-        The driver attaches one before the first plane and never changes it mid-run. A
-        backend that steps on the host calls
-        :meth:`~solprop.log.ProgressReporter.step` once per attempted step, including
-        the rejected ones; a backend whose loop is on a device may call it once per
-        plane instead (``docs/dev/backends.md`` section 1). Nothing a reporter does may
-        change the propagation: a run with one is bitwise the run without.
-
-        Parameters
-        ----------
-        reporter : solprop.log.ProgressReporter
-            Where the step events go. :class:`solprop.log.NullReporter` is the way to
-            turn them off.
-        """
-        ...
-
-    def set_stop(self, flag: StopFlag | None) -> None:
-        """Attach the flag the march polls, or detach it with ``None``.
-
-        Parameters
-        ----------
-        flag : solprop.log.StopFlag or None
-            Any object with an ``is_set()`` method, such as a
-            :class:`threading.Event`.
-        """
-        ...
-
-    def attach_monitor(self, monitor: BoundaryMonitor) -> None:
-        """Watch the time window's edges from here on, starting with the current state.
-
-        Parameters
-        ----------
-        monitor : solprop.monitor.BoundaryMonitor
-            The monitor, fed every committed step.
-        """
-        ...
-
-    def propagate_to(self, z: float) -> StepSummary:
-        """Step the state to a position through the shared driver's marches.
-
-        Parameters
-        ----------
-        z : float
-            The save plane to reach, m. Steps land on it exactly.
-
-        Returns
-        -------
-        StepSummary
-            What the call cost and achieved.
-        """
-        ...
-
-    def observe(self, *, field: bool = True) -> Observation:
-        """Return the state at the current position, as host arrays.
-
-        Nothing writes to the returned arrays again, the backend included: a run hands
-        them to its output without a copy (:func:`solprop.driver.run.run_problem`), and
-        a handler may keep them. A backend either returns arrays it no longer owns or
-        leaves the ones it returns behind, as a step that replaces its state does.
-
-        Parameters
-        ----------
-        field : bool, optional
-            Whether the field and the noise phase cross to the host; ``False``
-            observes the step history alone (SEP 22 section 5.1).
-
-        Returns
-        -------
-        Observation
-            The field, the noise phase and the step history since the last call.
-        """
-        ...
-
-    @property
-    def in_flight(self) -> tuple[float, float] | None:  # numpydoc ignore=RT01
-        """Low-storage step a failure abandoned in flight, or ``None``.
-
-        The step's start and length, m, while the state is neither of its ends.
-        """
-        ...
-
-    def stats(self, spec: StatsSpec) -> dict[str, np.ndarray]:
-        """Compute the requested statistics in one fused pass.
-
-        Parameters
-        ----------
-        spec : solprop.stats.StatsSpec
-            Which statistics and which windows.
-
-        Returns
-        -------
-        dict
-            Small host arrays keyed by statistic name.
-        """
-        ...
-
-    def restore_call_ledgers(
-        self, logical: Mapping[str, object], atomic: Mapping[str, object] | None = None
-    ) -> None:
-        """Restore cumulative budgets after loading a saved state.
-
-        Parameters
-        ----------
-        logical : mapping
-            Persisted logical response counters, or empty for ordinary RK runs.
-        atomic : mapping or None, optional
-            Persisted provider attempts. Numerical history always restarts fresh.
-        """
-        ...
-
-    def march_snapshot(self) -> MarchSnapshot | None:
-        """Return the Adams march's state at the accepted position, for a resume.
-
-        Returns
-        -------
-        solprop.output.records.MarchSnapshot or None
-            The snapshot, or ``None`` wherever the march has nothing to continue.
-        """
-        ...
-
-    def march_snapshot_nbytes(self, z: float) -> int | None:
-        """Return the bytes :meth:`march_snapshot` would copy at `z`, copying nothing.
-
-        Parameters
-        ----------
-        z : float
-            The position the snapshot is wanted at, m.
-
-        Returns
-        -------
-        int or None
-            The size, or ``None`` where a snapshot would be ``None`` or stand elsewhere.
-        """
-        ...
-
-    def restore_march(self, snapshot: MarchSnapshot) -> str | None:
-        """Continue the Adams march from a snapshot at the loaded position.
-
-        Parameters
-        ----------
-        snapshot : solprop.output.records.MarchSnapshot
-            The snapshot a file holds.
-
-        Returns
-        -------
-        str or None
-            ``None`` when the history was continued, otherwise why it starts afresh.
-        """
-        ...
-
-
-def stepping(backend: Backend) -> HostStepping:
-    """Return a backend as the host stepping seam it implements.
-
-    Parameters
-    ----------
-    backend : Backend
-        A backend that steps on the host: the reference, or a test's scripted one.
-
-    Returns
-    -------
-    HostStepping
-        The same object.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        If it does not implement the seam: the native backend runs only in its
-        session (SEP 47 section 6.8).
-    """
-    if not isinstance(backend, HostStepping):
-        msg = (
-            f"{backend.name} runs in its own session, not through the host stepping "
-            "seam: start a run with backend.prepare(problem, request).start(start)"
-        )
-        raise BackendError(msg)
-    return backend
