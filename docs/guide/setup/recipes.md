@@ -187,7 +187,7 @@ evenly spaced observations over the run, and `save_planes` lists positions insid
 the table above could say `save_planes = []`. A bare integer, `save_planes = 80`, is
 refused by `Recipe.check()` and `build()` with "write `n_save = 80`", as are both
 selectors together, a position beyond the end and, on a keyword route, a `length` its
-`grid` disagrees with: each is a {py:class}`~solprop.recipe.RecipeError` naming the
+`grid` disagrees with: each is a {py:class}`~solprop.recipe.errors.RecipeError` naming the
 keyword.
 
 A recipe holds the `from_*` form, so the temporal absorber and its scheme are keywords
