@@ -334,7 +334,7 @@ the compiler, the profile or a library provider. The default build directory is
 
 ## Option reference
 
-The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.cmake`.
+The options are read by `native/CMakeLists.txt` and the modules it includes from `native/cmake/`.
 
 **Profile and optimisation**
 
