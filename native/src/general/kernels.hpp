@@ -30,6 +30,7 @@
 #include "solprop_native/plasma.hpp"
 #include "solprop_native/raman_fft.hpp"
 #include "solprop_native/refuse.hpp"
+#include "solprop_native/setup_data.hpp"
 #include "solprop_native/slab.hpp"
 #include "solprop_native/vmath.hpp"
 #include "solprop_native/z_table.hpp"
@@ -1012,31 +1013,6 @@ void copy_vector(const ExecutionSpace& execution_space, const View& destination,
   for (std::size_t index = 0; index < source.size(); ++index)
     data[index] = source[index];
   graph::deep_copy(execution_space, destination, mirror);
-}
-
-inline void require_extent(const std::size_t actual, const std::size_t expected,
-                           const char* name) {
-  if (actual != expected)
-    throw std::invalid_argument(std::string(name) + " has the wrong extent");
-}
-
-inline std::size_t checked_product(const std::size_t left, const std::size_t right,
-                                   const char* name) {
-  if (left != 0 && right > std::numeric_limits<std::size_t>::max() / left)
-    throw std::length_error(std::string(name) + " extent overflows size_t");
-  return left * right;
-}
-
-inline std::size_t checked_sum(const std::size_t left, const std::size_t right,
-                               const char* name) {
-  if (right > std::numeric_limits<std::size_t>::max() - left)
-    throw std::length_error(std::string(name) + " extent overflows size_t");
-  return left + right;
-}
-
-inline void require_allocation(const std::size_t elements,
-                               const std::size_t element_bytes, const char* name) {
-  static_cast<void>(checked_product(elements, element_bytes, name));
 }
 
 // The samples of one tile of the device trapezoid plasma's two-level scans (unused on

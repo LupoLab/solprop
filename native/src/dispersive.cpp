@@ -6,6 +6,7 @@
 
 #include "solprop_native/gemm.hpp"
 #include "solprop_native/launch.hpp"
+#include "solprop_native/setup_data.hpp"
 #include "solprop_native/slab.hpp"
 
 #include <algorithm>
@@ -22,13 +23,6 @@ namespace {
 
 using Matrix = Kokkos::View<double**, Layout, MemorySpace,
                             Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
-
-std::size_t product_of(const std::size_t left, const std::size_t right,
-                       const char* name) {
-  if (left != 0 && right > std::numeric_limits<std::size_t>::max() / left)
-    throw std::length_error(std::string(name) + " extent overflows size_t");
-  return left * right;
-}
 
 void require_size(const std::size_t actual, const std::size_t expected,
                   const char* name) {
@@ -615,7 +609,7 @@ void require_dispersive(const Problem& problem) {
   require_size(problem.dispersive.input_scale.size(), bins, "input_scale");
   require_size(problem.dispersive.output_scale.size(), bins, "output_scale");
   require_size(problem.dispersive.pair_constants.size(),
-               product_of(2, channels, "pair constants"), "pair_constants");
+               checked_product(2, channels, "pair constants"), "pair_constants");
   const auto& offsets = problem.dispersive.group_offsets;
   const auto& members = problem.dispersive.group_members;
   if (offsets.size() < 2 || offsets.front() != 0 || offsets.back() != members.size() ||
@@ -656,33 +650,37 @@ void require_dispersive(const Problem& problem) {
   const std::size_t fields = problem.dispersive.symmetric ? groups : 2 * groups;
   const std::size_t products =
       problem.dispersive.symmetric ? groups : distinct.size() + 2 * groups;
-  require_size(problem.dispersive.inputs.size(), product_of(fields, bins, "inputs"),
-               "inputs");
+  require_size(problem.dispersive.inputs.size(),
+               checked_product(fields, bins, "inputs"), "inputs");
   const std::size_t terms = problem.dispersive.term_rows.size();
   if (terms == 0)
     throw std::invalid_argument("the dispersive response needs an output term");
   require_size(problem.dispersive.term_channels.size(), terms, "term_channels");
   require_size(problem.dispersive.term_multipliers.size(),
-               product_of(terms, bins, "term multipliers"), "term_multipliers");
+               checked_product(terms, bins, "term multipliers"), "term_multipliers");
   for (std::size_t term = 0; term < terms; ++term)
     if (problem.dispersive.term_rows[term] >= products ||
         problem.dispersive.term_channels[term] > channels + mixtures)
       throw std::invalid_argument("a dispersive term names no product or factor");
   require_size(problem.dispersive.quartics.size(),
-               mixtures == 0 ? 0 : product_of(channels, bins, "quartics"), "quartics");
+               mixtures == 0 ? 0 : checked_product(channels, bins, "quartics"),
+               "quartics");
   // The products and their spectra, and the node slots: the general route's chunk, or
   // at most the modal columns.
-  const auto rows = general ? product_of(problem.general.node_chunk,
-                                         problem.general.components, "dispersive rows")
-                            : problem.n_columns();
+  const auto rows = general
+                        ? checked_product(problem.general.node_chunk,
+                                          problem.general.components, "dispersive rows")
+                        : problem.n_columns();
   const auto field =
-      product_of(product_of(products + fields, rows, "dispersive products"),
-                 problem.dims.n_to, "dispersive products");
-  static_cast<void>(product_of(field, sizeof(Complex), "dispersive product bytes"));
-  static_cast<void>(product_of(
-      product_of(2 * problem.dims.node_chunk, problem.effective_node_pol(), "slots"),
-      product_of(problem.dims.n_to, sizeof(Complex), "slot bytes"),
-      "dispersive slots"));
+      checked_product(checked_product(products + fields, rows, "dispersive products"),
+                      problem.dims.n_to, "dispersive products");
+  static_cast<void>(
+      checked_product(field, sizeof(Complex), "dispersive product bytes"));
+  static_cast<void>(
+      checked_product(checked_product(2 * problem.dims.node_chunk,
+                                      problem.effective_node_pol(), "slots"),
+                      checked_product(problem.dims.n_to, sizeof(Complex), "slot bytes"),
+                      "dispersive slots"));
 }
 
 void dispersive_mixture_rows(

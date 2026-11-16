@@ -6,6 +6,7 @@
 
 #include "solprop_native/launch.hpp"
 #include "solprop_native/refuse.hpp"
+#include "solprop_native/setup_data.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -29,22 +30,6 @@ void require_size(const std::size_t actual, const std::size_t expected,
                   const char* name) {
   if (actual != expected)
     refuse("coupled flow ", name, " has ", actual, " values, expected ", expected);
-}
-
-bool finite(const std::vector<Complex>& values) {
-  return std::ranges::all_of(values, [](const Complex& value) {
-    return std::isfinite(value.real()) && std::isfinite(value.imag());
-  });
-}
-
-template <class View, class Value>
-void upload(const ExecutionSpace& execution, const View& destination,
-            const std::vector<Value>& source) {
-  auto mirror = Kokkos::create_mirror_view(destination);
-  auto* data = mirror.data();
-  for (std::size_t index = 0; index < source.size(); ++index)
-    data[index] = source[index];
-  graph::deep_copy(execution, destination, mirror);
 }
 
 KOKKOS_INLINE_FUNCTION Complex flow_exponential(const Complex value) {
