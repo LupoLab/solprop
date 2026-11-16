@@ -171,7 +171,7 @@ def notice_error(check: BoundaryCheck, notice: Notice) -> BaseException:
 def _split_crossing_message(z: float, cap: float, step: float) -> str:
     """Return the message of a fixed schedule refused by the split collar's cap.
 
-    The reference's text (``HostDriver._refuse_scheduled_crossing``), for the cap
+    The reference's text (``HostSession._refuse_scheduled_crossing``), for the cap
     the native session holds (SEP 47 section 6.4).
 
     - ``z``: where the cap was read, m.

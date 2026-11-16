@@ -14,7 +14,7 @@ import pytest
 
 from builders import load_reference, reference_trial
 from capability_routes import ROUTES
-from sessions.runs import load_native, native_trial
+from sessions.runs import load_native
 from solprop.backends.numpy_ref.engines import NumpyRungeKutta
 from solprop.backends.registry import available, select
 from solprop.backends.session import SessionError, Start
@@ -141,13 +141,14 @@ def test_a_low_storage_estimate_times_the_march_s_own_step(backend, monkeypatch)
 
     def spy(constructed, problem, run_request):
         step, evaluations = build(constructed, problem, run_request)
-        # The reference's Runge-Kutta engine, built afresh for each run, or native's.
-        reference = constructed.name == "numpy_ref"
-        monkeypatch.setattr(
-            NumpyRungeKutta if reference else constructed,
-            "trial" if reference else "_trial_step",
-            lambda *_: pytest.fail("a low-storage estimate took a trial step"),
-        )
+        # The reference's Runge-Kutta engine, built afresh for each run; native's
+        # trial runs inside its workspace, where nothing can be patched.
+        if constructed.name == "numpy_ref":
+            monkeypatch.setattr(
+                NumpyRungeKutta,
+                "trial",
+                lambda *_: pytest.fail("a low-storage estimate took a trial step"),
+            )
 
         def counted():
             taken.append(1)
@@ -215,24 +216,33 @@ def _backend(simulation):
     )
 
 
-def _native_committed_nothing(problem, probed, fresh, dz):
-    """Assert a native probe left its loaded state; return the native state's trial.
+def _native_trial(problem, fresh, dz):
+    """Return a fresh native workspace's trial from the launch, finished as kept.
 
-    The probed backend's native state holds the launch exactly, as a fresh native state
-    loaded with it does: nothing was committed. The trial is the same Runge-Kutta trial
-    from the launch, taken by a fresh native state itself on its staged rows and
-    finished as a kept step (SEP 47 phase 5: the native backend no longer steps or
-    observes outside its session).
+    The same Runge-Kutta trial from the launch the probe takes, taken by a fresh
+    native workspace's own engine (``_testing.engines``, SEP 52) and accepted.
     """
     assert problem.initial.noise0 is None
-    fresh._staged_rows()
-    state = load_native(fresh, problem.initial.field0, clear_fsal=False)
-    loaded = state.field_to_host()
-    held = probed._native_state.field_to_host()
+    _testing = pytest.importorskip("solprop_native._core")._testing
+    engines = _testing.engines(load_native(fresh, problem.initial.field0))
+    try:
+        engines.rk_trial(float(problem.initial.z), dz)
+        engines.rk_accept(dz)
+        return np.asarray(engines.field()).reshape(problem.shape)
+    finally:
+        engines.close()
+
+
+def _native_committed_nothing(problem, probed, fresh):
+    """Assert a native probe left its loaded state, the probe closed.
+
+    The probed backend's workspace holds the launch exactly, as a fresh workspace
+    loaded with it does: nothing was committed.
+    """
+    _testing = pytest.importorskip("solprop_native._core")._testing
+    loaded = _testing.field(load_native(fresh, problem.initial.field0))
+    held = _testing.field(probed._take_workspace())
     assert held.tobytes() == loaded.tobytes()
-    native_trial(fresh, float(problem.initial.z), dz)
-    state.finish(dz)
-    return np.asarray(state.field_to_host()).reshape(problem.shape)
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -262,7 +272,7 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
         with pytest.raises(BackendError, match="take a trial"):
             probe.field()
         if backend == "native":
-            trial = _native_committed_nothing(problem, probed, fresh, dz)
+            trial = _native_trial(problem, fresh, dz)
         else:
             # Nothing was committed: the probed workspace holds the loaded state.
             expected = load_reference(
@@ -282,6 +292,9 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
         before = whole.copy()
         probe.trial(float(problem.initial.z), 0.25 * dz)
         assert np.array_equal(whole, before)
+        if backend == "native":
+            # Read once the probe is closed: it leases the workspace.
+            _native_committed_nothing(problem, probed, fresh)
     finally:
         probed.close()
         fresh.close()

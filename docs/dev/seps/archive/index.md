@@ -46,4 +46,5 @@ sep-0046-machine-calibration
 sep-0047-run-ownership
 sep-0048-julia-backend
 sep-0049-tdse-on-native
+sep-0052-backend-shape
 ```

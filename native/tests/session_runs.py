@@ -39,6 +39,10 @@ from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.session import RunSession, SessionStatus, Start
 from solprop.backends.sessions import start_session
 
+from solprop_native import _core
+
+_testing: Any = cast(Any, _core)._testing
+
 IDENTITY = ExportRecipe(power=False, optics=False)
 """The state as the session holds it, in the internal FFT convention."""
 
@@ -477,48 +481,40 @@ def launch_statistics(
         return {name: np.array(value) for name, value in observation.stats.items()}
 
 
-def load_native(
-    backend: Any,
-    field: Any,
-    noise: Any = None,
-    *,
-    clear_fsal: bool = True,
-) -> Any:
-    """Load a host state into a native backend's state, its recycled stage dropped.
+def load_native(backend: Any, field: Any, noise: Any = None) -> Any:
+    """Load a host state into a native backend's workspace, as a run's start does.
+
+    The collar back in the stages, the recycled stage dropped and no monitor bound
+    (``Workspace::load``).
 
     Parameters
     ----------
     backend : solprop_native.NativeBackend
-        The backend; its native state is returned.
+        The backend; its workspace is returned.
     field : numpy.ndarray
         The state, shape ``(n_modes, n_pol, n_omega)``.
     noise : numpy.ndarray or None, optional
         The ``modified`` noise model's spectrum the stages add, in the state's layout,
         or ``None``.
-    clear_fsal : bool, optional
-        Drop the recycled first-same-as-last stage, as a session's load does; the
-        checks that loaded the bare state keep it with ``False``.
 
     Returns
     -------
-    solprop_native._core.State
-        The loaded native state.
+    solprop_native._core.Workspace
+        The loaded workspace.
     """
-    state = backend._native_state  # pyright: ignore[reportPrivateUsage]
+    workspace = backend._workspace  # pyright: ignore[reportPrivateUsage]
     flat = np.ascontiguousarray(field, dtype=np.complex128).reshape(-1)
     added = (
         np.empty(0, dtype=np.complex128)
         if noise is None
         else np.ascontiguousarray(noise, dtype=np.complex128).reshape(-1)
     )
-    state.set_initial(flat, added)
-    if clear_fsal:
-        state.clear_fsal()
-    return state
+    _testing.load(workspace, flat, added)
+    return workspace
 
 
 def native_trial(backend: Any, z: float, dz: float, *, field: Any = None) -> np.ndarray:
-    """Make one native Runge-Kutta trial from `z` on the backend's staged rows.
+    """Make one native Runge-Kutta trial from `z` on the backend's stage tables.
 
     At the nodes of the backend's own request's tableau; its stages stay in the
     state. A `field` is loaded first (:func:`load_native`).
@@ -530,10 +526,8 @@ def native_trial(backend: Any, z: float, dz: float, *, field: Any = None) -> np.
     """
     if field is not None:
         load_native(backend, field)
-    backend._staged_rows()  # pyright: ignore[reportPrivateUsage]
-    nodes = [float(node) for node in backend.request.stepper.tableau.nodes]
-    state = backend._native_state  # pyright: ignore[reportPrivateUsage]
-    return np.array(state.rk_trial(z, dz, nodes, prepare_only=False), dtype=np.float64)
+    workspace = backend._workspace  # pyright: ignore[reportPrivateUsage]
+    return np.array(_testing.rk_trial(workspace, z, dz), dtype=np.float64)
 
 
 def drain(session: Any) -> Terminal:

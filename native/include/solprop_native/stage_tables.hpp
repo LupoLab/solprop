@@ -214,8 +214,66 @@ struct Tables {
   Sections transform;
 };
 
+// The field tables (solprop SEP 52 section 5.3). A table's term and value counts are
+// its coefficients' extents, read from the array; the z table's slots are the
+// workspace's, not a field.
+[[nodiscard]] constexpr auto describe(const Table* /*unused*/) {
+  using E = fields::Extent;
+  return fields::table<Table>(
+      "stage.Table", fields::array("edges", &Table::edges, E::of("n_edges")),
+      fields::value("lower", &Table::lower), fields::value("upper", &Table::upper),
+      fields::array("coefficients", &Table::coefficients, E::of("n_edges", -1),
+                    E::of("n_terms"), E::of("n_values")),
+      fields::count("n_terms", &Table::n_terms),
+      fields::count("n_values", &Table::n_values));
+}
+[[nodiscard]] constexpr auto describe(const Sections* /*unused*/) {
+  return fields::table<Sections>("stage.Sections",
+                                 fields::value("edges", &Sections::edges),
+                                 fields::value("degrees", &Sections::degrees),
+                                 fields::value("slack", &Sections::slack));
+}
+[[nodiscard]] constexpr auto names(const Terms* /*unused*/) {
+  return std::array{std::pair{"constant", Terms::constant},
+                    std::pair{"expansion", Terms::expansion},
+                    std::pair{"table", Terms::table}};
+}
+[[nodiscard]] constexpr auto names(const KerrDensity* /*unused*/) {
+  return std::array{std::pair{"none", KerrDensity::none},
+                    std::pair{"density", KerrDensity::density},
+                    std::pair{"table", KerrDensity::table}};
+}
+[[nodiscard]] constexpr auto names(const Chord* /*unused*/) {
+  return std::array{
+      std::pair{"none", Chord::none}, std::pair{"constant", Chord::constant},
+      std::pair{"expansion", Chord::expansion}, std::pair{"table", Chord::table}};
+}
+[[nodiscard]] constexpr auto describe(const Tables* /*unused*/) {
+  using T = Tables;
+  return fields::table<T>(
+      "stage.Tables", fields::value("n_stages", &T::n_stages),
+      fields::value("phi", &T::phi), fields::value("phi_weights", &T::phi_weights),
+      fields::value("phi_rate", &T::phi_rate),
+      fields::value("prefactor", &T::prefactor),
+      fields::value("prefactor_weights", &T::prefactor_weights),
+      fields::value("prefactor_low", &T::prefactor_low),
+      fields::value("prefactor_high", &T::prefactor_high),
+      fields::value("density", &T::density), fields::value("taper", &T::taper),
+      fields::value("raman_rates", &T::raman_rates), fields::value("kerr", &T::kerr),
+      fields::value("kerr_density", &T::kerr_density),
+      fields::value("plasma_densities", &T::plasma_densities),
+      fields::value("plasma_preionisation", &T::plasma_preionisation),
+      fields::value("raman_densities", &T::raman_densities),
+      fields::value("dispersive_densities", &T::dispersive_densities),
+      fields::value("chord", &T::chord), fields::value("chord_rate", &T::chord_rate),
+      fields::value("chord_terms", &T::chord_terms),
+      fields::value("chord_table", &T::chord_table), fields::value("flow", &T::flow),
+      fields::value("flow_residual", &T::flow_residual),
+      fields::value("transform", &T::transform));
+}
+
 /**
- * A z table's position slots (solprop's `_ZTables`, SEP 29 G1), least recently used
+ * A z table's position slots (solprop SEP 29 G1), least recently used
  * first: the positions a trial reads are evaluated into the native state's term slots
  * only where no slot holds them, so a step's end, the next step's anchor, is evaluated
  * once. Both Adams marches and every other consumer share this one cache, and its
@@ -250,7 +308,7 @@ struct ZSlots {
 
   /**
    * Return each of `positions`' slots, evaluating in one call those no slot holds:
-   * `_ZTables.load`, the slots touched in the same order.
+   * the slots touched in the order the positions are given.
    */
   std::vector<std::size_t> load(GeneralState& state,
                                 const std::vector<double>& positions) {
@@ -301,8 +359,7 @@ struct ZSlots {
     return out;
   }
 
-  /** Evaluate `D(z)` into the rate slot unless it holds it already (`_ZTables.rate`).
-   */
+  /** Evaluate `D(z)` into the rate slot unless it holds it already. */
   void rate(GeneralState& state, const double z, const bool before) {
     if (rate_known && rate_z == z && rate_before == before)
       return;
@@ -615,7 +672,7 @@ inline std::vector<double> rate(const Tables& tables, const double z,
   if (tables.phi == Terms::constant)
     return {1.0};
   if (tables.phi == Terms::table) {
-    // `_ZTables.rate`: `D(z)` evaluated into its slot, one at that slot.
+    // `D(z)` evaluated into its slot, one at that slot.
     tables.z_slots->rate(*tables.z_state, z, before);
     std::vector<double> out(tables.z_slots->n_phi(), 0.0);
     out[tables.z_slots->rate_slot()] = 1.0;

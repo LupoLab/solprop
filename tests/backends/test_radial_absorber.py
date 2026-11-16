@@ -132,7 +132,7 @@ def test_spatial_absorber_derivative_matches_independent_bessel_operator(
             )
 
             measured = np.asarray(
-                _testing.stage_to_host(backend._native_state, 0)
+                _testing.stage_to_host(backend._workspace, 0)
             ).reshape(start.shape)
         assert_allclose(measured[:, :, index], expected, rtol=0, atol=bound)
         record_metric(

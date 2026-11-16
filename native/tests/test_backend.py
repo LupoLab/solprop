@@ -12,7 +12,7 @@ import functools
 import math
 import re
 from types import SimpleNamespace
-from typing import NoReturn, cast
+from typing import Any, NoReturn, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -22,9 +22,9 @@ from conftest import PhaseACase, RamanCase
 from legacy_geometry import LEGACY_GRID
 from session_runs import committed_steps, load_native, native_trial, run
 from solprop.backends.events import ObservationReady
-from solprop.backends.low_storage import schedule_key
 from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.records import run_records
 from solprop.backends.session import Start
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, TranslationError
@@ -49,7 +49,6 @@ from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 from solprop_native.backend import (
     _lower,  # pyright: ignore[reportPrivateUsage]
     _LowerPlan,  # pyright: ignore[reportPrivateUsage]
-    _ResidentLowStorage,  # pyright: ignore[reportPrivateUsage]
 )
 from solprop_native.session import NativeSession
 
@@ -177,7 +176,7 @@ def test_stage_observation_owns_its_host_copy_and_checks_lifetime(
     """
     problem, run_request, grid = phase_a_case
     backend = NativeBackend(problem, run_request, grid=grid)
-    state = load_native(backend, problem.initial.field0, clear_fsal=False)
+    state = load_native(backend, problem.initial.field0)
     with pytest.raises(RuntimeError, match="stage"):
         _testing.stage_to_host(state, 0)
     native_trial(backend, 0.0, 1e-4)
@@ -328,20 +327,22 @@ def test_a_low_storage_table_never_built_is_refused(phase_a_case: PhaseACase) ->
     marched, marched_request = problem, run_request.with_stepper(stepper)
     backend = NativeBackend(marched, marched_request, grid=grid)
     try:
-        # The resident engine on the loaded state, with the key of the first step's
-        # table, which no step built.
-        load_native(backend, marched.initial.field0, clear_fsal=False)
-        method = marched_request.stepper.integrator
-        assert isinstance(method, LowStorageRungeKutta)
-        engine = _ResidentLowStorage(backend, method)
-        engine._table_step = schedule_key(  # pyright: ignore[reportPrivateUsage]
-            engine._keys,  # pyright: ignore[reportPrivateUsage]
-            engine._edges,  # pyright: ignore[reportPrivateUsage]
-            0.0,
-            target / 4,
+        # The resident engine builds the first step's table; a load then forgets
+        # it, and the same engine, still holding that step's key, steps again.
+        workspace = load_native(backend, marched.initial.field0)
+        _testing.configure_march(
+            workspace,
+            run_records(marched, marched_request, Start.entrance(marched)),
         )
-        with pytest.raises(RuntimeError, match="table has not been built"):
-            engine.step(0.0, target / 4)
+        engines = _testing.engines(workspace)
+        try:
+            engines.rk_trial(0.0, target / 4)
+            field = np.ascontiguousarray(marched.initial.field0).reshape(-1)
+            engines.load(field, np.empty(0, dtype=np.complex128))
+            with pytest.raises(RuntimeError, match="table has not been built"):
+                engines.rk_trial(0.0, target / 4)
+        finally:
+            engines.close()
     finally:
         backend.close()
 
@@ -429,7 +430,7 @@ def test_tdse_is_refused_by_name_before_integrator_or_native_setup(
         raise AssertionError("unsupported TDSE reached native setup")
 
     monkeypatch.setattr(solprop_native.backend, "require_device_ready", forbidden)
-    monkeypatch.setattr(_core, "State", forbidden)
+    monkeypatch.setattr(_core, "Workspace", forbidden)
     with pytest.raises(BackendError, match="explicit host response binding"):
         NativeBackend(requested, requested_request, grid=grid)
 
@@ -599,11 +600,6 @@ def test_statistics_do_not_observe_the_full_field(
     names = ("omega0", "energy", "peak_power", "fwhm_t")
     run_request = run_request.for_run(stats=StatsSpec(names=names))
     backend = NativeBackend(problem, run_request, grid=grid)
-
-    def fail_if_observed(state: object) -> NoReturn:
-        pytest.fail(f"statistics observed native state {state!r}")
-
-    monkeypatch.setattr(backend, "_observed_field", fail_if_observed)
     session = backend.prepare(problem, run_request).start(Start.entrance(problem))
     observed: list[dict[str, np.ndarray]] = []
     try:
@@ -634,13 +630,20 @@ def test_raman_metadata_memoization_and_conditional_ledger(
     coefficients = problem.responses.raman_coefficients
     assert coefficients is not None
     rates = tuple(float(table(0.0)) for table in coefficients.decay_rates)
-    backend._raman_spectrum(rates)  # pyright: ignore[reportPrivateUsage]
-    assert backend._raman_transforms == 1  # pyright: ignore[reportPrivateUsage]
-    backend._raman_spectrum(rates)  # pyright: ignore[reportPrivateUsage]
-    assert backend._raman_transforms == 1  # pyright: ignore[reportPrivateUsage]
-    backend._raman_spectrum(tuple(reversed(rates)))  # pyright: ignore[reportPrivateUsage]
+    workspace = backend._workspace  # pyright: ignore[reportPrivateUsage]
+    none = np.empty(0, dtype=np.float64)
+
+    def transforms() -> int:
+        diagnostics = backend._diagnostics()  # pyright: ignore[reportPrivateUsage]
+        return int(diagnostics["raman_kernel_transforms"])
+
+    _testing.prepare_raman(workspace, np.asarray(rates), none)
+    assert transforms() == 1
+    _testing.prepare_raman(workspace, np.asarray(rates), none)
+    assert transforms() == 1
+    _testing.prepare_raman(workspace, np.asarray(rates[::-1]), none)
     expected = 1 if len(set(rates)) == 1 else 2
-    assert backend._raman_transforms == expected  # pyright: ignore[reportPrivateUsage]
+    assert transforms() == expected
     metadata = backend.metadata()
     ledger = backend.memory_ledger()
     assert metadata["raman_enabled"] is True
@@ -688,7 +691,7 @@ def test_native_raman_rows_refuse_hidden_array_conversions(
             raman.undamped = np.zeros(
                 (rows.shape[0], 2 * rows.shape[1]), dtype=np.float64
             )[:, ::2]
-        _core.State(payload)
+        _core.Workspace(payload)
 
     with pytest.raises((TypeError, ValueError)):
         _spoil()
@@ -706,7 +709,7 @@ def test_native_raman_tables_refuse_a_transposed_layout(
     else:
         raman.tensor_weights = raman.tensor_weights.reshape(2, raman.n_terms)
     with pytest.raises(ValueError, match=f"raman_{spoiling} must have shape"):
-        _core.State(payload)
+        _core.Workspace(payload)
 
 
 @pytest.mark.parametrize("spoiling", ["flat", "rank_four", "count"])
@@ -738,7 +741,7 @@ def test_native_fixed_terms_refuse_a_wrong_layout(
         payload.linear.phi_terms = phi.reshape(phi.shape[::-1])
         message = "phi_terms must hold n_phi_terms rows"
     with pytest.raises(ValueError, match=message):
-        _core.State(payload)
+        _core.Workspace(payload)
 
 
 def test_native_raman_rows_accept_read_only_input(raman_case: RamanCase) -> None:
@@ -747,24 +750,24 @@ def test_native_raman_rows_accept_read_only_input(raman_case: RamanCase) -> None
     rows = payload.raman.undamped.reshape(payload.raman.n_terms, -1)
     rows.setflags(write=False)
     payload.raman.undamped = rows
-    state = _core.State(payload)
-    state.close()
+    workspace = _core.Workspace(payload)
+    workspace.close()
 
 
 def test_native_raman_rates_refuse_wrong_dtype_and_shape(
     raman_case: RamanCase,
 ) -> None:
     """The diagnostic preparation seam has the same exact-array contract as trials."""
-    state = _core.State(_raman_native_payload(raman_case))
+    workspace = _core.Workspace(_raman_native_payload(raman_case))
+    none = np.empty(0, dtype=np.float64)
+    single: Any = np.zeros(1, dtype=np.float32)
     try:
         with pytest.raises(TypeError):
-            state.prepare_raman(
-                np.zeros(1, dtype=np.float32)  # pyright: ignore[reportArgumentType]
-            )
+            _testing.prepare_raman(workspace, single, none)
         with pytest.raises(ValueError, match="shape"):
-            state.prepare_raman(np.zeros((1, 1), dtype=np.float64))
+            _testing.prepare_raman(workspace, np.zeros((1, 1), dtype=np.float64), none)
     finally:
-        state.close()
+        workspace.close()
 
 
 def test_metadata_and_memory_ledger_are_self_consistent(
@@ -903,7 +906,7 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         info = build_info()
         # The native rule: a host execution space, at this shape; the dev build
         # without TPL BLAS packs too.

@@ -2032,7 +2032,10 @@ ComplexView3 GeneralWorkspace::adams_row_view(const std::string& name) const {
 }
 
 std::vector<std::string> GeneralWorkspace::adams_row_names() const {
-  require_adams();
+  // A fact of the allocation, read before any field is loaded (the workspace's
+  // diagnostics).
+  if (adams_store_.extent(0) == 0)
+    throw std::logic_error("the resident Adams history is not allocated");
   std::vector<std::string> names{"store"};
   if (adams_states_.extent(0) != 0)
     names.insert(names.end(), {"states", "rates"});
@@ -4756,7 +4759,7 @@ void GeneralWorkspace::adams_exponential_observe(const double xi, const double d
 //
 // DOPRI5's continuous extension (Hairer, Norsett and Wanner, II.6) in the step's
 // interaction picture, as solprop's `extension_coefficients`, `extension_value` and
-// `HostDriver._observe_inside` form it: with `v0` the state at the step's anchor, `k_i`
+// `RungeKuttaDense.observe` form it: with `v0` the state at the step's anchor, `k_i`
 // its stages in the anchor's frame and `v1 - v0 = h sum_i b_i k_i`, the coefficients
 // `v0`, `v1 - v0`, `h k1 - (v1 - v0)`, `(v1 - v0) - h k7 - (h k1 - (v1 - v0))` and
 // `h sum_i d_i k_i`, evaluated at the fraction theta as `r1 + theta (r2 + (1 - theta)

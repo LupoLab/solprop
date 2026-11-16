@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include "solprop_native/fields.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -157,6 +159,44 @@ struct Config {
   /** Whether the route's stages may leave a quiet collar out (`_collar_can_rest`). */
   bool can_rest = false;
 };
+
+// The field tables (solprop SEP 52 section 5.3): the policy as solprop's
+// `BoundaryMonitor.watch_policy` names it, the state as `.watch_state` does, and the
+// configuration as `solprop.backends.records.MonitorConfig`.
+[[nodiscard]] constexpr auto describe(const Policy* /*unused*/) {
+  using P = Policy;
+  return fields::table<P>(
+      "watch.Policy", fields::value("split", &P::split),
+      fields::value("crossing", &P::crossing),
+      fields::value("floor_regions", &P::floor_regions),
+      fields::value("launch_floor", &P::launch_floor),
+      fields::value("activity", &P::activity), fields::value("warn", &P::warn),
+      fields::value("stop", &P::stop), fields::value("quiet_share", &P::quiet_share),
+      fields::value("quiet_checks", &P::quiet_checks),
+      fields::value("quiet_collar", &P::quiet_collar),
+      fields::value("cadence", &P::cadence), fields::value("interval", &P::interval),
+      fields::value("share", &P::share),
+      fields::value("bucket_limits", &P::bucket_limits));
+}
+[[nodiscard]] constexpr auto describe(const State* /*unused*/) {
+  using S = State;
+  return fields::table<S>(
+      "watch.State", fields::value("has_last", &S::has_last),
+      fields::value("last_z", &S::last_z), fields::value("since", &S::since),
+      fields::value("busy", &S::busy), fields::value("quiet_run", &S::quiet_run),
+      fields::value("quiet", &S::quiet), fields::value("warned", &S::warned),
+      fields::value("cap", &S::cap));
+}
+[[nodiscard]] constexpr auto describe(const Config* /*unused*/) {
+  using C = Config;
+  using E = fields::Extent;
+  return fields::table<C>("MonitorConfig", fields::value("policy", &C::policy),
+                          fields::value("floor_share", &C::floor_share),
+                          fields::value("floor_margin", &C::floor_margin),
+                          fields::value("budget", &C::budget),
+                          fields::array("rate", &C::rate, E::of("n_t")),
+                          fields::value("can_rest", &C::can_rest));
+}
 
 /** An earlier execution's record as a resume reads it (`BoundaryMonitor.resume`):
     each number present in it, and the lists. solprop reads the record's types; the

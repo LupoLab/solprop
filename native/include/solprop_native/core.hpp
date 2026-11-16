@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "solprop_native/fields.hpp"
 #include "solprop_native/host_source.hpp"
 #include "solprop_native/launch.hpp"
 
@@ -18,6 +19,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -71,6 +73,15 @@ template <typename LT, std::size_t LN, typename UT, std::size_t UN>
 #endif
 }
 using Complex = Kokkos::complex<double>;
+
+} // namespace solprop_native
+
+// NumPy's complex128 is two doubles, real part first, as `Complex` is.
+template <> struct solprop_native::fields::ElementDtype<solprop_native::Complex> {
+  static constexpr Dtype value = Dtype::complex128;
+};
+
+namespace solprop_native {
 
 /** The boundary monitor's five sums of a state (solprop SEP 21), one reduction value:
     the energy, then the low guard's, the high guard's, the collar's and the rate's. */
@@ -448,6 +459,13 @@ reference_stream_copies(std::size_t elements, std::size_t warm, std::size_t repe
 
 enum class FieldFamily { field_real, field_analytic, envelope };
 
+/** The field families by name, for the field tables (`fields.hpp`). */
+[[nodiscard]] constexpr auto names(const FieldFamily* /*unused*/) {
+  return std::array{std::pair{"field_real", FieldFamily::field_real},
+                    std::pair{"field_analytic", FieldFamily::field_analytic},
+                    std::pair{"envelope", FieldFamily::envelope}};
+}
+
 enum StatisticsFlag : std::uint64_t {
   statistics_omega0 = 1ULL << 0U,
   statistics_energy = 1ULL << 1U,
@@ -472,6 +490,8 @@ inline constexpr std::size_t plasma_max_taps = 9;
 
 /** The six parts of SEP 18's run diagnostics, in solprop's order. */
 inline constexpr std::size_t plasma_diagnostic_parts = 6;
+
+struct Setup;
 
 /** Fixed, Python-free problem data uploaded once by a native state, grouped as
    solprop's kernel contract groups it. The adapter fills it field by field (`lower` in
@@ -756,6 +776,11 @@ struct Problem {
   CpuExecution cpu_execution{};
   // How the workspace plans its host transforms (solprop SEP 46 phase 3).
   FftPlanning fft_planning{};
+  /** The set-once data a workspace applies once it has built its state (solprop SEP
+      52 section 5.3): the stage, z and flux tables, the flow guard, the controllers,
+      the low-storage settings, the monitor's weights and the edge's geometry
+      (`workspace.hpp`). Shared, so that a copy of the problem copies none of it. */
+  std::shared_ptr<const Setup> setup;
 
   /** Refuse, naming the field, data whose presence or extents disagree with the
       problem's own flags and extents: the checks that need no execution space. */
@@ -786,6 +811,226 @@ struct Problem {
 };
 
 /** The most samples an Adams formula of solprop's shipped orders combines. */
+// The problem's groups as the seam fills them, one field table a group (solprop SEP 52
+// section 5.3). The relations a table states within its group are its schema's; the
+// extents that a count in another group gives are `Problem::validate`'s.
+[[nodiscard]] constexpr auto describe(const Problem::Dims* /*unused*/) {
+  using G = Problem::Dims;
+  return fields::table<G>(
+      "Problem.Dims", fields::value("n_omega", &G::n_omega),
+      fields::value("n_t", &G::n_t), fields::value("n_to", &G::n_to),
+      fields::value("n_modes", &G::n_modes),
+      fields::value("n_pol_state", &G::n_pol_state),
+      fields::value("n_pol_transform", &G::n_pol_transform),
+      fields::value("n_nodes", &G::n_nodes),
+      fields::value("node_chunk", &G::node_chunk), fields::value("family", &G::family));
+}
+
+[[nodiscard]] constexpr auto describe(const Problem::Grid* /*unused*/) {
+  using G = Problem::Grid;
+  return fields::table<G>(
+      "Problem.Grid", fields::array("crop_index", &G::crop_index),
+      fields::array("active_mask", &G::active_mask),
+      fields::array("norm_mask", &G::norm_mask),
+      fields::array("omega_window", &G::omega_window),
+      fields::array("omega", &G::omega),
+      fields::array("power_weight", &G::power_weight),
+      fields::array("time_window", &G::time_window),
+      fields::array("time_window_derivative", &G::time_window_derivative),
+      fields::array("carrier", &G::carrier), fields::value("dt_fine", &G::dt_fine),
+      fields::value("dt", &G::dt));
+}
+
+[[nodiscard]] constexpr auto describe(const Problem::Spatial* /*unused*/) {
+  using G = Problem::Spatial;
+  return fields::table<G>(
+      "Problem.Spatial", fields::value("n_x", &G::n_x), fields::value("n_y", &G::n_y),
+      fields::array("k_squared", &G::k_squared),
+      fields::array("k_squared_low", &G::k_squared_low),
+      fields::array("numerator", &G::numerator), fields::array("clamped", &G::clamped),
+      fields::array("kperp_sq", &G::kperp_sq),
+      fields::array("kperp_sq_low", &G::kperp_sq_low),
+      fields::array("frame", &G::frame),
+      fields::array("spectral_rate", &G::spectral_rate),
+      fields::array("user_rate", &G::user_rate),
+      fields::array("absorber_rate", &G::absorber_rate),
+      fields::array("kperp_rate", &G::kperp_rate),
+      fields::value("evanescent_rate", &G::evanescent_rate),
+      fields::array("k_x", &G::k_x), fields::array("k_y", &G::k_y),
+      fields::value("far_field_slots", &G::far_field_slots),
+      fields::value("n_p", &G::n_p), fields::array("kappa_sq", &G::kappa_sq),
+      fields::array("absorber_matrix", &G::absorber_matrix),
+      fields::array("spectral_weights", &G::spectral_weights),
+      fields::array("on_axis", &G::on_axis));
+}
+
+[[nodiscard]] constexpr auto describe(const Problem::Flux* /*unused*/) {
+  using G = Problem::Flux;
+  return fields::table<G>("Problem.Flux", fields::array("k_squared", &G::k_squared),
+                          fields::array("k_squared_low", &G::k_squared_low),
+                          fields::array("kperp_sq", &G::kperp_sq),
+                          fields::array("kperp_sq_low", &G::kperp_sq_low),
+                          fields::value("table", &G::table),
+                          fields::value("closure", &G::closure));
+}
+
+[[nodiscard]] constexpr auto describe(const Problem::Stepper* /*unused*/) {
+  using G = Problem::Stepper;
+  return fields::table<G>(
+      "Problem.Stepper", fields::value("n_stages", &G::n_stages),
+      fields::array("tableau_matrix", &G::tableau_matrix),
+      fields::array("tableau_nodes", &G::tableau_nodes),
+      fields::array("solution_weights", &G::solution_weights),
+      fields::array("error_weights", &G::error_weights),
+      fields::value("first_same_as_last", &G::first_same_as_last),
+      fields::value("weighted_controller", &G::weighted_controller),
+      fields::value("modified_noise", &G::modified_noise),
+      fields::value("low_storage", &G::low_storage),
+      fields::value("low_storage_stage_register", &G::low_storage_stage_register),
+      fields::value("low_storage_flows", &G::low_storage_flows),
+      fields::value("low_storage_tiled_input", &G::low_storage_tiled_input));
+}
+
+[[nodiscard]] constexpr auto describe(const Problem::Linear* /*unused*/) {
+  using G = Problem::Linear;
+  return fields::table<G>("Problem.Linear",
+                          fields::value("n_phi_terms", &G::n_phi_terms),
+                          fields::value("n_prefactor_terms", &G::n_prefactor_terms),
+                          fields::value("phi_table", &G::phi_table),
+                          fields::value("prefactor_table", &G::prefactor_table),
+                          fields::array("phi_terms", &G::phi_terms),
+                          fields::array("prefactor_terms", &G::prefactor_terms));
+}
+
+[[nodiscard]] constexpr auto describe(const Problem::Absorber* /*unused*/) {
+  using G = Problem::Absorber;
+  return fields::table<G>("Problem.Absorber", fields::value("in_stage", &G::in_stage),
+                          fields::value("split_step", &G::split_step),
+                          fields::array("fine", &G::fine),
+                          fields::array("coarse", &G::coarse));
+}
+
+[[nodiscard]] constexpr auto describe(const Problem::Transform* /*unused*/) {
+  using G = Problem::Transform;
+  return fields::table<G>(
+      "Problem.Transform", fields::array("synthesis_matrix", &G::synthesis_matrix),
+      fields::array("projection_matrix", &G::projection_matrix),
+      fields::array("projection_coarse_matrix", &G::projection_coarse_matrix),
+      fields::value("synthesis", &G::synthesis),
+      fields::value("projection", &G::projection));
+}
+
+[[nodiscard]] constexpr auto describe(const Problem::Kerr* /*unused*/) {
+  using G = Problem::Kerr;
+  return fields::table<G>("Problem.Kerr", fields::value("nonlinear", &G::nonlinear),
+                          fields::value("coefficient", &G::coefficient),
+                          fields::value("self_factor", &G::self_factor),
+                          fields::value("conjugate_factor", &G::conjugate_factor),
+                          fields::value("harmonic_factor", &G::harmonic_factor),
+                          fields::value("take_real", &G::take_real));
+}
+
+[[nodiscard]] constexpr auto describe(const Problem::Plasma* /*unused*/) {
+  using G = Problem::Plasma;
+  using E = fields::Extent;
+  return fields::table<G>(
+      "Problem.Plasma", fields::value("enabled", &G::enabled),
+      fields::value("envelope", &G::envelope), fields::value("gated", &G::gated),
+      fields::value("stash", &G::stash),
+      fields::array("envelope_rule_nodes", &G::envelope_rule_nodes, E::of("n_channels"),
+                    E::fixed(4), E::fixed(512)),
+      fields::array("envelope_rule_weights", &G::envelope_rule_weights,
+                    E::of("n_channels"), E::fixed(4), E::fixed(512)),
+      fields::array("envelope_drude_factor", &G::envelope_drude_factor, E::any()),
+      fields::array("envelope_loss_factor", &G::envelope_loss_factor, E::any()),
+      fields::value("charge_mass_ratio", &G::charge_mass_ratio),
+      fields::value("ionisation_potential", &G::ionisation_potential),
+      fields::value("log_field_min", &G::log_field_min),
+      fields::value("d_log_field", &G::d_log_field),
+      fields::value("field_min", &G::field_min),
+      fields::value("field_max", &G::field_max),
+      fields::value("rate_max", &G::rate_max),
+      fields::value("rate_intervals", &G::rate_intervals),
+      fields::array("rate_coefficients", &G::rate_coefficients, E::fixed(4),
+                    E::of("rate_intervals")),
+      fields::value("n_channels", &G::n_channels), fields::value("band", &G::band),
+      fields::array("taps", &G::taps, E::any()),
+      fields::array("channel_parameters", &G::channel_parameters),
+      fields::array("channel_coefficients", &G::channel_coefficients));
+}
+
+[[nodiscard]] constexpr auto describe(const Problem::Raman* /*unused*/) {
+  using G = Problem::Raman;
+  using E = fields::Extent;
+  return fields::table<G>(
+      "Problem.Raman", fields::value("enabled", &G::enabled),
+      fields::value("thg", &G::thg),
+      fields::value("tensor_capable", &G::tensor_capable),
+      fields::value("n_terms", &G::n_terms), fields::value("fraction", &G::fraction),
+      fields::value("epsilon0", &G::epsilon0),
+      fields::array("undamped", &G::undamped, E::of("n_terms"), E::any()),
+      fields::array("tensor_weights", &G::tensor_weights, E::of("n_terms"),
+                    E::fixed(2)),
+      fields::value("n_components", &G::n_components),
+      fields::array("row_component", &G::row_component),
+      fields::array("component_fraction", &G::component_fraction));
+}
+
+[[nodiscard]] constexpr auto describe(const Problem::General* /*unused*/) {
+  using G = Problem::General;
+  return fields::table<G>(
+      "Problem.General", fields::value("enabled", &G::enabled),
+      fields::value("real_form", &G::real_form),
+      fields::value("map_intervals", &G::map_intervals),
+      fields::value("map_n_deg", &G::map_n_deg),
+      fields::value("components", &G::components), fields::value("nodes", &G::nodes),
+      fields::value("node_chunk", &G::node_chunk),
+      fields::value("responses", &G::responses), fields::value("terms", &G::terms),
+      fields::value("pad_scale", &G::pad_scale),
+      fields::value("epsilon0", &G::epsilon0),
+      fields::array("synthesis", &G::synthesis),
+      fields::array("projection", &G::projection),
+      fields::array("frequency_factor", &G::frequency_factor),
+      fields::array("delayed_spectrum", &G::delayed_spectrum),
+      fields::array("tensor", &G::tensor),
+      fields::array("delayed_tensor", &G::delayed_tensor),
+      fields::array("node_response", &G::node_response));
+}
+
+[[nodiscard]] constexpr auto describe(const Problem::Flow* /*unused*/) {
+  using G = Problem::Flow;
+  return fields::table<G>(
+      "Problem.Flow", fields::value("enabled", &G::enabled),
+      fields::value("active", &G::active), fields::value("sections", &G::sections),
+      fields::value("terms", &G::terms), fields::array("slot", &G::slot),
+      fields::array("frozen", &G::frozen),
+      fields::array("residual_terms", &G::residual_terms),
+      fields::array("left", &G::left), fields::array("right", &G::right),
+      fields::array("eigenvalues", &G::eigenvalues), fields::array("route", &G::route),
+      fields::array("fallback_vectors", &G::fallback_vectors),
+      fields::array("fallback_triangular", &G::fallback_triangular));
+}
+
+[[nodiscard]] constexpr auto describe(const Problem::Dispersive* /*unused*/) {
+  using G = Problem::Dispersive;
+  return fields::table<G>("Problem.Dispersive", fields::value("enabled", &G::enabled),
+                          fields::value("symmetric", &G::symmetric),
+                          fields::value("form", &G::form),
+                          fields::array("inputs", &G::inputs),
+                          fields::array("term_multipliers", &G::term_multipliers),
+                          fields::array("coefficients", &G::coefficients),
+                          fields::array("pair_constants", &G::pair_constants),
+                          fields::array("quartics", &G::quartics),
+                          fields::array("input_scale", &G::input_scale),
+                          fields::array("output_scale", &G::output_scale),
+                          fields::array("term_rows", &G::term_rows),
+                          fields::array("term_channels", &G::term_channels),
+                          fields::array("group_offsets", &G::group_offsets),
+                          fields::array("group_members", &G::group_members),
+                          fields::array("group_keys", &G::group_keys),
+                          fields::array("node_region", &G::node_region));
+}
+
 inline constexpr std::size_t adams_max_samples = 8;
 
 /** The most defect norms an Adams trial scores: its order's and its two neighbours'. */
@@ -1101,6 +1346,13 @@ public:
    * last step's split found (zeros before the first such step).
    */
   [[nodiscard]] std::vector<double> monitor_reading();
+  /**
+   * The last accepted step's split collar sums, read without draining anything (SEP
+   * 52 section 5.2's `AcceptRecord`): what its split took, then `sum_t P` and the two
+   * guards' and the collar's sums of the power it found, from the masked field before
+   * the split; none without a bound monitor and a split collar.
+   */
+  [[nodiscard]] std::optional<std::array<double, 5>> split_sums();
   /**
    * Bind the split collar's walk-off bucket of each frequency bin, by mode
    * `(n_modes, n_omega)`, `count` buckets (solprop #440): from here on

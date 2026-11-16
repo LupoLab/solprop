@@ -154,9 +154,9 @@ void bind_helpers(nb::module_& module_, nb::module_& testing) {
   module_.def("clenshaw_points", &clenshaw_points<std::complex<double>>,
               "z"_a.noconvert(), "edges"_a.noconvert(), "lower"_a, "upper"_a,
               "c"_a.noconvert(), "out"_a.noconvert());
-  module_.def("basis_rows", &basis_rows, "points"_a.noconvert(), "upper"_a,
+  testing.def("basis_rows", &basis_rows, "points"_a.noconvert(), "upper"_a,
               "integrate"_a, "rows"_a.noconvert(), "weights"_a.noconvert());
-  module_.def("trial_tables", &trial_tables, "nodes"_a.noconvert(), "order"_a,
+  testing.def("trial_tables", &trial_tables, "nodes"_a.noconvert(), "order"_a,
               "orders"_a, "compensated"_a, "predictor"_a.noconvert(),
               "corrector"_a.noconvert(), "factored"_a.noconvert(),
               "spans"_a.noconvert(), "carried"_a.noconvert(), "endpoint"_a.noconvert(),

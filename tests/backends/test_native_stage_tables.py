@@ -91,7 +91,7 @@ def test_every_route_is_staged(route):
     backend = backend_of(simulation, problem, run_request)
     try:
         assert backend._adams is not None
-        assert _testing.has_stage_tables(backend._native_state)
+        assert _testing.has_stage_tables(backend._workspace)
     finally:
         backend.close()
 
@@ -101,10 +101,10 @@ def test_the_native_stage_scalars_are_solprop_s_bundle(route):
     simulation, problem, run_request = translated(route)
     backend = backend_of(simulation, problem, run_request)
     try:
-        state = backend._native_state
+        state = backend._workspace
         stages = run_request.stepper.tableau.n_stages
         for z0, z1 in positions(problem, run_request):
-            backend._hoist(z0)
+            backend._stages.hoist(z0)
             arrays, material = native_stage_rows(backend, z0, z1)
             expected = dict(
                 zip(
@@ -153,7 +153,7 @@ def test_the_native_rate_is_read_on_the_closing_side():
         probes = [*edges, *np.linspace(edges[0], edges[-1], 11)]
         for z in probes:
             expected = rate_weights(linear, z, before=True, helpers=NATIVE)
-            found = _testing.adams_stage_rate(backend._native_state, float(z))
+            found = _testing.adams_stage_rate(backend._workspace, float(z))
             assert np.array_equal(np.asarray(found), expected), z
     finally:
         backend.close()

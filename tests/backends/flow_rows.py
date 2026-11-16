@@ -395,7 +395,7 @@ def routed(route: str) -> Callable[[Built], bool]:
         off = not np.any(held.route) if route == "off" else not np.all(held.route)
         native = NativeBackend(built.problem, built.run_request, grid=built.grid)
         try:
-            resident = type(native._resident).__name__ == "_ResidentAdams"
+            resident = native._diagnostics()["method"] == "adams"
         finally:
             native.close()
         return (

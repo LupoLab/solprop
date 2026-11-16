@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -374,3 +375,67 @@ def test_a_resume_starts_the_sums_from_zero(backend, march):
         assert abs(float(fresh["raw_removed_fraction"]) - total) <= reading_tolerance(
             total, bound, STEPS
         )
+
+
+@pytest.mark.skipif("native" not in available(), reason="native is not installed")
+@pytest.mark.parametrize("march", ["rk", "low-storage"])
+def test_native_s_accept_record_carries_each_step_s_sums(march):
+    """SEP 52 section 5.2: an accepted step's finish returns the split collar's sums.
+
+    Native's engines (``_testing.engines``) report, in each step's ``AcceptRecord``,
+    what that step's split took and the power it found, measured where native measures
+    them, during the split, from the masked field before it. The removals of the steps
+    since the monitor was bound add up to what the next reading drains, and the
+    latest step's found sums are the ones that reading judges; the stiffness is not
+    formed natively.
+    """
+    from solprop.backends.engines import AcceptRecord  # noqa: PLC0415
+    from solprop.backends.records import run_records  # noqa: PLC0415
+    from solprop.boundaries import SPLIT_RATE_BUCKETS  # noqa: PLC0415
+
+    testing = pytest.importorskip("solprop_native._core")._testing
+    simulation = walking_fibre("native", MARCHES[march])
+    problem, request, own = _backend(simulation)
+    try:
+        watched = simulation._boundary_monitor()
+        assert watched is not None
+        monitor = dataclasses.replace(watched, crossing=problem.split_crossing)
+        assert monitor.split
+        workspace = own._workspace
+        field = np.ascontiguousarray(problem.initial.field0).reshape(-1)
+        testing.load(workspace, field, np.empty(0, dtype=np.complex128))
+        testing.configure_march(
+            workspace, run_records(problem, request, Start.entrance(problem))
+        )
+        crossing = problem.split_crossing
+        occupancy = None
+        if crossing is not None:
+            occupancy = {
+                "buckets": np.ascontiguousarray(crossing.buckets, np.uint8).ravel(),
+                "count": SPLIT_RATE_BUCKETS,
+            }
+        testing.bind_monitor(workspace, own._monitor_binding(monitor), None, occupancy)
+        schedule = request.stepper.schedule
+        assert schedule is not None
+        engines = testing.engines(workspace)
+        records: list[AcceptRecord] = []
+        try:
+            for z, dz in zip(schedule.edges[:3], schedule.steps[:3], strict=True):
+                engines.rk_trial(float(z), float(dz))
+                records.append(engines.rk_accept(float(dz)))
+        finally:
+            engines.close()
+        reading = np.asarray(testing.monitor_reading(workspace)).reshape(-1)
+    finally:
+        own.close()
+    removed = [record.removed for record in records]
+    assert all(value > 0.0 for value in removed)
+    assert all(math.isnan(record.stiffness) for record in records)
+    # One sum of three per-step sums against the accumulator's sum of the same
+    # chunks' terms, in another association: three additions' rounding.
+    assert reading[5] == pytest.approx(sum(removed), rel=3 * np.finfo(float).eps)
+    found = records[-1].found
+    assert found is not None
+    assert found.shape == (4,)
+    # The same view, read twice: the latest step's found sums, exactly.
+    np.testing.assert_array_equal(found, reading[6:10])

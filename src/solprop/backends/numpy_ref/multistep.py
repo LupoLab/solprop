@@ -2420,10 +2420,9 @@ def trial_tables(
     """Return all of an exponential trial's coefficient tables, for a resident engine.
 
     :func:`exponential_tables`' three and, compensated, :func:`compensation_tables`'
-    four, composed over the record's basis; a record that forms them in one call
-    (``Helpers.tables``, the native backend's) performs the same operations in the
-    same order, so the tables are the same, read once a trial instead of from a dozen
-    small calls.
+    four, composed over the record's basis, read once a trial instead of from a dozen
+    small calls. The native march forms the same tables in C++ with the same
+    operations in the same order.
 
     Parameters
     ----------
@@ -2445,9 +2444,6 @@ def trial_tables(
         compensation's spans, predictor, corrector and defect rows, shapes ``(0,)``
         and ``(0, 0)`` when not compensated.
     """
-    one_call = helpers.tables
-    if one_call is not None:
-        return one_call(np.asarray(nodes, dtype=np.float64), order, orders, compensated)
     predictor, corrector, factored = exponential_tables(
         nodes, order, orders, helpers=helpers
     )

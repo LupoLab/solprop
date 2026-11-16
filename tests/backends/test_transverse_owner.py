@@ -25,10 +25,10 @@ is the same scalar sequence in both, and compared exactly on arbitrary readings.
 
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import math
 import warnings
-from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -62,8 +62,28 @@ def _modules() -> tuple[Any, Any]:
     )
 
 
-def _native_records() -> Any:
-    return importlib.import_module("solprop_native._records")
+def _edge_config(config: records.EdgeConfig) -> dict[str, object]:
+    """Return an edge's configuration as the test module's edge reads it (a dict)."""
+    values = {one.name: getattr(config, one.name) for one in dataclasses.fields(config)}
+    values["faces"] = list(config.faces)
+    return values
+
+
+def _edge_resumption(held: records.EdgeResumption) -> dict[str, object]:
+    """Return an edge record's resumption as the test module's edge reads it."""
+    out: dict[str, object] = {"record": held.record}
+    if not held.record:
+        return out
+    out.update(held.numbers)
+    for name in ("edge_baseline", "edge_max", "edge_max_raw"):
+        values = getattr(held, name)
+        if values is not None:
+            out[name] = list(values)
+    if held.reads is not None:
+        out["reads"] = held.reads
+    if held.transverse_status is not None:
+        out["transverse_status"] = held.transverse_status
+    return out
 
 
 def _space(geometry: str) -> LineGrid | FreeGrid | RadialGrid:
@@ -105,7 +125,7 @@ def _design(
     )
 
 
-@dataclass
+@dataclasses.dataclass
 class Readings:
     """The arrays a drawn reading is made of, scaled by the launch energy."""
 
@@ -138,7 +158,7 @@ class Pair:
             space, _design(space, design), budget, 10.0, 0.01, np.arange(1), K800
         )
         self.native = core.TransverseEdge(
-            _native_records().edge_config(
+            _edge_config(
                 records.edge_config(
                     self.python, steps=steps, declared=declared, reads=reads
                 )
@@ -433,9 +453,7 @@ def test_a_resume_continues_the_record_as_solprop_does(
     pair = Pair(geometry, design)
     faces = len(pair.python._faces)  # pyright: ignore[reportPrivateUsage]
     pair.python.resume(record)
-    pair.native.resume(
-        _native_records().edge_resumption(records.edge_resumption(record, faces))
-    )
+    pair.native.resume(_edge_resumption(records.edge_resumption(record, faces)))
     pair.launch(launch, z)
     pair.state(z, 1e-4)
     pair.record()
@@ -611,9 +629,7 @@ def test_a_record_solprop_s_resume_ignores_is_ignored_alike(record):
     # reads nothing more: the maxima and the reads are not converted, nor refused.
     pair = Pair("line", "none")
     pair.python.resume(record)
-    pair.native.resume(
-        _native_records().edge_resumption(records.edge_resumption(record, 2))
-    )
+    pair.native.resume(_edge_resumption(records.edge_resumption(record, 2)))
     assert not pair.python.resumed and not pair.native.resumed
     pair.launch(Readings([0.0] * 4, [0.0] * 4, 0, 0, [1.0], [0.0], 0.0))
     pair.record()

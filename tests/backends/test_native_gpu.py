@@ -126,9 +126,10 @@ def test_a_large_state_crosses_both_ways_through_the_ring_bit_for_bit(
         assert field.nbytes >= 2**28
         assert engine.memory_ledger()["host_crossing_ring"] == 0
         # The state's own crossings, each way.
-        load_native(engine, field, clear_fsal=False)
+        load_native(engine, field)
         assert engine.memory_ledger()["host_crossing_ring"] > 0
-        back = engine._native_state.field_to_host().reshape(shape)
+        testing = cast("Any", pytest.importorskip("solprop_native._core"))._testing
+        back = testing.field(engine._workspace).reshape(shape)
         assert back.tobytes() == field.tobytes()
         # A session's load and its launch plane's export.
         observed = launch(engine, problem, run_request, field=field).field

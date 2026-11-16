@@ -47,7 +47,7 @@ def rows(implementation: type):
         )
         try:
             if implementation is NativeBackend:
-                assert type(backend._resident).__name__ == "_ResidentAdams"
+                assert backend._diagnostics()["method"] == "adams"
             run = drive(Started(session))
         finally:
             session.close()

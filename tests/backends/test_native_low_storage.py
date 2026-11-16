@@ -58,6 +58,7 @@ pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarn
 
 solprop_native = pytest.importorskip("solprop_native")
 NativeBackend = solprop_native.NativeBackend
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 MARCH_ROWS = (
     "state",
@@ -260,10 +261,8 @@ def test_a_trial_step_on_a_low_storage_state_is_refused_by_name():
     problem, run_request, grid, _ = cartesian_march("tabulate")
     backend = NativeBackend(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
-        backend._staged_rows()
-        nodes = [float(node) for node in run_request.stepper.tableau.nodes]
+        workspace = load_native(backend, problem.initial.field0)
         with pytest.raises(RuntimeError, match=r"low-storage state .* no Runge-Kutta"):
-            state.rk_trial(0.0, run_request.stepper.dz_init, nodes, prepare_only=False)
+            _testing.rk_trial(workspace, 0.0, run_request.stepper.dz_init)
     finally:
         backend.close()

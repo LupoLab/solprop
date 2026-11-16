@@ -46,7 +46,10 @@ def test_an_unresolved_launch_statistic_ends_the_run_as_a_convergence_error(
     payload.plasma.envelope_rule_nodes = nodes
 
     def corrupt_payload(*args: object, **keywords: object) -> _core.Problem:
-        return payload
+        # The backend's own lowering, its set-once data included, with the bad rule.
+        built = _lower(*args, **keywords)  # pyright: ignore[reportArgumentType]
+        built.plasma.envelope_rule_nodes = nodes
+        return built
 
     monkeypatch.setattr(adapter, "_lower", corrupt_payload)
     owner = NativeBackend(

@@ -6,7 +6,7 @@
 | **Title** | One backend shape and a small native seam |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-15; revised after review, 2026-11-15) |
-| **Status** | In progress |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
@@ -15,8 +15,8 @@
 | **Requires** | SEPs 25, 39, 45 and 47 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, through four stacked pull requests (D7): (1) phases 0–1, branch `feature/sep-0052-backend-shape-p1` ([#853](https://github.com/LupoLab/solprop/pull/853)); (2) phase 2 and phase 3's axis removal, `feature/sep-0052-backend-shape-p2` ([#854](https://github.com/LupoLab/solprop/pull/854)); (3) the rest of phase 3, `feature/sep-0052-backend-shape-p3` ([#858](https://github.com/LupoLab/solprop/pull/858)); (4) phases 4–5, `feature/sep-0052-backend-shape-p4`; started 2026-11-15 |
-| **Manual pages** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers, through four stacked pull requests (D7): (1) phases 0–1, branch `feature/sep-0052-backend-shape-p1` ([#853](https://github.com/LupoLab/solprop/pull/853)); (2) phase 2 and phase 3's axis removal, `feature/sep-0052-backend-shape-p2` ([#854](https://github.com/LupoLab/solprop/pull/854)); (3) the rest of phase 3, `feature/sep-0052-backend-shape-p3` ([#858](https://github.com/LupoLab/solprop/pull/858)); (4) phases 4–5, `feature/sep-0052-backend-shape-p4` ([#859](https://github.com/LupoLab/solprop/pull/859)); started 2026-11-15, complete 2026-11-16; the device builds compiled, not run (D5) |
+| **Manual pages** | [Parameter scans](../../../guide/workflows/scans.md); developer pages [Backends](../../backends.md), [Testing](../../testing.md), [Running the benchmarks](../../benchmarking.md) and [ADR-079](../../decisions.md); `native/README.md` (the binding rules) |
 
 ## Part I — Proposal
 
@@ -212,13 +212,13 @@ the only reason for the **leading axis of one**, which the trajectory's arrays s
 
 The design pages:
 
-- [backends.md](../backends.md) §1, the seam and the table of marches;
-- [architecture.md](../architecture.md) §9;
-- [kernel-contract.md](../kernel-contract.md) §3, the value tables; §8, the
+- [backends.md](../../backends.md) §1, the seam and the table of marches;
+- [architecture.md](../../architecture.md) §9;
+- [kernel-contract.md](../../kernel-contract.md) §3, the value tables; §8, the
   periodic-statistics hooks; and §§11–12, the compiled marches;
-- [conventions.md](../conventions.md) §6, the axis names;
-- [scans.md](../scans.md) and the user guide's
-  [scans](../../guide/workflows/scans.md) page, for `Batch`;
+- [conventions.md](../../conventions.md) §6, the axis names;
+- [scans.md](../../scans.md) and the user guide's
+  [scans](../../../guide/workflows/scans.md) page, for `Batch`;
 - the native package's `native/README.md`.
 
 **Prior proposals and decisions:**
@@ -292,7 +292,7 @@ in point. They are reductions of the field after the accepted step's first band 
 - the occupancies are judged on $P\,e^{-\alpha h/2}$;
 
 where $P$ is the power in each bin before the split, $\alpha$ the collar's rate and $h$ the
-step (`BoundaryMonitor.split_sums`; [backends.md](../backends.md) §1). Evaluating them on
+step (`BoundaryMonitor.split_sums`; [backends.md](../../backends.md) §1). Evaluating them on
 the damped, re-masked field changes the removal. Reconstructing the earlier field from it
 amplifies mask residue into fictitious loss, which
 `tests/test_monitor.py::test_a_deep_collar_reads_no_removal_from_residue` guards against.
@@ -551,7 +551,7 @@ A trajectory's arrays have no leading axis of one anywhere:
 Changing the snapshot's layout on disk is an output-schema change. It is made with the next
 release's one schema change, and a snapshot written before it is refused by name, not
 squeezed. As §3 notes, that release cannot resume 0.2.0's files in any case.
-[conventions.md](../conventions.md) §6 drops `n_batch`.
+[conventions.md](../../conventions.md) §6 drops `n_batch`.
 
 #### 5.5 The timing probe
 
@@ -834,23 +834,23 @@ before any reduction is claimed.
 
 **User manual:**
 
-- The [scans](../../guide/workflows/scans.md) page loses its fixed-schedule batch section.
+- The [scans](../../../guide/workflows/scans.md) page loses its fixed-schedule batch section.
 - The API, model-selection, interactive, progress and waveguide pages that mention `Batch`
   are updated.
 - A `Removed` changelog entry names the replacement executors.
 
 **Developer pages:**
 
-- [backends.md](../backends.md) §1, §3 and the table of marches: one shape, two
+- [backends.md](../../backends.md) §1, §3 and the table of marches: one shape, two
   implementations, and no groups.
-- [architecture.md](../architecture.md) §9.
-- [kernel-contract.md](../kernel-contract.md) §3, the value tables' axes; §8; and §§11–12,
+- [architecture.md](../../architecture.md) §9.
+- [kernel-contract.md](../../kernel-contract.md) §3, the value tables' axes; §8; and §§11–12,
   for the hooks and names.
-- [conventions.md](../conventions.md) §6, which drops `n_batch`.
-- [scans.md](../scans.md) and [benchmarking.md](../benchmarking.md).
+- [conventions.md](../../conventions.md) §6, which drops `n_batch`.
+- [scans.md](../../scans.md) and [benchmarking.md](../../benchmarking.md).
 - `native/README.md`: the binding's rules, namely records by field table, bindings that only
   marshal, `_testing` that promises nothing, and generated stubs.
-- [testing.md](../testing.md): the engine-level parity pattern and the scripted engines.
+- [testing.md](../../testing.md): the engine-level parity pattern and the scripted engines.
 
 An ADR records the shared shape, the removal of groups and the native seam's rules.
 
@@ -1310,6 +1310,220 @@ Tests: about 3,300 lines added and 2,000 removed.
 now that the reference has them. The two new refusals in the session (`_Held.restore`,
 the rows install) are covered only if CI's coverage lane says so.
 
+### Milestone 4 (phases 4 and 5) — 2026-11-16
+
+Branch `feature/sep-0052-backend-shape-p4`
+([#859](https://github.com/LupoLab/solprop/pull/859)), stacked on milestone 3, by Opus 5.5
+(AI) for John Travers.
+Phase 4 was developed by AI agents in two steps on branches off milestone 2,
+the new seam beside the old one (4A) and the adapter moved onto it with the old seam
+deleted (4B); they were merged onto milestone 3, where the engine-level parity tests, the
+remaining cleanup and phase 5's documentation were done.
+
+**Scope.** 4A: the field-table records, workspace, probe and schemas (`14cd4f38`), the
+march and watch records read by their tables (`35dfa32e`), the engines and the fault hook
+over a workspace (`218aabb4`, `e81c220a`). 4B: the adapter on `Workspace`, `start(run)`
+and `probe(start)` with the `State` seam deleted (`6b4716d6`), the native tests ported and
+the split sums in native's `AcceptRecord` (`da4b5e69`, `4f675c4f`, `5a4eb9c8`), the
+generated stubs (`a70d32b9`, `0921ac5a`), the binding's rules and changelog fragment
+(`ee3fc8e5`), and the per-run start cost (`09f1ad0b`, `877da66c`, `2402d862`,
+`2ead0665`). On milestone 3: the merge (`67af9d32`), the engine-level parity tests and
+records by name (`a65c96ad`), stale citations and an unused binding (`aa249879`), the
+documentation and ADR-079 (`6041fff8`), and two stray files removed (`095e344d`).
+
+**Delivered, phase 4.**
+
+- *Records by field table.* Each C++ record that crosses declares its fields once beside
+  its definition (`include/solprop_native/fields.hpp`); one converter
+  (`src/records.hpp`) reads a dataclass, mapping or tuple into it and writes it back,
+  refusing a missing or unknown field, a wrong dtype, rank or extent relation, a strided
+  or overlapping array and an overflowing size by the field's path before anything is
+  allocated. An enumeration is read by its name only (the Adams march's history entries
+  now cross with their identities named). `_core.schemas()` exports every table and a
+  test holds the Python records to them; `_testing.round_trip` round-trips each.
+- *One `Problem`, one workspace, one run record.* `Problem` absorbs the set-once data
+  (the stage, z and flux tables, the flow guard's certificate, the controllers, the
+  low-storage settings). `_core.Workspace(problem)` lives as long as the backend; a run
+  starts with `start(run)` from one `RunStart` (the run records, the field and noise, a
+  resume's march state and history rows, the statistics plans, the monitor's weights and
+  the edge's tables); the probe is `probe(start)`; `diagnostics()` is the one record of
+  metadata, memory, sizing, planning and crossed bytes, and `counters()` the live counts
+  a run reads at its start, close and planes. `State`, its configure, upload, bind and
+  metadata names, `start_session`, the per-step probe paths (`_trial_step`,
+  `_ResidentLowStorage`, `_ZTables`' per-position evaluation), `_ResidentAdams`,
+  `solprop_native/_records.py` and the old converters are gone.
+- *Logic out of the binding unit.* The lease, the coupled-flow guard, the marches'
+  construction and entry points, the run and the probe are `native::Workspace`
+  (`workspace.hpp`, `src/workspace.cpp`), with ctest coverage
+  (`native/tests/native/test_workspace.cpp`).
+- *Generated stubs.* `_core.pyi` and `_core_testing.pyi` are generated whole by
+  nanobind's `stubgen` (`native/scripts/problem_stub.py`, `--check` in the gate); each
+  record argument and result names its Python dataclass with `nb::sig`.
+- *The split sums in native's `AcceptRecord`.* `_testing.engines(workspace).rk_accept`
+  and `adams_accept` return the finish's sums (`GeneralState::split_sums`, read without
+  draining).
+- *Engine-level parity* (§6.5, §7): `tests/backends/test_engine_parity.py`, each case
+  written once against `RungeKuttaEngine` or `AdamsEngine` and played on both backends'
+  engines over a loaded, configured, watched workspace (`tests/engine_pairs.py`: the
+  reference's own engines, native's through `_testing.engines` behind thin protocol
+  wrappers). Covered: rejected and accepted Runge–Kutta trials with their norms, the
+  first step's stage registers, the commit contract on each side, the accept's split
+  sums and the boundary reading over three steps of the walking fibre; a dense extension
+  that leaves the trial and its accept alone; the low-storage step's in-flight interval
+  and commit; and, for Adams, the calls the reference's own march made on a run (startup,
+  rejected trials, accepts with the history they keep, the carrier chord and the step's
+  carrier rotations) replayed on both engines for the interaction formulation with
+  transported history (three-mode capillary, split collar), the exponential formulation,
+  and the exponential formulation in the carrier frame. Budgets are SEP 25's from
+  `tests/march_bounds.py`, fixed before the comparison: `k` steps' share of
+  `march_bound` for the state, that over `rtol` for a scaled norm, four times it against
+  the state's energy for the split sums and readings. Each compared term is asserted to
+  stand well clear of its bound, and the split sums' measurement point is shown to matter
+  (the same reduction of the finished field misses native's sum by more than ten
+  bounds). The tests found three of native's protocol records two-dimensional (the
+  reading's occupancy, the Adams norms, the carrier rotations); they are one-dimensional
+  now. `_testing.engines` gives a dense configuration's Runge–Kutta engine its extension
+  holder (`Workspace::trial_engine(dense)`, which the session's method now shares).
+- *Ported to the engines:* the estimate's native trial (`tests/driver/test_estimate.py`)
+  and the whole-trial norm test (`tests/backends/test_native_error_norm.py`).
+
+**Delivered, phase 5.** `backends.md` (the binding, the z tables' slots, the native Adams
+march's start record; §1 and the marches table had been updated in milestone 3),
+`architecture.md` §9, `kernel-contract.md` (the occupancy and the Adams march's start
+record, the engine's parity; §3 and §8 had been updated in milestones 2 and 3),
+`benchmarking.md` (the whole-run window `SOLPROP_BENCHMARK_WINDOW=run`), `testing.md`
+(engine-level parity; the scripted engines were milestone 3's), `stepper.md` (the
+low-storage probe), `native/README.md` (the binding's rules, which 4B started), a ledger
+entry for the seam's A/B in `benchmarks.md` (which also records that
+`benchmarks.adams_host` was removed), and ADR-079, *proposed* until this SEP is `Final`.
+`conventions.md` §6 and `scans.md` needed nothing more (milestones 2 and 1). The native
+comments and docstrings that still cited the deleted `HostDriver`, `_ZTables`,
+`_ResidentLowStorage` and `_score_trial` now name the members that do that work.
+
+**Tests (§7 inventory).** 4B removed `State` (55 bound names), its configure, upload and
+bind calls, the metadata properties, `start_session` and the per-step probe bindings;
+every caller was ported to the workspace or `_testing` in `da4b5e69` (88 test files
+changed in 4B, no test deleted). Here: `_testing.set_absorber_quiet` had no user and is
+deleted; `tests/test_transverse_monitor.py` still imported the deleted host driver
+(milestone 3's sweep did not collect it) and reads the workspace's function now.
+
+**Deviations from Part I.**
+
+- The monitor's weights and the edge's tables travel in the run's start record, not in
+  `Problem`: they depend on the run's monitor, which a reused workspace's runs may change.
+- A low-storage probe closes the workspace afterwards (§5.5's exception), where the old
+  per-step path left the backend's state in place.
+- `_testing.engines` exposes the protocols' methods under `rk_` and `adams_` prefixes on
+  one object; the protocol wrappers are the tests' (`tests/engine_pairs.py`).
+- `Workspace.counters()` and `Session.records(names)` (only the names asked for) were
+  added for the per-run cost; `Session.march_state` stays.
+- `basis_rows` and `trial_tables` moved into `_testing` (the maintainer's decision,
+  2026-11-16). The compiled Adams march forms its basis and tables in C++, so no
+  production path reached their bindings. The native `Helpers` record now names only the
+  Chebyshev rows; `Helpers.basis` is optional and refuses by name on a record without
+  one, and the `Helpers.tables` slot, which only the native record filled, is gone.
+  `tests/test_helpers.py` holds the C++ basis and tables to the plain forms through
+  `_testing`.
+- The decision-trace runners' dictionaries (`march_state`, `rk_state`, `bounds`,
+  `result`, the watch record and judgement, the transverse edge's, `trial_from`,
+  `adams_scalars`) stay hand-written, except the watch state, now written by its table
+  and the history entries, now read by `march.Entry`'s. The rest carry layouts their
+  Python consumers read (packed result rows, integer reason and verdict codes, optional
+  keys) that a table would change on both sides for no production gain; the session's
+  snapshot and `march_state` read two of them.
+
+**Decisions.**
+
+- The engine-level parity tests compare sums over part of the window absolutely, against
+  the state's energy, since the states' budget is normwise over the whole state. For the
+  single-mode capillary the split collar takes about 1e-11 of the energy at a step, below
+  what that budget resolves, so its split sums are compared on the three-mode case only.
+- Stage registers are compared on the first step only, where no recycled stage is
+  involved.
+
+**Verification.** On an Apple M5 Max (CPU editable build, four workers): after the merge
+and native rebuild, the corpus (unchanged, not regenerated), the collar rules, the
+decision traces (Runge–Kutta, Adams, native marches, watch), the frozen surfaces
+(`test_driver.py`, `test_engines.py`, `test_records.py`), the engine tests, all of
+`tests/sessions` (400 passed, 118 skipped by thread count) and the 45 files both sides
+had changed; after each later change, the engine-parity tests (6), the traces, the
+corpus, the session-history and snapshot modules and `native/tests/test_workspace.py`,
+`test_backend.py`, `test_api_contract.py` and `test_session_failure.py`; ruff,
+basedpyright, clang-format, the docstring and size checks, codespell, `tests/test_seps.py`,
+the structure-figure tests, `native/scripts/problem_stub.py --check` and `poe docs`
+(clean). On a 32-core AMD EPYC 7763 node of a Slurm cluster (GCC 16.2, CPU wheel, one
+thread a worker), after merging milestone 3's CI fixes: the native GoogleTest suite
+(passed), and `tests/backends`, `tests/driver`, `tests/sessions`, `tests/output`,
+`tests/stepper`, the top-level `tests/test_*.py` (12,274 passed, two failures) and
+`native/tests` (674 passed). The two failures: `test_convergence_records`'s writer
+check, which needs the whole suite collected and passes in a full run; and
+`test_native_session_history.py::test_a_noisy_run_on_a_z_table_meets_the_reference[input-runge-kutta]`,
+whose adaptive run's step positions are held to 1e-6 relative and missed by 1.3e-6 at
+three steps. That one is intermittent: run alone on the same build it failed once and
+passed once, it passes on milestone 3's tip and fails on this milestone's first merge
+alone, and it passes inside its file; milestone 2 saw it fail once under load. It is a
+tolerance tighter than an adaptive comparison's envelope, not a seam change, and is
+worth an issue.
+
+4B's measurements, on an exclusive node of two AMD EPYC 7763 (32 cores) of a Slurm
+cluster, `--threading bound`, `--calibrate none`, three rounds of three repeats, ratios
+branch/base by round: `ab --length 0.05` in the default window, `gnlse_soliton`
+1.042/1.008/1.014, `rdw` 0.996/0.983/0.991, `radial_filament_256` 1.004/1.004/0.995; in
+the whole-run window (`SOLPROP_BENCHMARK_WINDOW=run`, which includes the load the branch
+moved into the session's start), `gnlse_soliton` 1.020/1.004/1.027, `rdw`
+0.992/0.989/0.994, `radial_filament_256` 1.022/1.001/1.029; `kerr_beam_192` 1.007. No
+median slowdown above 3 % beyond its scatter. From a built backend a whole run cost
++1.9 % under Runge–Kutta, +2.1 % low-storage and +1.9 % Adams; a scan's preparation
++0.5–1 %. The probe's open, trial and read cost +3.4 % (Runge–Kutta), +2.5 % (Adams) and
+−8 % (low-storage); a trial alone is unchanged under Runge–Kutta and Adams and 16 % faster
+under low-storage. Peak resident memory moved by at most 1 MB. The device targets were
+compiled only, not run (D5); a later device campaign runs the GPU lane on the new seam.
+
+**Cost.** `poe size --all` (Python): total 268,538 → 267,809 lines; `solprop_native`
+14,154 before the SEP → 11,655 (estimate 10,000–11,000); `backends` 24,834 before the
+SEP → 24,862, and `driver` 27,203 → 26,453 (that figure includes unrelated changes merged
+from main), against an estimate of 19,000–20,500 for `backends` with the group parts of
+`driver`: missed, because the workspace's operations became public and documented in
+milestone 3 (about 840 more lines of public docstrings) and the records and protocols
+added about 1,450 lines in milestone 2; `backends`' code lines alone are 11,472. Binding
+units (C++): `bindings.cpp` 4,559 → 3,861, of which roughly 1,700 bind `_testing` (the
+test state and engines, the scripted marches and their dictionaries), with
+`bindings_transverse.cpp` (308, the `TransverseEdge` owner, test-only) and `helpers.cpp`
+(172) unchanged, against an estimate of 1,500–2,000: production is about 2,100 plus
+helpers. The converter is `records.hpp` and `records.cpp`, 1,088 lines, with the
+`fields.hpp` descriptors (210), against an estimate of about 400. The logic moved out of
+the binding unit is `native::Workspace`, 955 + 789 lines of library. The hand-written
+stub (953 lines before the SEP) is gone: `_core.pyi` (655) and `_core_testing.pyi` (407)
+are generated.
+
+**Open questions.** Q3: decided per test. Ported to the engines where the protocol
+reaches what the test checks (the estimate's trial, the whole-trial norm); kept on
+`_testing`'s state-level functions where it does not (a trial's partials and their
+reduction, the stage rows, the flow actions, an Adams trial over a full synthetic
+history and its block read-back, the stash); moved to ctest: the workspace's lease and
+setup (4B). Q5: no reference simplification moved a number; none was taken.
+
+**Issues to update or close at merge** (not touched here):
+
+- #110: narrow to the integrator–tolerance split and the route union.
+- #618: fixed (the unit axis, milestone 2).
+- #171 and #828: moot (the groups are gone).
+- #344: the naming fixed (milestone 3's march-neutral workspace operations).
+- #107: recommend closing.
+- #356: note that it needs its own group interface, since none remains.
+
+**Handoff.** The SEP stays `In progress` for the maintainer's review. The `Final`
+commit must: set **Status** to `Final` and **Implementation** to name this pull request;
+fill **Manual pages** (the scans guide; `docs/dev/backends.md`, `testing.md`,
+`benchmarking.md`, `decisions.md` ADR-079; `native/README.md`); flip ADR-079's status to
+accepted; `git mv docs/dev/seps/sep-0052-backend-shape.md
+docs/dev/seps/archive/sep-0052-backend-shape.md`; move its row in
+`docs/dev/seps/index.md` to the archived table and its toctree entry to the archive's;
+update the roadmap's SEP 52 line; and fix the links that name its old path, from
+`docs/dev/decisions.md` (ADR-079), `docs/dev/benchmarks.md`, `docs/dev/testing.md`,
+`docs/dev/backends.md` and any other `seps/sep-0052-backend-shape.md` reference (a grep
+finds them), then run `tests/test_seps.py` and `poe docs`.
+
 ## Part III — History
 
 - 2026-11-15: Drafted, from a review of the native binding's use in production and of the
@@ -1328,6 +1542,11 @@ the rows install) are covered only if CI's coverage lane says so.
 - 2026-11-16: Milestone 1 (phases 0–1) reported in Part II.
 - 2026-11-16: Milestone 2 (phase 2 and the axis removal) reported in Part II.
 - 2026-11-16: Milestone 3 (the reference restructured, `HostDriver` deleted) reported in Part II.
+- 2026-11-16: Milestone 4 (the native seam, phase 5's documentation) reported in Part II.
+- 2026-11-16: All four pull requests merged. Final: ADR-079 accepted, the SEP archived, and
+  the issues its milestone 4 report lists updated: #828 closed as moot (#618 and #171
+  were already closed), #107 closed on native's decision, #344's naming item ticked (its
+  planar stage register stays open), #110 narrowed, #356 annotated.
 
 ### AI review — 2026-11-15
 
@@ -1394,7 +1613,7 @@ implementation was tested.
 
 3. **R3 — Medium: use the current seam-change process (§§6.1, 9, 11).**
    `KERNEL_SCHEMA_VERSION` no longer exists. ADR-068 and
-   [kernel-contract.md](../kernel-contract.md) explicitly removed the counter and
+   [kernel-contract.md](../../kernel-contract.md) explicitly removed the counter and
    require the affected frozen surface tests and a release-note fragment to change
    with the seam. The proposed bump cannot be performed as written. The
    [automated review](https://github.com/LupoLab/solprop/pull/850#discussion_r4580456601)
@@ -1498,7 +1717,7 @@ implementation was tested.
    concrete scope and phases mainly remove `max_batch` and the fused reference
    group. Those are different changes. `NumpyRefBackend`, its pass functions and
    native's load/readback adapters currently use a private leading axis of one;
-   [conventions.md §6](../conventions.md#6-array-layout-and-axis-names) permits that.
+   [conventions.md §6](../../conventions.md#6-array-layout-and-axis-names) permits that.
    SEP 47 §6.7 separately requires the leading axis in existing `MarchSnapshot`
    payloads to remain readable.
 

@@ -133,7 +133,7 @@ def _native_first_stage(backend, problem):
         _testing,
     )
 
-    return np.asarray(_testing.stage_to_host(backend._native_state, 0)).reshape(
+    return np.asarray(_testing.stage_to_host(backend._workspace, 0)).reshape(
         problem.shape
     )
 

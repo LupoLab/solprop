@@ -227,16 +227,16 @@ def test_a_state_reads_back_the_record_it_was_built_with(
         **{f"{name}_threshold": 1 << 40 for name in ("stage", "copy", "adams")},
         **{f"{name}_full": 1 << 40 for name in ("stage", "copy", "adams")},
     )
-    first = _core.State(payload)
-    second = _core.State(_with_record(payload, serial.native()))
+    first = _core.Workspace(payload)
+    second = _core.Workspace(_with_record(payload, serial.native()))
     try:
         # Two live workspaces hold their own records (solprop SEP 46 section 7 item 7).
-        assert first.cpu_execution == native.BUILTIN_EXECUTION.native()
-        assert second.cpu_execution == serial.native()
+        assert first.diagnostics()["cpu_execution"] == native.BUILTIN_EXECUTION.native()
+        assert second.diagnostics()["cpu_execution"] == serial.native()
         if native.build_info().cpu_size_policy_enabled:
             assert all(
                 choice["threads"] == 1
-                for name, choice in second.execution_sizing.items()
+                for name, choice in second.diagnostics()["execution_sizing"].items()
                 if name.startswith(("kernels.stage.", "kernels.copy."))
             )
     finally:
@@ -259,10 +259,10 @@ def test_a_state_refuses_a_missing_or_malformed_record(
 
     def _spoil() -> None:
         if change == "missing":
-            _core.State(_with_record(payload))
+            _core.Workspace(_with_record(payload))
         else:
             assert isinstance(change, dict)
-            _core.State(_with_record(payload, change["cpu_execution"]))
+            _core.Workspace(_with_record(payload, change["cpu_execution"]))
 
     with pytest.raises(ValueError, match=message):
         _spoil()
@@ -274,12 +274,12 @@ def test_a_state_refuses_a_record_the_native_core_refuses(
     payload = _payload(phase_a_case)
     record = native.BUILTIN_EXECUTION.native()
     with pytest.raises(ValueError, match="positive threshold"):
-        _core.State(_with_record(payload, record | {"dense_full": 1}))
+        _core.Workspace(_with_record(payload, record | {"dense_full": 1}))
     with pytest.raises(ValueError, match="positive response bounds"):
-        _core.State(_with_record(payload, record | {"medium_threads": 0}))
+        _core.Workspace(_with_record(payload, record | {"medium_threads": 0}))
     renamed = {k: v for k, v in record.items() if k != "adams_full"}
     with pytest.raises(ValueError, match="misses a field: adams_full"):
-        _core.State(_with_record(payload, renamed | {"adams_fulll": 1}))
+        _core.Workspace(_with_record(payload, renamed | {"adams_fulll": 1}))
 
 
 def test_a_backend_given_a_record_builds_with_it_and_records_it(

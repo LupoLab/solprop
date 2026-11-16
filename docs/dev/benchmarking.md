@@ -268,6 +268,13 @@ uv run python -m benchmarks ab --set tracking --threads 16 --production 16 \
 
 The same command with `SOLPROP_CALIBRATION=off` in both arms is its A/A control.
 
+**The window.** A timed run starts once the backend's load of the launch returns, as the
+recorded history's does. `SOLPROP_BENCHMARK_WINDOW=run`, given to both arms with
+`--baseline-env` and `--candidate-env`, starts it before the load, so that a build that
+loads the state inside the session's start (native's `Workspace.start(run)` since SEP 52)
+is timed over the same work as one that loads it before. The tracking history never
+sets it.
+
 Selection works as for `track`. `--length` runs that fraction of each guide, from the
 entrance, for quick iteration. Each round runs every configuration once with each
 build, one worker each, and alternates which build goes first; `--rounds` sets the

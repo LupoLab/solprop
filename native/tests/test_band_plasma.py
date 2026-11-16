@@ -448,7 +448,7 @@ def test_one_evaluation_matches_the_reference() -> None:
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         # A zero-length trial exposes the first stage, N(E, z = 0).
         native_trial(backend, 0.0, 0.0)
         actual = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
@@ -500,7 +500,7 @@ def test_every_stage_of_a_trial_matches_the_reference(
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         if averaged and not DEVICE_BUILD:
             assert backend.metadata()["synthesis_provider"] == "folded"
             assert backend.metadata()["projection_provider"] == "folded"
@@ -588,7 +588,7 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
         owns=True,
     )
     backend = NativeBackend(problem, run_request, grid=grid, options=options)
-    state = backend._native_state  # pyright: ignore[reportPrivateUsage] - score lifetime
+    state = backend._workspace  # pyright: ignore[reportPrivateUsage] - score lifetime
     try:
         record: dict[str, object] = {}
         finished = run(backend, problem, run_request, record=record)
@@ -623,7 +623,7 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
         native_record = record["native_session"]
         assert isinstance(native_record, dict)
         assert native_record["quadrature_peak"] == max(steps)
-        assert math.isnan(state.quadrature_peak())
+        assert math.isnan(_testing.quadrature_peak(state))
 
         # Leave an unaccepted trial in scratch: the stored score and the accepted
         # field stay. (Its positions are the first step's, inside the problem's
@@ -631,8 +631,10 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
         native_trial(backend, dz, 0.5 * dz)
         # The stored accepted value, no arithmetic.
         assert _testing.quadrature_error(state) == score
-        assert math.isnan(state.quadrature_peak())
-        np.testing.assert_array_equal(state.field_to_host().reshape(got.shape), got)
+        assert math.isnan(_testing.quadrature_peak(state))
+        np.testing.assert_array_equal(
+            np.asarray(_testing.field(state)).reshape(got.shape), got
+        )
 
         # A second run's load resets the score (read once the session, closed before
         # its first step, returns the state); its first step repeats the first's.
@@ -640,7 +642,7 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
             Start.entrance(problem), owns=False
         ).close()
         assert math.isnan(_testing.quadrature_error(state))
-        assert math.isnan(state.quadrature_peak())
+        assert math.isnan(_testing.quadrature_peak(state))
         again = run(backend, problem, run_request).fields
         np.testing.assert_allclose(
             again[1],
@@ -788,7 +790,7 @@ def test_native_taps_are_validated(damage: str) -> None:
         # The trapezoid is the one identity tap and nothing else.
         plasma.band = False
     with pytest.raises(ValueError, match=r"taps|trapezoid|band"):
-        _core.State(payload)
+        _core.Workspace(payload)
 
 
 def test_native_rate_table_refuses_a_transposed_layout() -> None:
@@ -809,7 +811,7 @@ def test_native_rate_table_refuses_a_transposed_layout() -> None:
         plasma.rate_intervals, 4
     )
     with pytest.raises(ValueError, match=r"rate_coefficients must have shape"):
-        _core.State(payload)
+        _core.Workspace(payload)
 
 
 def test_the_diagnostics_need_a_field_plasma_column(phase_a_case: PhaseACase) -> None:

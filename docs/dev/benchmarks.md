@@ -1228,7 +1228,7 @@ maths change (a500d2d). The SEP's §3.3 reads these figures.
   where it is not the whole, timed by the suite's worker after its warm-up.
 - The default stepper and `RungeKutta()` interleaved over three rounds of fresh
   processes, the order reversed every round; medians reported.
-- Host time per trial: `python -m benchmarks.adams_host CASE [--length F]` (SEP 39),
+- Host time per trial: `python -m benchmarks.adams_host CASE [--length F]` (SEP 39; removed by SEP 52),
   the march's wall time less its native `adams_*` calls, with no other wrappers.
 - The per-piece split comes from one run with `perf_counter` wrappers on about
   twenty-five host functions, which inflate the total by about half, so it gives the
@@ -3085,6 +3085,40 @@ The shape rule alone (pack off) gave `line` 0.91 and 0.90 (Xeon 18 and 36) and 0
 (EPYC), and `grin_nonlinear` 0.95 on the EPYC; the one-thread rows stay within
 0.98-1.02. `he_rdw_averaged` and `h2_raman_averaged`, whose code is unchanged, ranged
 0.92-1.12 on the Xeon between runs of either arm: the per-process modes of #81.
+
+### The native workspace seam (SEP 52)
+
+[SEP 52](seps/archive/sep-0052-backend-shape.md)'s phase 4 replaced the native binding's
+configuration calls with one `Problem` and one run record per start, and the per-step
+probe paths with the workspace's own probe; the marches did not change. Measured on an
+exclusive node of two AMD EPYC 7763 (32 cores), `--threading bound`, `--calibrate none`,
+three rounds of three repeats, the milestone's base against the branch, ratios of the
+per-round medians (below one is faster):
+
+| case | default window, `--length 0.05` | whole run (`SOLPROP_BENCHMARK_WINDOW=run`) |
+|---|---|---|
+| `gnlse_soliton` | 1.042 / 1.008 / 1.014 | 1.020 / 1.004 / 1.027 |
+| `rdw` | 0.996 / 0.983 / 0.991 | 0.992 / 0.989 / 0.994 |
+| `radial_filament_256` | 1.004 / 1.004 / 0.995 | 1.022 / 1.001 / 1.029 |
+| `kerr_beam_192` | 1.007 | |
+
+Each cell lists the three rounds' ratios. Every arm took the same
+steps. The default window starts after the load, which the branch moved into the
+session's start, so the whole-run window (from before the load; [benchmarking.md](benchmarking.md#comparing-two-builds-while-iterating))
+is the like-for-like reading. Timed from a built backend, a whole run cost 1.9 % more
+under Runge–Kutta, 2.1 % under low-storage and 1.9 % under Adams, the start's one
+converted record; a scan's preparation 0.5–1 % more. The probe's open, trial and read
+cost 3.4 % more under Runge–Kutta and 2.5 % under Adams and 8 % less under low-storage;
+a trial alone is unchanged under Runge–Kutta and Adams and 16 % faster under
+low-storage. Peak resident memory moved by at most 1 MB. Two costs were removed on the
+way: a run's initial field is read where it is rather than copied into the record
+(`kerr_beam_192`'s low-storage window had been 4.6 % slower), and a run reads the
+workspace's live counters, not its whole diagnostics record, at its start, close and
+planes. No device build was run (the device targets were compiled only).
+
+The host-trial timer of the earlier Adams entries, `benchmarks.adams_host`, was removed
+with it: it reached the deleted per-step adapter, and the native march leaves it nothing
+to time. Those entries stand as recorded.
 
 ## Reference tables
 

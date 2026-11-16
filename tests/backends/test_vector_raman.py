@@ -36,6 +36,37 @@ def _owner(backend):
     return getattr(backend, "workspace", backend)
 
 
+def raman_refreshes(backend):
+    """Read a backend's Raman kernel transforms: the reference workspace's own, or
+    the native workspace's (``raman_kernel_transforms``)."""
+    if backend.name == "native":
+        return backend._diagnostics()["raman_kernel_transforms"]
+    return _owner(backend)._raman_transforms
+
+
+def prepare_raman(backend, rates, densities=()):
+    """Prepare a backend's Raman kernel at `rates` and `densities`, without a step.
+
+    The reference workspace's memo returns its kernel; the native workspace prepares
+    its own (``_testing.prepare_raman``) and returns nothing, and a problem without a
+    Raman term has no kernel to prepare on either.
+    """
+    if backend.name != "native":
+        return _owner(backend)._raman_spectrum(
+            rates, *((densities,) if densities else ())
+        )
+    if not backend._problem.responses.raman_terms:
+        return None
+    _testing = pytest.importorskip("solprop_native._core")._testing
+
+    _testing.prepare_raman(
+        backend._workspace,
+        np.ascontiguousarray(rates, dtype=np.float64),
+        np.ascontiguousarray(densities, dtype=np.float64),
+    )
+    return None
+
+
 def test_reference_pass_rejects_three_physical_components():
     with pytest.raises(BackendError, match="one or two physical components"):
         passes.raman_polarisation(
@@ -234,18 +265,18 @@ def test_vector_kernel_cache_refreshes_all_dynamic_inputs(backend_class):
     backend = backend_class(problem, run_request, grid=grid, modes=modes)
     bundle = scalars(problem, 0.0, 0.0)
     try:
-        _owner(backend)._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
-        _owner(backend)._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
-        assert _owner(backend)._raman_transforms == 1
+        prepare_raman(backend, bundle.raman_rates, bundle.raman_densities)
+        prepare_raman(backend, bundle.raman_rates, bundle.raman_densities)
+        assert raman_refreshes(backend) == 1
         rates = list(bundle.raman_rates)
         for index in range(len(rates)):
             rates[index] += 1e12
-            _owner(backend)._raman_spectrum(tuple(rates), bundle.raman_densities)
-            assert _owner(backend)._raman_transforms == 2 + index
+            prepare_raman(backend, tuple(rates), bundle.raman_densities)
+            assert raman_refreshes(backend) == 2 + index
         # Single-component amplitude is applied after convolution, so density
         # changes alone need no kernel rebuild (unlike mixtures).
-        _owner(backend)._raman_spectrum(tuple(rates), (2 * bundle.raman_densities[0],))
-        assert _owner(backend)._raman_transforms == 1 + len(rates)
+        prepare_raman(backend, tuple(rates), (2 * bundle.raman_densities[0],))
+        assert raman_refreshes(backend) == 1 + len(rates)
     finally:
         backend.close()
 

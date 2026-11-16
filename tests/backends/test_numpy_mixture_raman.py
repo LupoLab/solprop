@@ -29,13 +29,34 @@ def _owner(backend):
 
 
 def raman_refreshes(backend):
-    """Read the selected backend's owned Raman kernel refresh counter."""
+    """Read a backend's Raman kernel transforms: the reference workspace's own, or
+    the native workspace's (``raman_kernel_transforms``)."""
+    if backend.name == "native":
+        return backend._diagnostics()["raman_kernel_transforms"]
     return _owner(backend)._raman_transforms
 
 
-def prepare_raman(backend, rates, densities):
-    """Exercise the actual cached Raman owner without a propagation."""
-    _owner(backend)._raman_spectrum(rates, densities)
+def prepare_raman(backend, rates, densities=()):
+    """Prepare a backend's Raman kernel at `rates` and `densities`, without a step.
+
+    The reference workspace's memo returns its kernel; the native workspace prepares
+    its own (``_testing.prepare_raman``) and returns nothing, and a problem without a
+    Raman term has no kernel to prepare on either.
+    """
+    if backend.name != "native":
+        return _owner(backend)._raman_spectrum(
+            rates, *((densities,) if densities else ())
+        )
+    if not backend._problem.responses.raman_terms:
+        return None
+    _testing = pytest.importorskip("solprop_native._core")._testing
+
+    _testing.prepare_raman(
+        backend._workspace,
+        np.ascontiguousarray(rates, dtype=np.float64),
+        np.ascontiguousarray(densities, dtype=np.float64),
+    )
+    return None
 
 
 @pytest.fixture
