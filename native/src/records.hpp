@@ -9,6 +9,7 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
 
+#include <algorithm>
 #include <array>
 #include <complex>
 #include <cstddef>
@@ -187,10 +188,8 @@ template <class R> bool matches(const Source& source) {
     return source.size() == wanted.size();
   if (source.names().size() != wanted.size())
     return false;
-  for (const char* name : wanted)
-    if (!source.has(name, 0))
-      return false;
-  return true;
+  return std::ranges::all_of(
+      wanted, [&source](const char* name) { return source.has(name, 0); });
 }
 
 template <class T> void read_value(nb::handle value, T* out, const std::string& path);
@@ -199,7 +198,7 @@ template <class... Alternatives, class Variant>
 void read_variant(nb::handle value, Variant* out, const std::string& path) {
   const Source source(value, path);
   bool found = false;
-  const auto attempt = [&]<class A>() {
+  const auto attempt = [&]<class A> {
     if (found || !matches<A>(source))
       return;
     found = true;
@@ -278,6 +277,8 @@ template <class T> void read_value(nb::handle value, T* out, const std::string& 
     if (out != nullptr)
       *out = nb::cast<std::string>(value);
   } else if constexpr (IsOptional<T>::value) {
+    // nvcc still needs the `typename` that C++20 makes redundant on the dependent type.
+    // NOLINTNEXTLINE(readability-redundant-typename)
     using Inner = typename T::value_type;
     if (value.is_none()) {
       if (out != nullptr)
@@ -326,6 +327,8 @@ template <class T> void read_value(nb::handle value, T* out, const std::string& 
       read_value<Element>(items[index], out == nullptr ? nullptr : &(*out)[index],
                           child(path, index));
   } else if constexpr (IsVector<T>::value) {
+    // nvcc still needs the `typename` that C++20 makes redundant on the dependent type.
+    // NOLINTNEXTLINE(readability-redundant-typename)
     using Element = typename T::value_type;
     if (!is_sequence(value))
       type_refusal(path, "must be a sequence");
@@ -361,6 +364,8 @@ template <class R, class M, std::size_t N>
 void read_array(const fields::Array<R, M, N>& field, nb::handle value, R* out,
                 Symbols& symbols, const std::string& path) {
   using Traits = fields::ArrayElement<M>;
+  // nvcc still needs the `typename` that C++20 makes redundant on the dependent type.
+  // NOLINTNEXTLINE(readability-redundant-typename)
   using Element = typename Traits::type;
   if constexpr (Traits::optional) {
     if (value.is_none()) {
@@ -619,7 +624,7 @@ nb::object write_array(const fields::Array<R, M, N>& field, const R& record,
   if constexpr (Traits::optional) {
     if (!(record.*field.member))
       return nb::none();
-    held = *(record.*field.member);
+    held = (record.*field.member).value();
   } else {
     held = record.*field.member;
   }

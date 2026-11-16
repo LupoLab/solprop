@@ -394,7 +394,7 @@ REGISTRY: Final[Mapping[str, Factory]] = {
         Factory("EnvelopeGrid.from_limits", EnvelopeGrid.from_limits, _GRID_UNITS),
         Factory("FieldGrid.from_limits", FieldGrid.from_limits, _GRID_UNITS),
         Factory("StatsSpec", StatsSpec),
-        Factory("BoundaryCheck", BoundaryCheck),
+        Factory("BoundaryCheck", BoundaryCheck, {"interval": "m"}),
         Factory(
             "FixedSchedule.uniform",
             FixedSchedule.uniform,
