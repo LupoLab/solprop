@@ -627,7 +627,7 @@ That count is what decided the first deviation below.
 
 1. *`length` is optional but stays positional-or-keyword* (§5.1, Q7 item 6). Making it
    keyword-only would edit about 509 calls in 227 files and regenerate 43 galleries. This
-   is an interim decision of the coordinator, pending with the maintainer; the signature
+   is an interim choice, pending with the maintainer; the signature
    change is one commit, so the keyword-only form can follow as one mechanical commit.
    Because Python allows no required parameter after an optional one,
    `from_capillary`'s and `prop_capillary`'s `gas` now defaults to `None` and is refused
