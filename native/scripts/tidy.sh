@@ -55,10 +55,14 @@ fi
 source "$native/scripts/compiler.sh"
 command_file="$build/clang_tidy_command.txt"
 # Configure the cpu-tidy preset when its compile commands or clang-tidy command are
-# missing or older than the build configuration.
-if [[ ! -f "$build/compile_commands.json" || ! -f "$command_file" ||
-      "$native/CMakeLists.txt" -nt "$build/compile_commands.json" ||
-      "$native/CMakeLists.txt" -nt "$command_file" ]]; then
+# missing or older than the build configuration (CMakeLists.txt and its cmake/ modules).
+stale=false
+for config in "$native/CMakeLists.txt" "$native"/cmake/*.cmake; do
+  if [[ $config -nt "$build/compile_commands.json" || $config -nt "$command_file" ]]; then
+    stale=true
+  fi
+done
+if [[ ! -f "$build/compile_commands.json" || ! -f "$command_file" || $stale == true ]]; then
   mkdir -p "$native/build"
   log="$native/build/tidy-configure.log"
   echo "tidy-native: configuring the cpu-tidy preset (log: $log)"

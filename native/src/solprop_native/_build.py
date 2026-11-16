@@ -36,10 +36,10 @@ class BuildInfo:
     git_commit
         Backend repository commit embedded when CMake configured the extension.
     source_digest
-        SHA-256 of what the extension was compiled from: ``CMakeLists.txt`` and the C++
-        sources and headers under ``src`` and ``include``
-        (``cmake/SourceDigest.cmake``). :func:`check_build` compares it with an editable
-        checkout's sources.
+        SHA-256 of what the extension was compiled from: ``CMakeLists.txt``, the CMake
+        modules in ``cmake`` and the C++ sources and headers under ``src`` and
+        ``include`` (``cmake/SourceDigest.cmake``). :func:`check_build` compares it
+        with an editable checkout's sources.
     solprop_version_built_against
         The solprop version beside which CMake configured the extension, or
         ``unknown``. Informational: the contract is the seam members
@@ -330,9 +330,10 @@ def _source_digest(root: Path) -> str:
 
     The computation of ``cmake/SourceDigest.cmake``, which embeds it in the build; the
     two must agree. The record is one ``{path}:{sha256 of its bytes}`` line for
-    ``CMakeLists.txt`` and each C++ source, header and included fragment (``.inc``)
-    under ``src`` and ``include``, the paths relative to `root` and sorted bytewise, and
-    the digest is the SHA-256 of the record.
+    ``CMakeLists.txt``, each ``*.cmake`` module in ``cmake`` (not below it) and each C++
+    source, header and included fragment (``.inc``) under ``src`` and ``include``, the
+    paths relative to `root` and sorted bytewise, and the digest is the SHA-256 of the
+    record.
     """
     paths = ["CMakeLists.txt"]
     for folder in ("src", "include"):
@@ -341,6 +342,11 @@ def _source_digest(root: Path) -> str:
             for path in (root / folder).rglob("*")
             if path.suffix in {".cpp", ".hpp", ".h", ".inc"} and path.is_file()
         )
+    paths.extend(
+        path.relative_to(root).as_posix()
+        for path in (root / "cmake").glob("*.cmake")
+        if path.is_file()
+    )
     # Code points sort as their UTF-8 bytes do, so this is CMake's bytewise order.
     record = "".join(
         f"{path}:{hashlib.sha256((root / path).read_bytes()).hexdigest()}\n"

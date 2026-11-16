@@ -6,7 +6,8 @@
 # an editable checkout's sources (`solprop_native._build._source_digest` computes it in
 # Python: keep the two in step). The record is one "{path}:{sha256 of its bytes}\n" for
 # CMakeLists.txt and each file these patterns match, the paths relative to native/ and
-# sorted bytewise; the digest is the SHA-256 of the record.
+# sorted bytewise; the digest is the SHA-256 of the record. The module patterns match in
+# their own directory only, not below it.
 #
 # CMakeLists.txt includes this file for the patterns. A custom command runs it as a script
 # to write the translation unit that holds the digest, so an edit recompiles that one file
@@ -16,6 +17,7 @@
 set(SOLPROP_NATIVE_DIGEST_GLOBS
     src/*.cpp src/*.hpp src/*.h src/*.inc
     include/*.cpp include/*.hpp include/*.h include/*.inc)
+set(SOLPROP_NATIVE_DIGEST_MODULE_GLOBS cmake/*.cmake)
 if(NOT CMAKE_SCRIPT_MODE_FILE)
   return()
 endif()
@@ -24,6 +26,10 @@ cmake_policy(VERSION 3.23...4.4)
 list(TRANSFORM SOLPROP_NATIVE_DIGEST_GLOBS PREPEND "${SOURCE_ROOT}/" OUTPUT_VARIABLE globs)
 file(GLOB_RECURSE sources RELATIVE "${SOURCE_ROOT}" ${globs})
 list(APPEND sources CMakeLists.txt)
+list(TRANSFORM SOLPROP_NATIVE_DIGEST_MODULE_GLOBS PREPEND "${SOURCE_ROOT}/"
+     OUTPUT_VARIABLE module_globs)
+file(GLOB modules LIST_DIRECTORIES false RELATIVE "${SOURCE_ROOT}" ${module_globs})
+list(APPEND sources ${modules})
 list(SORT sources COMPARE STRING CASE SENSITIVE)
 set(record "")
 foreach(source IN LISTS sources)

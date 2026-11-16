@@ -30,6 +30,8 @@ option(SOLPROP_NATIVE_ENABLE_CUDA "Use CUDA in Kokkos and cuFFT" OFF)
 option(SOLPROP_NATIVE_ENABLE_HIP "Use HIP in Kokkos and rocFFT" OFF)
 option(SOLPROP_NATIVE_ENABLE_COVERAGE
        "Instrument project CPU sources with Clang source-based atomic coverage" OFF)
+# The source digest's patterns, which the coverage hash below shares.
+include(cmake/SourceDigest.cmake)
 set(SOLPROP_NATIVE_COVERAGE_SOURCE_HASH "")
 if(SOLPROP_NATIVE_ENABLE_COVERAGE)
   if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^(Clang|AppleClang)$" OR
@@ -42,12 +44,11 @@ if(SOLPROP_NATIVE_ENABLE_COVERAGE)
       -O1 -g -fprofile-instr-generate -fcoverage-mapping -fprofile-update=atomic)
   set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
   set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE OFF)
-  # The source digest's set (cmake/SourceDigest.cmake), src/general/'s headers included.
+  # The source digest's C++ set (cmake/SourceDigest.cmake), src/general/'s headers included.
+  list(TRANSFORM SOLPROP_NATIVE_DIGEST_GLOBS PREPEND "${PROJECT_SOURCE_DIR}/"
+       OUTPUT_VARIABLE _coverage_globs)
   file(GLOB_RECURSE _coverage_sources CONFIGURE_DEPENDS RELATIVE "${PROJECT_SOURCE_DIR}"
-    "${PROJECT_SOURCE_DIR}/src/*.cpp" "${PROJECT_SOURCE_DIR}/src/*.hpp"
-    "${PROJECT_SOURCE_DIR}/src/*.h" "${PROJECT_SOURCE_DIR}/src/*.inc"
-    "${PROJECT_SOURCE_DIR}/include/*.cpp" "${PROJECT_SOURCE_DIR}/include/*.hpp"
-    "${PROJECT_SOURCE_DIR}/include/*.h" "${PROJECT_SOURCE_DIR}/include/*.inc")
+    ${_coverage_globs})
   list(SORT _coverage_sources)
   set(_coverage_source_record "")
   foreach(_source IN LISTS _coverage_sources)
@@ -369,63 +370,8 @@ if(SOLPROP_NATIVE_ENABLE_COVERAGE)
   string(APPEND SOLPROP_NATIVE_COMPILER_FLAGS " ${_coverage_flags_record}")
 endif()
 
-if(SOLPROP_NATIVE_ENABLE_CLANG_TIDY)
-  # The development group's pinned clang-tidy, in the environment beside the Python
-  # this build uses, before any machine's LLVM: each LLVM release adds checks.
-  get_filename_component(_python_bin "${Python_EXECUTABLE}" DIRECTORY)
-  find_program(SOLPROP_NATIVE_CLANG_TIDY clang-tidy
-               HINTS "${_python_bin}"
-                     /opt/homebrew/opt/llvm/bin
-                     /usr/local/opt/llvm/bin
-               REQUIRED)
-  execute_process(COMMAND "${SOLPROP_NATIVE_CLANG_TIDY}" --version
-                  OUTPUT_VARIABLE _clang_tidy_version OUTPUT_STRIP_TRAILING_WHITESPACE)
-  string(REGEX MATCH "version [0-9.]+" _clang_tidy_version "${_clang_tidy_version}")
-  message(STATUS "clang-tidy: ${SOLPROP_NATIVE_CLANG_TIDY} (${_clang_tidy_version})")
-  set(SOLPROP_NATIVE_CLANG_TIDY_COMMAND
-      "${SOLPROP_NATIVE_CLANG_TIDY}"
-      "--config-file=${PROJECT_SOURCE_DIR}/.clang-tidy"
-      "--header-filter=^${PROJECT_SOURCE_DIR}/(include|src|tests)/.*")
-  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    # The GCC-only warnings in the compile commands are unknown to clang-tidy's parser.
-    list(APPEND SOLPROP_NATIVE_CLANG_TIDY_COMMAND "--extra-arg=-Wno-unknown-warning-option")
-    execute_process(
-      COMMAND "${CMAKE_CXX_COMPILER}" -print-file-name=include
-      OUTPUT_VARIABLE SOLPROP_NATIVE_GNU_INCLUDE_DIR
-      OUTPUT_STRIP_TRAILING_WHITESPACE
-      COMMAND_ERROR_IS_FATAL ANY)
-    if(EXISTS "${SOLPROP_NATIVE_GNU_INCLUDE_DIR}/omp.h")
-      # Parse with the compiling GCC's own libstdc++ rather than whichever GCC clang
-      # would find first: a newer GCC's omp.h includes libstdc++ internals that an
-      # older system GCC's headers do not have.
-      get_filename_component(SOLPROP_NATIVE_GNU_INSTALL_DIR
-                             "${SOLPROP_NATIVE_GNU_INCLUDE_DIR}" DIRECTORY)
-      list(APPEND SOLPROP_NATIVE_CLANG_TIDY_COMMAND
-           "--extra-arg=--gcc-install-dir=${SOLPROP_NATIVE_GNU_INSTALL_DIR}"
-           # After clang's own resource headers, so that tidy finds GCC's omp.h but
-           # parses clang's <immintrin.h>, not GCC's (clang 18 cannot parse GCC 13's).
-           "--extra-arg=-idirafter${SOLPROP_NATIVE_GNU_INCLUDE_DIR}"
-           # Clang 18 does not parse GCC 13's cleanup-function argument to
-           # the malloc attribute. This affects tidy's parser only; GNU C++
-           # still sees the unmodified OpenMP header and compilation flags.
-           "--extra-arg=-D__malloc__(...)=__malloc__")
-    endif()
-  endif()
-  if(APPLE)
-    # Homebrew's Clang finds the macOS SDK from its own configuration file, which the
-    # PyPI clang-tidy does not read.
-    set(_tidy_sysroot "${CMAKE_OSX_SYSROOT}")
-    if(NOT _tidy_sysroot)
-      execute_process(COMMAND xcrun --show-sdk-path OUTPUT_VARIABLE _tidy_sysroot
-                      OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
-    endif()
-    list(APPEND SOLPROP_NATIVE_CLANG_TIDY_COMMAND "--extra-arg=-isysroot${_tidy_sysroot}")
-  endif()
-  # The command the build runs, the resolved binary first, one argument per line, for
-  # native/scripts/tidy.sh (`poe tidy-native`) and the weekly include-cleaner report.
-  list(JOIN SOLPROP_NATIVE_CLANG_TIDY_COMMAND "\n" _tidy_command)
-  file(WRITE "${PROJECT_BINARY_DIR}/clang_tidy_command.txt" "${_tidy_command}\n")
-endif()
+# clang-tidy while compiling, when SOLPROP_NATIVE_ENABLE_CLANG_TIDY asks for it.
+include(cmake/ClangTidy.cmake)
 
 function(solprop_native_configure_project_target target)
   target_compile_features(${target} PUBLIC cxx_std_20)
@@ -484,90 +430,6 @@ if(APPLE AND SOLPROP_NATIVE_ENABLE_OPENMP)
       "Homebrew libomp headers" FORCE)
 endif()
 
-if(SOLPROP_NATIVE_ENABLE_CUDA AND APPLE)
-  message(FATAL_ERROR "The CUDA build path is supported on Linux only.")
-endif()
-
-if(SOLPROP_NATIVE_ENABLE_HIP AND APPLE)
-  message(FATAL_ERROR "The HIP build path is supported on Linux only.")
-endif()
-
-if(SOLPROP_NATIVE_ENABLE_CUDA)
-  if(NOT SOLPROP_NATIVE_CUDA_ARCH MATCHES "^[A-Z0-9_]+$")
-    message(FATAL_ERROR
-      "SOLPROP_NATIVE_CUDA_ARCH must be a Kokkos architecture suffix, "
-      "for example HOPPER90.")
-  endif()
-
-  # nvcc_wrapper uses CUDA_ROOT when it is exported, and otherwise finds nvcc
-  # on PATH. CUDAToolkit_ROOT/CUDA_ROOT also guide Kokkos FFT's
-  # find_package(CUDAToolkit), which supplies CUDA::cufft.
-  if(CUDAToolkit_ROOT AND NOT CUDA_ROOT)
-    set(CUDA_ROOT "${CUDAToolkit_ROOT}" CACHE PATH "CUDA Toolkit root")
-  endif()
-  find_program(SOLPROP_NATIVE_NVCC nvcc
-               HINTS "${CUDA_ROOT}/bin" "$ENV{CUDA_ROOT}/bin"
-                     /opt/cuda/bin /usr/local/cuda/bin
-               REQUIRED)
-  # CUDA 12.8 is the first toolkit whose host-compiler table admits GCC 14 (12.6 stops
-  # at GCC 13.2); the qualified reference is CUDA 13 with GCC 14.
-  execute_process(COMMAND "${SOLPROP_NATIVE_NVCC}" --version
-                  OUTPUT_VARIABLE _solprop_nvcc_version RESULT_VARIABLE _solprop_nvcc_result)
-  string(REGEX MATCH "release ([0-9]+\\.[0-9]+)" _solprop_nvcc_match
-         "${_solprop_nvcc_version}")
-  if(NOT _solprop_nvcc_result EQUAL 0 OR NOT _solprop_nvcc_match)
-    message(FATAL_ERROR "Could not read the CUDA toolkit version from ${SOLPROP_NATIVE_NVCC}.")
-  endif()
-  set(SOLPROP_NATIVE_CUDA_TOOLKIT_VERSION "${CMAKE_MATCH_1}")
-  if(SOLPROP_NATIVE_CUDA_TOOLKIT_VERSION VERSION_LESS 12.8)
-    message(FATAL_ERROR
-      "CUDA builds require CUDA 12.8 or newer (the first to support GCC 14 as the host "
-      "compiler); found ${SOLPROP_NATIVE_CUDA_TOOLKIT_VERSION} at ${SOLPROP_NATIVE_NVCC}.")
-  endif()
-  if(NOT CUDA_ROOT)
-    get_filename_component(SOLPROP_NATIVE_CUDA_BIN "${SOLPROP_NATIVE_NVCC}" DIRECTORY)
-    get_filename_component(SOLPROP_NATIVE_CUDA_ROOT "${SOLPROP_NATIVE_CUDA_BIN}" DIRECTORY)
-    set(CUDA_ROOT "${SOLPROP_NATIVE_CUDA_ROOT}" CACHE PATH "CUDA Toolkit root")
-  endif()
-  set(CUDAToolkit_ROOT "${CUDA_ROOT}" CACHE PATH "CUDA Toolkit root" FORCE)
-  set("Kokkos_ARCH_${SOLPROP_NATIVE_CUDA_ARCH}" ON CACHE BOOL
-      "Target CUDA architecture" FORCE)
-  message(STATUS
-    "CUDA backend enabled: nvcc=${SOLPROP_NATIVE_NVCC}, "
-    "architecture=${SOLPROP_NATIVE_CUDA_ARCH}")
-endif()
-
-if(SOLPROP_NATIVE_ENABLE_HIP)
-  if(NOT SOLPROP_NATIVE_HIP_ARCH MATCHES "^[A-Z0-9_]+$")
-    message(FATAL_ERROR
-      "SOLPROP_NATIVE_HIP_ARCH must be a Kokkos architecture suffix, "
-      "for example AMD_GFX942.")
-  endif()
-  set("Kokkos_ARCH_${SOLPROP_NATIVE_HIP_ARCH}" ON CACHE BOOL
-      "Target HIP architecture" FORCE)
-  message(STATUS "HIP backend enabled: architecture=${SOLPROP_NATIVE_HIP_ARCH}")
-endif()
-
-if(SOLPROP_NATIVE_ENABLE_OPENMP)
-  set(Kokkos_ENABLE_SERIAL OFF CACHE BOOL "Disable the Serial backend" FORCE)
-  set(Kokkos_ENABLE_OPENMP ON CACHE BOOL "Enable the OpenMP backend" FORCE)
-else()
-  set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable the Serial backend" FORCE)
-  set(Kokkos_ENABLE_OPENMP OFF CACHE BOOL "Disable the OpenMP backend" FORCE)
-endif()
-set(Kokkos_ARCH_NATIVE ${SOLPROP_NATIVE_HOST_ARCH} CACHE BOOL
-    "Optimize Kokkos host code for the build machine" FORCE)
-set(Kokkos_ENABLE_AGGRESSIVE_VECTORIZATION
-    ${SOLPROP_NATIVE_ENABLE_AGGRESSIVE_VECTORIZATION} CACHE BOOL
-    "Enable aggressive vectorization of independent Kokkos loops" FORCE)
-set(Kokkos_ENABLE_THREADS OFF CACHE BOOL "OpenMP is the CPU host space" FORCE)
-set(Kokkos_ENABLE_CUDA ${SOLPROP_NATIVE_ENABLE_CUDA} CACHE BOOL
-    "Enable the CUDA backend" FORCE)
-set(Kokkos_ENABLE_HIP ${SOLPROP_NATIVE_ENABLE_HIP} CACHE BOOL
-    "Enable the HIP backend" FORCE)
-set(Kokkos_ENABLE_SYCL OFF CACHE BOOL "SYCL is outside the supported backends" FORCE)
-set(Kokkos_ENABLE_TESTS OFF CACHE BOOL "Do not build Kokkos tests" FORCE)
-
 # CPU IPO is checked rather than assuming that the compiler, archiver, and
 # linker all support LTO. The CUDA path already compiles each device kernel in
 # one translation unit and uses an explicit GPU architecture; generic C++ IPO
@@ -587,216 +449,9 @@ if(SOLPROP_NATIVE_ENABLE_IPO AND NOT SOLPROP_NATIVE_ENABLE_COVERAGE AND
   endif()
 endif()
 
-# Kokkos's host waits back off with sub-millisecond sleeps, which Windows rounds up to its
-# timer resolution; cmake/KokkosWindowsHostWait.cmake makes them yield there.
-FetchContent_Declare(
-  kokkos
-  GIT_REPOSITORY https://github.com/kokkos/kokkos.git
-  GIT_TAG 5.2.1
-  GIT_SHALLOW TRUE
-  GIT_PROGRESS TRUE
-  PATCH_COMMAND "${CMAKE_COMMAND}" -P "${PROJECT_SOURCE_DIR}/cmake/KokkosWindowsHostWait.cmake"
-  UPDATE_DISCONNECTED TRUE
-)
-FetchContent_MakeAvailable(kokkos)
-# FetchContent's EXCLUDE_FROM_ALL argument was only added in CMake 3.28.
-# Setting the directory property retains CMake 3.23 compatibility and keeps
-# dependency install rules out of the Python wheel.
-set_property(DIRECTORY "${kokkos_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
-
-# The modal transforms use the ordinary dense GEMM interface at solprop's skinny-wide
-# transform shapes.  Only BLAS is enabled; sparse, graph, batched, LAPACK, tests,
-# examples, and performance tests are deliberately absent from this package.
-set(KokkosKernels_ENABLE_ALL_COMPONENTS OFF CACHE BOOL
-    "Build only selected KokkosKernels components" FORCE)
-set(KokkosKernels_ENABLE_COMPONENT_BLAS ON CACHE BOOL
-    "Build the KokkosKernels BLAS component" FORCE)
-set(KokkosKernels_ENABLE_COMPONENT_BATCHED OFF CACHE BOOL
-    "No batched dense kernels are used" FORCE)
-set(KokkosKernels_ENABLE_COMPONENT_SPARSE OFF CACHE BOOL
-    "No sparse kernels are used" FORCE)
-set(KokkosKernels_ENABLE_COMPONENT_GRAPH OFF CACHE BOOL
-    "No graph kernels are used" FORCE)
-set(KokkosKernels_ENABLE_COMPONENT_LAPACK OFF CACHE BOOL
-    "No LAPACK kernels are used" FORCE)
-set(KokkosKernels_ENABLE_TESTS OFF CACHE BOOL
-    "Do not build KokkosKernels tests" FORCE)
-set(KokkosKernels_ENABLE_EXAMPLES OFF CACHE BOOL
-    "Do not build KokkosKernels examples" FORCE)
-set(KokkosKernels_ENABLE_PERFTESTS OFF CACHE BOOL
-    "Do not build KokkosKernels benchmarks" FORCE)
-set(KokkosKernels_NO_DEFAULT_CUDA_TPLS ON CACHE BOOL
-    "Enable only the explicitly requested CUDA TPL" FORCE)
-set(KokkosKernels_NO_DEFAULT_ROCM_TPLS ON CACHE BOOL
-    "Enable only the explicitly requested ROCm TPL" FORCE)
-if(SOLPROP_NATIVE_ENABLE_CUDA)
-  set(KokkosKernels_ENABLE_TPL_BLAS OFF CACHE BOOL
-      "Host BLAS cannot access CUDA device memory" FORCE)
-  set(KokkosKernels_ENABLE_TPL_CUBLAS ${SOLPROP_NATIVE_ENABLE_TPL_BLAS}
-      CACHE BOOL "Enable cuBLAS for eligible CUDA GEMMs" FORCE)
-  set(KokkosKernels_ENABLE_TPL_ROCBLAS OFF CACHE BOOL
-      "rocBLAS is unavailable in a CUDA build" FORCE)
-elseif(SOLPROP_NATIVE_ENABLE_HIP)
-  set(KokkosKernels_ENABLE_TPL_BLAS OFF CACHE BOOL
-      "Host BLAS cannot access HIP device memory" FORCE)
-  set(KokkosKernels_ENABLE_TPL_CUBLAS OFF CACHE BOOL
-      "cuBLAS is unavailable in a HIP build" FORCE)
-  set(KokkosKernels_ENABLE_TPL_ROCBLAS ${SOLPROP_NATIVE_ENABLE_TPL_BLAS}
-      CACHE BOOL "Enable rocBLAS for eligible HIP GEMMs" FORCE)
-else()
-  set(KokkosKernels_ENABLE_TPL_BLAS ${SOLPROP_NATIVE_ENABLE_TPL_BLAS}
-      CACHE BOOL "Enable the selected host BLAS" FORCE)
-  set(KokkosKernels_ENABLE_TPL_CUBLAS OFF CACHE BOOL
-      "cuBLAS is unavailable in a CPU build" FORCE)
-  set(KokkosKernels_ENABLE_TPL_ROCBLAS OFF CACHE BOOL
-      "rocBLAS is unavailable in a CPU build" FORCE)
-endif()
-set(KokkosKernels_ENABLE_TPL_LAPACK OFF CACHE BOOL
-    "BLAS must not pull in unused LAPACK" FORCE)
-if(SOLPROP_NATIVE_BLAS_LIBRARIES)
-  set(SOLPROP_NATIVE_BLAS_NAMES)
-  set(SOLPROP_NATIVE_BLAS_LIBRARY_DIRS)
-  foreach(SOLPROP_NATIVE_BLAS_LIBRARY IN LISTS SOLPROP_NATIVE_BLAS_LIBRARIES)
-    if(IS_ABSOLUTE "${SOLPROP_NATIVE_BLAS_LIBRARY}")
-      get_filename_component(SOLPROP_NATIVE_BLAS_LIBRARY_DIR
-                             "${SOLPROP_NATIVE_BLAS_LIBRARY}" DIRECTORY)
-      get_filename_component(SOLPROP_NATIVE_BLAS_NAME
-                             "${SOLPROP_NATIVE_BLAS_LIBRARY}" NAME)
-      # find_library adds a lib prefix back on POSIX only; Windows names stay whole.
-      if(NOT WIN32)
-        string(REGEX REPLACE "^lib" "" SOLPROP_NATIVE_BLAS_NAME
-                             "${SOLPROP_NATIVE_BLAS_NAME}")
-      endif()
-      string(REGEX REPLACE "\\.(a|lib|dylib|framework|so(\\.[0-9.]+)?)$" ""
-                           SOLPROP_NATIVE_BLAS_NAME
-                           "${SOLPROP_NATIVE_BLAS_NAME}")
-      list(APPEND SOLPROP_NATIVE_BLAS_LIBRARY_DIRS
-           "${SOLPROP_NATIVE_BLAS_LIBRARY_DIR}")
-      list(APPEND SOLPROP_NATIVE_BLAS_NAMES "${SOLPROP_NATIVE_BLAS_NAME}")
-    else()
-      list(APPEND SOLPROP_NATIVE_BLAS_NAMES
-           "${SOLPROP_NATIVE_BLAS_LIBRARY}")
-    endif()
-  endforeach()
-  list(REMOVE_DUPLICATES SOLPROP_NATIVE_BLAS_LIBRARY_DIRS)
-  set(BLAS_LIBRARIES "${SOLPROP_NATIVE_BLAS_NAMES}" CACHE STRING
-      "Explicit BLAS library names" FORCE)
-  if(SOLPROP_NATIVE_BLAS_LIBRARY_DIRS)
-    set(BLAS_LIBRARY_DIRS "${SOLPROP_NATIVE_BLAS_LIBRARY_DIRS}" CACHE STRING
-        "Explicit BLAS library directories" FORCE)
-  endif()
-endif()
-
-FetchContent_Declare(
-  kokkoskernels
-  GIT_REPOSITORY https://github.com/kokkos/kokkos-kernels.git
-  GIT_TAG 5.2.0
-  GIT_SHALLOW TRUE
-  GIT_PROGRESS TRUE
-  PATCH_COMMAND "${CMAKE_COMMAND}" -P "${PROJECT_SOURCE_DIR}/cmake/KokkosKernelsWindowsArm.cmake"
-)
-FetchContent_MakeAvailable(kokkoskernels)
-set_property(DIRECTORY "${kokkoskernels_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
-
-set(SOLPROP_NATIVE_BLAS_BACKEND "none")
-set(SOLPROP_NATIVE_BLAS_THREAD_POLICY "disabled")
-if(SOLPROP_NATIVE_ENABLE_TPL_BLAS)
-  if(SOLPROP_NATIVE_ENABLE_CUDA)
-    set(SOLPROP_NATIVE_BLAS_BACKEND "cuBLAS")
-    set(SOLPROP_NATIVE_BLAS_THREAD_POLICY "CUDA execution-space stream")
-  elseif(SOLPROP_NATIVE_ENABLE_HIP)
-    set(SOLPROP_NATIVE_BLAS_BACKEND "rocBLAS")
-    set(SOLPROP_NATIVE_BLAS_THREAD_POLICY "HIP execution-space stream")
-  elseif(SOLPROP_NATIVE_BLAS_VENDOR STREQUAL "MKL")
-    set(SOLPROP_NATIVE_BLAS_BACKEND "MKL")
-    set(SOLPROP_NATIVE_BLAS_THREAD_POLICY "MKL_DOMAIN_NUM_THREADS at process start")
-  elseif(SOLPROP_NATIVE_BLAS_VENDOR STREQUAL "OPENBLAS" OR BLAS_openblas_LIBRARY OR
-         "${BLAS_LIBRARIES}" MATCHES "[Oo]pen[Bb][Ll][Aa][Ss]")
-    set(SOLPROP_NATIVE_BLAS_BACKEND "OpenBLAS")
-    set(SOLPROP_NATIVE_BLAS_THREAD_POLICY "OPENBLAS_NUM_THREADS at process start")
-  elseif(APPLE AND NOT SOLPROP_NATIVE_BLAS_LIBRARIES)
-    set(SOLPROP_NATIVE_BLAS_BACKEND "Accelerate")
-    set(SOLPROP_NATIVE_BLAS_THREAD_POLICY "system-managed")
-  else()
-    set(SOLPROP_NATIVE_BLAS_BACKEND "host BLAS")
-    set(SOLPROP_NATIVE_BLAS_THREAD_POLICY "provider environment at process start")
-  endif()
-endif()
-message(STATUS
-  "solprop-native build profile: ${SOLPROP_NATIVE_BUILD_PROFILE}; "
-  "BLAS ${SOLPROP_NATIVE_BLAS_BACKEND} (${SOLPROP_NATIVE_BLAS_SELECTION}); "
-  "native architecture ${SOLPROP_NATIVE_HOST_ARCH}; "
-  "CPU baseline ${SOLPROP_NATIVE_CPU_BASELINE}; "
-  "IPO ${SOLPROP_NATIVE_IPO_AVAILABLE} (Release builds)")
-
-if(SOLPROP_NATIVE_ENABLE_CUDA)
-  set(KokkosFFT_ENABLE_FFTW OFF CACHE BOOL
-      "Do not require FFTW for a CUDA-only FFT path" FORCE)
-  set(KokkosFFT_ENABLE_CUFFT ON CACHE BOOL "Use cuFFT" FORCE)
-  set(KokkosFFT_ENABLE_ROCFFT OFF CACHE BOOL "Disable rocFFT" FORCE)
-  set(KokkosFFT_ENABLE_HIPFFT OFF CACHE BOOL "Disable hipFFT" FORCE)
-elseif(SOLPROP_NATIVE_ENABLE_HIP)
-  set(KokkosFFT_ENABLE_FFTW OFF CACHE BOOL
-      "Do not require FFTW for a HIP-only FFT path" FORCE)
-  set(KokkosFFT_ENABLE_CUFFT OFF CACHE BOOL "Disable cuFFT" FORCE)
-  set(KokkosFFT_ENABLE_ROCFFT ON CACHE BOOL "Use rocFFT" FORCE)
-  set(KokkosFFT_ENABLE_HIPFFT OFF CACHE BOOL "Use rocFFT rather than hipFFT" FORCE)
-else()
-  set(KokkosFFT_ENABLE_FFTW ON CACHE BOOL
-      "Use FFTW as the host FFT backend" FORCE)
-  set(KokkosFFT_ENABLE_CUFFT OFF CACHE BOOL "Disable cuFFT" FORCE)
-  set(KokkosFFT_ENABLE_ROCFFT OFF CACHE BOOL "Disable rocFFT" FORCE)
-  set(KokkosFFT_ENABLE_HIPFFT OFF CACHE BOOL "Disable hipFFT" FORCE)
-endif()
-set(KokkosFFT_ENABLE_EXAMPLES OFF CACHE BOOL "Do not build Kokkos FFT examples" FORCE)
-set(KokkosFFT_ENABLE_TESTS OFF CACHE BOOL "Do not build Kokkos FFT tests" FORCE)
-set(KokkosFFT_ENABLE_BENCHMARK OFF CACHE BOOL "Do not build Kokkos FFT benchmarks" FORCE)
-set(KokkosFFT_ENABLE_DISTRIBUTED OFF CACHE BOOL "Disable distributed FFTs" FORCE)
-
-FetchContent_Declare(
-  kokkosfft
-  GIT_REPOSITORY https://github.com/kokkos/kokkos-fft.git
-  GIT_TAG v2.0.0
-  GIT_SHALLOW TRUE
-  GIT_SUBMODULES ""
-  GIT_PROGRESS TRUE
-)
-FetchContent_MakeAvailable(kokkosfft)
-set_property(DIRECTORY "${kokkosfft_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
-
-include(cmake/VectorMath.cmake)
-
-# nvcc_wrapper loses spaces embedded in quoted preprocessor definitions. Encode
-# them for the compiler command and restore them while forming the build record.
-string(REPLACE " " "__SOLPROP_SPACE__" SOLPROP_NATIVE_COMPILER_FLAGS_ENCODED
-  "${SOLPROP_NATIVE_COMPILER_FLAGS}")
-string(REPLACE " " "__SOLPROP_SPACE__" SOLPROP_NATIVE_BLAS_THREAD_POLICY_ENCODED
-  "${SOLPROP_NATIVE_BLAS_THREAD_POLICY}")
-string(REPLACE " " "__SOLPROP_SPACE__" SOLPROP_NATIVE_BLAS_SELECTION_ENCODED
-  "${SOLPROP_NATIVE_BLAS_SELECTION}")
-
-function(solprop_native_mark_dependency_headers_system target)
-  target_include_directories(${target} SYSTEM PRIVATE
-    "${kokkos_BINARY_DIR}"
-    "${kokkos_BINARY_DIR}/core/src"
-    "${kokkos_SOURCE_DIR}/core/src"
-    "${kokkos_BINARY_DIR}/containers/src"
-    "${kokkos_SOURCE_DIR}/containers/src"
-    "${kokkos_BINARY_DIR}/algorithms/src"
-    "${kokkos_SOURCE_DIR}/algorithms/src"
-    "${kokkos_BINARY_DIR}/simd/src"
-    "${kokkos_SOURCE_DIR}/simd/src"
-    "${kokkosfft_BINARY_DIR}/fft/src"
-    "${kokkosfft_SOURCE_DIR}/fft/src"
-    "${kokkosfft_SOURCE_DIR}/common/src"
-    "${kokkoskernels_BINARY_DIR}"
-    "${kokkoskernels_SOURCE_DIR}/blas/src"
-    "${kokkoskernels_SOURCE_DIR}/blas/impl"
-    "${kokkoskernels_SOURCE_DIR}/blas/tpls"
-    "${kokkoskernels_SOURCE_DIR}/common/src"
-    "${kokkoskernels_SOURCE_DIR}/common/impl"
-  )
-endfunction()
+# The fetched dependencies, configured for the build: Kokkos (with the CUDA or HIP
+# toolchain of a device build), Kokkos Kernels and its BLAS, Kokkos-FFT, vector maths.
+include(cmake/Dependencies.cmake)
 
 if(SOLPROP_NATIVE_ENABLE_COVERAGE)
   # Keep label collection in a separate, uninstrumented Tools module. The runner
@@ -884,12 +539,16 @@ solprop_native_link_vector_math(solprop_native_core)
 solprop_native_mark_dependency_headers_system(solprop_native_core)
 solprop_native_configure_project_target(solprop_native_core)
 
-# What the extension is compiled from: this file and the sources the digest's patterns
-# match (cmake/SourceDigest.cmake says why a custom command and not a configure step).
-include(cmake/SourceDigest.cmake)
+# What the extension is compiled from: this file, its cmake/ modules and the sources the
+# digest's patterns match (cmake/SourceDigest.cmake says why a custom command and not a
+# configure step).
 list(TRANSFORM SOLPROP_NATIVE_DIGEST_GLOBS PREPEND "${PROJECT_SOURCE_DIR}/"
      OUTPUT_VARIABLE _source_digest_globs)
 file(GLOB_RECURSE _source_digest_inputs CONFIGURE_DEPENDS ${_source_digest_globs})
+list(TRANSFORM SOLPROP_NATIVE_DIGEST_MODULE_GLOBS PREPEND "${PROJECT_SOURCE_DIR}/"
+     OUTPUT_VARIABLE _source_digest_module_globs)
+file(GLOB _source_digest_modules CONFIGURE_DEPENDS LIST_DIRECTORIES false
+     ${_source_digest_module_globs})
 set(SOLPROP_NATIVE_SOURCE_DIGEST_CPP "${CMAKE_CURRENT_BINARY_DIR}/source_digest.cpp")
 add_custom_command(
   OUTPUT "${SOLPROP_NATIVE_SOURCE_DIGEST_CPP}"
@@ -898,6 +557,7 @@ add_custom_command(
           -P "${PROJECT_SOURCE_DIR}/cmake/SourceDigest.cmake"
   DEPENDS "${PROJECT_SOURCE_DIR}/CMakeLists.txt"
           "${PROJECT_SOURCE_DIR}/cmake/SourceDigest.cmake" ${_source_digest_inputs}
+          ${_source_digest_modules}
   COMMENT "Hashing the native sources"
   VERBATIM
 )
@@ -918,37 +578,9 @@ if(WIN32 AND SOLPROP_NATIVE_BLAS_STATIC)
     "LINKER:/EXPORT:openblas_get_num_threads"
     "LINKER:/EXPORT:openblas_set_num_threads")
 endif()
-target_compile_definitions(_core PRIVATE
-  SOLPROP_NATIVE_BACKEND_COMMIT="${SOLPROP_NATIVE_BACKEND_COMMIT}"
-  SOLPROP_NATIVE_SOLPROP_BUILT_AGAINST="${SOLPROP_NATIVE_SOLPROP_BUILT_AGAINST}"
-  SOLPROP_NATIVE_KOKKOS_VERSION="5.2.1"
-  SOLPROP_NATIVE_KOKKOSFFT_VERSION="2.0.0"
-  SOLPROP_NATIVE_KOKKOSKERNELS_VERSION="5.2.0"
-  SOLPROP_NATIVE_SLEEF_VERSION="${SOLPROP_NATIVE_SLEEF_VERSION}"
-  SOLPROP_NATIVE_TPL_BLAS_ENABLED=$<BOOL:${SOLPROP_NATIVE_ENABLE_TPL_BLAS}>
-  SOLPROP_NATIVE_BLAS_BACKEND="${SOLPROP_NATIVE_BLAS_BACKEND}"
-  SOLPROP_NATIVE_BLAS_THREAD_POLICY="${SOLPROP_NATIVE_BLAS_THREAD_POLICY_ENCODED}"
-  SOLPROP_NATIVE_BLAS_SELECTION="${SOLPROP_NATIVE_BLAS_SELECTION_ENCODED}"
-  SOLPROP_NATIVE_BUILD_PROFILE="${SOLPROP_NATIVE_BUILD_PROFILE}"
-  SOLPROP_NATIVE_CPU_BASELINE="${SOLPROP_NATIVE_CPU_BASELINE}"
-  SOLPROP_NATIVE_BLAS_SYMBOL_PREFIX="${SOLPROP_NATIVE_BLAS_SYMBOL_PREFIX}"
-  SOLPROP_NATIVE_RAMAN_FFT_PROVIDER="${SOLPROP_NATIVE_RAMAN_FFT_PROVIDER}"
-  SOLPROP_NATIVE_HOST_FFT_BACKEND="${SOLPROP_NATIVE_HOST_FFT_BACKEND}"
-  SOLPROP_NATIVE_HOST_FFT_PLANNER="${SOLPROP_NATIVE_HOST_FFT_PLANNER}"
-  SOLPROP_NATIVE_NANOBIND_VERSION="${SOLPROP_NATIVE_NANOBIND_VERSION}"
-  SOLPROP_NATIVE_DEVICE_BACKEND="${SOLPROP_NATIVE_DEVICE_BACKEND}"
-  SOLPROP_NATIVE_DEVICE_ARCH="${SOLPROP_NATIVE_DEVICE_ARCH}"
-  SOLPROP_NATIVE_DEVICE_TEAM_SIZE_RECORD=${SOLPROP_NATIVE_DEVICE_TEAM_SIZE}
-  SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE_RECORD=${SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE}
-  SOLPROP_NATIVE_COMPILER_FLAGS="${SOLPROP_NATIVE_COMPILER_FLAGS_ENCODED}"
-  SOLPROP_NATIVE_BUILD_TYPE="$<CONFIG>"
-  SOLPROP_NATIVE_COVERAGE_INSTRUMENTED=$<BOOL:${SOLPROP_NATIVE_ENABLE_COVERAGE}>
-  SOLPROP_NATIVE_COVERAGE_SOURCE_HASH="${SOLPROP_NATIVE_COVERAGE_SOURCE_HASH}"
-  SOLPROP_NATIVE_FP_CONTRACT_RECORD="${SOLPROP_NATIVE_FP_CONTRACT_FLAG}"
-  SOLPROP_NATIVE_HOST_ARCH_ENABLED=$<BOOL:${SOLPROP_NATIVE_HOST_ARCH}>
-  SOLPROP_NATIVE_AGGRESSIVE_VECTORIZATION_ENABLED=$<BOOL:${SOLPROP_NATIVE_ENABLE_AGGRESSIVE_VECTORIZATION}>
-  SOLPROP_NATIVE_IPO_ENABLED=$<AND:$<BOOL:${SOLPROP_NATIVE_IPO_AVAILABLE}>,$<CONFIG:Release>>
-)
+
+# The build record, compiled into the extension as definitions.
+include(cmake/BuildRecord.cmake)
 
 if(BUILD_TESTING)
   set(INSTALL_GTEST OFF CACHE BOOL "Do not install the test-only GoogleTest" FORCE)
@@ -1019,117 +651,5 @@ if(BUILD_TESTING)
   )
 endif()
 
-if(SKBUILD)
-  # A local build's vendor BLAS (oneAPI's MKL, a private OpenBLAS) can live outside
-  # the loader's default path; the installed module keeps the directories it linked
-  # against, so it loads without the environment it was built in. The explicit BLAS
-  # directories are listed too: sourcing oneAPI puts MKL's directory on LIBRARY_PATH,
-  # which makes CMake treat it as implicit and leave it out of the link path.
-  set(SOLPROP_NATIVE_INSTALL_RPATH)
-  foreach(SOLPROP_NATIVE_RPATH_DIR IN LISTS SOLPROP_NATIVE_BLAS_LIBRARY_DIRS)
-    if(NOT SOLPROP_NATIVE_RPATH_DIR MATCHES "^/(usr/)?lib(64)?(/|$)")
-      list(APPEND SOLPROP_NATIVE_INSTALL_RPATH "${SOLPROP_NATIVE_RPATH_DIR}")
-    endif()
-  endforeach()
-  set(SOLPROP_NATIVE_INSTALL_LINK_PATH TRUE)
-  if(SOLPROP_NATIVE_VENDORED_LIBRARIES)
-    # A distribution build carries its BLAS beside the module: the build
-    # environment it linked against is gone once an isolated build finishes.
-    if(APPLE)
-      set(SOLPROP_NATIVE_INSTALL_RPATH "@loader_path")
-    else()
-      set(SOLPROP_NATIVE_INSTALL_RPATH "$ORIGIN")
-    endif()
-    set(SOLPROP_NATIVE_INSTALL_LINK_PATH FALSE)
-    # On Windows the wheel repair (delvewheel) copies the DLLs under unique names
-    # instead, so that they cannot be confused with another package's copies.
-    if(NOT WIN32)
-      install(FILES ${SOLPROP_NATIVE_VENDORED_LIBRARIES} DESTINATION solprop_native)
-    endif()
-  endif()
-  # The BLAS's licence travels with it, copied or (Windows) statically linked.
-  if(SOLPROP_NATIVE_VENDORED_LICENCE)
-    install(FILES "${SOLPROP_NATIVE_VENDORED_LICENCE}" DESTINATION solprop_native
-            RENAME ${SOLPROP_NATIVE_VENDORED_LICENCE_NAME})
-  endif()
-  set_target_properties(_core PROPERTIES
-    INSTALL_RPATH "${SOLPROP_NATIVE_INSTALL_RPATH}"
-    INSTALL_RPATH_USE_LINK_PATH ${SOLPROP_NATIVE_INSTALL_LINK_PATH})
-  install(TARGETS _core LIBRARY DESTINATION solprop_native)
-  # The package checks the processor against this before it loads the extension.
-  file(WRITE "${PROJECT_BINARY_DIR}/cpu_baseline.txt" "${SOLPROP_NATIVE_CPU_BASELINE}\n")
-  install(FILES "${PROJECT_BINARY_DIR}/cpu_baseline.txt" DESTINATION solprop_native
-          RENAME _cpu_baseline.txt)
-  # solprop SEP 46: the build's configuration, which a calibration's fingerprint reads
-  # without loading the extension (and its OpenMP runtime). A variant wheel's builds
-  # share it; the fingerprint also digests the chosen extension itself.
-  set(_build_record "{}")
-  foreach(_field IN ITEMS
-      "compiler_id;${CMAKE_CXX_COMPILER_ID}"
-      "compiler_version;${CMAKE_CXX_COMPILER_VERSION}"
-      "openmp_libraries;${OpenMP_CXX_LIB_NAMES}"
-      "fft_backend;${SOLPROP_NATIVE_HOST_FFT_BACKEND}"
-      "blas_backend;${SOLPROP_NATIVE_BLAS_BACKEND}"
-      # One GEMM provider remains (the vendor GEMM for an eligible transform, the
-      # custom kernels for the rest); the field stays for the records that hold it.
-      "gemm_provider;HYBRID"
-      "raman_fft_provider;${SOLPROP_NATIVE_RAMAN_FFT_PROVIDER}"
-      "vector_math;${SOLPROP_NATIVE_VECTOR_MATH}"
-      "build_profile;${SOLPROP_NATIVE_BUILD_PROFILE}"
-      "device_backend;${SOLPROP_NATIVE_DEVICE_BACKEND}"
-      "device_arch;${SOLPROP_NATIVE_DEVICE_ARCH}")
-    list(POP_FRONT _field _key)
-    string(REPLACE ";" "," _value "${_field}")
-    string(REPLACE "\\" "\\\\" _value "${_value}")
-    string(REPLACE "\"" "\\\"" _value "${_value}")
-    string(JSON _build_record SET "${_build_record}" "${_key}" "\"${_value}\"")
-  endforeach()
-  file(WRITE "${PROJECT_BINARY_DIR}/build_record.json" "${_build_record}\n")
-  install(FILES "${PROJECT_BINARY_DIR}/build_record.json" DESTINATION solprop_native
-          RENAME _build.json)
-  # Kokkos, Kokkos Kernels, Kokkos-FFT, SLEEF, nanobind and nanobind's robin_map are
-  # compiled into the extension, so the wheel carries their notices beside it. Kokkos-FFT is
-  # MIT OR Apache-2.0 WITH LLVM-exception; its MIT terms are the ones taken here.
-  install(FILES "${kokkos_SOURCE_DIR}/LICENSE" DESTINATION solprop_native
-          RENAME LICENSE-kokkos.txt)
-  install(FILES "${kokkoskernels_SOURCE_DIR}/LICENSE" DESTINATION solprop_native
-          RENAME LICENSE-kokkos-kernels.txt)
-  install(FILES "${kokkosfft_SOURCE_DIR}/LICENSES/MIT.txt" DESTINATION solprop_native
-          RENAME LICENSE-kokkos-fft.txt)
-  # SLEEF (the host vector maths, linked static) is under the Boost Software License.
-  if(SOLPROP_NATIVE_VECTOR_MATH STREQUAL "SLEEF")
-    install(FILES "${sleef_SOURCE_DIR}/LICENSE.txt" DESTINATION solprop_native
-            RENAME LICENSE-sleef.txt)
-  endif()
-  # nanobind's licence is in its distribution metadata; robin_map ships no licence
-  # file inside nanobind, and its MIT notice is the leading comment of its header.
-  execute_process(
-    COMMAND "${Python_EXECUTABLE}" -c [=[
-import importlib.metadata as metadata, pathlib, sys
-out = pathlib.Path(sys.argv[1])
-licence = next(f for f in metadata.files("nanobind") if f.name == "LICENSE")
-(out / "LICENSE-nanobind.txt").write_text(pathlib.Path(licence.locate()).read_text())
-header = pathlib.Path(sys.argv[2]).read_text().split("*/", 1)[0]
-lines = [line.strip().removeprefix("/**").removeprefix("*").removeprefix(" ")
-         for line in header.splitlines()]
-(out / "LICENSE-robin-map.txt").write_text("\n".join(lines).strip() + "\n")
-]=] "${PROJECT_BINARY_DIR}" "${nanobind_ROOT}/../ext/robin_map/include/tsl/robin_map.h"
-    COMMAND_ERROR_IS_FATAL ANY
-  )
-  install(FILES "${PROJECT_BINARY_DIR}/LICENSE-nanobind.txt"
-                "${PROJECT_BINARY_DIR}/LICENSE-robin-map.txt"
-          DESTINATION solprop_native)
-  # The wheel repair (auditwheel, delocate, delvewheel) copies FFTW and the OpenMP
-  # runtime into the wheel but not their licences; the release recipe's dependency
-  # scripts (native/ci/) collect those as LICENSE-*.txt in one directory, named here.
-  set(SOLPROP_NATIVE_BUNDLED_LICENCES "$ENV{SOLPROP_NATIVE_BUNDLED_LICENCES}" CACHE PATH
-      "Directory of LICENSE-*.txt files for the libraries the wheel repair bundles")
-  if(SOLPROP_NATIVE_BUNDLED_LICENCES)
-    file(GLOB _bundled_licences "${SOLPROP_NATIVE_BUNDLED_LICENCES}/LICENSE-*.txt")
-    if(NOT _bundled_licences)
-      message(FATAL_ERROR
-        "SOLPROP_NATIVE_BUNDLED_LICENCES=${SOLPROP_NATIVE_BUNDLED_LICENCES} holds no LICENSE-*.txt")
-    endif()
-    install(FILES ${_bundled_licences} DESTINATION solprop_native)
-  endif()
-endif()
+# The wheel's install rules, for a scikit-build-core build.
+include(cmake/Install.cmake)

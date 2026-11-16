@@ -192,7 +192,8 @@ python -c "import solprop_native as sn; sn.check_build(); print(sn.build_info().
 object suitable for a run log:
 
 - **provenance:** `package_version`, `git_commit` (with `+dirty` for a modified tree),
-  `source_digest` (the SHA-256 of the C++ sources and `CMakeLists.txt` it was compiled from),
+  `source_digest` (the SHA-256 of the C++ sources, `CMakeLists.txt` and the CMake modules
+  it was compiled from),
   `solprop_version_built_against`;
 - **dependencies:** `kokkos_version`, `kokkos_kernels_version`, `kokkos_fft_version`,
   `nanobind_version`;
@@ -334,7 +335,7 @@ the compiler, the profile or a library provider. The default build directory is
 
 ## Option reference
 
-The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.cmake`.
+The options are read by `native/CMakeLists.txt` and the modules it includes from `native/cmake/`.
 
 **Profile and optimisation**
 

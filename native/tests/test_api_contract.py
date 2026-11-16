@@ -241,6 +241,9 @@ def source_tree(tmp_path: Path) -> tuple[Path, list[str]]:
         "CMakeLists.txt": "project(p)\n",
         "README.md": "not compiled",
         "build/generated.cpp": "not a source: outside src and include",
+        "cmake/Module.cmake": "# a module\n",
+        "cmake/notes.txt": "not a module",
+        "cmake/nested/Deeper.cmake": "not digested: below cmake",
         "include/solprop_native/deep.h": "// h\n",
         "include/solprop_native/kept.txt": "not a source",
         "src/B.cpp": "// sorts before a lower-case name, bytewise\n",
@@ -253,6 +256,7 @@ def source_tree(tmp_path: Path) -> tuple[Path, list[str]]:
         path.write_bytes(text.encode())
     return tmp_path, [
         "CMakeLists.txt",
+        "cmake/Module.cmake",
         "include/solprop_native/deep.h",
         "src/B.cpp",
         "src/a.hpp",
