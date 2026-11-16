@@ -138,7 +138,8 @@ TEST(Workspace, TheSetupIsAppliedWhenTheWorkspaceIsBuilt) {
 
 TEST(Workspace, StageTablesOfAnotherTableauAreRefused) {
   auto setup = runge_kutta_setup();
-  setup.stage_tables->n_stages = 2;
+  ASSERT_TRUE(setup.stage_tables.has_value());
+  setup.stage_tables.value().n_stages = 2;
   EXPECT_THROW(native::Workspace(with_setup(envelope_problem(), setup)),
                std::invalid_argument);
 }
