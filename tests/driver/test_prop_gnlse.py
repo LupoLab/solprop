@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 from bounds import departure
+from builders import grid_at, held_collar
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_matched, simulation_bound
 from selected_backend import selected_backend
@@ -245,7 +246,10 @@ def test_the_sixth_order_soliton_runs_the_same_through_the_interface(
         stop,
         [0.0, 0.0, soliton.beta2],
         wavelength=soliton.wavelength,
-        grid=wide_grid,
+        # The run ends at its grid's length (SEP 51): the grid is the tenth it runs,
+        # with the collar the metre-long grid gave, so the problem is unchanged.
+        grid=grid_at(wide_grid, stop),
+        absorber=held_collar(grid_at(wide_grid, stop), wide_grid.length),
         width=soliton.tau0,
         peak_power=soliton.peak_power(6),
         shape="sech",

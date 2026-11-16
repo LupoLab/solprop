@@ -16,6 +16,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from builders import grid_at
 from solprop._identity import canonical_json
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
@@ -160,7 +161,7 @@ def test_the_modes_and_the_profiles_reach_the_backend(narrow_grid, soliton):
         wavelength=wavelength, width=soliton.tau0, peak_power=soliton.peak_power(1)
     )
     simulation = Simulation(
-        narrow_grid,
+        grid_at(narrow_grid, 0.005),
         fibre.mode,
         [fibre.kerr],
         pulse,
@@ -199,7 +200,7 @@ def test_a_built_spectrum_is_accepted_as_the_input(narrow_grid, soliton):
         peak_power=soliton.peak_power(1),
     ).build(narrow_grid)
     simulation = Simulation(
-        narrow_grid,
+        grid_at(narrow_grid, 0.005),
         fibre.mode,
         [fibre.kerr],
         spectrum,
@@ -230,7 +231,7 @@ def test_an_input_that_is_neither_a_pulse_nor_a_spectrum_is_refused(
     not_a_pulse: Any = SimpleNamespace(build="a pulse, honest")
     with pytest.raises(DriverError, match="build\\(grid\\) method"):
         Simulation(
-            narrow_grid,
+            grid_at(narrow_grid, 0.005),
             fibre.mode,
             [fibre.kerr],
             not_a_pulse,

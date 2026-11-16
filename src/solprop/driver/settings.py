@@ -10,6 +10,8 @@ keyword route applies: its save planes, its controller and its absorbing boundar
 """
 
 import dataclasses
+import math
+import numbers
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -45,7 +47,7 @@ from solprop.stepper.controller import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
-from solprop.stepper.schedule import FixedSchedule
+from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule, replay_tolerance
 from solprop.translate.masks import AbsorberScheme
 from solprop.translate.problem import PropagatorMode
 
@@ -68,7 +70,11 @@ history, and its predictor-corrector estimate is unreliable there
 """
 
 DEFAULT_N_SAVE = 201
-"""Planes a GNLSE run stores, counting the one at ``z = 0``."""
+"""Observations a run records when given neither ``n_save`` nor ``save_planes``.
+
+Evenly spaced over the run's interval ``[initial_z, length]``, both ends included
+(SEP 51). The TDSE capillary's route default is two instead.
+"""
 
 _RECIPE_EXECUTION = ("fields", "field_planes", "resume_history")
 """The settings a recipe's ``[execution]`` table holds: a change of any other one drops
@@ -150,11 +156,22 @@ class SimulationSettings(Displayed):
         grid. An explicit controller
         always wins, and settings that already belong to a route keep its default.
         The other fields are keyword-only.
-    save_planes : numpy.ndarray
-        Positions to save at, m, increasing and positive, shape ``(n_z,)``. The plane at
-        ``z = 0`` is saved as well and is not listed here. A sequence is adopted as a
-        read-only float64 array, so that two runs specified the same way record the same
-        planes whichever type they passed and therefore hash alike.
+    save_planes : numpy.ndarray or None
+        Positions to record the run at, m, finite and strictly increasing, inside the
+        run's interval ``[initial_z, length]``, where ``length`` is the grid's
+        (SEP 51). The entrance and the end are recorded anyway and are added when
+        absent; either may be listed and is kept once, a position within
+        :data:`~solprop.stepper.schedule.LANDING_ULPS` ulps of an endpoint being that
+        endpoint. An empty list records the two endpoints alone. A sequence is adopted
+        as a read-only float64 array, so that two runs specified the same way record
+        the same planes whichever type they passed and therefore hash alike. Give this
+        or `n_save`, not both; given neither, the run records
+        :data:`DEFAULT_N_SAVE`. A simulation holds its settings *resolved*: the
+        positions after its entrance, the last exactly its length, and `n_save`
+        ``None``.
+    n_save : int or None
+        How many evenly spaced observations to record over ``[initial_z, length]``,
+        both ends included: an integer of at least 2. Give this or `save_planes`.
     dz_max : float
         Cap on the controller's proposal, m.
     dz_init : float
@@ -325,9 +342,11 @@ class SimulationSettings(Displayed):
     Raises
     ------
     DriverError
-        If the save planes are empty, not increasing, or not positive. The same check
-        runs again in :func:`solprop.translate.assembly.assemble`; here it fires before
-        a run has built anything. Also if the field retention is not valid, asks for
+        If `save_planes` is a bare number, holds a position that is not finite or
+        does not increase strictly, or is given beside `n_save`, or if `n_save` is not
+        an integer of at least 2; each message names the fix. Positions outside the
+        run's interval are refused when a simulation adopts the settings, where the
+        interval is known. Also if the field retention is not valid, asks for
         ``fields='planes'`` beside `step_planes`.
 
     Examples
@@ -345,7 +364,10 @@ class SimulationSettings(Displayed):
 
     controller: PIController | None = None
     _: dataclasses.KW_ONLY
-    save_planes: Float[np.ndarray, " n_z"] | Sequence[float]
+    # A bare number is admitted by the annotation so that it is refused by name, with
+    # the fix, rather than by the run-time type check.
+    save_planes: Float[np.ndarray, " n_z"] | Sequence[float] | float | None = None
+    n_save: int | float | None = None
     dz_max: float
     dz_init: float
     dz_min: float | None = None
@@ -401,6 +423,9 @@ class SimulationSettings(Displayed):
 
     def _planes_text(self) -> str:
         """Return the save planes summarised, for printing."""
+        if self.save_planes is None:
+            count = DEFAULT_N_SAVE if self.n_save is None else self.n_save
+            return f"{count} planes" + ("" if self.n_save else " (default)")
         planes = np.asarray(self.save_planes, dtype=float)
         return summarise(planes, "m").replace("values", "planes")
 
@@ -475,27 +500,17 @@ class SimulationSettings(Displayed):
         ]
 
     def __post_init__(self) -> None:
-        """Adopt a read-only plane array and check it.
+        """Adopt a read-only plane array and check the selectors.
 
         Raises
         ------
         DriverError
-            If the planes are empty, not increasing, or not positive, or if
+            If the plane selectors are malformed (:func:`_selectors`), or if
             `resume_history` is not a boolean or ``None``.
         """
-        planes = frozen_copy(np.reshape(self.save_planes, -1), np.float64)
-        if (
-            planes.size == 0
-            or not np.all(np.isfinite(planes))
-            or not np.all(np.diff(planes) > 0.0)
-            or planes[0] <= 0.0
-        ):
-            msg = (
-                f"save_planes must be positive and increasing, got {planes}; the plane "
-                "at z = 0 is saved anyway and is not one of them"
-            )
-            raise DriverError(msg, parameter="save_planes")
+        planes, count = _selectors(self.save_planes, self.n_save)
         object.__setattr__(self, "save_planes", planes)
+        object.__setattr__(self, "n_save", count)
         refusal = field_retention_refusal(self.fields, self.field_planes)
         if refusal is not None:
             raise DriverError(refusal, parameter=("fields", "field_planes"))
@@ -912,32 +927,176 @@ def _same_setting(old: object, new: object) -> bool:
         return False
 
 
-def _save_planes(
-    length: float,
-    save_planes: Sequence[float] | np.ndarray | None,
-    n_save: int | None,
-) -> Float[np.ndarray, " n_z"]:
-    """Return the save planes a keyword interface asks for.
+_BOTH_SELECTORS = (
+    "give one of n_save and save_planes, not both; to carry a count to settings that "
+    "hold positions, pass dataclasses.replace(settings, n_save=N, save_planes=None)"
+)
 
-    - ``length``: fibre length, m.
-    - ``save_planes``: positions given by the caller, m.
-    - Returns: the planes after ``z = 0``, m, shape ``(n_z,)``.
+
+def _selectors(
+    save_planes: object, n_save: object
+) -> tuple[Float[np.ndarray, " n_z"] | None, int | None]:
+    """Return the plane selectors as settings hold them, refusing a malformed one.
+
+    The checks that need no interval (SEP 51 section 5.5): a bare number, a position
+    that is not finite or does not increase strictly, both selectors, and a count that
+    is not an integer of at least 2. Positions are a read-only float64 array, m.
     """
-    if save_planes is not None:
-        if n_save is not None:
-            msg = "give save_planes or n_save, not both"
-            raise DriverError(
-                msg, parameter=("save_planes", "n_save"), rule="save-planes-or-n-save"
-            )
-        return np.ascontiguousarray(save_planes, dtype=np.float64).reshape(-1)
-    count = DEFAULT_N_SAVE if n_save is None else n_save
-    if count < 2:
-        msg = (
-            f"n_save counts the plane at z = 0, so it must be at least 2, got {count}; "
-            "a run always stores the entrance"
+    if save_planes is not None and n_save is not None:
+        raise DriverError(
+            _BOTH_SELECTORS,
+            parameter=("save_planes", "n_save"),
+            rule="save-planes-or-n-save",
         )
-        raise DriverError(msg, parameter="n_save")
-    return np.linspace(0.0, length, count)[1:]
+    count = None
+    if n_save is not None:
+        if isinstance(n_save, bool) or not isinstance(n_save, numbers.Integral):
+            msg = f"n_save is an integer of at least 2, got {n_save!r}"
+            raise DriverError(msg, parameter="n_save")
+        count = int(n_save)
+        if count < 2:
+            msg = (
+                f"n_save is an integer of at least 2, got {count}: it counts the "
+                "entrance and the end, which a run always records"
+            )
+            raise DriverError(msg, parameter="n_save")
+    if save_planes is None:
+        return None, count
+    if isinstance(save_planes, bool):
+        msg = f"save_planes takes positions in m, got {save_planes!r}"
+        raise DriverError(msg, parameter="save_planes")
+    if isinstance(save_planes, numbers.Integral):
+        msg = (
+            f"save_planes={save_planes!r} reads as one position in m, not a count; for "
+            f"evenly spaced planes pass n_save={save_planes!r}"
+        )
+        raise DriverError(msg, parameter="save_planes", rule="save-planes-count")
+    if isinstance(save_planes, numbers.Real) or np.ndim(save_planes) == 0:
+        msg = (
+            f"save_planes={save_planes!r} is a single position; pass "
+            f"[{save_planes!r}], or n_save for evenly spaced planes"
+        )
+        raise DriverError(msg, parameter="save_planes")
+    planes = frozen_copy(np.reshape(save_planes, -1), np.float64)
+    for index, position in enumerate(planes):
+        if not math.isfinite(position):
+            msg = f"save plane {position!r} is not finite"
+            raise DriverError(msg, parameter="save_planes")
+        if index and position <= planes[index - 1]:
+            relation = "repeats" if position == planes[index - 1] else "follows"
+            msg = (
+                f"save plane {position!r} m {relation} {planes[index - 1]!r} m; the "
+                "positions must increase strictly"
+            )
+            raise DriverError(msg, parameter="save_planes")
+    return planes, count
+
+
+def _at(position: float, endpoint: float) -> bool:
+    """Return whether a position is an endpoint, within the marches' landing slack.
+
+    :data:`~solprop.stepper.schedule.LANDING_ULPS` ulps of the endpoint itself, the
+    slack a march lands on a target with (SEP 51 section 5.4).
+    """
+    return bool(abs(position - endpoint) <= LANDING_ULPS * math.ulp(endpoint))
+
+
+def _observation_planes(
+    save_planes: Float[np.ndarray, " _"] | None,
+    n_save: int | None,
+    *,
+    entrance: float,
+    length: float,
+    default: int = DEFAULT_N_SAVE,
+) -> Float[np.ndarray, " n_z"]:
+    """Return the positions a run records after its entrance, the last exactly `length`.
+
+    The one placement rule of SEP 51, for selectors :func:`_selectors` admitted: a
+    count places that many observations evenly over ``[entrance, length]``, both
+    included; positions within :data:`~solprop.stepper.schedule.LANDING_ULPS` ulps of
+    an endpoint become it, each endpoint is kept once, the end is added when absent and
+    a position outside the interval is refused; neither selector takes `default`.
+    Resolving the result again against the same interval returns it unchanged.
+    Positions in m; `entrance` before `length`.
+    """
+    if save_planes is None:
+        count = default if n_save is None else n_save
+        # linspace's last value is exactly `length`.
+        return frozen_copy(np.linspace(entrance, length, count)[1:], np.float64)
+    planes = np.array(save_planes, dtype=np.float64)
+    for index, position in enumerate(planes):
+        if _at(position, length):
+            planes[index] = length
+        elif _at(position, entrance):
+            planes[index] = entrance
+        elif position < entrance:
+            msg = (
+                f"save plane {position:g} m lies before the entrance, initial_z = "
+                f"{entrance:g} m; the run records [{entrance:g} m, {length:g} m]"
+            )
+            raise DriverError(msg, parameter="save_planes", rule="save-planes-outside")
+        elif position > length:
+            msg = (
+                f"save plane {position:g} m lies beyond the end of the run, "
+                f"grid.length = {length:g} m; the run records [{entrance:g} m, "
+                f"{length:g} m]: raise length (or grid.length), or drop the plane"
+            )
+            raise DriverError(msg, parameter="save_planes", rule="save-planes-outside")
+    # Normalization can only merge an endpoint with a listed neighbour.
+    interior = np.unique(planes[(planes > entrance) & (planes < length)])
+    return frozen_copy(np.append(interior, length), np.float64)
+
+
+def _replay_refusal(
+    schedule: FixedSchedule, entrance: float, length: float
+) -> str | None:
+    """Return why a replayed schedule does not cover a run's interval, or ``None``.
+
+    Its start agrees with the entrance under the endpoint rule, and its end with the
+    length within :func:`~solprop.stepper.schedule.replay_tolerance`, which allows the
+    rounding its step sum accumulates (SEP 51 section 5.7).
+    """
+    if not _at(schedule.z_start, entrance):
+        return (
+            f"the replayed schedule starts at {schedule.z_start:g} m, but the run's "
+            f"entrance is {entrance:g} m"
+        )
+    if abs(schedule.z_end - length) > replay_tolerance(schedule, length):
+        return (
+            f"the replayed schedule ends at {schedule.z_end!r} m, but the run ends at "
+            f"its length, {length!r} m; replay a schedule over the run's interval, "
+            "such as FixedSchedule.uniform(z_start, length, ...)"
+        )
+    return None
+
+
+def _adopted(
+    settings: SimulationSettings, *, entrance: float, length: float
+) -> SimulationSettings:
+    """Return settings resolved for a run over ``[entrance, length]``, m (SEP 51 5.6).
+
+    Validated against the run whatever they hold, a count, a list or resolved
+    positions; the result holds the positions after the entrance ending exactly at
+    `length`, and ``n_save=None``. Settings already resolved for the run are returned
+    as they are. An interior launch's schedule is left to its own refusal.
+    """
+    if not (math.isfinite(entrance) and 0.0 <= entrance < length):
+        msg = (
+            f"initial_z must be finite, nonnegative and before the end of the run, "
+            f"grid.length = {length:g} m; got {entrance!r}"
+        )
+        raise DriverError(msg, parameter="initial_z")
+    planes = _observation_planes(
+        settings.save_planes, settings.n_save, entrance=entrance, length=length
+    )
+    if settings.schedule is not None and entrance == 0.0:
+        refusal = _replay_refusal(settings.schedule, entrance, length)
+        if refusal is not None:
+            raise DriverError(refusal, parameter="schedule", rule="replay-interval")
+    current = settings.save_planes
+    if current is not None and np.array_equal(current, planes):
+        return settings
+    return dataclasses.replace(settings, save_planes=planes, n_save=None)
 
 
 def _scheme(settings: SimulationSettings) -> AbsorberScheme:
