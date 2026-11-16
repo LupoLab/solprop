@@ -4,8 +4,10 @@
 
 """``solprop calibrate``: measure, show, export, import or forget a profile (SEP 46).
 
-The command line's parser (``solprop.cli``) hands this module its arguments. Nothing
-here loads the native extension.
+The command line's parser (``solprop.cli``) adds this command's options with
+:func:`add_arguments` and hands the parsed arguments to :func:`run`; :func:`describe`
+is the ``--show`` text: the profile this job would use, its settings and its evidence.
+Nothing here loads the native extension.
 """
 
 from __future__ import annotations
