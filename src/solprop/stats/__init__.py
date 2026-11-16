@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""The catalogue of plane statistics, with one definition of each.
+"""The catalogue of plane statistics, with one definition of each.
 
 The package, each module importing only those above it:
 
@@ -19,40 +19,12 @@ Their public names are importable from ``solprop.stats``, except
 :func:`~solprop.stats.spec.far_field_tables`, which the translation layer reads from
 its module.
 
-Statistics belong to saved planes, not to steps (see ``docs/dev/decisions.md``).
-Evaluating every statistic on every accepted step, with a full inverse transform each
-time and a root-finding zero-dispersion search among them, would cost about a fifth of a
-step and dominate device runs; here they are evaluated where a field is saved, and an
-optional periodic subset (:attr:`StatsSpec.periodic`) covers step-level diagnostics.
-
-Every definition here is written once, on **internal** FFT-convention arrays of shape
-``(n_modes, n_pol, n_omega)``, and reduces in a fixed order. There is **one
-definition per statistic in the run**, not a host one and a device one that compute the
-same quantity differently, and a backend's fused pass is validated against it. The
-analytic signal comes from :func:`solprop.fourier.analytic_signal` alone.
-
-One quantity is measured differently after the run, and deliberately: a run forms its
-temporal power as the analytic Poynting flux from the internal amplitude *and* the
-plane's index, while :mod:`solprop.processing.time`, given a saved plane and no mode,
-measures the squared true-power envelope ``|b(t)|^2``. The two differ at second order in
-the spread of ``Re n_eff`` across the spectrum and have identical time integrals; see
-``docs/guide/results/processing.md`` and the docstrings of
-:func:`solprop.processing.time.peak_power` and
-:func:`solprop.processing.time.fwhm_t`.
-
-Spatial statistics use field units and the geometry's transverse integration measure.
-Their host definitions are in :mod:`solprop.spatial`; periodic backend reductions are
-qualified against those definitions. Plasma statistics need the compiled response,
-and spatial widths need the geometry declared at assembly.
-
-**Undefined is not an error.** A mode that carries no light has no spectral centroid,
-and a trace that never falls to half its maximum -- a continuous wave, an empty mode --
-has no full width. Those return ``nan``, which the docstring of each states and the
-manual page repeats. A *missing dependency*, by contrast -- a zero-dispersion
-wavelength with no mode, a windowed energy with no windows -- raises
-:class:`solprop.exceptions.OutputError`.
-
-The manual page is ``docs/guide/results/statistics.md``.
+Statistics belong to saved planes, not to steps; each is defined once, on internal
+FFT-convention spectra, and a backend's fused pass is validated against that
+definition. An undefined value is ``nan``; a missing dependency raises
+:class:`solprop.exceptions.OutputError`. The manual pages are
+``docs/guide/results/statistics.md`` and its definitions,
+``docs/guide/results/statistics-definitions.md``.
 """
 
 from solprop.stats.catalogue import (
