@@ -4,6 +4,17 @@
 
 #pragma once
 
+// The arrays the extension's binding files share: the exact NumPy inputs each entry
+// point accepts, read into native vectors without hidden conversions, and the host
+// arrays it returns, each owning its memory through a capsule.
+//
+// Types: the `nb::ndarray` aliases (`ComplexInput`, `RealInput`, `ComplexOutput`,
+// `HostField` and the rest) and `ExactArray`, a problem field's element as NumPy names
+// it. Functions: the readers (`complex_span`, `complex_vector`, `real_vector`,
+// `bool_vector`, `index_vector`, `exact_vector`) and the owning outputs (`array_of`,
+// `complex_output`, `owned_complex`, `complex_buffer_output`, `vector_output`,
+// `real_output`).
+
 #include "solprop_native/runtime/crossing.hpp"
 #include "solprop_native/runtime/execution.hpp"
 #include "solprop_native/runtime/refuse.hpp"
@@ -23,11 +34,6 @@
 #include <utility>
 #include <vector>
 
-/*
- * The arrays the extension's binding files share: the exact NumPy inputs each entry
- * point accepts, read into native vectors without hidden conversions, and the host
- * arrays it returns, each owning its memory through a capsule.
- */
 namespace solprop_native::bindings {
 
 namespace nb = nanobind;

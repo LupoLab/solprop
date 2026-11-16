@@ -4,6 +4,13 @@
 
 #pragma once
 
+// The backend's top-level kernel dispatches (`solprop_native::launch`): `parallel_for`,
+// `parallel_reduce` and `parallel_scan` with Kokkos's signatures, which on a device
+// build pass a small functor as the kernel's argument (`policy_for`,
+// `reduce_policy_for`), record a launch in the calling thread's graph region
+// (`graph.hpp`), and stop the region for a reduction or a scan. The note on the
+// namespace below gives the measured reason.
+
 #include "solprop_native/runtime/graph.hpp"
 
 #include <Kokkos_Core.hpp>

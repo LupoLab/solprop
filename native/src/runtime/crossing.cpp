@@ -2,6 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The device-host crossings of crossing.hpp: a ring's workers, the calling thread among
+// them, each selecting the caller's device and moving chunks with the vendor's
+// synchronous copy until the crossing is done; and the host buffers a returned array
+// owns, aligned for and advised to take huge pages on Linux when a crossing takes a
+// ring. On a host build a crossing is a `memcpy` and takes no ring.
+
 #include "solprop_native/runtime/crossing.hpp"
 
 #include "solprop_native/runtime/build.hpp"

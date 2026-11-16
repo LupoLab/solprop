@@ -2,6 +2,15 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The Kokkos runtime's lifetime and the build record (bind.hpp). `configure_runtime`
+// applies the runtime record once: Kokkos initialised with its thread count (and owned
+// for finalisation), the thread policy and spin set, and a host OpenBLAS fitted to the
+// pool (`fit_blas_threads`, `register_host_blas`). `register_owned` and `forget_owned`
+// hold the states and workspaces closed before `shutdown_after_interpreter` finalises
+// the owned runtime. `build_record` reports the build's provenance, providers and
+// settings. The BLAS and FFT libraries are found by symbol among those the extension
+// loaded (dlsym on POSIX, a walk of the imported modules on Windows).
+
 #include "bind.hpp"
 #include "records.hpp"
 #include "solprop_native/runtime/cpu_execution.hpp"

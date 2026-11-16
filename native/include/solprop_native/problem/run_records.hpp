@@ -4,6 +4,22 @@
 
 #pragma once
 
+// The native workspace's records (solprop SEP 52 section 5.3): the set-once data of a
+// problem's `Setup` and the records one run starts from, with what the marches and the
+// session read from them (`workspace.hpp` builds and runs the workspace).
+//
+// The binding converts Python's records into the structs here (each with its field
+// table, `fields.hpp`), releases the interpreter lock and forwards; the logic is here,
+// where the native tests reach it.
+//
+// Types: the set-once `Setup` and its parts (`ZTable`, `ZSlotsConfig`, `FlowGuard`,
+// `RungeKuttaConfig`, `AdamsConfig`, `Occupancy`); a run's state-side tables
+// (`MonitorBinding`, `EdgeBinding`); the run records mirroring
+// `solprop.backends.records` (`RunRecordsRecord` and its parts, `HistoryRow`); and
+// `RunStart`, what a run starts from. Functions: the `to_native` conversions,
+// `fault_from` (a test's injected failure) and `validate` (the stage tables), defined
+// in src/problem/workspace.cpp.
+
 #include "solprop_native/general/general_state.hpp"
 #include "solprop_native/march/adams_march.hpp"
 #include "solprop_native/march/engines.hpp"
@@ -29,15 +45,6 @@
 #include <variant>
 #include <vector>
 
-/*
- * The native workspace's records (solprop SEP 52 section 5.3): the set-once data of a
- * problem's `Setup` and the records one run starts from, with what the marches and the
- * session read from them (`workspace.hpp` builds and runs the workspace).
- *
- * The binding converts Python's records into the structs here (each with its field
- * table, `fields.hpp`), releases the interpreter lock and forwards; the logic is here,
- * where the native tests reach it.
- */
 namespace solprop_native {
 
 // ------------------------------------------------------------------ the set-once data

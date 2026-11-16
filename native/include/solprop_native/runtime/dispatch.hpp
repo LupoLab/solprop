@@ -4,6 +4,11 @@
 
 #pragma once
 
+// A run-time extent as a compile-time one: `dispatch_among` calls a functor's
+// `operator()<Value>` for the first listed value equal to the extent, else a fallback,
+// and `dispatch_width` does so over a contiguous range of widths, so that a kernel
+// specialised by width writes its `switch` ladder once. Device-callable.
+
 #include <Kokkos_Macros.hpp>
 
 #include <cstddef>

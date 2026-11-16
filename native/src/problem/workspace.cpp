@@ -2,6 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The native workspace of workspace.hpp, and the run records' conversions of
+// run_records.hpp: `to_native` for the Runge-Kutta policy, the schedule and the two
+// resumptions, `fault_from` and the stage tables' `validate`; then `Run`, `Probe` and
+// `Workspace` -- its setup applied at construction, the lease, the staged trial and the
+// coupled flow's guard (`guard_flow`), the marches' construction (`method`), and a
+// run's start and a probe.
+
 #include "solprop_native/problem/workspace.hpp"
 
 #include "solprop_native/march/dense.hpp"

@@ -4,6 +4,16 @@
 
 #pragma once
 
+// State-sized copies between a device and the host (`solprop_native::crossing`): a ring
+// of pinned chunks that worker threads move a large crossing through, and the host
+// buffers a returned array owns. The note on the namespace below gives the measured
+// reason.
+//
+// Types: `Ring` (the pinned chunks and their workers), `HostBuffer` and
+// `BufferDeleter`. Functions: `takes_ring` (whether a crossing is large enough for a
+// ring) and `host_buffer`; `chunk_bytes`, `ring_threshold` and `worker_limit` size the
+// ring.
+
 #include <Kokkos_Core.hpp>
 
 #include <cstddef>

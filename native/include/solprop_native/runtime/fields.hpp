@@ -4,6 +4,17 @@
 
 #pragma once
 
+// The field tables of the records that cross the nanobind seam (solprop SEP 52 section
+// 5.3): descriptors only, Python-free and Kokkos-free, which the binding layer's
+// converter reads. The note on the namespace below shows how a record declares its
+// table.
+//
+// Types: `Dtype`, `Extent`, the field kinds `Value`, `Flagged`, `Array` and `Count`,
+// and `Table`; the traits `ElementDtype` and `ArrayElement`; the concept `Described`.
+// Functions: the builders `table`, `value`, `flagged`, `array` and `count`; `table_of`
+// (a record's table, through its `describe`), `each` (visit a table's fields in order),
+// `dtype_name` and `element_dtype`.
+
 #include <array>
 #include <cstddef>
 #include <cstdint>

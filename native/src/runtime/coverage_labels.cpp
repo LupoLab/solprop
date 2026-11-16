@@ -2,8 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A host-only Kokkos Tools plug-in for coverage campaigns. Counts are execution
-// evidence, not timers; it neither instruments device kernels nor asks for fences.
+// A host-only Kokkos Tools plug-in for coverage campaigns, built as its own module
+// (`solprop_native_labels`). Counts are execution evidence, not timers; it neither
+// instruments device kernels nor asks for fences. It counts the launches of each
+// `parallel_for`, `parallel_reduce` and `parallel_scan` label and each profile region,
+// and at finalisation writes one JSON line per kind and label to the file
+// `SOLPROP_NATIVE_LABEL_FILE` names, if any.
+
 #include <impl/Kokkos_Profiling_C_Interface.h>
 
 #include <cstdlib>

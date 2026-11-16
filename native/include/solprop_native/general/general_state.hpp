@@ -4,6 +4,19 @@
 
 #pragma once
 
+// The native state's public face (`GeneralState`): one problem's resident fields,
+// transforms and plans, with every operation the marches, the session and the tests
+// call on them -- trials and their finish, the resident Adams history and its trials,
+// the Runge-Kutta dense output, the z tables, the coupled flow's actions, statistics,
+// the boundary monitor and transverse edge, crossings to the host and a host source.
+// Its members forward, in src/general/state.cpp, to the private `GeneralWorkspace`
+// (src/general/general_workspace.hpp), which no unit outside src/general/ sees.
+//
+// Types: `GeneralState`; the Adams trials' coefficient tables passed by value to its
+// kernels (`AdamsWeights`, `ExponentialWeights`) and their bounds (`adams_max_samples`,
+// `adams_max_norms`, `adams_max_channels`); `TrialScalars` (a trial's host scalars for
+// every stage); `TableKind` (which general z table a call names).
+
 #include "solprop_native/problem/problem.hpp"
 #include "solprop_native/runtime/cpu_execution.hpp"
 #include "solprop_native/runtime/execution.hpp"

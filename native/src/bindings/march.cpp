@@ -2,6 +2,14 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The native marches' records from and to solprop's dictionaries (march.hpp): the
+// Adams march's policy, state, bounds and result (solprop SEP 39 phase 2), the
+// Runge-Kutta march's state and result, and the boundary watch's policy, state,
+// configuration, record and judgement (solprop SEP 45 phase 1, SEP 47 section 6.4).
+// The policies and the watch's state and configuration go through their field tables
+// (`records.hpp`) and the march's validation; the march states, bounds and results and
+// the watch's record and judgement are converted key by key.
+
 #include "march.hpp"
 
 #include "arrays.hpp"
@@ -31,8 +39,8 @@ namespace solprop_native::bindings {
 
 // ------------------------------------------------------------- the native Adams march
 // solprop SEP 39 phase 2: the march's policy, state, bounds and result as solprop's
-// adapter passes and reads them, its resident engine over the general state, and a
-// scripted engine for the decision-trace tests.
+// adapter passes and reads them (the decision-trace tests' scripted march is
+// testing.cpp's).
 
 namespace march = native::march;
 

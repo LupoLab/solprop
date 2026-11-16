@@ -4,6 +4,10 @@
 
 #pragma once
 
+// solprop SEP 28 section 4.2's per-evaluation reference timings, independent of any
+// workspace, for the benchmarks' reference parts: `reference_fft3_pairs` times a rank-3
+// complex FFT pair and `reference_stream_copies` a streaming scaled copy.
+
 #include <complex>
 #include <cstddef>
 #include <vector>

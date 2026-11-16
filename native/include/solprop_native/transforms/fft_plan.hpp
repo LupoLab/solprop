@@ -4,6 +4,15 @@
 
 #pragma once
 
+// The engine's FFT plans over Kokkos-FFT. On a host build `seed_row_fft_wisdom`
+// measures a row transform's FFTW plan, at the effort fftw_wisdom.hpp's policy gives,
+// before Kokkos-FFT plans it at estimate. `graph::execute` records a transform in a
+// device graph region (`graph.hpp`). `TailRowPlans` holds one contiguous row plan per
+// active block of a stacked buffer. On a device build `RealRowPlan` transforms a small
+// batch of real rows by the four-step method where the device's FP64 rate leaves one
+// thread block a row FP64-bound (`split_real_rows_enabled`: NVIDIA GA10x), and is
+// Kokkos-FFT's own plan otherwise.
+
 #include "solprop_native/runtime/cpu_execution.hpp"
 #include "solprop_native/runtime/execution.hpp"
 #include "solprop_native/transforms/fftw_wisdom.hpp"

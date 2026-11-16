@@ -4,6 +4,12 @@
 
 #pragma once
 
+// Host vector maths for the CPU kernels' transcendental passes (solprop ADR-059,
+// `solprop_native::vmath`): batch `exp`, `log`, `sincos` and `exp_complex` over
+// contiguous arrays, through SLEEF's u10 functions where the build has them and the
+// system libm otherwise; `vectorised`, `width` and `route` name the route for the build
+// record. The note below gives the accuracy and the variant each target takes.
+
 #include <cmath>
 #include <cstddef>
 

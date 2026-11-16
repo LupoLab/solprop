@@ -4,6 +4,12 @@
 
 #pragma once
 
+// Setup-time checks and copies of a problem's host data, shared by the units that build
+// a workspace's views: extents and their size arithmetic (`require_extent`,
+// `checked_product`, `checked_sum`, `require_allocation`), finiteness (`finite`), and
+// one copy of a host vector into a view (`upload`, through `graph::deep_copy`). Host
+// code, run before any step.
+
 #include "solprop_native/runtime/execution.hpp"
 #include "solprop_native/runtime/graph.hpp"
 
@@ -18,9 +24,6 @@
 #include <type_traits>
 #include <vector>
 
-// Setup-time checks and copies of a problem's host data, shared by the units that build
-// a workspace's views: extents and their size arithmetic, finiteness, and one copy of a
-// host vector into a view. Host code, run before any step.
 namespace solprop_native {
 
 inline void require_extent(const std::size_t actual, const std::size_t expected,

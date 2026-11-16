@@ -2,6 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The macOS Accelerate provider of the Raman FFT (`AccelerateRamanPlan`,
+// raman_fft.hpp), built only with `SOLPROP_NATIVE_RAMAN_ACCELERATE`: vDSP's radix-2
+// real transforms over each task's share of the rows, one FFT setup a task. The forward
+// result is converted to FFTW's unnormalised half spectrum, and the inverse packs that
+// half spectrum as vDSP reads it, so the kernels see one layout from either provider.
+
 #include "solprop_native/transforms/raman_fft.hpp"
 
 #include <algorithm>

@@ -2,6 +2,20 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The extension module `_core` (`NB_MODULE`): its one table of bindings and the classes
+// only it binds. It registers the exception types, the device-memory probe, the FFT
+// plan timing and wisdom export, the runtime's configuration and build record, the
+// session with its events, status and batches, the statistics plan, the probe and the
+// workspace; calls the other binding files' entry points in the order bind.hpp gives;
+// exports every field table (`_core.schemas()`); and registers the runtime's shutdown
+// at interpreter exit.
+//
+// Types: `BoundSession` (solprop SEP 47's session over a leased workspace),
+// `BatchRecord`, `BoundProbe` (the timing probe, SEP 52 section 5.5) and
+// `PythonHostSource` (a Python object as the march's host source, SEP 49); the
+// `ExportRecipe` record an export takes; and the members of `BoundWorkspace` and
+// `BoundStatisticsPlan` (module.hpp) that make or read them.
+
 #include "module.hpp"
 
 #include "arrays.hpp"

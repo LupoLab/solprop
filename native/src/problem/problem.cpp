@@ -2,6 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// `Problem::validate` (problem.hpp): the presence of the CPU execution record and the
+// shapes the field tables cannot check within one group -- the fixed terms', the Raman
+// response's, the plasma rates' and the envelope rules' arrays against their counts --
+// and `compact_problem`.
+
 #include "solprop_native/problem/problem.hpp"
 
 #include "solprop_native/runtime/cpu_execution.hpp"

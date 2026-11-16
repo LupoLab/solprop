@@ -2,6 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The `Problem` class and its field groups (`bind_problem`): each group a nested class
+// bound from its field table (`bind_group`), each part of the set-once `Setup` a
+// property read through its table (`bind_setup`), and the CPU execution record and FFT
+// planning (solprop SEP 46) read from and written to the dictionaries solprop_native's
+// `_execution` and `_wisdom` write. `fft_planning_dict` and `cpu_execution_dict` report
+// them in a workspace's diagnostics.
+
 #include "solprop_native/problem/problem.hpp"
 
 #include "arrays.hpp"
