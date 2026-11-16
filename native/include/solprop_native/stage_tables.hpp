@@ -273,7 +273,7 @@ struct Tables {
 }
 
 /**
- * A z table's position slots (solprop's `_ZTables`, SEP 29 G1), least recently used
+ * A z table's position slots (solprop SEP 29 G1), least recently used
  * first: the positions a trial reads are evaluated into the native state's term slots
  * only where no slot holds them, so a step's end, the next step's anchor, is evaluated
  * once. Both Adams marches and every other consumer share this one cache, and its
@@ -308,7 +308,7 @@ struct ZSlots {
 
   /**
    * Return each of `positions`' slots, evaluating in one call those no slot holds:
-   * `_ZTables.load`, the slots touched in the same order.
+   * the slots touched in the order the positions are given.
    */
   std::vector<std::size_t> load(GeneralState& state,
                                 const std::vector<double>& positions) {
@@ -359,8 +359,7 @@ struct ZSlots {
     return out;
   }
 
-  /** Evaluate `D(z)` into the rate slot unless it holds it already (`_ZTables.rate`).
-   */
+  /** Evaluate `D(z)` into the rate slot unless it holds it already. */
   void rate(GeneralState& state, const double z, const bool before) {
     if (rate_known && rate_z == z && rate_before == before)
       return;
@@ -673,7 +672,7 @@ inline std::vector<double> rate(const Tables& tables, const double z,
   if (tables.phi == Terms::constant)
     return {1.0};
   if (tables.phi == Terms::table) {
-    // `_ZTables.rate`: `D(z)` evaluated into its slot, one at that slot.
+    // `D(z)` evaluated into its slot, one at that slot.
     tables.z_slots->rate(*tables.z_state, z, before);
     std::vector<double> out(tables.z_slots->n_phi(), 0.0);
     out[tables.z_slots->rate_slot()] = 1.0;

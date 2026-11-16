@@ -23,8 +23,8 @@
  *
  * Each function performs the operations of the solprop function it is named after in
  * the same order: `table_steps` and `schedule_key` of `solprop.backends.low_storage`,
- * and `scalars`, the arrays the native backend's `_ResidentLowStorage.step` packs from
- * its bundles before its native call. The translation unit is compiled without
+ * and `scalars`, the arrays `HostLowStorage` forms from its stage bundles, as the
+ * native backend's adapter once packed them. The translation unit is compiled without
  * contraction on every build, as the marches' are.
  *
  * A step is accepted in place: from its first pass to its finish the state is neither
@@ -37,7 +37,7 @@
 namespace solprop_native::rk::low_storage {
 
 /** The flows a step holds and where its operator starts, as the native backend's
-    adapter resolved them (`_ResidentLowStorage`). */
+    lowering resolves them into its `Problem`. */
 struct Config {
   /** The native problem's `low_storage_flows`: 0 recomputes every flow per element,
       1 holds a constant operator's table, 2 a varying operator's `P` and `Q`. */
@@ -77,7 +77,7 @@ inline constexpr std::size_t evaluations = 4;
                                   double dz);
 
 /**
- * A step's scalars from `z` over `dz`, as `_ResidentLowStorage.step` packs them: each
+ * A step's scalars from `z` over `dz`, as `HostLowStorage` forms them: each
  * of the start, the midpoint and the end read as its own anchor, the end's row repeated
  * to the tableau's stages; the increment's rows the flows' -- a separable operator's
  * half steps, or a varying operator's `Phi(z_m) - Phi(z)` and `Phi(z + h) - Phi(z_m)`
@@ -103,7 +103,7 @@ namespace solprop_native::engines {
  * natively, scoring 0.0 ("not estimated") or, when the field diverged, the accepted
  * state's non-finite squared norm; the accept is the backend's finish and the
  * accepted-step hook. A constant operator's table is rebuilt only where the schedule's
- * key changes, as `_ResidentLowStorage` keeps it.
+ * key changes, as `HostLowStorage` keeps it.
  */
 class ResidentLowStorage final : public rk::Engine {
 public:

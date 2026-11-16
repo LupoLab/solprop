@@ -610,7 +610,11 @@ class Backend(Protocol):
   response teams, deterministic plasma scans and device reductions and is qualified on
   data-centre NVIDIA GPUs; the HIP build is qualified on AMD Instinct GPUs, with the HIP
   sanitizer run still outstanding. The private state is read only by the backend's own
-  session and timing probe. Its floating-point licence is
+  session and timing probe. The binding is small (SEP 52, ADR-079): a `_core.Workspace`
+  built from one `_core.Problem`, a run started from one run record (`start(run)`), the
+  probe (`probe(start)`) and one `diagnostics()` record; every record crosses by its
+  field table, the binding only marshals, and test-only entry points live in the
+  private `_core._testing`. Its floating-point licence is
   [SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)'s: contraction by default,
   strict opt-outs for the protected helpers (stable increments, small-argument functions,
   defects, compensated sums), reassociation only on the loops of a kernel that asks for it,

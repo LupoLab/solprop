@@ -120,8 +120,8 @@ extension was compiled from, with this directory's sources. Rebuild with
 `uv sync --reinstall-package solprop-native` when it refuses; a wheel carries no sources,
 and solprop's metadata pins it to solprop's own version. The version recorded at configure time
 (`solprop_version_built_against`: the repository's version, or `unknown` for a direct
-CMake configure) is provenance only. The TDSE electronic response is refused by name
-before anything is allocated; TDSE propagation uses `backend="numpy_ref"`.
+CMake configure) is provenance only. The TDSE electronic response runs on CPU builds
+only (solprop SEP 49); a device build refuses it by name before anything is allocated.
 
 ### The binding
 
@@ -136,17 +136,21 @@ The private extension `_core` is a thin seam (solprop SEP 52 section 5.3):
 - **Records by field table.** Each C++ record declares its fields once, beside its
   definition (`include/solprop_native/fields.hpp`), and one converter
   (`src/records.hpp`) reads a dataclass, mapping or tuple into it, refusing a missing
-  or unknown field, a wrong dtype, rank or extent relation, or a strided array by the
-  field's path before copying anything. `_core.schemas()` exports every table, and a
-  test holds each Python record to its table. Input arrays are copied in; returned
-  arrays own their storage.
+  or unknown field, a wrong dtype, rank or extent relation, a strided array or an
+  enumeration given by anything but its name, by the field's path before copying
+  anything. `_core.schemas()` exports every table, and a test holds each Python record
+  to its table. Input arrays are copied in, except a run's initial field and noise,
+  which the start reads where they are, for its load only; returned arrays own their
+  storage.
 - **Bindings only marshal.** A binding converts, releases the interpreter lock and
   forwards. The lease, the coupled flow's guard, the marches' construction and the
   probe live in the C++ library (`native::Workspace`, `src/workspace.cpp`), where the
   native tests reach them.
 - **`_testing` promises nothing.** The test-only entry points live in the submodule
   `_core._testing`, shipped in the wheel for solprop's own tests; they take the
-  workspace first and may change with any commit.
+  workspace first and may change with any commit. `_testing.engines(workspace)` leases
+  the workspace's Runge-Kutta (or low-storage) and Adams engines, which solprop's
+  tests run through the same engine protocols as the reference's.
 - **Generated stubs.** `_core.pyi` and `_core_testing.pyi` are generated whole by
   nanobind's stubgen (`scripts/problem_stub.py`; `--check` in the lint stage). A binding
   that takes or returns a record names its Python type with `nb::sig`, so the stubs

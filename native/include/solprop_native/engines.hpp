@@ -93,8 +93,8 @@ public:
   ResidentRungeKutta(GeneralState& state, Trial trial, double rtol, double atol,
                      const std::vector<double>& weights);
   double trial(double z, double dz) override;
-  /** solprop SEP 45 phase 4: a weighted controller's norm, `_score_trial`'s weighted
-      path with its sums in order. */
+  /** solprop SEP 45 phase 4: a weighted controller's norm, the reference's weighted
+      path (`passes.error_norm`) with its sums in order. */
   static double weighted_norm(GeneralState& state, const std::vector<double>& partials,
                               double rtol, double atol,
                               const std::vector<double>& weights);

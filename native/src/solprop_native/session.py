@@ -1037,7 +1037,7 @@ class NativeSession:
                 raise SessionError(str(error)) from None
             except (ValueError, IndexError, RuntimeError) as error:
                 # Too many positions, one outside the table's span, or no table of
-                # `Phi`: the backend's error, as `_ZTables.load` raises the first.
+                # `Phi`: the backend's error, as `stage::ZSlots` raises it.
                 raise BackendError(str(error)) from error
             phase = np.imag(values).reshape(self._problem.shape)
         else:
