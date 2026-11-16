@@ -1238,7 +1238,13 @@ Withdrawn (development-process record, not a design decision).
   limit that only narrows cannot oversubscribe a machine from a shell profile. The
   oversubscription opt-in exists because thread-count invariance tests need more
   threads than a CI runner has CPUs; production never does.
-- **Consequences:** the native backend cannot import solprop and sizes Kokkos at import,
+- **Consequences:** the mask is read when `solprop` is imported because Linux reports
+  affinity per thread: an OpenMP runtime started with `OMP_PROC_BIND` or `OMP_PLACES` set
+  (GNU libgomp, which Kokkos's builds load) binds the **main** thread to its first place,
+  after which `os.sched_getaffinity(0)` names one CPU, and a pool sized from that answer
+  runs on one core (measured: an 18-core allocation gave such a pool one thread);
+  `solprop._process.allowed_cpus` believes a later answer only when it is not that
+  collapse. The native backend cannot import solprop and sizes Kokkos at import,
   so it carries a copy of the reader (`solprop_native._budget`); `tests/test_process.py`
   runs both copies on the same control groups and environment. A process reads its own
   quota once. A test that compares thread counts lifts its budget explicitly.

@@ -6,16 +6,21 @@
 
 A saved run says what code produced it (``RunMetadata.versions`` and ``.git``) and how
 the backend sized its pools (``BackendRecord``). This module adds the rest of what is
-needed to inspect a case afterwards: the architecture, the CPU model, the CPU counts,
-the memory and the operating system (:func:`machine`), and the wall time, CPU time and
-peak resident memory since a :class:`RunClock` started (:func:`usage`). The driver
-writes both into each execution's record (:class:`solprop.output.records.RunOutcome`),
-so a resume on another machine keeps its own.
+needed to inspect a case afterwards, which the driver writes into each execution's
+record (:class:`solprop.output.records.RunOutcome`), so a resume on another machine
+keeps its own.
 
-Neither costs a run anything measurable: :func:`machine` is asked once per process (at
-most one bounded subprocess, for the CPU model) and :func:`usage` is one peak-memory
-query per save plane. No host name is recorded: a file is shared, and the CPU model and
-counts are what identify the hardware.
+- **The machine**: :func:`machine` (architecture, CPU model, CPU counts, memory and
+  operating system), asked once per process, with :func:`cpu_model` and
+  :func:`lscpu_model` behind it (at most one bounded subprocess).
+- **The spend**: :func:`usage`, the wall time, CPU time and peak resident memory since a
+  :class:`RunClock` started, one peak-memory query per save plane;
+  :class:`ObserverSpend`, what a run's plane observer cost it.
+- **Memory probes**: :func:`peak_rss` and :func:`physical_memory`, on POSIX and Windows,
+  which the scan pool also reads to size its workers.
+
+No host name is recorded: a file is shared, and the CPU model and counts are what
+identify the hardware.
 """
 
 import ctypes

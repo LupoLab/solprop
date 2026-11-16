@@ -4,15 +4,16 @@
 
 """Refuse an argument by name, in one wording across the package.
 
-Each check takes the value, the name the message gives it and the exception class of
-the calling layer, so a refusal reads the same wherever it is raised and is still the
-caller's own error. Bespoke physics checks stay where they are; these are only the
-plain conditions that recur everywhere. A warning, which cannot refuse, is attributed
-to the caller's line the same way everywhere too: :data:`PACKAGE_FILES` is the
-``skip_file_prefixes`` that steps out of the package.
+:func:`positive`, :func:`finite`, :func:`choice` and :func:`shape` each take the value,
+the name the message gives it and the exception class of the calling layer, so a refusal
+reads the same wherever it is raised and is still the caller's own error. Bespoke
+physics checks stay where they are; these are only the plain conditions that recur
+everywhere. A warning, which cannot refuse, is attributed to the caller's line the same
+way everywhere too: :data:`PACKAGE_FILES` is the ``skip_file_prefixes`` that steps out
+of the package.
 
-This module imports nothing from the rest of the package except the exception
-hierarchy, so that any module may use it.
+This module imports nothing from the rest of the package except the exception hierarchy,
+so that any module may use it.
 """
 
 import math
