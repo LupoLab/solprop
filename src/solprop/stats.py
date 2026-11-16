@@ -59,7 +59,7 @@ from solprop.exceptions import (
     ProcessingError,
     SolpropWarning,
 )
-from solprop.grid import TimeGrid
+from solprop.grid import RadialGrid, TimeGrid
 from solprop.modes import base as modes_base
 from solprop.modes.protocol import Mode
 from solprop.modes.slab import PlanarGrid
@@ -68,9 +68,13 @@ from solprop.profiles import ZProfile
 from solprop.spatial import (
     FAR_FIELD_STATISTICS,
     OPERATOR_STATISTICS,
+    ApertureOutline,
     ApertureProfile,
     ApertureShape,
+    ApertureTables,
     SpatialFlux,
+    aperture_outline,
+    aperture_scale,
     aperture_statistics,
     beam_radius,
     check_aperture_profile,
@@ -2558,6 +2562,156 @@ def _check_regions(regions: Float[np.ndarray, "n_regions 4"]) -> None:
         raise ProcessingError(msg)
 
 
+def far_field_tables(
+    spec: StatsSpec,
+    omega: Float[np.ndarray, " n_omega"],
+    *,
+    k_x: Float[np.ndarray, " n_kx"],
+    k_y: Float[np.ndarray, " n_ky"],
+    weights: Float[np.ndarray, " n_weights"],
+    on_axis: Complex[np.ndarray, " n_axis_weights"],
+) -> ApertureTables:
+    """Form the far-field statistics' tables of a spec on Cartesian columns (SEP 23 §6).
+
+    The per-aperture constants -- each row's outline of
+    :func:`solprop.spatial.aperture_outline`, whose half-width under quadrature
+    weighting is the corrected ``D_q/2`` of a circle or an ellipse (unchanged on a
+    line, whose edges are straight, and on the straight edges of a rectangle or a
+    half-plane) -- and the scale table of :func:`solprop.spatial.aperture_scale`, with
+    the columns' axes, weights and on-axis vector and the spec's regions. On a line
+    every column has ``kappa_y = 0`` and the light is uniform in y, so a rectangle has
+    no y edges to meet: it is a slit of its x width, the row a circle of that diameter
+    forms. Every backend reaches this through
+    :func:`solprop.translate.spatial.aperture_tables` at construction and
+    :func:`solprop.stats.collect` calls it for a saved plane, so all of them use the
+    same scale to the bit.
+
+    Parameters
+    ----------
+    spec : solprop.stats.StatsSpec
+        The request and its far-field tables.
+    omega : numpy.ndarray
+        Physical frequency axis in rad/s, shape ``(n_omega,)``.
+    k_x, k_y : numpy.ndarray
+        The stored transverse wavevector axes in rad/m, in FFT order; ``k_y`` has one
+        entry, zero, on a line uniform in y.
+    weights : numpy.ndarray
+        Parseval weights of the stored columns, shape ``(n_x*n_y,)``.
+    on_axis : numpy.ndarray
+        On-axis reconstruction weights of the columns, complex, shape ``(n_x*n_y,)``.
+
+    Returns
+    -------
+    solprop.spatial.ApertureTables
+        The tables.
+
+    Raises
+    ------
+    OutputError
+        On a line, for an aperture whose centre is off ``y = 0``, a half-plane bounded
+        in y or an ellipse, which have no meaning uniform in y, or a region whose
+        ``kappa_y`` interval excludes zero, which would select nothing.
+    """
+    apertures = spec.apertures
+    regions = spec.spectral_regions
+    line = k_y.size == 1
+    if line:
+        if apertures is not None and np.any(np.asarray(apertures.centres)[:, 1] != 0):
+            msg = (
+                "on a line uniform in y an aperture is a slit along x, so its y centre "
+                "must be zero"
+            )
+            raise OutputError(msg)
+        if apertures is not None:
+            _refuse_off_line(apertures)
+        excluded = np.flatnonzero(~((regions[:, 2] <= 0) & (regions[:, 3] > 0)))
+        if excluded.size:
+            msg = (
+                "on a line every column has kappa_y = 0, so regions "
+                f"{excluded.tolist()}, whose kappa_y interval excludes zero, would "
+                "select nothing"
+            )
+            raise OutputError(msg)
+    if apertures is None:
+        empty = np.empty(0)
+        return ApertureTables(
+            k_x=k_x,
+            k_y=k_y,
+            weights=weights,
+            on_axis=on_axis,
+            regions=regions,
+            centres=np.empty((0, 2)),
+            half_widths=empty,
+            edges=empty,
+            distances=empty,
+            scale=np.empty((0, omega.size)),
+        )
+    outlines = _outlines(apertures, line=line)
+    distances = np.asarray(apertures.distances)
+    return ApertureTables(
+        k_x=k_x,
+        k_y=k_y,
+        weights=weights,
+        on_axis=on_axis,
+        regions=regions,
+        centres=np.asarray(apertures.centres),
+        half_widths=np.array([one.half_width for one in outlines]),
+        edges=np.array([one.edge for one in outlines]),
+        distances=distances,
+        scale=aperture_scale(distances, omega),
+        profiles=tuple(one.kind for one in outlines),
+        exponent=1 if apertures.weighting == "quadrature" else 2,
+        shapes=tuple(one.shape for one in outlines),
+        half_heights=np.array([one.half_height for one in outlines]),
+        stretches=np.array([one.stretch for one in outlines]),
+    )
+
+
+def _refuse_off_line(apertures: ApertureSet) -> None:
+    """Refuse the outlines a line uniform in y gives no meaning."""
+    for row, shape in enumerate(apertures.row_shapes):
+        if shape == "ellipse" or shape.startswith("half_plane_y"):
+            msg = (
+                f"on a line every column has kappa_y = 0 and the light is uniform in "
+                f"y, so aperture {row}, a {shape}, has no meaning there; a line takes "
+                "a circle or a rectangle, each a slit along x, or a half-plane bounded "
+                "in x"
+            )
+            raise OutputError(msg)
+
+
+def _outlines(apertures: ApertureSet, *, line: bool) -> list[ApertureOutline]:
+    """Return each row's outline on a plane or a line."""
+    count = apertures.n_apertures
+    diameters = np.asarray(apertures.diameters)
+    edges = np.zeros(count) if apertures.edges is None else np.asarray(apertures.edges)
+    extents = (
+        np.zeros((count, 2))
+        if apertures.extents is None
+        else np.asarray(apertures.extents)
+    )
+    corrected = apertures.weighting == "quadrature" and not line
+    outlines = []
+    for row in range(count):
+        shape = apertures.row_shapes[row]
+        diameter, extent = float(diameters[row]), extents[row]
+        if line and shape == "rectangle":
+            # sqrt(x*x) is |x| in correctly rounded arithmetic, so the slit decides a
+            # hard edge as a circle of this diameter does (SEP 23 section 4.10).
+            shape, diameter = "circle", float(extent[0])
+        outlines.append(
+            aperture_outline(
+                shape,
+                diameter,
+                (float(extent[0]), float(extent[1])),
+                float(edges[row]),
+                apertures.row_profiles[row],
+                corrected=corrected,
+            )
+        )
+    return outlines
+
+
 def _profile_for(profiles: Mapping[str, ZProfile] | None, name: str) -> ZProfile:
     """Return the z-profile one statistic needs, or say which one is missing.
 
@@ -2906,16 +3060,26 @@ def _far_field_statistics(
       n_omega)``.
     - Returns: the requested statistics of :data:`_SAVED_FAR_FIELD`, keyed by name.
     """
-    # The translation layer imports this module, so its tables are reached lazily.
-    from solprop.translate.spatial import aperture_tables  # noqa: PLC0415
-
     names = [name for name in spec.names if name in _SAVED_FAR_FIELD]
     space = flux.space
     if isinstance(space, PlanarGrid):
         msg = "the far-field statistics read a Cartesian or line grid, not a planar one"
         raise OutputError(msg)
-    tables = aperture_tables(spec, flux.grid, space)
-    assert tables is not None  # the spec names a far-field statistic
+    if isinstance(space, RadialGrid):
+        msg = (
+            f"the far-field statistics {FAR_FIELD_STATISTICS} need a Cartesian grid or "
+            "a line, and a radial grid has no Cartesian transverse wavevector to map "
+            "onto a mask plane"
+        )
+        raise OutputError(msg)
+    tables = far_field_tables(
+        spec,
+        flux.grid.omega,
+        k_x=space.k_x,
+        k_y=space.k_y,
+        weights=space.spectral_weights,
+        on_axis=space.on_axis,
+    )
     return aperture_statistics(
         names,
         flux.grid,
