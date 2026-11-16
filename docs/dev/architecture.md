@@ -136,19 +136,35 @@ kernel layout carries the transverse columns in its mode axis (see §12).
 
 | layer | contents | may import | performance rules |
 |---|---|---|---|
-| **P** physics / convenience | grids, materials, modes, profiles, pulses, noise, linear-operator assembly, response *definitions*, ionisation and Raman models, boundaries, normalisation, tools | numpy, scipy, standard library, other P modules | none: clarity first; never in a hot loop |
-| **T** translation | turns P objects into validated kernel-ready arrays and the `PropagationProblem` contract | P, numpy, scipy | may be expensive once per problem; results cached and validated |
-| **B** backends | state buffers, transform plans, kernels, the inner z-loop, statistics kernels | numpy; the native package in `native/` (Kokkos, Kokkos-FFT and nanobind); from P only the types and constants the seam names — never a physics object | all hot-path rules of [backends.md](backends.md); in-place and `out=` allowed here only |
-| **D** driver | `Simulation`, run loop over save planes, scan executors, `prop_capillary`/`prop_gnlse`, output handlers, statistics specs | P, T, B (through the seam only), h5py | none |
-| **X** processing / plotting | analysis of outputs, standard plots, design tools | numpy, scipy, matplotlib, D (outputs), T (reference tables and their identities, for `processing.modal`; the recorded plane measure, for `processing.mixtures` and `processing.planes`) — never B | none; may call backend statistics kernels through the D layer when a computation belongs on the device |
+| **P** physics / convenience | grids, materials, modes, profiles, pulses, noise, linear-operator assembly, response *definitions*, ionisation and Raman models, boundaries, normalisation, coupling, design tools | numpy, scipy, standard library, other P modules | none: clarity first; never in a hot loop |
+| **S** run specification | what a run is asked to do and what it records: the tableaux, controllers and schedules (`stepper/`), the statistics catalogue and specification (`stats/`), and the run-record value types of `output/` (`records`, `serialisation`, `provenance`, `metadata`, `store`, `capability`) | P, numpy, scipy | none; the scalar algebra a backend calls per step goes through `_helpers` |
+| **T** translation | turns P objects into validated kernel-ready arrays and the `PropagationProblem` contract, beside the `RunRequest` built from S | P, S, numpy, scipy | may be expensive once per problem; results cached and validated |
+| **B** backends | state buffers, transform plans, kernels, the inner z-loop, statistics kernels | numpy; the native package in `native/` (Kokkos, Kokkos-FFT and nanobind); S; from P only the types and constants the seam names — never a physics object | all hot-path rules of [backends.md](backends.md); in-place and `out=` allowed here only |
+| **D** driver | `Simulation`, run loop over save planes, scan executors, `prop_capillary`/`prop_gnlse`, output handlers, recipes, calibration, the command line | P, S, T, B (through the seam only), h5py | none |
+| **X** processing / plotting | analysis of outputs, standard plots, the capability report, front-end support | numpy, scipy, matplotlib, D (outputs), T (the deliberate edges below) — never B | none; may call backend statistics kernels through the D layer when a computation belongs on the device |
 
-**Transverse rules are built in P.** `modes/quadrature.py` constructs its rules
+Beneath every layer sit the **package-wide** modules: `exceptions`, `log` (logging and
+the progress protocols, which every layer reports through) and the private root
+modules of [section 4](#4-package-layout). Any layer may import them; they import only
+one another, with the exceptions listed below.
+
+S exists because the run's specification is data that every layer below the driver
+needs: `StepperSettings`, `StatsSpec` and `FieldRetention` are fields of the
+`RunRequest` that crosses the seam, a backend's statistics read the catalogue, and its
+session writes the record types. None of S imports T, B or D.
+
+**Rules are built in P.** `modes/quadrature.py` constructs its transverse rules
 numerically -- Laurie's Kronrod recursion, and the field-scale rules of
 [SEP 19](seps/archive/sep-0019-field-scale-quadrature.md) by the Lanczos
 process and the Golub–Welsch eigenvalue method, certified on construction -- once per
-problem, and caches them. It is the one numerical construction kept in P: it yields
-nodes and weights for T to fold into the transform, and no compiled code, per-stage
-evaluation or hot loop enters P with it.
+problem, and caches them, and it holds the Chebyshev–Lobatto points and coefficients
+that both a guide's sampling and T's tables are built on. A guide samples its provider
+in P too: `modes/tables.py` tracks and gauges the frequency knots of a
+`DenseModalTable`, and `modes/path.py` places and checks the z knots of a moving guide,
+because `ModalGuide.from_provider` is a P constructor and its records are P records.
+These are the numerical constructions kept in P: they yield nodes, weights and sampled
+records for T to fold into the transform, and no compiled code, per-stage evaluation or
+hot loop enters P with them.
 
 **Construction's host resources.** The private process policy in `_process` holds
 NumPy's and SciPy's controllable BLAS pools at one thread (or `SOLPROP_BLAS_THREADS`
@@ -164,6 +180,27 @@ native backend's own BLAS and does not import a backend; an already loaded nativ
 package supplies its library identity through `build_info`. See the
 [BLAS guide](../guide/performance/tuning.md#blas-and-vendor-libraries).
 
+**Deliberate upward edges.** A handful of imports climb a layer, each for a reason
+recorded here and in the allowlist of `tests/test_layers.py`, which checks every import
+of the package -- at module level, inside a function or for typing -- and fails on any
+other upward edge and on an allowance no longer used:
+
+- **P → T, the plane measure.** `spatial.SpatialFlux` evaluates a plane's axial flux
+  with `translate.flux.plane_coefficients` and `translate.spatial.axial_admittance`,
+  so that the measure uses the run's own k_z to the bit (SEP 34); a coupling that
+  measures a plane therefore runs that T code too.
+- **Package-wide → S and T.** Each `_helpers` record loads the functions it names
+  (`translate.chebyshev`, `stepper.multistep`) from where they live, at the first
+  evaluation.
+- **D → X.** A scan's workers evaluate the reductions `processing.scans` declares and
+  the driver returns that module's `ScanOutput` reader; `driver.plane_view` reads an
+  observed plane with the same `processing` readers as a file.
+- **B → D.** `backends.registry` asks `calibration.first_use` whether the native
+  backend has a machine profile; calibration itself imports `solprop_native` directly
+  (its private `_execution` and `_profile` included) rather than through the seam,
+  because it measures the backend rather than running a problem.
+- **X → T**, below.
+
 **The X → T edges.** `solprop.processing.modal` imports
 `solprop.translate.modal_tables.ModalTransformTables` and
 `solprop.translate.general.guide_identity` and `reference_tables`, and that is inherent
@@ -174,14 +211,18 @@ tables `general_modal_route` builds, over the extent the identity records) and r
 **X**, which
 checks it against the stored identity, path by path, before it synthesises anything.
 **X** takes the record type and the identity functions, never an execution map, never a
-`PropagationProblem` and never a backend. Two further modules read what a file records the
-same way. `processing.mixtures` and `processing.planes` rebuild a spatial plane's
-measure from the record with `translate.flux.flux_from_record` and
-`translate.spatial.axial_admittance` (SEP 34), and `processing.planes` reuses
-`processing.modal`'s checked tables and evaluates a general basis Gram with
-`translate.coupled.metric_at`. These edges are deliberate (SEP 31): the measure a file
-records is rebuilt by the code that built it for the run, not by a second copy in **X**.
-No other module of **X** imports **T**.
+`PropagationProblem` and never a backend; it clamps a reference table's z span with the
+run's own slack, `translate.chebyshev.EDGE_SLACK_FRACTION`. Two further modules read
+what a file records the same way. `processing.planes` and `processing.beams` rebuild a
+spatial plane's measure from the record with `translate.flux.flux_from_record` (and
+`processing.planes` with `translate.spatial.axial_admittance`, SEP 34), and
+`processing.planes` reuses `processing.modal`'s checked tables and evaluates a general
+basis Gram with `translate.coupled.metric_at`. These edges are deliberate (SEP 31): the
+measure a file records is rebuilt by the code that built it for the run, not by a second
+copy in **X**. The doctests' fixture builder, `processing._examples`, builds its general
+modal run as a user would. No other module of **X** imports **T**, and only the front-end
+support imports a backend: `solprop.service` stops a run through the session's
+`StopToken` and shows the backends available and their thread budget on a run sheet.
 
 **Coupling crosses the layers without breaking them** (SEP 31). The field plane, the
 input port, the remap and `couple` are **P**; the driver's `Simulation.input_port()`
@@ -190,15 +231,19 @@ metric, reference index, the scalar profiles of its modes (built in **P** from t
 modes, `coupling.models.ScalarModeBasis`) or a general guide's E/H and contrast -- and
 extraction is **X** (`processing.field_plane`, which builds the same profiles from a
 `source=` simulation's modes), because **P** must not import **X**. A coupling computed
-in **P** therefore never imports **T** or reads a file. The driver's incident-beam
+in **P** reads no file and never imports **T** itself; only the plane measure it
+evaluates through `SpatialFlux` runs T code (above). The driver's incident-beam
 launch calls `couple` and installs its launch through `with_input`.
 
-Rules: imports flow P → T → B; B never builds a physics object — it does not know how to make
-a mode or a gas, and imports P only for the grid, mode and profile types its statistics are
-handed at construction, the constants, and the Raman drive form;
-X never imports B directly. Every public module declares `__all__`. No `utils` modules:
-organise by domain concept. Hand-rolled numerics live in T (`translate.chebyshev`) and B
-only; everything else uses NumPy/SciPy/h5py/matplotlib. A value type in P may carry what T
+Rules: imports flow P → S → T → B → D → X, with the package-wide modules beneath them
+all; B never builds a physics object — it does not know how to make
+a mode or a gas, and imports P only for the grid, mode and profile types its statistics
+and boundary monitors are handed at construction, the constants, and the Raman drive
+form; X never imports B directly. Every public module declares `__all__`. No `utils`
+modules: organise by domain concept. Hand-rolled numerics live in T
+(`translate.chebyshev`) and B, in P only for the rules and guide sampling above, and in
+S only for the Adams basis algebra of `stepper.multistep`; everything else uses
+NumPy/SciPy/h5py/matplotlib. A value type in P may carry what T
 designed and apply it with NumPy alone: the plasma column's
 `nonlinear.ionisation.RunningIntegral` holds taps that `translate.plasma_integration`
 fits and certifies, and filters and sums with them
@@ -212,22 +257,23 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 
 | Location under `src/solprop/` | Responsibility | Layer |
 |---|---|---|
-| `__init__.py`, `exceptions.py`, `constants.py` | Lazy public imports, package logging, exception hierarchy and SI constants | package / P |
+| `__init__.py`, `exceptions.py`, `log.py`, `constants.py` | Lazy public imports, the exception hierarchy, package logging and the progress protocols, and SI constants | package-wide / P |
 | `grid.py`, `fourier.py`, `hankel.py`, `spatial.py`, `adiabatic.py` | Temporal and spatial grids (radial, the Cartesian plane, and `LineGrid`, its x axis uniform in y per unit width), Fourier conventions, raw Hankel transforms, spatial media, the axial-flux measure of a plane (`SpatialFlux`, SEP 34) and the adiabatic path certificate of a z-varying medium | P |
 | `profiles.py`, `gasflow.py`, `pulses.py`, `noise.py`, `polarisation.py`, `optics.py`, `tools/` | Longitudinal paths, steady gas flow in a hollow fibre (the taper- and temperature-aware, choked, regime-checked fill, its flow report and calculators), temporal/spatial inputs, noise, polarisation algebra, linear optical elements as transfer functions, and the design calculators: pulse shape numbers (`tools/pulse.py`), soliton numbers (`soliton.py`), beam numbers (`beam.py`), the fill and zero-dispersion search a design evaluates (`waveguide.py`), dispersive-wave phase matching (`phase_matching.py`), the parameter solvers (`design.py`) and the soliton parameters and designs of a capillary (`capillary.py`), all re-exported from `solprop.tools` | P |
 | `coupling/` | Coupling simulations through a coherent field at a reference plane (SEP 31): the field plane with its reference, geometry, metric, basis identity and provenance (`plane.py`), the input port of a receiving simulation and its bound launch (`port.py`), temporal remapping (`remap.py`), the coupling models, their scalar mode profiles and the recorded pair envelopes (`models.py`, `envelopes.py`), `couple` with its admission budget and report (`coupler.py`), and the synthesis of a guide's exit field (`outcouple.py`), and the transport core: the linear elements between planes (`elements.py`) and the ordered transport of a plane with its ledger (`transport.py`); NumPy, SciPy and other P modules only | P |
 | `physdata/` | Species, mixtures, equations of state, transport properties (viscosity, sound speed, mean free path), optical material data, metals, nonlinear and Raman data | P |
-| `modes/` | Mode protocols and derived quantities; capillary, antiresonant, tabulated, step-index, rectangular and planar (slab, uniform in y, per unit width) modes, with `PlanarGrid` for the planar guide resolved in y; shared gas fill, quadrature and collections; full-vector modal records, material laws and regions, bound step-index and radial graded-index providers, and the guide that pairs a provider with a mode collection, and the connection of a basis that moves along z | P |
-| `linear.py`, `boundaries.py`, `nonlinear/` | Linear assembly, absorbing rates, response definitions, ionisation, Raman, normalisation and the GNLSE mapping | P |
+| `modes/` | Mode protocols and derived quantities; capillary, antiresonant, tabulated, step-index, rectangular and planar (slab, uniform in y, per unit width) modes, with `PlanarGrid` for the planar guide resolved in y; shared gas fill, quadrature and collections; full-vector modal records and node rules (`vector.py`), material laws and regions (`material.py`), the bound step-index and radial graded-index providers (`stepindex_vector.py`, `graded_index.py`), the guide that pairs a provider with a mode collection (`guide.py`), its sampled frequency tables and z path (`tables.py`, `path.py`), the connection of a basis that moves along z (`connection.py`), and a capillary's coherent wall and taper operators (`wall.py`) | P |
+| `linear.py`, `boundaries.py`, `spatial_absorber.py`, `monitor.py`, `transverse_monitor.py`, `nonlinear/` | Linear assembly; absorbing rates, in time and at a spatial grid's edge, and the monitors that read what a boundary absorbs (the time window's and the transverse edge's, under one `BoundaryCheck` policy); response definitions, ionisation, Raman, normalisation and the GNLSE mapping | P |
 | `translate/` | Validated `PropagationProblem` (`translate/problem.py`) and its route union (`translate/routes.py`), assembled by `assemble` (`translate/assembly.py`), with a capillary's coherent wall and taper coupling in `translate/walls.py` and the refusals and advisories assembly applies in `translate/validation.py`; parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); what the general route and the coupled flow execute, checked once (`translate/admission.py`); response tables, masks and stage bundles | T |
 | `backends/` | Registry and protocols, sessions, the run records both backends read (`records.py`, SEP 52) and the engine protocols the marches call (`engines.py`), the Adams call ledger both backends keep (`ledger.py`), node chunks, scalar bodies, spatial and population statistics, and the TDSE response's host source assembly (`tdse_source.py`) | B |
 | `backends/numpy_ref/` | Reference execution: the passes (`passes/`), the workspace with its stage source, statistics and coupled flow, the engines, and the Adams engine, kernels and tables | B |
 | `backends/host/` | The reference's own step driver, Adams and low-storage marches and run session ([SEP 47](seps/archive/sep-0047-run-ownership.md) phase 2); the parts the Python sessions compose are in `backends/session_core.py` | B |
-| `stepper/`, `log.py`, `stats.py` | Tableaux, controllers, schedules, progress reporters and statistics specifications | D |
-| `driver/`, `driver/routes/`, `driver/executors/`, `scan.py` | The `Simulation` object (`simulation.py`) with its settings and their admission (`settings.py`), its input, launch, noise and peak field (`inputs.py`), its run record (`metadata.py`), resume (`resume.py`), many-input runner (`runner.py`) and TDSE run glue (`tdse_run.py`); the keyword routes behind its constructors, one module per family (`routes/`: GNLSE, hollow guides, general modal guides, spatial grids, and the material selection and keyword attribution they share); the convenience interfaces, scan/batch orchestration, Local/Pool/Queue/Slurm execution and scan CLI | D |
-| `calibration/` | The native backend's machine calibration ([SEP 46](seps/archive/sep-0046-machine-calibration.md)): reading, showing, exporting, importing and clearing profiles in the per-user store, through solprop-native's standard-library modules loaded by path so that the native runtime never starts (`calibration/_native.py`), the measuring controller, its child processes, the synthetic problems they time, the operation-grain candidates and the selection rule (`calibration/controller.py`, `child.py`, `problems.py`, `grain.py`, `selection.py`), the refinement of one simulation (`calibration/refine.py`, stage 2, which `Simulation.calibrate` runs), and the `solprop calibrate` command (`calibration/command.py`) | D |
-| `output/` | Memory and HDF5 outputs, provenance/resume, scan storage and artifacts; the run record in five modules: serialising configuration objects (`serialisation.py`), what executed a run (`provenance.py`), the record types of a saved run and its planes (`records.py`), `RunMetadata` and the resume key (`metadata.py`), and the save protocol, `PlaneStore` and field retention (`store.py`) | D |
-| `processing/`, `plotting/`, `sol.py` | Field, spectrum, time, coherence, compression, mixture and scan analysis; a saved plane read back as a field plane or a fluence map (`processing/planes.py`), and a field plane's file form (`processing/plane_file.py`); propagation/statistics plots and spectrograms; the interactive session namespace, the one module whose import has side effects | X |
+| `stepper/`, `stats/`, and in `output/`: `records.py`, `serialisation.py`, `provenance.py`, `metadata.py`, `store.py`, `capability.py` | The run specification: tableaux, controllers and schedules; the statistics definitions, catalogue, specification and their collection; and the run record: serialising configuration objects, what executed a run, the record types of a saved run and its planes, `RunMetadata` and the resume key, the save protocol with `PlaneStore` and field retention, and what a saved basis can be asked for | S |
+| `driver/`, `driver/routes/`, `driver/executors/`, `scan.py` | The `Simulation` object (`simulation.py`) with its settings and their admission (`settings.py`), its input, launch, noise and peak field (`inputs.py`), its run record (`metadata.py`), resume (`resume.py`), many-input runner (`runner.py`) and TDSE run glue (`tdse_run.py`), with the TDSE response's binding and diagnostics (`tdse.py`) and its consistency check (`tdse_consistency.py`); the run loop over save planes and the service loop that serves a session's events (`run.py`, `session_loop.py`), a run's fill and its material records (`mixtures.py`, `material_output.py`), the printed summary, cost estimate and defaults (`summary.py`, `estimate.py`, `defaults.py`) and the view of an observed plane (`plane_view.py`); the keyword routes behind its constructors, one module per family (`routes/`: GNLSE, hollow guides, general modal guides, spatial grids, and the material selection and keyword attribution they share); the convenience interfaces, scan/batch orchestration, Local/Pool/Queue/Slurm execution and scan CLI | D |
+| `recipe/`, `cli.py` | A run written as a TOML recipe: its document format and upgrades, quantities with units, parameter paths and pins, the registry that decodes configuration objects, the route and type metadata a front end shows (`metadata.py`, `type_metadata.py`), previews, provenance and export to Python; and the `solprop` command line (`run`, `check`, `resume`, `calibrate`) | D |
+| `calibration/` | The native backend's machine calibration ([SEP 46](seps/archive/sep-0046-machine-calibration.md)): reading, showing, exporting, importing and clearing profiles in the per-user store, through solprop-native's standard-library modules loaded by path so that the native runtime never starts (`calibration/_native.py`), the measuring controller, its child processes, the synthetic problems they time, the operation-grain candidates and the selection rule (`calibration/controller.py`, `child.py`, `problems.py`, `grain.py`, `selection.py`), the refinement of one simulation (`calibration/refine.py`, stage 2, which `Simulation.calibrate` runs), the first-use check that a native run has a profile (`calibration/first_use.py`), and the `solprop calibrate` command (`calibration/command.py`). It imports `solprop_native` directly, below the seam (section 3) | D |
+| `output/` (the handlers) | Memory, HDF5 and callback outputs (`memory.py`, `hdf5.py`, `callback.py`), the TDSE archive, snapshots and resumability (`tdse_archive.py`, `snapshots.py`, `resumable.py`), scan storage and per-point artifacts (`scan.py`, `scan_artifacts.py`) and the writer and scan locks; the record types they write are S, above | D |
+| `processing/`, `plotting/`, `sol.py`, `capabilities.py` | Field, spectrum, time, coherence, compression, mixture and scan analysis; a saved plane read back as a field plane or a fluence map (`processing/planes.py`), and a field plane's file form (`processing/plane_file.py`); propagation/statistics plots and spectrograms; the interactive session namespace, the one module whose import has side effects; and the capability report of what a route, species or saved output supports (`capabilities.py`) | X |
 | `service/` | Front-end support, above every other layer: the messages between a front end and solprop, the kernel process that answers a front end's checks, previews and readings of a results file as plain data, each run as a job that keeps its record in its folder, and the helper and connection that reach a machine's runs over SSH ([the front end's design](gui/design.md), sections 13.3 and 13.4). Not part of the user API and outside the stability promise; nothing else in solprop imports it | X |
 
 `solprop-native` is the backend's second distribution, built from `native/` in this
@@ -258,7 +304,14 @@ a caller hands in is copied before it is frozen (`frozen_copy`), in every layer.
 identity is (a run's resume key, a scan's common record, a coupling plane's basis, a
 TDSE basis or descriptor, a material population), and `_durable.py`: a small file
 replaced whole, which the scan queue's state, the front end's run records and the TDSE
-consistency cache are written with.
+consistency cache are written with. `_file_lock.py` is the cross-platform advisory
+lock under the scan queue's state and the output locks. `_host.py` describes the machine
+a run executes on and what the run has cost it (wall and CPU time, peak memory, physical
+memory), `_process.py` holds the process policy: the CPU grant and thread budget, the
+BLAS pools' lease coordinator and the environment of child processes, and
+`_interrupts.py` delivers SIGTERM and Ctrl-C to a run between its commits, never inside one. `_helpers.py`
+is the record of scalar evaluations a backend supplies to the shared per-step code
+(section 3 lists its imports).
 
 The layout does not mirror Luna's module tree: what `NonlinearRHS.jl` does spans
 response normalisation, translation and backend passes; `Maths.jl` mostly becomes SciPy
@@ -394,8 +447,8 @@ the solid factories' `model=` names a solid's. What `physdata/` keeps is solprop
 the types a caller's own data take: the gas formula types (`sellmeier.py`), a custom
 `Species` with `TabulatedSusceptibility` or `IdealGas`, `SellmeierGlass`,
 `TabulatedGlass` and `CompositeGlass`, and the molecular Raman constants of
-`raman_types.py`. Air's molar mass is read from CoolProp through `pyfluids`, the one
-direct use left (see [dependencies.md](dependencies.md)).
+`raman_types.py`. Air's molar mass is its optmat equation of state's (CoolProp's
+pseudo-pure dry air); solprop reads no material data directly.
 
 ### 6.4 Pulses, noise, optics
 
@@ -493,7 +546,8 @@ statistics, which are how the problem is run and not what it means (SEP 47 §5.2
 spatial geometry, the collars' step limits), `translate/walls.py` the coupled flows of a
 capillary's mode set (the coherent wall and the taper coupling), and
 `translate/validation.py` what assembly refuses and warns about beyond the contract's own
-checks. What it computes, once per problem:
+checks; the `solprop.translate` package docstring maps the rest. What it computes, once
+per problem:
 
 | product | from | representation |
 |---|---|---|
@@ -504,7 +558,7 @@ checks. What it computes, once per problem:
 | masks and rates | `grid.py`, `boundaries.py` | in-band mask, spectral rate (already in D), temporal rate, hard band mask, crop/pad scaling; analytic fine-grid collar derivative and steady-current certificate for field plasma |
 | initial state and noise realisation | `pulses.py`, `noise.py` | canonical layout |
 | stepper settings (the request's) | `stepper/` | tableau, tolerances, controller parameters, schedule, save planes, caps |
-| statistics requests (the request's) | `stats.py` | which statistics, which windows |
+| statistics requests (the request's) | `stats/` | which statistics, which windows |
 | spatial plane measure | `spatial.py`, `adiabatic.py`, `translate/flux.py` | the `FluxPlan`: separable coefficients whose root gives each column's axial admittance, the material square's z table for a varying radial medium, and its adiabatic admission (SEP 34) |
 | route | `translate/routes.py` | the variant, its transform and its own leaves: the TDSE source, the plane measure, the transverse boundary |
 

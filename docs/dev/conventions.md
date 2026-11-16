@@ -3,8 +3,8 @@
 The units, signs, normalisations, grids and array layouts that every module assumes and
 every docstring defers to. A function that departs from any of these says so in the first line
 of its docstring and explains why. Sign errors escape review; these belong in one place.
-The layer letters P, T, B, D and X that docstrings use are defined in
-[architecture.md §3](architecture.md) and ADR-001, not here.
+The layer letters P, S, T, B, D and X that docstrings use are defined in
+[architecture.md §3](architecture.md), ADR-001 and ADR-080, not here.
 
 ## 1. Units
 

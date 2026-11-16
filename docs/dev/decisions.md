@@ -18,7 +18,7 @@ it is qualified, [backends.md](backends.md); for the current seam,
 
 ## ADR-001 — Three-layer design: physics, translation, backends
 
-- **Status:** accepted
+- **Status:** accepted; the layers and their import rule amended by ADR-080
 - **Context:** Luna mixes physics, buffers, FFT plans and threading in the same structs
   (`NonlinearRHS.jl`). That made every optimisation touch the physics and every physics change
   touch the hot loop.
@@ -2399,3 +2399,30 @@ Withdrawn (development-process record, not a design decision).
   milestone 3: bitwise on its corpus). Native's step time moved within its scatter, and
   a run's start costs one converted record (SEP 52 milestone 4). The `_testing` module is
   free to change with the tests.
+
+## ADR-080 — A run-specification layer, and every import checked against the layers
+
+- **Status:** accepted (maintainer), 2026-11-16, with the core review that followed the
+  public API review (PR #872). Amends ADR-001 (the layers and their import rule).
+- **Context:** ADR-001 named five layers, and `architecture.md` placed the stepper, the
+  statistics and the output record types in the driver layer D. Yet translation and both
+  backends import them: `StepperSettings`, `StatsSpec` and `FieldRetention` are fields of
+  the `RunRequest` that crosses the seam, a backend's statistics read the catalogue, and
+  its session writes the record types. Nothing checked the rule, and function-level
+  imports hid two cycles that ran against it (a guide's sampling in translation importing
+  the guide; the statistics importing translation's far-field tables).
+- **Decision:** a sixth layer, **S, the run specification**, sits between P and T:
+  `stepper/`, `stats/` and the run-record modules of `output/` (`records`,
+  `serialisation`, `provenance`, `metadata`, `store`, `capability`). It imports P only.
+  `exceptions`, `log` and the private root modules are package-wide, beneath every layer.
+  Imports flow P → S → T → B → D → X; X reaches T only through the edges `architecture.md`
+  §3 names, and never B. `tests/test_layers.py` checks every import of the package --
+  module level, function level and typing -- against the layer the structure figure draws
+  each module in, with each deliberate exception named in an allowlist with its reason;
+  a new upward edge or an unused allowance fails the fast lane.
+- **Consequences:** the guide's provider and path sampling moved from translation to
+  `modes/tables.py` and `modes/path.py`, with the Chebyshev–Lobatto primitives in
+  `modes/quadrature.py`; the far-field tables' spec-dependent core moved into the
+  statistics; `solprop.output` imports its handlers on first use, so the record modules
+  load without h5py. A move that would climb a layer is visible in review as an allowlist
+  entry.

@@ -37,7 +37,7 @@ right skip a band; one of them is the one import of P that [architecture.md
 §3](architecture.md) allows a backend: the grid, the modes and the profiles its
 statistics are handed at construction, types and constants and never a physics object.
 
-![The five layers of solprop, with every module in its band and the import edges between them](figures/layers.svg)
+![The six layers of solprop, with every module in its band and the import edges between them](figures/layers.svg)
 
 Layer letters and rules: [architecture.md §3](architecture.md) and
 [decisions.md](decisions.md) ADR-001. Package tree:
