@@ -644,6 +644,26 @@ def without_optmat_release(value: object, *, materials: bool = False) -> object:
     return value
 
 
+def with_former_names(value: object) -> object:
+    """Return a record with the names a later rename changed restored.
+
+    A reference state's ``pressure`` was ``pressure_bar``.
+    """
+    if isinstance(value, list):
+        return [with_former_names(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    if "reference_state" in value and isinstance(value["reference_state"], dict):
+        state = value["reference_state"]
+        value = value | {
+            "reference_state": {
+                ("pressure_bar" if name == "pressure" else name): item
+                for name, item in state.items()
+            }
+        }
+    return {key: with_former_names(child) for key, child in value.items()}
+
+
 RUN_RECORD_SKELETON = "f21c76f5c17db893aa436cc88749c124d41e7052ceb28cdd8c01a20e4e442121"
 """The structure of the example run's record, as the projection below takes it."""
 
@@ -655,8 +675,8 @@ def test_the_run_record_is_what_it_was_before_the_printing(examples):
     # the transverse quadrature, the norm's region in the controller, the
     # interaction formulation's name in an Adams method's representation, the
     # held-current identity, whose record and hash
-    # separation have their own held-source contract test, and the absorber's spatial
-    # flag (SEP 21).
+    # separation have their own held-source contract test, the absorber's spatial
+    # flag (SEP 21), and the names later renames changed (with_former_names).
     # Every built-in material is optmat's since SEP 3, so the manifest is never
     # empty here.
     #
@@ -690,7 +710,7 @@ def test_the_run_record_is_what_it_was_before_the_printing(examples):
         )
     hashed["stepper"] = stepper
     skeleton, values, floor = record_skeleton(
-        without_optmat_release(without_sep21_absorber(hashed))
+        with_former_names(without_optmat_release(without_sep21_absorber(hashed)))
     )
     assert skeleton_hash(skeleton) == RUN_RECORD_SKELETON
     assert_record_numbers(
