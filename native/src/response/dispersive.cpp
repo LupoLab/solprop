@@ -64,8 +64,8 @@ void upload(const ExecutionSpace& space,
 }
 
 // One product of the field with itself twice at every node of a chunk: the symmetric
-// evaluator's product of its filtered field, and the polynomial's `E^3` (solprop
-// `make_dispersive_self`), times the collar. It may run in place: each sample reads
+// evaluator's product of its filtered field, and the polynomial's `E^3` (solprop's
+// `dispersive_cubic`), times the collar. It may run in place: each sample reads
 // every component before it writes. A shifted source has a constant per row
 // subtracted as it is read: the zero-frequency bin of a field grid's bare analytic
 // signal, which `Pi_+` excludes and the engine's analytic family keeps.
@@ -139,8 +139,8 @@ template <class Value, std::size_t Components, DispersiveForm Form> struct SelfP
 
 // The polynomial's two derivative products at every node of a chunk, in place: with
 // `E` the bare field, `F = D E` and `H = D^2 E`, `T(E, E, F)` over `F` and
-// `c0 T(E, E, H) + c1 T(E, F, F)` over `H` (solprop `make_dispersive_pairs`), each
-// times the collar.
+// `c0 T(E, E, H) + c1 T(E, F, F)` over `H` (the polynomial evaluator of solprop's
+// `dispersive_cubic`), each times the collar.
 template <class Value, std::size_t Components, DispersiveForm Form>
 struct PairProducts {
   const Value* field;
