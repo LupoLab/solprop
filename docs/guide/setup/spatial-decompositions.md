@@ -344,7 +344,7 @@ exterior field has fallen by a factor $10^8$. Normalisation and area integrate a
 n2=...)` or `Simulation.from_gnlse`: the fibre supplies $\beta(\omega)$, its loss and
 `aeff()`. Vector, through the general route below:
 `ModalGuide.from_step_index(...).field_provider` is a
-{class}`~solprop.modes.guide.StepIndexProvider`, and
+{class}`~solprop.modes.stepindex_vector.StepIndexProvider`, and
 `ModalGuide.from_provider(provider, knots, nodes=...)` solves it over the band.
 `prop_waveguide` refuses a bare `StepIndexMode` and names the entry to use.
 

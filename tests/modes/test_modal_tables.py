@@ -26,13 +26,12 @@ from solprop.modes.guide import (
     ChannelBasis,
     ModalGuide,
     ProviderChannelMode,
-    StepIndexProvider,
     circular_pair,
     provider_channels,
-    radial_node_rule,
 )
 from solprop.modes.material import IndexMaterial, MaterialRegion
 from solprop.modes.protocol import ChannelLabel
+from solprop.modes.stepindex_vector import StepIndexProvider
 from solprop.modes.tables import (
     DEFAULT_GRAM_ATOL,
     MAX_GENERATOR_COUPLING,
@@ -51,7 +50,7 @@ from solprop.modes.tables import (
     validate_modal_table,
 )
 from solprop.modes.tabulated import SampledIndexTable, sample_index_table
-from solprop.modes.vector import ModalSample
+from solprop.modes.vector import ModalSample, radial_node_rule
 from solprop.profiles import Linear
 
 GRIN_OMEGA = 2 * np.pi * C / 1.03e-6

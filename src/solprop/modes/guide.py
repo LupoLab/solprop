@@ -2,9 +2,21 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Build Poynting-normalised bound-mode providers with explicit material ownership."""
+"""Build a general modal guide from a vector provider, sampled over frequency and z.
 
-import json
+:class:`ModalGuide` pairs a :class:`~solprop.modes.vector.ModalProvider` with the
+ordered mode collection and the material regions a general modal run propagates.
+:meth:`ModalGuide.from_provider` samples the provider into tracked tables
+(:mod:`solprop.modes.tables`) and, for a moving geometry, along its path
+(:mod:`solprop.modes.path`), and records what it solved on and measured in
+:class:`ModalSampling` and :class:`ModalPath`. Each channel is a
+:class:`ProviderChannelMode`, carrying its sampled dispersion and the
+:class:`ChannelSource` it can be solved again from; the guide's tables are checked
+against the provider to :data:`PROVIDER_BETA_RTOL`. The basis declarations
+(:class:`ChannelBasis`, :func:`circular_pair`, :func:`provider_channels`) are
+re-exported from :mod:`solprop.modes.vector`.
+"""
+
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import cast
@@ -18,7 +30,6 @@ from solprop._process import host_blas
 from solprop.constants import C
 from solprop.exceptions import ModeError
 from solprop.grid import TimeGrid
-from solprop.modes.stepindex_vector import _fields, _power
 from solprop.modes.collection import ModeCollection
 from solprop.modes.material import (
     JsonValue,
@@ -34,8 +45,9 @@ from solprop.modes.path import (
     sample_modal_path,
 )
 from solprop.modes.protocol import ChannelLabel, CrossSection, PolarisationComponent
-from solprop.modes.quadrature import lobatto_points, quadrature_rule
-from solprop.modes.stepindex import StepIndexMode, _material
+from solprop.modes.quadrature import lobatto_points
+from solprop.modes.stepindex import StepIndexMode
+from solprop.modes.stepindex_vector import StepIndexProvider
 from solprop.modes.tables import (
     DenseModalTable,
     align_modal_sample,
@@ -55,14 +67,12 @@ from solprop.modes.vector import (
     ModalProvider,
     ModalSample,
     circular_pair,
-    flux_product,
     provider_channels,
 )
-from solprop.profiles import FromCallable, ZProfile, as_profile, profile_identity
+from solprop.profiles import FromCallable, ZProfile, as_profile
 
 __all__ = [
     "BASIS_UNITARY_ATOL",
-    "MATERIAL_AGREEMENT_RTOL",
     "PROVIDER_BETA_RTOL",
     "ChannelBasis",
     "ChannelSource",
@@ -70,30 +80,9 @@ __all__ = [
     "ModalPath",
     "ModalSampling",
     "ProviderChannelMode",
-    "StepIndexProvider",
     "circular_pair",
     "provider_channels",
-    "radial_node_rule",
 ]
-
-MATERIAL_AGREEMENT_RTOL = 1e-6
-"""Largest relative disagreement a step-index provider admits between a region's
-declared permittivity law and the index its channels were solved with.
-
-The modes own the eigenproblem's indices (``StepIndexMode.core`` and
-``cladding``) and the regions own the material laws; the two describe the same
-material and nothing else made them agree. The regions' laws are what a declared
-``n2`` is converted against (:meth:`solprop.modes.material.MaterialKerr.susceptibility`)
-and what a guide's identity records, so a core region declared at 2.0 beside
-channels solved at 1.45 would propagate the 1.45 fields with a ``chi3`` 90 % too
-large and nothing downstream would say so.
-
-The budget is on the **permittivity**, and 1e-6 is chosen to admit a law evaluated
-by two paths -- a glass law asked for its index and the same law asked for its
-permittivity -- while refusing any disagreement a reader would call physical: the
-smallest index step this package's own weakly guiding fixtures use is 0.001 in the
-index, which is 1.4e-3 in the permittivity, three orders above this.
-"""
 
 PROVIDER_BETA_RTOL = 1e-6
 """Largest relative disagreement a guide admits between its tables and its provider.
@@ -121,395 +110,6 @@ case reaches 3.10e-6 at an end gap, above this budget, which is why the guard no
 samples the first and the last gap as well: a four-knot table over +-40 % is
 refused, and needs more knots.
 """
-
-
-def radial_node_rule(
-    interfaces: Sequence[float],
-    outer_radius: float,
-    *,
-    n_r: int,
-    n_theta: int,
-) -> ModalNodeRule:
-    """Build interface-split Cartesian nodes from the existing polar panel rule.
-
-    Parameters
-    ----------
-    interfaces : sequence of float
-        Strictly increasing positive material radii in m, inside outer_radius.
-    outer_radius : float
-        Positive finite truncation radius in m; tail certification is separate.
-    n_r : int
-        At least two Gauss nodes in each radial panel.
-    n_theta : int
-        At least two angular nodes; caller certifies angular resolution.
-
-    Returns
-    -------
-    ModalNodeRule
-        Positive area weights and one int32 material index per node.
-
-    Raises
-    ------
-    ModeError
-        If the radius or interface arrangement is invalid.
-    """
-    if not np.isfinite(outer_radius) or outer_radius <= 0:
-        raise ModeError("outer_radius must be positive and finite")
-    rule = quadrature_rule(
-        "polar",
-        full=True,
-        n_r=n_r,
-        n_theta=n_theta,
-        breaks=tuple(float(r / outer_radius) for r in interfaces),
-    )
-    limits = ("polar", (0.0, 0.0), (outer_radius, 2 * np.pi))
-    polar = rule.nodes(limits)
-    xy = np.column_stack(
-        (polar[:, 0] * np.cos(polar[:, 1]), polar[:, 0] * np.sin(polar[:, 1]))
-    )
-    return ModalNodeRule(
-        xy,
-        rule.weights(limits),
-        np.searchsorted(interfaces, polar[:, 0], side="left").astype(np.int32),
-        {
-            "interfaces": list(interfaces),
-            "outer_radius": outer_radius,
-            "n_r": n_r,
-            "n_theta": n_theta,
-        },
-    )
-
-
-@dataclass(frozen=True, eq=False)
-class StepIndexProvider(Displayed):
-    """Evaluate exact bound step-index E/H using independent full-domain power norms.
-
-    A returned :class:`~solprop.modes.vector.ModalSample` is always fully valid:
-    an unsupported channel is refused by name rather than masked out, so
-    ``valid`` is all ``True`` in every sample this provider returns.
-
-    Attributes
-    ----------
-    modes : tuple of StepIndexMode
-        Unique physical channels of one core/cladding geometry, in state order.
-    regions : tuple of MaterialRegion
-        Core and unbounded exterior, with material laws matching the modes.
-    """
-
-    modes: tuple[StepIndexMode, ...]
-    regions: tuple[MaterialRegion, ...]
-
-    def __repr__(self) -> str:
-        """Return a one-line description: the channels and the region count.
-
-        Returns
-        -------
-        str
-            For example ``StepIndexProvider(HE11, 2 regions)``.
-        """
-        return line(
-            "StepIndexProvider",
-            [
-                ("", ", ".join(f"{m.kind}{m.n}{m.m}" for m in self.modes)),
-                ("", f"{len(self.regions)} regions"),
-            ],
-        )
-
-    def _describe(self) -> tuple[str, list[tuple[str, object]]]:
-        """Return the title and rows of the printed block.
-
-        - Returns: the title and ``(key, value)`` rows.
-        """
-        low, high = self.z_domain
-        return "StepIndexProvider: exact bound E/H, unit full-domain power", [
-            ("channels", ", ".join(f"{m.kind}{m.n}{m.m}" for m in self.modes)),
-            ("regions", ", ".join(region.name for region in self.regions)),
-            ("z domain", f"{engineering(low, 'm')} to {engineering(high, 'm')}"),
-        ]
-
-    def __post_init__(self) -> None:
-        """Validate the common guide and the two material regions.
-
-        Raises
-        ------
-        ModeError
-            If the channels or material ownership are inconsistent.
-        """
-        ModeCollection(self.modes)
-        if any(
-            not ModeCollection(self.modes)._same_stepindex_guide(m) for m in self.modes
-        ):
-            raise ModeError("step-index channels must share one physical guide")
-        if len(self.regions) != 2 or self.regions[-1].outer_radius is not None:
-            raise ModeError("step-index provider requires core and unbounded cladding")
-        self._check_material_agreement()
-
-    def _check_material_agreement(self) -> None:
-        """Require each region's law to be the index its channels were solved with."""
-        mode = self.modes[0]
-        omega = float(2 * np.pi * C / mode.profile_wavelength)
-        # The resolved laws, not the declared ones: `core=None` means fused silica
-        # and the mode has already substituted it.
-        solved = (mode._core, mode._cladding)
-        for region, law in zip(self.regions, solved, strict=True):
-            low, high = region.material.omega_domain
-            if not low <= omega <= high:
-                raise ModeError(
-                    f"region {region.name!r} declares a law valid from {low:.6e} to "
-                    f"{high:.6e} rad/s, which does not cover the channels' profile "
-                    f"wavelength {mode.profile_wavelength:.6e} m ({omega:.6e} "
-                    "rad/s): the region's law is what a declared n2 is converted "
-                    "against and what the guide's identity records"
-                )
-            index = float(_material(law, np.array([omega]))[0][0])
-            declared = float(
-                np.real(region.material.permittivity(np.array([omega]))[0])
-            )
-            if abs(declared - index**2) > MATERIAL_AGREEMENT_RTOL * index**2:
-                raise ModeError(
-                    f"region {region.name!r} declares relative permittivity "
-                    f"{declared!r} at the channels' profile wavelength "
-                    f"{mode.profile_wavelength:.6e} m, and the channels were solved "
-                    f"with index {index!r} there, which is {index**2!r}: a relative "
-                    f"{abs(declared - index**2) / index**2:.3g}, above "
-                    f"{MATERIAL_AGREEMENT_RTOL:.3g}. The eigenproblem uses the "
-                    "modes' indices and the region's law is what a declared n2 is "
-                    "converted against, so the two must be the same material"
-                )
-
-    @property
-    def z_breakpoints(self) -> tuple[float, ...]:  # numpydoc ignore=RT01
-        """Radius-path breakpoints (physical path kinks), m."""
-        return tuple(float(x) for x in self.modes[0].core_radius.breakpoints)
-
-    @property
-    def z_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """Radius-path interval ``(lower, upper)``, m."""
-        return self.modes[0].core_radius.z_span
-
-    @property
-    def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """Material frequency support ``(lower, upper)``, rad/s.
-
-        :meth:`solve` checks each mode's cutoff.
-        """
-        return max(r.material.omega_domain[0] for r in self.regions), min(
-            r.material.omega_domain[1] for r in self.regions
-        )
-
-    @property
-    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
-        """Internal convention, bound-model and channel identities.
-
-        Serializable physical model and construction metadata.
-        """
-        return {
-            "spectral_convention": "internal",
-            "model": "bound-step-index",
-            "channels": [
-                dict(label.as_mapping())
-                for label in ModeCollection(self.modes).channel_labels
-            ],
-            "materials": [dict(r.material.identity) for r in self.regions],
-            # A structural path identity, not a repr: numpy summarises an array over
-            # 1000 elements, so two different long tapers would share an identity.
-            "radius_path": cast(
-                "JsonValue", profile_identity(self.modes[0].core_radius)
-            ),
-        }
-
-    def node_rule(
-        self,
-        omega: float,
-        z: float = 0.0,
-        *,
-        n_r: int | None = None,
-        n_theta: int | None = None,
-    ) -> ModalNodeRule:
-        """Build a common rule and certify the discarded cladding power.
-
-        Parameters
-        ----------
-        omega : float
-            Positive frequency in rad/s in the guided band.
-        z : float, optional
-            Position in m within the radius path.
-        n_r : int or None, optional
-            Gauss nodes per radial panel, at least two; ``None`` uses the 64 this
-            provider's exponential cladding tail needs.
-        n_theta : int or None, optional
-            Angular node count; None uses 4*(maximum n+1)+1 for quartic products.
-
-        Returns
-        -------
-        ModalNodeRule
-            Material-split rule with independently integrated tail bounds.
-
-        Raises
-        ------
-        ModeError
-            If the bound field or tail cannot be certified.
-        """
-        omega, z = float(omega), float(z)
-        n_r = 64 if n_r is None else n_r
-        radius = self.modes[0]._radius(z)
-        decay = []
-        for mode in self.modes:
-            neff = float(mode.neff(np.array([omega], dtype=float), z)[0].real)
-            clad = float(
-                _material(mode._cladding, np.array([omega], dtype=float))[0][0]
-            )
-            decay.append(omega / C * np.sqrt((neff - clad) * (neff + clad)))
-        outer = radius + 24 / min(decay)
-        rule = radial_node_rule(
-            (radius,),
-            outer,
-            n_r=n_r,
-            n_theta=4 * (max(m.n for m in self.modes) + 1) + 1
-            if n_theta is None
-            else n_theta,
-        )
-        tails = []
-        for mode in self.modes:
-            total, error = _power(mode, omega, z)
-            tail, tail_error = _power(mode, omega, z, outer / radius)
-            if total <= error or (abs(tail) + tail_error) / (total - error) > 1e-12:
-                raise ModeError(
-                    "cladding tail could not be certified below 1e-12 of full power"
-                )
-            tails.append((abs(tail) + tail_error) / (total - error))
-        return ModalNodeRule(
-            rule.xy,
-            rule.weights,
-            rule.region_index,
-            {
-                **rule.identity,
-                "tail_power_bound": tails,
-                # Beside the bound, so that a consumer reads the certificate
-                # without having to know that "omega" is the frequency it holds
-                # at. A tail bound is only a bound at the frequency it was taken.
-                "tail_power_bound_omega": omega,
-                "omega": omega,
-                "z": z,
-            },
-        )
-
-    def solve(self, omega: float, z: float, *, nodes: ModalNodeRule) -> ModalSample:
-        """Solve bound channels on explicitly owned physical nodes.
-
-        Parameters
-        ----------
-        omega : float
-            Positive angular frequency in rad/s within material and guided support.
-        z : float
-            Position in m in the radius path.
-        nodes : ModalNodeRule
-            Common Cartesian nodes with correct core/cladding ownership.
-
-        Returns
-        -------
-        ModalSample
-            Unit full-domain power E/H and their sampled physical Gram matrix. Its
-            ``valid`` mask is all ``True``: an unsupported channel is refused here,
-            not masked.
-
-        Raises
-        ------
-        ModeError
-            If domains, material ownership, norm or a boundary residual is invalid.
-        """
-        if (
-            not self.omega_domain[0] < omega <= self.omega_domain[1]
-            or not self.z_domain[0] <= z <= self.z_domain[1]
-        ):
-            raise ModeError("sample is outside provider frequency or z domain")
-        omega, z = float(omega), float(z)
-        radius = self.modes[0]._radius(z)
-        boundaries = [
-            float(as_profile(value)(np.array([z], dtype=float))[0])
-            for value in (
-                self.regions[0].inner_radius,
-                self.regions[0].outer_radius,
-                self.regions[1].inner_radius,
-            )
-            if value is not None
-        ]
-        if boundaries != [0.0, radius, radius]:
-            raise ModeError("material region radii disagree with the core interface")
-        expected = (np.hypot(nodes.xy[:, 0], nodes.xy[:, 1]) > radius).astype(np.int32)
-        if not np.array_equal(nodes.region_index, expected):
-            raise ModeError("node region ownership disagrees with the core interface")
-        for region, material in zip(
-            self.regions, (self.modes[0]._core, self.modes[0]._cladding), strict=True
-        ):
-            eps = region.material.permittivity(np.array([omega], dtype=float))
-            target = _material(material, np.array([omega], dtype=float))[0] ** 2
-            if np.any(np.imag(eps) != 0) or not np.allclose(
-                np.real(eps), target, rtol=16 * np.finfo(float).eps, atol=0
-            ):
-                raise ModeError(
-                    "provider material differs from its lossless step-index law"
-                )
-        electric, magnetic, beta, residual = [], [], [], []
-
-        angles = np.arange(17) * 2 * np.pi / 17
-        boundary = radius * np.column_stack((np.cos(angles), np.sin(angles)))
-        # Compare exact one-sided traces, without a finite radial offset.
-        radial = boundary / radius
-        tangent = np.column_stack((-radial[:, 1], radial[:, 0]))
-        for mode in self.modes:
-            e, h = _fields(mode, nodes.xy, omega, z)
-            norm, error = _power(mode, omega, z)
-            if norm <= error:
-                raise ModeError("full-domain power norm is non-positive or unresolved")
-            ei, hi = _fields(mode, boundary, omega, z, exterior=False)
-            eo, ho = _fields(mode, boundary, omega, z, exterior=True)
-            eps_core = (
-                float(_material(mode._core, np.array([omega], dtype=float))[0][0]) ** 2
-            )
-            eps_clad = (
-                float(_material(mode._cladding, np.array([omega], dtype=float))[0][0])
-                ** 2
-            )
-            e_defect = np.column_stack(
-                (
-                    np.sum((ei[:, :2] - eo[:, :2]) * tangent, axis=1),
-                    ei[:, 2] - eo[:, 2],
-                    np.sum(
-                        (eps_core * ei[:, :2] - eps_clad * eo[:, :2]) * radial, axis=1
-                    )
-                    / eps_core,
-                )
-            )
-            defect = max(
-                float(np.max(abs(e_defect))) / float(np.max(abs(ei))),
-                float(np.max(abs(hi - ho))) / float(np.max(abs(hi))),
-            )
-            if defect > 1e-9:
-                raise ModeError("step-index Maxwell boundary residual exceeds 1e-9")
-            electric.append(e / np.sqrt(norm))
-            magnetic.append(h / np.sqrt(norm))
-            beta.append(
-                float(mode.neff(np.array([omega], dtype=float), z)[0].real) * omega / C
-            )
-            residual.append(defect)
-        e, h = np.stack(electric, axis=-1), np.stack(magnetic, axis=-1)
-        metric = flux_product(e, h, nodes.weights)
-        return ModalSample(
-            omega,
-            z,
-            e,
-            h,
-            -1j * np.diag(beta),
-            metric,
-            np.array(residual),
-            np.ones(len(beta), dtype=bool),
-            e.conj(),
-            -h.conj(),
-            -4 * metric,
-            "analytic-real-transverse",
-            json.dumps(dict(self.identity), sort_keys=True, allow_nan=False),
-        )
 
 
 @dataclass(frozen=True, eq=False)

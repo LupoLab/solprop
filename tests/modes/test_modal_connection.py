@@ -33,8 +33,9 @@ from solprop.modes.connection import (
     connection_nodes,
     modal_connection,
 )
-from solprop.modes.guide import StepIndexProvider, circular_pair, provider_channels
+from solprop.modes.guide import circular_pair, provider_channels
 from solprop.modes.material import MaterialRegion
+from solprop.modes.stepindex_vector import StepIndexProvider
 from solprop.modes.vector import ModalNodeRule, ModalProvider, ModalSample
 from solprop.profiles import Linear, PiecewiseLinear
 

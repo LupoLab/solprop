@@ -97,10 +97,15 @@ from jaxtyping import Complex, Float
 
 from solprop._display import Displayed, engineering, line
 from solprop.exceptions import GeneralModalBasisWarning, ModeError
-from solprop.modes.guide import radial_node_rule
 from solprop.modes.material import JsonValue
 from solprop.modes.tables import align_modal_sample, apply_channel_basis
-from solprop.modes.vector import ChannelBasis, ModalNodeRule, ModalProvider, ModalSample
+from solprop.modes.vector import (
+    ChannelBasis,
+    ModalNodeRule,
+    ModalProvider,
+    ModalSample,
+    radial_node_rule,
+)
 from solprop.profiles import as_profile
 
 __all__ = [

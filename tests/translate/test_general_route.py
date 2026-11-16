@@ -33,9 +33,10 @@ from runtime_types import unchecked
 from solprop.exceptions import ModeError, TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import StepIndexMode
-from solprop.modes.guide import ModalGuide, StepIndexProvider
+from solprop.modes.guide import ModalGuide
 from solprop.modes.material import IndexMaterial, MaterialKerr
 from solprop.modes.quadrature import quadrature_rule
+from solprop.modes.stepindex_vector import StepIndexProvider
 from solprop.modes.tables import DEFAULT_GRAM_ATOL
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.nonlinear.responses import KerrResponse

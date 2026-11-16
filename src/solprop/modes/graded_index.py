@@ -27,7 +27,6 @@ from solprop._display import Displayed, line
 from solprop._process import host_blas
 from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError
-from solprop.modes.guide import radial_node_rule
 from solprop.modes.material import (
     JsonValue,
     MaterialRegion,
@@ -36,7 +35,12 @@ from solprop.modes.material import (
     _radius_text,
 )
 from solprop.modes.protocol import ChannelLabel
-from solprop.modes.vector import ModalNodeRule, ModalSample, flux_product
+from solprop.modes.vector import (
+    ModalNodeRule,
+    ModalSample,
+    flux_product,
+    radial_node_rule,
+)
 from solprop.profiles import ZProfile, as_profile, profile_identity
 
 __all__ = [
@@ -746,7 +750,7 @@ class GradedIndexProvider(Displayed):
         The frequency is not a discretisation choice here -- the mesh is the declared
         element count over the declared extent -- but it is what the discarded power
         beyond the matching radius depends on, so the rule certifies that tail at this
-        frequency, as :meth:`solprop.modes.guide.StepIndexProvider.node_rule` does.
+        frequency, as :meth:`solprop.modes.stepindex_vector.StepIndexProvider.node_rule` does.
         One signature for every provider.
 
         **That certificate costs a solve.** Building the mesh is 0.22 ms on the

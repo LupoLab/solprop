@@ -25,7 +25,6 @@ from witness_materials import malitson_silica
 from solprop.constants import C
 from solprop.exceptions import ModeError
 from solprop.modes import StepIndexMode, stepindex
-from solprop.modes.stepindex_vector import _radial
 from solprop.modes.base import beta2, zdw
 from solprop.modes.stepindex import (
     _MAX_V,
@@ -37,6 +36,7 @@ from solprop.modes.stepindex import (
     _partials,
     _roots,
 )
+from solprop.modes.stepindex_vector import _radial
 from solprop.physdata import fused_silica
 from solprop.physdata.glasses import GlassIndex
 from solprop.profiles import Linear
@@ -491,7 +491,7 @@ def test_stepindex_invalid_derivative_and_solver_results(monkeypatch):
     with monkeypatch.context() as patch:
         patch.setattr(
             stepindex,
-            "_material",
+            "real_index_and_slope",
             lambda material, omega: (
                 np.full_like(omega, 1.45 if material == 1.45 else 1.0),
                 np.full_like(omega, np.nan),

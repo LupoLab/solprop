@@ -650,14 +650,14 @@ class _ApertureIndex(GlassIndex):
         - ``omega``: positive angular frequencies in rad/s.
         - Returns: complex refractive index and slope in s/rad, with the input shape.
         """
-        index, derivative = _material(self.cladding, omega)
+        index, derivative = real_index_and_slope(self.cladding, omega)
         addition = self.numerical_aperture**2 / (2 * index)
         return np.asarray(index + addition, dtype=complex), np.asarray(
             derivative * (1 - addition / index), dtype=complex
         )
 
 
-def _material(
+def real_index_and_slope(
     material: GlassIndex | float, omega: Float[np.ndarray, "*shape"]
 ) -> tuple[Float[np.ndarray, "*shape"], Float[np.ndarray, "*shape"]]:
     """Sample the real index and its analytic slope for the lossless eigenproblem.
@@ -667,9 +667,26 @@ def _material(
     drops and warns beyond its bound; any other glass's real part is taken as
     documented on :class:`StepIndexMode`.
 
-    - ``material``: index model or positive constant refractive index.
-    - ``omega``: positive angular frequencies in rad/s.
-    - Returns: real index and derivative in s/rad, with the input shape.
+    Parameters
+    ----------
+    material : GlassIndex or float
+        Index model or positive constant refractive index.
+    omega : numpy.ndarray
+        Positive angular frequencies in rad/s, any shape.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The real index, dimensionless, and its derivative in s/rad, with the shape
+        of `omega`.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.modes.stepindex import real_index_and_slope
+    >>> index, slope = real_index_and_slope(1.45, np.array([2.0e15, 2.5e15]))
+    >>> index.tolist(), slope.tolist()
+    ([1.45, 1.45], [0.0, 0.0])
     """
     if isinstance(material, GlassIndex):
         lossless = lossless_index(material)
@@ -938,8 +955,8 @@ class StepIndexMode(Displayed):
         - ``z``: position along the fibre in m.
         - Returns: effective indices and their transverse roots u, shape (n_omega,).
         """
-        core, _ = _material(self._core, omega)
-        cladding, _ = _material(self._cladding, omega)
+        core, _ = real_index_and_slope(self._core, omega)
+        cladding, _ = real_index_and_slope(self._cladding, omega)
         if (
             not np.all(np.isfinite(core))
             or not np.all(np.isfinite(cladding))
@@ -1122,8 +1139,8 @@ class StepIndexMode(Displayed):
         """
         values = _checked_omega(omega)
         index, u = self._eigenpairs(values, z)
-        core, dcore = _material(self._core, values)
-        cladding, dcladding = _material(self._cladding, values)
+        core, dcore = real_index_and_slope(self._core, values)
+        cladding, dcladding = real_index_and_slope(self._cladding, values)
         square = (self._radius(z) * values / C) ** 2
         w = np.sqrt(square * (core - cladding) * (core + cladding) - u**2)
         ratio = (cladding / core) ** 2
@@ -1261,8 +1278,8 @@ class StepIndexMode(Displayed):
         """
         omega = np.asarray([2 * math.pi * C / self.profile_wavelength])
         _, transverse = self._eigenpairs(omega, z)
-        core = float(_material(self._core, omega)[0][0])
-        cladding = float(_material(self._cladding, omega)[0][0])
+        core = float(real_index_and_slope(self._core, omega)[0][0])
+        cladding = float(real_index_and_slope(self._cladding, omega)[0][0])
         radius = self._radius(z)
         scale = radius * float(omega[0]) / C
         u = float(transverse[0])
@@ -1527,7 +1544,8 @@ class StepIndexMode(Displayed):
         Maxwell curl equations use exp(i omega t - i beta z). The radial
         roots, family counting and analytic dispersion derivative are unchanged.
         """
-        from solprop.modes import stepindex_vector  # noqa: PLC0415 - type cycle
+        # Imported here: stepindex_vector imports this module at its top.
+        from solprop.modes import stepindex_vector  # noqa: PLC0415
 
         omega, z = float(omega), float(z)
         # A public boundary owes its caller a ModeError, not the AttributeError a

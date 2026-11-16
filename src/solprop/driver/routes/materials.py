@@ -14,8 +14,9 @@ from collections.abc import Sequence
 from solprop.exceptions import DriverError
 from solprop.modes.capillary import GlassIndex
 from solprop.modes.graded_index import GradedIndexProvider
-from solprop.modes.guide import ModalGuide, StepIndexProvider
+from solprop.modes.guide import ModalGuide
 from solprop.modes.material import MaterialRegion
+from solprop.modes.stepindex_vector import StepIndexProvider
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.nonlinear.responses import KerrResponse
 from solprop.physdata import fused_silica

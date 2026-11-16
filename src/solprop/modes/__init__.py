@@ -47,12 +47,7 @@ from solprop.modes.graded_index import (
     PowerLawPermittivity,
     RadialPermittivity,
 )
-from solprop.modes.guide import (
-    ModalGuide,
-    ModalSampling,
-    ProviderChannelMode,
-    StepIndexProvider,
-)
+from solprop.modes.guide import ModalGuide, ModalSampling, ProviderChannelMode
 from solprop.modes.material import (
     GasKerr,
     IndexMaterial,
@@ -80,6 +75,7 @@ from solprop.modes.slab import (
     per_unit_width_to_gaussian,
 )
 from solprop.modes.stepindex import StepIndexMode
+from solprop.modes.stepindex_vector import StepIndexProvider
 from solprop.modes.tabulated import (
     IndexTable,
     TabulatedHollowMode,

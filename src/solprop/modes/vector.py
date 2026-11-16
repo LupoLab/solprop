@@ -5,7 +5,8 @@
 """Represent internal-convention Maxwell samples on physical area quadrature.
 
 The records every vector modal provider and table shares: :class:`ModalNodeRule`
-(Cartesian nodes, area weights and material regions), :class:`ModalSample` (one
+(Cartesian nodes, area weights and material regions; :func:`radial_node_rule` builds
+the interface-split polar one), :class:`ModalSample` (one
 frequency and position's E/H, generator and flux metric), the
 :class:`ModalProvider` protocol that produces them, and :func:`flux_product`, the
 Hermitian Poynting product. :class:`ChannelBasis` declares a unitary change of a
@@ -26,6 +27,7 @@ from solprop._display import Displayed, engineering, line
 from solprop.exceptions import ModeError
 from solprop.modes.material import JsonValue, MaterialRegion
 from solprop.modes.protocol import ChannelLabel
+from solprop.modes.quadrature import quadrature_rule
 
 __all__ = [
     "BASIS_UNITARY_ATOL",
@@ -36,6 +38,7 @@ __all__ = [
     "circular_pair",
     "flux_product",
     "provider_channels",
+    "radial_node_rule",
 ]
 
 BASIS_UNITARY_ATOL = 1e-12
@@ -144,6 +147,63 @@ class ModalNodeRule(Displayed):
             value.setflags(write=False)
             object.__setattr__(self, name, value)
         object.__setattr__(self, "identity", dict(self.identity))
+
+
+def radial_node_rule(
+    interfaces: Sequence[float],
+    outer_radius: float,
+    *,
+    n_r: int,
+    n_theta: int,
+) -> ModalNodeRule:
+    """Build interface-split Cartesian nodes from the existing polar panel rule.
+
+    Parameters
+    ----------
+    interfaces : sequence of float
+        Strictly increasing positive material radii in m, inside outer_radius.
+    outer_radius : float
+        Positive finite truncation radius in m; tail certification is separate.
+    n_r : int
+        At least two Gauss nodes in each radial panel.
+    n_theta : int
+        At least two angular nodes; caller certifies angular resolution.
+
+    Returns
+    -------
+    ModalNodeRule
+        Positive area weights and one int32 material index per node.
+
+    Raises
+    ------
+    ModeError
+        If the radius or interface arrangement is invalid.
+    """
+    if not np.isfinite(outer_radius) or outer_radius <= 0:
+        raise ModeError("outer_radius must be positive and finite")
+    rule = quadrature_rule(
+        "polar",
+        full=True,
+        n_r=n_r,
+        n_theta=n_theta,
+        breaks=tuple(float(r / outer_radius) for r in interfaces),
+    )
+    limits = ("polar", (0.0, 0.0), (outer_radius, 2 * np.pi))
+    polar = rule.nodes(limits)
+    xy = np.column_stack(
+        (polar[:, 0] * np.cos(polar[:, 1]), polar[:, 0] * np.sin(polar[:, 1]))
+    )
+    return ModalNodeRule(
+        xy,
+        rule.weights(limits),
+        np.searchsorted(interfaces, polar[:, 0], side="left").astype(np.int32),
+        {
+            "interfaces": list(interfaces),
+            "outer_radius": outer_radius,
+            "n_r": n_r,
+            "n_theta": n_theta,
+        },
+    )
 
 
 @dataclass(frozen=True, eq=False)
@@ -516,6 +576,7 @@ class ChannelBasis(Displayed):
     --------
     >>> from solprop.modes.guide import circular_pair
     >>> from solprop.modes.protocol import ChannelLabel
+    from solprop.modes.quadrature import quadrature_rule
     >>> pair = (
     ...     ChannelLabel("HE", 1, 1, "even", None, "HE1,1:even"),
     ...     ChannelLabel("HE", 1, 1, "odd", None, "HE1,1:odd"),
@@ -774,6 +835,7 @@ def circular_pair(labels: Sequence[ChannelLabel], block: Sequence[int]) -> Chann
     >>> import numpy as np
     >>> from solprop.modes.guide import circular_pair
     >>> from solprop.modes.protocol import ChannelLabel
+    from solprop.modes.quadrature import quadrature_rule
     >>> pair = (
     ...     ChannelLabel("HE", 1, 1, "even", None, "HE1,1:even"),
     ...     ChannelLabel("HE", 1, 1, "odd", None, "HE1,1:odd"),

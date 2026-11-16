@@ -14,8 +14,8 @@ from scipy.interpolate import CubicSpline
 from bounds import EPS, assert_within
 from modal_provider_cases import OMEGA, make_provider
 from solprop.exceptions import ModeError
-from solprop.modes.guide import StepIndexProvider
 from solprop.modes.material import MaterialRegion
+from solprop.modes.stepindex_vector import StepIndexProvider
 from solprop.modes.tables import DenseModalTable, sample_modal_table
 from solprop.profiles import Linear
 from solprop.translate.modal_tables import (
