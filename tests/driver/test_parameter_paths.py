@@ -184,7 +184,7 @@ REFUSALS = [
         lambda: _gnlse(save_planes=[0.01, 0.005], n_save=None),
         DriverError,
         "save_planes",
-        "positive and increasing",
+        "must increase strictly",
         id="gnlse-planes-order",
     ),
     pytest.param(
