@@ -298,8 +298,9 @@ class Simulation(Displayed):
     settings : SimulationSettings
         How to step it, what to record and which backend to use.
     initial_z : float, optional
-        Absolute position of an array input, m, default zero. Every requested save
-        plane must follow it. An interior launch keeps the original profiles and
+        Absolute position of an array input, m, default zero, before
+        ``grid.length``: the run records ``[initial_z, grid.length]`` (SEP 51), a count
+        spread over that interval. An interior launch keeps the original profiles and
         propagation frame; it requires a modal array input, no noise and no fixed
         step schedule.
     noise : solprop.noise.NoiseRealisation or None, optional
@@ -545,16 +546,16 @@ class Simulation(Displayed):
     def settings(self, settings: SimulationSettings) -> None:
         """Replace settings; after translation, execution resources alone.
 
-        Parameters
-        ----------
-        settings : SimulationSettings
-            The replacement.
-
         The replacement is adopted as the constructor adopts its settings (SEP 51):
         validated against this run's interval ``[initial_z, grid.length]`` and
         resolved into the positions after the entrance, ending exactly at the length,
         before anything is compared, so a count and the positions it resolves to are
         the same setting.
+
+        Parameters
+        ----------
+        settings : SimulationSettings
+            The replacement.
 
         Raises
         ------
@@ -723,7 +724,7 @@ class Simulation(Displayed):
                     initial_z=self.initial_z,
                     # Simulation.__init__ refuses a missing controller.
                     controller=cast("PIController", settings.controller),
-                    save_planes=settings.save_planes,
+                    save_planes=np.asarray(settings.save_planes),
                     dz_max=settings.dz_max,
                     dz_init=settings.dz_init,
                     dz_min=settings.dz_min,
@@ -828,7 +829,8 @@ class Simulation(Displayed):
             )
             raise DriverError(msg)
         if z is not None and not (
-            math.isfinite(z) and 0.0 <= z < float(np.max(self.settings.save_planes))
+            math.isfinite(z)
+            and 0.0 <= z < float(np.max(np.asarray(self.settings.save_planes)))
         ):
             msg = f"an interior entrance lies inside the run, got z = {z!r} m"
             raise DriverError(msg)
@@ -2063,7 +2065,9 @@ class Simulation(Displayed):
             columns, on a radial grid; a Cartesian DFT spectrum in V/m, ``n_x*n_y``
             columns, otherwise.
         settings : SimulationSettings
-            Step tolerances, positive save positions in m, statistics and backend.
+            Step tolerances, the saved planes (``n_save`` or positions in m over
+            ``[0, grid.length]``; the run ends at ``grid.length``), statistics and
+            backend.
             Absolute tolerance has the input spectrum's units.
         frame : solprop.linear.Frame or None, optional
             Moving frame. None uses the declared responses' THG choice.
@@ -2190,7 +2194,9 @@ class Simulation(Displayed):
             amplitudes in sqrt(W/m), shape ``(n_p*n_y, 1, n_omega)``, the mode
             index fastest. Any other pulse is refused by name.
         settings : SimulationSettings
-            Step tolerances, positive save positions in m, statistics and backend.
+            Step tolerances, the saved planes (``n_save`` or positions in m over
+            ``[0, grid.length]``; the run ends at ``grid.length``), statistics and
+            backend.
             Absolute tolerance has the input spectrum's units, sqrt(W/m).
         frame : solprop.linear.Frame or None, optional
             Moving frame. None uses the declared responses' THG choice, following
@@ -2461,7 +2467,8 @@ class Simulation(Displayed):
             A fixed schedule to replay instead of stepping adaptively, which makes a run
             bit-identical on re-running (``docs/dev/stepper.md`` section 8). Its edges
             must contain every save plane, which
-            :meth:`solprop.stepper.schedule.FixedSchedule.uniform` guarantees.
+            :meth:`solprop.stepper.schedule.FixedSchedule.uniform` guarantees, and it
+            must cover the run, from the entrance to the length (SEP 51).
         integrator : Multistep, RungeKutta or LowStorageRungeKutta, optional
             The method that steps the run
             (``docs/guide/numerics/choosing-a-stepper.md``). ``None``, the default,
@@ -2478,12 +2485,13 @@ class Simulation(Displayed):
             Also save the end of every `step_planes`-th accepted step, the
             march's own positions, beside the requested planes (SEP 14);
             ``None``, the default, and ``0`` save the requested planes only.
-        save_planes : array_like, optional
-            Positions along the fibre to save at, m, increasing and positive; the plane
-            at ``z = 0`` is saved as well. Give this or `n_save`.
-        n_save : int, optional
-            Number of planes to store, counting the one at ``z = 0``, spread evenly over
-            the fibre. Default 201.
+        save_planes : sequence of float or None, optional
+            Positions to record the run at, m, finite, strictly increasing and inside
+            ``[0, length]``; the entrance and the end are added when absent, and an
+            empty list records them alone (SEP 51). Give this or `n_save`.
+        n_save : int or None, optional
+            How many evenly spaced observations to record over the run, both ends
+            included: an integer of at least 2. Default 201.
         stats : solprop.stats.StatsSpec, optional
             Which statistics to record at every plane; ``None`` records
             :func:`solprop.stats.default_spec` of a mode-averaged run. A ``periodic``
@@ -2969,9 +2977,12 @@ class Simulation(Displayed):
             ``1`` with a `tdse` response, which saves every accepted step without
             imposing a landing (SEP 20 section 5.8).
         save_planes : sequence of float or None, optional
-            Positions to save at, m. Give this or `n_save`.
+            Positions to record the run at, m, finite, strictly increasing and inside
+            ``[0, length]``; the entrance and the end are added when absent, and an
+            empty list records them alone (SEP 51). Give this or `n_save`.
         n_save : int or None, optional
-            How many planes to save, counting ``z = 0``.
+            How many evenly spaced observations to record over the run, both ends
+            included: an integer of at least 2.
         stats : solprop.stats.StatsSpec or None, optional
             Which statistics to record; ``None`` takes
             :func:`solprop.stats.default_spec` with the profiles, for a multimode run
@@ -3445,9 +3456,12 @@ class Simulation(Displayed):
             march's own positions, beside the requested planes (SEP 14); ``None``,
             the default, and ``0`` save the requested planes only.
         save_planes : sequence of float or None, optional
-            Positions to save at, m. Give this or `n_save`.
+            Positions to record the run at, m, finite, strictly increasing and inside
+            ``[0, length]``; the entrance and the end are added when absent, and an
+            empty list records them alone (SEP 51). Give this or `n_save`.
         n_save : int or None, optional
-            How many planes to save, counting ``z = 0``.
+            How many evenly spaced observations to record over the run, both ends
+            included: an integer of at least 2.
         stats : solprop.stats.StatsSpec or None, optional
             Which statistics to record; ``None`` takes
             :func:`solprop.stats.default_spec` with the profiles, for a multimode run
