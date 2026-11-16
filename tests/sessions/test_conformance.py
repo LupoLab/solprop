@@ -848,6 +848,7 @@ def test_a_warning_raised_as_an_error_fails_at_its_committed_endpoint(start_scri
         with pytest.raises(ScriptedWarning, match="accepted step 6"):
             emit_warning(event)
     # The launch's field after `warn_at` doublings, exactly (FACTOR is a power of two).
+    assert launched is not None
     np.testing.assert_array_equal(held, launched * FACTOR**warn_at)
     session.close()
 
