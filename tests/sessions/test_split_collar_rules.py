@@ -397,9 +397,9 @@ def test_native_s_accept_record_carries_each_step_s_sums(march):
     simulation = walking_fibre("native", MARCHES[march])
     problem, request, own = _backend(simulation)
     try:
-        monitor = dataclasses.replace(
-            simulation._boundary_monitor(), crossing=problem.split_crossing
-        )
+        watched = simulation._boundary_monitor()
+        assert watched is not None
+        monitor = dataclasses.replace(watched, crossing=problem.split_crossing)
         assert monitor.split
         workspace = own._workspace
         field = np.ascontiguousarray(problem.initial.field0).reshape(-1)

@@ -188,7 +188,8 @@ struct Occupancy {
   using O = Occupancy;
   using E = fields::Extent;
   return fields::table<O>(
-      "Occupancy", fields::array("buckets", &O::buckets, fields::Dtype::uint8, E::any()),
+      "Occupancy",
+      fields::array("buckets", &O::buckets, fields::Dtype::uint8, E::any()),
       fields::value("count", &O::count));
 }
 
@@ -210,8 +211,8 @@ struct Occupancy {
 }
 
 /** The transverse edge's tables where the state lives (solprop SEP 44), a run's: the
-    faces', the clip's and the totals' weights, a reduction's synthesis (empty for none),
-    the first row, and a requested collar's lines. */
+    faces', the clip's and the totals' weights, a reduction's synthesis (empty for
+   none), the first row, and a requested collar's lines. */
 struct EdgeBinding {
   std::vector<double> faces;
   std::vector<double> clip;
@@ -741,7 +742,8 @@ private:
   void apply(const Setup& setup);
   void require_built() const;
   void require_open() const;
-  void bind_run_monitor(const MonitorBinding& monitor, const std::optional<EdgeBinding>& edge);
+  void bind_run_monitor(const MonitorBinding& monitor,
+                        const std::optional<EdgeBinding>& edge);
   /** The march a session runs: from the run's policy and schedule and the stage tables,
       its engine over the state, its dense output when `dense`, and its state at the
       start. */

@@ -596,7 +596,8 @@ void bind_problem(nb::module_& module_) {
              "collections.abc.Mapping[str, object] | None");
   bind_setup(problem, "adams", &native::Setup::adams,
              "collections.abc.Mapping[str, object] | None");
-  bind_setup(problem, "low_storage", &native::Setup::low_storage, "object | None");
+  bind_setup(problem, "low_storage", &native::Setup::low_storage,
+             "solprop.backends.records.LowStorageSettings | None");
   bind_setup(problem, "occupancy", &native::Setup::occupancy,
              "collections.abc.Mapping[str, object] | None");
   bind_setup(problem, "crossing_workers", &native::Setup::crossing_workers, "int");
@@ -1183,8 +1184,8 @@ class ScriptedRkMarch {
 public:
   ScriptedRkMarch(const nb::object& policy, const RealInput norms, const double h0,
                   const RealInput steps, const RealInput edges)
-      : policy_(native::to_native(native::records::read<native::RungeKuttaPolicyRecord>(
-            policy, "policy"))),
+      : policy_(native::to_native(
+            native::records::read<native::RungeKuttaPolicyRecord>(policy, "policy"))),
         norms_(real_vector(norms)), h0_(h0),
         schedule_{.steps = real_vector(steps), .edges = real_vector(edges)} {}
   nb::dict run(const nb::dict state_values, const nb::dict bounds_values) {
@@ -1286,8 +1287,8 @@ using Ticket = std::pair<std::uint64_t, std::uint64_t>;
 
 namespace solprop_native {
 
-// An export's conversion (`solprop.backends.export.ExportRecipe`) with the route's power
-// weight at the ticket's position, none unless `power`.
+// An export's conversion (`solprop.backends.export.ExportRecipe`) with the route's
+// power weight at the ticket's position, none unless `power`.
 struct ExportRecipe {
   bool power = false;
   bool optics = false;
@@ -1334,8 +1335,9 @@ public:
   // Takes the session's lock: bound with the interpreter lock released.
   void acknowledge(const std::uint64_t sequence) { session().acknowledge(sequence); }
   // Fill `out` with the pending ticket's field, converted by `recipe` natively.
-  void export_field(const Ticket ticket, const nb::handle recipe,
-                    nb::ndarray<std::complex<double>, nb::c_contig, nb::device::cpu> out) {
+  void
+  export_field(const Ticket ticket, const nb::handle recipe,
+               nb::ndarray<std::complex<double>, nb::c_contig, nb::device::cpu> out) {
     const auto held = native::records::read<ExportRecipe>(recipe, "recipe");
     const std::size_t n = session().elements();
     if (out.size() != n)
@@ -1373,7 +1375,8 @@ public:
   // (None without one) and the quadrature peak, drained since the last read.
   nb::dict records() {
     std::optional<native::watch::Record> monitor;
-    std::optional<std::pair<native::transverse::Record, native::transverse::Finish>> edge;
+    std::optional<std::pair<native::transverse::Record, native::transverse::Finish>>
+        edge;
     std::optional<double> cap;
     double peak = 0.0;
     {
@@ -1385,8 +1388,8 @@ public:
     }
     nb::dict out;
     out["monitor"] = monitor ? nb::object(watch_record_to(*monitor)) : nb::none();
-    out["edge"] = edge ? nb::object(native::bindings::transverse_record_to(edge->first,
-                                                                          edge->second))
+    out["edge"] = edge ? nb::object(native::bindings::transverse_record_to(
+                             edge->first, edge->second))
                        : nb::none();
     out["cap"] = cap ? nb::object(nb::float_(*cap)) : nb::none();
     out["quadrature_peak"] = peak;
@@ -2221,10 +2224,12 @@ public:
                      const std::span<native::Complex> destination) const {
     open_state().stage_to_host(stage, destination);
   }
-  [[nodiscard]] std::vector<native::Complex> projected_to_host(const bool coarse) const {
+  [[nodiscard]] std::vector<native::Complex>
+  projected_to_host(const bool coarse) const {
     return open_state().projected_to_host(coarse);
   }
-  [[nodiscard]] std::vector<double> weighted_error(const std::vector<double>& scale) const {
+  [[nodiscard]] std::vector<double>
+  weighted_error(const std::vector<double>& scale) const {
     return open_state().weighted_error(scale);
   }
   std::vector<double> form_flow_actions(const std::size_t section, const double dz,
@@ -2233,7 +2238,8 @@ public:
     workspace_->forget_flow_key();
     return state.form_flow_actions(section, dz, fractions);
   }
-  [[nodiscard]] std::vector<native::Complex> flow_actions_to_host(const bool inverse) const {
+  [[nodiscard]] std::vector<native::Complex>
+  flow_actions_to_host(const bool inverse) const {
     return open_state().flow_actions_to_host(inverse);
   }
   [[nodiscard]] std::vector<native::Complex> adams_block_to_host() const {
@@ -2242,7 +2248,8 @@ public:
   [[nodiscard]] std::vector<native::Complex> adams_exponent_to_host() const {
     return open_state().adams_exponent_to_host();
   }
-  [[nodiscard]] native::stage::Trial stage_trial(const double z0, const double z1) const {
+  [[nodiscard]] native::stage::Trial stage_trial(const double z0,
+                                                 const double z1) const {
     return workspace_->stage_trial(z0, z1);
   }
   [[nodiscard]] std::vector<double> stage_rate(const double z) const {
@@ -2284,8 +2291,9 @@ public:
   }
   [[nodiscard]] std::vector<double>
   statistics(const std::uint64_t flags, const std::vector<double>& windows,
-             const std::vector<double>& on_axis, const double density, const double taper,
-             const double preionisation, const double intensity_factor,
+             const std::vector<double>& on_axis, const double density,
+             const double taper, const double preionisation,
+             const double intensity_factor,
              const std::vector<double>& channel_preionisation,
              const std::vector<double>& power_weight) const {
     return open_state().statistics(flags, windows, on_axis, density, taper,
@@ -2415,7 +2423,8 @@ nb::object accept_record(native::GeneralState& state) {
     return engines_module().attr("AcceptRecord")();
   const std::vector<double> found(sums->begin() + 1, sums->end());
   return engines_module().attr("AcceptRecord")(
-      "removed"_a = (*sums)[0], "found"_a = nb::cast(real_output(found, 1)).attr("reshape")(-1));
+      "removed"_a = (*sums)[0],
+      "found"_a = nb::cast(real_output(found, 1)).attr("reshape")(-1));
 }
 
 nb::object boundary_reading(const std::vector<double>& values) {
@@ -2464,21 +2473,26 @@ void bind_engines(nb::module_& testing) {
              const nb::gil_scoped_release release;
              return engine.trial(z, dz);
            })
-      .def("rk_accept",
-           [](TestEngines& self, const double dz) {
-             auto& engine = self.runge_kutta();
-             {
-               const nb::gil_scoped_release release;
-               engine.accept(dz);
-             }
-             return accept_record(self.state());
-           })
+      .def(
+          "rk_accept",
+          [](TestEngines& self, const double dz) -> nb::object {
+            auto& engine = self.runge_kutta();
+            {
+              const nb::gil_scoped_release release;
+              engine.accept(dz);
+            }
+            return accept_record(self.state());
+          },
+          nb::sig("def rk_accept(self, dz: float) -> "
+                  "solprop.backends.engines.AcceptRecord"))
       .def("rk_extend", [](TestEngines& self, const double z,
                            const double dz) { self.runge_kutta().extend(z, dz); })
-      .def("rk_reading",
-           [](TestEngines& self) {
-             return boundary_reading(self.runge_kutta().reading());
-           })
+      .def(
+          "rk_reading",
+          [](TestEngines& self) {
+            return boundary_reading(self.runge_kutta().reading());
+          },
+          nb::sig("def rk_reading(self) -> solprop.backends.engines.BoundaryReading"))
       .def_prop_ro("rk_in_flight",
                    [](TestEngines& self) { return self.runge_kutta().in_flight(); })
       // The Adams protocol (`AdamsEngine`).
@@ -2500,21 +2514,25 @@ void bind_engines(nb::module_& testing) {
              }
              return real_output(std::move(norms), 1);
            })
-      .def("adams_accept",
-           [](TestEngines& self, const double dz, const std::size_t free,
-              const nb::handle held, const nb::handle kept) {
-             auto& engine = self.adams();
-             const auto stencil = stencil_from(held);
-             std::vector<native::march::Entry> entries;
-             for (const auto entry : nb::cast<nb::sequence>(kept))
-               entries.push_back(
-                   native::records::read<native::march::Entry>(entry, "kept"));
-             {
-               const nb::gil_scoped_release release;
-               engine.accept(dz, free, stencil, entries);
-             }
-             return accept_record(self.state());
-           })
+      .def(
+          "adams_accept",
+          [](TestEngines& self, const double dz, const std::size_t free,
+             const nb::handle held, const nb::handle kept) {
+            auto& engine = self.adams();
+            const auto stencil = stencil_from(held);
+            std::vector<native::march::Entry> entries;
+            for (const auto entry : nb::cast<nb::sequence>(kept))
+              entries.push_back(
+                  native::records::read<native::march::Entry>(entry, "kept"));
+            {
+              const nb::gil_scoped_release release;
+              engine.accept(dz, free, stencil, entries);
+            }
+            return accept_record(self.state());
+          },
+          nb::sig("def adams_accept(self, dz: float, free: int, held: object, kept: "
+                  "collections.abc.Sequence[solprop.backends.engines.HistoryEntry]) "
+                  "-> solprop.backends.engines.AcceptRecord"))
       .def("adams_chord_phase",
            [](TestEngines& self, const double z1, const double z2) {
              return self.adams().chord_phase(z1, z2);
@@ -2535,8 +2553,11 @@ void bind_engines(nb::module_& testing) {
                throw std::invalid_argument("an attempt's outcome is 0, 1 or 2");
              self.adams().end_attempt(static_cast<native::HostOutcome>(outcome));
            })
-      .def("adams_reading",
-           [](TestEngines& self) { return boundary_reading(self.adams().reading()); });
+      .def(
+          "adams_reading",
+          [](TestEngines& self) { return boundary_reading(self.adams().reading()); },
+          nb::sig(
+              "def adams_reading(self) -> solprop.backends.engines.BoundaryReading"));
   testing.def(
       "engines",
       [](BoundWorkspace& workspace) {
@@ -2563,7 +2584,9 @@ void bind_engines(nb::module_& testing) {
         return real_output(std::move(values), 1);
       },
       "workspace"_a, "plan"_a, "z"_a);
-  testing.def("round_trip", &round_trip, "name"_a, "value"_a);
+  testing.def("round_trip", &round_trip, "name"_a, "value"_a,
+              nb::sig("def round_trip(name: str, value: object) -> dict[str, "
+                      "typing.Any]"));
 }
 
 // The private `_testing` module (solprop SEP 52 section 6.5): every entry point that
@@ -2734,7 +2757,9 @@ void bind_testing(nb::module_& testing) {
           [](native::watch::Monitor* self, const nb::handle config) {
             new (self) native::watch::Monitor(watch_config_from(config));
           },
-          "config"_a)
+          "config"_a,
+          nb::sig("def __init__(self, config: solprop.backends.records.MonitorConfig) "
+                  "-> None"))
       .def(
           "resume",
           [](native::watch::Monitor& self, const nb::handle record, const bool plane,
@@ -2746,7 +2771,11 @@ void bind_testing(nb::module_& testing) {
                                                                           "unwatched");
             self.resume(native::to_native(held), plane, stretches);
           },
-          "record"_a, "plane"_a, "unwatched"_a)
+          "record"_a, "plane"_a, "unwatched"_a,
+          nb::sig(
+              "def resume(self, record: solprop.backends.records.Resumption, plane: "
+              "bool, unwatched: collections.abc.Sequence[tuple[float, float]]) -> "
+              "None"))
       .def(
           "launch",
           [](native::watch::Monitor& self, const RealInput reading, const double z,
@@ -2805,7 +2834,8 @@ void bind_testing(nb::module_& testing) {
          const RealInput phi_at, const RealInput prefactor, const RealInput density,
          const RealInput taper, const RealInput preionisation,
          const RealInput raman_rates, const nb::object material,
-         const bool prepare_only) { TestState self(owner);
+         const bool prepare_only) {
+        TestState self(owner);
         if (self.raman() &&
             (raman_rates.ndim() != 2 || raman_rates.shape(0) != self.stages() ||
              raman_rates.shape(1) != self.raman_terms()))
@@ -2848,7 +2878,8 @@ void bind_testing(nb::module_& testing) {
       "material"_a = nb::none(), "prepare_only"_a = false);
   testing.def(
       "adopt",
-      [](BoundWorkspace& owner, const ComplexInput field, const double dz) { TestState self(owner);
+      [](BoundWorkspace& owner, const ComplexInput field, const double dz) {
+        TestState self(owner);
         const auto held = complex_vector(field);
         const nb::gil_scoped_release release;
         self.adopt(held, dz);
@@ -2856,7 +2887,8 @@ void bind_testing(nb::module_& testing) {
       "workspace"_a, "field"_a.noconvert(), "dz"_a);
   testing.def(
       "stage_to_host",
-      [](BoundWorkspace& owner, const std::size_t stage) { TestState self(owner);
+      [](BoundWorkspace& owner, const std::size_t stage) {
+        TestState self(owner);
         const auto count = self.elements();
         auto storage = native::crossing::host_buffer(2 * count);
         {
@@ -2870,7 +2902,8 @@ void bind_testing(nb::module_& testing) {
       "workspace"_a, "stage"_a);
   testing.def(
       "projected_to_host",
-      [](BoundWorkspace& owner, const bool coarse) { TestState self(owner);
+      [](BoundWorkspace& owner, const bool coarse) {
+        TestState self(owner);
         std::vector<native::Complex> values;
         {
           const nb::gil_scoped_release release;
@@ -2881,7 +2914,8 @@ void bind_testing(nb::module_& testing) {
       "workspace"_a, "coarse"_a = false);
   testing.def(
       "weighted_error",
-      [](BoundWorkspace& owner, const RealInput scale) { TestState self(owner);
+      [](BoundWorkspace& owner, const RealInput scale) {
+        TestState self(owner);
         std::vector<double> partials;
         const auto held_scale = real_vector(scale);
         {
@@ -2894,7 +2928,8 @@ void bind_testing(nb::module_& testing) {
   testing.def(
       "form_flow_actions",
       [](BoundWorkspace& owner, const std::size_t section, const double dz,
-         const RealInput fractions) { TestState self(owner);
+         const RealInput fractions) {
+        TestState self(owner);
         const auto held_fractions = real_vector(fractions);
         std::vector<double> measured;
         {
@@ -2906,7 +2941,8 @@ void bind_testing(nb::module_& testing) {
       "workspace"_a, "section"_a, "dz"_a, "fractions"_a.noconvert());
   testing.def(
       "flow_actions_to_host",
-      [](BoundWorkspace& owner, const bool inverse) { TestState self(owner);
+      [](BoundWorkspace& owner, const bool inverse) {
+        TestState self(owner);
         std::vector<native::Complex> values;
         {
           const nb::gil_scoped_release release;
@@ -2919,7 +2955,8 @@ void bind_testing(nb::module_& testing) {
   // exponent, observations for tests.
   testing.def(
       "adams_block_to_host",
-      [](BoundWorkspace& owner) { TestState self(owner);
+      [](BoundWorkspace& owner) {
+        TestState self(owner);
         std::vector<native::Complex> values;
         {
           const nb::gil_scoped_release release;
@@ -2930,7 +2967,8 @@ void bind_testing(nb::module_& testing) {
       "workspace"_a);
   testing.def(
       "adams_exponent_to_host",
-      [](BoundWorkspace& owner) { TestState self(owner);
+      [](BoundWorkspace& owner) {
+        TestState self(owner);
         std::vector<native::Complex> values;
         {
           const nb::gil_scoped_release release;
@@ -2952,7 +2990,8 @@ void bind_testing(nb::module_& testing) {
          const RealInput sample_preionisation, const RealInput sample_raman_rates,
          const nb::dict sample_material, const RealInput spans,
          const RealInput comp_predictor, const RealInput comp_corrector,
-         const RealInput comp_rows, const RealInput rate, const RealInput carrier) { TestState self(owner);
+         const RealInput comp_rows, const RealInput rate, const RealInput carrier) {
+        TestState self(owner);
         auto weights = exponential_weights(slots, predictor, corrector, rows);
         carrier_frame(weights, carrier, weights.width - 1);
         const auto rate_weights = real_vector(rate);
@@ -3010,7 +3049,8 @@ void bind_testing(nb::module_& testing) {
       [](BoundWorkspace& owner, const double z, const double dz, const RealInput nodes,
          const IndexInput slots, const std::size_t order,
          const std::vector<std::size_t>& orders, const bool compensated,
-         const RealInput carrier) { TestState self(owner);
+         const RealInput carrier) {
+        TestState self(owner);
         auto weights = exponential_weights_at(nodes, slots, order, orders, compensated);
         carrier_frame(weights, carrier, weights.width - 1);
         const double end = z + dz;
@@ -3024,12 +3064,13 @@ void bind_testing(nb::module_& testing) {
         }
         return real_output(std::move(norms), 1);
       },
-      "workspace"_a, "z"_a, "dz"_a, "nodes"_a.noconvert(), "slots"_a.noconvert(), "order"_a,
-      "orders"_a, "compensated"_a, "carrier"_a.noconvert());
+      "workspace"_a, "z"_a, "dz"_a, "nodes"_a.noconvert(), "slots"_a.noconvert(),
+      "order"_a, "orders"_a, "compensated"_a, "carrier"_a.noconvert());
   testing.def(
       "adams_exponential_accept",
       [](BoundWorkspace& owner, const double dz, const std::size_t free,
-         const IndexInput dense, const bool interpolate) { TestState self(owner);
+         const IndexInput dense, const bool interpolate) {
+        TestState self(owner);
         auto slopes = adams_rows(dense);
         slopes.width = interpolate ? slopes.width + 1 : 0;
         const nb::gil_scoped_release release;
@@ -3041,7 +3082,8 @@ void bind_testing(nb::module_& testing) {
       [](BoundWorkspace& owner, const std::size_t slot, const RealInput phi_delta,
          const RealInput phi_at, const RealInput prefactor, const RealInput density,
          const RealInput taper, const RealInput preionisation,
-         const RealInput raman_rates, const nb::dict material) { TestState self(owner);
+         const RealInput raman_rates, const nb::dict material) {
+        TestState self(owner);
         const auto scalars = adams_scalars(phi_delta, phi_at, prefactor, density, taper,
                                            preionisation, raman_rates, material);
         const nb::gil_scoped_release release;
@@ -3052,21 +3094,31 @@ void bind_testing(nb::module_& testing) {
       "preionisation"_a.noconvert(), "raman_rates"_a.noconvert(), "material"_a);
   testing.def(
       "adams_compensation_start",
-      [](BoundWorkspace& owner, const std::size_t slot, const RealInput rate) { TestState self(owner);
+      [](BoundWorkspace& owner, const std::size_t slot, const RealInput rate) {
+        TestState self(owner);
         const auto weights = real_vector(rate);
         const nb::gil_scoped_release release;
         self.open_state().adams_compensation_start(slot, weights);
       },
       "workspace"_a, "slot"_a, "rate"_a.noconvert());
   testing.def(
-      "adams_hold", [](BoundWorkspace& owner) { TestState self(owner); self.open_state().adams_hold(); },
+      "adams_hold",
+      [](BoundWorkspace& owner) {
+        TestState self(owner);
+        self.open_state().adams_hold();
+      },
       "workspace"_a);
   testing.def(
-      "adams_restore", [](BoundWorkspace& owner) { TestState self(owner); self.open_state().adams_restore(); },
+      "adams_restore",
+      [](BoundWorkspace& owner) {
+        TestState self(owner);
+        self.open_state().adams_restore();
+      },
       "workspace"_a);
   testing.def(
       "adams_rows_to_host",
-      [](BoundWorkspace& owner, const std::string& name) { TestState self(owner);
+      [](BoundWorkspace& owner, const std::string& name) {
+        TestState self(owner);
         auto& state = self.open_state();
         const auto extents = state.adams_row_extents(name);
         // The array's own storage is written once, as the host engine's copy is.
@@ -3088,7 +3140,8 @@ void bind_testing(nb::module_& testing) {
       "workspace"_a, "name"_a);
   testing.def(
       "adams_stage_scalars",
-      [](BoundWorkspace& owner, const double z0, const double z1) { TestState self(owner);
+      [](BoundWorkspace& owner, const double z0, const double z1) {
+        TestState self(owner);
         const auto trial = self.stage_trial(z0, z1);
         const auto& step = trial.step;
         // The first stage row's values; the test of the native evaluation reads
@@ -3114,21 +3167,30 @@ void bind_testing(nb::module_& testing) {
       "workspace"_a, "z0"_a, "z1"_a);
   testing.def(
       "adams_stage_rate",
-      [](BoundWorkspace& owner, const double z) { TestState self(owner); return self.stage_rate(z); }, "workspace"_a,
-      "z"_a);
+      [](BoundWorkspace& owner, const double z) {
+        TestState self(owner);
+        return self.stage_rate(z);
+      },
+      "workspace"_a, "z"_a);
   testing.def(
       "has_stage_tables",
-      [](BoundWorkspace& owner) { TestState self(owner); return self.has_stage_tables(); }, "workspace"_a);
+      [](BoundWorkspace& owner) {
+        TestState self(owner);
+        return self.has_stage_tables();
+      },
+      "workspace"_a);
   testing.def(
       "table_rate_at",
-      [](BoundWorkspace& owner, const double z, const bool before) { TestState self(owner);
+      [](BoundWorkspace& owner, const double z, const bool before) {
+        TestState self(owner);
         const nb::gil_scoped_release release;
         self.table_rate_at(z, before);
       },
       "workspace"_a, "z"_a, "before"_a);
   testing.def(
       "phase_sum_to_host",
-      [](BoundWorkspace& owner, const RealInput weights) { TestState self(owner);
+      [](BoundWorkspace& owner, const RealInput weights) {
+        TestState self(owner);
         const auto held = real_vector(weights);
         auto& state = self.open_state();
         std::vector<native::Complex> values;
@@ -3139,16 +3201,24 @@ void bind_testing(nb::module_& testing) {
         return complex_output(values, {self.columns(), values.size() / self.columns()});
       },
       "workspace"_a, "weights"_a.noconvert());
-  testing.def("promote_fsal", [](BoundWorkspace& owner) { TestState self(owner); self.promote_fsal(); }, "workspace"_a);
+  testing.def(
+      "promote_fsal",
+      [](BoundWorkspace& owner) {
+        TestState self(owner);
+        self.promote_fsal();
+      },
+      "workspace"_a);
   testing.def(
       "adams_march_run",
-      [](BoundWorkspace& owner, const nb::dict march, const nb::dict bounds) { TestState self(owner);
+      [](BoundWorkspace& owner, const nb::dict march, const nb::dict bounds) {
+        TestState self(owner);
         return self.march_run(march, bounds);
       },
       "workspace"_a, "march"_a, "bounds"_a);
   testing.def(
       "rk_march_run",
-      [](BoundWorkspace& owner, const nb::dict march, const nb::dict bounds) { TestState self(owner);
+      [](BoundWorkspace& owner, const nb::dict march, const nb::dict bounds) {
+        TestState self(owner);
         return self.rk_march_run(march, bounds);
       },
       "workspace"_a, "march"_a, "bounds"_a);
@@ -3169,7 +3239,9 @@ void bind_testing(nb::module_& testing) {
         owner.workspace().configure_march(
             native::records::read<native::RunRecordsRecord>(records, "records"));
       },
-      "workspace"_a, "records"_a);
+      "workspace"_a, "records"_a,
+      nb::sig("def configure_march(workspace: solprop_native._core.Workspace, "
+              "records: solprop.backends.records.RunRecords) -> None"));
   // Load a start into the state as a run would, for the tests that step it directly.
   testing.def(
       "load",
@@ -3188,7 +3260,8 @@ void bind_testing(nb::module_& testing) {
         auto storage = native::crossing::host_buffer(2 * count);
         {
           const nb::gil_scoped_release release;
-          state.field_to_host({reinterpret_cast<native::Complex*>(storage.get()), count});
+          state.field_to_host(
+              {reinterpret_cast<native::Complex*>(storage.get()), count});
         }
         return complex_buffer_output(std::move(storage),
                                      {self.columns(), count / self.columns()});
@@ -3213,7 +3286,8 @@ void bind_testing(nb::module_& testing) {
       },
       "workspace"_a, "quiet"_a);
   // A Runge-Kutta trial on the stage tables at the setup's nodes, as the march takes
-  // it (solprop SEP 45 phase 2): its partials `(3, slots)`, its stages kept in the state.
+  // it (solprop SEP 45 phase 2): its partials `(3, slots)`, its stages kept in the
+  // state.
   testing.def(
       "rk_trial",
       [](BoundWorkspace& owner, const double z, const double dz) {
@@ -3250,7 +3324,8 @@ void bind_testing(nb::module_& testing) {
         auto& slots = workspace.z_slots();
         if (!slots.present())
           throw std::logic_error("no z table's slots were configured");
-        const auto known = native::names(static_cast<const native::TableKind*>(nullptr));
+        const auto known =
+            native::names(static_cast<const native::TableKind*>(nullptr));
         const auto found = std::ranges::find_if(
             known, [&kind](const auto& entry) { return kind == entry.first; });
         if (found == known.end())
@@ -3261,8 +3336,8 @@ void bind_testing(nb::module_& testing) {
           const std::size_t slot = slots.load(state, {z}).front();
           values = state.table_terms_to_host(found->second, slot);
         }
-        return complex_output(values,
-                              {workspace.columns(), values.size() / workspace.columns()});
+        return complex_output(
+            values, {workspace.columns(), values.size() / workspace.columns()});
       },
       "workspace"_a, "kind"_a, "z"_a);
   // The slot each position's z-table value is held in, evaluating only those no slot
@@ -3372,9 +3447,8 @@ void bind_testing(nb::module_& testing) {
             native::records::read<native::MonitorBinding>(monitor, "monitor");
         const auto tables =
             native::records::read<std::optional<native::EdgeBinding>>(edge, "edge");
-        const auto buckets =
-            native::records::read<std::optional<native::Occupancy>>(occupancy,
-                                                                    "occupancy");
+        const auto buckets = native::records::read<std::optional<native::Occupancy>>(
+            occupancy, "occupancy");
         auto& state = owner.workspace().state();
         // Holding the interpreter lock: a strip's plan goes through FFTW's planner.
         state.bind_monitor(weights.weights, weights.column_weights);
@@ -3387,7 +3461,11 @@ void bind_testing(nb::module_& testing) {
             state.bind_edge_lines(*tables->lines);
         }
       },
-      "workspace"_a, "monitor"_a, "edge"_a.none(), "occupancy"_a.none());
+      "workspace"_a, "monitor"_a, "edge"_a.none(), "occupancy"_a.none(),
+      nb::sig("def bind_monitor(workspace: solprop_native._core.Workspace, monitor: "
+              "collections.abc.Mapping[str, object], edge: "
+              "collections.abc.Mapping[str, object] | None, occupancy: "
+              "collections.abc.Mapping[str, object] | None) -> None"));
   testing.def(
       "edge_reading",
       [](BoundWorkspace& owner, const bool faces, const bool whole, const bool totals,
@@ -3409,7 +3487,8 @@ void bind_testing(nb::module_& testing) {
       [](BoundWorkspace& owner, const std::uint64_t flags, const RealInput windows,
          const RealInput on_axis, const double density, const double taper,
          const double preionisation, const double intensity_factor,
-         const nb::object channel_preionisation, const nb::object power_weight) { TestState self(owner);
+         const nb::object channel_preionisation, const nb::object power_weight) {
+        TestState self(owner);
         const auto held_weight =
             power_weight.is_none() ? std::vector<double>{}
                                    : real_vector(exact_array<RealInput>(power_weight));
@@ -3433,8 +3512,9 @@ void bind_testing(nb::module_& testing) {
       "channel_preionisation"_a = nb::none(), "power_weight"_a = nb::none());
   testing.def(
       "spatial_statistics",
-      [](BoundWorkspace& owner, const std::uint64_t flags, const double intensity_factor,
-         const double z) { TestState self(owner);
+      [](BoundWorkspace& owner, const std::uint64_t flags,
+         const double intensity_factor, const double z) {
+        TestState self(owner);
         std::vector<double> values;
         {
           const nb::gil_scoped_release release;
@@ -3445,7 +3525,8 @@ void bind_testing(nb::module_& testing) {
       "workspace"_a, "flags"_a, "intensity_factor"_a, "z"_a);
   testing.def(
       "planned_statistics",
-      [](BoundWorkspace& owner, const BoundStatisticsPlan& plan, const double z) { TestState self(owner);
+      [](BoundWorkspace& owner, const BoundStatisticsPlan& plan, const double z) {
+        TestState self(owner);
         const auto& held = plan.plan();
         std::vector<double> values;
         {
@@ -3459,7 +3540,8 @@ void bind_testing(nb::module_& testing) {
       "plane_fluence_trace",
       [](BoundWorkspace& owner, const double center_x, const double center_y,
          const double dx, const double dy, const double extent, const double spacing,
-         const std::size_t n_radii, const RealInput cosines, const RealInput sines) { TestState self(owner);
+         const std::size_t n_radii, const RealInput cosines, const RealInput sines) {
+        TestState self(owner);
         if (cosines.ndim() != 1 || sines.ndim() != 1)
           throw std::invalid_argument("fluence rings must be one-dimensional");
         const auto held_cosines = real_vector(cosines);
@@ -3472,11 +3554,12 @@ void bind_testing(nb::module_& testing) {
         }
         return real_output(std::move(values), 1);
       },
-      "workspace"_a, "center_x"_a, "center_y"_a, "dx"_a, "dy"_a, "extent"_a, "spacing"_a,
-      "n_radii"_a, "cosines"_a.noconvert(), "sines"_a.noconvert());
+      "workspace"_a, "center_x"_a, "center_y"_a, "dx"_a, "dy"_a, "extent"_a,
+      "spacing"_a, "n_radii"_a, "cosines"_a.noconvert(), "sines"_a.noconvert());
   testing.def(
       "axis_spectrum",
-      [](BoundWorkspace& owner, const RealInput matrix) { TestState self(owner);
+      [](BoundWorkspace& owner, const RealInput matrix) {
+        TestState self(owner);
         if (matrix.ndim() != 2)
           throw std::invalid_argument("an on-axis matrix must be two-dimensional");
         const auto held = real_vector(matrix);
@@ -3490,7 +3573,8 @@ void bind_testing(nb::module_& testing) {
       "workspace"_a, "matrix"_a.noconvert());
   testing.def(
       "monitor_reading",
-      [](BoundWorkspace& owner) { TestState self(owner);
+      [](BoundWorkspace& owner) {
+        TestState self(owner);
         std::vector<double> values;
         {
           const nb::gil_scoped_release release;
@@ -3500,7 +3584,11 @@ void bind_testing(nb::module_& testing) {
       },
       "workspace"_a);
   testing.def(
-      "quadrature_error", [](BoundWorkspace& owner) { TestState self(owner); return self.quadrature_error(); },
+      "quadrature_error",
+      [](BoundWorkspace& owner) {
+        TestState self(owner);
+        return self.quadrature_error();
+      },
       "workspace"_a);
 }
 
@@ -3514,23 +3602,26 @@ NB_MODULE(_core, module_) {
   const nb::exception<native::BackendRefusal> backend_refusal(module_,
                                                               "BackendRefusal");
   module_.doc() = "Private nanobind seam for solprop-native";
-  module_.def("available_device_memory", []() -> nb::object {
+  module_.def(
+      "available_device_memory",
+      []() -> nb::object {
 #ifdef KOKKOS_ENABLE_CUDA
-    std::size_t free_bytes = 0;
-    std::size_t total_bytes = 0;
-    if (cudaMemGetInfo(&free_bytes, &total_bytes) != cudaSuccess)
-      throw std::runtime_error("cannot query CUDA free memory");
-    return nb::int_(free_bytes);
+        std::size_t free_bytes = 0;
+        std::size_t total_bytes = 0;
+        if (cudaMemGetInfo(&free_bytes, &total_bytes) != cudaSuccess)
+          throw std::runtime_error("cannot query CUDA free memory");
+        return nb::int_(free_bytes);
 #elif defined(KOKKOS_ENABLE_HIP)
-    std::size_t free_bytes = 0;
-    std::size_t total_bytes = 0;
-    if (hipMemGetInfo(&free_bytes, &total_bytes) != hipSuccess)
-      throw std::runtime_error("cannot query HIP free memory");
-    return nb::int_(free_bytes);
+        std::size_t free_bytes = 0;
+        std::size_t total_bytes = 0;
+        if (hipMemGetInfo(&free_bytes, &total_bytes) != hipSuccess)
+          throw std::runtime_error("cannot query HIP free memory");
+        return nb::int_(free_bytes);
 #else
-    return nb::none();
+        return nb::none();
 #endif
-  });
+      },
+      nb::sig("def available_device_memory() -> int | None"));
   // solprop issue #595: a captured plan's execution alone, against estimate's.
   module_.def(
       "time_fft_plan",
@@ -3555,14 +3646,17 @@ NB_MODULE(_core, module_) {
   // FFTW's wisdom as text, for the plan store the adapter owns
   // (solprop_native._wisdom). None where there is none to keep: a device build,
   // which plans with the device FFT, or a provider without FFTW's wisdom.
-  module_.def("export_fftw_wisdom", []() -> nb::object {
+  module_.def(
+      "export_fftw_wisdom",
+      []() -> nb::object {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-    return nb::none();
+        return nb::none();
 #else
-    std::string text = native::export_fftw_wisdom();
-    return text.empty() ? nb::none() : nb::cast(std::move(text));
+        std::string text = native::export_fftw_wisdom();
+        return text.empty() ? nb::none() : nb::cast(std::move(text));
 #endif
-  });
+      },
+      nb::sig("def export_fftw_wisdom() -> str | None"));
   bind_problem(module_);
   // solprop SEP 47: the native execution session and its compact event records.
   const nb::exception<native::session::LifecycleError> lifecycle_error(
@@ -3643,11 +3737,21 @@ NB_MODULE(_core, module_) {
   nb::class_<BatchRecord>(module_, "SessionBatch")
       .def_ro("sequence", &BatchRecord::sequence)
       .def_ro("event", &BatchRecord::event)
-      .def_ro("attempts", &BatchRecord::attempts)
-      .def_ro("row_z", &BatchRecord::row_z)
-      .def_ro("row_step", &BatchRecord::row_step)
-      .def_ro("row_values", &BatchRecord::row_values)
-      .def_ro("plane_stats", &BatchRecord::plane_stats);
+      .def_ro("attempts", &BatchRecord::attempts,
+              nb::for_getter(
+                  nb::sig("def attempts(self) -> numpy.typing.NDArray[numpy.float64]")))
+      .def_ro("row_z", &BatchRecord::row_z,
+              nb::for_getter(
+                  nb::sig("def row_z(self) -> numpy.typing.NDArray[numpy.float64]")))
+      .def_ro("row_step", &BatchRecord::row_step,
+              nb::for_getter(
+                  nb::sig("def row_step(self) -> numpy.typing.NDArray[numpy.int64]")))
+      .def_ro("row_values", &BatchRecord::row_values,
+              nb::for_getter(nb::sig(
+                  "def row_values(self) -> numpy.typing.NDArray[numpy.float64]")))
+      .def_ro("plane_stats", &BatchRecord::plane_stats,
+              nb::for_getter(nb::sig(
+                  "def plane_stats(self) -> numpy.typing.NDArray[numpy.float64]")));
   nb::class_<native::session::Status>(module_, "SessionStatus")
       .def_ro("z", &native::session::Status::z)
       .def_ro("plane_index", &native::session::Status::plane_index)
@@ -3676,15 +3780,24 @@ NB_MODULE(_core, module_) {
            nb::call_guard<nb::gil_scoped_release>())
       .def("request_snapshot", &BoundSession::request_snapshot)
       .def("status", &BoundSession::status)
-      .def("march_state", &BoundSession::march_state, "since"_a)
+      .def("march_state", &BoundSession::march_state, "since"_a,
+           nb::sig("def march_state(self, since: int) -> dict[str, typing.Any] | None"))
       .def("fail_outside", &BoundSession::fail_outside)
       // solprop SEP 52 section 5.3: a ticket is `(sequence, generation)`; a recipe is
       // `{"power", "optics", "weight"}`.
-      .def("export", &BoundSession::export_field, "ticket"_a, "recipe"_a, "out"_a)
-      .def("snapshot", &BoundSession::snapshot, "ticket"_a)
+      .def("export", &BoundSession::export_field, "ticket"_a, "recipe"_a, "out"_a,
+           nb::sig("def export(self, ticket: tuple[int, int], recipe: "
+                   "collections.abc.Mapping[str, object], out: "
+                   "numpy.typing.NDArray[numpy.complex128]) -> None"))
+      .def("snapshot", &BoundSession::snapshot, "ticket"_a,
+           nb::sig("def snapshot(self, ticket: tuple[int, int]) -> tuple[dict[str, "
+                   "typing.Any], numpy.typing.NDArray[numpy.complex128], dict[str, "
+                   "numpy.typing.NDArray[numpy.complex128]]] | None"))
       .def("noise_phase", &BoundSession::noise_phase, "ticket"_a, "z"_a)
       .def("records", &BoundSession::records)
-      .def("continue_monitor", &BoundSession::continue_monitor, "continuation"_a)
+      .def("continue_monitor", &BoundSession::continue_monitor, "continuation"_a,
+           nb::sig("def continue_monitor(self, continuation: "
+                   "solprop.backends.records.MonitorContinuation) -> None"))
       .def("close", &BoundSession::close, nb::call_guard<nb::gil_scoped_release>());
   // solprop SEP 52 section 5.3: the new seam -- one workspace a problem, one run record
   // a start, the probe, and the tables every record is read by.
@@ -3700,13 +3813,19 @@ NB_MODULE(_core, module_) {
   nb::class_<BoundWorkspace>(module_, "Workspace")
       .def(nb::init<const native::Problem&>(), "problem"_a)
       .def("start", &BoundWorkspace::start, "run"_a,
-           "host_source"_a.none() = nb::none(), nb::keep_alive<0, 1>())
+           "host_source"_a.none() = nb::none(), nb::keep_alive<0, 1>(),
+           nb::sig("def start(self, run: collections.abc.Mapping[str, object], "
+                   "host_source: object | None = None) -> Session"))
       .def("probe", &BoundWorkspace::probe, "start"_a,
-           "host_source"_a.none() = nb::none(), nb::keep_alive<0, 1>())
+           "host_source"_a.none() = nb::none(), nb::keep_alive<0, 1>(),
+           nb::sig("def probe(self, start: collections.abc.Mapping[str, object], "
+                   "host_source: object | None = None) -> Probe"))
       .def("diagnostics", &BoundWorkspace::diagnostics)
       .def_prop_ro("closed", &BoundWorkspace::closed)
       .def("close", &BoundWorkspace::close_from_python);
-  module_.def("configure_runtime", &configure_runtime, "record"_a);
+  module_.def("configure_runtime", &configure_runtime, "record"_a,
+              nb::sig("def configure_runtime(record: collections.abc.Mapping[str, "
+                      "object]) -> dict[str, str]"));
   module_.def("schemas", &schemas);
   auto testing =
       module_.def_submodule("_testing", "Private entry points for solprop's own tests");
