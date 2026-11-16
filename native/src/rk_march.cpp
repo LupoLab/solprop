@@ -4,7 +4,7 @@
 
 #include "solprop_native/rk_march.hpp"
 
-#include "solprop_native/core.hpp"
+#include "solprop_native/refuse.hpp"
 
 #include <algorithm>
 #include <chrono>

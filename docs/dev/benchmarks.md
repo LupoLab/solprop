@@ -310,7 +310,7 @@ Every medium width serial instead lost 2.8 times on averaged helium (EPYC geomet
 1.08); every medium width full, the FFTs included, gained on resolved cases but lost on the
 averaged ones (EPYC 0.94, Xeon 0.90 with averaged helium 1.22).
 
-The promotion applies everywhere but macOS (`stable_kernel_team` in `core.hpp`). On an
+The promotion applies everywhere but macOS (`stable_kernel_team` in `cpu_execution.hpp`). On an
 18-core Apple M5 Max, whose cores are of two kinds, the 11207-element Adams passes of
 `argon_blueshift` at 18 threads instead of four took the window from 3.0 to 3.2 s, and
 `h2_raman_averaged` at 18 threads ran 0.86 of `main`'s time without the promotion

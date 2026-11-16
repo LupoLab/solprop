@@ -12,6 +12,7 @@
 #endif
 
 #include "kernels.hpp"
+#include "solprop_native/host_source.hpp"
 
 namespace solprop_native {
 

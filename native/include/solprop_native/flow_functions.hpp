@@ -4,7 +4,8 @@
 
 #pragma once
 
-#include "solprop_native/core.hpp"
+#include "solprop_native/execution.hpp"
+#include "solprop_native/general_state.hpp"
 
 #include <cstddef>
 

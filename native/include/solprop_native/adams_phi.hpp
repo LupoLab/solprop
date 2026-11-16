@@ -2,8 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-#include "solprop_native/core.hpp"
+#include "solprop_native/execution.hpp"
 #include "solprop_native/fp.hpp"
+#include "solprop_native/general_state.hpp"
 
 #include <Kokkos_Core.hpp>
 

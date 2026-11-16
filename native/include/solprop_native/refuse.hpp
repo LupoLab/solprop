@@ -11,6 +11,19 @@
 
 namespace solprop_native {
 
+/** Signal exhaustion of the validated angular rule before source assembly. */
+class EnvelopeConvergenceError : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
+};
+
+/** Refuse a step solprop's reference refuses with `BackendError` (solprop SEP 45
+    phase 4): a coupled flow's action past its squarings or its certificate. */
+class BackendRefusal : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
+};
+
 namespace detail {
 
 template <class Part> void append_part(std::string& text, const Part& part) {

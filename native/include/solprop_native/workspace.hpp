@@ -5,10 +5,13 @@
 #pragma once
 
 #include "solprop_native/adams_march.hpp"
-#include "solprop_native/core.hpp"
 #include "solprop_native/engines.hpp"
+#include "solprop_native/execution.hpp"
 #include "solprop_native/fields.hpp"
+#include "solprop_native/general_state.hpp"
 #include "solprop_native/low_storage.hpp"
+#include "solprop_native/problem.hpp"
+#include "solprop_native/readings.hpp"
 #include "solprop_native/rk_march.hpp"
 #include "solprop_native/session.hpp"
 #include "solprop_native/stage_tables.hpp"
@@ -41,13 +44,6 @@
 namespace solprop_native {
 
 // ------------------------------------------------------------------ the set-once data
-
-/** The z tables by name (`TableKind`). */
-[[nodiscard]] constexpr auto names(const TableKind* /*unused*/) {
-  return std::array{
-      std::pair{"phi", TableKind::phi}, std::pair{"prefactor", TableKind::prefactor},
-      std::pair{"rate", TableKind::rate}, std::pair{"flux", TableKind::flux}};
-}
 
 /** One general z table made resident at construction (solprop SEP 29 G1): its
     breakpoints, admitted span and coefficients `(n_edges - 1, n_terms, n_values)`. */
@@ -191,23 +187,6 @@ struct Occupancy {
       "Occupancy",
       fields::array("buckets", &O::buckets, fields::Dtype::uint8, E::any()),
       fields::value("count", &O::count));
-}
-
-[[nodiscard]] constexpr auto describe(const EdgeLines* /*unused*/) {
-  using L = EdgeLines;
-  using E = fields::Extent;
-  return fields::table<L>(
-      "EdgeLines", fields::array("axes", &L::axes, E::of("n_lines")),
-      fields::array("counts", &L::counts, E::of("n_lines")),
-      fields::array("positions", &L::positions, E::any()),
-      fields::array("windows", &L::windows, E::any()),
-      fields::array("inward", &L::inward, E::any()),
-      fields::array("factors", &L::factors, E::of("n_lines")),
-      fields::array("measures", &L::measures, E::of("n_lines")),
-      fields::array("onsets", &L::onsets, E::any()),
-      fields::array("steps", &L::steps, E::of("n_lines")),
-      fields::value("k_min", &L::k_min), fields::array("scale", &L::scale, E::any()),
-      fields::value("batch_bytes", &L::batch_bytes));
 }
 
 /** The transverse edge's tables where the state lives (solprop SEP 44), a run's: the

@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "solprop_native/chebyshev.hpp"
-#include "solprop_native/core.hpp"
+#include "solprop_native/execution.hpp"
 #include "solprop_native/far_field.hpp"
+#include "solprop_native/general_state.hpp"
+#include "solprop_native/problem.hpp"
 #include "solprop_native/refuse.hpp"
 #include "solprop_native/statistics_plan.hpp"
 
@@ -35,7 +37,7 @@ namespace {
 
 constexpr double nan = std::numeric_limits<double>::quiet_NaN();
 
-// `GeneralState::statistics`' flags (core.hpp `StatisticsFlag`).
+// `GeneralState::statistics`' flags (problem.hpp `StatisticsFlag`).
 constexpr std::uint64_t temporal_omega0 = statistics_omega0;
 constexpr std::uint64_t temporal_energy = statistics_energy;
 constexpr std::uint64_t temporal_energy_window = statistics_energy_window;

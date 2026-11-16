@@ -4,7 +4,8 @@
 
 #pragma once
 
-#include "solprop_native/core.hpp"
+#include "solprop_native/cpu_execution.hpp"
+#include "solprop_native/execution.hpp"
 
 #include <KokkosFFT.hpp>
 

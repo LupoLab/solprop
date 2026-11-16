@@ -810,12 +810,13 @@ if(SOLPROP_NATIVE_ENABLE_COVERAGE)
   install(TARGETS solprop_native_labels LIBRARY DESTINATION solprop_native)
 endif()
 
-add_library(solprop_native_core STATIC src/core.cpp src/crossing.cpp
+add_library(solprop_native_core STATIC src/cpu_execution.cpp src/crossing.cpp
   src/general/checks.cpp src/general/setup.cpp src/general/trial.cpp
   src/general/statistics.cpp src/general/state.cpp src/general_modal.cpp src/coupled_flow.cpp src/dispersive.cpp src/far_field.cpp
   src/adams_march.cpp src/watch.cpp src/rk_march.cpp src/engines.cpp src/session.cpp
   src/session_statistics.cpp src/session_widths.cpp src/low_storage.cpp src/transverse.cpp
-  src/session_edge.cpp src/dense.cpp src/workspace.cpp)
+  src/session_edge.cpp src/dense.cpp src/workspace.cpp src/problem.cpp
+  src/reference_timing.cpp)
 # solprop SEP 39, SEP 45 and SEP 47: the Adams march's decisions, the boundary watch's
 # predictions, the Runge-Kutta march's positions and norm, the low-storage replay's
 # positions and table keys, the native session's scheduling, export, statistics
@@ -860,7 +861,7 @@ if(SOLPROP_NATIVE_BLAS_BACKEND STREQUAL "OpenBLAS")
   )
 endif()
 # Compact problems' transforms take a scoped team through FFTW's loop callback
-# (core.cpp, `fftw_team_loops`), which only the OpenMP FFTW runs on the OpenMP team.
+# (cpu_execution.cpp, `fftw_team_loops`), which only the OpenMP FFTW runs on the OpenMP team.
 if(SOLPROP_NATIVE_HOST_FFT_BACKEND STREQUAL "FFTW_OPENMP")
   target_compile_definitions(solprop_native_core PUBLIC SOLPROP_NATIVE_FFTW_OPENMP=1)
 endif()

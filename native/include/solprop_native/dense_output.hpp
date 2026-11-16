@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include "solprop_native/core.hpp"
 #include "solprop_native/dense.hpp"
+#include "solprop_native/general_state.hpp"
 #include "solprop_native/stage_tables.hpp"
 
 #include <array>

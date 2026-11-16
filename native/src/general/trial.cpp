@@ -332,7 +332,7 @@ std::size_t GeneralWorkspace::response_team_size() const noexcept {
 }
 
 // Size from the plan's real-side batch samples, using the shared complete-window
-// thresholds in core.hpp. Explicit FFT-pool requests bypass automatic sizing.
+// thresholds in cpu_execution.hpp. Explicit FFT-pool requests bypass automatic sizing.
 // FFTW's factorisation can change with the width; comparisons use solprop's SEP 25
 // transform/propagation rounding budgets rather than bitwise agreement.
 const ExecutionSpace& GeneralWorkspace::fft_space_for(const std::size_t samples,

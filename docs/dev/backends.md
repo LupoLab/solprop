@@ -643,7 +643,7 @@ The adapter `native/src/solprop_native/backend.py`, its session
 native backend, with no fallback (§1, ADR-029).
 `numpy_ref` stays selectable by name.
 
-**Three response families** (`FieldFamily`, `include/solprop_native/core.hpp`), which is
+**Three response families** (`FieldFamily`, `include/solprop_native/problem.hpp`), which is
 all `kerr_coefficients` compiles to, each its own compiled column:
 
 | family | grid | `thg` | the column works on | plasma |
@@ -839,7 +839,7 @@ build (ADR-076, §4).
 | compact problem | one column on one node, fewer than 65 536 fine samples | kernels on a team of at most eight threads, transforms on that team, products on one BLAS thread | independent scans: Local, or spawned processes through Pool |
 | sized problem | the rest | each operation's width chosen from its own element count at construction: stage, response, dense product, FFT, Raman, copy, flow, modal and Adams | one process per problem |
 
-The widths are constants of `include/solprop_native/core.hpp` (`operation_threads`, with
+The widths are constants of `include/solprop_native/cpu_execution.hpp` (`operation_threads`, with
 their calibration in
 [benchmarks.md](benchmarks.md#kokkos-cpu-operation-size-threading)), and `SOLPROP_NATIVE_*_THREADS`
 overrides a pool ([Performance tuning](../guide/performance/tuning.md)). The stage boundary
@@ -1777,7 +1777,7 @@ at most:
   three and four threads and radix 8 with 32-point leaves at others), which moves ten
   realistic steps by at most 8 u: within the transform's rounding bound, so it constrains
   nothing. This threshold and the stage threshold switch only on `__APPLE__`
-  (`include/solprop_native/core.hpp`): Windows and linux-aarch64 builds take the values
+  (`include/solprop_native/cpu_execution.hpp`): Windows and linux-aarch64 builds take the values
   measured on x86-64 Linux (Cascade Lake and Zen 3), which have not been measured on
   those platforms ([#328](https://github.com/LupoLab/solprop/issues/328)).
 - **One stage phase.** `sum_t dPhi_t Phi_t` is needed three times per stage (the
