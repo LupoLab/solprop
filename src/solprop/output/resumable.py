@@ -202,8 +202,8 @@ def resumability(path: str | Path | Output, *, gate: bool = False) -> Resumabili
     differences = None
     gate_error = None
     if gate and recipe == "stored":
-        # recipe.core imports solprop.output, whose package imports this module.
-        from solprop.recipe import Recipe  # noqa: PLC0415 - cycle
+        # Only a gated check rebuilds the run; the recipe's core loads the driver.
+        from solprop.recipe import Recipe  # noqa: PLC0415 - heavy
 
         try:
             rebuilt = Recipe.from_output(path, resolved=True).build().metadata()
