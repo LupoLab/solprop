@@ -2,7 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Run bounded spawned workers with explicit threads and memory admission control."""
+"""Run bounded spawned workers with explicit threads and memory admission control.
+
+:class:`Pool` is the executor: it spawns worker interpreters (persistent, or one per
+point with ``fresh``), each with its thread environment, CPU affinity and BLAS limit set
+before NumPy or a backend loads, probes the first point's memory, and starts as many
+workers as :class:`MemoryBudget`, the CPU and memory admission calculation, allows.
+Each worker serves commands over its own pipe (``_serve``): ``("run", point)``,
+``("probe", point)``, the ``STOP`` message while a point runs, and ``None`` to exit; a
+watched point's reporter calls come back as ``PROGRESS`` messages, each plane's summary
+as :class:`PlaneScalars`, a small picklable copy. :class:`ControlledWork` is what a
+scan's work offers to be stopped and watched through that pipe; :func:`peak_rss` is the
+resident-memory probe. The admission rule is in ``docs/dev/scans.md``.
+"""
 
 import multiprocessing as mp
 import os

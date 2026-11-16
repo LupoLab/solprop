@@ -2,7 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Coordinate atomic filesystem claims with leases and persistent advisory locks."""
+"""Coordinate atomic filesystem claims with leases and persistent advisory locks.
+
+The durable queue's primitives: :func:`locked` (a persistent ``flock`` file, never
+removed), :func:`atomic_json` and :func:`read_json`, :func:`owner` and
+:func:`live_owner` (a claim's controller identity and whether it still holds), and
+:func:`state` and :func:`finish`, which read the queue's state and publish its
+completion marker before the active state is removed.
+"""
 
 import json
 import os

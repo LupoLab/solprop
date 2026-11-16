@@ -2,7 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Drain durable point work across controllers sharing a filesystem."""
+"""Drain durable point work across controllers sharing a filesystem.
+
+A :class:`Queue` directory holds an immutable manifest (the scan, its retention
+settings and its builder's identity), one state row per point and the published
+artifacts. Each controller claims points under a lock with a refreshed lease
+(``_Claim``, ``_Heartbeat``; the lock and row helpers are
+``solprop.driver.executors._queue_state``), runs them in its own
+:class:`~solprop.driver.executors.pool.Pool`, and publishes each result as a checked
+artifact only while its claim token still holds. :func:`collect` then validates the
+artifacts and writes them, idempotently, into the collected scan file through one
+locked writer. Leases, takeover and the publication order are in ``docs/dev/scans.md``
+("Durable executor implementation").
+"""
 
 import dataclasses
 import functools

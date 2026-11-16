@@ -2,7 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Launch an explicitly selected scan script without evaluating CLI expressions."""
+"""Launch an explicitly selected scan script without evaluating CLI expressions.
+
+``python -m solprop.scan script.py [options]`` (and ``solprop scan``): :func:`main`
+parses the options into one execution policy (``_policy``: ``Local``, ``Pool``,
+``Queue`` or ``Slurm``), sets it as the default executor of the scan script, which it
+then runs as ``__main__``; a :func:`~solprop.driver.scan.run_scan` with an explicit
+``executor`` still takes precedence. ``--emit-slurm`` writes the Slurm array script
+instead, and ``python -m solprop.scan collect QUEUE --output OUT.h5`` collects a durable
+queue into a scan file. :func:`current_executor` reads the policy in force. No option
+is evaluated as Python. The manual page is ``docs/guide/workflows/scans.md``.
+"""
 
 import argparse
 import runpy
@@ -15,6 +25,10 @@ from solprop.driver.executors import Executor, Local, Pool, Queue, Slurm
 from solprop.driver.executors.queue import collect
 
 __all__ = ["current_executor", "main"]
+
+_DESCRIPTION = (
+    "Launch an explicitly selected scan script without evaluating CLI expressions."
+)
 
 # The collect mode is dispatched before the script parser sees its arguments, so
 # argparse cannot advertise it on its own: `collect` would otherwise be read as a
@@ -76,7 +90,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _parser() -> argparse.ArgumentParser:
     """Declare CLI modes without interpreting values as Python expressions."""
     parser = argparse.ArgumentParser(
-        description=__doc__,
+        description=_DESCRIPTION,
         epilog=_COLLECT_HELP,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
