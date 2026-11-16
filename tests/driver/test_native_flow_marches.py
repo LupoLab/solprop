@@ -107,7 +107,7 @@ def test_the_flow_s_actions_are_the_reference_s_within_the_formation_bound(
     backend = native.NativeBackend(problem, run_request, grid=simulation.grid)
     worst = 0.0
     try:
-        state = backend._native_state
+        state = backend._workspace
         shape = (fractions.size, -1, reference.n_modes, reference.n_modes)
         for section in range(reference.frozen.shape[0]):
             measured = _testing.form_flow_actions(state, section, dz, fractions)[0]
@@ -202,7 +202,7 @@ def test_the_formed_actions_are_the_reference_s_on_either_route(
         monkeypatch.setattr(backend_module, "_host_flow", partial(_held, flow))
         backend = native.NativeBackend(problem, run_request, grid=simulation.grid)
         try:
-            state = backend._native_state
+            state = backend._workspace
             _testing.form_flow_actions(state, 0, length, fractions)
             forward = _testing.flow_actions_to_host(state, inverse=False).reshape(
                 count, n_active, n_modes, n_modes

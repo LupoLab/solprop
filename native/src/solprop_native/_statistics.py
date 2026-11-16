@@ -676,7 +676,7 @@ def _shape(
 def _on_axis(modes: Sequence[Mode]) -> np.ndarray:
     """Return the mode set's synthesis on the axis at the reference position.
 
-    ``HostDriver._on_axis_synthesis`` before its taper: the single node ``r = 0`` of
+    ``NumpyWorkspace._on_axis_synthesis`` before its taper: the single node ``r = 0`` of
     :func:`~solprop.modes.quadrature.on_axis_rule`, rows x and y.
     """
     rule = on_axis_rule(modes[0].dimlimits(0.0)[0])
@@ -1056,7 +1056,8 @@ def lower(
     - ``apertures``: a spatial route's far-field tables packed for the native pass (the
       adapter's ``_aperture_payload``): the apertures, the regions and the exponent.
     - ``on_axis``: the mode set's synthesis on the axis at the reference position, when
-      the caller already built it (``HostDriver._on_axis``); built here otherwise.
+      the caller already built it (``NumpyWorkspace._on_axis_synthesis``); built here
+      otherwise.
     - ``z_end``: the run's last plane, m, which a profile statistic's table must reach.
     - ``planes``: every position the plane statistics will be taken at, when the run
       fixes them all before it starts; ``zdw`` is then searched exactly there

@@ -185,7 +185,7 @@ ResidentLowStorage::ResidentLowStorage(GeneralState& state, const stage::Tables&
 
 double ResidentLowStorage::trial(const double z, const double dz) {
   // In flight from here to the finish: the state is overwritten in place
-  // (`HostDriver._in_flight`, set before the engine's step).
+  // (`HostLowStorage.in_flight`, set before the engine's step).
   in_flight_ = true;
   double key = std::numeric_limits<double>::quiet_NaN();
   bool rebuild = false;
@@ -196,6 +196,7 @@ double ResidentLowStorage::trial(const double z, const double dz) {
   const auto scalars =
       rk::low_storage::scalars(tables_, anchor_, config_, z, dz, rebuild, key);
   const double squared = state_.low_storage_step(dz, scalars, rebuild);
+  squared_ = squared;
   if (rebuild)
     table_step_ = key;
   // An injected failure after the passes, the state already overwritten.

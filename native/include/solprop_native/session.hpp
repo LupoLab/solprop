@@ -39,7 +39,7 @@
  *
  * The scheduler's decisions -- which plane is next, when a step plane, a statistics
  * row, a bounded yield or a snapshot falls due, and the reached and replay tolerances
- * -- are solprop's `DriverSession`, `HostDriver` and `solprop.backends.host.driver`
+ * -- are solprop's `DriverSession` and `solprop.backends.host.session`
  * functions, transcribed. Like the marches they are compiled strict (no contraction, no
  * fast-math) in their own translation unit, so they round as solprop's Python does;
  * that unit also holds the export, whose recipe is `solprop.backends.export`'s

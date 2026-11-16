@@ -285,9 +285,9 @@ Result run(const Policy& policy, State& state, Engine& engine,
   if (bounds.watch && bounds.owner == nullptr)
     watch::validate(bounds.watch_policy);
   if (bounds.replay) {
-    // `HostDriver._replay_to` (SEP 45 phase 4): the schedule's steps as given, never
-    // rejected, each recorded after its commit with its raw norm; a non-finite norm
-    // stops the run, the step uncommitted.
+    // `RungeKuttaMarch.replay_to` (SEP 45 phase 4): the schedule's steps as given,
+    // never rejected, each recorded after its commit with its raw norm; a non-finite
+    // norm stops the run, the step uncommitted.
     const std::size_t n_steps = schedule.steps.size();
     if (schedule.edges.size() != n_steps + 1)
       throw std::invalid_argument("a schedule has one edge more than its steps");
@@ -333,7 +333,7 @@ Result run(const Policy& policy, State& state, Engine& engine,
         result.reason = march::Reason::reached;
         return out;
       }
-      // A replay's next step is its schedule's (`HostDriver._next_step`).
+      // A replay's next step is its schedule's (`HostSession._next_step`).
       if (host_event(state.cursor < n_steps ? schedule.steps[state.cursor] : 0.0) ||
           bounded())
         return out;
@@ -342,7 +342,7 @@ Result run(const Policy& policy, State& state, Engine& engine,
     return out;
   }
   // Interpolated planes are stepped across: the march lands on the run's end and its
-  // kinks (`HostDriver._march_to`), and returns the step that crosses the target.
+  // kinks (`RungeKuttaMarch.march_to`), and returns the step that crosses the target.
   const bool dense = policy.landings.interpolate;
   const double z_end = dense ? policy.landings.z_end : target;
   // A stop already requested ends the call before its first attempt.

@@ -2347,3 +2347,54 @@ Withdrawn (development-process record, not a design decision).
   the hook and the worker with manufactured providers; compatibility with an installed
   Pyroraptor is checked by hand ([SEP 49](seps/archive/sep-0049-tdse-on-native.md), section 7.4),
   and the worker's handshake refuses a mismatched protocol or execution space.
+
+## ADR-079 — One backend shape; no groups or unit axis; a native seam that only marshals
+
+- **Status:** proposed, with [SEP 52](seps/sep-0052-backend-shape.md) (accepted
+  2026-11-15 in PR #850); accepted when the SEP is `Final`. Amends ADR-003 (the state
+  has no leading axis of one).
+- **Context:** after SEP 47 both backends kept one external contract, but behind it they
+  were built differently. Native composed a workspace, engines, marches and a session in
+  C++; the reference was an inheritance stack (`NumpyRefBackend` on `HostDriver`, steered
+  by halt hooks). The fixed-schedule `Batch` executor and its groups built a complete
+  native backend per member and fused nothing, yet kept a group protocol, a group service
+  loop, a native group session and a leading axis of one on every trajectory array. The
+  native binding had grown to about 220 bound names, about 400 configuration names in 15
+  to 20 calls, about 21 hand-written record converters and a hand-written stub.
+- **Decision:**
+  - *One shape, two implementations.* Each backend has a lowering, a workspace that holds
+    the state and does every state-sized operation, engines that mirror the C++ interfaces
+    (`solprop.backends.engines`: `RungeKuttaEngine`, which the low-storage step implements
+    with a destructive trial, and `AdamsEngine`), marches that own their state, and a
+    session that owns the schedule, the monitor and the events. Both read the same run
+    records, built once per run by shared code (`solprop.backends.records`).
+    `HostDriver` is deleted; `HostSession` is the Python counterpart of `session.cpp`.
+    An accepted step's finish returns the split collar's sums in its `AcceptRecord`, and
+    the session accumulates them.
+  - *No groups, no unit axis.* `Batch`, every group path and the group protocols are
+    removed; `Local`, `Pool`, `Queue` and `Slurm` run scans. A trajectory's arrays have
+    no leading axis of one anywhere: translation's value tables, the boundary functions,
+    the memory ledgers and the stored `MarchSnapshot` (output schema 3).
+  - *The native seam.* A workspace is built from one `_core.Problem` with every set-once
+    table, and a run starts from one run record (`Workspace.start(run)`; the probe is
+    `Workspace.probe(start)`); nothing configures a workspace after it is built. Records
+    cross **by field table**: each C++ record declares its fields once beside its
+    definition and one converter reads and writes them, refusing a malformed field by its
+    path before allocating, with enumerations by name only; `_core.schemas()` exports the
+    tables and a test holds the Python records to them. **Bindings only marshal**:
+    convert, release the interpreter lock and forward; logic lives in the C++ library,
+    where ctest reaches it. **`_core._testing` promises nothing**: it ships in the wheel
+    for solprop's own tests, and exposes the workspace's engines, which the tests run
+    through the same protocols as the reference's. **The stub is generated** whole by
+    nanobind's `stubgen` and checked by the native gate.
+- **Why:** one structure for one design lets the reference serve line by line as the
+  source for native's session, lets an engine-level parity case be written once and run
+  on both backends, and removes the group paths that cost memory for no speed. Field
+  tables keep the Python dataclass as the one definition of a record, needed without
+  native installed, while the C++ side only describes it; a schema test removes the
+  drift that hand-written converters allowed.
+- **Consequences:** a script that imports `Batch` fails at import. A snapshot written
+  before output schema 3 is refused by name. The reference's numbers did not move (SEP 52
+  milestone 3: bitwise on its corpus). Native's step time moved within its scatter, and
+  a run's start costs one converted record (SEP 52 milestone 4). The `_testing` module is
+  free to change with the tests.

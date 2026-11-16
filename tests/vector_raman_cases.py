@@ -147,8 +147,7 @@ def result(backend_class, problem, run_request, grid, modes, options=CHUNK):
         else:
             assert backend.name == "native"
             assert problem.initial.noise0 is None
-            backend._staged_rows()
-            state = load_native(backend, problem.initial.field0, clear_fsal=False)
+            state = load_native(backend, problem.initial.field0)
             native_trial(backend, 0.0, LENGTH / 8)
             from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
                 _testing,

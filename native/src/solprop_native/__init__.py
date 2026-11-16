@@ -173,15 +173,31 @@ def _band_request() -> int:
     return count
 
 
-_core.initialize_runtime(
-    _REQUESTED_THREADS,
-    _pool_request("SOLPROP_NATIVE_KERNEL_THREADS"),
-    _pool_request("SOLPROP_NATIVE_FFT_THREADS"),
-    _pool_request("SOLPROP_NATIVE_RAMAN_FFT_THREADS"),
-    _pool_request("SOLPROP_NATIVE_RAMAN_TAIL_FFT_THREADS"),
-    _band_request(),
+# The runtime as one record (solprop SEP 52 section 5.3): the Kokkos pools, the spin,
+# and a host OpenBLAS fitted to the Kokkos pool unless its thread count is set
+# explicitly. A pthreads OpenBLAS runs its own pool beside Kokkos's and oversubscribes
+# the cores (2 to 75 times slower on the modal and wall cases), so it is held to one
+# thread; an OpenMP OpenBLAS shares the runtime and is capped at the Kokkos thread
+# count, and at the budget where SOLPROP_OVERSUBSCRIBE took Kokkos past it. A compact
+# problem's products then run on one OpenBLAS thread (``CpuTeamScope``).
+_core.configure_runtime(
+    {
+        "threads": _REQUESTED_THREADS,
+        "kernels": _pool_request("SOLPROP_NATIVE_KERNEL_THREADS"),
+        "fft": _pool_request("SOLPROP_NATIVE_FFT_THREADS"),
+        "raman_fft": _pool_request("SOLPROP_NATIVE_RAMAN_FFT_THREADS"),
+        "raman_tail_fft": _pool_request("SOLPROP_NATIVE_RAMAN_TAIL_FFT_THREADS"),
+        "band_tiles": _band_request(),
+        "spin_milliseconds": _WAIT.spin_milliseconds,
+        "blas_threads": None
+        if any(
+            os.environ.get(name, "").strip()
+            for name in ("OPENBLAS_NUM_THREADS", "GOTO_NUM_THREADS", "OMP_NUM_THREADS")
+        )
+        else min(_REQUESTED_THREADS, THREAD_BUDGET.threads),
+        "host_blas": True,
+    }
 )
-_core.configure_native_spin(_WAIT.spin_milliseconds)
 
 # The built-in table's CPU execution record for this process (solprop SEP 46 section
 # 6.11): its operating system's values, divided on Apple silicon's spinning top tier,
@@ -238,20 +254,6 @@ def refresh_profile() -> str:
     )
     PLANNING = found.planning(PROCESS)  # pyright: ignore[reportConstantRedefinition]
     return source
-
-
-# Fit a host OpenBLAS to the Kokkos pool unless its thread count is set explicitly. A
-# pthreads OpenBLAS runs its own pool beside Kokkos's and oversubscribes the cores (2 to
-# 75 times slower on the modal and wall cases), so it is held to one thread; an OpenMP
-# OpenBLAS shares the runtime and is capped at the Kokkos thread count, and at the
-# budget where SOLPROP_OVERSUBSCRIBE took Kokkos past it.
-if not any(
-    os.environ.get(name, "").strip()
-    for name in ("OPENBLAS_NUM_THREADS", "GOTO_NUM_THREADS", "OMP_NUM_THREADS")
-):
-    _core.fit_blas_threads(min(_REQUESTED_THREADS, THREAD_BUDGET.threads))
-# A compact problem's products then run on one OpenBLAS thread (``CpuTeamScope``).
-_core.register_host_blas()
 
 
 @dataclass(frozen=True)

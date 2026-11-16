@@ -165,7 +165,7 @@ def problem_derivative(backend_class, problem, run_request, grid, modes):
                 _testing,
             )
 
-            derivative = np.asarray(_testing.stage_to_host(backend._native_state, 0))
+            derivative = np.asarray(_testing.stage_to_host(backend._workspace, 0))
         return derivative.reshape(2, -1)
     finally:
         backend.close()

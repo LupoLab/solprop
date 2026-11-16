@@ -48,6 +48,34 @@ def clenshaw_bound(table, z):
     return 8.0 * terms**2 * EPS * np.sum(np.abs(coefficients), axis=0)
 
 
+def held(backend, z):
+    """Return the slot holding `z`'s values in the workspace, loading it if none does.
+
+    The values are read through the one slot cache (``_testing.table_values``), and the
+    slot named by its exact content: an unloaded slot holds zeros and two positions'
+    values differ, so one slot matches. Reading the slots touches no cache entry.
+    """
+    workspace = backend._workspace
+    tables = backend._z_tables
+    value = _testing.table_values(workspace, "phi", float(z))
+    found = [
+        slot
+        for slot in range(tables.slots)
+        if np.array_equal(
+            _testing.phase_sum_to_host(workspace, one_hot(tables.n_phi, slot)), value
+        )
+    ]
+    assert len(found) == 1, found
+    return found[0]
+
+
+def one_hot(count, slot):
+    """Return the weights selecting one slot of `count` terms."""
+    row = np.zeros(count)
+    row[slot] = 1.0
+    return row
+
+
 @pytest.fixture(scope="module")
 def tabulated(field_grid):
     """The capillary with both quantities on the z table, under the Adams march."""
@@ -67,15 +95,17 @@ def test_the_slots_hold_the_tables_values(tabulated, field_grid):
         )
         for z in positions:
             for kind, table in (("phi", phi), ("prefactor", prefactor)):
-                got = tables.values(kind, z).reshape(table.value_shape)
+                got = _testing.table_values(backend._workspace, kind, z)
+                got = got.reshape(table.value_shape)
                 want = table(z)
                 bound = clenshaw_bound(table, z)
                 # Each value against the host's within both evaluations' budgets.
                 assert np.all(np.abs(got - want) <= 2 * bound), (kind, z)
-        assert tables.evaluations == len(positions)
+        assert _testing.table_evaluations(backend._workspace) == len(positions)
         # A position held in a slot is not evaluated again.
-        tables.load(positions[-tables.slots :])
-        assert tables.evaluations == len(positions)
+        for z in positions[-tables.slots :]:
+            _testing.table_values(backend._workspace, "phi", z)
+        assert _testing.table_evaluations(backend._workspace) == len(positions)
     finally:
         backend.close()
 
@@ -83,14 +113,14 @@ def test_the_slots_hold_the_tables_values(tabulated, field_grid):
 def test_the_phase_sum_of_two_slots_is_the_tables_difference(tabulated, field_grid):
     backend = NativeBackend(*tabulated, grid=field_grid)
     tables = backend._z_tables
-    native_state = backend._native_state
+    workspace = backend._workspace
     try:
         phi = tabulated.problem.linear.polynomial
         z0, z1 = 0.25 * LENGTH, 0.4 * LENGTH
-        slot_of = tables.load([z0, z1])
-        row = tables.phi_row(slot_of, z0, z1)
-        assert sorted(row[row != 0].tolist()) == [-1.0, 1.0]
-        got = _testing.phase_sum_to_host(native_state, row).reshape(phi.value_shape)
+        first, second = held(backend, z0), held(backend, z1)
+        assert first != second
+        row = one_hot(tables.n_phi, second) - one_hot(tables.n_phi, first)
+        got = _testing.phase_sum_to_host(workspace, row).reshape(phi.value_shape)
         want = phi(z1) - phi(z0)
         # Two evaluations on each side, each within its budget, and one rounding of
         # the difference each.
@@ -98,12 +128,9 @@ def test_the_phase_sum_of_two_slots_is_the_tables_difference(tabulated, field_gr
             np.abs(want)
         )
         assert np.all(np.abs(got - want) <= bound)
-        # The host's exponent for a host engine: the same two slots, subtracted once.
-        bundle = backend._stage_scalars(z0, z1)
-        assert np.array_equal(backend._delta_phi(bundle).reshape(got.shape), got)
         # A step of no length weighs both slots by zero: an exact zero, structural.
         still = _testing.phase_sum_to_host(
-            native_state, tables.phi_row(slot_of, z1, z1)
+            workspace, one_hot(tables.n_phi, second) - one_hot(tables.n_phi, second)
         )
         assert not np.any(still)
     finally:
@@ -122,7 +149,7 @@ def test_the_rate_slot_holds_the_derivative_table(tabulated, field_grid):
         for z, before in ((edge, True), (edge, False), (0.5 * LENGTH, True)):
             row = native_rate_weights(backend, z, before=before)
             assert row.tolist() == [0.0] * tables.slots + [1.0]
-            got = backend._native_state.table_terms_to_host("phi", tables.rate_slot)
+            got = _testing.phase_sum_to_host(backend._workspace, row)
             want = phi_rate(tabulated.problem.linear, z, before=before)
             index = rate.interval_containing(z)
             if before and index > 0 and z <= float(rate.breakpoints[index]):
@@ -196,16 +223,13 @@ def test_the_slots_are_reused_least_recently_used_first(tabulated, field_grid):
     try:
         count = tables.slots
         first = [LENGTH * index / (2 * count) for index in range(count)]
-        held = tables.load(first)
-        assert sorted(held.values()) == list(range(count))
+        slots = {z: held(backend, z) for z in first}
+        assert sorted(slots.values()) == list(range(count))
         # One new position takes the least recently used slot, the first position's;
-        # a call's own positions are never evicted by each other.
-        assert tables.load([LENGTH])[LENGTH] == held[first[0]]
-        again = tables.load([first[1], 0.9 * LENGTH])
-        assert again[first[1]] == held[first[1]]
-        assert again[0.9 * LENGTH] == held[first[2]]
-        assert tables.evaluations == count + 2
-        with pytest.raises(BackendError, match="more than the"):
-            tables.load([LENGTH * index / (3 * count) for index in range(count + 1)])
+        # a position read again is the most recently used.
+        assert held(backend, LENGTH) == slots[first[0]]
+        assert held(backend, first[1]) == slots[first[1]]
+        assert held(backend, 0.9 * LENGTH) == slots[first[2]]
+        assert _testing.table_evaluations(backend._workspace) == count + 2
     finally:
         backend.close()

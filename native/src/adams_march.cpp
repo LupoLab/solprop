@@ -691,7 +691,7 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
         result.reason = Reason::reached;
         return result;
       }
-      // A replay's next step is its schedule's (`HostDriver._next_step`).
+      // A replay's next step is its schedule's (`HostSession._next_step`).
       const double ahead =
           !bounds.replay
               ? state.proposal

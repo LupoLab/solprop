@@ -78,7 +78,7 @@ def test_species_statistics_preserve_an_inert_component_and_close(
         assert backend.metadata()["plasma_channels"] == 2
     finally:
         backend.close()
-    assert backend._native_state.closed  # pyright: ignore[reportPrivateUsage] - lifecycle
+    assert backend._workspace.closed  # pyright: ignore[reportPrivateUsage] - lifecycle
     backend.close()
 
 
@@ -120,7 +120,7 @@ def test_native_channel_payload_refusals(
             plasma.channel_coefficients = np.empty(0)
         plasma.channel_parameters = parameters
         with pytest.raises(ValueError, match=r"channel|Channel|plasma"):
-            _core.State(payload)
+            _core.Workspace(payload)
     finally:
         backend.close()
 
@@ -131,10 +131,10 @@ def test_native_statistics_refuse_channel_preionisation_shape(
     problem, run_request, grid = mixture_case
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        load_native(backend, problem.initial.field0, clear_fsal=False)
+        load_native(backend, problem.initial.field0)
         with pytest.raises(ValueError, match="channel preionisation"):
             _testing.statistics(
-                backend._native_state,  # pyright: ignore[reportPrivateUsage] - native refusal
+                backend._workspace,  # pyright: ignore[reportPrivateUsage] - native refusal
                 1 << 11,
                 np.empty(0),
                 np.empty(0),
@@ -146,7 +146,7 @@ def test_native_statistics_refuse_channel_preionisation_shape(
             )
         with pytest.raises(ValueError, match="channel preionisation"):
             _testing.statistics(
-                backend._native_state,  # pyright: ignore[reportPrivateUsage] - native refusal
+                backend._workspace,  # pyright: ignore[reportPrivateUsage] - native refusal
                 1 << 11,
                 np.empty(0),
                 np.empty(0),

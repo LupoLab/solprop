@@ -146,7 +146,7 @@ def test_embedded_current_projection_accumulates_partial_chunks(
     backend = native.NativeBackend(problem, run_request, grid=grid, options=options)
     try:
         native_trial(backend, 0.0, 0.0, field=state)
-        raw = np.asarray(_testing.projected_to_host(backend._native_state, True))
+        raw = np.asarray(_testing.projected_to_host(backend._workspace, True))
     finally:
         backend.close()
     actual = raw.reshape(*expected.shape[:-1], grids.n_to // 2 + 1)[

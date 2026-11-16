@@ -50,7 +50,7 @@ def test_the_held_current_lands_in_the_band_and_plans_once(name, rule):
         ledger = backend.memory_ledger()
         native_trial(backend, 0.0, 0.0, field=problem.initial.field0)
         native_trial(backend, 0.0, 0.0, field=np.zeros_like(problem.initial.field0))
-        assert np.count_nonzero(_testing.stage_to_host(backend._native_state, 0)) == 0
+        assert np.count_nonzero(_testing.stage_to_host(backend._workspace, 0)) == 0
         # A second evaluation neither plans nor grows a resident source buffer.
         assert backend.memory_ledger() == ledger
     finally:

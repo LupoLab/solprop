@@ -483,12 +483,12 @@ def test_a_failure_between_batches_still_checkpoints_the_committed_state():
 
 
 def _armed(monkeypatch, stage: str, after: int, category: str) -> None:
-    """Arm a native march fault when a native session configures its march.
+    """Arm a native march fault when a native session prepares its run.
 
     Parameters
     ----------
     monkeypatch : pytest.MonkeyPatch
-        Restores the march's configuration.
+        Restores the session's preparation.
     stage : str
         ``"startup"``, ``"trial"`` or ``"accept"``.
     after : int
@@ -496,14 +496,15 @@ def _armed(monkeypatch, stage: str, after: int, category: str) -> None:
     category : str
         The failure, or ``"sigint"`` or ``"sigterm"`` for a signal raised in the call.
     """
-    march = native_backend._NativeAdamsMarch
-    configure = march._configure
+    session = native_session.NativeSession
+    prepare = session._prepare
 
-    def arming(self, *args: Any) -> None:
-        configure(self, *args)
-        _testing.adams_march_fault(self._backend._native_state, stage, after, category)
+    def arming(self: Any, backend: Any, start: Any) -> Any:
+        run = prepare(self, backend, start)
+        _testing.inject_fault(backend._workspace, stage, after, category)
+        return run
 
-    monkeypatch.setattr(march, "_configure", arming)
+    monkeypatch.setattr(session, "_prepare", arming)
 
 
 @needs_default_sigterm

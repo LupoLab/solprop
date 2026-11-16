@@ -81,11 +81,10 @@ def source_at(implementation, problem, run_request, grid, positions):
     stepper = dataclasses.replace(run_request.stepper, integrator=Multistep())
     backend = implementation(problem, run_request.with_stepper(stepper), grid=grid)
     try:
-        engine = backend._resident
-        assert type(engine).__name__ == "_ResidentAdams"
+        assert backend._diagnostics()["method"] == "adams"
         sources = []
         for z in positions:
-            load_native(backend, state, clear_fsal=False)
+            load_native(backend, state)
             native_adams_start(backend, float(z))
             sources.append(np.array(native_adams_rows(backend)["store"][0]))
         return sources

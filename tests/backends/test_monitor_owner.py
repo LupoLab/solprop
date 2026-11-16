@@ -59,10 +59,6 @@ def _modules() -> tuple[Any, Any]:
     )
 
 
-def _native_records() -> Any:
-    return importlib.import_module("solprop_native._records")
-
-
 def _grid() -> EnvelopeGrid:
     return EnvelopeGrid.from_limits(1.0, 1e-6, (0.8e-6, 1.25e-6), 1e-12)
 
@@ -91,9 +87,7 @@ class Pair:
         self.python = monitor
         self.watch = watch
         self.native = core.Monitor(
-            _native_records().monitor_config(
-                records.monitor_config(monitor, monitor.crossing, can_rest=can_rest)
-            )
+            records.monitor_config(monitor, monitor.crossing, can_rest=can_rest)
         )
         self.can_rest = can_rest
         self.steps = 0
@@ -167,7 +161,7 @@ class Pair:
     def resume(self, record: dict | None, *, plane: bool, unwatched=()) -> None:
         self.python.resume(record, plane=plane, unwatched=unwatched)
         self.native.resume(
-            _native_records().resumption(records.resumption(record)),
+            records.resumption(record),
             plane,
             [[float(start), float(end)] for start, end in unwatched],
         )

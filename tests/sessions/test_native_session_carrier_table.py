@@ -60,6 +60,7 @@ from solprop.translate.run_request import RunRequest
 
 native_session = pytest.importorskip("solprop_native.session")
 native_backend = pytest.importorskip("solprop_native.backend")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 pytestmark = [
     pytest.mark.medium,
@@ -350,21 +351,22 @@ def test_the_chord_is_a_varying_table_the_session_admits():
     backend: Any = select("native", problem, request, **_context(simulation))
     try:
         assert backend._adams._policy.carrier
-        # The table is the chord's whole description: a chord of kind ``table``
-        # without one is refused when the tables are uploaded.
         tables = backend._stage_tables()
         assert tables is not None
-        # A chord kind the build does not know is refused, not cast.
-        for chord in (3, 4, -1):
-            with pytest.raises(ValueError, match="stage tables are inconsistent"):
-                backend._native_state.adams_stage_tables(
+        assert tables["chord"] == "table"
+        # A chord kind the build does not know is refused by the record's reader, not
+        # cast.
+        for chord in ("spline", 4, -1):
+            with pytest.raises(ValueError, match=r"stage\.Tables\.chord must name"):
+                _testing.round_trip(
+                    "stage.Tables",
                     tables
                     | {
                         "chord": chord,
                         "chord_rate": 0.0,
                         "chord_terms": [],
                         "chord_table": None,
-                    }
+                    },
                 )
     finally:
         backend.close()

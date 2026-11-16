@@ -284,8 +284,8 @@ void axis(GeneralState& state, const Plan& plan, const double z, const double ta
       peaks[c] = rows[2 * (node * n_channels + c) + 1];
     }
   } else {
-    // `axis_row_matrix(problem, HostDriver._on_axis_synthesis(modes))`: the matrix at
-    // the reference position times the taper at z, then the pad scale; a state with
+    // `axis_row_matrix(problem, NumpyWorkspace._on_axis_synthesis(modes))`: the matrix
+    // at the reference position times the taper at z, then the pad scale; a state with
     // two polarisations takes the profile's magnitude.
     std::vector<double> scaled = plan.on_axis;
     for (double& value : scaled) {
@@ -405,7 +405,7 @@ void temporal(GeneralState& state, const Plan& plan, const double z, const doubl
         (flags & weighted) != 0U ? power_weight(plan, z) : std::vector<double>{};
     std::vector<double> on_axis;
     if ((flags & temporal_intensity) != 0U) {
-      // `HostDriver._on_axis_synthesis`: the matrix at the reference position times
+      // `NumpyWorkspace._on_axis_synthesis`: the matrix at the reference position times
       // the taper at z.
       on_axis = plan.on_axis;
       if (plan.taper.present())

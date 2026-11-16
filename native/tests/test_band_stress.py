@@ -293,7 +293,7 @@ def test_one_evaluation_matches_the_reference(kind: str) -> None:
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         # A zero-length trial exposes the first stage, N(E, z = 0).
         native_trial(backend, 0.0, 0.0)
         actual = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)

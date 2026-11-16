@@ -21,10 +21,10 @@ the native backend takes its own record of C++ bindings, defined in its package.
 perform the same IEEE operations in the same order, strict (no contraction, no
 reassociation; SEP 25 section 4.2), so they agree to the last bit wherever their
 arithmetic is IEEE.
-A record may also form a whole exponential Adams trial's coefficient tables in one
-call (:attr:`Helpers.tables`), the composition of
-:func:`solprop.backends.numpy_ref.multistep.trial_tables` over its own basis, which its
-resident engine reads every trial; a record without it composes them from the basis.
+A backend whose Adams march is compiled names no basis: the native backend's march
+forms its basis and coefficient tables in C++ (SEP 52), and its record carries only the
+Chebyshev rows its adapter still evaluates. The C++ basis is checked against the plain
+form through ``solprop_native._core._testing``.
 
 Translation is not a backend's: it runs before any backend exists and builds the
 problem every backend receives, so it needs nothing compiled, and the shared functions'
@@ -49,7 +49,6 @@ __all__ = [
     "BasisFunction",
     "Helpers",
     "PointsFunction",
-    "TablesFunction",
 ]
 
 PointsFunction = Callable[
@@ -72,26 +71,6 @@ The contract of :func:`solprop.stepper.multistep._basis_rows`: ``points`` float6
 ``(n,)`` (unset when not).
 """
 
-TablesFunction = Callable[
-    [np.ndarray, int, list[int], bool],
-    tuple[
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-    ],
-]
-"""``tables(nodes, order, orders, compensated) -> tables``: a trial's tables at once.
-
-The contract of :func:`solprop.backends.numpy_ref.multistep.trial_tables`, whose
-composition over the record's own basis it performs in one call, with the same
-operations in the same order: ``nodes`` float64 ``(n,)`` and C-contiguous, newest first;
-the result is that function's seven arrays.
-"""
-
 
 @dataclass(frozen=True)
 class Helpers:
@@ -106,18 +85,14 @@ class Helpers:
         What the record is, for messages and tests.
     load_points : collections.abc.Callable
         Returns the :data:`PointsFunction`.
-    load_basis : collections.abc.Callable
-        Returns the :data:`BasisFunction`.
-    load_tables : collections.abc.Callable or None, optional
-        Returns the :data:`TablesFunction`, for a record that forms an exponential
-        Adams trial's tables in one call; ``None``, the default, composes them from
-        the basis.
+    load_basis : collections.abc.Callable or None, optional
+        Returns the :data:`BasisFunction`; ``None``, the default, for a backend whose
+        Adams march is compiled and evaluates no basis in Python.
     """
 
     name: str
     load_points: Callable[[], PointsFunction] = field(repr=False)
-    load_basis: Callable[[], BasisFunction] = field(repr=False)
-    load_tables: Callable[[], TablesFunction] | None = field(default=None, repr=False)
+    load_basis: Callable[[], BasisFunction] | None = field(default=None, repr=False)
 
     @functools.cached_property
     def points(self) -> PointsFunction:
@@ -126,17 +101,20 @@ class Helpers:
 
     @functools.cached_property
     def basis(self) -> BasisFunction:
-        """Return the Lagrange basis on an Adams formula's nodes."""
-        return self.load_basis()
+        """Return the Lagrange basis on an Adams formula's nodes.
 
-    @functools.cached_property
-    def tables(self) -> TablesFunction | None:
-        """Return an exponential Adams trial's tables in one call, if the record has it.
-
-        - Returns: the :data:`TablesFunction`, or ``None``: the tables are then composed
-          from :attr:`basis`.
+        - Raises: ``BackendError`` for a record without one, whose backend's Adams
+          march is compiled.
         """
-        return None if self.load_tables is None else self.load_tables()
+        if self.load_basis is None:
+            from solprop.exceptions import BackendError  # noqa: PLC0415 - no cycle
+
+            msg = (
+                f"the {self.name} helper record has no Adams basis: its backend's "
+                "Adams march is compiled and forms its basis itself"
+            )
+            raise BackendError(msg)
+        return self.load_basis()
 
 
 def _plain_points() -> PointsFunction:

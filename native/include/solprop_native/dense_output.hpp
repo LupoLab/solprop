@@ -81,7 +81,7 @@ private:
 };
 
 /** DOPRI5's continuous extension in the interaction picture (solprop's
-    `HostDriver._dense_record` and `_observe_inside`): the accepted step's extension is
+    `RungeKuttaDense`, `numpy_ref/dense.py`): the accepted step's extension is
     contracted from the state before it and the step's stages before the step is
     finished (`hold`, which the Runge-Kutta engine's `extend` calls), evaluated at the
     plane's fraction and carried there by the linear flow. */

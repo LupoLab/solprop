@@ -60,8 +60,10 @@ state-sized operation, the engines a march asks of it, the marches, and the sess
 (§1, point 3). The NumPy reference's are `NumpyRefBackend`'s constructor tables,
 `NumpyWorkspace`, the engines of `solprop.backends.engines`, the marches of
 `backends/host/` and `HostSession`; the native backend's are its lowering into
-`_core.Problem`, its resident state, `rk::Engine` and `march::Engine`, its compiled
-marches and `session.cpp`, of which `HostSession` is the Python counterpart.
+`_core.Problem`, `_core.Workspace` over its resident state, `rk::Engine` and
+`march::Engine`, its compiled marches and `session.cpp`, of which `HostSession` is the
+Python counterpart. Both read the same run records (`solprop.backends.records`), built
+once per run by shared code; native's cross the seam by field table (§4).
 
 The listing is abbreviated; `solprop/backends/protocol.py` holds the exact signatures and
 docstrings, in the order of [architecture.md §9](architecture.md#9-backends-in-one-page).
@@ -146,11 +148,12 @@ the bundle's floats and nothing about the representation reaches the backend
 ([kernel-contract.md §3](kernel-contract.md)). The contract's z-table fallback has no such
 split, so `PropagationProblem.device_ready` is false for it. NumPy evaluates the general
 representation directly. The native CPU build gives the table the split itself (SEP 29 section 6.6): its coefficients
-are uploaded once (`table_upload`, `include/solprop_native/z_table.hpp`), and before each
-native call the adapter (`_ZTables`) has the table evaluated at that call's distinct
-positions into term slots of the state's size (`table_evaluate`, a strict Clenshaw pass
-per position), least recently used first so that a step's end is not evaluated again as
-the next step's anchor. The stage weights select the slots: `ΔΦ` is `e_1 - e_0`, a value
+cross once, in the workspace's `Problem` (its `z_tables`, uploaded where the workspace is
+built; `include/solprop_native/z_table.hpp`), and each trial has the table evaluated at
+its distinct positions into term slots of the state's size (`stage::ZSlots` in
+`stage_tables.hpp`, a strict Clenshaw pass per position), least recently used first so
+that a step's end is not evaluated again as the next step's anchor; no position crosses
+the seam. The stage weights select the slots: `ΔΦ` is `e_1 - e_0`, a value
 `e_1`, so every consumer of the terms -- the Runge-Kutta stages, the low-storage flows,
 the resident Adams phase and the noise -- runs unchanged, and an increment is one
 rounded subtraction of two values, as on the host. The phase sums skip a zero weight,
@@ -169,18 +172,16 @@ takes the implementation from the backend that runs the stage, never from a
 process-wide switch or from what is installed (SEP 29 section 6.6, R16): each
 backend sets the class attribute `helpers` (kernel schema 34), a
 `solprop._helpers.Helpers` record of the two operations, and the reference's session, its
-Adams march, its engines and the native backend's own load and resident engine pass it
-down. `numpy_ref` takes
+Adams march and its engines pass it down. `numpy_ref` takes
 `PLAIN`, the uncompiled Python forms, so the oracle never runs the compiled code it
-checks; `native` takes its own
-`NATIVE`, C++ transcriptions (`native/include/solprop_native/chebyshev.hpp` and
-`lagrange_basis.hpp`). Both perform the same operations in the same order under
+checks; `native` takes its own `NATIVE`, the C++ transcription of the Chebyshev rows
+(`native/include/solprop_native/chebyshev.hpp`), which its adapter still evaluates for
+the stage scalars at a plane. Both perform the same operations in the same order under
 strict arithmetic, so the rows a table keeps for its last positions are shared whichever
-filled them. A record may add a third operation, an exponential Adams trial's
-coefficient tables in one call (`Helpers.tables`, the composition of
-`backends.numpy_ref.multistep.trial_tables` over its own basis): `NATIVE` has it, in C++ beside
-the basis (`trial_tables` in `lagrange_basis.hpp`), so its resident engine forms every
-table of a trial in one call rather than a dozen; `PLAIN` composes them. Translation runs
+filled them. `NATIVE` names no Adams basis: the compiled Adams march forms its basis and
+a trial's coefficient tables in C++ (`basis_rows` and `trial_tables` in
+`lagrange_basis.hpp`), and their bindings are private test entry points in
+`_core._testing`, which `tests/test_helpers.py` holds to the plain forms. Translation runs
 before any backend exists and needs nothing compiled:
 `clenshaw` and `PiecewiseChebyshev.__call__` without a record are NumPy's, and the shared
 functions' defaults are `PLAIN`. A z table's state-sized evaluation
@@ -210,7 +211,7 @@ operation (SEP 52 §5.1). The backend builds a fresh march and engines for each 
 | `HostAdamsMarch.march_to`, in `backends/host/adams.py` | adaptive Adams | an `AdamsEngine`: `HostHistory` |
 | `HostAdamsMarch._replay_to` | Adams on a fixed schedule | the same engine |
 | `HostLowStorageMarch.replay_to`, in `backends/host/low_storage.py` | low-storage, always on a schedule | a `RungeKuttaEngine` with a destructive trial: `HostLowStorage` |
-| the native session's Adams march, `native/src/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine (`_ResidentAdams`), from the record `_NativeAdamsMarch` |
+| the native session's Adams march, `native/src/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine (`engines::ResidentEngine`, a `march::Engine`), the march's state from the run record (`_NativeAdamsMarch.start_state`) |
 | the native session's Runge-Kutta march, `native/src/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)) | the staged trial and native norm |
 | the native session's low-storage replay | low-storage, always on a schedule | one in-place native step a schedule step |
 
@@ -1390,7 +1391,32 @@ two packages are released together, and solprop's metadata pins this one to its 
 up by name. Since SEP 47 phase 5 the native backend is a resource holder: it lowers the problem,
 loads a start (`solprop_native._load`), keeps its Adams march's record and times its trials
 (`timing_probe`, `solprop_native._probe`) itself, inherits no step driver, and serves every run
-through its session. In an editable
+through its session.
+
+**The binding** (SEP 52 §5.3, ADR-079). A backend builds one `_core.Problem`, which carries
+every set-once table, guard and geometry (the stage, z and flux tables, the flow guard's
+certificate, the controller weights, the low-storage settings), and one `_core.Workspace`
+from it for its life. A run starts from one run record, `Workspace.start(run)`: the shared
+run records (`solprop.backends.records.RunRecords`), the initial field and noise, a
+resume's march state and history rows, the statistics plans, and the monitor's weights and
+the edge's tables. The timing probe is `Workspace.probe(start)`, and `diagnostics()` is the
+one record of metadata, memory, sizing, planning and crossed bytes, beside the live
+`counters()` a run reads at its start and close. Nothing configures a workspace after it is
+built. Each C++ record that crosses declares its fields once, beside its definition
+(`include/solprop_native/fields.hpp`), and one converter (`src/records.hpp`) reads a
+dataclass, mapping or tuple into it by that table, refusing a missing or unknown field, a
+wrong dtype, rank or extent relation, a strided array and an integer for an enumeration by
+the field's path before anything is allocated; `_core.schemas()` exports the tables and a
+test holds each Python record to its table. The binding unit only converts, releases the
+interpreter lock and forwards: the lease between workspace and session, the coupled-flow
+guard and the marches' entry points live in `native::Workspace` (`workspace.hpp`), where
+ctest reaches them. Test-only entry points are in the private `_core._testing` submodule,
+which promises nothing; `_testing.engines(workspace)` exposes the workspace's engines,
+which the tests wrap in solprop's engine protocols (`tests/engine_pairs.py`). The whole
+stub, `_core.pyi` with `_core_testing.pyi`, is generated by nanobind's `stubgen`
+(`native/scripts/problem_stub.py`, checked by the native gate).
+
+In an editable
 checkout it also recomputes the digest of `native/CMakeLists.txt` and the C++ under `native/src`
 and `native/include`, once per process, and refuses an extension built from anything else
 (`BuildInfo.source_digest`, ADR-068), which catches a C++-only change too. It records the repository

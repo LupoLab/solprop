@@ -31,6 +31,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from native_lagrange import native_basis_record, native_tables
 from solprop._helpers import PLAIN, Helpers
 from solprop.backends.numpy_ref.multistep import fused_tables, trial_tables
 
@@ -70,7 +71,12 @@ STENCILS = _stencils()
 
 
 def _records() -> list[Helpers]:
-    return [] if NATIVE is None else [NATIVE]
+    """Return the records held to the exact tables beside the plain forms.
+
+    Native's names no basis (its Adams march is compiled); the test record carries its
+    C++ basis, and its trial tables are formed by the C++ call the march makes.
+    """
+    return [] if NATIVE is None else [native_basis_record()]
 
 
 # ------------------------------------------------------------------ exact tables
@@ -168,9 +174,13 @@ def _computed(
 ) -> dict:
     """Return the same tables as `helpers` forms them, as rows of floats."""
     listed = list(nodes)
-    predictor, corrector, factored, spans, carried, endpoint, defects = trial_tables(
-        listed, order, list(orders), compensated=True, helpers=helpers
-    )
+    if helpers.name == "native":
+        tables = native_tables(np.asarray(listed), order, list(orders), True)
+    else:
+        tables = trial_tables(
+            listed, order, list(orders), compensated=True, helpers=helpers
+        )
+    predictor, corrector, factored, spans, carried, endpoint, defects = tables
     fused_predictor, fused_corrector, fused_defects = fused_tables(
         listed, order, list(orders), helpers=helpers
     )

@@ -138,7 +138,7 @@ def test_radial_partial_chunks_preserve_the_reference_source(
             == retained
         )
         assert (ledger["retained_synthesis"] > 0) == retained
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         native_trial(backend, 0.0, 0.0)
         actual = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
         assert np.isfinite(actual).all()
@@ -146,7 +146,7 @@ def test_radial_partial_chunks_preserve_the_reference_source(
         assert scale > 0
         np.testing.assert_allclose(actual, expected, rtol=0, atol=bound * scale)
         assert np.count_nonzero(actual[..., ~grid.active_mask]) == 0
-        load_native(backend, np.zeros_like(problem.initial.field0), clear_fsal=False)
+        load_native(backend, np.zeros_like(problem.initial.field0))
         native_trial(backend, 0.0, 0.0)
         assert np.count_nonzero(_testing.stage_to_host(state, 0)) == 0
         assert backend.memory_ledger() == ledger

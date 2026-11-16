@@ -209,7 +209,7 @@ def source_of_native(
     """Return native's first stage on the launch, from a zero-length trial."""
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         native_trial(backend, 0.0, 0.0)
         return np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
     finally:

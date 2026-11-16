@@ -212,7 +212,7 @@ def _once(
             _counters.disable()
     # The field bytes through the state's crossings, each way (SEP 44): a device's
     # plane exports and loads, or a host build's copies.
-    to_host, from_host = session._backend._native_state.crossed_bytes()
+    to_host, from_host = session._backend._diagnostics()["crossed_bytes"]
     record: dict[str, Any] = {
         "crossed_to_host": int(to_host),
         "crossed_from_host": int(from_host),

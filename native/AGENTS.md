@@ -126,7 +126,7 @@ the gate.
   execution-space instances. Dispatch top-level kernels through `launch::parallel_for`,
   `parallel_reduce` and `parallel_scan` (`include/solprop_native/launch.hpp`), which pass
   a device kernel's functor as its launch argument; team-level loops stay `Kokkos::`.
-- Allocate field-sized views, scratch and FFT plans once, when a state is constructed.
+- Allocate field-sized views, scratch and FFT plans once, when a workspace is built.
   A trial step performs no allocation, planning, logging, Python call or unplanned
   fence. The one exception is the host source hook (solprop SEP 49,
   `include/solprop_native/host_source.hpp`): on a CPU build, a bound host source is
@@ -134,7 +134,7 @@ the gate.
   binding layer takes the interpreter lock for each call; device builds refuse it.
 - Keep data resident in the execution space until it is observed; `field_to_host` is
   the explicit synchronous boundary. Every persistent allocation appears in
-  `memory_ledger()` with its real size in bytes.
+  the memory ledger (`Workspace.diagnostics()`) with its real size in bytes.
 - Use `KokkosFFT::Normalization::none` and keep solprop's explicit scaling. Do not
   hand-roll transforms, reductions, scans, sorts, random number
   generators or other facilities that Kokkos, Kokkos Kernels or Kokkos-FFT supply.
@@ -185,11 +185,20 @@ the gate.
 - The contract with solprop is its kernel contract, whose fields solprop's frozen
   tables hold. The backend inherits no solprop driver: a run is its native session
   (`session.py`), and the load, the Adams record and the timing probe are its own
-  (`_load.py`, `backend.py`, `_probe.py`). `check_build()` refuses, in an editable
+  (`_load.py`, `backend.py`, `_probe.py`). A backend holds one `_core.Workspace`,
+  built from one `_core.Problem` with every set-once table; a run starts from one run
+  record and the probe from the run's start (solprop SEP 52 section 5.3), and nothing
+  configures the workspace after it is built. `check_build()` refuses, in an editable
   checkout, an extension built from other sources than `native/`
   (`build_info().source_digest`; `cmake/SourceDigest.cmake` and `_source_digest`
   compute it, and stay in step). It records solprop's version without comparing it;
   never pin solprop's version.
+- A record that crosses declares its fields once, in a field table beside its C++
+  definition (`include/solprop_native/fields.hpp`), and is read by the one converter
+  (`src/records.hpp`), never by a hand-written dictionary reader; `_core.schemas()`
+  exports the tables, which a test holds to the Python records. A binding only
+  converts, releases the GIL and forwards: logic goes in the C++ library, where ctest
+  reaches it.
 - Accept the documented NumPy dtype, rank, shape and C-contiguity exactly and refuse
   hidden O(n) conversions. Read-only input is valid. Returned host arrays own their
   memory.
@@ -198,11 +207,13 @@ the gate.
 - Release the GIL around long native work and hold it while touching Python objects.
   Never call Python from a Kokkos or OpenMP worker, or during teardown.
 - Public Python has complete annotations, NumPy-style docstrings, `__all__`, `py.typed`
-  and a complete stub for the private extension; its bound problem's part is generated
-  (`scripts/problem_stub.py`, checked in the lint stage). An entry point only solprop's
-  tests reach goes in the extension's private `_testing` submodule (solprop SEP 52),
-  which ships in the wheel and promises nothing; its stub, `_core_testing.pyi`, is
-  held to the module's names by the same check. Install a `NullHandler`; never
+  and a complete stub for the private extension, generated whole with its `_testing`
+  stub by nanobind's stubgen (`scripts/problem_stub.py`, checked in the lint stage):
+  a binding that takes or returns a record names its Python type with `nb::sig`, and a
+  stub is regenerated, never edited. An entry point only solprop's tests reach goes in
+  the extension's private `_testing` submodule (solprop SEP 52), which ships in the
+  wheel and promises nothing; one that touches the state takes the workspace first.
+  Install a `NullHandler`; never
   configure the root logger or print diagnostics from library code.
 - Thread settings are read once, at import. Never change process thread settings (or
   a BLAS thread pool) after import.

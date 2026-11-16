@@ -141,6 +141,20 @@ def _built(
     )
 
 
+def _loaded_reading(
+    made: Any,
+    problem: PropagationProblem,
+    monitor: BoundaryMonitor,
+    field: np.ndarray,
+) -> BoundaryEnergies:
+    """Load `field` in a native backend's workspace, bind `monitor` there, and read it.
+
+    A load unbinds the monitor, as a run's start does, so the monitor is bound after.
+    """
+    load_native(made, field)
+    return native_reading(made, bind_native_monitor(made, problem, monitor))
+
+
 def _launch_reading(
     simulation: Simulation,
     backend: str,
@@ -153,9 +167,8 @@ def _launch_reading(
     try:
         monitor = simulation._boundary_monitor()
         assert monitor is not None
-        bound = bind_native_monitor(made, problem, monitor)
         launch = with_copy(problem.initial.field0, simulation.grid.n_t)
-        return native_reading(made, bound, launch)
+        return _loaded_reading(made, problem, monitor, launch)
     finally:
         made.close()
 
@@ -436,9 +449,7 @@ def _native_second_run(
     launch = with_copy(problem.initial.field0, simulation.grid.n_t)
     made = _built(simulation, backend, problem)
     try:
-        first = native_reading(
-            made, _fresh_bound(made, simulation, problem), launch.copy()
-        )
+        first = _loaded_reading(made, problem, _fresh(simulation), launch.copy())
         boundary = simulation._boundary_monitor()
         assert boundary is not None
         session_run(
@@ -447,12 +458,17 @@ def _native_second_run(
             made.request.for_run(monitor=boundary),
             Start(field=launch.copy(), z=0.0),
         )
-        again = native_reading(
-            made, _fresh_bound(made, simulation, problem), launch.copy()
-        )
+        again = _loaded_reading(made, problem, _fresh(simulation), launch.copy())
         return first, again, made.memory_ledger()
     finally:
         made.close()
+
+
+def _fresh(simulation: Simulation) -> BoundaryMonitor:
+    """Return a case's fresh monitor."""
+    monitor = simulation._boundary_monitor()
+    assert monitor is not None
+    return monitor
 
 
 def _fresh_bound(
@@ -490,30 +506,11 @@ def test_a_monitor_s_own_transform_is_in_the_ledger(
     assert all(ledger[row] > 0 for row in rows), {row: ledger[row] for row in rows}
 
 
-class _CountingState:
-    """A native state that counts its `bind_occupancy` calls."""
-
-    def __init__(self, state: object) -> None:
-        """Wrap `state`."""
-        self.__dict__["_state"] = state
-        self.__dict__["binds"] = 0
-
-    def bind_occupancy(self, *args: object) -> None:
-        """Count, then bind."""
-        self.__dict__["binds"] += 1
-        self.__dict__["_state"].bind_occupancy(*args)
-
-    def __getattr__(self, name: str) -> object:
-        """Hand everything else to the state."""
-        return getattr(self.__dict__["_state"], name)
-
-
-def test_a_second_point_keeps_its_bucket_table_and_reads_as_the_first(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # The table is a sixteenth of a state, and a runner's points share it: a second
-    # upload would move it per point. Nothing else may carry over. Each point is a
-    # watched session on the one backend, which binds its fresh monitor there.
+def test_a_second_point_keeps_its_bucket_table_and_reads_as_the_first() -> None:
+    # The table is a sixteenth of a state, and a runner's points share it: it is one
+    # of the workspace's set-once tables, uploaded when the backend is built, never
+    # per point. Nothing else may carry over. Each point is a watched session on the
+    # one backend, which binds its fresh monitor there.
     _require("native")
     simulation = probe("radial", "split_step", MARCHES["runge_kutta"])
     problem = simulation.translate()
@@ -521,23 +518,9 @@ def test_a_second_point_keeps_its_bucket_table_and_reads_as_the_first(
     launch = with_copy(problem.initial.field0, simulation.grid.n_t)
     records = []
     try:
-        for point in range(2):
+        for _ in range(2):
             boundary = simulation._boundary_monitor()
             assert boundary is not None
-            if point == 1:
-                assert made._bound_buckets is not None
-                counting = _CountingState(made._native_state)
-                bind = made._bind_monitor
-
-                def counted(monitor, *, bind=bind, counting=counting):
-                    # The counting state stands in while the session binds alone.
-                    state, made._native_state = made._native_state, counting
-                    try:
-                        bind(monitor)
-                    finally:
-                        made._native_state = state
-
-                monkeypatch.setattr(made, "_bind_monitor", counted)
             record: dict[str, object] = {}
             session_run(
                 made,
@@ -547,7 +530,6 @@ def test_a_second_point_keeps_its_bucket_table_and_reads_as_the_first(
                 monitor=record,
             )
             records.append(record)
-        assert counting.binds == 0  # pyright: ignore[reportPossiblyUnboundVariable]
     finally:
         made.close()
     # The same launch and march on the same build: the second record is a
@@ -565,9 +547,16 @@ def test_an_occupancy_outside_its_reduction_is_refused(count: int) -> None:
     problem = simulation.translate()
     made = cast("Any", _built(simulation, "native", problem))
     try:
+        _testing = pytest.importorskip("solprop_native._core")._testing
+
+        monitor = simulation._boundary_monitor()
+        assert monitor is not None and monitor.split
         table = np.zeros(math.prod(problem.shape[0:1]) * simulation.grid.n_omega)
+        occupancy = {"buckets": table.astype(np.uint8), "count": count}
         with pytest.raises(ValueError, match="between 1 and 128 buckets"):
-            made._native_state.bind_occupancy(table.astype(np.uint8), count)
+            _testing.bind_monitor(
+                made._workspace, made._monitor_binding(monitor), None, occupancy
+            )
     finally:
         made.close()
 
@@ -634,9 +623,9 @@ def test_successive_occupancies_are_the_reference_s(backend: str, route: str) ->
             between=keep,
         )
         assert len(readings) == len(planes)
-        bound_monitor = _fresh_bound(ours, simulation, problem)
+        fresh = _fresh(simulation)
         for expected, state in readings:
-            got = native_reading(ours, bound_monitor, state).occupancy
+            got = _loaded_reading(ours, problem, fresh, state).occupancy
             assert got is not None
             np.testing.assert_allclose(
                 got, expected, rtol=0.0, atol=bound * float(expected.sum())

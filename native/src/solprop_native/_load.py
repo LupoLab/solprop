@@ -19,9 +19,10 @@ the problem and the request alone:
 - :func:`propagator_mode`: the run's flow treatment (SEP 24 section 4.3); the
   quiet-collar rule is solprop's (:func:`solprop.backends.records.collar_rests`).
 
-Each is the reference's arithmetic (``solprop.backends.host.driver.HostDriver``),
-operation for operation, as the step driver the native backend inherited until SEP 47
-phase 5 had it; its runs are bitwise those of that driver.
+Each is the reference's arithmetic
+(``solprop.backends.numpy_ref.workspace.NumpyWorkspace``), operation for operation,
+as the step driver the native backend inherited until SEP 47 phase 5 had it; its runs
+are bitwise those of that driver.
 """
 
 from __future__ import annotations

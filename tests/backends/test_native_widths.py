@@ -292,7 +292,7 @@ def _check_fluence(monkeypatch, route, kind):
     monkeypatch.undo()
     backend = select("native", problem, run_request, grid=grid)
     try:
-        state = load_native(backend, field, clear_fsal=False)
+        state = load_native(backend, field)
         packed = np.ravel(_testing.spatial_statistics(state, 16, 0.5 * EPS0 * C, 0.0))
     finally:
         backend.close()
@@ -350,7 +350,7 @@ def test_a_plane_s_moments_bound_the_refusal_as_its_fluence_does(route, kind):
     field = _field_for(route, grid, problem)
     backend = select("native", problem, run_request, grid=grid)
     try:
-        state = load_native(backend, field, clear_fsal=False)
+        state = load_native(backend, field)
         fluence = np.ravel(_testing.spatial_statistics(state, 16, 0.5 * EPS0 * C, 0.0))
         moments = np.ravel(_testing.spatial_statistics(state, 32, 0.5 * EPS0 * C, 0.0))
     finally:
@@ -414,8 +414,8 @@ def test_a_plane_s_widths_bring_only_numbers_across(n_pol, monkeypatch):
     The native session reduces the widths in its own pass
     (``session_statistics.cpp``); what crosses is the packed evaluation its plan
     unpacks, counted here. The session counts every field it exports, and the native
-    state every whole-state transfer to the host by any path
-    (``crossed_bytes()[0]``, solprop SEP 44): both stay at zero over the run.
+    state every whole-state transfer to the host by any path (its diagnostics'
+    ``crossed_bytes[0]``, solprop SEP 44): both stay at zero over the run.
     """
     statistics = pytest.importorskip("solprop_native._statistics")
     grid, problem, run_request = _simulation(
@@ -435,8 +435,8 @@ def test_a_plane_s_widths_bring_only_numbers_across(n_pol, monkeypatch):
         with launched(backend, problem, request) as (session, observation):
             native = session.native  # pyright: ignore[reportAttributeAccessIssue]
             assert native.status().exports == 0
-            state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
-            assert state.crossed_bytes()[0] == 0
+            diagnostics = backend._diagnostics()  # pyright: ignore[reportAttributeAccessIssue]
+            assert diagnostics["crossed_bytes"][0] == 0
     finally:
         backend.close()
     assert set(observation.stats) == set(WIDTHS)
@@ -524,7 +524,7 @@ def test_the_native_trace_needs_a_held_plane_and_real_rings():
     no_rings = np.empty(0)
     factor = 0.5 * EPS0 * C
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         with pytest.raises(RuntimeError, match="follows the call that holds it"):
             _testing.plane_fluence_trace(
                 state, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0, no_rings, no_rings
@@ -554,7 +554,7 @@ def test_a_line_has_no_plane_moments():
     grid, problem, run_request = _route("line")
     backend = select("native", problem, run_request, grid=grid)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         with pytest.raises(ValueError, match="need a Cartesian plane"):
             _testing.spatial_statistics(state, 32, 0.5 * EPS0 * C, 0.0)
     finally:

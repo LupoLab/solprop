@@ -740,7 +740,7 @@ def test_substantial_native_trial_releases_the_gil(
     """
     problem, run_request, grid = phase_a_case
     backend = native.NativeBackend(problem, run_request, grid=grid)
-    load_native(backend, problem.initial.field0, clear_fsal=False)
+    load_native(backend, problem.initial.field0)
     active = threading.Event()
     finished = threading.Event()
     stamps: list[float] = []

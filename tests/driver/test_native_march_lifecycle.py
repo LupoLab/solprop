@@ -62,20 +62,19 @@ _testing = pytest.importorskip("solprop_native._core")._testing
 
 def with_fault(monkeypatch, stage: str, after: int, category: str) -> list[Any]:
     """Arm a native failure (or, for ``"sigint"`` and ``"sigterm"``, a signal raised in
-    the native call) when the run's march is first configured, before a session leases
-    the state; return the marches it was armed on."""
+    the native call) when the first run's session is prepared, before it leases the
+    workspace; return the backends it was armed on."""
     armed: list[Any] = []
-    configure = NativeAdamsMarch._configure
+    prepare = NativeSession._prepare
 
-    def arming(self, *args):
-        configure(self, *args)
+    def arming(self, backend, start):
+        run = prepare(self, backend, start)
         if not armed:
-            _testing.adams_march_fault(
-                self._backend._native_state, stage, after, category
-            )
-            armed.append(self)
+            _testing.inject_fault(backend._workspace, stage, after, category)
+            armed.append(backend)
+        return run
 
-    monkeypatch.setattr(NativeAdamsMarch, "_configure", arming)
+    monkeypatch.setattr(NativeSession, "_prepare", arming)
     return armed
 
 

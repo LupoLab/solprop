@@ -209,7 +209,32 @@ the engine under the real march and the real session ([SEP 52](seps/sep-0052-bac
   own rules (`host.session.step_cap`, `natural_stop`), and the native marches over the same
   stub (`tests/backends/native_trace_marches.py`); the stored corpora
   (`tests/data/*_traces.json.gz`) hold both to the same decisions and are regenerated only
-  under SEP 52 §4's rule.
+  under SEP 52 §4's rule. Native's marches run over its own scripted engines
+  (`_core._testing.ScriptedMarch`, `ScriptedRkMarch`).
+
+### Engine-level parity
+
+Below a whole run, the backends are compared engine by engine, through the protocols both
+implement (`solprop.backends.engines`: `RungeKuttaEngine`, `AdamsEngine`; SEP 52 §6.5).
+A case is written once against the protocol and played on each backend's engines over a
+workspace loaded with the launch, configured with the run's records and watched by the
+case's monitor (`tests/engine_pairs.py`): the reference's own engines over its
+`NumpyWorkspace`, and native's from the private `_core._testing.engines(workspace)`,
+whose prefixed methods `NativeRungeKutta` and `NativeAdams` put behind the protocols'
+names. `tests/backends/test_engine_parity.py` takes rejected and accepted Runge–Kutta
+trials, the stage registers, a dense extension, the low-storage step's in-flight interval,
+the split collar's sums in each `AcceptRecord` and the boundary reading; its Adams cases
+record the calls the reference's own march makes on a run (`engine_pairs.record_adams`:
+the startup, every trial, each accept with the history it keeps, the carrier chord and
+rotations) and replay them on both engines. Every comparison is held to a SEP 25 budget
+from `tests/march_bounds.py`, fixed before the run: `k` matched steps' share of
+`march_bound` for the state, that over `rtol` for a scaled norm, four times it against
+the state's energy for a sum over part of the window. Each compared term is also asserted
+to stand well clear of its bound, so a zero or misplaced term fails (the split sums
+against the same reduction of the finished field, for example). The state-level entry
+points of `_testing` (a trial's partials, the stage rows, the flow actions, the
+statistics) stay for the tests of what the protocols do not expose; they promise
+nothing.
 
 ### Budgets and timing assertions
 

@@ -381,7 +381,7 @@ def _native_startup(case):
             raw.acknowledge(batch.sequence)
             batch = raw.advance(1, math.inf)
         seen["attempts"], seen["position"] = raw.status().attempts, raw.status().z
-        snapshot = raw.march_snapshot(batch.sequence, raw.status().generation)
+        snapshot = raw.snapshot((batch.sequence, raw.status().generation))
         assert snapshot is not None
         seen["row"] = np.array(snapshot[2]["store"][0]).reshape(-1)
     finally:

@@ -48,9 +48,8 @@ INTEGRATORS = {
     "runge-kutta": RungeKutta(),
     "low-storage": LowStorageRungeKutta(),
 }
-"""Each march: the Adams ones read the basis or the record's trial tables (the
-native record forms an exponential trial's in one call), every one reads the stage
-tables."""
+"""Each march: the reference's Adams marches read the basis (the native Adams march
+forms its basis in C++ and its record names none), every one reads the stage tables."""
 
 
 class ForbiddenHelperError(AssertionError):
@@ -58,12 +57,12 @@ class ForbiddenHelperError(AssertionError):
 
 
 def forbid(monkeypatch, record):
-    """Make each of a record's operations raise, the one-call tables included."""
+    """Make each of a record's operations raise, a basis it does not name included."""
 
     def refuse(*_):
         raise ForbiddenHelperError(record.name)
 
-    for name in ("points", "basis", "tables"):
+    for name in ("points", "basis"):
         monkeypatch.setitem(record.__dict__, name, refuse)
 
 
@@ -79,13 +78,13 @@ def forbid_one_point(monkeypatch):
 def count(monkeypatch, record):
     """Count a record's calls; return the tally.
 
-    A record without the one-call tables keeps none, and its tally stays at zero.
+    A record that names no basis keeps none, and its tally stays at zero.
     """
-    tally = {"points": 0, "basis": 0, "tables": 0}
+    tally = {"points": 0, "basis": 0}
     for name in tally:
-        function = getattr(record, name)
-        if function is None:
+        if name == "basis" and record.load_basis is None:
             continue
+        function = getattr(record, name)
 
         def counted(*arguments, _name=name, _function=function):
             tally[_name] += 1
@@ -136,20 +135,15 @@ def test_the_reference_runs_only_the_plain_forms(monkeypatch, integrator):
     tally = count(monkeypatch, _helpers.PLAIN)
     propagate(NumpyRefBackend, prepared)
     assert tally["points"] > 0, tally
-    adams = tally["basis"] + tally["tables"]
-    assert adams > 0 or not integrator.startswith("adams"), tally
+    assert tally["basis"] > 0 or not integrator.startswith("adams"), tally
 
 
 def assert_native_helpers_ran(tally, integrator):
     """Assert what a native run's helper tally shows of its march."""
     assert tally["points"] > 0, tally
-    if integrator.startswith("adams"):
-        # A staged trial forms its tables in the native state from its nodes alone
-        # (SEP 39 phases 1 and 3), in either formulation: none crosses from the host.
-        assert tally["tables"] == 0, tally
-        return
-    adams = tally["basis"] + tally["tables"]
-    assert adams > 0 or not integrator.startswith("adams"), tally
+    # A staged trial forms its basis and tables in the native state from its nodes
+    # alone (SEP 39 phases 1 and 3; SEP 52), in either formulation: none crosses.
+    assert tally["basis"] == 0, tally
 
 
 @pytest.mark.parametrize("integrator", INTEGRATORS)
@@ -205,7 +199,7 @@ def test_a_native_z_table_run_uses_only_its_own_helpers(monkeypatch, integrator)
     forbid_one_point(monkeypatch)
     tally = count(monkeypatch, NATIVE)
     propagate(native.NativeBackend, prepared)
-    assert tally["tables"] == 0, tally
+    assert tally["basis"] == 0, tally
 
 
 @pytest.mark.parametrize(

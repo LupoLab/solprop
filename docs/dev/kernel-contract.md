@@ -52,7 +52,7 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 | `responses` | frozen dataclass | section 5 (`translate.responses.CompiledResponses`) |
 | `initial` | frozen dataclass | section 6 (`translate.problem.Initial`) |
 | `route` | `ModalRoute \| GeneralRoute \| SpatialRoute` | the closed union of route descriptions (`translate.routes`), each variant carrying exactly the fields its executor needs: the transform (§4) and the route's own leaves. Below, under *The route union* |
-| `split_crossing` | `SplitCrossing` or `None` | the split temporal collar's crossing limit (`boundaries.SplitCrossing`): `buckets`, each `(mode, frequency)` bin's walk-off bucket as `(n_modes,n_omega) uint8` (the fastest of its polarisations and positions, a coupled flow's channels with the generator's diagonal added to the shared carrier; `boundaries.split_rate_buckets`), the fastest rate a bin reaches `fastest` (the open first bucket's rate), the collar's `width` and the launch's limit `launch_limit`, which holds an adaptive `dz_max` and a fixed schedule at translation. A backend that reads the boundary monitor under the `"split_step"` scheme returns the state's energy per bucket with every reading (`BoundaryEnergies.occupancy`; native: `bind_occupancy`, then `monitor_reading`'s ten numbers followed by the 128 buckets); the monitor turns it into a cap on the steps until the next check (`host.session.step_cap`, the native Adams march's required `step_cap` bound), and a fixed schedule whose steps before the next check exceed it, at a check or when a resumed state is watched, stops with a `BoundaryError`. `None` under the in-stage scheme or without a temporal collar. Added in version 43 |
+| `split_crossing` | `SplitCrossing` or `None` | the split temporal collar's crossing limit (`boundaries.SplitCrossing`): `buckets`, each `(mode, frequency)` bin's walk-off bucket as `(n_modes,n_omega) uint8` (the fastest of its polarisations and positions, a coupled flow's channels with the generator's diagonal added to the shared carrier; `boundaries.split_rate_buckets`), the fastest rate a bin reaches `fastest` (the open first bucket's rate), the collar's `width` and the launch's limit `launch_limit`, which holds an adaptive `dz_max` and a fixed schedule at translation. A backend that reads the boundary monitor under the `"split_step"` scheme returns the state's energy per bucket with every reading (`BoundaryEnergies.occupancy`; native: the buckets in the run's start record, then `monitor_reading`'s ten numbers followed by the 128 buckets); the monitor turns it into a cap on the steps until the next check (`host.session.step_cap`, the native Adams march's required `step_cap` bound), and a fixed schedule whose steps before the next check exceed it, at a check or when a resumed state is watched, stops with a `BoundaryError`. `None` under the in-stage scheme or without a temporal collar. Added in version 43 |
 `PropagationProblem` also carries two **properties**, which are not fields and so not rows
 above: `transform`, the route's transform, and `device_ready`, true when Φ (§3) and the prefactor (§5) are each a weighted sum
 of a fixed set of arrays, and false when either took the z table.
@@ -1316,11 +1316,15 @@ monitor-cadence and distance returns are then not asked for.
 
 **What solprop does with a call.** The native session makes the calls, holds the march's
 state between them natively and turns each call's rows and readings into its events (SEP
-47); the record `_NativeAdamsMarch` hands it the policy and the start's history once. The
-decision-trace tests drive the march a call at a time over a scripted host backend
-(`tests/backends/native_trace_marches.py`), booking each row as the reference books its
-attempts, and hold its decisions, its monitor's watch state and its errors to the
-reference's.
+47); the policy and the start's history cross once, in the run's start record
+(`Workspace.start(run)`: the run records' `MarchPolicy` and the march state
+`_NativeAdamsMarch.start_state` forms, its history entries' identities by name). The
+decision-trace tests drive the march a call at a time over a scripted engine
+(`_core._testing.ScriptedMarch`, from `tests/backends/native_trace_marches.py`), booking
+each row as the reference books its attempts, and hold its decisions, its monitor's
+watch state and its errors to the reference's. The engine itself, `march::Engine`, is
+held to the reference's `HostHistory` through solprop's `AdamsEngine` protocol
+(`_core._testing.engines`, `tests/backends/test_engine_parity.py`).
 
 **Rounding.** The decisions are compiled without contraction or fast-math in their own
 translation unit and call no elementary function but `pow`, so that they round as

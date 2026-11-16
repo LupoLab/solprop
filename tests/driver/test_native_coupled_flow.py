@@ -155,7 +155,7 @@ def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_boun
     bound = formation_bound(case.problem, case.run_request, dz)
     backend = native_class()(case.problem, case.run_request, grid=case.grid)
     try:
-        native = backend._native_state
+        native = backend._workspace
         shape = (fractions.size, -1, reference.n_modes, reference.n_modes)
         for section in range(reference.frozen.shape[0]):
             measured = _testing.form_flow_actions(native, section, dz, fractions)[0]
