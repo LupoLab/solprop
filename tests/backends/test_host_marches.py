@@ -59,9 +59,6 @@ class Host:
     def natural_stop(self, target: float) -> bool:
         return bool(self.natural_every) and self.stepped_count % self.natural_every == 0
 
-    def natural_stop_due(self, target: float) -> bool:
-        return False
-
 
 class Engine:
     """A Runge-Kutta engine that scores trials from a list and records its calls."""
@@ -96,10 +93,6 @@ class Engine:
     def reading(self) -> Any:
         raise NotImplementedError
 
-    def reset(self) -> None:
-        self.calls.append(("reset",))
-        self.flight = False
-
 
 def _policy() -> RungeKuttaPolicy:
     return RungeKuttaPolicy(
@@ -131,7 +124,9 @@ def test_the_runge_kutta_march_keeps_its_state_and_asks_in_order():
     engine, host = Engine([2.0, 0.5]), Host()
     march = RungeKuttaMarch(engine, _policy(), host, schedule=None, proposal=0.25)
     march.load(0.0, 0.25, 0)
-    assert engine.calls == [("reset",)]
+    # A load starts the march's own state afresh and asks nothing of the engine: each
+    # run builds its engine afresh (SEP 52).
+    assert engine.calls == []
     march.march_to(0.25)
     assert march.state.z == 0.25
     assert len(march.state.norms) >= 1
@@ -141,9 +136,9 @@ def test_the_runge_kutta_march_keeps_its_state_and_asks_in_order():
     assert kinds[:4] == ["poll", "cap", "record", "poll"]
     assert host.calls[2] == ("record", 0.25, False)
     assert kinds[4:8] == ["cap", "record", "absorb", "stepped"]
-    assert [call[0] for call in engine.calls[1:4]] == ["trial", "trial", "accept"]
+    assert [call[0] for call in engine.calls[:3]] == ["trial", "trial", "accept"]
     # What the accept reported is what the session absorbs.
-    assert host.records[0].removed == 4.0
+    assert host.records[0].removed == 3.0
 
 
 def test_a_replayed_runge_kutta_step_that_diverges_commits_nothing():
