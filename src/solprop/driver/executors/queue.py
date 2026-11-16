@@ -25,6 +25,7 @@ import h5py
 import numpy as np
 
 from solprop._durable import sync_directory
+from solprop._identity import text_digest
 from solprop.driver._scan_model import Scan, ScanPoint
 from solprop.driver.executors._queue_state import (
     atomic_json,
@@ -39,9 +40,9 @@ from solprop.driver.executors._request import ScanRequest
 from solprop.driver.executors.pool import Pool
 from solprop.exceptions import DriverError, ExecutorError, OutputError
 from solprop.output.hdf5 import _dataset, _group
-from solprop.output.scan import PointResult, ScanWriter, _hash, _json
+from solprop.output.scan import PointResult, ScanWriter, _json
 from solprop.output.scan_artifacts import artifact_digest, read_artifact, write_artifact
-from solprop.output.serialisation import _decode
+from solprop.output.serialisation import deserialise
 from solprop.processing.scans import ScanOutput
 
 __all__ = ["Queue", "collect"]
@@ -57,7 +58,7 @@ def _point(job: object) -> ScanPoint:
 
 def _point_id(point: ScanPoint) -> str:
     """Bind a claim to its global index, variable values and derived seed."""
-    return _hash(_json(point))
+    return text_digest(_json(point))
 
 
 def _filename(manifest: Mapping, index: int) -> str:
@@ -97,7 +98,7 @@ def _restore_scan(manifest: Mapping) -> Scan:
     """
     description = json.loads(manifest["description"])
     variables = {
-        name: cast(np.ndarray, _decode(description["variables"][name]))
+        name: cast(np.ndarray, deserialise(description["variables"][name]))
         for name in description["order"]
     }
     return Scan(description["name"], base_seed=description["base_seed"], **variables)
@@ -311,7 +312,7 @@ class Queue:
                 "settings": settings,
             }
         )
-        self._scan_id = _hash(description)
+        self._scan_id = text_digest(description)
         self._retry = retry_failed
         manifest = {
             "queue_schema_version": 1,
@@ -463,7 +464,7 @@ def collect(path: Path | str, output: Path | str) -> ScanOutput:
     manifest = read_json(path / "manifest.json")
     if (
         manifest.get("queue_schema_version") != 1
-        or _hash(manifest["description"]) != manifest["scan_id"]
+        or text_digest(manifest["description"]) != manifest["scan_id"]
     ):
         raise OutputError("invalid queue manifest version or description digest")
     scan = _restore_scan(manifest)

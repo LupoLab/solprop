@@ -43,11 +43,6 @@ def _json(value: object) -> str:
     return canonical_json(_inlined(serialise(value)))
 
 
-def _hash(text: str) -> str:
-    """Identify a serialised common record by its SHA-256 digest."""
-    return text_digest(text)
-
-
 _RECORD_ARRAYS = "record_arrays"
 """The group of the points' record arrays, named by digest, dtype and shape."""
 
@@ -230,7 +225,7 @@ class ScanWriter:
                 # The schema first: a scan of another release is refused by the
                 # output schema its records declare, not by its axes.
                 _refuse_other_schemas(self.file)
-                if self.file.attrs.get("identity") != _hash(description):
+                if self.file.attrs.get("identity") != text_digest(description):
                     raise OutputError(
                         "scan axes, root seed or retention contract changed"
                     )
@@ -261,7 +256,7 @@ class ScanWriter:
         file = self.file
         file.attrs.update(
             scan_schema_version=1,
-            identity=_hash(description),
+            identity=text_digest(description),
             spectral_convention="optics",
         )
         group = file.create_group("scan")
@@ -485,7 +480,7 @@ class ScanWriter:
             )
         point.attrs["array_units"] = _json(units)
         _dataset(file, "points/backend")[result.index] = _json(document.get("backend"))
-        layout = _hash(
+        layout = text_digest(
             _json(
                 {
                     name: [
@@ -515,7 +510,7 @@ class ScanWriter:
         ):
             return {key: self._common_record(value) for key, value in document.items()}
         text = _json(document)
-        digest = _hash(text)
+        digest = text_digest(text)
         if digest not in _group(self.file, "common"):
             _group(self.file, "common").create_dataset(
                 digest, data=text, dtype=h5py.string_dtype()

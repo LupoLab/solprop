@@ -28,7 +28,7 @@ from solprop.exceptions import OutputError, SolpropError
 from solprop.output._writer_lock import WriterHeldError, WriterLock
 from solprop.output.hdf5 import ResumeState, _file_path, resume
 from solprop.output.metadata import SCHEMA_VERSION
-from solprop.output.serialisation import _decode
+from solprop.output.serialisation import deserialise
 from solprop.output.store import Output
 
 __all__ = ["Resumability", "ResumeMode", "resumability"]
@@ -189,7 +189,7 @@ def resumability(path: str | Path | Output, *, gate: bool = False) -> Resumabili
     except OutputError as error:
         return _refused(f"no state to continue from: {error}")
     planes = np.asarray(
-        _decode(state.metadata.configuration["save_planes"]),  # type: ignore[arg-type]
+        deserialise(state.metadata.configuration["save_planes"]),  # type: ignore[arg-type]
         dtype=float,
     )
     position = float(state.plane.z)

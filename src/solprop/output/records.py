@@ -41,10 +41,10 @@ from solprop.modes.material import JsonValue
 from solprop.modes.protocol import Mode
 from solprop.noise import NoiseRealisation
 from solprop.output.serialisation import (
-    _decode,
     _optional_text,
     _rebuild,
     _stored_entry,
+    deserialise,
     serialise,
 )
 from solprop.stepper import FixedSchedule, PIController, Tableau
@@ -613,7 +613,7 @@ class StepperRecord:
             functools.partial(_stored_entry, document, path=("stepper",)),
         )
 
-        schedule = _decode(stored("schedule"))
+        schedule = deserialise(stored("schedule"))
         limits = stored("limits")
         return cls(
             tableau=str(stored("tableau", required=True)),
