@@ -4,6 +4,21 @@
 
 #pragma once
 
+// The nonlinear source of solprop's general modal route on the native backend: per node
+// chunk, the three Cartesian components synthesised from the modal spectra, the tensor
+// cubic and optional delayed response at the nodes, and the projection back onto the
+// modes, the twin of solprop's reference `general_source`.
+//
+// Types: `GeneralModalSource` owns the route's maps (a moving guide's Chebyshev
+// coefficients when they vary along z), chunk buffers, FFT plans and SEP 6's
+// `GeneralDispersive`; `evaluate` forms the modal source `-i omega Q . P`.
+//
+// Functions: `require_general_modal` refuses an unexecutable problem;
+// `general_projection_lanes` picks a projection team's block of bins (the measured
+// evidence is in its comment); `general_doubling` is a bin's analytic-signal weight.
+// `general_real_signal_enabled` lets host builds read a real-form cubic's field from a
+// complex-to-real transform.
+
 #include "solprop_native/problem/problem.hpp"
 #include "solprop_native/response/dispersive.hpp"
 #include "solprop_native/runtime/build.hpp"

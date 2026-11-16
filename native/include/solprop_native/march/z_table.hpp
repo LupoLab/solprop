@@ -4,6 +4,30 @@
 
 #pragma once
 
+// The general z table, resident in the execution space (solprop SEP 29 section 6.6,
+// G1).
+//
+// solprop falls back to a piecewise Chebyshev polynomial of the state's own size for
+// Phi (`LinearOperator.phi_coefficients`) or the response prefactor
+// (`CompiledResponses.prefactor`) when neither is a weighted sum of fixed arrays. The
+// coefficients are uploaded once, laid out `(n_intervals, n_terms, n_values)` with
+// the state's values `(column, bin)` fastest, and a native call evaluates the table at
+// a trial's positions into the term slots the stage kernels already read
+// (`phi_terms`, `prefactor_terms`): the adapter then weighs the slots by +-1, so that
+// `Phi(z1) - Phi(z0)` is one rounded subtraction of two evaluated values, as solprop's
+// reference forms it. Each value is solprop's Clenshaw recursion
+// (`chebyshev::clenshaw_column`) under strict arithmetic, operation for operation, at
+// the interval and unit position solprop's `PiecewiseChebyshev` chooses; a rate table
+// (`LinearOperator.rate`, the derivative of Phi's) may read an interior breakpoint
+// from the interval ending there, as solprop's `phi_rate(..., before=True)` does.
+//
+// Types: `Table` (a table's coefficients in the execution space and its breakpoints on
+// the host) and `Points` (where each position of one evaluation reads and the slot it
+// fills).
+//
+// Functions: `locate` places a trial's positions, `clenshaw_block` evaluates a block of
+// values (strict), and `evaluate` launches the evaluation into the term slots.
+
 #include "solprop_native/march/chebyshev.hpp"
 #include "solprop_native/runtime/execution.hpp"
 #include "solprop_native/runtime/launch.hpp"
@@ -14,24 +38,6 @@
 #include <string>
 #include <vector>
 
-/*
- * The general z table, resident in the execution space (solprop SEP 29 section 6.6,
- * G1).
- *
- * solprop falls back to a piecewise Chebyshev polynomial of the state's own size for
- * Phi (`LinearOperator.phi_coefficients`) or the response prefactor
- * (`CompiledResponses.prefactor`) when neither is a weighted sum of fixed arrays. The
- * coefficients are uploaded once, laid out `(n_intervals, n_terms, n_values)` with
- * the state's values `(column, bin)` fastest, and a native call evaluates the table at
- * a trial's positions into the term slots the stage kernels already read
- * (`phi_terms`, `prefactor_terms`): the adapter then weighs the slots by +-1, so that
- * `Phi(z1) - Phi(z0)` is one rounded subtraction of two evaluated values, as solprop's
- * reference forms it. Each value is solprop's Clenshaw recursion
- * (`chebyshev::clenshaw_column`) under strict arithmetic, operation for operation, at
- * the interval and unit position solprop's `PiecewiseChebyshev` chooses; a rate table
- * (`LinearOperator.rate`, the derivative of Phi's) may read an interior breakpoint
- * from the interval ending there, as solprop's `phi_rate(..., before=True)` does.
- */
 namespace solprop_native::z_table {
 
 /** The most positions one evaluation takes. */

@@ -2,6 +2,14 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The native execution session, implemented (session.hpp): the scheduler's strict free
+// functions and the export's recipe (`apply_recipe`), and `Session`'s lifecycle --
+// construction and attachment, `advance` with its march calls and their events, the
+// plane, step-plane and periodic statistics schedule, dense observations inside a step,
+// the boundary monitor's launch, plane and final checks with their barriers, snapshots,
+// `acknowledge`, `export_field`, `status` and `close`. The transverse edge's actions
+// are in session_edge.cpp.
+
 #include "solprop_native/session/session.hpp"
 
 #include "solprop_native/runtime/refuse.hpp"

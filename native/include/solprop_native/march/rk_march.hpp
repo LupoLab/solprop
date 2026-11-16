@@ -4,6 +4,20 @@
 
 #pragma once
 
+// The Runge-Kutta march (solprop SEP 45): a trial's stage positions and its scaled
+// error norm (phase 2), and the adaptive march itself, its controller and its loop
+// (phase 3), each performing the operations of the solprop function it is named after
+// in the same order. This translation unit is compiled without contraction and without
+// fast-math on every build; `pow` is the C library's, as Python's float power is.
+//
+// Types: `Policy` (the controller's numbers), `State` (a continuation between calls),
+// the `Engine` interface, `FloorSite` and the call's `Result`.
+//
+// Functions: `positions`, `score`, `weighted_scale` and `weighted_score` (a trial's
+// stage positions and error norms); the controller (`equivalent`, `accepts`, `propose`,
+// `rejection_factor`, `start_factor`, `limited`); and `run`, the adaptive march, which
+// also replays a schedule.
+
 #include "solprop_native/march/adams_march.hpp"
 
 #include <cstddef>
@@ -12,13 +26,6 @@
 #include <stdexcept>
 #include <vector>
 
-/*
- * The Runge-Kutta march (solprop SEP 45): a trial's stage positions and its scaled
- * error norm (phase 2), and the adaptive march itself, its controller and its loop
- * (phase 3), each performing the operations of the solprop function it is named after
- * in the same order. This translation unit is compiled without contraction and without
- * fast-math on every build; `pow` is the C library's, as Python's float power is.
- */
 namespace solprop_native::rk {
 
 /** A trial's stage positions `z + c_i dz`, each product and sum rounded on its own as

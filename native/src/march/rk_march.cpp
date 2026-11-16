@@ -2,6 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The Runge-Kutta march, implemented (rk_march.hpp, solprop SEP 45): a trial's stage
+// positions and scaled error norms, the controller's functions, and `run`, the adaptive
+// loop (and a schedule's replay) up to a host event: an accepted step with host work, a
+// landing, the call's bound or budget, the floor, or a native error. Every function
+// performs the operations of the solprop function it is named after, in order, and
+// treats a NaN as Python's comparisons do.
+
 #include "solprop_native/march/rk_march.hpp"
 
 #include "solprop_native/runtime/refuse.hpp"

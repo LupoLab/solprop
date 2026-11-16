@@ -4,6 +4,26 @@
 
 #pragma once
 
+// The engines the native marches hand their field arithmetic to (solprop SEP 39 and
+// SEP 45): the resident engines over a native state, and the scripted engines of the
+// decision-trace tests, which score a script of norms in place of the field. The
+// marches (`march::run`, `rk::run`) own every decision; an engine only forms a trial,
+// adopts it and reads the committed state's boundary energies.
+//
+// Python-free: the scripted engines log what the march asked into C++ records, which
+// the binding converts for solprop's tests.
+//
+// Host code only.
+//
+// Types: `ResidentEngine` (the exponential Adams march over the general state),
+// `ResidentRungeKutta` (the Runge-Kutta march's staged trial), `GeneralResident` (the
+// session's `session::Resident` over the general state), the scripted engines
+// (`ScriptedEngine`, `ScriptedRungeKutta`, with their `ScriptedEvent` and
+// `ScriptedTrial` logs) and `MarchFault`, a failure injected for the lifecycle tests.
+//
+// Functions: `carrier_frame` unpacks a scalar carrier frame's shift and rotations into
+// the trial weights.
+
 #include "solprop_native/general/general_state.hpp"
 #include "solprop_native/march/adams_march.hpp"
 #include "solprop_native/march/rk_march.hpp"
@@ -19,18 +39,6 @@
 #include <utility>
 #include <vector>
 
-/*
- * The engines the native marches hand their field arithmetic to (solprop SEP 39 and
- * SEP 45): the resident engines over a native state, and the scripted engines of the
- * decision-trace tests, which score a script of norms in place of the field. The
- * marches (`march::run`, `rk::run`) own every decision; an engine only forms a trial,
- * adopts it and reads the committed state's boundary energies.
- *
- * Python-free: the scripted engines log what the march asked into C++ records, which
- * the binding converts for solprop's tests.
- *
- * Host code only.
- */
 namespace solprop_native::engines {
 
 /** A failure injected at one of the resident engine's stages, after that stage has run

@@ -2,6 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// A spatial route's fluence widths, finished natively: namespace `statistics::widths`
+// of statistics_plan.hpp. `radial`, `line`, `of_block` and `of_plane` return the
+// second-moment, 1/e^2 and FWHM widths, m, over NumPy's pairwise sum (`pairwise_sum`),
+// and refuse as solprop's host finishing does, with its messages. The reference
+// functions and the strictness rationale are the note before the pragma below.
+
 // solprop SEP 47 section 6.4: a spatial route's fluence widths, finished natively from
 // the reductions the native passes leave, as solprop's host finishing reads them
 // (`solprop.backends.spatial.signed_fluence_widths`, `plane_fluence_widths`;

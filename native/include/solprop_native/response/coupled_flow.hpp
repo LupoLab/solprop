@@ -4,6 +4,21 @@
 
 #pragma once
 
+// The coupled-flow interaction picture of solprop's `linear.coupled_flow` on the native
+// backend: the per-frequency channel mixing that carries a coupled block's stage inputs
+// forward by the section's propagator `U`, their sources back by `U^-1`, and adds an
+// optional frozen residual `R_s(z) u` to each stage's lab-frame source.
+//
+// Types: `CoupledFlowAction` owns every section's forward and inverse actions (uploaded
+// by the adapter, or formed natively from the section's eigenbasis or Schur factors),
+// the residual's terms and the per-stage carry buffers, and exposes the resident data
+// the exponential Adams formulation's coupled passes read.
+//
+// Functions: `require_coupled_flow` refuses an unexecutable problem before allocation;
+// `CoupledFlowAction::set_actions` and `form_actions` load a section's actions, and
+// `carry_input`, `add_residual`, `carry_back` and `carry_step` are a trial's per-stage
+// passes.
+
 #include "solprop_native/problem/problem.hpp"
 #include "solprop_native/runtime/execution.hpp"
 
@@ -24,7 +39,7 @@ void require_coupled_flow(const Problem& problem);
 /**
  * The per-frequency channel mixing of solprop's `linear.coupled_flow`.
  *
- * The execution twin of `NumpyRefBackend._channels` and `_residual_drive` in solprop:
+ * The execution twin of `NumpyWorkspace.channels` and `_residual_drive` in solprop:
  * on the bins a section's generator is non-zero at, the interaction picture of a
  * coupled block carries every stage input forward by `U(c_i h)` and its source back
  * by `U(c_i h)^-1`, the accepted step forward by `U(h)`, and a frozen-residual flow

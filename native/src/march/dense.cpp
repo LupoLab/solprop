@@ -2,6 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The marches' dense output, implemented (dense.hpp): the strict weight functions of
+// namespace `dense` (`fraction`, `fused_weights`, `exponential_weights`), and the
+// `engines::AdamsDense` and `engines::RungeKuttaDense` members that note a march call's
+// return (`stepped`), test a crossed plane (`crosses`), observe the interpolated field
+// in the general state (`observe`) and restore the committed state (`restore`).
+
 #include "solprop_native/march/dense.hpp"
 
 #include "solprop_native/march/engines.hpp"

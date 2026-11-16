@@ -4,6 +4,31 @@
 
 #pragma once
 
+// The low-storage RK4IP replay in the native session (solprop SEP 24, SEP 47 section
+// 6.3): the engine that takes one in-place step of the march from its stage scalars,
+// which it forms natively from the uploaded stage tables, and the table keys of the
+// schedule it replays. The replay loop itself is the Runge-Kutta march's
+// (`rk::run` with a schedule), whose every step this engine takes: the schedule's steps
+// as given, never rejected, each committed and recorded in order.
+//
+// Each function performs the operations of the solprop function it is named after in
+// the same order: `table_steps` and `schedule_key` of `solprop.backends.low_storage`,
+// and `scalars`, the arrays `HostLowStorage` forms from its stage bundles, as the
+// native backend's adapter once packed them. The translation unit is compiled without
+// contraction on every build, as the marches' are.
+//
+// A step is accepted in place: from its first pass to its finish the state is neither
+// end of the step, and a failure there -- a native exception, or a non-finite norm --
+// leaves no consistent state behind (`ResidentLowStorage::in_flight`), which the
+// session reports as a poisoned terminal with no checkpoint (SEP 47 section 5.5).
+//
+// Host code only.
+//
+// Types: `rk::low_storage::Config` (the flows a step holds and its operator's origin)
+// and `engines::ResidentLowStorage`, the `rk::Engine` that takes the in-place steps.
+//
+// Functions: `table_steps`, `schedule_key` and `scalars` (low_storage.cpp, strict).
+
 #include "solprop_native/general/general_state.hpp"
 #include "solprop_native/march/engines.hpp"
 #include "solprop_native/march/rk_march.hpp"
@@ -14,27 +39,6 @@
 #include <optional>
 #include <vector>
 
-/*
- * The low-storage RK4IP replay in the native session (solprop SEP 24, SEP 47 section
- * 6.3): the engine that takes one in-place step of the march from its stage scalars,
- * which it forms natively from the uploaded stage tables, and the table keys of the
- * schedule it replays. The replay loop itself is the Runge-Kutta march's
- * (`rk::run` with a schedule), whose every step this engine takes: the schedule's steps
- * as given, never rejected, each committed and recorded in order.
- *
- * Each function performs the operations of the solprop function it is named after in
- * the same order: `table_steps` and `schedule_key` of `solprop.backends.low_storage`,
- * and `scalars`, the arrays `HostLowStorage` forms from its stage bundles, as the
- * native backend's adapter once packed them. The translation unit is compiled without
- * contraction on every build, as the marches' are.
- *
- * A step is accepted in place: from its first pass to its finish the state is neither
- * end of the step, and a failure there -- a native exception, or a non-finite norm --
- * leaves no consistent state behind (`ResidentLowStorage::in_flight`), which the
- * session reports as a poisoned terminal with no checkpoint (SEP 47 section 5.5).
- *
- * Host code only.
- */
 namespace solprop_native::rk::low_storage {
 
 /** The flows a step holds and where its operator starts, as the native backend's

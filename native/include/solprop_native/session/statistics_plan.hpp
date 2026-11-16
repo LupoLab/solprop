@@ -4,6 +4,33 @@
 
 #pragma once
 
+// A statistics evaluation lowered once, at preparation (solprop SEP 47 section 6.4):
+// which statistics, in which order, and every z-dependent input as the representation
+// the propagation itself carries -- solprop's piecewise Chebyshev tables of z
+// (`solprop.translate.chebyshev.PiecewiseChebyshev`) for the plasma density, the
+// preionisation of each channel, the species densities, the taper, the effective
+// area and the modal power weight, the basis metric's square root formed from the
+// metric's own values on each interval, and each profile statistic's path: the
+// propagation's table of it, or the profile lowered once with a measured, recorded
+// error at rounding level. `evaluate` reads the
+// resident state through the native statistics passes and finishes every statistic
+// natively: the half-maximum widths, the species reduction and the plasma
+// integration ratios are formed here, with no Python finishing. Python names the
+// packed values and assembles the schema.
+//
+// The one native implementation of each statistic: a native session takes its plane
+// statistics and its periodic rows through it, and `NativeBackend.stats` its plane
+// statistics, so coincident requests give the same bits.
+//
+// Kokkos-free: the native passes are behind `GeneralState`, declared elsewhere.
+//
+// Types (namespace `statistics`): `Plan` and its parts (`Route`, `Stat`, `Table`,
+// `Weight`, `Transverse`, `Widths`).
+//
+// Functions: `evaluate` runs a plan on a state, `half_width` is the half-maximum width
+// of a power trace; namespace `widths` (session_widths.cpp) finishes a spatial route's
+// fluence widths.
+
 #include <array>
 #include <complex>
 #include <cstddef>
@@ -11,27 +38,6 @@
 #include <stdexcept>
 #include <vector>
 
-/*
- * A statistics evaluation lowered once, at preparation (solprop SEP 47 section 6.4):
- * which statistics, in which order, and every z-dependent input as the representation
- * the propagation itself carries -- solprop's piecewise Chebyshev tables of z
- * (`solprop.translate.chebyshev.PiecewiseChebyshev`) for the plasma density, the
- * preionisation of each channel, the species densities, the taper, the effective
- * area and the modal power weight, the basis metric's square root formed from the
- * metric's own values on each interval, and each profile statistic's path: the
- * propagation's table of it, or the profile lowered once with a measured, recorded
- * error at rounding level. `evaluate` reads the
- * resident state through the native statistics passes and finishes every statistic
- * natively: the half-maximum widths, the species reduction and the plasma
- * integration ratios are formed here, with no Python finishing. Python names the
- * packed values and assembles the schema.
- *
- * The one native implementation of each statistic: a native session takes its plane
- * statistics and its periodic rows through it, and `NativeBackend.stats` its plane
- * statistics, so coincident requests give the same bits.
- *
- * Kokkos-free: the native passes are behind `GeneralState`, declared elsewhere.
- */
 namespace solprop_native {
 
 class GeneralState;

@@ -2,6 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The transverse edge, implemented (transverse.hpp): `Edge`'s validation of its
+// `Config`, the launch and its judgements (the safety ramp's band, the faces, the
+// return), each read's ledgers and judgements, the read spacing and its ceiling on the
+// step (`respace`, `ceiling`, `due`), a collar's current and return, the reach's tail
+// sums, and `resume`, `record` and `finish`. Each scalar decision transcribes solprop's
+// with Python's comparison semantics.
+
 #include "solprop_native/session/transverse.hpp"
 
 #include <cmath>

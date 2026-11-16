@@ -2,6 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The low-storage RK4IP replay, implemented (low_storage.hpp): `table_steps` and
+// `schedule_key` (the schedule's table keys), `scalars` (a step's stage scalars from
+// the uploaded stage tables, stacked as solprop's adapter stacked its bundles), and
+// `engines::ResidentLowStorage`'s in-place trial, accept, reading and fault injection,
+// which rebuilds a constant operator's table only where the schedule's key changes.
+
 #include "solprop_native/march/low_storage.hpp"
 
 #include "solprop_native/march/adams_march.hpp"

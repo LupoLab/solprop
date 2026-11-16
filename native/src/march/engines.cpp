@@ -2,6 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The march engines, implemented (engines.hpp): `carrier_frame`; `ResidentEngine`'s
+// startup, trial, accept, carrier chord and boundary reading over the general state,
+// with the host source's attempt hooks (solprop SEP 49) and `MarchFault` injection;
+// `ResidentRungeKutta`'s trial, weighted norm, accept and dense extension;
+// `GeneralResident`'s field, statistics and edge readings for a native session; and the
+// scripted engines, which score a script of norms and log what the march asked.
+
 #include "solprop_native/march/engines.hpp"
 
 #include <algorithm>

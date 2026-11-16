@@ -4,6 +4,19 @@
 
 #pragma once
 
+// Device matrix functions of a coupled block's bins off the flow's eigenbasis route,
+// for the exponential Adams formulation's coupled passes (solprop SEP 47 phase 4): the
+// flow `exp(X)` and the phi-functions `phi_1(X)` .. `phi_count(X)` of `X = shift I + h
+// T`, `T` a bin's upper-triangular Schur factor, read off the first block row of an
+// augmented matrix's exponential. The derivation and its rounding bound are the note
+// after the includes.
+//
+// Functions (namespace `flow_functions`): `augmented_squarings` counts a bin's
+// squarings, or flags the bin for refusal; `augmented_blocks` sizes a bin's rows and
+// scratch; `augmented_row` forms the first block row by scaling, the sixteen-term
+// Taylor series and squaring. The constants (`taylor_order`, `taylor_scale`,
+// `max_squarings`) are solprop's reference's.
+
 #include "solprop_native/general/general_state.hpp"
 #include "solprop_native/runtime/execution.hpp"
 
@@ -13,9 +26,9 @@
 // the exponential Adams formulation (solprop SEP 47 phase 4, section 6.3's coupled-flow
 // row).
 //
-// solprop's reference (`backends/multistep.py`, `coupled_moments`) reads the flow and
-// the phi-functions of `X = shift I + h T`, `T` the bin's upper-triangular Schur
-// factor, off the first block row of the exponential of the augmented matrix
+// solprop's reference (`backends/numpy_ref/multistep.py`, `coupled_moments`) reads the
+// flow and the phi-functions of `X = shift I + h T`, `T` the bin's upper-triangular
+// Schur factor, off the first block row of the exponential of the augmented matrix
 //
 //     A = [[X, I, 0, ..., 0], [0, 0, I, ..., 0], ..., [0, ..., 0, I], [0, ..., 0]],
 //
@@ -23,7 +36,7 @@
 // `phi_1(X)`, ..., `phi_count(X)` (Higham, *Functions of Matrices*, section 10.7.4;
 // Al-Mohy and Higham 2011): the reference by SciPy's Pade `expm`, this engine by the
 // scaling, sixteen-term Taylor series and squaring of solprop's reference flow action
-// (`numpy_ref/backend.py`, `_triangular_exponential`), the native
+// (`numpy_ref/workspace.py`, `_triangular_exponential`), the native
 // `squared_series_action`.
 //
 // Every block row of `A` but the first is a scaled shift, so every power of `A / 2^s`,

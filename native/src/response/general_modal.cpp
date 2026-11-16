@@ -2,6 +2,14 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The general modal source, implemented (general_modal.hpp): the problem checks, the
+// upload of the maps and tensors, the persistent plans, and the per-chunk stages of
+// `GeneralModalSource::evaluate` -- `combine_maps` (a moving guide's maps at a stage),
+// `synthesise`, `respond` and `respond_components` (the tensor cubic on the real field
+// or on the analytic signal), `delayed` (the delayed tensor response on the doubled
+// axis), `project` (host lane blocks in `project_lanes`, `project_device` on a device)
+// and `finish`. Every reduction is a fixed-order serial loop inside one output element.
+
 #include "solprop_native/response/general_modal.hpp"
 
 #include "solprop_native/runtime/dispatch.hpp"

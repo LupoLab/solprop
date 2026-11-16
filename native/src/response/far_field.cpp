@@ -2,6 +2,14 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The far-field pass of solprop SEP 23, implemented (far_field.hpp): a request's slot
+// layout (`far_field_layout`) and band count (`far_field_band_count`), and
+// `FarFieldPass` -- `run` checks the request's aperture and region tables and drives
+// the two stages, `accumulate` (a team per band over its columns in ascending order,
+// the team's threads over frequency) and `finish` (the bands summed in order and the
+// constant factors applied); `axis_spectrum` reads the on-axis amplitude's spectrum
+// from the partials; and the byte counts of the memory ledger.
+
 #include "solprop_native/response/far_field.hpp"
 
 #include "solprop_native/runtime/launch.hpp"

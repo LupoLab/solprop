@@ -4,6 +4,32 @@
 
 #pragma once
 
+// The stage scalars of an exponential Adams trial, formed natively from the tables
+// solprop uploads once per run (solprop SEP 39 phase 1).
+//
+// solprop forms a trial's stage scalars (`solprop.translate.stage.scalars`) by reading
+// its piecewise Chebyshev tables at the stage's position: the weights of `Phi` and of
+// the prefactor, the density, the taper scale, the Raman decay rates and densities, the
+// Kerr density, and the plasma channels' densities and pre-ionised fractions. Each read
+// is one call of the native Clenshaw helper (`chebyshev::clenshaw_points`). These
+// functions perform the same reads, by the same helper, with the same operations in
+// the same order -- the increment of an expansion's `Phi` is its weights at the stage
+// less its weights at the anchor, element by element -- so the scalars they form are
+// solprop's to the bit. A varying operator's rate is its derivative table read on the
+// closing side of a kink, as `solprop.translate.linop._rate_value` reads it.
+//
+// Host code only; nothing here is a device function.
+//
+// Types: `Table` (one real piecewise Chebyshev table), `Sections` (a sectioned
+// Chebyshev basis along z), `Tables` (every table a trial reads), `ZSlots` (the z
+// table's position-slot cache), `Anchor`, `Row` and `Trial`, with the `Terms`,
+// `KerrDensity` and `Chord` representations.
+//
+// Functions: `row`, `trial`, `rows` and `sample` form a trial's scalars; `chord` and
+// `rate` the carrier frame's shift and a varying operator's rate; `weights` and
+// `fused_weights` a trial's Adams tables from its nodes; `require_scalar_tables`
+// refuses a malformed scalar table.
+
 #include "solprop_native/general/general_state.hpp"
 #include "solprop_native/march/chebyshev.hpp"
 #include "solprop_native/march/lagrange_basis.hpp"
@@ -22,23 +48,6 @@
 #include <utility>
 #include <vector>
 
-/*
- * The stage scalars of an exponential Adams trial, formed natively from the tables
- * solprop uploads once per run (solprop SEP 39 phase 1).
- *
- * solprop forms a trial's stage scalars (`solprop.translate.stage.scalars`) by reading
- * its piecewise Chebyshev tables at the stage's position: the weights of `Phi` and of
- * the prefactor, the density, the taper scale, the Raman decay rates and densities, the
- * Kerr density, and the plasma channels' densities and pre-ionised fractions. Each read
- * is one call of the native Clenshaw helper (`chebyshev::clenshaw_points`). These
- * functions perform the same reads, by the same helper, with the same operations in
- * the same order -- the increment of an expansion's `Phi` is its weights at the stage
- * less its weights at the anchor, element by element -- so the scalars they form are
- * solprop's to the bit. A varying operator's rate is its derivative table read on the
- * closing side of a kink, as `solprop.translate.linop._rate_value` reads it.
- *
- * Host code only; nothing here is a device function.
- */
 namespace solprop_native::stage {
 
 /** One of solprop's piecewise Chebyshev tables of real values. */
@@ -750,12 +759,12 @@ inline ExponentialWeights weights(const double* nodes, const std::size_t n,
 
 /**
  * Return an interaction-formulation (fused) trial's tables formed from its nodes:
- * solprop's `backends.multistep.fused_tables` over `lagrange::basis_rows`, the
- * operations in their order. The predictor's integrated weights on the `order` newest
- * nodes; the step's own corrector's on `(1, nodes[:order])`, zero past them; and per
- * scored order `k` its corrector's weights on `(1, nodes[:k])` less, from the second
- * sample on, its predictor's on `nodes[:k]`. `nodes` holds the history's normalised
- * positions newest first, `slots` their rows.
+ * solprop's `backends.numpy_ref.multistep.fused_tables` over `lagrange::basis_rows`,
+ * the operations in their order. The predictor's integrated weights on the `order`
+ * newest nodes; the step's own corrector's on `(1, nodes[:order])`, zero past them; and
+ * per scored order `k` its corrector's weights on `(1, nodes[:k])` less, from the
+ * second sample on, its predictor's on `nodes[:k]`. `nodes` holds the history's
+ * normalised positions newest first, `slots` their rows.
  */
 inline AdamsWeights fused_weights(const double* nodes, const std::size_t n,
                                   const std::size_t* slots, const std::size_t n_slots,

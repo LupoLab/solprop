@@ -4,6 +4,20 @@
 
 #pragma once
 
+// The field plasma column's running integrals under solprop SEP 18's band rule (SEP
+// 27's two per node: the exposure and the free current), as Kokkos team building blocks
+// that the general workspace's response passes compose: a symmetric band filter of each
+// integrand, then a trapezoid prefix scan. The design note after the includes gives the
+// passes, the host and device team layouts and the scans' rounding bounds.
+//
+// Team primitives: `band_filter_at` and `team_band_filter` (the filter, optionally
+// staged in team scratch, `BandTile`, solprop SEP 18's Q8), `band_support` (a row's
+// live window), `team_trapezoid_prefix` and `team_trapezoid_window` (a row's prefix),
+// and the tile pieces (`team_band_tile`, `team_trapezoid_total`, `team_tile_offset`).
+//
+// Launchers: `portable_team_trapezoid_scan`, `portable_team_band_scan`, and the tiled
+// device column, `portable_tiled_band_scan` and `portable_tiled_trapezoid_scan`.
+
 #include "solprop_native/problem/problem.hpp"
 #include "solprop_native/runtime/dispatch.hpp"
 #include "solprop_native/runtime/execution.hpp"
@@ -44,8 +58,8 @@ namespace solprop_native {
  * column writes the same separate current and non-plasma polarisation streams.
  *
  * A CPU build runs it as a team column (`GeneralWorkspace::team_band_plasma_column`,
- * src/general/trial.cpp): the field is a row over t, and each running integral is a
- * band filter over the row (`team_band_filter`, a parallel stencil with a K-sample
+ * src/general/trial_response.inc): the field is a row over t, and each running integral
+ * is a band filter over the row (`team_band_filter`, a parallel stencil with a K-sample
  * halo, reflected at the row's ends) followed by a chunked trapezoid scan of the
  * filtered row (`team_trapezoid_window`). These are solprop SEP 25 section 6.7.4
  * whole-row passes, with the final polarisation integral removed by SEP 27:

@@ -4,6 +4,14 @@
 
 #pragma once
 
+// What a native session (`session.hpp`) reads from and writes through the state it
+// leases, behind one interface the resident engines implement (`engines.hpp`), so that
+// they need not see the session. Host code only.
+//
+// Types: `StatisticsRecipe` (a prepared `statistics::Plan`) and `Resident`, the
+// interface for the leased state's field transfers, statistics, boundary and edge
+// readings and collar flags.
+
 #include "solprop_native/session/statistics_plan.hpp"
 #include "solprop_native/session/transverse.hpp"
 
@@ -13,11 +21,6 @@
 #include <stdexcept>
 #include <vector>
 
-/*
- * What a native session (`session.hpp`) reads from and writes through the state it
- * leases, behind one interface the resident engines implement (`engines.hpp`), so that
- * they need not see the session. Host code only.
- */
 namespace solprop_native::session {
 
 /** A statistics evaluation the resident state makes, with every argument fixed at

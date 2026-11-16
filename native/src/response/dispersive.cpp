@@ -2,6 +2,16 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// SEP 6's dispersive response, implemented (dispersive.hpp): the extent checks and
+// uploads; the product functors over a chunk's nodes (`SelfProduct`, `PairProducts`,
+// and the general modal route's `GeneralCube` and `GeneralPairs`); the row passes that
+// filter, land and weigh the modal spectra (`filter_rows`, `filter_in_place`,
+// `land_rows`, `weigh_rows`); and the members of `DispersiveWeights`,
+// `DispersiveResponse`, `SeparableDispersive` and `GeneralDispersive` -- their plans,
+// their per-stage passes (`prepare`, `synthesise`, `respond`, `project`, `finish`,
+// `combine`, `finish_coarse`) and their memory ledgers. No stage pass allocates or
+// plans.
+
 #include "solprop_native/response/dispersive.hpp"
 
 #include "solprop_native/runtime/launch.hpp"
