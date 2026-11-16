@@ -810,6 +810,18 @@ ComplexOutput complex_buffer_output(native::crossing::HostBuffer storage,
           owner};
 }
 
+/** `values` as a one-dimensional array that owns them. */
+RealOutput vector_output(std::vector<double> values) {
+  auto storage = std::make_unique<RealStorage>(std::move(values));
+  auto* pointer = storage.get();
+  nb::capsule owner(pointer, [](void* value) noexcept {
+    const std::unique_ptr<RealStorage> held(static_cast<RealStorage*>(value));
+  });
+  static_cast<void>(storage.release()); // the capsule owns it now
+  const std::array<std::size_t, 1> shape{pointer->size()};
+  return {pointer->data(), shape.size(), shape.data(), owner};
+}
+
 RealOutput real_output(std::vector<double> values, const std::size_t rows) {
   if (rows == 0 || values.size() % rows != 0)
     throw std::invalid_argument("native output has an invalid packed shape");
@@ -873,16 +885,7 @@ native::watch::State watch_state_from(const nb::dict values) {
 }
 
 nb::dict watch_state_to(const native::watch::State& state) {
-  nb::dict out;
-  out["has_last"] = state.has_last;
-  out["last_z"] = state.last_z;
-  out["since"] = state.since;
-  out["busy"] = state.busy;
-  out["quiet_run"] = state.quiet_run;
-  out["quiet"] = state.quiet;
-  out["warned"] = state.warned;
-  out["cap"] = state.cap;
-  return out;
+  return native::records::write_record(state);
 }
 
 // solprop SEP 47 section 6.4: the owning boundary monitor's configuration, the record
@@ -999,14 +1002,9 @@ march::State march_state_from(const nb::dict values) {
     state.last_rejected = nb::cast<bool>(values["last_rejected"]);
     state.collar_was_quiet = nb::cast<bool>(values["collar_was_quiet"]);
     state.cursor = nb::cast<std::size_t>(values["cursor"]);
-    for (const auto entry : nb::cast<nb::list>(values["history"])) {
-      const auto parts = nb::cast<nb::tuple>(entry);
-      state.history.push_back({.z = nb::cast<double>(parts[0]),
-                               .identity = nb::cast<bool>(parts[1])
-                                               ? march::Identity::predicted
-                                               : march::Identity::accepted,
-                               .row = nb::cast<std::size_t>(parts[2])});
-    }
+    for (const auto entry : nb::cast<nb::list>(values["history"]))
+      state.history.push_back(
+          native::records::read<march::Entry>(entry, "state.history"));
     const auto ledger = nb::cast<nb::dict>(values["ledger"]);
     state.ledger.startup = nb::cast<std::uint64_t>(ledger["startup"]);
     state.ledger.predictor = nb::cast<std::uint64_t>(ledger["predictor"]);
@@ -1038,7 +1036,7 @@ nb::dict march_state_to(const march::State& state) {
   out["cursor"] = state.cursor;
   nb::list history;
   for (const auto& entry : state.history)
-    history.append(nb::make_tuple(entry.z, entry.identity == march::Identity::predicted,
+    history.append(nb::make_tuple(entry.z, native::records::write_value(entry.identity),
                                   entry.row));
   out["history"] = history;
   nb::dict ledger;
@@ -2369,9 +2367,10 @@ public:
     workspace.require_unleased();
     // Each engine the workspace's configuration makes; one it cannot make is absent.
     try {
-      runge_kutta_ = workspace.trial_engine();
+      runge_kutta_ = workspace.trial_engine(workspace.extends() ? &dense_ : nullptr);
     } catch (const std::logic_error&) {
       runge_kutta_.reset();
+      dense_.reset();
     }
     try {
       adams_ = workspace.adams_engine();
@@ -2390,6 +2389,7 @@ public:
     if (owner_ == nullptr)
       return;
     runge_kutta_.reset();
+    dense_.reset();
     adams_.reset();
     owner_->release(this);
     owner_ = nullptr;
@@ -2434,6 +2434,8 @@ public:
 
 private:
   native::Workspace* owner_;
+  /** Where a dense configuration's Runge-Kutta engine holds its extensions. */
+  std::unique_ptr<native::session::Dense> dense_;
   std::unique_ptr<native::rk::Engine> runge_kutta_;
   std::unique_ptr<native::march::Engine> adams_;
 };
@@ -2449,9 +2451,8 @@ nb::object accept_record(native::GeneralState& state) {
   if (!sums)
     return engines_module().attr("AcceptRecord")();
   const std::vector<double> found(sums->begin() + 1, sums->end());
-  return engines_module().attr("AcceptRecord")(
-      "removed"_a = (*sums)[0],
-      "found"_a = nb::cast(real_output(found, 1)).attr("reshape")(-1));
+  return engines_module().attr("AcceptRecord")("removed"_a = (*sums)[0],
+                                               "found"_a = vector_output(found));
 }
 
 nb::object boundary_reading(const std::vector<double>& values) {
@@ -2460,11 +2461,10 @@ nb::object boundary_reading(const std::vector<double>& values) {
   const std::vector<double> regions(values.begin() + 1, values.begin() + 5);
   nb::object occupancy = nb::none();
   if (values.size() > native::watch::reading_head)
-    occupancy = nb::cast(real_output(
-        std::vector<double>(values.begin() + native::watch::reading_head, values.end()),
-        1));
-  return engines_module().attr("BoundaryReading")(
-      values[0], nb::cast(real_output(regions, 1)).attr("reshape")(-1), occupancy);
+    occupancy = nb::cast(vector_output(std::vector<double>(
+        values.begin() + native::watch::reading_head, values.end())));
+  return engines_module().attr("BoundaryReading")(values[0], vector_output(regions),
+                                                  occupancy);
 }
 
 /** A Python `adams_core.Stencil` as the march's. */
@@ -2539,7 +2539,7 @@ void bind_engines(nb::module_& testing) {
                const nb::gil_scoped_release release;
                engine.trial(z, dz, stencil, norms.data());
              }
-             return real_output(std::move(norms), 1);
+             return vector_output(std::move(norms));
            })
       .def(
           "adams_accept",
@@ -2566,9 +2566,7 @@ void bind_engines(nb::module_& testing) {
            })
       .def("adams_step_carrier",
            [](TestEngines& self, const std::size_t order) {
-             auto values = self.adams().step_carrier(order);
-             return values.empty() ? nb::cast(std::vector<double>{})
-                                   : nb::cast(real_output(std::move(values), 1));
+             return vector_output(self.adams().step_carrier(order));
            })
       .def("adams_begin_attempt",
            [](TestEngines& self, const std::uint64_t cost) {

@@ -14,7 +14,7 @@ import pytest
 
 from builders import load_reference, reference_trial
 from capability_routes import ROUTES
-from sessions.runs import load_native, native_trial
+from sessions.runs import load_native
 from solprop.backends.numpy_ref.engines import NumpyRungeKutta
 from solprop.backends.registry import available, select
 from solprop.backends.session import SessionError, Start
@@ -220,15 +220,17 @@ def _native_trial(problem, fresh, dz):
     """Return a fresh native workspace's trial from the launch, finished as kept.
 
     The same Runge-Kutta trial from the launch the probe takes, taken by a fresh
-    native workspace itself on its stage tables and finished as a kept step (SEP 47
-    phase 5: the native backend no longer steps or observes outside its session).
+    native workspace's own engine (``_testing.engines``, SEP 52) and accepted.
     """
     assert problem.initial.noise0 is None
     _testing = pytest.importorskip("solprop_native._core")._testing
-    workspace = load_native(fresh, problem.initial.field0)
-    native_trial(fresh, float(problem.initial.z), dz)
-    _testing.finish(workspace, dz)
-    return np.asarray(_testing.field(workspace)).reshape(problem.shape)
+    engines = _testing.engines(load_native(fresh, problem.initial.field0))
+    try:
+        engines.rk_trial(float(problem.initial.z), dz)
+        engines.rk_accept(dz)
+        return np.asarray(engines.field()).reshape(problem.shape)
+    finally:
+        engines.close()
 
 
 def _native_committed_nothing(problem, probed, fresh):

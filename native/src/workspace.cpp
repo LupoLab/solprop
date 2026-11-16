@@ -651,16 +651,30 @@ MethodKind Workspace::kind() const noexcept {
   return MethodKind::runge_kutta;
 }
 
-std::unique_ptr<rk::Engine> Workspace::trial_engine() {
+std::unique_ptr<rk::Engine>
+Workspace::trial_engine(std::unique_ptr<session::Dense>* const dense) {
   auto& general = built();
   if (low_storage_)
     return low_storage_engine();
   if (!runge_kutta_)
     throw std::logic_error("the native Runge-Kutta trial is not configured");
-  return std::make_unique<engines::ResidentRungeKutta>(
+  auto engine = std::make_unique<engines::ResidentRungeKutta>(
       general,
       [this](const double z, const double dz) { return staged_trial(z, dz, false); },
       runge_kutta_->rtol, runge_kutta_->atol, runge_kutta_->weights);
+  if (dense != nullptr) {
+    if (!stage_tables_)
+      throw std::logic_error("a session's dense output needs the stage tables");
+    auto holder = std::make_unique<engines::RungeKuttaDense>(
+        general, *stage_tables_, stage_anchor_, runge_kutta_->dense_weights);
+    // The engine holds each crossing step's extension through it; the caller keeps
+    // both, the engine released first.
+    auto* held = holder.get();
+    engine->set_extension(
+        [held](const double z, const double dz) { held->hold(z, dz); });
+    *dense = std::move(holder);
+  }
+  return engine;
 }
 
 std::unique_ptr<engines::ResidentLowStorage> Workspace::low_storage_engine() {
@@ -723,23 +737,7 @@ session::Method Workspace::method(const MethodKind kind,
   }
   if (!runge_kutta_)
     throw std::logic_error("the native Runge-Kutta march is not configured");
-  auto engine = std::make_unique<engines::ResidentRungeKutta>(
-      general,
-      [this](const double z, const double dz) { return staged_trial(z, dz, false); },
-      runge_kutta_->rtol, runge_kutta_->atol, runge_kutta_->weights);
-  if (dense) {
-    if (!stage_tables_)
-      throw std::logic_error("a session's dense output needs the stage tables");
-    auto holder = std::make_unique<engines::RungeKuttaDense>(
-        general, *stage_tables_, stage_anchor_, runge_kutta_->dense_weights);
-    // The engine holds each crossing step's extension through it; both live in the
-    // method, the engine released first.
-    auto* held = holder.get();
-    engine->set_extension(
-        [held](const double z, const double dz) { held->hold(z, dz); });
-    method.dense = std::move(holder);
-  }
-  method.engine = std::move(engine);
+  method.engine = trial_engine(dense ? &method.dense : nullptr);
   return method;
 }
 

@@ -434,10 +434,8 @@ class TraceAdamsMarch(backend_module._NativeAdamsMarch):
         self._last_rejected = bool(state["last_rejected"])
         self._collar_was_quiet = bool(state["collar_was_quiet"])
         self._history = [
-            Derivative(
-                float(z), None, "predicted" if predicted else "accepted", int(slot)
-            )
-            for z, predicted, slot in state["history"]
+            Derivative(float(z), None, identity, int(slot))
+            for z, identity, slot in state["history"]
         ]
         ledger = self.ledger
         for name, value in state["ledger"].items():

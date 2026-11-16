@@ -1121,9 +1121,7 @@ class NativeSession:
             rejections=int(state["rejections"]),
             last_rejected=bool(state["last_rejected"]),
             positions=np.array([entry[0] for entry in history], dtype=np.float64),
-            identities=tuple(
-                "predicted" if entry[1] else "accepted" for entry in history
-            ),
+            identities=tuple(str(entry[1]) for entry in history),
             slots=np.array([entry[2] for entry in history], dtype=np.int64),
             rows={name: row.reshape(len(row), *shape) for name, row in rows.items()},
             collar_was_quiet=bool(state["collar_was_quiet"]),

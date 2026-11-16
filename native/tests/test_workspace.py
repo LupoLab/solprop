@@ -272,6 +272,23 @@ def test_the_converter_refuses_a_malformed_record_by_its_path(
         _testing.round_trip("stage.Table", table)
 
 
+@pytest.mark.parametrize("kind", ["phi", 0, 1])
+def test_an_enumeration_is_read_by_its_name_only(kind: object) -> None:
+    # An enumerator's integer would tie the Python records to the C++ values.
+    table = {
+        "kind": kind,
+        "edges": np.array([0.0, 1.0]),
+        "lower": 0.0,
+        "upper": 1.0,
+        "coefficients": np.ones((1, 2, 3), dtype=np.complex128),
+    }
+    if isinstance(kind, str):
+        assert _testing.round_trip("ZTable", table)["kind"] == kind
+        return
+    with pytest.raises(ValueError, match=r"ZTable\.kind must name one of"):
+        _testing.round_trip("ZTable", table)
+
+
 def test_the_converter_admits_read_only_arrays_and_copies_them() -> None:
     table = _table()
     coefficients = cast(np.ndarray, table["coefficients"])

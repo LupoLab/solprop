@@ -243,15 +243,12 @@ template <class T> void read_value(nb::handle value, T* out, const std::string& 
       attribute = value.attr("name");
       name = attribute;
     }
+    // By name only (SEP 52 section 5.3): an integer would tie the Python side to the
+    // C++ enumerators' values.
     if (nb::isinstance<nb::str>(name)) {
       const auto text = nb::cast<std::string>(name);
       for (const auto& [label, entry] : table)
         if (text == label)
-          held = entry;
-    } else if (is_integer(value)) {
-      const auto number = nb::cast<long long>(value, true);
-      for (const auto& [label, entry] : table)
-        if (static_cast<long long>(entry) == number)
           held = entry;
     }
     if (!held) {

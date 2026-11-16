@@ -154,11 +154,20 @@ def test_the_rk_norm_is_the_reference_norm_of_native_s_operands(
 def test_a_whole_trial_scores_as_the_reference_s_trial_does(
     capillary_problem, field_grid, dz, record_property
 ):
-    """Each backend's own stages: the state's one-step rung over the scale."""
+    """Each backend's own engine and stages: the state's one-step rung over the scale.
+
+    Both trials go through solprop's ``RungeKuttaEngine`` protocol: the reference's
+    engine over its workspace, native's over its own (``_testing.engines``).
+    """
     problem, run_request = _problem(capillary_problem)
     reference = NumpyRefBackend(problem, run_request, grid=field_grid)
-    backend, score = _native_trial(problem, run_request, field_grid, dz)
+    backend = native.NativeBackend(problem, run_request, grid=field_grid)
     try:
+        engines = _testing.engines(load_native(backend, problem.initial.field0))
+        try:
+            score = engines.rk_trial(0.0, dz)
+        finally:
+            engines.close()
         load_reference(reference)
         wanted, _ = reference_trial(reference, 0.0, dz)
     finally:

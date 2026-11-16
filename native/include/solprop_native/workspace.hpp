@@ -730,8 +730,15 @@ public:
   /** The z table's `Phi` at `z`, through the one slot cache, for `holder`. */
   std::vector<Complex> table_phi(const void* holder, double z);
   /** The configured march's engines over the state, for an engine-level test: the
-      Runge-Kutta (or low-storage) engine and the Adams engine. */
-  std::unique_ptr<rk::Engine> trial_engine();
+      Runge-Kutta (or low-storage) engine and the Adams engine. With `dense`, a
+      Runge-Kutta engine's extensions go to a dense output it holds there, as a dense
+      run's do. */
+  std::unique_ptr<rk::Engine>
+  trial_engine(std::unique_ptr<session::Dense>* dense = nullptr);
+  /** Whether the configured Runge-Kutta trial has the tableau's dense weights. */
+  [[nodiscard]] bool extends() const noexcept {
+    return !low_storage_ && runge_kutta_ && !runge_kutta_->dense_weights.empty();
+  }
   /** The low-storage replay's engine over the state, its type kept for a test that
       reads its squared norms. */
   std::unique_ptr<engines::ResidentLowStorage> low_storage_engine();
