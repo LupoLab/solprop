@@ -185,12 +185,12 @@ the gate.
 - The contract with solprop is its kernel contract, whose fields solprop's frozen
   tables hold. The backend inherits no solprop driver: a run is its native session
   (`session.py`), and the load, the Adams record and the timing probe are its own
-  (`_load.py`, `backend.py`, `_probe.py`). A backend holds one `_core.Workspace`,
+  (`_load.py`, `_march.py`, `_probe.py`). A backend holds one `_core.Workspace`,
   built from one `_core.Problem` with every set-once table; a run starts from one run
   record and the probe from the run's start (solprop SEP 52 section 5.3), and nothing
   configures the workspace after it is built. `check_build()` refuses, in an editable
   checkout, an extension built from other sources than `native/`
-  (`build_info().source_digest`; `cmake/SourceDigest.cmake` and `_source_digest`
+  (`build_info().source_digest`; `cmake/SourceDigest.cmake` and `_build._source_digest`
   compute it, and stay in step). It records solprop's version without comparing it;
   never pin solprop's version.
 - A record that crosses declares its fields once, in a field table beside its C++

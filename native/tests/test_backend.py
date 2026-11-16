@@ -44,9 +44,16 @@ from solprop.translate.problem import PropagationProblem
 from solprop.translate.stage import terms
 
 import solprop_native
-from solprop_native import NativeBackend, _core, build_info, check_build
+import solprop_native.backend
+from solprop_native import (
+    NativeBackend,
+    _core,
+    _device,  # pyright: ignore[reportPrivateUsage]
+    build_info,
+    check_build,
+)
 from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
-from solprop_native.backend import (
+from solprop_native._lowering import (
     _lower,  # pyright: ignore[reportPrivateUsage]
     _LowerPlan,  # pyright: ignore[reportPrivateUsage]
 )
@@ -203,7 +210,9 @@ def test_the_solprop_version_is_recorded_and_never_compared(
     def elsewhere(name: str) -> str:
         return f"{name}-elsewhere"
 
-    monkeypatch.setattr(solprop_native.backend, "version", elsewhere)
+    # The version is looked up where the build facts are formed (`_device`), and the
+    # metadata reads the facts through the backend's own name.
+    monkeypatch.setattr(_device, "version", elsewhere)
     # The build facts are read once per process; read them afresh under the patch,
     # through a fresh cache the patch removes again.
     facts = solprop_native.backend._build_facts  # pyright: ignore[reportPrivateUsage]

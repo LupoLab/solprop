@@ -38,12 +38,12 @@ from solprop.stepper.schedule import FixedSchedule
 
 from solprop_native import _core
 from solprop_native._load import load
-from solprop_native.backend import (
-    FRESH_WATCH,
-    NativeBackend,
+from solprop_native._lowering import (
     _lower,  # pyright: ignore[reportPrivateUsage]
     _LowerPlan,  # pyright: ignore[reportPrivateUsage]
 )
+from solprop_native._march import FRESH_WATCH
+from solprop_native.backend import NativeBackend
 
 _testing: Any = cast(Any, _core)._testing
 EPS = float(np.finfo(np.float64).eps)

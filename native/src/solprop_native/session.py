@@ -143,6 +143,15 @@ from solprop.translate.modal import QUADRATURE_ALARM, warn_quadrature
 
 from . import _core, _counters, _transverse, _watch
 from ._load import Loaded
+from ._march import (
+    _BUDGET,
+    _DIVERGED,
+    _ERROR,
+    _FLOOR,
+    FRESH_WATCH,
+    _envelope_errors,
+    _raise_native,
+)
 from ._statistics import (
     ADMITTED_GENERAL_STATISTICS,
     ADMITTED_SPATIAL_STATISTICS,
@@ -152,16 +161,7 @@ from ._statistics import (
     metric_refusal,
     translated,
 )
-from .backend import (
-    _BUDGET,  # pyright: ignore[reportPrivateUsage]
-    _DIVERGED,  # pyright: ignore[reportPrivateUsage]
-    _ERROR,  # pyright: ignore[reportPrivateUsage]
-    _FLOOR,  # pyright: ignore[reportPrivateUsage]
-    FRESH_WATCH,
-    NativeBackend,
-    _envelope_errors,  # pyright: ignore[reportPrivateUsage]
-    _raise_native,  # pyright: ignore[reportPrivateUsage]
-)
+from .backend import NativeBackend
 
 _LOG = logging.getLogger(__name__)
 # A march failure a host source raised (`march::Category::host`, solprop SEP 49).

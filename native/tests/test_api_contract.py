@@ -35,7 +35,11 @@ from solprop.stepper import FixedSchedule
 from thread_sizing import Sizing, assert_threaded
 
 import solprop_native as native
-from solprop_native import _bind, _core  # pyright: ignore[reportPrivateUsage]
+from solprop_native import (
+    _bind,  # pyright: ignore[reportPrivateUsage]
+    _build,  # pyright: ignore[reportPrivateUsage]
+    _core,
+)
 from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 
 POOL_VARIABLES = (
@@ -258,10 +262,10 @@ def test_the_digest_is_the_sorted_record_of_the_compiled_sources(
     source_tree: tuple[Path, list[str]],
 ) -> None:
     root, names = source_tree
-    digest = native._source_digest(root)  # pyright: ignore[reportPrivateUsage]
+    digest = _build._source_digest(root)  # pyright: ignore[reportPrivateUsage]
     assert digest == _digest_of(root, names)
     (root / "src/B.cpp").write_bytes(b"// one byte more\n ")
-    assert native._source_digest(root) != digest  # pyright: ignore[reportPrivateUsage]
+    assert _build._source_digest(root) != digest  # pyright: ignore[reportPrivateUsage]
 
 
 def test_the_build_script_and_python_agree_on_the_digest(
@@ -292,15 +296,15 @@ def _editable_root() -> Path:
 @pytest.fixture
 def fresh_checkout_digest() -> Iterator[None]:
     """Read the checkout's digest afresh, and leave no patched value in the cache."""
-    native._checkout_digest.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _build._checkout_digest.cache_clear()  # pyright: ignore[reportPrivateUsage]
     yield
-    native._checkout_digest.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _build._checkout_digest.cache_clear()  # pyright: ignore[reportPrivateUsage]
 
 
 @pytest.mark.usefixtures("fresh_checkout_digest")
 def test_an_editable_build_records_its_checkouts_digest() -> None:
     root = _editable_root()
-    source_digest = native._source_digest  # pyright: ignore[reportPrivateUsage]
+    source_digest = _build._source_digest  # pyright: ignore[reportPrivateUsage]
     assert native.build_info().source_digest == source_digest(root)
     assert native.check_build() is None
 
@@ -314,7 +318,7 @@ def test_an_extension_built_from_other_sources_is_refused_naming_uv_sync(
     def other(root: Path) -> str:
         return f"not {root}'s"
 
-    monkeypatch.setattr(native, "_source_digest", other)
+    monkeypatch.setattr(_build, "_source_digest", other)
     with pytest.raises(BackendError, match=r"other sources.*`uv sync "):
         native.check_build()
 
@@ -325,13 +329,13 @@ def test_the_digest_is_computed_once_per_process(
 ) -> None:
     root = _editable_root()
     calls: list[Path] = []
-    source_digest = native._source_digest  # pyright: ignore[reportPrivateUsage]
+    source_digest = _build._source_digest  # pyright: ignore[reportPrivateUsage]
 
     def counted(where: Path) -> str:
         calls.append(where)
         return source_digest(where)
 
-    monkeypatch.setattr(native, "_source_digest", counted)
+    monkeypatch.setattr(_build, "_source_digest", counted)
     native.check_build()
     native.check_build()
     assert calls == [root]
@@ -342,16 +346,16 @@ def test_a_wheel_layout_skips_the_comparison(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A wheel has no ``CMakeLists.txt`` two levels up: nothing is read or compared."""
-    installed = tmp_path / "site-packages" / "solprop_native" / "__init__.py"
-    monkeypatch.setattr(native, "__file__", str(installed))
+    installed = tmp_path / "site-packages" / "solprop_native" / "_build.py"
+    monkeypatch.setattr(_build, "__file__", str(installed))
 
     def refuse(root: Path) -> str:
         raise AssertionError(f"a wheel has no sources to hash, asked for {root}")
 
-    monkeypatch.setattr(native, "_source_digest", refuse)
+    monkeypatch.setattr(_build, "_source_digest", refuse)
     info = dataclasses.replace(native.build_info(), source_digest="a wheel's own")
-    monkeypatch.setattr(native, "build_info", lambda: info)
-    assert native._checkout_digest() is None  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr(_build, "build_info", lambda: info)
+    assert _build._checkout_digest() is None  # pyright: ignore[reportPrivateUsage]
     assert native.check_build() is None
 
 

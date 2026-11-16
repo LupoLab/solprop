@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # The digest of what the extension is compiled from, which `check_build()` compares with
-# an editable checkout's sources (`solprop_native._source_digest` computes it in Python:
-# keep the two in step). The record is one "{path}:{sha256 of its bytes}\n" for
+# an editable checkout's sources (`solprop_native._build._source_digest` computes it in
+# Python: keep the two in step). The record is one "{path}:{sha256 of its bytes}\n" for
 # CMakeLists.txt and each file these patterns match, the paths relative to native/ and
 # sorted bytewise; the digest is the SHA-256 of the record.
 #

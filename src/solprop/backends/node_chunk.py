@@ -37,7 +37,7 @@ it bought before; counting a route's live buffers changes the chunk of every exp
 budget, which is the maintainer's decision under #349 and #89, not this move's.
 
 A device backend may choose differently when no budget is given (solprop issue #361);
-the native backend's rule is ``solprop_native.backend.device_node_chunk``, and an
+the native backend's rule is ``solprop_native._device.device_node_chunk``, and an
 explicit budget or chunk is never overridden by it.
 """
 
