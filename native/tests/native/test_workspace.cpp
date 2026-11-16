@@ -81,8 +81,8 @@ native::Setup runge_kutta_setup() {
   tables.prefactor_high = 2.0;
   tables.density = constant_table({1.0});
   setup.stage_tables = tables;
-  setup.runge_kutta =
-      native::RungeKuttaConfig{.nodes = {0.0}, .rtol = 1e-6, .atol = 1e-12};
+  setup.runge_kutta = native::RungeKuttaConfig{
+      .nodes = {0.0}, .rtol = 1e-6, .atol = 1e-12, .weights = {}, .dense_weights = {}};
   return setup;
 }
 
