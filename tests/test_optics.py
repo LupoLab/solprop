@@ -183,7 +183,7 @@ def test_a_slab_of_glass_chirps_positively_in_the_visible(kind):
 
 def test_a_chirp_built_into_a_pulse_is_removed_by_the_opposite_taylor_phase():
     grid, clean = built("envelope")
-    _, chirped = built("envelope", phase=(0.0, 0.0, 700e-30, 9000e-45))
+    _, chirped = built("envelope", phases=(0.0, 0.0, 700e-30, 9000e-45))
     undo = TaylorPhase((0.0, 0.0, -700e-30, -9000e-45), WAVELENGTH)
     restored = chirped * stored_factor(grid, undo)
     # One shared phase formula evaluated with opposite coefficients: the two unit
