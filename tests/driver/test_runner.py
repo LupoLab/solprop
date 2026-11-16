@@ -664,7 +664,7 @@ def test_a_resident_adams_march_holds_no_host_copy_of_the_state(route):
             simulation.settings, integrator=Multistep()
         )
     with simulation.runner() as runner:
-        assert getattr(runner.backend, "_resident", None) is not None
+        assert cast("Any", runner.backend)._diagnostics()["method"] == "adams"
         output = stored(runner.run(np.array(simulation._field0), progress="none"))
         assert "adams_host_state" not in runner.backend.memory_ledger()
         # What a stopped run reports is read from the engine when the session is asked

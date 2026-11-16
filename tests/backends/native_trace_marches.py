@@ -17,16 +17,18 @@ into its session; it lives here, beside the harnesses it drives, and serves only
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import math
 import time
 from typing import Any, ClassVar, cast
+from unittest import mock
 
 import numpy as np
 import pytest
 
 from solprop._interrupts import committing
-from solprop.backends import rk_core
+from solprop.backends import records, rk_core
 from solprop.backends.ledger import Derivative, budget_error
 from solprop.exceptions import BackendError, ResponseBudgetError
 from solprop.monitor import BoundaryEnergies, BoundaryMonitor
@@ -158,12 +160,18 @@ class TraceAdamsMarch(backend_module._NativeAdamsMarch):
     """
 
     def __init__(self, backend: Any, method: Multistep, *, runner: Any) -> None:
-        super().__init__(
-            backend, method, engine=backend._adams_engine(method, "transported")
-        )
+        engine = backend._adams_engine(method, "transported")
+        # The record reads its carrier frame from the backend's problem; the scripted
+        # harness's engine holds its own.
+        with mock.patch.object(
+            backend_module, "carrier_reference", lambda *_: engine.carrier
+        ):
+            super().__init__(backend, method, engine=engine)
         self._driver: Any = backend
         self._runner = runner
         self._ahead: tuple[float, object] | None = None
+        # Whether the run interpolates its planes (ADR-036, ADR-039).
+        self._interpolate = bool(backend._stepper.interpolate_planes)
 
     def _configure(self, *_: object) -> None:
         """Configure nothing: the scripted runner takes the policy itself."""
@@ -317,6 +325,8 @@ class TraceAdamsMarch(backend_module._NativeAdamsMarch):
         """Return the bridge march's state as the native call takes it."""
         backend = self._driver
         state = self.start_state(backend._z, backend._proposal, backend._schedule_index)
+        # The call takes a plain dict where the record keeps a read-only mapping.
+        state["watch"] = dict(cast("dict[str, object]", state["watch"]))
         if watching:
             state["watch"] = backend._monitor.watch_state()
         return state
@@ -408,9 +418,9 @@ class TraceAdamsMarch(backend_module._NativeAdamsMarch):
         """Run the native march from `state` to an event within `bounds`."""
         if self._runner is not None:
             return self._runner.run(state, bounds)
-        native = self._driver._native_state
+        workspace = self._driver._workspace
         with _envelope_errors():
-            return _testing.adams_march_run(native, state, bounds)
+            return _testing.adams_march_run(workspace, state, bounds)
 
     def _synchronise(self, result: dict[str, Any]) -> None:
         """Adopt the state a native call handed back."""
@@ -435,7 +445,7 @@ class TraceAdamsMarch(backend_module._NativeAdamsMarch):
         ledger.orders.extend(int(order) for order in result["orders"])
 
 
-class TraceRungeKuttaMarch(session_module._NativeRungeKuttaMarch):
+class TraceRungeKuttaMarch:
     """The native Runge-Kutta policy, its march driven a call at a time.
 
     Parameters
@@ -447,7 +457,7 @@ class TraceRungeKuttaMarch(session_module._NativeRungeKuttaMarch):
     """
 
     def __init__(self, backend: Any, runner: Any = None) -> None:
-        super().__init__(backend)
+        self._driver: Any = backend
         self._runner = runner
         self._replaying: FixedSchedule | None = None
 
@@ -456,9 +466,14 @@ class TraceRungeKuttaMarch(session_module._NativeRungeKuttaMarch):
         monitor = self._driver._monitor
         return None if monitor is None else float(monitor.interval)
 
-    def _policy(self, interval: float | None = None) -> dict[str, object]:
-        """Return the record with the harness's quiet interval."""
-        return super()._policy(self._interval() if interval is None else interval)
+    def _policy(self, interval: float | None = None) -> records.RungeKuttaPolicy:
+        """Return the harness's policy record (kernel contract 12), with its monitor's
+        quiet interval unless `interval` is given."""
+        backend = self._driver
+        policy = records.runge_kutta_policy(backend._problem, backend._stepper)
+        return dataclasses.replace(
+            policy, quiet_interval=self._interval() if interval is None else interval
+        )
 
     def _configure(self, *_: object) -> None:
         """Configure nothing: the scripted runner takes the policy itself."""
@@ -700,7 +715,7 @@ class TraceRungeKuttaMarch(session_module._NativeRungeKuttaMarch):
         if self._runner is not None:
             return self._runner.run(state, bounds)
         with _envelope_errors():
-            return _testing.rk_march_run(self._driver._native_state, state, bounds)
+            return _testing.rk_march_run(self._driver._workspace, state, bounds)
 
     def _raise(self, reason: int, result: dict[str, Any]) -> None:
         """Raise the error a call returned with, if any."""

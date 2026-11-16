@@ -344,7 +344,7 @@ def test_the_engine_forms_the_reference_s_actions_within_the_formation_bound() -
     )
     backend = NativeBackend(problem, run_request, grid=case.grid)
     try:
-        native = backend._native_state  # pyright: ignore[reportPrivateUsage]
+        native = backend._workspace  # pyright: ignore[reportPrivateUsage]
         shape = (fractions.size, -1, reference.n_modes, reference.n_modes)
         for section in range(reference.frozen.shape[0]):
             measured = _testing.form_flow_actions(native, section, dz, fractions)[0]

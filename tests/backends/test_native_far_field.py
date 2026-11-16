@@ -62,6 +62,9 @@ from solprop.stepper import PIController, RungeKutta
 from solprop.translate.problem import Translation
 from solprop.translate.spatial import aperture_tables
 
+_testing = pytest.importorskip("solprop_native._core")._testing
+native_statistics = pytest.importorskip("solprop_native._statistics")
+
 solprop_native = pytest.importorskip("solprop_native")
 NativeBackend = solprop_native.NativeBackend
 
@@ -829,27 +832,39 @@ def test_the_native_refusals_name_what_is_missing():
     problem, run_request = problem_of(grid, space, field, spec_of(holes("tanh")))
     owner = NativeBackend(problem, run_request, grid=grid)
     try:
-        native = load_native(owner, field, clear_fsal=False)
+        native = load_native(owner, field)
         apertures = np.zeros((1, NATIVE_CONSTANTS + grid.n_omega))
         unknown = apertures.copy()
         unknown[0, 8] = 7.0  # a profile code past supergauss
         regions = np.empty((0, 4))
         with pytest.raises(ValueError, match="flags"):
-            native.aperture_statistics(16, apertures, 2, regions, 1.0)
+            _testing.aperture_statistics(native, 16, apertures, 2, regions, 1.0)
         with pytest.raises(ValueError, match="profile"):
-            native.aperture_statistics(512, unknown, 2, regions, 1.0)
+            _testing.aperture_statistics(native, 512, unknown, 2, regions, 1.0)
         with pytest.raises(ValueError, match="rows"):
-            native.aperture_statistics(512, apertures[:, :-1], 2, regions, 1.0)
+            _testing.aperture_statistics(
+                native, 512, apertures[:, :-1], 2, regions, 1.0
+            )
         with pytest.raises(ValueError, match="regions"):
-            native.aperture_statistics(256, apertures, 2, np.empty((1, 3)), 1.0)
+            _testing.aperture_statistics(
+                native, 256, apertures, 2, np.empty((1, 3)), 1.0
+            )
         with pytest.raises(ValueError, match="NaN"):
-            native.aperture_statistics(256, apertures, 2, np.full((1, 4), np.nan), 1.0)
+            _testing.aperture_statistics(
+                native, 256, apertures, 2, np.full((1, 4), np.nan), 1.0
+            )
         with pytest.raises(TypeError):
-            native.aperture_statistics(
-                512, apertures.astype(np.float32), 2, regions, 1.0
+            _testing.aperture_statistics(
+                native, 512, apertures.astype(np.float32), 2, regions, 1.0
             )
         # The far-field statistics without tables formed for them.
         with pytest.raises(BackendError, match="tables"):
-            owner._far_field_statistics({"beam_spectrum"}, StatsSpec(names=("energy",)))
+            native_statistics.lower(
+                problem,
+                StatsSpec(names=("energy",)),
+                ("beam_spectrum",),
+                grid=grid,
+                z_end=float(run_request.stepper.z_end),
+            )
     finally:
         owner.close()

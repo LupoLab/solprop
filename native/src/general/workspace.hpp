@@ -140,6 +140,7 @@ public:
   void unbind_monitor() noexcept { monitor_bound_ = false; }
   void bind_occupancy(const std::vector<unsigned char>& buckets, std::size_t count);
   std::vector<double> monitor_reading();
+  std::optional<std::array<double, 5>> split_sums();
   void bind_edge(const std::vector<double>& faces, const std::vector<double>& clip,
                  const std::vector<double>& totals,
                  const std::vector<double>& synthesis, std::size_t first_row);

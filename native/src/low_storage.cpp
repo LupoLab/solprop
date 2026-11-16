@@ -196,6 +196,7 @@ double ResidentLowStorage::trial(const double z, const double dz) {
   const auto scalars =
       rk::low_storage::scalars(tables_, anchor_, config_, z, dz, rebuild, key);
   const double squared = state_.low_storage_step(dz, scalars, rebuild);
+  squared_ = squared;
   if (rebuild)
     table_step_ = key;
   // An injected failure after the passes, the state already overwritten.

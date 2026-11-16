@@ -11,7 +11,6 @@ tests so that a probe does not import a pytest module with its fixtures.
 """
 
 import dataclasses
-import itertools
 import warnings
 from typing import Any, cast
 
@@ -54,6 +53,16 @@ def _native():
     )
 
     return NativeBackend
+
+
+def _testing() -> Any:
+    """Return the optional wheel's private test module, in the probe's process."""
+    # Optional wheel: absent from the base environment.
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
+    return _testing
 
 
 def _sizing(backend) -> dict[str, dict[str, int]]:
@@ -408,14 +417,15 @@ def accept():
     simulation, problem, run_request = accept_problem()
     backend = _native()(problem, run_request, grid=simulation.grid)
     try:
+        testing = _testing()
         state = load_native(backend, problem.initial.field0)
-        launch = state.field_to_host().copy()
+        launch = np.array(testing.field(state))
         partials = native_trial(backend, 0.0, ACCEPT_STEP)
-        state.finish(ACCEPT_STEP)
+        testing.finish(state, ACCEPT_STEP)
         return {
             "launch": launch,
             "partials": partials,
-            "advanced": state.field_to_host().copy(),
+            "advanced": np.array(testing.field(state)),
             "mask": np.asarray(problem.grids.norm_mask),
         }, _sizing(backend)
     finally:
@@ -443,32 +453,34 @@ def linear_cartesian(mode: str):
 def folds(mode: str):
     """March the linear beam on the resident engine, saving every step's squared norm.
 
-    Each step is the resident low-storage engine's on the backend's native state, as
-    ``test_native_synthetic_operator.py``'s ``resident_step`` takes one, followed by the
-    state's finish, as the march accepts a step. The squared norm over the norm mask is
-    the one the engine's threaded reduction hands the accept, so a width's norms test
-    that reduction's order, and its state the folds.
+    Each step is the resident low-storage engine's on the backend's workspace, followed
+    by the state's finish, as the march accepts a step (``_testing.low_storage_norms``).
+    The squared norm over the norm mask is the one the engine's threaded reduction
+    hands the accept, so a width's norms test that reduction's order, and its state
+    the folds.
     """
     # Optional wheel: absent from the base environment.
-    from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        _ResidentLowStorage,  # pyright: ignore[reportPrivateUsage]
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing as testing,
     )
 
-    from backends.low_storage_cases import CARTESIAN_CHUNK, MARCH  # noqa: PLC0415
+    from backends.low_storage_cases import CARTESIAN_CHUNK  # noqa: PLC0415
+    from solprop.backends.records import run_records  # noqa: PLC0415
+    from solprop.backends.session import Start  # noqa: PLC0415
 
     problem, run_request, grid = linear_cartesian(mode)
     edges = np.asarray(run_request.stepper.schedule.edges)  # pyright: ignore[reportOptionalMemberAccess]
     backend = _native()(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
     try:
-        state = load_native(backend, problem.initial.field0)
-        engine = _ResidentLowStorage(backend, MARCH)
-        norms = []
-        for z, end in itertools.pairwise(edges):
-            dz = float(end - z)
-            norms.append(engine.step(float(z), dz))
-            state.finish(dz)
-        field = np.asarray(state.field_to_host()).reshape(problem.shape).copy()
-        return {"field": field, "norms": np.array(norms)}, _sizing(backend)
+        workspace = load_native(backend, problem.initial.field0)
+        testing.configure_march(
+            workspace, run_records(problem, run_request, Start.entrance(problem))
+        )
+        norms = np.asarray(
+            testing.low_storage_norms(workspace, [float(z) for z in edges])
+        ).reshape(-1)
+        field = np.asarray(testing.field(workspace)).reshape(problem.shape).copy()
+        return {"field": field, "norms": norms}, _sizing(backend)
     finally:
         backend.close()
 
@@ -507,12 +519,13 @@ def flow(name: str):
     problem, run_request, grid, dz = linear_flow_problem(name)
     backend = _native()(problem, run_request, grid=grid)
     try:
+        testing = _testing()
         state = load_native(backend, problem.initial.field0)
         partials = native_trial(backend, 0.0, dz)
-        state.finish(dz)
+        testing.finish(state, dz)
         return {
             "partials": partials,
-            "field": state.field_to_host().copy(),
+            "field": np.array(testing.field(state)),
         }, _sizing(backend)
     finally:
         backend.close()

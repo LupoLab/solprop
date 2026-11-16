@@ -233,9 +233,8 @@ def assert_same_snapshot(found: MarchSnapshot | None, stored: MarchSnapshot) -> 
 def test_the_resident_history_is_restored_exactly_and_continued(build_simulation, case):
     simulation = CASES[case](build_simulation, "native")()
     problem, request, first = opened(simulation, "native")
-    engine = first._resident
-    assert type(engine).__name__ == "_ResidentAdams"
-    shape = (engine.n_slots, *problem.shape)
+    assert first._diagnostics()["method"] == "adams"
+    shape = (first._adams.n_slots, *problem.shape)
     whole = Snapshots()
     baseline = run_session(first, problem, request, owns=True, between=whole)
     stored = whole.at_plane(0)
@@ -331,7 +330,7 @@ def test_a_native_run_stopped_between_planes_continues_from_its_checkpoint(
     build_simulation, tmp_path, monkeypatch, caplog
 ):
     # The native march's failure is injected natively at a trial past the first
-    # plane (`adams_march_fault`): the run stops at its last accepted step, strictly
+    # plane (`inject_fault`): the run stops at its last accepted step, strictly
     # between two planes, and keeps the march's state beside the terminal checkpoint.
     from driver.test_native_march_lifecycle import (  # noqa: PLC0415 - needs native
         with_fault,

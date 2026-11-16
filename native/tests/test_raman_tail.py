@@ -195,7 +195,7 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
         finally:
             backend.close()
         if isinstance(backend, NativeBackend):
-            assert backend._native_state.closed  # pyright: ignore[reportPrivateUsage] - native lifetime
+            assert backend._workspace.closed  # pyright: ignore[reportPrivateUsage] - native lifetime
     scale = np.max(np.abs(fields[0]))
     np.testing.assert_allclose(
         fields[1], fields[0], rtol=0.0, atol=_bound(grid.n_to) * scale

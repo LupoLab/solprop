@@ -815,7 +815,7 @@ add_library(solprop_native_core STATIC src/core.cpp src/crossing.cpp
   src/general/statistics.cpp src/general/state.cpp src/general_modal.cpp src/coupled_flow.cpp src/dispersive.cpp src/far_field.cpp
   src/adams_march.cpp src/watch.cpp src/rk_march.cpp src/engines.cpp src/session.cpp
   src/session_statistics.cpp src/session_widths.cpp src/low_storage.cpp src/transverse.cpp
-  src/session_edge.cpp src/dense.cpp)
+  src/session_edge.cpp src/dense.cpp src/workspace.cpp)
 # solprop SEP 39, SEP 45 and SEP 47: the Adams march's decisions, the boundary watch's
 # predictions, the Runge-Kutta march's positions and norm, the low-storage replay's
 # positions and table keys, the native session's scheduling, export, statistics
@@ -901,7 +901,8 @@ add_custom_command(
 )
 
 nanobind_add_module(_core STABLE_ABI NOMINSIZE NB_SUPPRESS_WARNINGS src/bindings.cpp
-  src/bindings_transverse.cpp src/helpers.cpp "${SOLPROP_NATIVE_SOURCE_DIGEST_CPP}")
+  src/bindings_transverse.cpp src/helpers.cpp src/records.cpp
+  "${SOLPROP_NATIVE_SOURCE_DIGEST_CPP}")
 target_link_libraries(_core PRIVATE solprop_native_core ${CMAKE_DL_LIBS})
 solprop_native_mark_dependency_headers_system(_core)
 solprop_native_configure_project_target(_core)
@@ -982,6 +983,7 @@ if(BUILD_TESTING)
     tests/native/test_dispersive.cpp
     tests/native/test_aperture.cpp
     tests/native/test_vmath.cpp
+    tests/native/test_workspace.cpp
   )
   target_link_libraries(solprop_native_tests PRIVATE
     solprop_native_core

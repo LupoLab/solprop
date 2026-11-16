@@ -207,7 +207,7 @@ def _plan(grid, modes, problem, request, names, seen):
     out = []
     with closing(select("native", problem, run, grid=grid, modes=modes)) as backend:
         for record in seen:
-            state = load_native(backend, record.field, clear_fsal=False)
+            state = load_native(backend, record.field)
             values = lowering.unpack(
                 _testing.planned_statistics(state, lowering.plan, record.z)
             )

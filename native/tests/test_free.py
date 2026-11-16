@@ -126,7 +126,7 @@ def test_free_native_vectors_reject_invalid_data(
 
     def _spoil() -> None:
         _set(free_payload, name, values)
-        _core.State(free_payload)
+        _core.Workspace(free_payload)
 
     with pytest.raises((TypeError, ValueError)):
         _spoil()
@@ -148,7 +148,7 @@ def test_free_native_axes_and_clamp_are_checked(
 ) -> None:
     def _spoil() -> None:
         _set(free_payload, name, value)
-        _core.State(free_payload)
+        _core.Workspace(free_payload)
 
     with pytest.raises((TypeError, ValueError)):
         _spoil()
@@ -163,15 +163,15 @@ def test_the_far_field_payload_belongs_to_free_space(
     assert free_payload.spatial.k_y.shape == (6,)
     planar_payload.spatial.far_field_slots = 3
     with pytest.raises(ValueError, match="belong to free space"):
-        _core.State(planar_payload)
+        _core.Workspace(planar_payload)
 
 
 def test_free_native_ledger_retains_one_transverse_volume_and_chunked_time(
     free_payload: _core.Problem,
 ) -> None:
-    state = _core.State(free_payload)
+    state = _core.Workspace(free_payload)
     try:
-        ledger = state.memory_ledger()
+        ledger = state.diagnostics()["memory_ledger"]
         omega, time = (
             free_payload.dims.n_omega,
             free_payload.dims.n_to,
@@ -203,31 +203,47 @@ def test_free_native_ledger_retains_one_transverse_volume_and_chunked_time(
         state.close()
 
 
+def _with_adams(payload: _core.Problem, slots: int, *, dense: bool) -> _core.Problem:
+    """Return `payload`, this test's own, with a resident Adams history in its setup."""
+    held: Any = payload
+    held.adams = {
+        "slots": slots,
+        "compensated": False,
+        "interpolate": dense,
+        "fused": False,
+        "rtol": 1e-6,
+        "atol": 1e-12,
+        "weights": np.empty(0),
+    }
+    return held
+
+
 @pytest.mark.parametrize("slots", [3, 7, 8])
-def test_adams_dense_storage_is_optional_and_reallocation_is_idempotent(
-    free_payload: _core.Problem, slots: int
+@pytest.mark.parametrize("dense", [False, True])
+def test_adams_dense_storage_is_optional(
+    free_payload: _core.Problem, slots: int, dense: bool
 ) -> None:
-    state = _core.State(free_payload)
+    state = _core.Workspace(_with_adams(free_payload, slots, dense=dense))
     try:
-        field_bytes = state.memory_ledger()["state"]
+        ledger = state.diagnostics()["memory_ledger"]
+        field_bytes = ledger["state"]
         omega = free_payload.dims.n_omega
         initial = np.zeros(field_bytes // 16, dtype=np.complex128)
-        state.set_initial(initial, np.empty(0, dtype=np.complex128))
-        for dense in (False, True, True, False):
-            state.adams_allocate(slots, False, dense)
-            expected = (2 * slots + 4 + (slots + 4 if dense else 0)) * field_bytes
-            assert state.memory_ledger()["adams_history"] == expected + 8 * omega
-            if dense:
+        _testing.load(state, initial, np.empty(0, dtype=np.complex128))
+        expected = (2 * slots + 4 + (slots + 4 if dense else 0)) * field_bytes
+        # The divisor row, and the controller's magnitude sum the setup's scale forms.
+        assert ledger["adams_history"] == expected + 8 * omega + 8
+        if dense:
+            _testing.adams_hold(state)
+            _testing.adams_restore(state)
+            np.testing.assert_array_equal(
+                np.asarray(_testing.field(state)).reshape(-1), initial
+            )
+        else:
+            with pytest.raises(RuntimeError, match="dense observation storage"):
                 _testing.adams_hold(state)
+            with pytest.raises(RuntimeError, match="dense observation storage"):
                 _testing.adams_restore(state)
-                np.testing.assert_array_equal(
-                    state.field_to_host().reshape(-1), initial
-                )
-            else:
-                with pytest.raises(RuntimeError, match="dense observation storage"):
-                    _testing.adams_hold(state)
-                with pytest.raises(RuntimeError, match="dense observation storage"):
-                    _testing.adams_restore(state)
     finally:
         state.close()
         state.close()
@@ -239,34 +255,33 @@ def test_adams_rows_cross_to_the_host_and_back_exactly(
     # solprop SEP 29 G2: the resident history's rows are exported for a resume and
     # installed again; a copy, so exact, and refused by name, extent, dtype and order
     # before anything is copied.
-    state = _core.State(free_payload)
+    state = _core.Workspace(_with_adams(free_payload, 3, dense=False))
     try:
-        columns = state.memory_ledger()["state"] // 16
+        diagnostics = state.diagnostics()
+        columns = diagnostics["memory_ledger"]["state"] // 16
         omega = free_payload.dims.n_omega
-        state.set_initial(
-            np.zeros(columns, dtype=np.complex128), np.empty(0, dtype=np.complex128)
+        _testing.load(
+            state,
+            np.zeros(columns, dtype=np.complex128),
+            np.empty(0, dtype=np.complex128),
         )
-        state.adams_allocate(3, False, False)
-        assert state.adams_row_names() == ["store"]
+        assert diagnostics["history_rows"] == ["store"]
         shape = (3, columns // omega, omega)
         rng = np.random.default_rng(29)
         rows = rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
-        state.adams_rows_from_host("store", rows)
+        _testing.adams_rows_from_host(state, "store", rows)
         back = _testing.adams_rows_to_host(state, "store")
         assert back.shape == shape
         assert back.dtype == np.complex128
         np.testing.assert_array_equal(back, rows)
         with pytest.raises(ValueError, match="must have shape"):
-            state.adams_rows_from_host("store", rows[:2])
+            _testing.adams_rows_from_host(state, "store", rows[:2])
         with pytest.raises(ValueError, match="must have shape"):
-            state.adams_rows_from_host("store", rows.reshape(3, -1))
+            _testing.adams_rows_from_host(state, "store", rows.reshape(3, -1))
         with pytest.raises(TypeError):
-            state.adams_rows_from_host(
-                "store",
-                rows.real.copy(),  # pyright: ignore[reportArgumentType]
-            )
+            _testing.adams_rows_from_host(state, "store", rows.real.copy())
         with pytest.raises(TypeError):
-            state.adams_rows_from_host("store", np.asfortranarray(rows))
+            _testing.adams_rows_from_host(state, "store", np.asfortranarray(rows))
         with pytest.raises(ValueError, match="unknown Adams history row"):
             _testing.adams_rows_to_host(state, "slopes")
         with pytest.raises(RuntimeError, match="not allocated"):
@@ -477,7 +492,7 @@ def test_the_planar_native_payload_is_checked(
             _set(planar_payload, name, kappa)
         else:
             _set(planar_payload, name, value)
-        _core.State(planar_payload)
+        _core.Workspace(planar_payload)
 
     with pytest.raises((TypeError, ValueError)):
         _spoil()
@@ -492,4 +507,4 @@ def test_a_free_payload_with_slab_channels_is_refused(
         free_payload.dims.n_omega, dtype=np.complex128
     )
     with pytest.raises(ValueError, match="hybrid planar"):
-        _core.State(free_payload)
+        _core.Workspace(free_payload)

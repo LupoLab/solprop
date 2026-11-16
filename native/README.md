@@ -123,6 +123,35 @@ and solprop's metadata pins it to solprop's own version. The version recorded at
 CMake configure) is provenance only. The TDSE electronic response is refused by name
 before anything is allocated; TDSE propagation uses `backend="numpy_ref"`.
 
+### The binding
+
+The private extension `_core` is a thin seam (solprop SEP 52 section 5.3):
+
+- **One workspace, one run record.** A backend builds one `_core.Problem`, which
+  carries every table, guard and setting fixed for the workspace, and one
+  `_core.Workspace` from it for its life. Each run starts from one record
+  (`Workspace.start(run)`), and the timing probe from the run's start
+  (`Workspace.probe(start)`); `Workspace.diagnostics()` returns every fact the
+  metadata reads. A session or probe leases the workspace until it closes.
+- **Records by field table.** Each C++ record declares its fields once, beside its
+  definition (`include/solprop_native/fields.hpp`), and one converter
+  (`src/records.hpp`) reads a dataclass, mapping or tuple into it, refusing a missing
+  or unknown field, a wrong dtype, rank or extent relation, or a strided array by the
+  field's path before copying anything. `_core.schemas()` exports every table, and a
+  test holds each Python record to its table. Input arrays are copied in; returned
+  arrays own their storage.
+- **Bindings only marshal.** A binding converts, releases the interpreter lock and
+  forwards. The lease, the coupled flow's guard, the marches' construction and the
+  probe live in the C++ library (`native::Workspace`, `src/workspace.cpp`), where the
+  native tests reach them.
+- **`_testing` promises nothing.** The test-only entry points live in the submodule
+  `_core._testing`, shipped in the wheel for solprop's own tests; they take the
+  workspace first and may change with any commit.
+- **Generated stubs.** `_core.pyi` and `_core_testing.pyi` are generated whole by
+  nanobind's stubgen (`scripts/problem_stub.py`; `--check` in the lint stage). A binding
+  that takes or returns a record names its Python type with `nb::sig`, so the stubs
+  stay typed: edit the binding and regenerate, never the stub.
+
 ### Native source coverage
 
 Build coverage in a separate build directory and Python environment. On Linux select

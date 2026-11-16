@@ -214,6 +214,64 @@ struct Tables {
   Sections transform;
 };
 
+// The field tables (solprop SEP 52 section 5.3). A table's term and value counts are
+// its coefficients' extents, read from the array; the z table's slots are the
+// workspace's, not a field.
+[[nodiscard]] constexpr auto describe(const Table* /*unused*/) {
+  using E = fields::Extent;
+  return fields::table<Table>(
+      "stage.Table", fields::array("edges", &Table::edges, E::of("n_edges")),
+      fields::value("lower", &Table::lower), fields::value("upper", &Table::upper),
+      fields::array("coefficients", &Table::coefficients, E::of("n_edges", -1),
+                    E::of("n_terms"), E::of("n_values")),
+      fields::count("n_terms", &Table::n_terms),
+      fields::count("n_values", &Table::n_values));
+}
+[[nodiscard]] constexpr auto describe(const Sections* /*unused*/) {
+  return fields::table<Sections>("stage.Sections",
+                                 fields::value("edges", &Sections::edges),
+                                 fields::value("degrees", &Sections::degrees),
+                                 fields::value("slack", &Sections::slack));
+}
+[[nodiscard]] constexpr auto names(const Terms* /*unused*/) {
+  return std::array{std::pair{"constant", Terms::constant},
+                    std::pair{"expansion", Terms::expansion},
+                    std::pair{"table", Terms::table}};
+}
+[[nodiscard]] constexpr auto names(const KerrDensity* /*unused*/) {
+  return std::array{std::pair{"none", KerrDensity::none},
+                    std::pair{"density", KerrDensity::density},
+                    std::pair{"table", KerrDensity::table}};
+}
+[[nodiscard]] constexpr auto names(const Chord* /*unused*/) {
+  return std::array{
+      std::pair{"none", Chord::none}, std::pair{"constant", Chord::constant},
+      std::pair{"expansion", Chord::expansion}, std::pair{"table", Chord::table}};
+}
+[[nodiscard]] constexpr auto describe(const Tables* /*unused*/) {
+  using T = Tables;
+  return fields::table<T>(
+      "stage.Tables", fields::value("n_stages", &T::n_stages),
+      fields::value("phi", &T::phi), fields::value("phi_weights", &T::phi_weights),
+      fields::value("phi_rate", &T::phi_rate),
+      fields::value("prefactor", &T::prefactor),
+      fields::value("prefactor_weights", &T::prefactor_weights),
+      fields::value("prefactor_low", &T::prefactor_low),
+      fields::value("prefactor_high", &T::prefactor_high),
+      fields::value("density", &T::density), fields::value("taper", &T::taper),
+      fields::value("raman_rates", &T::raman_rates), fields::value("kerr", &T::kerr),
+      fields::value("kerr_density", &T::kerr_density),
+      fields::value("plasma_densities", &T::plasma_densities),
+      fields::value("plasma_preionisation", &T::plasma_preionisation),
+      fields::value("raman_densities", &T::raman_densities),
+      fields::value("dispersive_densities", &T::dispersive_densities),
+      fields::value("chord", &T::chord), fields::value("chord_rate", &T::chord_rate),
+      fields::value("chord_terms", &T::chord_terms),
+      fields::value("chord_table", &T::chord_table), fields::value("flow", &T::flow),
+      fields::value("flow_residual", &T::flow_residual),
+      fields::value("transform", &T::transform));
+}
+
 /**
  * A z table's position slots (solprop's `_ZTables`, SEP 29 G1), least recently used
  * first: the positions a trial reads are evaluated into the native state's term slots

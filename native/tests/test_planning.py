@@ -28,7 +28,7 @@ def _plan(case: PhaseACase, planning: dict[str, object] | None) -> dict[str, obj
     problem, run_request, grid = case
     backend = NativeBackend(problem, run_request, grid=grid, fft_planning=planning)
     try:
-        found = dict(backend._native_state.fft_planning)  # pyright: ignore[reportPrivateUsage]
+        found = dict(backend._diagnostics()["fft_planning"])  # pyright: ignore[reportPrivateUsage]
         found["metadata"] = cast(dict[str, object], backend.metadata()["calibration"])[
             "fft_planning"
         ]

@@ -334,6 +334,9 @@ void GeneralState::unbind_monitor() noexcept {
 std::vector<double> GeneralState::monitor_reading() {
   return with_team(&GeneralWorkspace::monitor_reading);
 }
+std::optional<std::array<double, 5>> GeneralState::split_sums() {
+  return with_team(&GeneralWorkspace::split_sums);
+}
 void GeneralState::bind_edge(const std::vector<double>& faces,
                              const std::vector<double>& clip,
                              const std::vector<double>& totals,

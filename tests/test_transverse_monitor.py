@@ -20,7 +20,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from solprop.backends.host import driver as host
+from solprop.backends.numpy_ref import workspace as host
 from solprop.backends.registry import available
 from solprop.boundaries import SpatialAbsorber, SpatialAbsorberDesign
 from solprop.driver import Simulation

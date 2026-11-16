@@ -520,19 +520,6 @@ def test_a_device_s_row_reads_the_reference_s_axis(grid, table, name):
     _check_axis_row(grid, table, name)
 
 
-class _StateRefused:
-    """A native state that refuses to bring its field across (solprop #359)."""
-
-    def __init__(self, state):
-        self._state = state
-
-    def field_to_host(self):
-        raise AssertionError("an on-axis statistic brought the state to the host")
-
-    def __getattr__(self, name):
-        return getattr(self._state, name)
-
-
 @pytest.mark.parametrize("radial_rule", ["field_scale", "field_scale_radau"])
 def test_the_native_axis_row_leaves_the_state_on_the_device(grid, table, radial_rule):
     pytest.importorskip("solprop_native")
@@ -549,13 +536,16 @@ def test_the_native_axis_row_leaves_the_state_on_the_device(grid, table, radial_
         # The session counts every field it exports, and the native state every
         # whole-state transfer to the host by any path (solprop SEP 44).
         native = session.native  # pyright: ignore[reportAttributeAccessIssue]
-        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
+
+        def to_host() -> int:
+            return backend._diagnostics()["crossed_bytes"][0]  # pyright: ignore[reportAttributeAccessIssue]
+
         assert native.status().exports == 0
-        assert state.crossed_bytes()[0] == 0
+        assert to_host() == 0
         values = _stats(observation)
         session.export(observation.ticket, IDENTITY)
         assert native.status().exports == 1, "the count sees a crossing"
-        assert state.crossed_bytes()[0] > 0, "the state's count sees a crossing"
+        assert to_host() > 0, "the state's count sees a crossing"
     assert np.all(values["on_axis_peak_ionisation_rate"] > 0)
 
 
@@ -571,10 +561,10 @@ def test_the_native_row_refuses_a_matrix_that_is_not_one_or_two_rows(grid, table
     with closing(
         select("native", problem, run_request, grid=grid, modes=[mode])
     ) as backend:
-        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
+        state = backend._workspace  # pyright: ignore[reportAttributeAccessIssue]
         with pytest.raises(RuntimeError, match="no initial field"):
             _testing.axis_spectrum(state, np.ones((1, 1)))
-        load_native(backend, problem.initial.field0, clear_fsal=False)
+        load_native(backend, problem.initial.field0)
         with pytest.raises(ValueError, match="at most two rows"):
             _testing.axis_spectrum(state, np.ones((3, 1)))
         with pytest.raises(ValueError, match="two-dimensional"):

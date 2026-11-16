@@ -35,7 +35,6 @@ from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import PropagationProblem
 
 native_backend = pytest.importorskip("solprop_native.backend")
-native_session = pytest.importorskip("solprop_native.session")
 
 BLOCKS = [1, 5, None]
 """Node chunks: one row at a time, one that leaves a shorter last block (192 columns
@@ -186,9 +185,9 @@ def test_a_devices_choices_on_any_build(
 ) -> None:
     # Flows recomputed under "auto" and input through tiles of team scratch, with a
     # short last block's plan, at the reference's numbers.
-    # The session reads the build's kind where it lowers the low-storage flows.
-    for module in (native_backend, native_session):
-        monkeypatch.setattr(module, "_on_device", lambda: True)
+    # The backend reads the build's kind where it lowers the problem, the low-storage
+    # flows with it.
+    monkeypatch.setattr(native_backend, "_on_device", lambda: True)
     _check_block(reference, 5)
 
 

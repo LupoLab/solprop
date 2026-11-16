@@ -190,7 +190,7 @@ def test_the_device_session_repeats_itself_and_meets_the_reference(case, recipe)
     status = session.native.status()
     backend = session._backend  # pyright: ignore[reportPrivateUsage]
     assert backend is not None
-    to_host, _ = backend._native_state.crossed_bytes()  # pyright: ignore[reportPrivateUsage]
+    to_host, _ = backend._diagnostics()["crossed_bytes"]  # pyright: ignore[reportPrivateUsage]
     session.close()
     assert_same_run(run, baseline)
     assert_meets_reference(run, reference, plane_bound=DEVICE_PLANE_BOUND)

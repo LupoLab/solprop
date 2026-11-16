@@ -48,6 +48,19 @@ struct Config {
   double origin = 0.0;
 };
 
+/** The source evaluations of one step: the four register passes of the scheme the
+    native step implements (solprop's `LowStorageRungeKutta().evaluations`). */
+inline constexpr std::size_t evaluations = 4;
+
+/** The settings' field table:`solprop.backends.records.LowStorageSettings` (solprop
+    SEP 52 section 5.3), with the flows the adapter resolved for this build. */
+[[nodiscard]] constexpr auto describe(const Config* /*unused*/) {
+  return fields::table<Config>("LowStorageSettings",
+                               fields::value("flows", &Config::flows),
+                               fields::value("separable", &Config::separable),
+                               fields::value("origin", &Config::origin));
+}
+
 /**
  * `solprop.backends.low_storage.table_steps`: the key each of a schedule's steps builds
  * its table on, the mean step of its run -- the longest stretch of steps within
@@ -102,6 +115,9 @@ public:
   void accept(double dz) override;
   std::vector<double> reading() override;
   [[nodiscard]] bool in_flight() const noexcept override { return in_flight_; }
+  /** The last trial's squared norm over the norm mask, from the passes' own threaded
+      reduction, before the history's 0.0 replaces a finite one (a test's reading). */
+  [[nodiscard]] double squared() const noexcept { return squared_; }
 
 private:
   void inject(march::Stage stage);
@@ -115,6 +131,7 @@ private:
   std::optional<MarchFault>& fault_;
   /** The key the held table was built for; NaN before the first step. */
   double table_step_;
+  double squared_ = 0.0;
   bool in_flight_ = false;
 };
 

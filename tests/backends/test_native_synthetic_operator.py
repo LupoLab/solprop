@@ -36,7 +36,6 @@ import numpy as np
 import pytest
 
 from backends.geometry_rows import SYNTHETIC_CASES, synthetic
-from backends.low_storage_cases import MARCH
 from backends.synthetic_leaf_cases import (
     KERR,
     free_leaf,
@@ -48,6 +47,8 @@ from sessions.runs import load_native
 from sessions.runs import run as session_run
 from solprop.backends.low_storage import HostLowStorage
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.records import run_records
+from solprop.backends.session import Start
 from solprop.exceptions import ConvergenceError
 
 pytestmark = [
@@ -60,7 +61,7 @@ pytestmark = [
 ]
 
 solprop_native = pytest.importorskip("solprop_native")
-backend_module = pytest.importorskip("solprop_native.backend")
+_testing = pytest.importorskip("solprop_native._core")._testing
 NativeBackend = solprop_native.NativeBackend
 
 
@@ -87,21 +88,24 @@ def resident_step(problem, run_request, grid):
     """Take the schedule's one step on native's resident low-storage engine.
 
     Returns the squared norm the engine hands the accept, and the state after the
-    backend's finish, as the low-storage march accepts a step.
+    state's finish, as the low-storage march accepts a step
+    (``_testing.low_storage_norms``).
     """
     edges = np.asarray(run_request.stepper.schedule.edges)
     assert edges.size == 2, "one step"
-    dz = float(edges[1] - edges[0])
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
-        engine = backend_module._ResidentLowStorage(backend, MARCH)
-        squared = engine.step(float(edges[0]), dz)
-        state.finish(dz)
-        field = np.asarray(state.field_to_host()).reshape(problem.shape)
+        workspace = load_native(backend, problem.initial.field0)
+        _testing.configure_march(
+            workspace, run_records(problem, run_request, Start.entrance(problem))
+        )
+        (squared,) = np.asarray(
+            _testing.low_storage_norms(workspace, [float(z) for z in edges])
+        ).reshape(-1)
+        field = np.asarray(_testing.field(workspace)).reshape(problem.shape)
     finally:
         backend.close()
-    return squared, field
+    return float(squared), field
 
 
 @pytest.mark.parametrize(("case", "mode", "n_pol"), SYNTHETIC_CASES)

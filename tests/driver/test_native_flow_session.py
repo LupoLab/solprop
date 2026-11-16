@@ -149,7 +149,7 @@ def test_a_wide_flow_takes_the_resident_engine_and_the_session(cases, modes):
     assert native_session.refusal(problem, request) is None
     backend = NativeBackend(problem, request, grid=case.grid)
     try:
-        assert type(backend._resident).__name__ == "_ResidentAdams"
+        assert backend._diagnostics()["method"] == "adams"
         # A CPU build's host passes' channel rows: one per bin, nine samples of every
         # channel; a device's passes hold none.
         if not DEVICE:
@@ -353,17 +353,16 @@ def _resident(simulation: Simulation, problem: Any, request: Any) -> Any:
         profiles=simulation.profiles,
         modes=simulation.modes,
     )
-    engine = backend._resident
-    assert type(engine).__name__ == "_ResidentAdams"
+    assert backend._diagnostics()["method"] == "adams"
     field = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
-    load_native(backend, field, clear_fsal=False)
-    native_adams_start(backend, 0.0)
-    rows = {
-        name: np.broadcast_to(row[:1], row.shape).copy()
-        for name, row in native_adams_rows(backend).items()
-    }
-    engine.load_rows(rows, engine.shape)
+    load_native(backend, field)
+    native_adams_start(backend, 0.0, range(backend._adams.n_slots))
     return backend
+
+
+def _compensated(backend: Any) -> bool:
+    """Whether a native backend's resident Adams history carries a compensation."""
+    return bool(backend._compensated(backend.request.stepper.integrator, "transported"))
 
 
 def _stencil(order: int) -> tuple[list[float], np.ndarray]:
@@ -391,14 +390,18 @@ def _block_departure(
     ``coupled_moments`` on the engine's own exponent and carrier shift, relative to
     that matrix's 2-norm, at least one.
     """
-    engine, state = backend._resident, backend._native_state
+    state = backend._workspace
     nodes, slots = _stencil(order)
     norms, shift = native_exponential_trial(
         backend, z, dz, nodes, slots, order, [order]
     )
     assert np.all(np.isfinite(norms))
     count = trial_tables(
-        nodes, order, [order], compensated=engine.compensated, helpers=backend.helpers
+        nodes,
+        order,
+        [order],
+        compensated=_compensated(backend),
+        helpers=backend.helpers,
     )[1].shape[0]
     assert bool(shift.size) is carrier
     expected = coupled_moments(
@@ -544,14 +547,14 @@ def test_a_carry_past_thirty_squarings_is_refused_and_keeps_the_state(
     # it met them, and a trial over one step then forms.
     backend = _resident(simulation, problem, request)
     try:
-        engine, state = backend._resident, backend._native_state
-        assert engine.compensated
+        state = backend._workspace
+        assert _compensated(backend)
         dz = float(steps[0])
-        field, rows = state.field_to_host().copy(), native_adams_rows(backend)
+        field, rows = _testing.field(state).copy(), native_adams_rows(backend)
         nodes, slots = _stencil(2)
         with pytest.raises(BackendError, match="a history sample's carry"):
             native_exponential_trial(backend, dz, dz, nodes, slots, 2, [2])
-        assert state.field_to_host().tobytes() == field.tobytes()
+        assert _testing.field(state).tobytes() == field.tobytes()
         for name, row in native_adams_rows(backend).items():
             assert row.tobytes() == rows[name].tobytes(), name
         nodes, slots = _stencil(1)
@@ -699,7 +702,7 @@ def _round_trip(simulation, problem, middle, end):
         owns=True,
     )
     first = NativeBackend(problem, request, **context)
-    assert type(first._resident).__name__ == "_ResidentAdams"
+    assert first._diagnostics()["method"] == "adams"
     taken = []
 
     def take(session, batch) -> None:
