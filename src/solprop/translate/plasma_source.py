@@ -4,8 +4,12 @@
 
 """Certify and identify the held field-plasma source (SEP 27).
 
-The certificate tests the collar's steady-current identity, not arbitrary product
-aliasing. Its denominator is the complete fine-grid transform, including DC.
+:func:`plasma_source_record` checks the temporal collar's steady-current identity on a
+problem's grids against :data:`PLASMA_SOURCE_CERTIFICATE_LIMIT` and returns the
+source's record. Problem validation runs it for every problem with a plasma channel,
+``numpy_ref`` records it in its execution metadata, and the driver's run metadata
+stores it. The certificate tests that identity, not arbitrary product aliasing; its
+denominator is the complete fine-grid collar transform, including DC.
 """
 
 from contextvars import ContextVar

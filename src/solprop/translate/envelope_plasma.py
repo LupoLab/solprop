@@ -4,8 +4,22 @@
 
 """Compile validated cycle integrals and the envelope plasma spectral assembly.
 
-Only numeric, read-only data cross into a backend. Density and population histories
-are not part of the cycle cache; they are evaluated afresh for every RHS input.
+The envelope plasma response
+(:class:`solprop.nonlinear.envelope_plasma.EnvelopePlasmaResponse`) is compiled here
+into numeric, read-only data for a backend; density and population histories are not
+part of the cycle cache and are evaluated afresh for every RHS input.
+
+- :class:`CycleIntegralData` (:func:`build_cycle_integrals`): a rate table with its
+  :class:`AngularRule` ladder and the independent :class:`CycleValidation`;
+  :func:`cycle_moments` evaluates its two directional loss moments.
+- :class:`EnvelopePlasmaChannel`, :class:`EnvelopeSourceFactors`
+  (:func:`source_factors`) and :class:`EnvelopePlasmaAssembly`: one population's
+  binding, the coarse-axis inverse-frequency multipliers and the currents' spectral
+  assembly; :func:`assembly_record` describes the approximation for a run's record.
+
+:func:`solprop.translate.responses.compile_responses` builds them, ``numpy_ref``'s
+plasma pass evaluates :func:`cycle_moments`, and the driver records
+:func:`assembly_record`. The derivation is ``docs/guide/media/envelope-plasma.md``.
 """
 
 import hashlib

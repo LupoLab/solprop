@@ -104,7 +104,13 @@ it differs by 12 % at its peak.
 separate undamped rows because the dephasing depends on the density, which varies along
 a pressure gradient, and a molecular gas has *two* dephasing times: at one bar hydrogen's rotational and vibrational coherences decay
 3.5 times apart, and nitrogen's 17 times apart. Summing the models first and damping the
-sum once is wrong for every gas with both a rotation and a vibration.
+sum once is wrong for every gas with both a rotation and a vibration. The undamped rows,
+the expensive part, are sampled once per grid; the cheap part is one exponential per
+term at a decay rate that is a scalar path along z
+({func}`solprop.translate.raman.decay_rate_profiles`), and the damped spectrum is
+recomputed and memoised whenever a rate changes: one real transform of length $2n_{to}$
+per change, against $n_\text{modes} n_\text{pol}$ transforms of length $n_{to}$ per
+stage.
 
 ## Backends, and the drive form
 
@@ -114,7 +120,12 @@ of your problem. Backend agreement measures numerical implementation of the
 same response, not agreement with a material outside its validated range.
 
 On a field grid the Kerr and Raman responses must agree about `thg`; a Raman
-response without a Kerr response is refused on that route. On an envelope grid
+response without a Kerr response is refused on that route. The drive form is a property
+of the problem rather than of either response: a drive that keeps the $2\omega$ beat
+radiates a third harmonic through the later multiplication by the field, and a grid
+built without one does not oversample enough to hold it. So the compiled form is a field
+of {class}`~solprop.translate.responses.RamanCoefficients`, not of the Kerr or the Raman
+response. On an envelope grid
 the Raman drive is $\tfrac12|A|^2$, independent of `thg`, and an explicitly
 constructed Raman response can stand alone. Convenience constructors may impose
 additional joint-response choices described in the [Raman workflow](raman.md).
