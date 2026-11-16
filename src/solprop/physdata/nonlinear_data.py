@@ -2,41 +2,27 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Third-order nonlinear data for gases: the Kerr coefficient at the carrier.
+"""Third-order nonlinear data for gases: the Kerr coefficient at the carrier.
 
-The nonlinearity is held as a **per-particle** quantity, exactly as the linear
-susceptibility is: :func:`gamma3` returns the third-order hyperpolarisability
-:math:`\gamma^{(3)}` in m\ :sup:`5`/V\ :sup:`2`, and
+The nonlinearity is held **per particle**, as the linear susceptibility is: the
+hyperpolarisability ``gamma3`` in m^5/V^2, with ``chi3 = gamma3 rho``, so a gas's Kerr
+response is linear in number density and a pressure gradient scales it.
 
-.. math:: \chi^{(3)} = \gamma^{(3)}\,\rho .
+- **The carrier coefficient** (the ``carrier-kerr`` approximation): :class:`OptmatKerr`
+  adapts optmat's dispersive electronic hyperpolarizability (SEP 3) and evaluates it at
+  the run's carrier, one number per species and run, recorded as a :class:`CarrierKerr`;
+  :func:`gamma3`, :func:`chi3` and :func:`n2` evaluate it for a gas, and
+  :func:`selected_carrier` and :func:`carriers_agree` settle the carrier.
+- **The index relation**: :func:`n2_from_chi3` and :func:`chi3_from_n2`, ``n2 = 3 chi3 /
+  (4 eps0 c n0^2)`` with ``n0`` the linear index at the carrier
+  (``docs/dev/conventions.md`` §4).
+- **SEP 6's dispersive policies**: :class:`DispersiveKerrModel` holds a gas's whole fit
+  in SI with its leg bound and band edges, and :class:`ElectronicRegions` classifies a
+  run's band against them.
 
-So the Kerr response of a gas is strictly linear in number density, and a pressure
-gradient scales it without re-deriving anything.
-
-The nonlinear index follows from the susceptibility by
-
-.. math:: n_2 = \frac{3\chi^{(3)}}{4\varepsilon_0 c\,n_0^2},
-
-with :math:`n_0` the linear index at the carrier. :func:`n2_from_chi3` and
-:func:`chi3_from_n2` are that relation and its inverse, in the same convention as
-``docs/dev/conventions.md`` section 4: an intensity :math:`I` shifts the index by
-:math:`n_2 I`.
-
-The coefficient is optmat's (SEP 3, section 4.3): :class:`OptmatKerr` adapts optmat's
-fitted electronic hyperpolarizability, which is dispersive, and evaluates its Kerr
-process at the run's **carrier** wavelength -- one number per species and run, the
-``carrier-kerr`` approximation, never a universal constant. The Taylor convention of
-the fit, :math:`p^{(3)} = \gamma_T E^3/6`, gives
-:math:`\gamma^{(3)} = \gamma_T/(6\varepsilon_0)`, which optmat's public
-``gamma3("kerr", wavelength)`` returns; optmat's own gas ``n2``, taken with
-:math:`n_0 = 1`, is never imported, so that :func:`n2_from_chi3` applies the exact
-:math:`n_0^2`. Air has no hyperpolarizability of its own: its populations each carry
-theirs.
-
-SEP 6's dispersive electronic policies take the whole fit instead:
-:class:`DispersiveKerrModel` is optmat's model of one gas in SI, with the per-leg bound
-and the band edges solprop derives from optmat's support record, and
-:class:`ElectronicRegions` classifies a run's band against them (SEP 6, section 4.10).
+The manual pages ``docs/guide/media/material-selection.md``, "The electronic Kerr
+coefficient at the carrier", and ``docs/guide/media/dispersive-kerr.md`` derive the
+conversion from optmat's Taylor convention and why optmat's own ``n2`` is not used.
 """
 
 import functools

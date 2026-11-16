@@ -4,10 +4,11 @@
 
 """The gas species solprop knows about.
 
-Every built-in gas is a name here, and every material quantity of it comes from optmat
-(SEP 3): the linear law, the equation of state and transport, the Kerr coefficient,
-the Raman response and the ionisation rate all key off :class:`Gas`. A model variant is
-not a separate gas; it is chosen with a
+:class:`Gas` names every built-in gas, and every material quantity of it comes from
+optmat (SEP 3): the linear law, the equation of state and transport, the Kerr
+coefficient, the Raman response and the ionisation rate all key off it. :func:`as_gas`
+coerces a name, and :func:`is_molecule` and :func:`is_air` classify one. A model variant
+is not a separate gas; it is chosen with a
 :class:`~solprop.physdata.selection.MaterialSelection`.
 """
 

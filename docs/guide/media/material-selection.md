@@ -358,9 +358,22 @@ polarisabilities are identical.
 For a fill of optmat-selected species, {mod}`solprop.gasflow` takes optmat's
 transport properties (`optmat.gas.transport`): the zero-density viscosity, the
 ideal-gas heat capacity and the molar mass, each over optmat's own temperature range,
-the real-gas sound speed of the equation of state, and optmat's Wilke rule for a
-mixture (air resolved into its constituents). The mean free path, the flow law and the
-regime checks are solprop's. A custom species without an
+and optmat's Wilke rule for a mixture (air resolved into its constituents). The flow
+law and the regime checks are solprop's, and so are two properties of
+{mod}`solprop.physdata.transport`, dilute-gas values like the rest, which is what the
+laminar law and the choke use:
+
+- the **dilute sound speed** $c = \sqrt{\gamma R T/M}$, with the heat-capacity ratio
+  $\gamma = c_p/c_v$, $c_v = c_p - R$, and for a mixture the mole-weighted molar mass
+  and $\gamma = \sum_i x_i c_{p,i} / \sum_i x_i c_{v,i}$ (ideal-gas mixing of heat
+  capacities); the real-gas sound speed of the equation of state is
+  {func}`~solprop.physdata.transport.sound_speed` given a pressure, for a pure gas;
+- the **mean free path** in the viscosity-based kinetic-theory form
+  $\lambda = (\eta/p)\sqrt{\pi k_B T/(2m)}$, which needs no collision diameter. Other
+  conventions exist; the Knudsen thresholds of the flow regime assume this form and the
+  core diameter.
+
+A custom species without an
 {class}`~solprop.physdata.species.OptmatGas` equation of state has no transport
 properties, and a flow fill containing one is refused.
 

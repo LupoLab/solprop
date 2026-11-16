@@ -2,27 +2,28 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Refractive-index models for glasses, crystals and metals, with exact derivatives.
+"""Refractive-index models for glasses, crystals and metals, with exact derivatives.
 
-Fused silica, which is what a hollow capillary is made of, the window crystals and glass
-of the offline optics of :mod:`solprop.optics`, and the metals of a waveguide wall. A
-glass is described by its complex refractive index ``n(omega)`` directly, not by a
-per-particle susceptibility: unlike a gas fill it has no density to scale, and the
-quantity a capillary mode needs is the cladding permittivity
-:math:`\varepsilon_{\rm cl} = n^2` and its frequency derivative.
+Fused silica (a capillary's wall), the window crystals and glass of the offline optics
+of :mod:`solprop.optics`, and the metals of a waveguide wall. A solid is described by
+its complex refractive index ``n(omega)`` directly (:class:`GlassIndex`), not by a
+per-particle susceptibility: it has no density to scale, and a mode needs the cladding
+permittivity ``n**2`` and its frequency derivative.
 
-The sign convention is the package's (``docs/dev/conventions.md`` section 5):
-``n = n' + i k`` with ``k >= 0`` for loss.
+- **optmat's solids** (SEP 3): :class:`OptmatGlass` adapts optmat's absolute index with
+  its exact derivative and qualified intervals; :func:`fused_silica`,
+  :func:`calcium_fluoride`, :func:`magnesium_fluoride`, :func:`bk7`, :func:`sapphire`,
+  :func:`barium_fluoride` and :func:`glass` (by name, :func:`glass_names`) return
+  optmat's recommended model or the one ``model=`` names. :class:`SilicaBundle` is fused
+  silica's nonlinear response.
+- **A caller's own data**: :class:`SellmeierGlass`, :class:`TabulatedGlass` and
+  :class:`CompositeGlass`.
+- :func:`lossless_index` is the index a lossless route takes: an absorbing index's
+  transparent approximation, which warns where the dropped absorption exceeds
+  :data:`TRANSPARENT_ABSORPTION_BOUND`.
 
-Every built-in solid is optmat's (SEP 3): :class:`OptmatGlass` adapts optmat's
-absolute index, relative to vacuum, with its exact frequency derivative and its
-qualified intervals, and the factories (:func:`fused_silica`, :func:`calcium_fluoride`,
-:func:`magnesium_fluoride`, :func:`bk7`, :func:`sapphire`, :func:`barium_fluoride`,
-:func:`glass`) return optmat's recommended model or the one ``model=`` names.
-:class:`SellmeierGlass`, :class:`TabulatedGlass` and
-:class:`CompositeGlass` remain for a caller's own data.
-
-Evaluating outside a model's validity range emits
+The sign convention is ``n = n' + i k`` with ``k >= 0`` for loss
+(``docs/dev/conventions.md`` §5). Evaluating outside a model's range emits
 :class:`~solprop.exceptions.MaterialRangeWarning`, as the gas models do.
 """
 
