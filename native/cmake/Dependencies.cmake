@@ -10,6 +10,11 @@
 # SOLPROP_NATIVE_BLAS_LIBRARY_DIRS and solprop_native_mark_dependency_headers_system().
 # Expects the options, cmake/HostLibraries.cmake's choices and the IPO check.
 
+# The pinned versions, fetched below and recorded in the build (cmake/BuildRecord.cmake).
+set(SOLPROP_NATIVE_KOKKOS_VERSION "5.2.1")
+set(SOLPROP_NATIVE_KOKKOSKERNELS_VERSION "5.2.0")
+set(SOLPROP_NATIVE_KOKKOSFFT_VERSION "2.0.0")
+
 if(SOLPROP_NATIVE_ENABLE_CUDA AND APPLE)
   message(FATAL_ERROR "The CUDA build path is supported on Linux only.")
 endif()
@@ -99,7 +104,7 @@ set(Kokkos_ENABLE_TESTS OFF CACHE BOOL "Do not build Kokkos tests" FORCE)
 FetchContent_Declare(
   kokkos
   GIT_REPOSITORY https://github.com/kokkos/kokkos.git
-  GIT_TAG 5.2.1
+  GIT_TAG ${SOLPROP_NATIVE_KOKKOS_VERSION}
   GIT_SHALLOW TRUE
   GIT_PROGRESS TRUE
   PATCH_COMMAND "${CMAKE_COMMAND}" -P "${PROJECT_SOURCE_DIR}/cmake/KokkosWindowsHostWait.cmake"
@@ -197,7 +202,7 @@ endif()
 FetchContent_Declare(
   kokkoskernels
   GIT_REPOSITORY https://github.com/kokkos/kokkos-kernels.git
-  GIT_TAG 5.2.0
+  GIT_TAG ${SOLPROP_NATIVE_KOKKOSKERNELS_VERSION}
   GIT_SHALLOW TRUE
   GIT_PROGRESS TRUE
   PATCH_COMMAND "${CMAKE_COMMAND}" -P "${PROJECT_SOURCE_DIR}/cmake/KokkosKernelsWindowsArm.cmake"
@@ -263,7 +268,7 @@ set(KokkosFFT_ENABLE_DISTRIBUTED OFF CACHE BOOL "Disable distributed FFTs" FORCE
 FetchContent_Declare(
   kokkosfft
   GIT_REPOSITORY https://github.com/kokkos/kokkos-fft.git
-  GIT_TAG v2.0.0
+  GIT_TAG v${SOLPROP_NATIVE_KOKKOSFFT_VERSION}
   GIT_SHALLOW TRUE
   GIT_SUBMODULES ""
   GIT_PROGRESS TRUE
