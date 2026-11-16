@@ -1544,8 +1544,9 @@ finds them), then run `tests/test_seps.py` and `poe docs`.
 - 2026-11-16: Milestone 3 (the reference restructured, `HostDriver` deleted) reported in Part II.
 - 2026-11-16: Milestone 4 (the native seam, phase 5's documentation) reported in Part II.
 - 2026-11-16: All four pull requests merged. Final: ADR-079 accepted, the SEP archived, and
-  the issues its milestone 4 report lists updated: #618, #171, #828 and #344 closed as
-  fixed or moot, #107 closed, #110 narrowed, #356 annotated.
+  the issues its milestone 4 report lists updated: #828 closed as moot (#618 and #171
+  were already closed), #107 closed on native's decision, #344's naming item ticked (its
+  planar stage register stays open), #110 narrowed, #356 annotated.
 
 ### AI review — 2026-11-15
 
