@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Final
 
 import numpy as np
 
+from solprop.driver.routes.general import GAS_KEYWORD_DEFAULTS
 from solprop.nonlinear.raman import RamanResponse
 from solprop.output.records import RecipeFile, RecipeRecord
 from solprop.recipe.document import (
@@ -110,10 +111,6 @@ def _used(
     if build.get("provider") is not None:
         # A general guide takes its physics from the guide: the route refuses these
         # beside a provider, so the resolved text must not name them.
-        from solprop.driver.routes.general import (  # noqa: PLC0415 - layer above
-            GAS_KEYWORD_DEFAULTS,
-        )
-
         values = {
             name: value
             for name, value in values.items()

@@ -4,7 +4,6 @@
 
 """Exercise allocation limits and worker failure cleanup without large jobs."""
 
-import ctypes
 import importlib.util
 import multiprocessing
 import os
@@ -19,6 +18,7 @@ from unittest.mock import Mock
 
 import pytest
 import threadpoolctl
+from tests.test_host import windows
 
 from solprop import _process
 from solprop.driver.executors import pool
@@ -404,30 +404,8 @@ def test_receive_propagates_worker_traceback():
     child.close()
 
 
-class _FakeKernel32:
-    """Answer the two Windows memory queries as kernel32 would, or refuse them."""
-
-    def __init__(self, *, succeed: bool = True) -> None:
-        self.succeed = succeed
-
-    def GetCurrentProcess(self) -> int:  # noqa: N802 - the Win32 name
-        return -1
-
-    def K32GetProcessMemoryInfo(self, process, counters, size) -> int:  # noqa: N802
-        assert process == -1
-        assert size == counters._obj.cb
-        counters._obj.PeakWorkingSetSize = 3 * 2**20
-        return int(self.succeed)
-
-    def GlobalMemoryStatusEx(self, status) -> int:  # noqa: N802
-        assert status._obj.dwLength > 0
-        status._obj.ullTotalPhys = 16 * 2**30
-        return int(self.succeed)
-
-
 def test_windows_reads_peak_working_set_and_physical_memory(monkeypatch):
-    monkeypatch.setattr(pool, "_kernel32", _FakeKernel32)
-    monkeypatch.setattr(pool.sys, "platform", "win32")
+    windows(monkeypatch)
     monkeypatch.delenv("SLURM_MEM_PER_NODE", raising=False)
     monkeypatch.delenv("SLURM_MEM_PER_CPU", raising=False)
     assert pool.peak_rss() == 3 * 2**20
@@ -435,45 +413,11 @@ def test_windows_reads_peak_working_set_and_physical_memory(monkeypatch):
 
 
 def test_windows_memory_queries_report_a_refusal(monkeypatch):
-    monkeypatch.setattr(pool, "_kernel32", lambda: _FakeKernel32(succeed=False))
+    windows(monkeypatch, succeed=False)
     with pytest.raises(ExecutorError, match="process memory query"):
-        pool._windows_peak_working_set()
+        pool.peak_rss()
     with pytest.raises(ExecutorError, match="physical memory query"):
-        pool._windows_physical_memory()
-
-
-@pytest.mark.skipif(sys.platform != "win32", reason="the real Windows query")
-def test_windows_peak_working_set_is_read_from_the_process():
-    # The process handle is pointer-sized; truncated, Windows refuses the query.
-    assert pool._windows_peak_working_set() > 2**20
-    assert pool._windows_physical_memory() > 2**30
-
-
-def test_kernel32_is_loaded_only_on_windows():
-    if pool.sys.platform == "win32":
-        assert pool._kernel32() is not None
-    else:
-        with pytest.raises(AttributeError):
-            pool._kernel32()
-
-
-def test_kernel32_preserves_pointer_sized_process_handles(monkeypatch):
-    kernel32 = Mock(
-        spec=ctypes.CDLL, GetCurrentProcess=Mock(), K32GetProcessMemoryInfo=Mock()
-    )
-    loader = Mock(return_value=kernel32)
-    monkeypatch.setattr(pool.ctypes, "WinDLL", loader, raising=False)
-    assert pool._kernel32() is kernel32
-    loader.assert_called_once_with("kernel32")
-    # HANDLE must retain all pointer bits, including the current-process -1 value.
-    assert kernel32.GetCurrentProcess.restype is ctypes.c_void_p
-    assert kernel32.GetCurrentProcess.argtypes == []
-    assert kernel32.K32GetProcessMemoryInfo.restype is ctypes.c_int
-    assert kernel32.K32GetProcessMemoryInfo.argtypes == [
-        ctypes.c_void_p,
-        ctypes.POINTER(pool._ProcessMemoryCounters),
-        ctypes.c_uint32,
-    ]
+        pool._memory_limit()
 
 
 def test_windows_pipe_type_accepts_both_connection_classes(monkeypatch):

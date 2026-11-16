@@ -364,7 +364,7 @@ def test_input_update_replaces_or_removes_constructor_pulse_recipe(source):
 
 
 def test_phi_reuse_refuses_a_changed_index_by_name(source, caplog):
-    from solprop.driver.simulation import _same_operator_function  # noqa: PLC0415
+    from solprop.driver.mixtures import _same_operator_function  # noqa: PLC0415
 
     original = source.translate()
     material = source.modes[0].mixture
@@ -375,7 +375,7 @@ def test_phi_reuse_refuses_a_changed_index_by_name(source, caplog):
         source.initial,
         settings=replace(source.settings, prefactor_index=1.0),
     )
-    with caplog.at_level(logging.INFO, logger="solprop.driver.simulation"):
+    with caplog.at_level(logging.INFO, logger="solprop.driver.mixtures"):
         assert (
             _same_operator_function(
                 source,

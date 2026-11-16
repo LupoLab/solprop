@@ -123,14 +123,16 @@ execution of it ran. An HDF5 file keeps it at `/meta/outcome`
 - `resources`: `wall_time_s` and `cpu_time_s` since the run started (CPU time is
   every thread's), and `peak_rss_bytes`, the process's largest resident memory so far.
   The peak is the process's: in a session that runs several cases it includes the
-  earlier ones, and a device's own memory is not in it. On Windows the peak, like
-  the host's `memory_bytes`, is `None`.
+  earlier ones, and a device's own memory is not in it. On Windows the peak is the
+  process's peak working set. Either value is `None` where the operating system
+  refuses the query.
 
 The record is rewritten at every save plane, so a run killed between planes keeps its
 time and memory up to its last plane. A resumed run's earlier executions stay in
 `outcome.previous_executions`, each with its own machine and resources, so a run
 continued on another machine says so. Gathering these costs one query of the machine
-per process and one `getrusage` call per save plane.
+per process and one peak-memory query (`getrusage`, or Windows' process memory
+counters) per save plane.
 
 ```{code-block} python
 from solprop.output import open_file

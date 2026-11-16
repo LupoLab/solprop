@@ -12,7 +12,7 @@ from pathlib import Path
 
 import h5py
 
-from solprop.output._file_lock import lock, unlock
+from solprop._file_lock import lock, unlock
 
 logger = logging.getLogger(__name__)
 

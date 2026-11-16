@@ -28,10 +28,10 @@ from solprop.recipe.metadata import REQUIRED, per_unit_width
 from solprop.recipe.quantity import Unit, format_quantity
 from solprop.recipe.registry import REGISTRY
 from solprop.service._payload import Payload, read_recipe
-from solprop.service.beams import BEAM_HANDLERS
 from solprop.service.design import DESIGN_HANDLERS, pin_targets
 from solprop.service.figures import FIGURE_HANDLERS
 from solprop.service.postprocess import POSTPROCESS_HANDLERS
+from solprop.service.radial_pages import BEAM_HANDLERS
 from solprop.service.reduce import (
     SPECTRAL_AXES,
     TIME_OVERSAMPLING,

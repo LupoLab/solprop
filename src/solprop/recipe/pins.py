@@ -27,8 +27,10 @@ from typing import TYPE_CHECKING, Final, Literal, cast
 import numpy as np
 
 from solprop.exceptions import SolpropError
+from solprop.modes.base import beta2
+from solprop.pulses import GaussianPulse, SechPulse
 from solprop.recipe.errors import RecipeError
-from solprop.recipe.metadata import OBJECT_ROUTES
+from solprop.recipe.metadata import OBJECT_ROUTES, surface
 from solprop.recipe.paths import Attribute, Index, format_path, parse_path
 from solprop.recipe.quantity import Unit, parse_quantity
 
@@ -340,7 +342,7 @@ def design_target(pin: Pin, keywords: Mapping[str, object]) -> "DesignTarget":
     ZDW or RDW
         The target.
     """
-    from solprop.tools import RDW, ZDW  # noqa: PLC0415 - layer above recipes' import
+    from solprop.tools import RDW, ZDW  # noqa: PLC0415 - heavy
 
     keys = pin.keys
     if pin.target == "zdw":
@@ -393,8 +395,9 @@ def solve_pin(
     Raises
     ------
     RecipeError
-        If the keyword cannot be pinned on the route, or the route does not build
-        with it at the middle of the range.
+        If the keyword cannot be pinned on the route, the route does not build
+        with it at the middle of the range, or a pressure is pinned beside a
+        temperature path, which gives no one density for each trial pressure.
 
     Examples
     --------
@@ -406,7 +409,7 @@ def solve_pin(
     >>> f"{roots.pick('lowest'):.3f} bar"
     '1.278 bar'
     """
-    from solprop.tools import solve_parameter  # noqa: PLC0415 - layer above
+    from solprop.tools import solve_parameter  # noqa: PLC0415 - heavy
 
     parameter = GUIDE_PINS.get(route, {}).get(path)
     if parameter is None:
@@ -416,6 +419,14 @@ def solve_pin(
     middle = math.sqrt(low * high) if low > 0.0 else 0.5 * (low + high)
     simulation = _build(route, {**keywords, path: middle}, path)
     mode = _launch_mode(simulation)
+    if parameter == "pressure" and not isinstance(
+        getattr(mode, "temperature", None), int | float
+    ):
+        msg = (
+            "a pressure is pinned at one temperature, and the temperature is a path "
+            "along z: write the temperature as a number, or the pressure as a literal"
+        )
+        raise RecipeError(msg, path=path)
     wavelength = cast("float", keywords["wavelength"])
     nonlinear = _needs_gamma(target)
 
@@ -481,9 +492,7 @@ def solve_pulse(
     >>> f"{roots.pick() * 1e6:.1f} uJ"
     '348.3 uJ'
     """
-    from solprop.modes.base import beta2  # noqa: PLC0415 - layer above
-    from solprop.pulses import GaussianPulse, SechPulse  # noqa: PLC0415
-    from solprop.tools import (  # noqa: PLC0415
+    from solprop.tools import (  # noqa: PLC0415 - heavy
         DesignRoots,
         SolitonOrder,
         pulse_energy,
@@ -549,8 +558,6 @@ def _route_pulse(keywords: Mapping[str, object]) -> object:
     - ``keywords``: the route's keywords: ``wavelength``, ``fwhm`` or ``width``,
       ``shape`` and ``energy`` or ``peak_power``.
     """
-    from solprop.pulses import GaussianPulse, SechPulse  # noqa: PLC0415
-
     shape = keywords.get("shape", "gauss")
     power = {
         name: keywords[name]
@@ -578,8 +585,6 @@ def _build(route: str, keywords: Mapping[str, object], path: str) -> "Simulation
     - ``keywords``: its keywords; a pulse without an energy or peak power (one a later
       pin solves) is built at a placeholder.
     """
-    from solprop.recipe.metadata import surface  # noqa: PLC0415 - cycle
-
     if keywords.get("pulses") is None and all(
         keywords.get(name) is None for name in PULSE_PINS
     ):
@@ -603,7 +608,7 @@ def _at(mode: "Mode", parameter: str, value: float) -> "Mode":
     - ``parameter``: ``"pressure"`` (bar) or a mode parameter such as ``"core_radius"``
       (m).
     """
-    from solprop.tools.design import _capillary_at  # noqa: PLC0415 - the re-fill
+    from solprop.tools.design import _capillary_at  # noqa: PLC0415 - heavy
 
     if parameter == "pressure":
         return _capillary_at(cast("object", mode), value)  # type: ignore[arg-type]
@@ -616,8 +621,8 @@ def _gamma(mode: "Mode", wavelength: float) -> float:
     - ``wavelength``: the pump wavelength, m.
     - Returns: ``gamma`` in rad/(W m).
     """
-    from solprop.tools import nonlinear_coefficient  # noqa: PLC0415
-    from solprop.tools.waveguide import _fill_n2  # noqa: PLC0415
+    from solprop.tools import nonlinear_coefficient  # noqa: PLC0415 - heavy
+    from solprop.tools.waveguide import _fill_n2  # noqa: PLC0415 - heavy
 
     # The capillary and waveguide routes bind every mode to their fill.
     mixture = cast("Mixture", getattr(mode, "mixture", None))
@@ -638,7 +643,7 @@ def _route_gamma(
     - ``wavelength``: the pump wavelength, m.
     - Returns: ``gamma`` in rad/(W m).
     """
-    from solprop.tools import nonlinear_coefficient  # noqa: PLC0415
+    from solprop.tools import nonlinear_coefficient  # noqa: PLC0415 - heavy
 
     if getattr(mode, "mixture", None) is not None:
         return _gamma(mode, wavelength)
@@ -654,7 +659,7 @@ def _route_gamma(
 
 def _needs_gamma(target: "DesignTarget") -> bool:
     """Return whether a target needs the fill's Kerr coefficient."""
-    from solprop.tools import RDW, SolitonOrder  # noqa: PLC0415
+    from solprop.tools import RDW, SolitonOrder  # noqa: PLC0415 - heavy
 
     return isinstance(target, SolitonOrder) or (
         isinstance(target, RDW) and target.peak_power is not None

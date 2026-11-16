@@ -4,7 +4,6 @@
 
 """Run bounded spawned workers with explicit threads and memory admission control."""
 
-import ctypes
 import multiprocessing as mp
 import os
 import pickle
@@ -19,6 +18,7 @@ from multiprocessing.connection import Connection, wait
 from multiprocessing.process import BaseProcess
 from typing import Protocol, cast, runtime_checkable
 
+from solprop import _host
 from solprop._process import (
     LOAD_TIME_BLAS_VARIABLES,
     THREAD_VARIABLES,
@@ -270,90 +270,16 @@ def peak_rss() -> int:
     int
         Peak RSS, converting Linux KiB and retaining Darwin bytes; on Windows the
         peak working set.
+
+    Raises
+    ------
+    ExecutorError
+        When the operating system refuses the process memory query.
     """
-    if sys.platform == "win32":
-        return _windows_peak_working_set()
-    import resource  # noqa: PLC0415 - POSIX only; Windows has no such module
-
-    value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return int(value) if sys.platform == "darwin" else int(value) * 1024
-
-
-class _ProcessMemoryCounters(ctypes.Structure):
-    """Mirror Win32 ``PROCESS_MEMORY_COUNTERS`` for ``K32GetProcessMemoryInfo``."""
-
-    _fields_ = [
-        ("cb", ctypes.c_uint32),
-        ("PageFaultCount", ctypes.c_uint32),
-        ("PeakWorkingSetSize", ctypes.c_size_t),
-        ("WorkingSetSize", ctypes.c_size_t),
-        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
-        ("QuotaPagedPoolUsage", ctypes.c_size_t),
-        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
-        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-        ("PagefileUsage", ctypes.c_size_t),
-        ("PeakPagefileUsage", ctypes.c_size_t),
-    ]
-
-
-class _MemoryStatus(ctypes.Structure):
-    """Mirror Win32 ``MEMORYSTATUSEX`` for ``GlobalMemoryStatusEx``."""
-
-    _fields_ = [
-        ("dwLength", ctypes.c_uint32),
-        ("dwMemoryLoad", ctypes.c_uint32),
-        ("ullTotalPhys", ctypes.c_uint64),
-        ("ullAvailPhys", ctypes.c_uint64),
-        ("ullTotalPageFile", ctypes.c_uint64),
-        ("ullAvailPageFile", ctypes.c_uint64),
-        ("ullTotalVirtual", ctypes.c_uint64),
-        ("ullAvailVirtual", ctypes.c_uint64),
-        ("ullAvailExtendedVirtual", ctypes.c_uint64),
-    ]
-
-
-def _kernel32() -> ctypes.CDLL:
-    """Load Windows' kernel32, which carries both memory queries, typed for them."""
-    kernel32 = ctypes.WinDLL("kernel32")  # pyright: ignore[reportAttributeAccessIssue]
-    # The process pseudo-handle is pointer-sized ((HANDLE)-1): ctypes' default int
-    # return type truncates it to 32 bits, and Windows refuses the truncated handle.
-    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
-    kernel32.GetCurrentProcess.argtypes = []
-    kernel32.K32GetProcessMemoryInfo.restype = ctypes.c_int
-    kernel32.K32GetProcessMemoryInfo.argtypes = [
-        ctypes.c_void_p,
-        ctypes.POINTER(_ProcessMemoryCounters),
-        ctypes.c_uint32,
-    ]
-    return kernel32
-
-
-def _windows_peak_working_set() -> int:
-    """Read this process's peak working set, Windows' counterpart of peak RSS.
-
-    - Returns: peak working set, bytes.
-    """
-    kernel32 = _kernel32()
-    counters = _ProcessMemoryCounters()
-    counters.cb = ctypes.sizeof(counters)
-    process = kernel32.GetCurrentProcess()
-    if not kernel32.K32GetProcessMemoryInfo(
-        process, ctypes.byref(counters), counters.cb
-    ):
-        raise ExecutorError("Windows refused the process memory query")
-    return int(counters.PeakWorkingSetSize)
-
-
-def _windows_physical_memory() -> int:
-    """Read the installed physical memory on Windows.
-
-    - Returns: total physical memory, bytes.
-    """
-    status = _MemoryStatus()
-    status.dwLength = ctypes.sizeof(status)
-    if not _kernel32().GlobalMemoryStatusEx(ctypes.byref(status)):
-        raise ExecutorError("Windows refused the physical memory query")
-    return int(status.ullTotalPhys)
+    value = _host.peak_rss()
+    if value is None:
+        raise ExecutorError("the operating system refused the process memory query")
+    return value
 
 
 def _memory_limit() -> int:
@@ -361,11 +287,11 @@ def _memory_limit() -> int:
 
     - Returns: smallest available memory limit, bytes.
     """
-    limits: list[int] = []
-    if sys.platform == "win32":
-        limits.append(_windows_physical_memory())
-    else:
-        limits.append(os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE"))
+    physical = _host.physical_memory()
+    if physical is None:
+        raise ExecutorError("the operating system refused the physical memory query")
+    limits = [physical]
+    if sys.platform != "win32":
         try:
             group = cgroup_memory()
         except (OSError, ValueError) as error:

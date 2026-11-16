@@ -25,11 +25,12 @@ import h5py
 import numpy as np
 
 from solprop.exceptions import OutputError, SolpropError
-from solprop.output._writer_lock import WriterLock
+from solprop.output._writer_lock import WriterHeldError, WriterLock
 from solprop.output.hdf5 import ResumeState, _file_path, resume
 from solprop.output.metadata import SCHEMA_VERSION
-from solprop.output.serialisation import _decode
+from solprop.output.serialisation import deserialise
 from solprop.output.store import Output
+from solprop.recipe.document import FORMAT
 
 __all__ = ["Resumability", "ResumeMode", "resumability"]
 
@@ -94,8 +95,10 @@ def _writer_alive(path: Path) -> bool:
     lock = WriterLock(path)
     try:
         lock.acquire()
-    except OutputError as error:
-        return "another writer" in str(error)
+    except WriterHeldError:
+        return True
+    except OutputError:
+        return False
     lock.release()
     return False
 
@@ -158,8 +161,6 @@ def resumability(path: str | Path | Output, *, gate: bool = False) -> Resumabili
     OutputError
         If the file cannot be read as HDF5, or `path` is an output handler.
     """
-    from solprop.recipe.document import FORMAT  # noqa: PLC0415 - the layer above
-
     path = _file_path(path, "resumability")
     try:
         schema = _schema(path)
@@ -187,7 +188,7 @@ def resumability(path: str | Path | Output, *, gate: bool = False) -> Resumabili
     except OutputError as error:
         return _refused(f"no state to continue from: {error}")
     planes = np.asarray(
-        _decode(state.metadata.configuration["save_planes"]),  # type: ignore[arg-type]
+        deserialise(state.metadata.configuration["save_planes"]),  # type: ignore[arg-type]
         dtype=float,
     )
     position = float(state.plane.z)
@@ -201,7 +202,8 @@ def resumability(path: str | Path | Output, *, gate: bool = False) -> Resumabili
     differences = None
     gate_error = None
     if gate and recipe == "stored":
-        from solprop.recipe import Recipe  # noqa: PLC0415 - the layer above
+        # recipe.core imports solprop.output, whose package imports this module.
+        from solprop.recipe import Recipe  # noqa: PLC0415 - cycle
 
         try:
             rebuilt = Recipe.from_output(path, resolved=True).build().metadata()

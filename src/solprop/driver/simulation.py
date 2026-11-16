@@ -80,7 +80,12 @@ from solprop.driver.metadata import (
     _frame_follows_the_electronic_rule,
     metadata_for,
 )
-from solprop.driver.mixtures import ResponseSelection, mixture_profiles
+from solprop.driver.mixtures import (
+    ResponseSelection,
+    _mixture_reuse,
+    _simulation_mixture,
+    mixture_profiles,
+)
 from solprop.driver.resume import (
     _adopt_recorded_seed,
     _check_resume_choice,
@@ -172,7 +177,7 @@ from solprop.modes.capillary import GlassIndex, MarcatiliMode, MarcatiliModel
 from solprop.modes.fill import LossFunction
 from solprop.modes.guide import ModalGuide
 from solprop.modes.material import JsonValue
-from solprop.modes.protocol import Mode, ParameterisedMode
+from solprop.modes.protocol import Mode
 from solprop.modes.quadrature import RadialRule
 from solprop.modes.slab import PlanarGrid
 from solprop.modes.tabulated import IndexTable
@@ -183,10 +188,7 @@ from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.ionisation import IntegrationPolicy, IonisationRate
 from solprop.nonlinear.optmat_rates import PeakFieldReport
 from solprop.nonlinear.raman import (
-    DampedOscillator,
     MolecularOptions,
-    RamanResponse,
-    RotationalLines,
 )
 from solprop.nonlinear.responses import DispersiveKerrResponse, PlasmaResponse
 from solprop.nonlinear.tdse import TDSEExecution, TDSEGasResponse
@@ -216,7 +218,6 @@ from solprop.stepper.tableau import DOPRI5
 from solprop.translate.assembly import assemble
 from solprop.translate.coupled import taper_identity, wall_identity
 from solprop.translate.coupling import input_port as fill_port
-from solprop.translate.expansion import ParameterExpansion
 from solprop.translate.general import GeneralModalRoute, modal_identity
 from solprop.translate.masks import AbsorberScheme
 from solprop.translate.problem import PropagationProblem, TranslationReuse
@@ -234,9 +235,6 @@ if TYPE_CHECKING:
 __all__ = ["Simulation"]
 
 logger = logging.getLogger(__name__)
-
-_PRESSURE_FORM_ENTRIES = 2
-"""Entries in either of the two pair forms of the ``pressure`` keyword."""
 
 _FIXED_INPUTS: Final = frozenset(
     {
@@ -3708,133 +3706,6 @@ class Simulation(Displayed):
                 materials=MaterialSelection() if materials is None else materials,
             ),
         )
-
-
-def _simulation_mixture(simulation: Simulation) -> Mixture:
-    """Require a material declaration the update can identify by component."""
-    if simulation.medium is not None and isinstance(
-        simulation.medium.material, Mixture
-    ):
-        return simulation.medium.material
-    materials = [getattr(mode, "mixture", None) for mode in simulation.modes]
-    if not materials or not isinstance(materials[0], Mixture):
-        raise DriverError("with_mixture needs a Mixture in the modes or spatial medium")
-    material = materials[0]
-    for index, other in enumerate(materials[1:], 1):
-        if serialise(other) != serialise(material):
-            raise DriverError(f"mode {index} carries a different mixture")
-    return material
-
-
-def _same_operator_function(
-    source: Simulation,
-    updated: Simulation,
-    old: Mixture,
-    new: Mixture,
-    expansion: ParameterExpansion | None,
-) -> ParameterExpansion | None:
-    """Keep terms only when every dependency outside their axes is unchanged.
-
-    - ``expansion``: previously sampled coefficients and axis names.
-    - Returns: the old coefficients when the function is identical, else None with a
-      log.
-    """
-    if source.settings.prefactor_index != updated.settings.prefactor_index:
-        logger.info("Mixture update: expansion reuse refused; prefactor_index changed")
-        return None
-    if expansion is None:
-        return None
-    if len(old.components) > 1 and (
-        (old.shared is None) != (new.shared is None)
-        or (
-            old.shared is not None
-            and (old.fractions != new.fractions or old.temperature != new.temperature)
-        )
-    ):
-        logger.info(
-            "Mixture update: rebuild expansion; fill fractions, EOS temperature "
-            "or parameterisation changed"
-        )
-        return None
-    positions = np.asarray(expansion.z_span)
-    if source.medium is not None and updated.medium is not None:
-        paths = [(source.medium.parameter_paths, updated.medium.parameter_paths)]
-    else:
-        paths = [
-            (before.parameter_paths, after.parameter_paths)
-            for before, after in zip(source.modes, updated.modes, strict=True)
-            if isinstance(before, ParameterisedMode)
-            and isinstance(after, ParameterisedMode)
-        ]
-    for before_paths, after_paths in paths:
-        for name, path in before_paths.items():
-            if name in expansion.parameters:
-                continue
-            other = after_paths.get(name)
-            if (
-                other is None
-                or not other.is_constant
-                or not np.array_equal(path(positions), other(positions))
-            ):
-                logger.info(
-                    "Mixture update: rebuild expansion; fixed parameter %s changed",
-                    name,
-                )
-                return None
-    return expansion
-
-
-def _mixture_reuse(
-    source: Simulation,
-    updated: Simulation,
-    old: Mixture,
-    new: Mixture,
-    problem: PropagationProblem,
-) -> TranslationReuse:
-    """Collect eligible immutable translation data after a material-path update."""
-    before = {
-        response.species or old.labels[0]: response
-        for response in source.responses
-        if isinstance(response, RamanResponse)
-    }
-    after = {
-        response.species or new.labels[0]: response
-        for response in updated.responses
-        if isinstance(response, RamanResponse)
-    }
-    kernels = {}
-    for leaf in problem.responses.raman_terms:
-        if _undamped_model_key(before[leaf.label]) == _undamped_model_key(
-            after[leaf.label]
-        ):
-            kernels[leaf.label] = leaf.undamped
-        else:
-            logger.info("Mixture update: rebuild %s undamped Raman model", leaf.label)
-    return TranslationReuse(
-        problem.transform,
-        problem.initial,
-        _same_operator_function(
-            source, updated, old, new, problem.linear.phi_expansion
-        ),
-        _same_operator_function(
-            source, updated, old, new, problem.responses.prefactor_expansion
-        ),
-        kernels,
-        transverse_of(problem.route),
-    )
-
-
-def _undamped_model_key(response: RamanResponse) -> object:
-    """Describe only the inputs to the undamped Raman samples."""
-    models = []
-    for term in response.tensor_terms:
-        model = term.model
-        record = serialise(model)
-        if isinstance(model, (DampedOscillator, RotationalLines)):
-            assert isinstance(record, dict)
-            record.pop("dephasing", None)
-        models.append((term.contraction, record))
-    return models
 
 
 def _warn_adiabatic_taper(modes: Sequence[Mode]) -> None:

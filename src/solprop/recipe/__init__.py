@@ -60,6 +60,7 @@ _SUBMODULES: Final = (
     "provenance",
     "quantity",
     "registry",
+    "type_metadata",
 )
 """The submodules reachable as attributes; a test keeps it equal to what is on disk."""
 

@@ -14,9 +14,9 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from solprop._durable import sync_directory, write_atomic
+from solprop._file_lock import lock, unlock
 from solprop._process import process_stamp
 from solprop.exceptions import DriverError
-from solprop.output._file_lock import lock, unlock
 from solprop.output.scan import _json
 
 
