@@ -175,7 +175,7 @@ order conditions are checked for both weight vectors and the propagated solution
 fifth-order one, and the FSAL stage is not recycled before anything that depends on the
 completed step (irrelevant without dense output, but tested).
 
-**Who marches** ([SEP 47](seps/archive/sep-0047-run-ownership.md), [SEP 52](seps/sep-0052-backend-shape.md)).
+**Who marches** ([SEP 47](seps/archive/sep-0047-run-ownership.md), [SEP 52](seps/archive/sep-0052-backend-shape.md)).
 The NumPy reference's session schedules its runs and drives its marches in
 `backends/host/`: `HostSession` over `RungeKuttaMarch`, `HostAdamsMarch` and
 `HostLowStorageMarch`. Every native run is its native session's, whose compiled Runge-Kutta, Adams and low-storage
