@@ -15,7 +15,7 @@
 | **Requires** | SEPs 25, 39, 45 and 47 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, through four stacked pull requests (D7): (1) phases 0–1, branch `feature/sep-0052-backend-shape-p1`; (2) phase 2 and phase 3's axis removal, `feature/sep-0052-backend-shape-p2`; (3) the rest of phase 3, `feature/sep-0052-backend-shape-p3`; (4) phases 4–5, `feature/sep-0052-backend-shape-p4`; started 2026-11-15 |
+| **Implementation** | Opus 5.5 (AI) for John Travers, through four stacked pull requests (D7): (1) phases 0–1, branch `feature/sep-0052-backend-shape-p1` ([#853](https://github.com/LupoLab/solprop/pull/853)); (2) phase 2 and phase 3's axis removal, `feature/sep-0052-backend-shape-p2`; (3) the rest of phase 3, `feature/sep-0052-backend-shape-p3`; (4) phases 4–5, `feature/sep-0052-backend-shape-p4`; started 2026-11-15 |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -993,10 +993,11 @@ of what it changes (§6.1).
 
 ### Milestone 1 (phases 0–1) — 2026-11-16
 
-Branch `feature/sep-0052-backend-shape-p1`, the first of the four stacked pull requests of
-D7, started 2026-11-15 by Opus 5.5 (AI) for John Travers. The two phases were developed in
-parallel by AI agents on separate branches and merged into the milestone branch, where the
-tests both touched were rerun.
+Branch `feature/sep-0052-backend-shape-p1`
+([#853](https://github.com/LupoLab/solprop/pull/853)), the first of the four stacked pull
+requests of D7, started 2026-11-15 by Opus 5.5 (AI) for John Travers. The two phases were
+developed in parallel by AI agents on separate branches and merged into the milestone
+branch, where the tests both touched were rerun.
 
 **Scope.** Phase 0, native deletions and the test module (`e9631521`); phase 1, removal
 of `Batch` and the groups (`e52efb20`); their merge (`3a47dfc2`).
