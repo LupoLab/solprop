@@ -4,43 +4,26 @@
 
 """Physical E and H on a saved plane of a general modal run, and what they measure.
 
-A general modal guide propagates channel amplitudes, and its file stores those: the
-mode axis is a coordinate axis and not a physical field. This module is the way back.
-Given the guide the run was made with, it rebuilds the run's own reference tables
-(:func:`solprop.translate.general.reference_tables`), reconstructs ``E(x, y, t)`` and
-``H(x, y, t)`` in V/m and A/m at the guide's quadrature nodes, and forms the quantities
-a detector would see: the cycle-averaged :func:`reconstructed_flux`, the real
-:func:`instantaneous_flux` with its sum-frequency term, and the per-coordinate
-:func:`coordinate_intensity`, which is **not additive**.
+A general modal file stores channel amplitudes on a coordinate axis, not a physical
+field, and records the guide's identity rather than its E/H reference arrays. This
+module is the way back: :func:`reference_tables` rebuilds the run's reference tables
+from the guide (``guide=`` is **required** everywhere; ``tables=`` reuses one rebuild),
+checking the tables, the guide's sampling and its regions against the stored identity
+path by path, and refusing the first entry that disagrees.
 
-**What a file carries and what it does not.** The run record holds the guide's
-*identity* -- the channel labels, the provider, the sampling, the table and metric
-identities -- and not the reference arrays themselves, which are tens of megabytes per
-run and are rebuilt from the guide in **tens of milliseconds** (28 ms on the slice's
-one-channel 288-node fixture; about 0.71 s if the guide has still to be solved, which
-is where that cost is). Physical profile storage for output is separate from the
-execution tables and may be a hash-identified sidecar.
-Every function here therefore takes the guide (``guide=``, **required**) and rebuilds
-the tables from it, over the extent the file's table identity records, unless the
-caller passes them as ``tables=`` to reuse one rebuild across many calls. Either way
-the tables are **checked against the stored identity**, path by path, refusing the
-first entry that disagrees, so a reconstruction is never made from the wrong guide; and
-the guide's sampling and regions are checked too, which the tables' identity cannot
-see: a guide re-sampled at other interior knots, or declaring another ``chi3``, builds
-tables whose identity agrees entry for entry.
+- Fields: :func:`electric_field` and :func:`magnetic_field` (V/m, A/m at the guide's
+  nodes), :func:`plane_nodes` (where those nodes are, with their area weights) and
+  :func:`channel_labels`. A guide whose geometry moves along z is solved again at each
+  plane's own position.
+- What a detector sees: :func:`reconstructed_flux` (cycle-averaged),
+  :func:`instantaneous_flux` (with its sum-frequency term), :func:`coordinate_intensity`
+  (per channel, **not additive**) and :func:`physical_energy`.
+- :func:`channel_amplitudes` inverts a nodal E/H pair, on the entrance reference only.
 
-**A guide whose geometry moves along z** is reconstructed at each plane's own
-position: the guide is solved again there on the rule that has moved with its
-interfaces, so the fields come back on that position's nodes and the flux is weighted
-by that position's areas.
-:func:`channel_amplitudes` recovers amplitudes on the entrance reference only.
-
-**The accessor whitelist.** These names are admitted on a general modal basis and
-refused on every other, because an orthogonal modal run and a spatial run carry
-neither the certified metric nor the E/H reference they promise
-(:mod:`solprop.output.capability`). The refusal is the same text the run loop uses.
-
-The manual page is ``docs/guide/results/output.md``.
+These names are admitted on a general modal basis and refused on every other
+(:mod:`solprop.output.capability`). The manual covers this in
+``docs/guide/results/reading-output.md`` and ``docs/guide/results/resuming.md``
+("Reading E and H back").
 """
 
 import logging

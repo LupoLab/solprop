@@ -4,42 +4,24 @@
 
 """Read fields, spectra and spectral densities out of a saved run.
 
-The field, spectrum and density accessors, in solprop's conventions. Each one takes an
-:class:`~solprop.output.store.Output` -- a memory handler or an HDF5 handler, through
-the same protocol -- selects a saved plane and a set of modes, and returns an abscissa
-and an array whose trivial mode and polarisation axes have been squeezed away.
+Each accessor takes an :class:`~solprop.output.store.Output`, selects a saved plane and
+a set of modes, and returns an abscissa and an array with trivial mode and polarisation
+axes squeezed away: :func:`get_spectrum`, :func:`get_spectral_density` (J/(rad/s) or
+on another axis), :func:`get_field`, :func:`get_power` and :func:`get_phase`, with
+:func:`nearest_plane` and :func:`time_axis`; :func:`get_spectrogram` and
+:func:`field_spectrogram` (with :func:`real_field_oversampling`) map time and
+frequency.
 
-Three rules hold throughout.
+The rules every accessor follows -- the optics convention by default, the spectral
+normalisation of :func:`get_spectrum`, the active band, the plane selection, and no
+implicit window -- are in ``docs/guide/results/processing.md`` ("Four rules that hold
+everywhere"). Two more:
 
-**Convention.** Arrays come back in the optics convention by default and in the FFT
-convention on request. For a spectrum the difference is the conjugation *and*
-the phase origin, both of which the output layer applies; for a time-domain array it is
-the conjugation alone. A real field, an energy and a density are convention-free.
-
-**Normalisation.** :func:`get_spectrum` carries the spectral normalisation, so that
-``abs(spectrum) ** 2`` is the spectral energy density in J/(rad/s) --
-:func:`solprop.fourier.spectral_density` of the same plane, to round-off. The stored
-array itself, the raw forward DFT, is ``output.fields()``.
-
-**Band.** The default is the grid's active band, on an ascending
-frequency axis. Pass ``band="all"`` for every stored bin, remembering that a field grid
-then includes the zero-frequency bin, where a wavelength is undefined.
-
-No window is ever applied implicitly. ``bandpass`` is a keyword -- wavelength limits,
-a :class:`~solprop.processing.spectra.Passband` on any axis, or a ready-made window on
-the stored axis -- and nothing happens without it.
-
-**A spatial file's columns are not modes.** :func:`get_power` and
-:func:`get_spectral_density` read each column of the mode axis as a modal amplitude in
-sqrt(W), so on a radial, Cartesian, line or planar file they refuse by name and name the
-functional of :mod:`solprop.spatial` that measures the quantity. :func:`get_spectrum`,
-:func:`get_field` and :func:`get_phase` return the stored columns as they are, in the
-file's own units, and read every file.
-
-**The noise floor.** A run with input shot noise saves a field that carries its seed,
-one photon per active bin and channel. ``noise_floor="subtract"`` on
-:func:`get_spectral_density` removes exactly that seed's energy, bin by bin and channel
-by channel, and returns the signed remainder (SEP 37, section 5.5).
+- On a spatial file :func:`get_power` and :func:`get_spectral_density` refuse by name,
+  since they read each column as a modal amplitude in sqrt(W); :func:`get_spectrum`,
+  :func:`get_field` and :func:`get_phase` return the stored columns in the file's units.
+- ``noise_floor="subtract"`` on :func:`get_spectral_density` removes the input
+  shot-noise seed's energy bin by bin (SEP 37; "Removing the noise floor").
 """
 
 import math
