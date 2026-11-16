@@ -94,6 +94,7 @@ void seed_row_fft_wisdom(const Execution& execution, const Input& input,
 #include <cstddef>
 #include <stdexcept>
 #include <type_traits>
+#include <vector>
 #endif
 
 namespace solprop_native {

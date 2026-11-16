@@ -16,6 +16,7 @@
 #include "solprop_native/session/session.hpp"
 
 #include <array>
+#include <complex>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
