@@ -448,3 +448,5 @@ its reason, in the test that holds the examples to the gallery, so the list stay
 
 This page documents the functionality proposed and implemented by
 [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+The saved planes follow
+[SEP 51](../../dev/seps/archive/sep-0051-save-planes.md).

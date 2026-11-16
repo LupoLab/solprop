@@ -6,7 +6,7 @@
 | **Title** | One rule for the saved planes and the end of a run |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-15) |
-| **Status** | In progress |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
@@ -15,7 +15,7 @@
 | **Requires** | — |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI), for John Travers, on `feature/sep-0051-save-planes` |
+| **Implementation** | Opus 5.5 (AI), for John Travers. Phases 1 and 2 on `feature/sep-0051-save-planes`, [PR #851](https://github.com/LupoLab/solprop/pull/851) |
 | **Manual pages** | `guide/setup/running.md`, `guide/setup/recipes.md`, `guide/free-space/beams.md` |
 
 ## Part I — Proposal
@@ -526,7 +526,7 @@ None beyond solprop's own documentation and issues, cited where used.
 ### Phase 1 — Driver and recipes
 
 **Scope.** 2026-11-16; Opus 5.5 (AI) for John Travers; branch
-`feature/sep-0051-save-planes`, commits from `ebff016c` (the helper and adoption) to the
+`feature/sep-0051-save-planes`, commits from `e8de3270` (the helper and adoption) to the
 commit that appends this report. The front end (§5.10, phase 2) is untouched.
 
 **Survey (§11), before any call site was edited.** An instrumented `Simulation.settings`
@@ -706,7 +706,8 @@ list over `grid.length`: the settings metadata now offers `n_save` beside `save_
 
 **Scope.** 2026-11-16; Opus 5.5 (AI) for John Travers; branch
 `feature/sep-0051-gui`, on phase 1, commits from `3646b0e5` (the sheets) to the commit
-that appends this report.
+that appends this report; carried onto `feature/sep-0051-save-planes` as `d3702160` to
+`e410e79f`.
 
 **Delivered.**
 
@@ -787,6 +788,7 @@ estimated about 60 lines removed plus the new field and its tests.
 - 2026-11-16: Phase 1 (driver and recipes) reported in Part II, with an interim
   deviation on keyword-only `length` pending with the maintainer.
 - 2026-11-16: Phase 2 (front end) reported in Part II, on `feature/sep-0051-gui`.
+- 2026-11-16: Final. Both phases are reported in Part II and merge in PR #851. Open questions moved to issues: keyword-only `length` ([#857](https://github.com/LupoLab/solprop/issues/857)), the fixed-step scaffold's `n_save` ([#856](https://github.com/LupoLab/solprop/issues/856)) and further length-dependent defaults ([#855](https://github.com/LupoLab/solprop/issues/855)).
 
 ### AI review — 2026-11-15
 

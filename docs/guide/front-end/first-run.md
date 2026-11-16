@@ -113,3 +113,6 @@ setup. **⋯ → Save** keeps the setup as a recipe file of your own, and
 **⋯ → Show as Python** shows the script that builds the same simulation. Each results
 page's **Export** menu has *Copy as Python* too: the code that draws that page from the
 results file, with {py:mod}`solprop.processing` and {py:mod}`solprop.plotting`.
+
+The two forms of the saved planes were proposed and implemented by
+[SEP 51](../../dev/seps/archive/sep-0051-save-planes.md).

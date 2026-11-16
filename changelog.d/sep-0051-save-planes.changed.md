@@ -1,5 +1,5 @@
 Every route now follows one rule for the saved planes and the end of a run
-([SEP 51](docs/dev/seps/sep-0051-save-planes.md)). A run marches from `initial_z` to its
+([SEP 51](docs/dev/seps/archive/sep-0051-save-planes.md)). A run marches from `initial_z` to its
 length, `length` or `grid.length`, and always records both ends. `n_save=N` gives `N`
 evenly spaced observations over that interval, both ends included, and
 `save_planes=[...]` lists positions inside it. `SimulationSettings` gains `n_save`, its

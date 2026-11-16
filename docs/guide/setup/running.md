@@ -692,3 +692,6 @@ handler with no state written, and a run with an optmat ionisation rate, which r
 peak rates back from its output, neither reports its peak field nor warns past the rate's
 range ({py:class}`~solprop.exceptions.MaterialRangeWarning`). Read `peak_ionisation_rate`
 in the callable where that matters.
+
+The length and the saved planes were proposed and implemented by
+[SEP 51](../../dev/seps/archive/sep-0051-save-planes.md).
