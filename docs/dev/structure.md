@@ -51,7 +51,7 @@ layer that owns it. The annotations between them are
 [architecture.md §5](architecture.md)'s own. The thing to notice is where the boundary
 falls: the service loop serves a session's events, while the session runs the step loop
 (the reference's `HostSession` over its Python marches, or native's session over its
-compiled ones, [SEP 47](seps/archive/sep-0047-run-ownership.md), [SEP 52](seps/sep-0052-backend-shape.md)). Reference passes, compiled kernels and library transforms,
+compiled ones, [SEP 47](seps/archive/sep-0047-run-ownership.md), [SEP 52](seps/archive/sep-0052-backend-shape.md)). Reference passes, compiled kernels and library transforms,
 or one native trial do the numerical work behind that loop.
 
 ![One run of solprop, from prop_capillary through the kernel problem and the step driver to a saved plane](figures/one_run.svg)

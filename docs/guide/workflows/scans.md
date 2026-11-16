@@ -49,6 +49,11 @@ Four executors, all in `solprop.driver.executors`, run the points:
 | `Queue(path)` | a durable queue on a shared filesystem, drained by one or more controllers |
 | `Slurm(script, ...)` | prepares a queue and submits a Slurm array job that drains it |
 
+The `Batch` executor of earlier releases, which ran groups of compatible points in
+lockstep, is removed ([SEP 52](../../dev/seps/archive/sep-0052-backend-shape.md)): it
+held a complete run per member and was no faster. Use `Local()` in its place, or `Pool()`
+with as many workers as the group had members.
+
 A builder's omitted `backend` resolves to the native backend, as described in
 [running a simulation](../performance/resources.md#backend-choice-and-scan-workers), and
 every executor keeps that concrete choice.
