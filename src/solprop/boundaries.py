@@ -86,8 +86,14 @@ from solprop.spatial_absorber import SpatialAbsorber, SpatialAbsorberDesign
 
 __all__ = [
     "DEFAULT_BOUNDARY_N",
+    "MAX_ALPHA_LENGTH",
+    "MIN_COLLAR_ATTENUATION",
+    "MIN_COLLAR_SAMPLES",
     "SPLIT_CROSSING",
     "SPLIT_OCCUPIED_SHARE",
+    "SPLIT_RATE_BUCKETS",
+    "SPLIT_RATE_TOP",
+    "STABILITY_RADIUS",
     "TEMPORAL_ALPHA_LENGTH",
     "Absorber",
     "SpatialAbsorber",
@@ -96,12 +102,16 @@ __all__ = [
     "absorber",
     "apply_band_mask",
     "apply_split_step",
+    "collar_rate",
     "custom_absorber",
     "no_absorber",
     "nonlinear_absorber_term",
+    "split_bucket_rates",
     "split_crossing_step",
+    "split_rate_buckets",
     "split_step_factor",
     "stable_step",
+    "temporal_collar_rate",
     "warn_walkoff",
 ]
 

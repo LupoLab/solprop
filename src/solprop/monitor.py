@@ -88,9 +88,15 @@ from solprop.transverse_monitor import TransverseEdge
 
 __all__ = [
     "ACTIVE",
+    "CADENCE",
+    "CHECKS",
     "DEFAULT_BOUNDARY_CHECK",
+    "FLOOR_MARGIN",
     "QUIET",
+    "QUIET_CHECKS",
     "BoundaryCheck",
+    "BoundaryEnergies",
+    "BoundaryMonitor",
 ]
 
 _FLOOR = 1e-12

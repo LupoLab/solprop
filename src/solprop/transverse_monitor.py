@@ -45,6 +45,12 @@ from solprop.modes.slab import PlanarGrid
 from solprop.spatial_absorber import RAMP_K_FLOOR, SpatialAbsorberDesign
 
 __all__ = [
+    "BACKSTOP_READS",
+    "GUARD",
+    "NOISE_FACTOR",
+    "REACH_GROWTH",
+    "READS",
+    "TransverseEdge",
     "TransverseStatus",
 ]
 

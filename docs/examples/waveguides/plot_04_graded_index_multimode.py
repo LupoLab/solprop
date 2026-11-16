@@ -240,12 +240,16 @@ coupling = CouplingModel("vector_paraxial", model_error=0.13)
 
 
 def propagate(length, n_save):
-    """Propagate the incident beam through `length` of the fibre."""
+    """Propagate the incident beam through `length` of the fibre.
+
+    The run ends at its grid's length, so a shorter run takes the same grid built for
+    its own length.
+    """
     return prop_waveguide(
         (),
-        length,
+        None,
         provider=guide,
-        grid=grid,
+        grid=FieldGrid.from_limits(length, WAVELENGTH, (450e-9, 1.8e-6), 1.6e-12),
         incident=beam,
         coupling=coupling,
         wavelength=WAVELENGTH,

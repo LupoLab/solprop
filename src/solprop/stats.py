@@ -84,10 +84,17 @@ from solprop.spatial import (
 )
 
 __all__ = [
+    "ACCESSOR_ADVICE",
     "CATALOGUE",
+    "DEFAULT_ZDW_RANGE",
+    "GENERAL_MODAL_ACCESSORS",
     "MAX_APERTURES",
     "MAX_REGIONS",
     "METRIC_WEIGHTED_STATISTICS",
+    "ON_AXIS_PLASMA_STATISTICS",
+    "PLASMA_INTEGRATION_STATISTICS",
+    "PROFILE_STATISTICS",
+    "WEIGHT_DEPENDENT_STATISTICS",
     "WITHHELD_WITH_A_FLOW",
     "ApertureSet",
     "ApertureWeighting",
@@ -95,6 +102,7 @@ __all__ = [
     "StatsSpec",
     "analytic_field",
     "analytic_flux",
+    "check_aperture_choices",
     "collect",
     "default_spec",
     "energy",
@@ -108,7 +116,9 @@ __all__ = [
     "peak_power_window",
     "physical_energy",
     "profile_value",
+    "species_statistics",
     "spectral_flux",
+    "weight_refusal_for",
     "zdw",
 ]
 
