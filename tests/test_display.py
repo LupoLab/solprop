@@ -356,7 +356,7 @@ def build_examples(folder):
     example_output().to_file(folder / "run.h5")
     plane = run.planes()[-1]
     gaussian = GaussianPulse(
-        wavelength=800e-9, fwhm=30e-15, energy=1e-6, phase=(0.3, 0.0, 250e-30)
+        wavelength=800e-9, fwhm=30e-15, energy=1e-6, phases=(0.3, 0.0, 250e-30)
     )
     data = DataPulse(
         omega=np.linspace(2e15, 3e15, 512), spectrum=np.ones(512, complex), energy=1e-6
@@ -680,6 +680,11 @@ def test_the_run_record_is_what_it_was_before_the_printing(examples):
         for key, value in hashed["configuration"].items()
         if key != "plasma_source"
     }
+    # A pulse's Taylor coefficients were its `phase` field before they took the
+    # drivers' name.
+    pulse = dict(hashed["configuration"]["pulse"])
+    pulse = {("phase" if key == "phases" else key): item for key, item in pulse.items()}
+    hashed["configuration"]["pulse"] = pulse
     stepper = dict(hashed["stepper"])
     stepper["controller"] = {
         key: value for key, value in stepper["controller"].items() if key != "region"

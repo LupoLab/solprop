@@ -141,7 +141,7 @@ def walking_fibre(
         50.0, FIBRE, [0.0, 0.0, FIBRE_BETA2], wavelength=1e-6, grid=grid,
         pulses=[GaussianPulse(
             wavelength=2 * np.pi * C / (omega0 + offset), fwhm=200e-15,
-            peak_power=1.0, phase=[0.0, 0.1e-12],
+            peak_power=1.0, phases=[0.0, 0.1e-12],
         )],
         noise=None, raman=False, shock=False, save_planes=list(planes),
         backend=backend, integrator=integrator, absorber_scheme="split_step",

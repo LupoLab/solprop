@@ -500,7 +500,7 @@ class Simulation(Displayed):
         if (spatial_grid is None) != (medium is None):
             msg = "spatial_grid and medium must be supplied together"
             raise DriverError(msg)
-        if spatial_grid is not None and self.modes:
+        if spatial_grid is not None and self._modes:
             msg = "spatial propagation requires an empty mode sequence"
             raise DriverError(msg)
         self._spatial_grid = spatial_grid

@@ -1595,7 +1595,7 @@ def _pulse(*extra: Row) -> tuple[Parameter, ...]:
             display="GW",
         ),
         _keyword(
-            "phase",
+            "phases",
             Form("array", elements="phases"),
             "advanced",
             "Taylor coefficients of the spectral phase about the centre wavelength.",
@@ -1809,7 +1809,7 @@ def _beam(*extra: Row) -> tuple[Parameter, ...]:
             "The 1/e^2 intensity radius.",
             display="um",
         ),
-        _keyword("order", _integer(1), "advanced", "Super-Gaussian order, at least 1."),
+        _keyword("m", _integer(1), "advanced", "Super-Gaussian order, at least 1."),
         _keyword(
             "propz",
             _POSITION,

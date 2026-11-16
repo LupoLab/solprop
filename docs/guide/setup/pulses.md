@@ -98,8 +98,8 @@ A phase convention determines the sign of a delay or chirp and the time origin
 of a measured spectrum. Use the same convention when specifying the input and
 interpreting the output.
 
-**The interface is the optics convention.** A spectral phase given to a builder (its
-`phase` field, the `phases` keyword of the drivers) is
+**The interface is the optics convention.** A spectral phase given to a builder or a
+driver (the `phases` field or keyword, one name everywhere) is
 $\tilde E(\omega) = |\tilde E|\,e^{i\phi(\omega)}$ with
 
 $$ \phi(\omega) = \omega t_0 + \sum_{n} \frac{\phi_n}{n!}\,(\omega - \omega_p)^n, $$
@@ -442,7 +442,8 @@ with another. A run with no launch records no entry and reads as before.
 The builders above describe a pulse in time. For the spatially resolved geometries a
 temporal pulse is wrapped in a beam: {py:class}`~solprop.pulses.SpatialPulse` gives it a
 (super-)Gaussian transverse profile with a 1/e² intensity radius `waist` and a
-super-Gaussian `order`, a signed launch distance from the waist (`propz`, negative to
+super-Gaussian order `m` (the same order a {py:class}`~solprop.pulses.GaussianPulse`
+has in time), a signed launch distance from the waist (`propz`, negative to
 launch before it) and a Jones vector (`jones`, see [polarisation](polarisation.md)), for
 the [free-space](../free-space/model.md) radial, Cartesian and line grids; {py:class}`~solprop.pulses.PlanarPulse` projects an astigmatic Gaussian beam
 onto the slab modes of the hybrid planar grid (see

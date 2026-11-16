@@ -43,8 +43,8 @@ orthogonal at finite size. The Cartesian grid's stored spectrum is a raw DFT, al
 V/m ([Cartesian free space](cartesian.md#transform-and-energy)).
 
 {py:class}`~solprop.pulses.SpatialPulse` wraps any scalar temporal pulse in a transverse
-beam. Its transverse field is `exp(-(r/waist)**(2*order))`, so `waist` is the 1/e²
-intensity radius and `order=1` is a Gaussian. The wrapper normalises the beam in the
+beam. Its transverse field is `exp(-(r/waist)**(2*m))`, so `waist` is the 1/e²
+intensity radius and `m=1` is a Gaussian. The wrapper normalises the beam in the
 medium's flux measure at the launch plane, so the temporal pulse's `energy` or
 `peak_power` is the whole beam's physical energy or peak axial power there: what an energy
 meter in that medium reads. The inactive band and zero frequency are set to zero first,
