@@ -562,8 +562,8 @@ class StepperSettings:
         landed on either way.
     step_planes : int
         A positive ``k`` also saves the end of every ``k``-th accepted step: the
-        march's ``propagate_to`` returns there, short of its target, and is called
-        again (SEP 14 phase 3). ``0`` saves the requested planes only.
+        march returns to its session there, short of its target, and marches on
+        (SEP 14 phase 3). ``0`` saves the requested planes only.
 
     Raises
     ------

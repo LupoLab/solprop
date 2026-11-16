@@ -1207,9 +1207,9 @@ class HostSession:
     def _propagate(self, target: float) -> StepSummary:
         """Step the march towards `target`, landing on it exactly.
 
-        As the step driver's ``propagate_to``: the plane's per-step latches start
-        afresh unless a halt or a barrier returned the last march short of it, and a
-        plane the march stepped across is observed inside its last step.
+        The plane's per-step latches start afresh unless a halt or a barrier returned
+        the last march short of it, and a plane the march stepped across is observed
+        inside its last step.
         """
         if not self._progress_started:
             # Announced at the first march, the first moment the run costs anything.
