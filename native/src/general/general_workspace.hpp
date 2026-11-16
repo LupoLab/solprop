@@ -8,7 +8,7 @@
 // src/general/: checks.cpp, setup.cpp, trial.cpp (the hot set, kept in one unit so
 // that its inlining is the compiler's whole view), statistics.cpp and state.cpp.
 #ifdef SOLPROP_NATIVE_STRICT_TU
-#error "general/workspace.hpp contracts: a strict translation unit must not include it"
+#error "general_workspace.hpp contracts: a strict translation unit must not include it"
 #endif
 
 #include "kernels.hpp"

@@ -6,7 +6,7 @@
 // Adams and low-storage marches and the split-step absorber, in one unit so that the
 // compiler sees every call between them.
 
-#include "workspace.hpp"
+#include "general_workspace.hpp"
 
 namespace solprop_native {
 
