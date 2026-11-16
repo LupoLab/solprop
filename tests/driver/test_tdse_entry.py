@@ -204,16 +204,19 @@ def test_statistics_default_excludes_what_a_tdse_response_cannot_supply():
 def test_tdse_output_defaults_and_their_explicit_overrides():
     final_only = _capillary(tdse=_sae())
     assert final_only.settings.step_planes == 1
-    assert tuple(final_only.settings.save_planes) == (_LENGTH,)
+    assert tuple(np.asarray(final_only.settings.save_planes)) == (_LENGTH,)
     entry = plain(final_only.configuration["tdse_entry"])
     assert entry["requested_planes"] == "final_only"
     assert entry["step_planes"] == {"requested": None, "resolved": 1}
     no_steps = _capillary(tdse=_sae(), step_planes=0)
     assert no_steps.settings.step_planes == 0
     planes = _capillary(tdse=_sae(), n_save=5)
-    assert len(planes.settings.save_planes) == 4 and planes.settings.step_planes == 1
+    assert (
+        len(np.asarray(planes.settings.save_planes)) == 4
+        and planes.settings.step_planes == 1
+    )
     explicit = _capillary(tdse=_sae(), save_planes=[_LENGTH / 2, _LENGTH])
-    assert tuple(explicit.settings.save_planes) == (_LENGTH / 2, _LENGTH)
+    assert tuple(np.asarray(explicit.settings.save_planes)) == (_LENGTH / 2, _LENGTH)
     assert plain(explicit.configuration["tdse_entry"])["requested_planes"] == (
         "explicit"
     )
@@ -253,7 +256,7 @@ def test_without_tdse_a_representative_call_is_unchanged():
     record = {
         "configuration": serialise(simulation.configuration),
         "responses": serialise(list(simulation.responses)),
-        "save_planes": [float(x) for x in simulation.settings.save_planes],
+        "save_planes": [float(x) for x in np.asarray(simulation.settings.save_planes)],
         "step_planes": simulation.settings.step_planes,
         "backend": simulation.settings.backend,
         "stats": list(stats.names),
@@ -270,7 +273,7 @@ def test_without_tdse_a_representative_call_is_unchanged():
         / "test_without_tdse_a_representative_call_is_unchanged.npz",
     )
     assert simulation.settings.step_planes == 0
-    assert len(simulation.settings.save_planes) == 200
+    assert len(np.asarray(simulation.settings.save_planes)) == 200
 
 
 def test_prop_capillary_forwards_the_tdse_keywords(monkeypatch):

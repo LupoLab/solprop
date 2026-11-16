@@ -247,7 +247,7 @@ def test_admission_counts_every_mode_of_a_retained_and_reduced_field():
     simulation = capillary(modes=3, length=2e-3)
     shape = simulation.translate().shape
     assert shape[0] == 3
-    count = len(simulation.settings.save_planes) + 1
+    count = len(np.asarray(simulation.settings.save_planes)) + 1
     plane = math.prod(shape) * 16
     retained = _Work(build, _Options((), "all", (), "none"), "worker")
     assert retained._output_bytes(simulation, {}) == count * plane + count * 8

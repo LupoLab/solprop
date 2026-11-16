@@ -19,6 +19,7 @@ from typing import Any, Literal, SupportsIndex, cast
 
 import numpy as np
 from jaxtyping import Float
+from numpy.typing import ArrayLike
 
 from solprop._display import Displayed, engineering, line, summarise
 from solprop._ownership import frozen_copy
@@ -367,7 +368,7 @@ class SimulationSettings(Displayed):
     # A bare number is admitted by the annotation so that it is refused by name, with
     # the fix, rather than by the run-time type check.
     save_planes: Float[np.ndarray, " n_z"] | Sequence[float] | float | None = None
-    n_save: int | float | None = None
+    n_save: int | SupportsIndex | float | None = None
     dz_max: float
     dz_init: float
     dz_min: float | None = None
@@ -971,22 +972,24 @@ def _selectors(
             f"evenly spaced planes pass n_save={save_planes!r}"
         )
         raise DriverError(msg, parameter="save_planes", rule="save-planes-count")
-    if isinstance(save_planes, numbers.Real) or np.ndim(save_planes) == 0:
+    given = cast("ArrayLike", save_planes)
+    if isinstance(save_planes, numbers.Real) or np.ndim(given) == 0:
         msg = (
             f"save_planes={save_planes!r} is a single position; pass "
             f"[{save_planes!r}], or n_save for evenly spaced planes"
         )
         raise DriverError(msg, parameter="save_planes")
-    planes = frozen_copy(np.reshape(save_planes, -1), np.float64)
-    for index, position in enumerate(planes):
+    planes = frozen_copy(np.reshape(given, -1), np.float64)
+    for index, position in enumerate(planes.tolist()):
         if not math.isfinite(position):
             msg = f"save plane {position!r} is not finite"
             raise DriverError(msg, parameter="save_planes")
-        if index and position <= planes[index - 1]:
-            relation = "repeats" if position == planes[index - 1] else "follows"
+        previous = float(planes[index - 1])
+        if index and position <= previous:
+            relation = "repeats" if position == previous else "follows"
             msg = (
-                f"save plane {position!r} m {relation} {planes[index - 1]!r} m; the "
-                "positions must increase strictly"
+                f"save plane {position!r} m {relation} {previous!r} m; the positions "
+                "must increase strictly"
             )
             raise DriverError(msg, parameter="save_planes")
     return planes, count
@@ -1007,7 +1010,7 @@ def _observation_planes(
     *,
     entrance: float,
     length: float,
-    default: int = DEFAULT_N_SAVE,
+    default: int | None = None,
 ) -> Float[np.ndarray, " n_z"]:
     """Return the positions a run records after its entrance, the last exactly `length`.
 
@@ -1015,12 +1018,13 @@ def _observation_planes(
     count places that many observations evenly over ``[entrance, length]``, both
     included; positions within :data:`~solprop.stepper.schedule.LANDING_ULPS` ulps of
     an endpoint become it, each endpoint is kept once, the end is added when absent and
-    a position outside the interval is refused; neither selector takes `default`.
+    a position outside the interval is refused; neither selector takes `default`,
+    :data:`DEFAULT_N_SAVE` unless given.
     Resolving the result again against the same interval returns it unchanged.
     Positions in m; `entrance` before `length`.
     """
     if save_planes is None:
-        count = default if n_save is None else n_save
+        count = n_save or (DEFAULT_N_SAVE if default is None else default)
         # linspace's last value is exactly `length`.
         return frozen_copy(np.linspace(entrance, length, count)[1:], np.float64)
     planes = np.array(save_planes, dtype=np.float64)
@@ -1107,8 +1111,12 @@ def _adopted(
             f"grid.length = {length:g} m; got {entrance!r}"
         )
         raise DriverError(msg, parameter="initial_z")
+    # __post_init__ holds the selectors as _selectors returns them.
     planes = _observation_planes(
-        settings.save_planes, settings.n_save, entrance=entrance, length=length
+        cast("np.ndarray | None", settings.save_planes),
+        cast("int | None", settings.n_save),
+        entrance=entrance,
+        length=length,
     )
     if settings.schedule is not None and entrance == 0.0:
         refusal = _replay_refusal(settings.schedule, entrance, length)

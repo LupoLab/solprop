@@ -161,7 +161,7 @@ class _Capture(MemoryOutput):
         """Initialize the declared scan component."""
         super().__init__(block=1)
         self.options = options
-        self.count = len(simulation.settings.save_planes) + 1
+        self.count = len(np.asarray(simulation.settings.save_planes)) + 1
         problem = simulation.translate()
         self._field_shape = tuple(problem.shape)
         self.selected = (
@@ -598,7 +598,7 @@ class _Work:
         - ``statistics``: one plane of statistics with resolved species and mode axes.
         - Returns: retained array bytes; adaptive periodic rows use the memory headroom.
         """
-        count = len(simulation.settings.save_planes) + 1
+        count = len(np.asarray(simulation.settings.save_planes)) + 1
         selected = (
             count
             if self.options.fields == "all"

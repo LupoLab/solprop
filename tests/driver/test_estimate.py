@@ -107,7 +107,7 @@ def test_the_output_size_counts_only_the_retained_fields():
 
 def test_a_low_storage_run_takes_four_calls_a_step():
     simulation = _built("soliton", "numpy_ref")
-    planes = list(simulation.settings.save_planes)
+    planes = list(np.asarray(simulation.settings.save_planes))
     schedule = FixedSchedule.uniform(
         0.0, planes[-1], planes[-1] / 200, save_planes=planes
     )
@@ -167,7 +167,7 @@ def test_a_low_storage_estimate_times_the_march_s_own_step(backend, monkeypatch)
 def test_an_adams_run_takes_one_call_and_a_schedule_counts_its_total():
     assert _built("rdw", "numpy_ref").estimate().calls_per_step == 1
     simulation = _built("rdw", "numpy_ref")
-    planes = list(simulation.settings.save_planes)
+    planes = list(np.asarray(simulation.settings.save_planes))
     # Steps short enough for the Adams method's collar (h alpha / 2 below 0.0877).
     end = planes[-1]
     schedule = FixedSchedule.uniform(0.0, end, end / 2000, save_planes=planes)

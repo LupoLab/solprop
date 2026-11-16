@@ -668,6 +668,12 @@ class Recipe:
         that solve its pins have dropped ``[pins]``, so a pinned keyword looks missing
         on them.
         """
+        given = set(self._document["build"]) | set(self._document.get("pins", {}))
+        table = self._table()
+        if "length" in table and "grid" in table and not given & {"length", "grid"}:
+            # A keyword route's length is stated once, as length or as a grid's
+            # (SEP 51): either will do, so neither is required alone.
+            raise RecipeError("a length or a grid is required", path="length")
         missing = self._missing()
         if len(missing) == 1:
             raise RecipeError("a required keyword is missing", path=missing[0])

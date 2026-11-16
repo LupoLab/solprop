@@ -223,7 +223,7 @@ def test_every_march_delivers_its_planes_and_keeps_none_alive(
 
     handler = CallbackOutput(receive)
     assert simulation.run(handler, progress="none") is handler
-    planes = simulation.settings.save_planes
+    planes = np.asarray(simulation.settings.save_planes)
     assert handler.n_saved == len(kept) == len(planes) + 1
     assert kept == [index < 2 for index in range(len(kept))]
     # The positions are the save planes, landed on within a relative rounding.
@@ -250,7 +250,7 @@ def test_the_fields_setting_says_what_every_plane_carries(backend, fields, carri
 @pytest.mark.parametrize("backend", available())
 def test_the_planes_of_natural_steps_reach_the_callable(backend):
     simulation = cartesian(backend, replay=False)
-    end = simulation.settings.save_planes[-1:]
+    end = np.asarray(simulation.settings.save_planes)[-1:]
     simulation.settings = dataclasses.replace(
         simulation.settings, step_planes=2, save_planes=end
     )
@@ -378,7 +378,7 @@ def test_saving_a_plane_allocates_no_volume(backend):
     volume = simulation._field0.nbytes
     handler = _Measured(nothing)
     simulation.run(handler, progress="none")
-    assert handler.n_saved == len(simulation.settings.save_planes) + 1
+    assert handler.n_saved == len(np.asarray(simulation.settings.save_planes)) + 1
     assert max(handler.peaks) < volume / 10
     assert max(handler.left) < volume / 10
 
@@ -648,7 +648,7 @@ def test_what_the_callable_raises_stops_the_run_and_propagates(backend):
         assert not runner.closed
         assert runner.run(
             simulation._field0, output=CallbackOutput(nothing), progress="none"
-        ).n_saved == handler.n_saved + len(simulation.settings.save_planes)
+        ).n_saved == handler.n_saved + len(np.asarray(simulation.settings.save_planes))
 
 
 @pytest.mark.parametrize("backend", available())
