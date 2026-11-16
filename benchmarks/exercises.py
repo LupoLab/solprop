@@ -166,7 +166,7 @@ def dispersive() -> Simulation:
 
 
 def fiber(index: int = 0, *, noise: bool = False) -> Simulation:
-    """Keep one member of the lockstep fixture, including its periodic statistics."""
+    """Build the fibre exercise, including its periodic statistics."""
     return Simulation.from_gnlse(
         0.11 * (index + 1),
         1e-3,

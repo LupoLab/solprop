@@ -135,8 +135,7 @@ class HostLowStorageMarch:
     def replay_step(self, dz: float, end: float, slack: float) -> float:
         """Take one prescribed step from the backend's position and accept it.
 
-        The unit a lockstep batch advances each member by
-        (:class:`solprop.backends.host.group.HostGroup`), with
+        The unit a replay advances by, with
         :meth:`solprop.backends.host.adams.HostAdamsMarch.replay_step`'s signature.
 
         Parameters

@@ -27,8 +27,7 @@ from bounds import assert_within
 from scripted_driver import HostScriptedDriver
 from solprop.backends.host.driver import INITIAL_STEP_STATS_CAPACITY, HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.batch import NumpyBatchBackend
-from solprop.backends.protocol import BatchBackend, StepStats
+from solprop.backends.protocol import StepStats
 from solprop.exceptions import BackendError
 from solprop.log import BarReporter, LogReporter, NullReporter
 from solprop.noise import input_noise, modified_noise
@@ -929,21 +928,13 @@ def test_a_trials_bundles_taken_together_are_kept_until_the_next_hoist(driver):
 
 
 def test_the_bundles_a_compiled_backend_packs_are_frozen():
-    """The stage bundles, the march policy and the batch seam are the seam's literal.
+    """The stage bundles and the march policy are the seam's literal.
 
     A compiled backend is built against these names and shapes, and its build stays
     valid across solprop commits because this test, not a version pin, guards them: a
     change here is a change of the seam, which rewrites these literals and adds a
     release-note fragment in the same commit.
     """
-    for name, signature in {
-        "observe_members": (
-            "(self, *, field: bool = True) -> "
-            "tuple[solprop.backends.protocol.Observation, ...]"
-        ),
-        "member_metadata": "(self) -> tuple[dict[str, object], ...]",
-    }.items():
-        assert str(inspect.signature(getattr(BatchBackend, name))) == signature, name
     assert tuple(f.name for f in dataclasses.fields(StageTerms)) == STAGE_TERMS_FIELDS
     assert (
         tuple(f.name for f in dataclasses.fields(StageScalars)) == STAGE_SCALARS_FIELDS
@@ -1001,12 +992,11 @@ HOST_SURFACE: dict[str, str] = {
 """Every ``HostDriver`` hook a NumPy reference backend overrides (SEP 47 phase 2).
 
 The reference's own driver is no compiled seam, but its backends are written against
-these signatures: a change here changes what ``numpy_ref`` and its group override,
-in the same commit."""
+these signatures: a change here changes what ``numpy_ref`` overrides, in the same
+commit."""
 
 HOST_ATTRIBUTES = (
     "helpers",
-    "max_batch",
     "name",
     "propagator_default",
     "reads_transverse_edge",
@@ -1017,8 +1007,7 @@ HOST_ATTRIBUTES = (
 def test_the_host_hooks_the_reference_overrides_are_frozen():
     overridden = {
         name
-        for backend in (NumpyRefBackend, NumpyBatchBackend)
-        for owner in backend.__mro__
+        for owner in NumpyRefBackend.__mro__
         if owner.__module__.startswith("solprop.backends.numpy_ref")
         for name in vars(owner)
         if hasattr(HostDriver, name) and not name.startswith("__")

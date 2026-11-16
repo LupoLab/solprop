@@ -6,8 +6,8 @@
 
 :meth:`solprop.backends.host.driver.HostDriver.restore_call_ledgers` restores the
 logical Adams counts every host driver keeps. Only the reference backend's TDSE binding
-keeps atomic counts; any other host driver -- a lockstep group, or a stand-in -- is
-refused them by name rather than silently dropping a budget a resume must honour.
+keeps atomic counts; any other host driver, such as a stand-in, is refused them by name
+rather than silently dropping a budget a resume must honour.
 """
 
 import pytest

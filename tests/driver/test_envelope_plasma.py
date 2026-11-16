@@ -4,10 +4,7 @@
 
 """Exercise envelope plasma through constructors, material updates and saved runs."""
 
-from collections.abc import Mapping
 from dataclasses import replace
-from functools import partial
-from typing import cast
 
 import numpy as np
 import pytest
@@ -16,16 +13,12 @@ from bounds import rate_log_sensitivity
 from driver.test_resume import run_until
 from march_bounds import (
     FIXED_ORDER,
-    PRESCRIBED,
     STATISTIC_FACTOR,
-    assert_stored_matched,
     simulation_bound,
 )
 from rate_oracles import AdkOracle, adk_oracle
 from solprop.boundaries import absorber
 from solprop.driver import Simulation
-from solprop.driver.executors import Batch, Local
-from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import MaterialError, MaterialRangeWarning
 from solprop.modes import MarcatiliMode
 from solprop.nonlinear import EnvelopePlasmaResponse, responses_for
@@ -312,56 +305,3 @@ def test_modified_noise_plasma_statistics_scan_the_committed_field(
             budget *= max(1.0, rate_log_sensitivity(rate, smallest, (1e7, 1e12)))
         assert budget < 2.26e-5 / 10
         np.testing.assert_allclose(value, reference, rtol=0, atol=budget * scale)
-
-
-def scan_point(point, backend):
-    return build(
-        backend=backend,
-        energy=1e-5 * point.values["scale"],
-        noise="modified",
-        seed=point.seed,
-    )
-
-
-# A native lockstep batch replays its Adams members on solprop's march, with the
-# warning native/tests/test_batch.py asserts (SEP 39).
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
-@pytest.mark.medium
-@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
-def test_envelope_scan_batches_match_singletons_and_partial_tail(tmp_path, backend):
-    scan = Scan("envelope", base_seed=711, scale=[0.8, 1.0, 1.1])
-    builder = partial(scan_point, backend=backend)
-    options = {"fields": "planes", "field_planes": [-1], "progress": "none"}
-    single = run_scan(
-        scan, builder, output=tmp_path / "single.h5", executor=Local(), **options
-    )
-    batch = run_scan(
-        scan, builder, output=tmp_path / "batch.h5", executor=Batch(2), **options
-    )
-    assert single.status.tolist() == batch.status.tolist() == ["done"] * 3
-    for point in scan.points():
-        actual, expected = batch.point(point.index), single.point(point.index)
-        assert (
-            cast(Mapping, actual["metadata"])["configuration"]
-            == cast(Mapping, expected["metadata"])["configuration"]
-        )
-        arrays = {
-            name: np.asarray(value)
-            for name, value in expected.items()
-            if name != "metadata"
-        }
-        # A batch member is its singleton's march, to the march's rounding budget; a
-        # rate statistic moves by its sensitivity `d ln W / d ln F` times the field.
-        factors = {
-            name: STATISTIC_FACTOR * max(1.0, peak_rate_sensitivity(value))
-            for name, value in arrays.items()
-            if any(rate in name for rate in RATE_STATISTICS) and np.any(value)
-        }
-        assert_stored_matched(
-            arrays,
-            {name: value for name, value in actual.items() if name != "metadata"},
-            simulation_bound(builder(point), backend=backend),
-            exact=PRESCRIBED,
-            factors=factors,
-            what=f"batch member {point.index}",
-        )

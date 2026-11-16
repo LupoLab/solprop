@@ -19,14 +19,16 @@ import pytest
 
 import solprop_native
 from solprop_native import (
-    _core,
     _wait,  # pyright: ignore[reportPrivateUsage]
 )
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 
 
 def _on_a_thread() -> int:
     seen: list[int] = []
-    worker = threading.Thread(target=lambda: seen.append(_core.scoped_openmp_default()))
+    worker = threading.Thread(
+        target=lambda: seen.append(_testing.scoped_openmp_default())
+    )
     worker.start()
     worker.join()
     return seen[0]
@@ -35,9 +37,9 @@ def _on_a_thread() -> int:
 def test_a_native_call_sees_the_runtime_width_on_every_thread():
     width = solprop_native.build_info().runtime_threads
     if not solprop_native.build_info().openmp_library:
-        assert _core.scoped_openmp_default() == 1
+        assert _testing.scoped_openmp_default() == 1
         return
-    assert _core.scoped_openmp_default() == width
+    assert _testing.scoped_openmp_default() == width
     # A Python thread starts from the runtime's process-wide default (every CPU unless
     # OMP_NUM_THREADS says otherwise), which the scope replaces and then restores.
     assert _on_a_thread() == width
@@ -46,7 +48,7 @@ def test_a_native_call_sees_the_runtime_width_on_every_thread():
 
 def test_llvm_threads_spin_briefly_inside_native_calls_only():
     """On LLVM's runtime the core spins idle threads inside a call (ADR-071)."""
-    inside = _core.scoped_block_time()
+    inside = _testing.scoped_block_time()
     if inside < 0:
         pytest.skip("GNU's runtime reads its spin count once, at start")
     if solprop_native.WAIT_POLICY != "spin":

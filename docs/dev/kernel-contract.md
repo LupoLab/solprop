@@ -45,7 +45,7 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 | field | type | meaning |
 |---|---|---|
 | `grid_kind` | `"field" \| "envelope"` | selects r2c/c2r vs c2c transforms and the response formulas |
-| `shape` | `(n_modes, n_pol, n_omega)` | canonical state shape of the one trajectory the problem describes; a group of trajectories is a sequence of problems ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.7) |
+| `shape` | `(n_modes, n_pol, n_omega)` | canonical state shape of the one trajectory the problem describes |
 | `flags` | frozen dataclass of static flags and counts | `single_mode`, `scalar_pol`, `has_plasma`, `has_raman`, `has_noise`, `has_temporal_absorber`, `constant_linop`, `mode_averaged`, `n_channels`, `n_raman` — kernels specialise on these at compile time. Derived from the content, never passed in |
 | `grids` | frozen dataclass | section 2 (`translate.masks.Grids`) |
 | `linear` | frozen dataclass | section 3 (`translate.linop.LinearOperator`) |
@@ -157,24 +157,10 @@ relies on by name, and in an editable checkout compares the extension with its `
 sources by digest (`BuildInfo.source_digest`). An added optional field leaves every problem
 that does not use it unchanged.
 
-**Batches and device memory.** A group (`GroupSession`, from the first member's
-`prepare_group`; SEP 47 section 6.7) runs independently translated member backends, which
-carry their own parameter tables and noise. The native group runs one native session per
-member; the reference's runs a `BatchBackend`, its lockstep runner
-(`registry.select_batch`), whose successful construction adopts the loaded members'
-lifetime. `observe_members()` returns one
-ordinary host `Observation` per member, preserving independent error histories and
-periodic-statistics rows. `member_metadata()` returns each member's resolved policies plus
-batch settings. `Backend.available_device_memory()` returns current free device bytes,
+**Device memory.** `Backend.available_device_memory()` returns current free device bytes,
 excluding live allocations and allocator reserves, or `None` for host execution;
-a host backend returns `None` and a device backend answers for itself. Common batch
-admission uses that probe before allocating a complete group, with 20% headroom and a
-conservative per-member upper bound from the complete memory ledger. Only compatible
-layouts under the same explicit fixed schedule can share a batch; mixed backend names are
-refused. The batch's `max_batch` is its constructed member count. Calling its
-single-observation API is refused because it would discard the independent diagnostic
-histories. The descriptors, stage bundles and singleton output schema are those of a
-singleton run.
+a host backend returns `None` and a device backend answers for itself. A scan's memory
+admission reads it with the backend's complete memory ledger.
 
 **The general-modal leaves.** `linear.coupled_flow` and `linear.modal_metric` (§3),
 `transform.modal_tables` (§4) and `responses.regional_responses` (§5) are optional. Each
@@ -1138,7 +1124,7 @@ launch's remaining planes).
 | `controller` | frozen dataclass | `solprop.stepper.controller.PIController`: `rtol`, `atol`, `safety`, `max_factor`, `min_factor`, `beta1`, `beta2`, `lag`, `reject_free`, `estimator_order`, and `weights` (`None` for the weak norm, a `(n_omega,)` array for the weighted one). The tolerances and the norm choice live here and nowhere else. |
 | `dz_min`, `dz_max`, `dz_init` | float | caps on the controller's proposal; `dz_min` defaults to `solprop.stepper.controller.default_dz_min` of the run length and never applies to a landing step. Under the `"split_step"` scheme `assemble` holds `dz_max` to the launch's crossing limit and refuses a schedule past it (`split_crossing`, §1) |
 | `stretch` | float | landing stretch factor (`StepTargets.stretch`), default 1.1, equal to the controller's default growth cap but independent of it; 1 switches it off |
-| `schedule` | `(n_steps,) float64` or `None` | fixed schedule to replay (lockstep batches require it); its edges must contain every save plane and hard kink, which `FixedSchedule.uniform` guarantees for a plain fixed-step run |
+| `schedule` | `(n_steps,) float64` or `None` | fixed schedule to replay; its edges must contain every save plane and hard kink, which `FixedSchedule.uniform` guarantees for a plain fixed-step run |
 | `save_planes` | `(n_z,) float64` | z positions the driver will ask for; steps land on them unless `interpolate_planes` is set |
 | `propagator_mode` | `"auto" \| "tabulate" \| "recompute"` | ADR-004 and [backends.md §3.6](backends.md). `"auto"` is the default and is the backend's own choice, resolved at construction and written into the run's `backend` metadata group: `tabulate` for `numpy_ref` and `recompute` for `native` on a modal problem; `recompute` on every backend for a separable free-space operator, whose increment `D (z₂ − z₁)` is exact. Under the low-storage march `tabulate` is one volume of `exp(h D / 2)` reused while the step holds (a varying operator's `P` and `Q` for the step), admitted on the free and planar kinds too, and `"auto"` resolves to `tabulate` for a constant operator and `recompute` for a varying one (SEP 24 §4.3), and to `recompute` on a native device build, where an extra field read costs more than the exponential |
 | `integrator` | `Multistep \| LowStorageRungeKutta \| None` | The method stepping the problem instead of the tableau, or `None` for the Runge-Kutta march. `Multistep` ([SEP 13](seps/archive/sep-0013-expensive-response-steppers.md), [SEP 16](seps/archive/sep-0016-unified-multistep.md)) is the Adams march in its exponential or interaction formulation, with an optional carrier frame (`carrier_frame`, [SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md), added in version 37: `"off"` or `"scalar"`, the latter on `numpy_ref` and native CPU builds and refused by name elsewhere); it runs on `numpy_ref` and Kokkos on every diagonal-flow route, and beside the constant-Schur and frozen-residual coupled flows in the exponential formulation; with a `schedule` it replays the schedule's steps (`HostAdamsMarch._replay_to`); the TDSE response runs adaptive, on `numpy_ref` and the native CPU build (SEP 49). `LowStorageRungeKutta` ([SEP 24](seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md)) is RK4 in the midpoint interaction picture in three registers: it replays a `schedule` and nothing else, records the norm 0.0 ("not estimated"), refuses a coupled flow, the TDSE response, interpolated planes and a step past RK4's negative-real interval 2.785, and runs on `numpy_ref` and solprop-native (a resident engine whose step is one native call) |
@@ -1181,7 +1167,7 @@ steps produce rows and passes their exact history indices:
 The defaults keep a host buffer and call `stats()`. No backend needs to
 override the march or read its private row buffer. Device arrays remain behind the
 seam. The native backend inherits the host defaults. A backend must implement the contract,
-including the batch admission interface of §1, explicit handling or refusal of envelope
+including the device-memory probe of §1, explicit handling or refusal of envelope
 source assemblies, and an explicit refusal of each general-modal leaf, section method and
 spatial kind it does not execute.
 
@@ -1233,8 +1219,7 @@ an exception. There is no version counter to bump (ADR-068).
 There are exactly two **backends**, `native` and `numpy_ref`, and no other will be
 added (ADR-077; [backends.md §1](backends.md)). Each consumes this contract as it
 stands, visits every route variant and component to prepare or refuse it by name, and
-runs through its own `prepare` (one run) and `prepare_group` (a group of compatible
-members, or a `BackendError` saying it runs none), so the run layer names no backend.
+runs through its own `prepare`, so the run layer names no backend.
 Both qualify on the conformance suite in `tests/sessions`, native against the
 reference.
 

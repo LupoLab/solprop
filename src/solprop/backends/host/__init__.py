@@ -6,11 +6,9 @@
 
 The stateful control the reference session runs on: the step driver
 (:mod:`solprop.backends.host.driver`), the Adams march
-(:mod:`~solprop.backends.host.adams`), the
-low-storage march (:mod:`~solprop.backends.host.low_storage`), the fixed-schedule group
-(:mod:`~solprop.backends.host.group`), the reference's run session
-(:mod:`~solprop.backends.host.session`) and its group session
-(:mod:`~solprop.backends.host.group_session`). The reference shares only stateless
+(:mod:`~solprop.backends.host.adams`), the low-storage march
+(:mod:`~solprop.backends.host.low_storage`) and the reference's run session
+(:mod:`~solprop.backends.host.session`). The reference shares only stateless
 numerical modules with the native backend -- the controller cores, tableaux, stage
 tables, the exponential coefficients, the Adams and low-storage host engines
 (:class:`~solprop.backends.numpy_ref.multistep.HostHistory`,

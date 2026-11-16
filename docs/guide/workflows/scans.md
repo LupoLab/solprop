@@ -3,9 +3,9 @@
 A parameter scan runs the same simulation over a grid of inputs — pressures, energies,
 durations, seeds — and collects what each point produced into one HDF5 file. This page
 is for anyone who wants more than a handful of runs: it describes how a scan is declared,
-how the points are built and executed (one after another, in parallel processes, in
-lockstep batches, or spread over cluster jobs), what is kept of each point, and how the
-collected file is read back.
+how the points are built and executed (one after another, in parallel processes, or
+spread over cluster jobs), what is kept of each point, and how the collected file is
+read back.
 
 The workflow has four parts:
 
@@ -40,13 +40,12 @@ The builder receives a `ScanPoint` and returns a `Simulation`. Variables use the
 builder's units: pressure at the user interface is in bar, energy in J, lengths
 in m and times in s. A builder can select any installed backend.
 
-Five executors, all in `solprop.driver.executors`, run the points:
+Four executors, all in `solprop.driver.executors`, run the points:
 
 | executor | what it does |
 |---|---|
 | `Local()` | runs the points one after another in the current process; the default |
 | `Pool(workers, threads=1, ...)` | runs independent points in parallel worker processes; the executor to use for independent CPU runs |
-| `Batch(size)` | advances compatible fixed-schedule points in lockstep inside one backend |
 | `Queue(path)` | a durable queue on a shared filesystem, drained by one or more controllers |
 | `Slurm(script, ...)` | prepares a queue and submits a Slurm array job that drains it |
 
@@ -147,94 +146,22 @@ constructor's pulse recipe from the metadata, because it no longer describes the
 the exact initial spectrum is still recorded. Two points with equal physical fields
 need not have equal configuration hashes when their construction provenance differs.
 
-## Fixed-schedule batches
+## Each point's window and record
 
-`Batch(size)` advances up to `size` points in lockstep, on one fixed step schedule, inside
-one backend. It runs on `numpy_ref` and `native` (CPU and GPU builds), and
-each backend is tested to give a batch member the output the same point gives run alone,
-to rounding: the same steps, with sums that may be ordered differently
-([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)). On the
-native builds each member of a batch runs in its own native execution session, stepping
-natively between save planes, its coupled flow (a coherent wall, for instance) included.
-On the reference a coupled-flow member takes its own trial, flow included, member by
-member; its member-axis batch serves the other points.
-
-```{code-block} python
-from solprop.driver.executors import Batch
-from solprop.driver.scan import run_scan
-
-# The builder must return fibre simulations with an explicit fixed schedule.
-# It selects its backend as usual.
-result = run_scan(
-    scan,
-    build_fixed_point,
-    executor=Batch(4, memory_limit=8 * 1024**3),
-    output="fixed_scan.h5",
-    fields="planes",
-    field_planes=[-1],
-    stats="all",
-)
-```
-
-Prepare the replay schedule with the `discover`, `calibrate` and `replay` workflow of
-{mod}`solprop.stepper.schedule` ([fixed schedules](../numerics/fixed-schedules.md#fixed-schedules-discover-calibrate-replay))
-and validate its transfer to the individual scan points before interpreting their
-physics. A batch executor does not silently convert an adaptive simulation into a fixed
-one, and it runs modal (fibre and capillary) propagation only, not radial, Cartesian or
-planar grids. Adjacent points with matching grids, schedules, response layouts and
-statistics can share a group; layout changes and the final partial batch make smaller
-groups. Mixing backend names in a batch scan raises an error. Global point indices are
-unchanged. General modal runs may be batched under a narrower rule
-([running](../waveguides/supplied-guides.md#a-guide-instead-of-a-fill)). A member's field
-crosses to the host only at a plane the scan reads, as for a point run alone: under
-`fields="none"`, with reductions of statistics, none does.
-
-Each member watches its own time window, as the point would run alone
+Each point watches its own time window, as it would run alone
 ([watching the window's edges](../numerics/boundaries.md#watching-the-windows-edges)):
 a point whose light reaches an edge is stopped and recorded as failed with its
-`BoundaryError`, and the other members of its batch go on. Under an `"error"` warnings
-filter a `BoundaryWarning` fails its own point in the same way, and only that point.
+`BoundaryError`, and the other points go on. Under an `"error"` warnings filter a
+`BoundaryWarning` fails its own point in the same way, and only that point.
 
 Every executor keeps each watched point's closing monitor record, done or failed, without
 its per-plane rows: `read_point(path, index)["boundary_monitor"]`. It is the record a run
 of the point alone would close with (the removed fraction, the guard maxima, where the run
 stopped), and the scan's schema is unchanged by it.
 
-Memory admission probes the selected backend and keeps 20 % host headroom. It
-records baseline and probe RSS, workspace and output estimates, shared table
-bytes already included in the baseline, and the admitted group size. An explicit
-`memory_limit` (bytes) further restricts the physical or scheduler allocation. This is an
-admission estimate, not an operating-system memory limit; the builder itself must
-fit while constructing up to `size` translated points. A budget that cannot fit
-one member is refused. Device backends report free memory through the same interface:
-admission probes each member, uses its complete ledger as a conservative upper bound on
-device storage, and restricts the group before constructing all members. Allocator
-reserves are excluded from free space. The recorded device bound may include host
-buffers, so it can admit fewer members than a device-only ledger would.
-
-Each point records its actual batch size, execution strategy and resolved backend
-policies. `native` fuses the accepted update across members, and
-combines the error partials of all members in the same native kernel, while each member
-keeps its own workspace; the response kernels and the FFT and BLAS plans stay per member. This partial fusion does not amortise the whole GPU launch
-sequence.
-
-**What batching buys.** On the CPU, batching gives no speedup over running the points
-one after another, so use `Pool` there. On a data-centre GPU, a native `Batch(8)` of
-eight points of a shortened multimode resonant-dispersive-wave capillary on a fixed
-515-step schedule gave about 1.1 times the throughput of `Local`, setup and output
-included. That measures one shape on one schedule and does not predict others. For
-comparison, on an 18-core x86-64 server a `Pool` of 8 to 18 one-thread workers gave
-about four times the throughput of `Local` on a shortened six-mode hydrogen-filled
-capillary, and one worker using all 36 hardware threads was slower than those pools.
-Size workers within the actual CPU and memory allocation, and measure the workload that
-matters to you; [performance tuning](../performance/tuning.md) explains the thread
-settings of scan workers.
-
-Fields keep the single-run saved-plane shape. Error histories, noise, species axes
-and periodic statistics remain separate per member. Reductions use the same
-processing definitions and temporary disk spool as `Local` and `Pool`. Completed
-points are revalidated as on the other routes before being skipped (below), so changing
-executor does not change what a point records.
+Fields keep the single-run saved-plane shape, and error histories, noise, species axes
+and periodic statistics stay each point's own. Completed points are revalidated before
+being skipped (below), so changing executor does not change what a point records.
 
 ## Processes and resource limits
 
@@ -256,6 +183,14 @@ limit file that cannot be read, or a malformed `SOLPROP_SCAN_CPU_OFFSET` or
 `SOLPROP_SCAN_CPU_COUNT`, raises {py:class}`~solprop.exceptions.DriverError`.
 This is admission control, not an operating-system memory limit; adaptive periodic
 statistics and custom reducer working memory can exceed the probe estimate.
+
+**What a pool buys.** On an 18-core x86-64 server a `Pool` of 8 to 18 one-thread
+workers gave about four times the throughput of `Local` on a shortened six-mode
+hydrogen-filled capillary, and one worker using all 36 hardware threads was slower than
+those pools. That measures one shape and does not predict others: size workers within
+the actual CPU and memory allocation, and measure the workload that matters to you;
+[performance tuning](../performance/tuning.md) explains the thread settings of scan
+workers.
 
 Pool builders and custom reducers must be pickleable, importable module-level
 callables. Keep entry-point execution under `if __name__ == "__main__"`. Nested
@@ -321,7 +256,7 @@ What an executor reports differs, because the points run in different places:
 |---|---|---|
 | `Local` | when the point is built, in this process | every call, `step` included, in this process |
 | `Pool` | when the point is sent to a worker | `summary`, `started`, `plane`, `finished` and `interrupted`, sent by the worker on its pipe and made in the controller as they arrive; each plane carries its position and the four scalars of its summary, never a field, and `step`, on the hot path, is not sent |
-| `Batch`, `Queue`, `Slurm` | when the point's result is collected, just before `point_finished` | none |
+| `Queue`, `Slurm` | when the point's result is collected, just before `point_finished` | none |
 
 All the calls are made in the process and thread that called `run_scan`.
 
@@ -334,7 +269,6 @@ running stops as its executor allows:
 |---|---|
 | `Local` | the point in flight polls the flag as `Simulation.run(stop=...)` does: before every trial step, or on a native `Multistep()` march each time a native call returns, so it stops within one step or [that call's bound](../results/resuming.md#stopping-a-run) |
 | `Pool` | the controller sends each busy worker a stop message on its pipe, which that worker's run polls in the same way; it then collects the workers' results and shuts them down. Terminating a worker that does not exit remains the last resort |
-| `Batch` | between groups: a group that has started runs to its end, and the claimed points of a group not yet run are given back |
 | `Queue`, `Slurm` | refused, with an error naming the queue's own tools: the points run in other processes or on other machines, which a flag in this process cannot reach. Use `scancel` for a Slurm job, or stop a queue's controllers with SIGTERM |
 
 A stopped point is not committed: the file holds the points finished before the stop,

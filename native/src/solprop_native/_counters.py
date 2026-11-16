@@ -9,10 +9,10 @@ why each native call came back to Python, how many attempts it carried, and what
 crossed to the host. Counting is off unless the benchmark worker turns it on: every
 hook reads :data:`active` once and does nothing while it is ``None``. A run that is
 not counted pays one attribute test per native march call, plane, statistics call,
-edge read, field crossing or load, low-storage or group step and native session
-``advance`` or export, and nothing per attempt: the two per-attempt hooks (solprop's
-own loop's attempts and periodic rows) are installed on ``NativeBackend`` by
-:func:`enable` and removed by :func:`disable`. Its numbers are unchanged either way.
+edge read, field crossing or load, low-storage step and native session ``advance``
+or export, and nothing per attempt: the two per-attempt hooks (solprop's own loop's
+attempts and periodic rows) are installed on ``NativeBackend`` by :func:`enable` and
+removed by :func:`disable`. Its numbers are unchanged either way.
 
 The record covers the native execution session
 (:class:`~solprop_native.session.NativeSession`), which serves every native run since
@@ -42,9 +42,7 @@ What is counted, and where:
   attempts, its periodic rows to the statistics rows and, with its plane statistics,
   to the statistics evaluations, and a non-launch observation to the planes; the
   session's own march calls inside the ``advance`` are counted from its status as
-  ``session_adams``, ``session_runge_kutta`` or ``session_low_storage``. Members of
-  the native group session (``solprop_native.group``) are native sessions and are
-  counted so; the group's common steps are counted among the group steps.
+  ``session_adams``, ``session_runge_kutta`` or ``session_low_storage``.
 - **Planes** (calls of ``propagate_to`` on the bridge; non-launch observations of a
   session), **statistics rows** (periodic rows, taken by solprop's loop on the bridge
   and natively in a session) and **statistics evaluations** (rows and plane
@@ -100,9 +98,6 @@ class Counters:
         Accepted steps among them.
     low_storage_steps : int
         Low-storage engine steps, among the host attempts.
-    group_steps : int
-        Common steps of the native group session, which returns per window, not per
-        step.
     planes : int
         ``propagate_to`` calls, or a native session's observations: one per saved
         plane after the launch.
@@ -131,7 +126,6 @@ class Counters:
     host_attempts: int = 0
     host_accepted: int = 0
     low_storage_steps: int = 0
-    group_steps: int = 0
     planes: int = 0
     statistics_rows: int = 0
     statistics_evaluations: int = 0
@@ -195,10 +189,6 @@ class Counters:
         if calls:
             self.march_calls[march] += calls
 
-    def group_window(self, steps: int) -> None:
-        """Count the common steps of one window of the native group session."""
-        self.group_steps += steps
-
     def crossing(self, where: str, nbytes: int) -> None:
         """Count one field copied to the host."""
         self.field_crossings[where] += 1
@@ -232,7 +222,6 @@ class Counters:
             "march_attempts": self.march_attempts,
             "host_attempts": self.host_attempts,
             "low_storage_steps": self.low_storage_steps,
-            "group_steps": self.group_steps,
             "planes": self.planes,
             "statistics_rows": self.statistics_rows,
             "statistics_evaluations": self.statistics_evaluations,

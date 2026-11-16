@@ -51,11 +51,9 @@ from moving_guide_cases import (
 )
 from solprop.backends import select
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
-from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.constants import C
 from solprop.driver import Simulation, prop_gnlse
 from solprop.exceptions import (
-    BackendError,
     DriverError,
     ModeError,
     OutputError,
@@ -210,22 +208,6 @@ def test_both_backends_admit_moving_maps(kinked_problem):
     pytest.importorskip("solprop_native")
     run_request = simulation._run_request()
     select("native", problem, run_request, grid=simulation.grid).close()
-
-
-def test_a_lockstep_batch_refuses_a_moving_guide(kinked_problem):
-    """The batch applies neither half of a flow, so a member carrying one is refused."""
-    simulation, problem = kinked_problem
-    run_request = simulation._run_request()
-    member = NumpyRefBackend(
-        problem,
-        run_request,
-        grid=simulation.grid,
-        modes=list(simulation.modes),
-        profiles=None,
-    )
-    with pytest.raises(BackendError, match="lockstep batch does not execute"):
-        NumpyBatchBackend([member])
-    member.close()
 
 
 def test_the_modified_noise_model_is_refused_beside_a_moving_guide(kinked):

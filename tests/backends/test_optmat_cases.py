@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""What the optmat cases need beyond the parity ladder: a batch and native's ledger.
+"""What the optmat cases need beyond the parity ladder: native's ledger.
 
 The ladder itself -- every case on native against ``numpy_ref``, rung by rung, with
 what each case carries -- is the catalogue's (``tests/backends/optmat_rows.py``).
@@ -11,23 +11,11 @@ what each case carries -- is the catalogue's (``tests/backends/optmat_rows.py``)
 import numpy as np
 import pytest
 
-from backends.test_batch_responses import compare
 from bounds import EPS, assert_within
 from builders import launch_derivative
 from optmat_parity_cases import build_case
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.passes import apply_hard_mask
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("name", ["n2_field", "ar_envelope"])
-def test_a_batch_equals_its_members(name):
-    # Within the rounding budget tests/backends/test_batch_responses.py holds its own
-    # cases to: a lockstep batch's members run the same arithmetic as independent
-    # runs. The reference's lockstep group: the native group runs each member as its
-    # own native session (SEP 47 phase 5), with no shared arithmetic to check.
-    case = build_case(name)
-    compare(case.problem, case.run_request, case.grid, "numpy_ref", options=None)
 
 
 @pytest.mark.medium

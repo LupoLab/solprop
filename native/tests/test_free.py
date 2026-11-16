@@ -26,6 +26,7 @@ from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend, _core
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 from solprop_native.backend import (
     _lower,  # pyright: ignore[reportPrivateUsage]
     _LowerPlan,  # pyright: ignore[reportPrivateUsage]
@@ -217,16 +218,16 @@ def test_adams_dense_storage_is_optional_and_reallocation_is_idempotent(
             expected = (2 * slots + 4 + (slots + 4 if dense else 0)) * field_bytes
             assert state.memory_ledger()["adams_history"] == expected + 8 * omega
             if dense:
-                state.adams_hold()
-                state.adams_restore()
+                _testing.adams_hold(state)
+                _testing.adams_restore(state)
                 np.testing.assert_array_equal(
                     state.field_to_host().reshape(-1), initial
                 )
             else:
                 with pytest.raises(RuntimeError, match="dense observation storage"):
-                    state.adams_hold()
+                    _testing.adams_hold(state)
                 with pytest.raises(RuntimeError, match="dense observation storage"):
-                    state.adams_restore()
+                    _testing.adams_restore(state)
     finally:
         state.close()
         state.close()
@@ -251,7 +252,7 @@ def test_adams_rows_cross_to_the_host_and_back_exactly(
         rng = np.random.default_rng(29)
         rows = rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
         state.adams_rows_from_host("store", rows)
-        back = state.adams_rows_to_host("store")
+        back = _testing.adams_rows_to_host(state, "store")
         assert back.shape == shape
         assert back.dtype == np.complex128
         np.testing.assert_array_equal(back, rows)
@@ -267,11 +268,11 @@ def test_adams_rows_cross_to_the_host_and_back_exactly(
         with pytest.raises(TypeError):
             state.adams_rows_from_host("store", np.asfortranarray(rows))
         with pytest.raises(ValueError, match="unknown Adams history row"):
-            state.adams_rows_to_host("slopes")
+            _testing.adams_rows_to_host(state, "slopes")
         with pytest.raises(RuntimeError, match="not allocated"):
-            state.adams_rows_to_host("states")
+            _testing.adams_rows_to_host(state, "states")
         # Nothing was copied by a refused call.
-        np.testing.assert_array_equal(state.adams_rows_to_host("store"), rows)
+        np.testing.assert_array_equal(_testing.adams_rows_to_host(state, "store"), rows)
     finally:
         state.close()
 

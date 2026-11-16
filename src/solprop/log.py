@@ -464,8 +464,8 @@ class ScanReporter(Protocol):
     not; an exception from the scan propagates without it. The calls are made in the
     controlling process, in the thread that called ``run_scan``. When a point starts
     depends on the executor: ``Local`` at its build, ``Pool`` when the point is sent to
-    a worker, and ``Batch``, ``Queue`` and ``Slurm`` only when its result is collected,
-    just before :meth:`point_finished`.
+    a worker, and ``Queue`` and ``Slurm`` only when its result is collected, just
+    before :meth:`point_finished`.
 
     Subclass it, or :class:`NullScanReporter`, to inherit a no-op for each call you do
     not override.
@@ -524,7 +524,7 @@ class ScanReporter(Protocol):
         the controller, which makes them on the reporter returned here as the messages
         arrive; each plane carries its position and the four scalars of its
         :class:`PlaneSummary`, never a field, and ``step``, on the hot path, is not
-        sent. ``Batch``, ``Queue`` and ``Slurm`` ask for none.
+        sent. ``Queue`` and ``Slurm`` ask for none.
 
         Parameters
         ----------

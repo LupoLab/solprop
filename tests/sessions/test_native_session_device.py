@@ -8,22 +8,19 @@ SEP 47 phase 4 (section 6.3): on a CUDA or HIP build the native session serves w
 device build runs -- Adams and the embedded Runge-Kutta tableaux, adaptive and
 replayed, the low-storage replay, dense output, the radial, Cartesian, line and planar
 spatial routes with their fluence widths, a free-space run's transverse edge and a
-collar's current, the input and modified noise models, a coupled flow wider than 16
-channels or off its eigenbasis route, and fixed-schedule groups (the native group
-session, one native session per member). Since phase 5 deleted the transitional bridge
+collar's current, the input and modified noise models, and a coupled flow wider than
+16 channels or off its eigenbasis route. Since phase 5 deleted the transitional bridge
 it was first held to bit for bit, each feature runs on the device in the native session
 and is held to the NumPy reference session on the same problem within the CPU suite's
 budgets (``test_native_session.py``'s :func:`assert_meets_reference`, the transverse
 suite's decisions), and to itself: a repeated run on the device is the same bits, as
 on a CPU build's one thread, its decisions made on the host from the same device
-reductions. A group's member is its lone session's. The session crosses the field to
-the host only for an export.
+reductions. The session crosses the field to the host only for an export.
 """
 
 from __future__ import annotations
 
 import warnings
-from contextlib import ExitStack
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -44,9 +41,6 @@ from sessions.executors import (
     fibre,
     window,
 )
-from sessions.test_group import PLANES as GROUP_PLANES
-from sessions.test_group import member
-from sessions.test_native_group import INTEGRATORS, _lone, _record, _same, _started
 from sessions.test_native_session import (
     CASES,
     DENSE,
@@ -82,7 +76,6 @@ if TYPE_CHECKING:
     from solprop.translate.run_request import RunRequest
 
 native_session = pytest.importorskip("solprop_native.session")
-native_group = pytest.importorskip("solprop_native.group")
 
 pytestmark = pytest.mark.gpu
 
@@ -343,25 +336,6 @@ def test_a_wide_or_off_route_coupled_flow_repeats_itself_on_the_device(kind):
     baseline = _door(problem, request, context)
     assert run.status.attempts == baseline.status.attempts == 10
     assert_same_run(run, baseline)
-
-
-@pytest.mark.parametrize("name", sorted(INTEGRATORS))
-def test_a_native_group_member_is_its_lone_session_on_the_device(name):
-    """A group of three fixed-schedule members on each march, in the native group
-    session -- one native session per member on the device -- and each member alone in
-    its native session: each member's fields, statistics, attempts and rows the same,
-    bitwise."""
-    with ExitStack() as cleanup:
-        simulations = [member(index, "native", INTEGRATORS[name]) for index in range(3)]
-        group = _started(simulations, cleanup)
-        assert isinstance(group, native_group.NativeGroupSession)
-        native = _record(group)
-    alone = [_lone(member(index, "native", INTEGRATORS[name])) for index in range(3)]
-    for index, (ours, theirs) in enumerate(zip(native, alone, strict=True)):
-        assert len(ours) == len(theirs) == len(GROUP_PLANES) + 1
-        for plane, (one, other) in enumerate(zip(ours, theirs, strict=True)):
-            for key in one:
-                assert _same(one[key], other[key]), (index, plane, key)
 
 
 def test_the_production_door_serves_the_device_matrix_natively():

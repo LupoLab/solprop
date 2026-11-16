@@ -2479,29 +2479,6 @@ class StatsSpec:
         """
         return int(self.spectral_regions.shape[0])
 
-    def same_tables(self, other: "StatsSpec") -> bool:
-        """Return whether another spec carries the same far-field tables.
-
-        Parameters
-        ----------
-        other : StatsSpec
-            The spec to compare, for example a lockstep batch member's.
-
-        Returns
-        -------
-        bool
-            True when both carry no apertures or the same apertures entry for entry,
-            and identical regions: a structural comparison.
-        """
-        same_apertures = (
-            other.apertures is None
-            if self.apertures is None
-            else self.apertures.same_as(other.apertures)
-        )
-        return same_apertures and np.array_equal(
-            self.spectral_regions, other.spectral_regions
-        )
-
     @property
     def n_windows(self) -> int:  # numpydoc ignore=RT01
         """How many spectral windows the spec carries."""

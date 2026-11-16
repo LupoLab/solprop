@@ -413,8 +413,8 @@ def test_step_target_validation_rejects_a_broken_set(overrides, message):
 @pytest.mark.parametrize("factor", [0.37, 0.5, 1.7, 3.0])
 def test_rescaling_the_same_schedule_twice_is_bitwise_identical(factor):
     # Replaying a scaled schedule has to be a replay, not an approximation: every
-    # ensemble member and every batch lane in lockstep must take exactly the same
-    # steps, or the numerical error stops being a common systematic.
+    # ensemble member must take exactly the same steps, or the numerical error stops
+    # being a common systematic.
     schedule = FixedSchedule(np.array([0.4, 0.4, 0.2, 0.13, 0.07]))
     first = schedule.rescaled(factor)
     second = FixedSchedule(np.array([0.4, 0.4, 0.2, 0.13, 0.07])).rescaled(factor)

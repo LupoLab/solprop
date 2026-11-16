@@ -36,7 +36,7 @@ pytestmark = pytest.mark.skipif(
     "native" not in available(), reason="native is not installed"
 )
 backend_module = pytest.importorskip("solprop_native.backend")
-core = pytest.importorskip("solprop_native._core")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 CORPUS = Path(__file__).parents[1] / "data" / "rk_traces.json.gz"
 
@@ -122,7 +122,7 @@ def run_native(scenario: Scenario, max_attempts: int) -> dict[str, Any]:
     if schedule is not None:
         steps = np.ascontiguousarray(schedule.steps, dtype=np.float64)
         edges = np.ascontiguousarray(schedule.edges, dtype=np.float64)
-    runner = core.ScriptedRkMarch(policy, norms, scenario.h0 or 0.0, steps, edges)
+    runner = _testing.ScriptedRkMarch(policy, norms, scenario.h0 or 0.0, steps, edges)
     harness = _NativeHarness(scenario, runner)
     march = TraceRungeKuttaMarch(harness, runner=runner)
     march.MAX_ATTEMPTS = max_attempts

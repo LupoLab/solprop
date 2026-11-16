@@ -32,7 +32,7 @@ namespace solprop_native::dense {
 /** An observation's fraction of its step, `(position - z) / dz`. */
 [[nodiscard]] double fraction(double position, double z, double dz);
 /** The interaction formulation's interpolant weights over `count` nodes `(1,
-    theta...)` at the fraction `theta` of a step `dz` (`_ResidentAdams.observe`): the
+    theta...)` at the fraction `theta` of a step `dz` (`HostHistory.observe`): the
     corrector's, `dz` times the integrated weights from 0 to `theta`, in the binding's
     slots. */
 [[nodiscard]] AdamsWeights fused_weights(const double* nodes, std::size_t count,
@@ -51,8 +51,8 @@ namespace solprop_native::dense {
 
 namespace solprop_native::engines {
 
-/** The Adams march's dense output (solprop's `_ResidentAdams.march_stepped`, `observe`,
-    `hold` and `restore`): the interaction formulation's corrector interpolant, or the
+/** The Adams march's dense output (solprop's `HostHistory.observe`, `hold` and
+    `restore`): the interaction formulation's corrector interpolant, or the
     exponential formulation's corrector with its compensation and carrier frame, over
     the last accepted step the engine kept. */
 class AdamsDense final : public session::Dense {

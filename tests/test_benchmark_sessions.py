@@ -7,7 +7,7 @@
 Each case of the ``sep47`` set runs once, briefly, with the native adapter's structural
 counters on (``benchmarks.worker.measure(count_events=True)``), and its counts must show
 the events it was declared for: a statistics row at every accepted step, snapshots
-serviced, a group's common steps, the native march of a coupled flow. Every run is
+serviced, the native march of a coupled flow. Every run is
 served by the native execution session, as in production (SEP 47 section 7.3).
 """
 
@@ -35,7 +35,6 @@ FIBRES = (
     "snapshots_every",
     "with_input_repeat",
     "scan_local",
-    "group_batch",
 )
 
 
@@ -81,7 +80,6 @@ def test_the_set_holds_the_matrix_and_keeps_older_digests():
         {"workload": "absent"},
         {"output": "disk"},
         {"fields": "some"},
-        {"workload": "group"},
         {"snapshots": 1},
     ],
 )
@@ -96,9 +94,6 @@ def test_field_free_and_scanned_cases_build_their_retention():
     # A scan's points keep the default; run_scan sets what the scan keeps.
     scanned = build(CASES["scan_local"].configuration("default", 1))
     assert scanned.settings.fields == "all"
-    group = build(CASES["group_batch"].configuration("default", 1))
-    assert group.settings.schedule is not None
-    assert group.settings.schedule.n_steps == 10
     snapshots = build(CASES["snapshots_every"].configuration("default", 1))
     assert snapshots.settings.step_planes == 1
 
@@ -161,7 +156,7 @@ def test_snapshot_cases_service_what_they_ask_for(name, every, tmp_path):
 # A registered benchmark case propagated: the harness's real-case runs are slow
 # (testing.md section 2); its logic is tested in the default lane.
 @pytest.mark.slow
-def test_repeated_inputs_scans_and_groups_run_their_members(tmp_path):
+def test_repeated_inputs_and_scans_run_their_members(tmp_path):
     _, run, counts = counted("with_input_repeat", tmp_path)
     assert run["runs"] == 3
     assert run["finite"] is True
@@ -189,25 +184,6 @@ def test_repeated_inputs_scans_and_groups_run_their_members(tmp_path):
     # A field-free scan's members never copy a field to the host.
     assert counts["field_crossings"] == {}
     assert counts["field_bytes"] == 0
-    _, run, counts = counted("group_batch", tmp_path / "group", fraction=0.5)
-    schedule = build(CASES["group_batch"].configuration("default", 1, "native", 0.5))
-    assert schedule.settings.schedule is not None
-    steps = schedule.settings.schedule.n_steps
-    assert counts["group_steps"] == steps > 1
-    # The native group session: each member's native session returns at its launch,
-    # at each plane and at its end, its steps native; and each point's resource
-    # probe, a native session of its own, at its launch.
-    planes = len(schedule.settings.save_planes)
-    assert counts["native_returns"] == {
-        "session_observation": 4 * (planes + 1) + 4,
-        "session_terminal": 4,
-    }
-    assert counts["field_loads"] == {"start": 8}
-    assert counts["field_crossings"] == {}
-    assert counts["attempts"] == counts["accepted"] == 4 * steps
-    assert counts["host_attempts"] == 0
-    # Batch watches no point's run: its steps are uncounted, not zero.
-    assert (run["accepted"], run["rejected"], run["finite"]) == (None, None, True)
 
 
 def test_counters_attribute_a_host_step_to_the_work_due_on_it():

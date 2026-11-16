@@ -199,9 +199,8 @@ not matched `rtol`. At `rtol` of 5e-2 or more the Adams method is unreliable and
 **How long the run is, and how many.** A run's first few steps rebuild the history from
 order one, a fixed cost that a short run feels most. A single short run hardly matters;
 in a scan of thousands, measure one point with each integrator before choosing, and
-spread the points over a `Pool` of one-thread workers, which scales with the cores:
-batching in lockstep buys nothing on the CPU and about 1.1 times on a GPU
-([scans](../workflows/scans.md#fixed-schedule-batches)).
+spread the points over a `Pool` of one-thread workers, which scales with the cores
+([scans](../workflows/scans.md#processes-and-resource-limits)).
 
 **Planes.** Both integrators interpolate save planes inside their steps
 (`interpolate_planes=True`) at the step's own order and no call; landing on them stays

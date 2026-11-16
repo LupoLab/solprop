@@ -29,11 +29,11 @@ from runtime_types import unchecked
 from solprop.backends.ledger import CallLedger
 from solprop.backends.registry import available
 from solprop.constants import C
-from solprop.driver import Simulation, SimulationSettings, _scan_batch, prop_gnlse
-from solprop.driver.executors import Batch, Local
+from solprop.driver import Simulation, SimulationSettings, prop_gnlse
+from solprop.driver.executors import Local
 from solprop.driver.scan import Scan, ScanPoint, run_scan
 from solprop.driver.session_loop import _earlier_execution
-from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning, OutputError
+from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.log import NullReporter
 from solprop.monitor import (
@@ -647,8 +647,8 @@ def test_only_the_quiet_collar_is_part_of_the_resume_key() -> None:
 def _walking_point(point: ScanPoint) -> Simulation:
     """Return a scan point whose pulse walks ``drift`` windows over the fibre.
 
-    On a fixed schedule, as a batch needs, and without a collar, so that light that
-    walks out of the window wraps into the opposite guard.
+    On a fixed schedule, and without a collar, so that light that walks out of the
+    window wraps into the opposite guard.
     """
     trange = 3 * TRANGE
     grid = EnvelopeGrid.from_limits(
@@ -669,53 +669,23 @@ def _walking_point(point: ScanPoint) -> Simulation:
     )  # fmt: skip
 
 
-def test_a_batched_scan_fails_the_point_a_lone_run_fails(tmp_path: Path) -> None:
-    # Each batch member watches its own window: the point whose pulse walks out is
-    # stopped and failed, the other completes, as the points run one by one.
-    scan = Scan("walk", drift=[0.0, 0.9])
-    for name, executor in (("local", Local()), ("batch", Batch(2))):
-        path = tmp_path / f"{name}.h5"
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", BoundaryWarning)
-            output = run_scan(
-                scan, _walking_point, executor=executor, output=path, progress="none"
-            )
-        assert output.status.tolist() == ["done", "failed"], name
-        error = str(read_point(path, 1)["error"])
-        assert "BoundaryError" in error, name
-        assert "could not be persisted" not in error, name
-
-
-def test_a_batched_point_keeps_its_first_failure_when_its_boundary_stops_it_later(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # The walking point's capture fails at its launch plane; its boundary stop later
-    # in the same group is a second failure, and the point keeps the first.
-    original = _scan_batch._Capture.save
-    order: list[int] = []
-
-    def capture(self: Any, plane: Any) -> None:
-        if id(self) not in order:
-            order.append(id(self))
-        if order.index(id(self)) == 1:
-            raise OutputError("member capture unavailable")
-        original(self, plane)
-
-    monkeypatch.setattr(_scan_batch._Capture, "save", capture)
-    path = tmp_path / "batch.h5"
+def test_a_scan_fails_the_point_whose_boundary_stops_it(tmp_path: Path) -> None:
+    # Each point watches its own window: the point whose pulse walks out is stopped
+    # and failed, and the other completes.
+    path = tmp_path / "local.h5"
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)
         output = run_scan(
             Scan("walk", drift=[0.0, 0.9]),
             _walking_point,
-            executor=Batch(2),
+            executor=Local(),
             output=path,
             progress="none",
         )
     assert output.status.tolist() == ["done", "failed"]
     error = str(read_point(path, 1)["error"])
-    assert "member capture unavailable" in error
-    assert "BoundaryError" not in error
+    assert "BoundaryError" in error
+    assert "could not be persisted" not in error
 
 
 def test_without_a_check_nothing_is_watched() -> None:
@@ -1578,50 +1548,39 @@ def test_a_scan_point_keeps_its_closing_monitor_record(
         pytest.skip(f"{backend} is not installed")
     scan = Scan("walk", drift=[0.0, 0.4, 1.2])
     build = functools.partial(_walking_watched_point, backend=backend)
-    for name, executor in (("local", Local()), ("batch", Batch(3))):
-        path = tmp_path / f"{name}.h5"
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", BoundaryWarning)
-            run_scan(
-                scan,
-                build,
-                executor=executor,
-                output=path,
-                progress="none",
-            )
-        for index in range(3):
-            found = read_point(path, index)
-            opened = cast("dict[str, Any]", found["metadata"])["backend"]
-            assert "boundary_monitor" not in opened.get("settings", {}), name
-            record = cast("dict[str, Any]", found["boundary_monitor"])
-            assert "planes" not in record, name
-            assert record["steps"] > 0, name
-        stopped = cast("dict[str, Any]", read_point(path, 2)["boundary_monitor"])
-        assert stopped["guard_high_max"] > 0.0 or stopped["guard_low_max"] > 0.0
+    path = tmp_path / "local.h5"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        run_scan(scan, build, executor=Local(), output=path, progress="none")
+    for index in range(3):
+        found = read_point(path, index)
+        opened = cast("dict[str, Any]", found["metadata"])["backend"]
+        assert "boundary_monitor" not in opened.get("settings", {})
+        record = cast("dict[str, Any]", found["boundary_monitor"])
+        assert "planes" not in record
+        assert record["steps"] > 0
+    stopped = cast("dict[str, Any]", read_point(path, 2)["boundary_monitor"])
+    assert stopped["guard_high_max"] > 0.0 or stopped["guard_low_max"] > 0.0
 
 
 def test_a_warning_raised_as_an_error_fails_its_own_point_alone(
     tmp_path: Path,
 ) -> None:
-    scan = Scan("walk", drift=[0.0, 0.4, 1.2])
-    statuses = {}
-    for name, executor in (("local", Local()), ("batch", Batch(3))):
-        path = tmp_path / f"{name}.h5"
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", BoundaryWarning)
-            output = run_scan(
-                scan,
-                _walking_watched_point,
-                executor=executor,
-                output=path,
-                progress="none",
-            )
-        statuses[name] = output.status.tolist()
-        assert statuses[name][0] == "done", name
-        for index in (1, 2):
-            if statuses[name][index] == "failed":
-                assert "Boundary" in str(read_point(path, index)["error"]), name
-    assert statuses["batch"] == statuses["local"]
+    path = tmp_path / "local.h5"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", BoundaryWarning)
+        output = run_scan(
+            Scan("walk", drift=[0.0, 0.4, 1.2]),
+            _walking_watched_point,
+            executor=Local(),
+            output=path,
+            progress="none",
+        )
+    statuses = output.status.tolist()
+    assert statuses[0] == "done"
+    for index in (1, 2):
+        if statuses[index] == "failed":
+            assert "Boundary" in str(read_point(path, index)["error"])
 
 
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])

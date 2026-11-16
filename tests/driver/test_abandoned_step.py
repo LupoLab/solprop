@@ -153,8 +153,12 @@ def _abandon_natively(monkeypatch, *, after: int) -> None:
     prepare = session._prepare
 
     def arming(self, backend, start):
+        from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+            _testing,
+        )
+
         prepared = prepare(self, backend, start)
-        backend._native_state.adams_march_fault("trial", after, "backend")
+        _testing.adams_march_fault(backend._native_state, "trial", after, "backend")
         return prepared
 
     monkeypatch.setattr(session, "_prepare", arming)

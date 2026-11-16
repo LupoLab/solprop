@@ -61,6 +61,7 @@ from solprop.translate.assembly import assemble
 from solprop.translate.problem import Translation
 
 native_session = pytest.importorskip("solprop_native.session")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 LENGTH = PLANES[-1]
 
@@ -460,7 +461,7 @@ def test_a_session_leases_its_state_exclusively():
     assert backend is not None
     state = backend._native_state  # pyright: ignore[reportPrivateUsage]
     with pytest.raises(RuntimeError, match="leased"):
-        state.rk_march_run({}, {})
+        _testing.rk_march_run(state, {}, {})
     session.close()
 
 
@@ -535,8 +536,8 @@ LEASED_CALLS = {
     "set_initial": lambda state, n: state.set_initial(
         np.zeros(n, np.complex128), np.empty(0, np.complex128)
     ),
-    "rk_march_run": lambda state, n: state.rk_march_run({}, {}),
-    "adams_march_run": lambda state, n: state.adams_march_run({}, {}),
+    "rk_march_run": lambda state, n: _testing.rk_march_run(state, {}, {}),
+    "adams_march_run": lambda state, n: _testing.adams_march_run(state, {}, {}),
     "table_slots": lambda state, n: state.table_slots(False, False, 1, False),
     "rk_weights_configure": lambda state, n: state.rk_weights_configure([1.0]),
     "low_storage_configure": lambda state, n: state.low_storage_configure(
@@ -545,17 +546,17 @@ LEASED_CALLS = {
     "flow_guard_configure": lambda state, n: state.flow_guard_configure(
         [1.0], [1.0], 1.0, 1, 1.0
     ),
-    "adams_march_fault": lambda state, n: state.adams_march_fault(
-        "trial", 0, "backend"
+    "adams_march_fault": lambda state, n: _testing.adams_march_fault(
+        state, "trial", 0, "backend"
     ),
     "field_to_host": lambda state, n: state.field_to_host(),
-    "statistics": lambda state, n: state.statistics(
-        2, np.empty(0), np.empty(0), 0.0, 1.0, 0.0, 1.0, np.empty(0)
+    "statistics": lambda state, n: _testing.statistics(
+        state, 2, np.empty(0), np.empty(0), 0.0, 1.0, 0.0, 1.0, np.empty(0)
     ),
     "finish": lambda state, n: state.finish(1e-6),
-    "promote_fsal": lambda state, n: state.promote_fsal(),
+    "promote_fsal": lambda state, n: _testing.promote_fsal(state),
     "clear_fsal": lambda state, n: state.clear_fsal(),
-    "monitor_reading": lambda state, n: state.monitor_reading(),
+    "monitor_reading": lambda state, n: _testing.monitor_reading(state),
     "quadrature_peak": lambda state, n: state.quadrature_peak(),
 }
 """Methods of a leased state that mutate it or read its live field or workspace."""
@@ -582,7 +583,7 @@ def test_a_leased_state_refuses_every_live_use(name):
         session.close()
     # Closed, the session released its lease.
     with pytest.raises(Exception) as caught:
-        state.rk_march_run({}, {})
+        _testing.rk_march_run(state, {}, {})
     assert "leased" not in str(caught.value)
 
 

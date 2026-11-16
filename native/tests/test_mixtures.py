@@ -22,6 +22,7 @@ from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend, _core
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 from solprop_native.backend import (
     _lower,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
     _LowerPlan,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
@@ -132,11 +133,20 @@ def test_native_statistics_refuse_channel_preionisation_shape(
     try:
         load_native(backend, problem.initial.field0, clear_fsal=False)
         with pytest.raises(ValueError, match="channel preionisation"):
-            backend._native_state.statistics(  # pyright: ignore[reportPrivateUsage] - native refusal
-                1 << 11, np.empty(0), np.empty(0), 0.0, 1.0, 0.0, 1.0, np.zeros(1)
+            _testing.statistics(
+                backend._native_state,  # pyright: ignore[reportPrivateUsage] - native refusal
+                1 << 11,
+                np.empty(0),
+                np.empty(0),
+                0.0,
+                1.0,
+                0.0,
+                1.0,
+                np.zeros(1),
             )
         with pytest.raises(ValueError, match="channel preionisation"):
-            backend._native_state.statistics(  # pyright: ignore[reportPrivateUsage] - native refusal
+            _testing.statistics(
+                backend._native_state,  # pyright: ignore[reportPrivateUsage] - native refusal
                 1 << 11,
                 np.empty(0),
                 np.empty(0),

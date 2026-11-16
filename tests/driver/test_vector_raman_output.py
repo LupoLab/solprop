@@ -12,16 +12,11 @@ from march_bounds import (
     FIXED_ORDER,
     STATISTIC_FACTOR,
     assert_matched,
-    assert_points_matched,
     simulation_bound,
 )
 from solprop.driver import Simulation, SimulationSettings
-from solprop.driver.executors import Batch, Local
-from solprop.driver.scan import Scan, run_scan
-from solprop.fourier import to_internal
 from solprop.noise import input_noise, modified_noise
 from solprop.output.hdf5 import resume
-from solprop.polarisation import horizontal, rotate, waveplate
 from solprop.stats import StatsSpec
 from vector_raman_cases import raman_response, vector_translation
 
@@ -93,56 +88,3 @@ def test_tensor_run_resumes_with_the_same_realisation_and_configuration(
     assert metadata.schema_version == 2
     record = repr(metadata.configuration)
     assert "tensor_terms" in record and "rank2" in record and "isotropic" in record
-
-
-# A native lockstep batch replays its Adams members on solprop's march, with the
-# warning native/tests/test_batch.py asserts (SEP 39).
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
-@pytest.mark.medium
-@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
-def test_jones_tensor_scan_batches_match_singletons_with_a_partial_group(
-    tmp_path, backend
-):
-    if backend == "native":
-        pytest.importorskip("solprop_native")
-    problem, run_request, grid, modes = vector_translation(steps=2)
-    schedule, controller = run_request.stepper.schedule, run_request.stepper.controller
-
-    def build(point):
-        jones = to_internal(
-            rotate(waveplate(np.pi / 2), float(point.values["angle"])) @ horizontal()
-        )
-        initial = problem.initial.field0[:, :1] * jones[None, :, None]
-        return Simulation(
-            grid,
-            modes,
-            [raman_response("H2", thg=False)],
-            initial,
-            settings=SimulationSettings(
-                backend=backend,
-                density=1e25,
-                save_planes=[grid.length],
-                schedule=schedule,
-                integrator=FIXED_ORDER,
-                dz_init=grid.length / 2,
-                dz_max=grid.length / 2,
-                controller=controller,
-                stats=StatsSpec(names=("energy",)),
-            ),
-        )
-
-    scan = Scan("vector Raman Jones scan", angle=[0.0, np.pi / 8, np.pi / 4])
-    outputs = [
-        run_scan(
-            scan,
-            build,
-            output=tmp_path / f"{name}.h5",
-            executor=executor,
-            fields="planes",
-            field_planes=[-1],
-            progress="none",
-        )
-        for name, executor in (("local", Local()), ("batch", Batch(2)))
-    ]
-    # A batch member is its singleton's march: within its rounding budget.
-    assert_points_matched(outputs[1], outputs[0], scan, build, what="batch member")

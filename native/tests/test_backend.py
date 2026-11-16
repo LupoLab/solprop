@@ -45,6 +45,7 @@ from solprop.translate.stage import terms
 
 import solprop_native
 from solprop_native import NativeBackend, _core, build_info, check_build
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 from solprop_native.backend import (
     _lower,  # pyright: ignore[reportPrivateUsage]
     _LowerPlan,  # pyright: ignore[reportPrivateUsage]
@@ -178,21 +179,21 @@ def test_stage_observation_owns_its_host_copy_and_checks_lifetime(
     backend = NativeBackend(problem, run_request, grid=grid)
     state = load_native(backend, problem.initial.field0, clear_fsal=False)
     with pytest.raises(RuntimeError, match="stage"):
-        state.stage_to_host(0)
+        _testing.stage_to_host(state, 0)
     native_trial(backend, 0.0, 1e-4)
-    derivative = state.stage_to_host(0)
+    derivative = _testing.stage_to_host(state, 0)
     assert derivative.shape == (1, grid.n_omega)
     assert derivative.dtype == np.complex128
     assert np.max(np.abs(derivative)) > 0
     saved = derivative.copy()
     derivative.fill(0)
     # Exact: a second host copy of the same device stage, not a recomputation.
-    np.testing.assert_array_equal(state.stage_to_host(0), saved)
+    np.testing.assert_array_equal(_testing.stage_to_host(state, 0), saved)
     with pytest.raises(IndexError, match="stage"):
-        state.stage_to_host(run_request.stepper.tableau.n_stages)
+        _testing.stage_to_host(state, run_request.stepper.tableau.n_stages)
     backend.close()
     with pytest.raises(RuntimeError, match="closed"):
-        state.stage_to_host(0)
+        _testing.stage_to_host(state, 0)
 
 
 def test_the_solprop_version_is_recorded_and_never_compared(
@@ -911,7 +912,7 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
             assert not provider.endswith("-packed-real"), provider
             assert ledger.get("radial_blas_buffers", 0) == 0
         native_trial(backend, 0.0, 0.0)
-        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
+        actual = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
     finally:
         backend.close()
     scale = float(np.max(np.abs(expected)))

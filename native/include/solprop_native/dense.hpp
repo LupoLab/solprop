@@ -17,7 +17,7 @@
  *
  * The implementations (`engines::AdamsDense`, `engines::RungeKuttaDense`,
  * dense_output.hpp) are solprop's own observations transcribed: the Adams march's
- * interpolant over the last accepted step (`_ResidentAdams.observe`), and DOPRI5's
+ * interpolant over the last accepted step (`HostHistory.observe`), and DOPRI5's
  * continuous extension of Hairer, Norsett and Wanner II.6 carried to the plane by the
  * linear flow (`HostDriver._observe_inside`).
  *

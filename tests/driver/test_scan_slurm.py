@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 import solprop.scan as cli
-from driver.test_scan_batch import build
+from builders import fixed_fibre_point as build
 from solprop.driver.executors import Local
 from solprop.driver.executors._request import ScanRequest
 from solprop.driver.executors.pool import Pool

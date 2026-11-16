@@ -72,7 +72,7 @@ void ResidentEngine::trial(const double z, const double dz,
   state_.host_evaluation(z + dz, HostPurpose::predictor);
   if (fused_) {
     // The interaction formulation: the history transported to the anchor, the
-    // source evaluated at the step's end (solprop's `_ResidentAdams.fused_trial`).
+    // source evaluated at the step's end (solprop's `HostHistory.fused_trial`).
     const auto weights = stage::fused_weights(stencil.nodes.data(), stencil.held,
                                               stencil.rows.data(), slots, stencil.order,
                                               stencil.orders.data(), stencil.n_orders);
@@ -90,8 +90,8 @@ void ResidentEngine::trial(const double z, const double dz,
                                 stencil.n_orders, compensated_);
   const double end = z + dz;
   if (tables_.chord != stage::Chord::none) {
-    // The carrier frame (solprop's `_ResidentAdams._carrier`): the chord's shift and
-    // each history row's rotation exp(i shift (1 - theta_t)).
+    // The carrier frame (solprop's `HostHistory.exponential_trial`): the chord's shift
+    // and each history row's rotation exp(i shift (1 - theta_t)).
     const double shift = stage::chord(tables_, z, end);
     const std::size_t rows = weights.width - 1;
     carrier_.assign(1 + 2 * rows, 0.0);

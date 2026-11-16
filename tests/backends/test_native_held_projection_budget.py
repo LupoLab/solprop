@@ -37,6 +37,7 @@ from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
 
 native = pytest.importorskip("solprop_native")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning"),
@@ -145,7 +146,7 @@ def test_embedded_current_projection_accumulates_partial_chunks(
     backend = native.NativeBackend(problem, run_request, grid=grid, options=options)
     try:
         native_trial(backend, 0.0, 0.0, field=state)
-        raw = np.asarray(backend._native_state.projected_to_host(True))
+        raw = np.asarray(_testing.projected_to_host(backend._native_state, True))
     finally:
         backend.close()
     actual = raw.reshape(*expected.shape[:-1], grids.n_to // 2 + 1)[

@@ -5,10 +5,10 @@
 """The native Adams march against the Python march's decision traces (SEP 39 7.1).
 
 The corpus of ``tests/data/adams_traces.json.gz`` was taken from the Python march before
-SEP 39 refactored it. Here the same scenarios run through the native Adams record
-driven a call at a time (``native_trace_marches.TraceAdamsMarch``) with the native
-march's loop and decisions, its field arithmetic replaced by the script of norms
-(``_core.ScriptedMarch``). Each call is bound to one attempt, so the state the adapter
+SEP 39 refactored it. Here the same scenarios run through the native Adams record driven
+a call at a time (``native_trace_marches.TraceAdamsMarch``) with the native march's loop
+and decisions, its field arithmetic replaced by the script of norms (the private test
+module's ``ScriptedMarch``). Each call is bound to one attempt, so the state the adapter
 adopts after each call is the state after that attempt, and every stencil, decision,
 proposal, order, landing, restart and ledger counter is compared exactly with the
 reference's. A second pass lets the calls run to their events with the production bound
@@ -42,7 +42,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 native = pytest.importorskip("solprop_native")
-_core = pytest.importorskip("solprop_native._core")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 from tests.backends.native_trace_marches import TraceAdamsMarch  # noqa: E402
 
@@ -108,7 +108,7 @@ class _Runner:
                 replayed = FixedSchedule(np.array(schedule, dtype=np.float64))
                 steps = np.ascontiguousarray(replayed.steps, dtype=np.float64)
                 edges = np.ascontiguousarray(replayed.edges, dtype=np.float64)
-            self.scripted = _core.ScriptedMarch(
+            self.scripted = _testing.ScriptedMarch(
                 policy, self.norms, harness.scenario.carrier_rate or 0.0, steps, edges
             )
         bounds = {**bounds, "max_attempts": harness.max_attempts}

@@ -54,7 +54,15 @@ from flow_parity import (
     ten_step_bound,
 )
 from sessions.executors import IDENTITY, Started, drive, entrance
-from sessions.runs import bare, final_field, load_native, to_planes
+from sessions.runs import (
+    bare,
+    final_field,
+    load_native,
+    native_adams_rows,
+    native_adams_start,
+    native_exponential_trial,
+    to_planes,
+)
 from sessions.runs import run as run_session
 from solprop.backends.events import ObservationReady, Outcome
 from solprop.backends.exponential import carrier_reference
@@ -93,6 +101,7 @@ native_session = pytest.importorskip("solprop_native.session")
 NativeBackend = pytest.importorskip("solprop_native").NativeBackend
 
 DEVICE = pytest.importorskip("solprop_native").build_info().device_backend != "none"
+_testing = pytest.importorskip("solprop_native._core")._testing
 """Whether the installed build executes on an accelerator, which holds no host channel
 rows and refuses the carrier frame."""
 
@@ -330,10 +339,10 @@ def test_a_bin_off_the_route_past_thirty_squarings_is_refused_by_name(
 def _resident(simulation: Simulation, problem: Any, request: Any) -> Any:
     """Return a native backend whose resident Adams engine can take a trial directly.
 
-    The engine's trial (``_ResidentAdams.exponential_trial``) is called with no march
-    around it, as solprop's host march called it before SEP 47 phase 5 retired that
-    march: the state is the launch, loaded into the native state, and every history
-    row holds the launch's sample (the engine's own ``start``), so a trial of any
+    The engine's trial (:func:`sessions.runs.native_exponential_trial`, the private
+    test module's ``adams_exponential_trial_at``) is taken with no march around it:
+    the state is the launch, loaded into the native state, and every history row holds
+    the launch's sample (:func:`sessions.runs.native_adams_start`), so a trial of any
     order reads a full, finite history. A trial's flow and moments depend on its
     step, its width and the operator alone, not on the history it reads.
     """
@@ -348,10 +357,10 @@ def _resident(simulation: Simulation, problem: Any, request: Any) -> Any:
     assert type(engine).__name__ == "_ResidentAdams"
     field = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
     load_native(backend, field, clear_fsal=False)
-    engine.start(0.0)
+    native_adams_start(backend, 0.0)
     rows = {
         name: np.broadcast_to(row[:1], row.shape).copy()
-        for name, row in engine.snapshot_rows().items()
+        for name, row in native_adams_rows(backend).items()
     }
     engine.load_rows(rows, engine.shape)
     return backend
@@ -384,22 +393,23 @@ def _block_departure(
     """
     engine, state = backend._resident, backend._native_state
     nodes, slots = _stencil(order)
-    norms = engine.exponential_trial(z, dz, nodes, slots, order, [order])
+    norms, shift = native_exponential_trial(
+        backend, z, dz, nodes, slots, order, [order]
+    )
     assert np.all(np.isfinite(norms))
     count = trial_tables(
-        nodes, order, [order], compensated=engine.compensated, helpers=engine.helpers
+        nodes, order, [order], compensated=engine.compensated, helpers=backend.helpers
     )[1].shape[0]
-    shift = engine._trial_carrier
     assert bool(shift.size) is carrier
     expected = coupled_moments(
-        state.adams_exponent_to_host().reshape(1, *shape),
+        _testing.adams_exponent_to_host(state).reshape(1, *shape),
         count,
         block,
         dz,
         carrier=np.full((1, 1, 1, 1), 1j * float(shift[0])) if carrier else None,
     )
     active = int(np.count_nonzero(block.active))
-    native = state.adams_block_to_host().reshape(-1, active, shape[0], shape[0])
+    native = _testing.adams_block_to_host(state).reshape(-1, active, shape[0], shape[0])
     pairs = [(native[0], expected.flow_matrix)] + [
         (native[k + 1], expected.matrices[k]) for k in range(count)
     ]
@@ -537,15 +547,15 @@ def test_a_carry_past_thirty_squarings_is_refused_and_keeps_the_state(
         engine, state = backend._resident, backend._native_state
         assert engine.compensated
         dz = float(steps[0])
-        field, rows = state.field_to_host().copy(), engine.snapshot_rows()
+        field, rows = state.field_to_host().copy(), native_adams_rows(backend)
         nodes, slots = _stencil(2)
         with pytest.raises(BackendError, match="a history sample's carry"):
-            engine.exponential_trial(dz, dz, nodes, slots, 2, [2])
+            native_exponential_trial(backend, dz, dz, nodes, slots, 2, [2])
         assert state.field_to_host().tobytes() == field.tobytes()
-        for name, row in engine.snapshot_rows().items():
+        for name, row in native_adams_rows(backend).items():
             assert row.tobytes() == rows[name].tobytes(), name
         nodes, slots = _stencil(1)
-        norms = engine.exponential_trial(dz, dz, nodes, slots, 1, [1])
+        norms, _ = native_exponential_trial(backend, dz, dz, nodes, slots, 1, [1])
         assert np.all(np.isfinite(norms))
     finally:
         backend.close()

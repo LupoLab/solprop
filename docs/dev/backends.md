@@ -35,13 +35,11 @@ statistic), and that structure is precisely what a fast backend exists to change
 ```python
 class Backend(Protocol):
     name: str
-    max_batch: int  # 1 for backends that step one problem
     reads_transverse_edge: bool  # whether a requested real-space collar can run on it
 
     @property
     def request(self) -> RunRequest: ...  # the run request it was built for
     def prepare(self, problem, request) -> PreparedExecution: ...  # a run's session
-    def prepare_group(self, members, problems, requests) -> PreparedGroup: ...
     def timing_probe(self, start: Start) -> TimingProbe: ...  # commits nothing
     def march_export_refusal(self) -> str | None: ...
     def edge_memory(self, space: object) -> int: ...
@@ -110,10 +108,8 @@ through `solprop_native.NativeBackend`, each called as
 it is selected. Before a native construction it runs SEP 46's first-use calibration;
 `SOLPROP_REQUIRE_DEVICE` reads the installed native build's `build_info()` (the
 reference is refused a required device by name); and `statistics_refusal` reads the
-far-field statistics `NativeBackend.far_field_statistics` declares. `select_batch` is the
-reference group's lockstep runner; the native group runs one native session per member
-through its own `prepare_group` (**Selection** below). `auto` is `registry.AUTO`,
-`native`, with no fallback.
+far-field statistics `NativeBackend.far_field_statistics` declares. `auto` is
+`registry.AUTO`, `native`, with no fallback.
 
 **Periodic-statistics storage hooks.** The seam carries three storage hooks for the
 periodic statistics — `_reset_step_stats`, `_record_step_stats`, `_drain_step_stats` — so
@@ -122,39 +118,15 @@ march still decides which accepted steps produce rows and passes their history i
 The CPU backends inherit the host defaults. The hooks are part of the frozen surface
 ([kernel-contract.md §8](kernel-contract.md)).
 
-**Batches.** `BatchBackend` adds independent member observations and metadata through
-`select_batch(owners)`, the reference group's lockstep runner: `numpy_ref` alone
-implements this fixed-schedule interface, and `select_batch` refuses a `native` member by
-name, since a native group runs one native session per member through `start_group`
-(`NativeBackend.prepare_group`, `solprop_native.group.NativeGroupSession`, SEP 47 §6.7)
-and fuses nothing. Singleton constructors keep their single-member shape; the reference's
-batch owns a sequence of independently loaded workspaces, evaluates the stage sums, the
-stage input and the accepted update over the member axis and leaves response and
-FFT work member-owned. A batch or group member agrees
-with the same member run singly under the same schedule within a matched-discrete rounding
-bound, on every backend
-([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)).
-`available_device_memory()` returns free device bytes or `None` on hosts, enabling common
-admission without importing backend-specific array libraries in the driver. On a device
-the per-member launch cost is not amortised, so a batch's gain over independent runs is
-small and a batch ratio for any shape needs its own measurement
-([benchmarks.md](benchmarks.md#indicative-results)).
+**No groups.** A backend runs one trajectory per session; there is no group or batch
+interface. A fixed-schedule `Batch` executor and its groups (`GroupSession`,
+`prepare_group`, the reference's lockstep `HostGroup` and `NumpyBatchBackend`, and the
+native group session) were removed by SEP 52: on native a group built a complete backend
+per member and fused nothing. `available_device_memory()` returns free device bytes or
+`None` on hosts, so that a scan's admission needs no backend-specific array library in
+the driver.
 
-A general modal guide is a batchable member under a **narrower** admission rule than the
-fibre one: the members of a general-guide group share the guide, the table, the gauge, the
-materials and one explicit fixed schedule, and differ in their launch and their noise seed
-alone. `modal_tables.identity`, the metric's kind and gauge and the compiled responses'
-model and policy enter `driver.batch._signature`, because every other entry there
-describes an execution *layout* and two different guides share all of it; and a group
-assembled outside that grouping is refused by name, at `driver.batch`'s
-`refuse_mixed_guides` and again by each backend's group: the reference's `_validate_members`
-(`backends/host/group.py`) and the native `solprop_native.group.refusal`. A group hands each member its own problem, so a batched general run is what its members
-are alone, to the same rounding bound; a problem is one trajectory and carries no batch
-axis. A member carrying a coupled flow is refused by name by the reference's
-lockstep batch (`NumpyBatchBackend`), whose stage arithmetic over the member axis applies
-no flow action; the native group admits one, each member's own session carrying its flow.
-
-**Three things every backend owes, beyond the ten methods.**
+**Three things every backend owes, beyond the protocol's members.**
 
 **1. Reductions to the error bound.** The error norm and every statistic a backend reduces
 are compared by numerical error, not bits
@@ -348,7 +320,7 @@ its own (its noise phase rides beside the field in a `StoredField`; a session's
 `noise_phase(ticket)` forms it at the pending plane, from the problem's scalar tables on the
 host, or, when `Phi` took the z table, from the table's slot at the plane, which
 `NativeSession` reads through the native session under its lock, as the backend reads it
-from its state, and a group's member from its own session). A plane observer reads
+from its state). A plane observer reads
 the stored field with no fetch, and a terminal checkpoint at the same plane takes the
 internal convention from it by the exact inverse (`spectrum_to_internal`, the store's own
 reader), with no second export or amplitude conversion. An output that is not a plane
@@ -528,8 +500,8 @@ native backend's (`solprop_native.session.NativePrepared`) opens `NativeSession`
 native executor since SEP 47 phase 5, which refuses by name what it does not run, and
 refuses a `NativeBackend` subclass, whose overrides it would not call. Statistics the problem does not
 carry are refused by name before any session starts, on every executor, rather than left to the
-first plane (`backends.session.statistics_unavailable`, read by every preparation, by
-`check_group` and by the run layer): a modal statistic of a spatial route, a spatial one of a modal
+first plane (`backends.session.statistics_unavailable`, read by every preparation and by the run
+layer): a modal statistic of a spatial route, a spatial one of a modal
 route, the plasma integration diagnostics without the field-grid plasma column and the electron
 density or peak ionisation rate without a compiled plasma response (a `BackendError` at every door).
 `zdw` is read natively from a table of each mode's root along z, lowered once at preparation
@@ -555,17 +527,7 @@ reads the polarisation ellipse, so on a one-component transform whose modes have
 axis the two rows go to a row of their own, which the envelope scan reads as a node of two components
 (`populations.envelope_populations` on the host's row). The native row
 agrees with the host's scan to the node scans' parity tolerance (`1e-10`), and is the same bits where
-both read a Radau rule's axis node. A group starts through the same shape (SEP 47 §6.7):
-`start_group` checks the group (`check_group`) and asks its first member,
-`members[0].prepare_group(members, problems, requests)`, for a `PreparedGroup` whose
-`start(starts, *, stop)` opens the backend's `GroupSession`, so it names no backend
-either. The native backend's (`solprop_native.group.NativePreparedGroup`) opens
-`NativeGroupSession`, which refuses by name what `solprop_native.group.refusal` names
-(an adaptive member, step planes, members that do not share the schedule) before any
-member session starts. The reference's (`backends.host.group_session.HostPreparedGroup`)
-opens its own `HostGroupSession` over the group runner `select_batch` builds. A backend
-that runs no group raises `BackendError` from `prepare_group`. The
-three keyword arguments are what `stats()` needs and the kernel contract does not carry.
+both read a Radau rule's axis node. The three keyword arguments are what `stats()` needs and the kernel contract does not carry.
 
 **Spatial statistics measure the medium's flux** ([SEP 34](seps/archive/sep-0034-medium-flux.md)).
 The shared spatial statistics, `backends.spatial.collect_spatial`, read the plane's
@@ -865,7 +827,6 @@ build (ADR-076, §4).
 |---|---|---|---|
 | compact problem | one column on one node, fewer than 65 536 fine samples | kernels on a team of at most eight threads, transforms on that team, products on one BLAS thread | independent scans: Local, or spawned processes through Pool |
 | sized problem | the rest | each operation's width chosen from its own element count at construction: stage, response, dense product, FFT, Raman, copy, flow, modal and Adams | one process per problem |
-| fixed-schedule batch | compatible independently loaded members | fused accept update over members; remaining work stays member-owned | one batch runner owns the group |
 
 The widths are constants of `include/solprop_native/core.hpp` (`operation_threads`, with
 their calibration in
@@ -893,7 +854,7 @@ than the choice of backend:
 3. **The best thread count is not the machine's.** It differs by operation and by problem,
    which is why each width is sized separately. For the scan pattern, k independent
    single-thread runs beat one k-thread run by 8.5x (measured on the retired `numba_cpu`
-   backend), so a batch runner should prefer processes to threads; the scan executors do this
+   backend), so a scan should prefer processes to threads; the scan executors do this
    through `Pool` ([scans.md](scans.md)).
 
 The pools, the widths and the wait policy are stored in the output metadata
@@ -1022,9 +983,7 @@ frequency-dependent map of three Cartesian components.
   `moving guide ...` rows in `tests/backends/flow_rows.py`). Not bitwise: FFTW is not pocketfft, and numpy's
   complex product is an FMA on some hosts (§3.1a).
 - **Statistics** are solprop's `collect` on the observed channel field with the basis metric, as
-  on the reference, so on one state the two agree to the statistic's rounding bound. The
-  **native group session** takes general members unchanged, each one its lone native
-  session's run.
+  on the reference, so on one state the two agree to the statistic's rounding bound.
 - **Ledger**: the `general_*` rows, named and zero on every other route; the maps and the
   record's resident E/H reference are counted as the reference counts them. Moving maps add the
   coefficients (`general_synthesis`, `general_projection`), the two maps a stage evaluates
@@ -1103,8 +1062,7 @@ name.
 - **Parity** is a rounding statement with the bound stated first: `tests/flow_parity.py` for the
   actions and the steps, and `parity_bound` in `tests/coupled_flow_cases.py` for ten fixed steps
   on each case (the case catalogue's rows, `tests/backends/flow_rows.py`).
-- **FSAL** stays off beside a flow, as on the reference ([stepper.md §2](stepper.md));
-  the native group refuses a member carrying the leaf by name, as the reference's does.
+- **FSAL** stays off beside a flow, as on the reference ([stepper.md §2](stepper.md)).
 - **Ledger**: the `flow_*` rows, named and zero on every other route (§4).
 
 ### 3.10 The hybrid planar kind
@@ -1655,9 +1613,7 @@ that order for the stage too. The state crosses the seam once
 at a load and once at an observation, straight between the memory space and the NumPy
 buffer.
 
-The singleton constructor requires a one-member problem; fixed-schedule groups go
-through `start_group` (`NativeBackend.prepare_group`), the native group session over one
-native session per independently loaded member (§1). The backend
+The constructor requires a one-member problem. The backend
 refuses scalar-only declarations on vector Raman problems, spectral responses other than
 the compiled envelope-plasma assembly, and, on a device build, z-tabulated operators or
 prefactors, before field-sized allocation (the CPU build runs them, §1). Supported mixture density, pre-ionisation and Raman decay paths
@@ -1717,8 +1673,7 @@ the drive back by the inverse action and accumulates; the accepted update takes 
 the state, the solution and the error sum, the old norm on the unmixed state. A zero stage
 fraction is flagged and not applied; FSAL is off on a flow. The `flow_*` rows join
 `memory_ledger()`, zero on every other route. Admission is solprop's shared list under the
-name `native` plus one native limit (the delayed response's three components); the batch
-backend refuses a flow member by name.
+name `native` plus one native limit (the delayed response's three components).
 
 **The hybrid planar kind** runs on the same engine: columns `(p, k_y)` go to `(p, y)` rows
 by a one-axis y FFT, a node chunk holds whole y rows, and the slab rule synthesises and
@@ -1914,7 +1869,7 @@ distinguishes these allocations from process peak RSS, host copies and FFT works
 backend allocates ([ADR-065](decisions.md)). A backend allocates and first-touches its
 buffers at construction, so a run that doesn't fit fails there, with `MemoryError` or
 killed by the kernel or the scheduler; `Simulation.estimate` reports the constructed
-ledger's total. Scan workers and batch groups are still bounded, from measured RSS and
+ledger's total. Scan workers are still bounded, from measured RSS and
 the ledger ([scans](../guide/workflows/scans.md)), and so is TDSE's atomic storage, by
 `TDSEExecution.memory_limit`. On the general modal route memory is dominated by the dense
 maps and the resident E/H reference, `16 Q C M n_omega` bytes per map and up to 14 such
@@ -1973,8 +1928,7 @@ that execution space.
 | the Adams carrier frame (`Multistep(carrier_frame="scalar")`, SEP 35) | every guided route; free space refused | CPU builds, resident, on every representation of the operator (a z table's chord carried as its own scalar table, #255); device builds refused | refused by name |
 | the low-storage RK4IP march (`LowStorageRungeKutta`), replay-only | every diagonal-flow route | every diagonal-flow route, a resident engine whose step is one native call | flows recomputed per element; qualified under HIP, not under CUDA |
 | moving solid guide (moving maps beside a frozen-residual flow) | yes | yes | qualified |
-| fixed-schedule groups | fibre and general guides; a coupled flow member by member (the lockstep batch for the rest) | fibre and general guides, a coupled flow included (the native group session) | fibre and general guides, and a coupled flow where the session admits each member (the native group session) |
-| the native execution session and group session (SEP 47) | its own session (`HostSession`) | every native run and group (phase 5: no other native executor) | admitted on CUDA and HIP as on the CPU build (SEP 47 phase 4): beyond the modal route with planes, rows, the temporal monitor and the Adams history (phase 3), the spatial routes (radial, Cartesian, line, planar) with their fluence widths, a transverse edge and a collar's current, the noise models, dense output, the low-storage replay, a coupled flow wider than 16 channels or off its eigenbasis route, and the native group session; run on an NVIDIA A40 against the transitional bridge on the same device before phase 5 deleted it (bitwise, but for the bounded transverse sums and dense Runge-Kutta planes), not yet qualified on either vendor |
+| the native execution session (SEP 47) | its own session (`HostSession`) | every native run (phase 5: no other native executor) | admitted on CUDA and HIP as on the CPU build (SEP 47 phase 4): beyond the modal route with planes, rows, the temporal monitor and the Adams history (phase 3), the spatial routes (radial, Cartesian, line, planar) with their fluence widths, a transverse edge and a collar's current, the noise models, dense output, the low-storage replay, and a coupled flow wider than 16 channels or off its eigenbasis route; run on an NVIDIA A40 against the transitional bridge on the same device before phase 5 deleted it (bitwise, but for the bounded transverse sums and dense Runge-Kutta planes), not yet qualified on either vendor |
 | periodic statistics between planes | yes | yes | yes: the native session takes each row natively and keeps it in a resident buffer until the next observation, with no return to Python (SEP 47 §6.4) |
 | Adams snapshots and a resume that continues the history (`MarchSnapshot`) | yes | yes: the resident engine copies its rows (`store`, and `states`, `rates`, `applied` where kept) to the host at a kept save and back on a resume | compiles; not qualified |
 | field-free observation (`observe(field=False)`), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |
@@ -1990,7 +1944,7 @@ argon and nitrogen plasma on field and envelope grids, the rate table's hold abo
 model's maximum field, a helium/argon Kerr mixture, silver and silica walls, the GNLSE
 with the silica bundle, and gas Raman leaves of 4, 72 and 126 rows — dry air's
 composition leaf, driven by the summed density of its labels — on gradients to vacuum,
-scalar and vector, field and envelope, and in lockstep batches. Each agrees with the
+scalar and vector, field and envelope. Each agrees with the
 reference far inside its operation-count bound: fields to `5e-15` and statistics to
 `5e-14` or better, except the complete run that holds argon's rate (`6e-13` and
 `1.1e-13`). `native` assumes no term
@@ -2013,7 +1967,7 @@ to run when two backends disagree, and the one that needs nothing beyond the pac
 dependencies. The native backend's device builds
 are qualified on a data-centre NVIDIA GPU (CUDA 13) and an AMD Instinct GPU (a ROCm 7
 prerelease stack): the native tests, the native pytest suite, solprop's device lane and its
-slow lane on `native` pass, repeats and batch members agree within
+slow lane on `native` pass, repeats agree within
 [SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)'s rounding bounds, and the
 CUDA sanitizers (memcheck, racecheck, initcheck, synccheck) are clean. Thread-count probes
 are the only tests skipped on a device, which has no thread count to vary.

@@ -222,10 +222,17 @@ def assert_propagates_as_the_reference(backend_class, route):
         backend._staged_rows()
         state = backend._native_state
         stages = run_request.stepper.tableau.n_stages
+        from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+            _testing,
+        )
+
         rows = np.asarray(
-            state.adams_stage_scalars(0.0, SOURCE_AT)["phi_delta"], dtype=np.float64
+            _testing.adams_stage_scalars(state, 0.0, SOURCE_AT)["phi_delta"],
+            dtype=np.float64,
         ).reshape(stages + 1, -1)
-        exponent = np.array(state.phase_sum_to_host(np.ascontiguousarray(rows[0])))
+        exponent = np.array(
+            _testing.phase_sum_to_host(state, np.ascontiguousarray(rows[0]))
+        )
     finally:
         backend.close()
     back = np.exp(exponent).reshape(reference_back.shape)

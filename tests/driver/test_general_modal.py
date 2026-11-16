@@ -23,12 +23,9 @@ and the envelope run has nothing of the sort. The collar's own effect is measure
 and recorded beside the comparison rather than folded into it.
 """
 
-import copy
 import dataclasses
 import inspect
 from collections.abc import Mapping
-from contextlib import ExitStack
-from types import SimpleNamespace
 from typing import Any, cast
 
 import numpy as np
@@ -39,7 +36,6 @@ from bounds import departure
 from legacy_geometry import LEGACY_GRID
 from march_bounds import (
     FIXED_ORDER,
-    STATISTIC_FACTOR,
     assert_matched,
     simulation_bound,
 )
@@ -51,22 +47,11 @@ from modal_provider_cases import (
 )
 from solprop import fourier
 from solprop.backends import select
-from solprop.backends.host.group import HostGroup, _general_leaves
-from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.protocol import stepping
 from solprop.backends.session import Start
-from solprop.backends.sessions import start_group
 from solprop.constants import ROOM_TEMPERATURE, C
 from solprop.coupling import CouplingModel, CouplingReport
 from solprop.driver import Simulation, prop_gnlse, prop_waveguide
-from solprop.driver import batch as batch_module
-from solprop.driver.batch import (
-    BatchMember,
-    _modal_identity,
-    compatible_groups,
-    refuse_mixed_guides,
-)
-from solprop.driver.executors import Batch
 from solprop.driver.inputs import _shot_noise
 from solprop.driver.routes.general import (
     GAS_KEYWORD_DEFAULTS,
@@ -76,7 +61,6 @@ from solprop.driver.routes.general import (
     _refuse_gas_keywords,
 )
 from solprop.driver.run import run_problem
-from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import (
     BackendError,
     DriverError,
@@ -94,7 +78,6 @@ from solprop.output.hdf5 import resume
 from solprop.output.memory import MemoryOutput
 from solprop.physdata import n2_from_chi3
 from solprop.physdata.sellmeier import gamma as gas_susceptibility
-from solprop.processing import scans
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.stats import StatsSpec, analytic_field, energy, physical_energy
 from solprop.stepper import FixedSchedule, Multistep
@@ -946,11 +929,11 @@ def test_the_same_seed_gives_the_same_realisation_and_the_same_run(guide, grid):
     energy-normalised true-power amplitude, so the existing draw is added to the
     state as it stands. Nothing multiplies it by an index.
     """
-    # On the batch door's prescribed schedule at a fixed order, so the two runs of one
-    # seed are one discrete march with the same stored realisation (SEP 25 4.5).
-    first = batched_run(guide, grid, noise="input", seed=17)
-    again = batched_run(guide, grid, noise="input", seed=17)
-    other = batched_run(guide, grid, noise="input", seed=18)
+    # On a prescribed schedule at a fixed order, so the two runs of one seed are one
+    # discrete march with the same stored realisation (SEP 25 4.5).
+    first = fixed_run(guide, grid, noise="input", seed=17)
+    again = fixed_run(guide, grid, noise="input", seed=17)
+    other = fixed_run(guide, grid, noise="input", seed=18)
     assert first.noise is not None and again.noise is not None
     assert other.noise is not None
     assert np.array_equal(first.noise.spectrum, again.noise.spectrum)
@@ -1200,9 +1183,9 @@ def test_a_record_that_misnames_the_basis_is_refused_at_the_run_loop(
 def test_an_hdf5_file_carries_the_labels_and_the_identities(guide, grid, tmp_path):
     """The run record admits a general modal run at the run loop's own door.
 
-    The other three doors -- `MemoryOutput.to_file`, a scan point's capture and
-    its spool, and the batch member that stays refused -- belong to the file and
-    are in `tests/output/test_modal_resume.py` and below.
+    The other doors -- `MemoryOutput.to_file`, and a scan point's capture and its
+    spool -- belong to the file and are in `tests/output/test_modal_resume.py` and
+    below.
     """
     path = tmp_path / "general.h5"
     simulation = build(guide, grid)
@@ -1216,25 +1199,25 @@ def test_an_hdf5_file_carries_the_labels_and_the_identities(guide, grid, tmp_pat
     assert stored.configuration_hash() == simulation.metadata().configuration_hash()
 
 
-# --------------------------------------------------------------- the batch door
+# ------------------------------------------------------------ a fixed schedule
 
-BATCH_Z = GENERAL_Z_END / 10
-"""Length a batched general modal test propagates, m: a tenth of the cap."""
+FIXED_Z = GENERAL_Z_END / 10
+"""Length a fixed-schedule general modal test propagates, m: a tenth of the cap."""
 
 
-def batched_run(guide, grid, **overrides):
+def fixed_run(guide, grid, **overrides):
     """Return a general modal simulation on an explicit fixed schedule."""
-    schedule = FixedSchedule.uniform(0.0, BATCH_Z, BATCH_Z / 4, save_planes=[BATCH_Z])
+    schedule = FixedSchedule.uniform(0.0, FIXED_Z, FIXED_Z / 4, save_planes=[FIXED_Z])
     settings = {
         "wavelength": PULSE["wavelength"],
         "fwhm": PULSE["fwhm"],
         "shape": PULSE["shape"],
         "energy": PULSE["energy"],
         "schedule": schedule,
-        # No order choice on the prescribed schedule: a member and its solo run are
-        # one discrete march (SEP 25 4.4).
+        # No order choice on the prescribed schedule: two runs of it are one discrete
+        # march (SEP 25 4.4).
         "integrator": FIXED_ORDER,
-        "save_planes": [BATCH_Z],
+        "save_planes": [FIXED_Z],
         "backend": "numpy_ref",
     }
     simulation = Simulation.from_waveguide(
@@ -1251,259 +1234,6 @@ def batched_run(guide, grid, **overrides):
         simulation.settings, absorber_scheme="split_step"
     )
     return simulation
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("runner_factory", [HostGroup, NumpyBatchBackend])
-def test_a_general_guide_batch_is_what_its_members_run_alone(
-    guide, grid, runner_factory
-):
-    """The batch door: two launches, one guide, each its own solo march.
-
-    The narrow admission rule is that a general-guide batch shares the guide, the table
-    and the gauge and its members differ in their launch and their noise seed alone.
-    What makes that safe is that the route's source pass already sees one member's
-    state: the lockstep runner hands each member its own singleton row, so nothing in
-    the pass had to loop. Each member is its solo run's discrete march, so the two
-    agree within that march's rounding budget (SEP 25: batch membership is not
-    promised bitwise).
-    """
-    with ExitStack() as cleanup:
-        simulations = [
-            batched_run(guide, grid, energy=energy, noise="input", seed=13 + index)
-            for index, energy in enumerate((1e-12, 2e-12))
-        ]
-        members, alone = [], []
-        for simulation in simulations:
-            problem = simulation.translate()
-            run_request = simulation._run_request()
-            for bucket in (members, alone):
-                backend = select("numpy_ref", problem, run_request, grid=grid)
-                cleanup.callback(backend.close)
-                stepping(backend).set_initial(problem.initial.field0, simulation.noise)
-                bucket.append(backend)
-        runner = runner_factory(members)
-        cleanup.callback(runner.close)
-        runner.propagate_to(BATCH_Z)
-        for owner in alone:
-            owner.propagate_to(BATCH_Z)
-        spec = simulations[0]._run_request().observation.stats
-        batched_stats = runner.stats(spec)
-        bounds = [simulation_bound(simulation) for simulation in simulations]
-        for index, (observed, owner) in enumerate(
-            zip(runner.observe_members(), alone, strict=True)
-        ):
-            solo = owner.observe()
-            bound = bounds[index]
-            assert_matched(observed.field, solo.field, bound, what="field")
-            assert_matched(
-                observed.noise_phase, solo.noise_phase, bound, what="noise phase"
-            )
-            for name, value in owner.stats(spec).items():
-                assert_matched(
-                    batched_stats[name][index],
-                    value,
-                    STATISTIC_FACTOR * bound,
-                    what=name,
-                )
-        # The two launches really are different, far beyond the budget, so the
-        # agreement above is a statement and not a tautology.
-        first, second = (one.observe().require_field() for one in alone)
-        assert departure(second, first) > 100 * max(bounds)
-
-
-def test_two_guides_never_share_a_batch_group(guide, grid):
-    """The descriptor separates them, and the runner refuses a mixed group anyway.
-
-    Two strands of different radius share every entry a structural signature would hash
-    -- shape, flags, table extents, response structure. It is `modal_tables.identity`
-    that separates them, with the metric's gauge and the responses' model beside it; and
-    because a descriptor is only as good as what it names, the group a caller assembles
-    by hand is refused by name at the driver and again at the backend.
-    """
-    one = BatchMember(0, batched_run(guide, grid))
-    other = BatchMember(1, batched_run(general_guide(grid=grid, radius=1.6e-6), grid))
-    same = BatchMember(2, batched_run(guide, grid, energy=2e-12))
-    # Different guides: two groups of one. The same guide with another launch:
-    # one group of two, which is exactly the admitted difference.
-    assert [len(group) for group in compatible_groups([one, other], 4)] == [1, 1]
-    assert [len(group) for group in compatible_groups([one, same], 4)] == [2]
-    problems = [member.simulation.translate() for member in (one, other)]
-    requests = [member.simulation._run_request() for member in (one, other)]
-    with pytest.raises(DriverError, match="identical guide/table/gauge identity"):
-        refuse_mixed_guides(problems)
-    # And a general guide beside a run that is not one is named the same way.
-    with pytest.raises(DriverError, match="identical guide/table/gauge identity"):
-        refuse_mixed_guides([problems[0], ordinary_simulation(("energy",)).translate()])
-    with ExitStack() as cleanup:
-        loaded = []
-        for problem, run_request in zip(problems, requests, strict=True):
-            backend = select("numpy_ref", problem, run_request, grid=grid)
-            cleanup.callback(backend.close)
-            stepping(backend).set_initial(problem.initial.field0, None)
-            loaded.append(backend)
-        with pytest.raises(BackendError, match="identical guide/table/gauge identity"):
-            HostGroup(loaded)
-
-
-def test_the_native_group_refuses_two_guides_too(guide, grid):
-    """The native group session refuses the same group, before any member starts."""
-    pytest.importorskip("solprop_native")
-    runs = [
-        batched_run(one, grid)
-        for one in (guide, general_guide(grid=grid, radius=1.6e-6))
-    ]
-    with ExitStack() as cleanup:
-        owners, problems, requests = [], [], []
-        for run in runs:
-            problem, run_request = run.translate(), run._run_request()
-            backend = select("native", problem, run_request, grid=grid)
-            cleanup.callback(backend.close)
-            owners.append(backend)
-            problems.append(problem)
-            requests.append(run_request)
-        with pytest.raises(BackendError, match="identical guide/table/gauge identity"):
-            start_group(
-                owners,
-                problems,
-                requests,
-                [Start.entrance(problem) for problem in problems],
-            )
-
-
-def _with_flow(problem, flow):
-    """Return the problem with a stand-in coupled flow, past the operator's checks."""
-    linear = copy.copy(problem.linear)
-    object.__setattr__(linear, "coupled_flow", flow)
-    return dataclasses.replace(problem, linear=linear)
-
-
-def test_the_native_group_compares_a_guide_s_flow_as_the_reference(guide, grid):
-    """The native group admits coupled flows, so its guide check's flow component is
-    live: it reads the reference group's leaves (``_general_leaves``), the flow's
-    gauge, certificate and section methods included, and compares flows by value."""
-    group = pytest.importorskip("solprop_native.group")
-    problem = batched_run(guide, grid).translate()
-    assert problem.transform.modal_tables is not None
-    one, same, other = (
-        _with_flow(
-            problem,
-            SimpleNamespace(
-                gauge_id="lab", certificate_id=certificate, section_methods=methods
-            ),
-        )
-        for certificate, methods in (
-            ("one", ("constant_schur",)),
-            ("one", ("constant_schur",)),
-            ("one", ("frozen_residual",)),
-        )
-    )
-    for candidate in (problem, one, same, other):
-        assert group._guide(candidate) == _general_leaves(candidate)
-    assert group._guide(one) == group._guide(same)
-    assert group._guide(one) != group._guide(other)
-    assert group._guide(one) != group._guide(problem)
-
-
-def test_the_driver_refuses_a_mixed_group_before_a_backend_is_reached(
-    guide, grid, monkeypatch
-):
-    """`refuse_mixed_guides` runs on the driver's own grouping path.
-
-    Defence in depth, and what makes "refused at the driver and again at the
-    backend" a true sentence rather than a description of a function nothing
-    called. `compatible_groups` separates two guides by signature, so the
-    refusal never fires on a group it built; a grouping rule that stopped naming
-    the guide identity would silently put two guides in one group, and before
-    this nothing between there and the backend would notice. The signature is
-    blinded here to produce exactly that state, and the group is refused where
-    it is formed -- no backend is constructed at all.
-    """
-    one = BatchMember(0, batched_run(guide, grid))
-    other = BatchMember(1, batched_run(general_guide(grid=grid, radius=1.6e-6), grid))
-    monkeypatch.setattr(batch_module, "_signature", lambda member: "one-layout")
-    with pytest.raises(DriverError, match="identical guide/table/gauge identity"):
-        list(compatible_groups([one, other], 4))
-    # And the same blinded signature passes a group that really is one guide, so
-    # the refusal above is the guide identity and not the blinding.
-    same = BatchMember(2, batched_run(guide, grid, energy=2e-12))
-    assert [len(group) for group in compatible_groups([one, same], 4)] == [2]
-
-
-def test_a_linear_general_guide_groups_by_what_it_does_not_declare(guide, grid):
-    """A guide whose regions are all linear has no response leaf to describe.
-
-    The descriptor's `responses` entry is then `None`, and two linear members of
-    the same guide still group; a linear guide and a responding one never do,
-    which is the same physical distinction as two different radii.
-    """
-    linear = general_guide(grid=grid, chi3=None)
-    members = [
-        BatchMember(0, batched_run(linear, grid)),
-        BatchMember(1, batched_run(linear, grid, energy=2e-12)),
-    ]
-    assert [len(group) for group in compatible_groups(members, 4)] == [2]
-    identity = _modal_identity(members[0].simulation.translate())
-    assert identity is not None
-    assert identity["responses"] is None
-    assert identity["metric"] is not None
-    mixed = [members[0], BatchMember(2, batched_run(guide, grid))]
-    assert [len(group) for group in compatible_groups(mixed, 4)] == [1, 1]
-    with pytest.raises(DriverError, match="identical guide/table/gauge identity"):
-        refuse_mixed_guides([one.simulation.translate() for one in mixed])
-
-
-@pytest.mark.medium
-def test_a_general_guide_batch_isolates_and_retries_a_failed_member(
-    guide, grid, tmp_path
-):
-    """One member fails, the others complete, and a retry recovers it.
-
-    The failure/recovery half of the batch admission rule: no averaging hides
-    a member, the failed point keeps its own provenance -- its configuration hash
-    and its seed -- and writes no arrays, and `retry_failed=True` finishes it once
-    the cause is gone.
-    """
-    scan = Scan("batch", base_seed=772, energy=[1e-12, 2e-12, 3e-12])
-    fail = [True]
-
-    def reduce(output):
-        assert output.metadata is not None and output.metadata.modal is not None
-        noise = output.metadata.noise
-        if fail[0] and noise is not None and noise.seed == scan.point(1).seed:
-            raise RuntimeError("deliberate member reduction failure")
-        return np.asarray(output["stats/physical_energy"][-1].sum())
-
-    def builder(point):
-        return batched_run(
-            guide,
-            grid,
-            energy=float(point.values["energy"]),
-            noise="input",
-            seed=point.seed,
-        )
-
-    options = {
-        "output": tmp_path / "batch.h5",
-        "executor": Batch(3),
-        "reductions": [scans.custom("captured", reduce, (), "J")],
-        "progress": "none",
-    }
-    result = run_scan(scan, builder, **options)
-    assert result.status.tolist() == ["done", "failed", "done"]
-    assert "deliberate member reduction failure" in str(result.point(1)["error"])
-    assert len(str(result.point(1)["configuration_hash"])) == 64
-    assert not any(name.startswith("fields/") for name in result.point(1))
-    # And it really was one batch of three, not three points that fell back to
-    # running on their own: the failure test would pass either way otherwise.
-    metadata = cast("Mapping", result.point(1)["metadata"])
-    assert metadata["backend"]["settings"]["batch_size"] == 3
-    assert metadata["modal"] is not None
-    fail[0] = False
-    assert (
-        run_scan(scan, builder, retry_failed=True, **options).status.tolist()
-        == ["done"] * 3
-    )
 
 
 # --------------------------------------------------- the two end-to-end systems

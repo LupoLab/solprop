@@ -536,10 +536,3 @@ def test_an_observation_refuses_a_noise_phase_without_its_field():
         Observation(0.0, None, np.zeros((1, 1, 4)), history, 0, 0)
     with pytest.raises(BackendError, match="n_steps is 1"):
         Observation(0.0, None, None, history, 1, 0)
-
-
-def test_a_lockstep_batch_still_refuses_a_shared_observation():
-    from solprop.backends.host.group import HostGroup  # noqa: PLC0415
-
-    with pytest.raises(BackendError, match="observe_members"):
-        HostGroup.observe(object.__new__(HostGroup), field=False)
