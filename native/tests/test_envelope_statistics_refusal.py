@@ -51,7 +51,10 @@ def test_the_statistics_refuse_and_a_quiet_field_recovers(
     payload.plasma.envelope_rule_nodes = nodes
 
     def corrupt_payload(*args: object, **keywords: object) -> _core.Problem:
-        return payload
+        # The backend's own lowering, its set-once data included, with the bad rule.
+        built = _lower(*args, **keywords)  # pyright: ignore[reportArgumentType]
+        built.plasma.envelope_rule_nodes = nodes
+        return built
 
     monkeypatch.setattr(adapter, "_lower", corrupt_payload)
     # The launch plane's statistics meet the bad rule before any step.

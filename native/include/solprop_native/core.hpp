@@ -19,6 +19,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -1345,6 +1346,13 @@ public:
    * last step's split found (zeros before the first such step).
    */
   [[nodiscard]] std::vector<double> monitor_reading();
+  /**
+   * The last accepted step's split collar sums, read without draining anything (SEP
+   * 52 section 5.2's `AcceptRecord`): what its split took, then `sum_t P` and the two
+   * guards' and the collar's sums of the power it found, from the masked field before
+   * the split; none without a bound monitor and a split collar.
+   */
+  [[nodiscard]] std::optional<std::array<double, 5>> split_sums();
   /**
    * Bind the split collar's walk-off bucket of each frequency bin, by mode
    * `(n_modes, n_omega)`, `count` buckets (solprop #440): from here on

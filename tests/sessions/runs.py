@@ -27,10 +27,11 @@ state (:data:`sessions.executors.IDENTITY`), which is what the retired
   :func:`watched_run` shape a request or read a run;
 - :func:`load_native`, :func:`native_trial`, :func:`native_source`,
   :func:`bind_native_monitor` and :func:`native_reading` reach a native backend's
-  state (``solprop_native._core.State``) for the kernel-level checks, as the native
-  session's march does; :func:`native_stage_rows` and :func:`native_rate_weights`
-  pack a trial's host rows, and :func:`native_adams_start`, :func:`native_adams_rows`
-  and :func:`native_exponential_trial` reach its resident Adams history, through the
+  workspace (``solprop_native._core.Workspace``) for the kernel-level checks, as
+  the native session's march does; :func:`native_stage_rows` and
+  :func:`native_rate_weights` pack a trial's host rows, and
+  :func:`native_adams_start`, :func:`native_adams_rows` and
+  :func:`native_exponential_trial` reach its resident Adams history, through the
   private test module (``solprop_native._core._testing``).
 
 ``native/tests/session_runs.py`` is the native test root's copy of the same names.
@@ -885,9 +886,7 @@ def bind_native_monitor(
     return monitor
 
 
-def native_reading(
-    backend: Any, monitor: BoundaryMonitor, field: np.ndarray | None = None
-) -> BoundaryEnergies:
+def native_reading(backend: Any, monitor: BoundaryMonitor) -> BoundaryEnergies:
     """Return a native state's boundary reading, as the native session reduces it.
 
     The five numbers, the split's removal since the last reading, what the last
@@ -899,10 +898,8 @@ def native_reading(
     backend : solprop_native.NativeBackend
         The backend, its monitor bound (:func:`bind_native_monitor`).
     monitor : solprop.monitor.BoundaryMonitor
-        The monitor as bound (:func:`bind_native_monitor`).
-    field : numpy.ndarray or None, optional
-        A state to load first (:func:`load_native`, which unbinds the monitor:
-        bind it again after); the state as it stands by default.
+        The monitor as bound (:func:`bind_native_monitor`), after the state was
+        loaded (:func:`load_native`, which unbinds it).
 
     Returns
     -------
@@ -913,8 +910,6 @@ def native_reading(
         _testing,
     )
 
-    if field is not None:
-        load_native(backend, field)
     reading = np.asarray(_testing.monitor_reading(backend._workspace), dtype=np.float64)
     reading = reading.reshape(-1)
     found = reading[6:10].copy() if monitor.split else None
@@ -1055,8 +1050,8 @@ def _native_compensated(backend: Any) -> bool:
     return bool(backend._compensated(method, "transported"))
 
 
-def native_adams_start(backend: Any, z: float) -> None:
-    """Evaluate a native backend's first Adams sample at its loaded state, into row 0.
+def native_adams_start(backend: Any, z: float, slots: Sequence[int] = (0,)) -> None:
+    """Evaluate a native backend's first Adams sample at its loaded state, into `slots`.
 
     The native march's start-up (``engines::ResidentEngine``) taken alone, for the
     kernel-level checks that read one source sample: every stage row at `z`
@@ -1070,6 +1065,8 @@ def native_adams_start(backend: Any, z: float) -> None:
         (:func:`load_native`).
     z : float
         The state's position, m.
+    slots : sequence of int, optional
+        The history rows that take the sample: row 0 by default.
     """
     from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
         _testing,
@@ -1081,10 +1078,13 @@ def native_adams_start(backend: Any, z: float) -> None:
     workspace = backend._workspace
     backend._stages.hoist(z)
     arrays, material = native_stage_rows(backend, z, z)
-    with _envelope_errors():
-        _testing.adams_start(workspace, 0, *arrays, material=material)
-    if _native_compensated(backend):
-        _testing.adams_compensation_start(workspace, 0, native_rate_weights(backend, z))
+    compensated = _native_compensated(backend)
+    for slot in slots:
+        with _envelope_errors():
+            _testing.adams_start(workspace, slot, *arrays, material=material)
+        if compensated:
+            rate = native_rate_weights(backend, z)
+            _testing.adams_compensation_start(workspace, slot, rate)
 
 
 def native_adams_rows(backend: Any) -> dict[str, np.ndarray]:

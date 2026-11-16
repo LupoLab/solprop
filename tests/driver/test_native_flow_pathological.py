@@ -92,7 +92,7 @@ def formed(monkeypatch, problem, run_request, grid, held, dz):
     monkeypatch.setattr(native_backend, "_host_flow", lambda _: held)
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        native = backend._native_state
+        native = backend._workspace
         n_modes = held.vectors.shape[-1]
         tableau = run_request.stepper.tableau
         fractions = np.array([*(float(node) for node in tableau.nodes), 1.0])
@@ -203,13 +203,12 @@ def test_the_spectral_norm_bounds_the_singular_value_to_its_rounding(monkeypatch
 def _native_partials(problem, run_request, grid, field, dz):
     """Return the error norm's partials of one native trial from `field`.
 
-    The native state itself, loaded with the field, scores the staged trial, as the
-    native backend's own trial does (SEP 47 phase 5).
+    The native workspace itself, loaded with the field, scores the trial on its stage
+    tables, as the native march's own trial does (SEP 47 phase 5).
     """
     assert problem.initial.noise0 is None
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        backend._staged_rows()
         load_native(backend, field)
         return native_trial(backend, 0.0, dz)
     finally:

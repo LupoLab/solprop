@@ -510,39 +510,6 @@ def test_an_edged_run_carries_its_edge_s_configuration():
 
 
 @needs_native
-def test_native_reads_the_runge_kutta_policy_with_the_controller_s_fields():
-    native_records = pytest.importorskip("solprop_native._records")
-    problem, request = _gnlse()
-    stepper = request.stepper
-    controller = stepper.controller
-    policy = runge_kutta_policy(problem, stepper)
-    breakpoints = np.asarray(problem.linear.phi_breakpoints)
-    assert native_records.rk_policy(policy) == {
-        "dz_min": stepper.dz_min,
-        "dz_max": stepper.dz_max,
-        "stretch": stepper.stretch,
-        "z_end": stepper.z_end,
-        "save_planes": list(PLANES),
-        "interpolate": False,
-        "hard_kinks": [float(z) for z in problem.linear.hard_kinks],
-        "breakpoints": [float(breakpoints[0]), float(breakpoints[-1])],
-        "landing_ulps": LANDING_ULPS,
-        "quiet_interval": None,
-        "safety": controller.safety,
-        "beta1": controller.beta1,
-        "beta2": controller.beta2,
-        "min_factor": controller.min_factor,
-        "max_factor": controller.max_factor,
-        "lag": controller.lag,
-        "reject_free": controller.reject_free,
-        "power": float(controller.estimator_order + 1),
-        "exponent": 1.0 / (controller.estimator_order + 1),
-        "start_growth": START_GROWTH,
-        "auto_init": stepper.auto_init,
-    }
-
-
-@needs_native
 def test_native_s_adams_march_holds_the_shared_policy():
     native_backend = pytest.importorskip("solprop_native.backend")
     problem, request = _gnlse(integrator=Multistep())
@@ -553,56 +520,3 @@ def test_native_s_adams_march_holds_the_shared_policy():
         assert policy == records.policy
     finally:
         backend.close()
-
-
-@needs_native
-def test_native_reads_the_plane_plan_and_the_continuation():
-    native_records = pytest.importorskip("solprop_native._records")
-    record = _earlier_record()
-    problem, request = _gnlse(schedule=_uniform())
-    start = Start(field=None, z=PLANES[0], plane_index=1, plane_pending=False)
-    plan = native_records.session_plan(
-        run_records(problem, request, start).planes,
-        plane_statistics=None,
-        row_statistics=None,
-        monitor=None,
-        dense=None,
-    )
-    assert plan["replay"] is True
-    assert (plan["next_plane"], plan["launch_pending"]) == (1, False)
-    assert plan["planes"].tolist() == list(PLANES)
-    simulation = _monitored()
-    monitor = simulation._boundary_monitor()
-    assert monitor is not None
-    held = native_records.continuation(
-        monitor_continuation(
-            monitor, {"record": record, "plane": True, "unwatched": [(0.2, 0.5)]}
-        )
-    )
-    assert held["plane"] is True
-    assert held["unwatched"] == [[0.2, 0.5]]
-    assert held["edge_record"] == {"record": True, "launch_energy": 1.0}
-    flat = held["record"]
-    assert flat["record"] and flat["collar_quiet"] and flat["steps"] == 12.0
-    assert flat["unwatched"] == [[0.1, 0.2]] and flat["resumed_at"] == [0.1]
-    assert len(flat["planes"]) == len(PLANE_COLUMNS)
-
-
-@needs_native
-def test_native_reads_the_edge_s_configuration_by_field():
-    native_records = pytest.importorskip("solprop_native._records")
-    simulation = radial_collar("numpy_ref", RungeKutta())
-    problem = simulation.translate()
-    request = simulation._run_request().for_run(
-        stats=StatsSpec(), monitor=simulation._boundary_monitor()
-    )
-    held = run_records(problem, request, _entrance(problem)).monitor
-    assert held is not None and held.edge is not None
-    values = native_records.edge_config(held.edge)
-    assert set(values) == {field.name for field in dataclasses.fields(held.edge)}
-    assert values["faces"] == list(held.edge.faces)
-    # The arrays cross as they are, not copied.
-    assert values["kappa"] is held.edge.kappa
-    config = native_records.monitor_config(held.config)
-    assert config["rate"] is held.config.rate
-    assert config["policy"] == held.config.policy

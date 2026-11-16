@@ -148,17 +148,69 @@ def test_interpolated_planes(route):
     _held(lambda: runge_kutta_route(route, interpolate_planes=True))
 
 
+def _host_packed(backend, workspace, bundles, whole):
+    """Pack a z table's trial rows on the host, as the backend packed them once.
+
+    The ``Phi`` table's positions are loaded into the workspace's slots in one call,
+    each stage's increment and value then the +-1 weights of its slots; the prefactor
+    a table's one-hot slot or the bundles' own weights; the other rows the bundles'.
+    """
+    tables = backend._z_tables
+    stages = [*bundles, whole]
+    positions = [float(one.z0) for one in stages] + [float(one.z1) for one in stages]
+    wanted = list(dict.fromkeys(positions))
+    slot_of = dict(zip(wanted, _testing.table_load(workspace, wanted), strict=True))
+
+    def one_hot(z, count):
+        row = np.zeros(count)
+        row[slot_of[float(z)]] = 1.0
+        return row
+
+    phi_delta = np.stack(
+        [
+            one_hot(one.z1, tables.n_phi) - one_hot(one.z0, tables.n_phi)
+            for one in stages
+        ]
+    )
+    phi_at = np.stack([one_hot(one.z1, tables.n_phi) for one in bundles])
+    prefactor = (
+        np.stack([one_hot(one.z1, tables.slots) for one in bundles])
+        if tables.prefactor
+        else np.stack([one.prefactor for one in bundles])
+    )
+    arrays = tuple(
+        np.ascontiguousarray(values, dtype=np.float64)
+        for values in (
+            phi_delta,
+            phi_at,
+            prefactor,
+            [one.density for one in bundles],
+            [one.taper_scale for one in bundles],
+            [one.preionisation for one in bundles],
+            [one.raman_rates for one in bundles],
+        )
+    )
+    material = {
+        "kerr_density": np.asarray([one.kerr_density for one in bundles]),
+        "plasma_densities": np.asarray([one.plasma_densities for one in bundles]),
+        "plasma_preionisation": np.asarray(
+            [one.plasma_preionisation for one in bundles]
+        ),
+        "raman_densities": np.asarray([one.raman_densities for one in bundles]),
+    }
+    return arrays, material
+
+
 def test_a_z_table_s_staged_trial_is_the_host_packed_trial():
     """The z table's positions load into other slots, holding the same values.
 
     The native state forms a staged trial's stage rows itself (``rk_trial``), loading
     the z table's positions stage by stage; the host packs the same trial's rows from
-    solprop's stage scalars (``translate.stage.scalars_at`` into the backend's
-    ``_trial_arrays``) for the state's unstaged trial (``trial_step``), loading them
-    together. On one state the two trials are the same to the bit: their scored
-    partials and every stage. Both trials are called on the backend's native state
-    directly, loaded with the launch: SEP 47 phase 5 retired the private switch that
-    made the backend's own trial pack its rows on the host.
+    solprop's stage scalars (``translate.stage.scalars_at``), with the z table's
+    positions loaded together into the workspace's slots (``table_load``) and selected
+    by their +-1 weights, for the state's unstaged trial (``trial_step``). On one state
+    the two trials are the same to the bit: their scored partials and every stage.
+    Both trials are called on the backend's workspace directly, loaded with the launch.
     """
     simulation = walk_off("native", RungeKutta())
     problem = simulation.translate()
@@ -168,8 +220,6 @@ def test_a_z_table_s_staged_trial_is_the_host_packed_trial():
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        backend._staged_rows()
-        assert backend._rk_staged
         state = load_native(backend, problem.initial.field0)
         nodes = [float(node) for node in run_request.stepper.tableau.nodes]
         end = float(run_request.stepper.z_end)
@@ -187,7 +237,7 @@ def test_a_z_table_s_staged_trial_is_the_host_packed_trial():
                 at=held,
                 helpers=backend.helpers,
             )
-            arrays, material = backend._trial_arrays(bundles, whole)
+            arrays, material = _host_packed(backend, state, bundles, whole)
             packed = np.asarray(_testing.trial_step(state, dz, *arrays, material))
             assert staged.tobytes() == packed.tobytes(), z
             for index, stage in enumerate(stages):

@@ -140,11 +140,12 @@ def test_a_low_storage_estimate_times_the_march_s_own_step(backend, monkeypatch)
 
     def spy(constructed, problem, run_request):
         step, evaluations = build(constructed, problem, run_request)
-        monkeypatch.setattr(
-            constructed,
-            "_trial_step",
-            lambda *_: pytest.fail("a low-storage estimate took a trial step"),
-        )
+        if hasattr(constructed, "_trial_step"):  # the reference's; native has none
+            monkeypatch.setattr(
+                constructed,
+                "_trial_step",
+                lambda *_: pytest.fail("a low-storage estimate took a trial step"),
+            )
 
         def counted():
             taken.append(1)
@@ -212,24 +213,31 @@ def _backend(simulation):
     )
 
 
-def _native_committed_nothing(problem, probed, fresh, dz):
-    """Assert a native probe left its loaded state; return the native state's trial.
+def _native_trial(problem, fresh, dz):
+    """Return a fresh native workspace's trial from the launch, finished as kept.
 
-    The probed backend's native state holds the launch exactly, as a fresh native state
-    loaded with it does: nothing was committed. The trial is the same Runge-Kutta trial
-    from the launch, taken by a fresh native state itself on its staged rows and
-    finished as a kept step (SEP 47 phase 5: the native backend no longer steps or
-    observes outside its session).
+    The same Runge-Kutta trial from the launch the probe takes, taken by a fresh
+    native workspace itself on its stage tables and finished as a kept step (SEP 47
+    phase 5: the native backend no longer steps or observes outside its session).
     """
     assert problem.initial.noise0 is None
-    fresh._staged_rows()
-    state = load_native(fresh, problem.initial.field0)
-    loaded = state.field_to_host()
-    held = probed._native_state.field_to_host()
-    assert held.tobytes() == loaded.tobytes()
+    _testing = pytest.importorskip("solprop_native._core")._testing
+    workspace = load_native(fresh, problem.initial.field0)
     native_trial(fresh, float(problem.initial.z), dz)
-    state.finish(dz)
-    return np.asarray(state.field_to_host()).reshape(problem.shape)
+    _testing.finish(workspace, dz)
+    return np.asarray(_testing.field(workspace)).reshape(problem.shape)
+
+
+def _native_committed_nothing(problem, probed, fresh):
+    """Assert a native probe left its loaded state, the probe closed.
+
+    The probed backend's workspace holds the launch exactly, as a fresh workspace
+    loaded with it does: nothing was committed.
+    """
+    _testing = pytest.importorskip("solprop_native._core")._testing
+    loaded = _testing.field(load_native(fresh, problem.initial.field0))
+    held = _testing.field(probed._take_workspace())
+    assert held.tobytes() == loaded.tobytes()
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -259,7 +267,7 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
         with pytest.raises(BackendError, match="take a trial"):
             probe.field()
         if backend == "native":
-            trial = _native_committed_nothing(problem, probed, fresh, dz)
+            trial = _native_trial(problem, fresh, dz)
         else:
             # Nothing was committed: no attempt, the launch position, the loaded state.
             host_stepping(fresh).set_initial(
@@ -283,6 +291,9 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
         before = whole.copy()
         probe.trial(float(problem.initial.z), 0.25 * dz)
         assert np.array_equal(whole, before)
+        if backend == "native":
+            # Read once the probe is closed: it leases the workspace.
+            _native_committed_nothing(problem, probed, fresh)
     finally:
         probed.close()
         fresh.close()

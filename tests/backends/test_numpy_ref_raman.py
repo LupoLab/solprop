@@ -62,6 +62,36 @@ from solprop.translate.raman import (
 )
 from solprop.translate.responses import ResponseStage, prefactor_at
 
+
+def raman_refreshes(backend):
+    """Read a backend's Raman kernel transforms: the reference's own, or the native
+    workspace's (``raman_kernel_transforms``)."""
+    if backend.name == "native":
+        return backend._diagnostics()["raman_kernel_transforms"]
+    return backend._raman_transforms
+
+
+def prepare_raman(backend, rates, densities=()):
+    """Prepare a backend's Raman kernel at `rates` and `densities`, without a step.
+
+    The reference's memo returns its kernel; the native workspace prepares its own
+    (``_testing.prepare_raman``) and returns nothing, and a problem without a Raman
+    term has no kernel to prepare on either.
+    """
+    if backend.name != "native":
+        return backend._raman_spectrum(rates, *((densities,) if densities else ()))
+    if not backend._problem.responses.raman_terms:
+        return None
+    _testing = pytest.importorskip("solprop_native._core")._testing
+
+    _testing.prepare_raman(
+        backend._workspace,
+        np.ascontiguousarray(rates, dtype=np.float64),
+        np.ascontiguousarray(densities, dtype=np.float64),
+    )
+    return None
+
+
 # The pass is the oracle's own arithmetic -- the same padded real transform pair, the
 # same product, the same final multiplication -- but need not keep its order (SEP 25):
 # the two agree to one round trip on the doubled grid, `fft_bound(2 n_to)` with its
@@ -418,8 +448,8 @@ def test_the_kernel_is_transformed_once_per_change_of_the_decay_rates(
     backend = backend_class(problem, run_request)
     for z in (0.0, 0.05, 0.05, 0.15, 0.15):
         rates = backend._stage_scalars(0.0, z).raman_rates
-        backend._raman_spectrum(rates)
-    transforms = backend._raman_transforms
+        prepare_raman(backend, rates)
+    transforms = raman_refreshes(backend)
     backend.close()
     assert transforms == expected
 
@@ -429,7 +459,8 @@ def test_a_problem_without_a_raman_kernel_has_no_spectrum(
 ):
     problem, run_request, _, _ = raman_capillary([KerrResponse(chi3=1.0e-51, thg=True)])
     backend = backend_class(problem, run_request)
-    assert backend._raman_spectrum(backend._stage_scalars(0.0, 0.0).raman_rates) is None
+    rates = backend._stage_scalars(0.0, 0.0).raman_rates
+    assert prepare_raman(backend, rates) is None
     backend.close()
 
 
@@ -899,7 +930,7 @@ def test_a_raman_run_steps_and_shifts_a_capillary_pulse(
     backend = backend_class(problem, run_request, grid=raman_field_grid)
     try:
         plane = session_run(backend, problem, run_request, owns=False, until=0.1).final
-        transforms = backend._raman_transforms
+        transforms = raman_refreshes(backend)
     finally:
         backend.close()
     assert plane.z == 0.1

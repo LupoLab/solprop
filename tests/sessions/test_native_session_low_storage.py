@@ -134,9 +134,7 @@ class _Faulted(native_session.NativeSession):
     def _prepare(self, backend, start):
         """Prepare as the session does, then arm the native failure."""
         prepared = super()._prepare(backend, start)
-        _testing.adams_march_fault(
-            backend._native_state, "trial", self._after, "backend"
-        )
+        _testing.inject_fault(backend._workspace, "trial", self._after, "backend")
         return prepared
 
 

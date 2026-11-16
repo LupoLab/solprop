@@ -537,9 +537,7 @@ LEASED_CALLS = {
         workspace, np.zeros(n, np.complex128), np.empty(0, np.complex128)
     ),
     "rk_march_run": lambda workspace, n: _testing.rk_march_run(workspace, {}, {}),
-    "adams_march_run": lambda workspace, n: _testing.adams_march_run(
-        workspace, {}, {}
-    ),
+    "adams_march_run": lambda workspace, n: _testing.adams_march_run(workspace, {}, {}),
     "inject_fault": lambda workspace, n: _testing.inject_fault(
         workspace, "trial", 0, "backend"
     ),

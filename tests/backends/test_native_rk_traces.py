@@ -29,6 +29,7 @@ from tests.backends.native_trace_marches import TraceRungeKuttaMarch
 from tests.backends.rk_traces import Scenario, _HostHarness, same_trace
 
 from solprop.backends import available
+from solprop.backends.records import RungeKuttaPolicy
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper.schedule import FixedSchedule, reached
 
@@ -104,7 +105,7 @@ class _NativeHarness(_HostHarness):
         self._natural_count += 1
 
 
-def _policy_free(harness: _NativeHarness) -> dict[str, object]:
+def _policy_free(harness: _NativeHarness) -> RungeKuttaPolicy:
     return TraceRungeKuttaMarch(harness)._policy()
 
 

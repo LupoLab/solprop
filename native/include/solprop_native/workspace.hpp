@@ -730,6 +730,9 @@ public:
   /** The configured march's engines over the state, for an engine-level test: the
       Runge-Kutta (or low-storage) engine and the Adams engine. */
   std::unique_ptr<rk::Engine> trial_engine();
+  /** The low-storage replay's engine over the state, its type kept for a test that
+      reads its squared norms. */
+  std::unique_ptr<engines::ResidentLowStorage> low_storage_engine();
   std::unique_ptr<march::Engine> adams_engine();
 
 private:

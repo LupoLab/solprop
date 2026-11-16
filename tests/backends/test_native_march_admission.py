@@ -120,7 +120,7 @@ def test_a_representation_the_stage_tables_do_not_read_is_refused_at_admission(
     assert not backend_module.stage_tables_available(stripped)
     built_states = []
     monkeypatch.setattr(
-        backend_module._core, "State", lambda *args: built_states.append(args)
+        backend_module._core, "Workspace", lambda *args: built_states.append(args)
     )
     with pytest.raises(BackendError, match="does not read") as refused:
         NativeBackend(stripped, request, grid=simulation.grid, modes=simulation.modes)
@@ -147,7 +147,7 @@ def test_the_untransported_witness_is_refused():
     backend = built(on_route("capillary (pressure gradient)", Multistep()))
     try:
         with pytest.raises(BackendError, match="untransported"):
-            backend._adams_engine(Multistep(), "untransported")
+            backend._compensated(Multistep(), "untransported")
     finally:
         backend.close()
 

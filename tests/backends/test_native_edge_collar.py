@@ -27,6 +27,7 @@ from backends.edge_collar_cases import (
     STEPS,
     collar_case,
 )
+from backends.native_edge import bind_edge_monitor, edge_reading
 from bounds import fft_bound
 from sessions.runs import load_native, watched_run
 from sessions.runs import run as session_run
@@ -70,7 +71,7 @@ def _attached(simulation: Simulation, state: np.ndarray) -> tuple[Any, Any]:
     """Return a native backend loaded with `state`, its edge bound.
 
     The state is loaded into the backend's native state and the monitor bound there,
-    as the native session binds its own (the backend's ``_bind_monitor``).
+    as the native session binds its own (``backends.native_edge.bind_edge_monitor``).
     """
     problem = simulation.translate()
     run_request = simulation._run_request()
@@ -91,7 +92,7 @@ def _attached(simulation: Simulation, state: np.ndarray) -> tuple[Any, Any]:
     assert monitor is not None
     assert monitor.transverse is not None
     assert monitor.transverse.every_step
-    backend._bind_monitor(monitor)
+    bind_edge_monitor(backend, monitor)
     return backend, monitor.transverse
 
 
@@ -117,9 +118,7 @@ def test_native_reads_a_collars_strip_and_current_as_the_host_does(
     state = _noise(problem, 67)
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(
-            backend._native_state, edge, current=True, full=True
-        )
+        native = edge_reading(backend, edge, current=True, full=True)
         host = edge.reduction.reading(state, current=True, full=True)
     finally:
         backend.close()
@@ -137,7 +136,7 @@ def test_native_reads_a_collars_strip_and_current_as_the_host_does(
     # A later read uses only the collar's rate, from the rows a read can touch.
     backend, edge = _attached(simulation, state)
     try:
-        read = backend._edge_reading(backend._native_state, edge)
+        read = edge_reading(backend, edge)
     finally:
         backend.close()
     assert read.totals[1] > 0.0
@@ -172,9 +171,7 @@ def _line_current(
         state[:, 0, active[index]] = np.fft.fft(wave)
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(
-            backend._native_state, edge, faces=False, current=True
-        )
+        native = edge_reading(backend, edge, faces=False, current=True)
     finally:
         backend.close()
     return native.current, kappa, h, edge, space.n_x
@@ -245,7 +242,7 @@ def test_the_strip_tells_a_packets_direction(kappa: float, reads_inward: bool) -
     state[:, 0, active[3]] = _packet(space, centre, kappa)
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._native_state, edge, full=True)
+        native = edge_reading(backend, edge, full=True)
     finally:
         backend.close()
     inward, windowed = native.strip[0]
@@ -266,13 +263,13 @@ def test_a_small_batch_reads_what_one_batch_reads(
     state = _noise(problem, 71)
     backend, edge = _attached(simulation, state)
     try:
-        whole = backend._edge_reading(backend._native_state, edge, full=True)
+        whole = edge_reading(backend, edge, full=True)
     finally:
         backend.close()
     monkeypatch.setattr(transverse_monitor, "_STRIP_BATCH_BYTES", 2**12)
     backend, edge = _attached(simulation, state)
     try:
-        small = backend._edge_reading(backend._native_state, edge, full=True)
+        small = edge_reading(backend, edge, full=True)
     finally:
         backend.close()
     budget = 4 * fft_bound(state.shape[0] * state.shape[2])
@@ -417,7 +414,7 @@ def test_a_collar_run_brings_no_state_to_the_host(route: str) -> None:
         warnings.simplefilter("ignore", BoundaryWarning)
         output = runner.run(field, progress="none")
         assert isinstance(runner.backend, NativeBackend)
-        to_host, from_host = cast("Any", runner.backend)._native_state.crossed_bytes()
+        to_host, from_host = cast("Any", runner.backend)._diagnostics()["crossed_bytes"]
     record = cast("Any", output).outcome.execution["boundary_monitor"]["transverse"]
     assert record["reads"] > 0
     assert to_host == 0
@@ -445,7 +442,7 @@ def test_a_lit_node_reads_the_collars_rate_from_its_design() -> None:
     state[:, 0, active[3]] = phase
     backend, edge = _attached(simulation, state)
     try:
-        read = backend._edge_reading(backend._native_state, edge)
+        read = edge_reading(backend, edge)
     finally:
         backend.close()
     expected = rate[node] * float(np.asarray(space.spatial_weights)[node])
@@ -551,9 +548,7 @@ def test_the_smallest_node_chunk_reads_what_the_default_reads(route: str) -> Non
     state = _noise(problem, 83)
     backend, edge = _attached(simulation, state)
     try:
-        whole = backend._edge_reading(
-            backend._native_state, edge, current=True, full=True
-        )
+        whole = edge_reading(backend, edge, current=True, full=True)
     finally:
         backend.close()
     budget = 20 * 16 * problem.shape[1] * problem.grids.n_to
@@ -561,9 +556,7 @@ def test_the_smallest_node_chunk_reads_what_the_default_reads(route: str) -> Non
     assert node_chunk(small) < node_chunk(simulation)
     backend, edge = _attached(small, state)
     try:
-        read = backend._edge_reading(
-            backend._native_state, edge, current=True, full=True
-        )
+        read = edge_reading(backend, edge, current=True, full=True)
     finally:
         backend.close()
     assert read.strip.tobytes() == whole.strip.tobytes()
@@ -708,7 +701,7 @@ def test_a_supplied_unmasked_draw_judges_as_the_host_does_with_no_transfer(
                     monitor=record,
                 )
             crossed = (
-                backend._native_state.crossed_bytes()[0] if name == "native" else None
+                backend._diagnostics()["crossed_bytes"][0] if name == "native" else None
             )
             return cast("dict[str, Any]", record["transverse"]), crossed
         finally:
@@ -730,9 +723,11 @@ def test_a_supplied_unmasked_draw_judges_as_the_host_does_with_no_transfer(
     np.testing.assert_allclose(handed[0], judged[0], rtol=1e-10, atol=1e-30)
 
 
-def test_a_resume_with_no_monitor_record_crosses_once() -> None:
+def test_a_resume_with_no_monitor_record_crosses_no_state() -> None:
     # The one launch whose clean columns the load didn't form: a resumed state with its
-    # draw, whose run has no record of the monitor, so it's judged here as a launch.
+    # draw, whose run has no record of the monitor, so it's judged here as a launch. The
+    # load keeps its host copy of the state, so the judging forms them from that and
+    # nothing crosses back (SEP 52).
     simulation = collar_case("line", noise="input")
     problem = simulation.translate()
     run_request = simulation._run_request()
@@ -768,7 +763,7 @@ def test_a_resume_with_no_monitor_record_crosses_once() -> None:
                 export=None,
                 observations=2,
             )
-        assert backend._native_state.crossed_bytes()[0] == state.nbytes
+        assert backend._diagnostics()["crossed_bytes"][0] == 0
     finally:
         backend.close()
 
@@ -791,7 +786,7 @@ def test_a_strip_of_too_few_nodes_reads_nothing_on_either_side(
     monkeypatch.setattr(transverse_monitor, "_edge_lines", with_an_empty_line)
     backend, edge = _attached(simulation, state)
     try:
-        read = backend._edge_reading(backend._native_state, edge, full=True)
+        read = edge_reading(backend, edge, full=True)
         held = edge.reduction.reading(state, full=True)
         _, n_pol, n_omega = problem.shape
         assert backend.memory_ledger()["transverse_edge"] == (

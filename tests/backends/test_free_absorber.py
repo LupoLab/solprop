@@ -237,10 +237,12 @@ def test_cartesian_split_step_temporal_absorber_reconstructs_physical_field(
         if backend.name == "native":
             # A zero-length trial loads the unmodified field into advanced;
             # finish then exercises precisely the once-per-step absorber.
+            _testing = pytest.importorskip("solprop_native._core")._testing
+
             state = load_native(backend, problem.initial.field0)
             native_trial(backend, 0.0, 0.0)
-            state.finish(dz)
-            actual = state.field_to_host().reshape(start.shape)
+            _testing.finish(state, dz)
+            actual = np.asarray(_testing.field(state)).reshape(start.shape)
         else:
             backend.set_initial(problem.initial.field0, None)
             actual = backend._finish(problem.initial.field0.copy(), dz)

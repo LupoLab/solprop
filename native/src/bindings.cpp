@@ -2406,6 +2406,18 @@ private:
 /** solprop's protocol records, built where a test reads them. */
 nb::object engines_module() { return nb::module_::import_("solprop.backends.engines"); }
 
+/** An accepted step's `AcceptRecord` (SEP 52 section 5.2): the split collar's sums its
+    finish measured, from the masked field before the split, where a monitor reads a
+    split collar; the stiffness is not formed natively (NaN). */
+nb::object accept_record(native::GeneralState& state) {
+  auto sums = state.split_sums();
+  if (!sums)
+    return engines_module().attr("AcceptRecord")();
+  const std::vector<double> found(sums->begin() + 1, sums->end());
+  return engines_module().attr("AcceptRecord")(
+      "removed"_a = (*sums)[0], "found"_a = nb::cast(real_output(found, 1)).attr("reshape")(-1));
+}
+
 nb::object boundary_reading(const std::vector<double>& values) {
   if (values.size() < native::watch::reading_head)
     throw std::logic_error("a boundary reading is too short");
@@ -2459,7 +2471,7 @@ void bind_engines(nb::module_& testing) {
                const nb::gil_scoped_release release;
                engine.accept(dz);
              }
-             return engines_module().attr("AcceptRecord")();
+             return accept_record(self.state());
            })
       .def("rk_extend", [](TestEngines& self, const double z,
                            const double dz) { self.runge_kutta().extend(z, dz); })
@@ -2501,7 +2513,7 @@ void bind_engines(nb::module_& testing) {
                const nb::gil_scoped_release release;
                engine.accept(dz, free, stencil, entries);
              }
-             return engines_module().attr("AcceptRecord")();
+             return accept_record(self.state());
            })
       .def("adams_chord_phase",
            [](TestEngines& self, const double z1, const double z2) {
@@ -3253,6 +3265,87 @@ void bind_testing(nb::module_& testing) {
                               {workspace.columns(), values.size() / workspace.columns()});
       },
       "workspace"_a, "kind"_a, "z"_a);
+  // The slot each position's z-table value is held in, evaluating only those no slot
+  // holds (solprop SEP 29 G1; at most the slots a call).
+  testing.def(
+      "table_load",
+      [](BoundWorkspace& owner, const std::vector<double>& positions) {
+        auto& workspace = owner.workspace();
+        auto& state = workspace.state();
+        auto& slots = workspace.z_slots();
+        if (!slots.present())
+          throw std::logic_error("no z table's slots were configured");
+        const nb::gil_scoped_release release;
+        return slots.load(state, positions);
+      },
+      "workspace"_a, "positions"_a);
+  // Write a history row `(n_slots, rows, n_omega)` straight into the resident Adams
+  // history, as a resumed run's start does.
+  testing.def(
+      "adams_rows_from_host",
+      [](BoundWorkspace& owner, const std::string& name, const ComplexInput rows) {
+        auto& state = owner.workspace().state();
+        const auto extents = state.adams_row_extents(name);
+        if (rows.ndim() != 3 || rows.shape(0) != extents[0] ||
+            rows.shape(1) != extents[1] || rows.shape(2) != extents[2])
+          native::refuse("the Adams history row '", name, "' must have shape (",
+                         extents[0], ", ", extents[1], ", ", extents[2], ")");
+        const auto values = complex_vector(rows);
+        const nb::gil_scoped_release release;
+        state.adams_rows_from_host(name, values);
+      },
+      "workspace"_a, "name"_a, "rows"_a.noconvert());
+  // The far-field statistics' banded pass on the state (solprop SEP 23 section 6).
+  testing.def(
+      "aperture_statistics",
+      [](BoundWorkspace& owner, const std::uint64_t flags, const RealInput apertures,
+         const int exponent, const RealInput regions, const double intensity_factor) {
+        if (apertures.ndim() != 2 || regions.ndim() != 2 || regions.shape(1) != 4)
+          throw std::invalid_argument(
+              "aperture tables must be (n_apertures, 11 + n_omega) and regions "
+              "(n_regions, 4)");
+        const auto held_apertures = real_vector(apertures);
+        const auto held_regions = real_vector(regions);
+        auto& state = owner.workspace().state();
+        std::vector<double> values;
+        {
+          const nb::gil_scoped_release release;
+          values = state.aperture_statistics(flags, held_apertures, exponent,
+                                             held_regions, intensity_factor);
+        }
+        return real_output(std::move(values), 1);
+      },
+      "workspace"_a, "flags"_a, "apertures"_a.noconvert(), "exponent"_a,
+      "regions"_a.noconvert(), "intensity_factor"_a);
+  // March the low-storage replay's engine over consecutive positions, each step
+  // finished as the state's finish alone, and return each step's squared norm over the
+  // norm mask from the passes' own reduction (the forced-thread folds' reading). The
+  // run's records must be configured (`configure_march`).
+  testing.def(
+      "low_storage_norms",
+      [](BoundWorkspace& owner, const std::vector<double>& positions) {
+        auto& workspace = owner.workspace();
+        workspace.require_unleased();
+        auto engine = workspace.low_storage_engine();
+        auto& state = workspace.state();
+        std::vector<double> norms;
+        {
+          const nb::gil_scoped_release release;
+          for (std::size_t index = 0; index + 1 < positions.size(); ++index) {
+            const double dz = positions[index + 1] - positions[index];
+            static_cast<void>(engine->trial(positions[index], dz));
+            norms.push_back(engine->squared());
+            state.finish(dz);
+          }
+        }
+        return real_output(norms.empty() ? std::vector<double>{} : std::move(norms), 1);
+      },
+      "workspace"_a, "positions"_a);
+  // The largest accepted step's quadrature score since the last read, drained.
+  testing.def(
+      "quadrature_peak",
+      [](BoundWorkspace& owner) { return owner.workspace().state().quadrature_peak(); },
+      "workspace"_a);
   testing.def(
       "table_evaluations",
       [](BoundWorkspace& owner) { return owner.workspace().z_slots().evaluations; },

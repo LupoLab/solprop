@@ -261,7 +261,7 @@ def _calls(nx: int, steps: int, planes: int) -> dict[str, Any]:
     problem, request, backend = _native(_simulation(nx, steps, planes, None))
     geometry = problem.transform.geometry
     x, y = geometry.axes
-    state = backend._native_state
+    state = backend._workspace
     try:
         with backend.prepare(problem, request).start(
             Start.entrance(problem), owns=False
@@ -297,7 +297,10 @@ def _calls(nx: int, steps: int, planes: int) -> dict[str, Any]:
                 ),
             }
             session.acknowledge(batch.receipt)
-        crossings = {"field_to_host": _timed(state.field_to_host, 3), **exports}
+        crossings = {
+            "field_to_host": _timed(lambda: _testing.field(state), 3),
+            **exports,
+        }
         # A width's parts: the fluence and its moments, one native call; and what the
         # host's azimuthal average of a Gaussian's fluence takes on this machine.
         widths = {

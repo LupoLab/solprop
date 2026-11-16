@@ -103,7 +103,7 @@ def test_a_state_with_zero_frequency_content_matches_the_reference(thg, evaluato
     start[..., 0] = 1e-3 * np.abs(start).max()
     backend = NativeBackend(problem, case.run_request, grid=case.grid)
     try:
-        held = load_native(backend, start).field_to_host().reshape(problem.shape)
+        held = _testing.field(load_native(backend, start)).reshape(problem.shape)
     finally:
         backend.close()
     np.testing.assert_array_equal(held[..., 0], 0.0)
@@ -131,7 +131,7 @@ def test_the_embedded_rule_is_finished_once_and_only_where_it_exists(evaluator):
     backend = NativeBackend(case.problem, case.run_request, grid=case.grid)
     try:
         native_source(backend, case.problem.initial.field0)
-        native = backend._native_state
+        native = backend._workspace
         fine = np.array(_testing.projected_to_host(native, False))
         landed = np.array(_testing.projected_to_host(native, True))
         assert np.any(landed)
@@ -144,7 +144,7 @@ def test_the_embedded_rule_is_finished_once_and_only_where_it_exists(evaluator):
     backend = NativeBackend(radial_problem, radial_request, grid=grid)
     try:
         native_source(backend, radial_problem.initial.field0)
-        native = backend._native_state
+        native = backend._workspace
         before = np.array(_testing.projected_to_host(native, False))
         assert np.any(before)
         np.testing.assert_array_equal(_testing.projected_to_host(native, False), before)

@@ -1098,6 +1098,9 @@ class NativeBackend:
             field = int(ledger.get("state", 0))
             ledger["rk_dense"] = 6 * field + field // 16
         if self._tdse_binding is not None:
+            # The host source's field and source rows (SEP 49), before a run binds
+            # them, so that an estimate made before the run counts them.
+            ledger.setdefault("host_source", 2 * 16 * int(self._problem.shape[-1]))
             ledger |= {
                 f"tdse_{name}": int(size)
                 for name, size in self._tdse_binding.memory_ledger().items()
@@ -1677,7 +1680,12 @@ class _NativeAdamsMarch:
         self._last_rejected = False
         self._order = 1 if method.variable_order else method.order
         self.ledger = CallLedger()
-        carrier = carrier_reference(problem, method)
+        # A scripted harness's history holds its own frame.
+        carrier = (
+            carrier_reference(problem, method)
+            if engine is None
+            else getattr(engine, "carrier", None)
+        )
         # Every number the native controller and landings read (SEP 39 section 4.2),
         # formed as the reference forms it.
         self._policy: MarchPolicy = adams_policy(
@@ -1868,7 +1876,7 @@ class _NativeAdamsMarch:
                 for entry in self._history
             ],
             "ledger": {name: getattr(ledger, name) for name in _MARCH_COUNTERS},
-            "watch": FRESH_WATCH,
+            "watch": dict(FRESH_WATCH),
         }
 
     def _raise(self, reason: int, result: dict[str, Any]) -> None:

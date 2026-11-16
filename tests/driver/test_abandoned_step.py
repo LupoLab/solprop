@@ -145,7 +145,7 @@ def test_a_stop_between_steps_checkpoints_as_ever(backend, tmp_path):
 def _abandon_natively(monkeypatch, *, after: int) -> None:
     """Fail the native session's step ``after + 1`` partway, its state overwritten.
 
-    The native engine's injected failure (``adams_march_fault``), armed as the session
+    The native engine's injected failure (``inject_fault``), armed as the session
     prepares the backend's state: the low-storage step raises after its passes and
     before its finish, the one way a native step is abandoned in flight.
     """
@@ -158,7 +158,7 @@ def _abandon_natively(monkeypatch, *, after: int) -> None:
         )
 
         prepared = prepare(self, backend, start)
-        _testing.adams_march_fault(backend._native_state, "trial", after, "backend")
+        _testing.inject_fault(backend._workspace, "trial", after, "backend")
         return prepared
 
     monkeypatch.setattr(session, "_prepare", arming)

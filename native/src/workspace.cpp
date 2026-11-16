@@ -653,19 +653,23 @@ MethodKind Workspace::kind() const noexcept {
 
 std::unique_ptr<rk::Engine> Workspace::trial_engine() {
   auto& general = built();
-  if (low_storage_) {
-    if (!stage_tables_ || !rk_policy_)
-      throw std::logic_error("the native low-storage replay is not configured");
-    return std::make_unique<engines::ResidentLowStorage>(
-        general, *stage_tables_, stage_anchor_, *low_storage_, rk_schedule_,
-        rk_policy_->landings.landing_ulps, fault_);
-  }
+  if (low_storage_)
+    return low_storage_engine();
   if (!runge_kutta_)
     throw std::logic_error("the native Runge-Kutta trial is not configured");
   return std::make_unique<engines::ResidentRungeKutta>(
       general,
       [this](const double z, const double dz) { return staged_trial(z, dz, false); },
       runge_kutta_->rtol, runge_kutta_->atol, runge_kutta_->weights);
+}
+
+std::unique_ptr<engines::ResidentLowStorage> Workspace::low_storage_engine() {
+  auto& general = built();
+  if (!low_storage_ || !stage_tables_ || !rk_policy_)
+    throw std::logic_error("the native low-storage replay is not configured");
+  return std::make_unique<engines::ResidentLowStorage>(
+      general, *stage_tables_, stage_anchor_, *low_storage_, rk_schedule_,
+      rk_policy_->landings.landing_ulps, fault_);
 }
 
 std::unique_ptr<march::Engine> Workspace::adams_engine() {

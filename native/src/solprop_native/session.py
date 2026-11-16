@@ -623,7 +623,7 @@ class NativeSession:
                 "z": float(loaded.z),
                 "proposal": float(proposal),
                 "norms": [],
-                "watch": FRESH_WATCH,
+                "watch": dict(FRESH_WATCH),
                 "cursor": int(loaded.cursor),
             }
         self._edge_noise = self._noise_readings(driver)

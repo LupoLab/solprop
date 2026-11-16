@@ -397,19 +397,6 @@ def test_the_scaled_miss_is_read_far_above_the_stop() -> None:
     assert max(record["edge_max"]) > 1e3 * STOP
 
 
-def _driver_class(backend: str) -> type:
-    """Return the class of `backend`'s step driver, which holds its edge reading."""
-    if backend == "native":
-        from solprop_native.backend import (  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
-            NativeBackend,
-        )
-
-        return NativeBackend
-    from solprop.backends.host.driver import HostDriver  # noqa: PLC0415
-
-    return HostDriver
-
-
 @pytest.mark.parametrize(
     ("backend", "route"),
     [("numpy_ref", "host"), ("native", "session")],
@@ -429,14 +416,23 @@ def test_a_plane_the_step_already_read_reduces_nothing_more(
     length = packet.length
     planes = [length / 4, length / 2, length]
     calls = {"readings": 0}
-    driver = cast("type[Any]", _driver_class(backend))
-    edge_reading = driver._edge_reading
+    if route == "session":
+        from solprop_native.backend import (  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
+            NativeBackend,
+        )
 
-    def counting(self: Any, *args: Any, **keywords: Any) -> _EdgeReading:
-        calls["readings"] += 1
-        return edge_reading(self, *args, **keywords)
+        # The native backend holds no edge reading in Python to go through.
+        assert not hasattr(NativeBackend, "_edge_reading")
+    else:
+        from solprop.backends.host.driver import HostDriver  # noqa: PLC0415
 
-    monkeypatch.setattr(driver, "_edge_reading", counting)
+        edge_reading = HostDriver._edge_reading
+
+        def counting(self: Any, *args: Any, **keywords: Any) -> _EdgeReading:
+            calls["readings"] += 1
+            return edge_reading(self, *args, **keywords)
+
+        monkeypatch.setattr(HostDriver, "_edge_reading", counting)
     schedule = FixedSchedule.uniform(0.0, length, length / 8, save_planes=planes)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)

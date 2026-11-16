@@ -219,8 +219,7 @@ def assert_propagates_as_the_reference(backend_class, route):
         reference.close()
     backend = backend_class(problem, run_request, **context)
     try:
-        backend._staged_rows()
-        state = backend._native_state
+        state = backend._workspace
         stages = run_request.stepper.tableau.n_stages
         from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
             _testing,

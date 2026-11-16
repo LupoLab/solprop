@@ -289,7 +289,7 @@ def test_a_trial_without_the_densities_is_refused() -> None:
         n_phi = terms.shape[0]
         with pytest.raises(ValueError, match="dispersive densities"):
             _testing.trial_step(
-                backend._native_state,  # pyright: ignore[reportPrivateUsage]
+                backend._workspace,  # pyright: ignore[reportPrivateUsage]
                 1e-4,
                 np.zeros((stages + 1) * n_phi),
                 np.zeros(stages * n_phi),

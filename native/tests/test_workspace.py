@@ -8,10 +8,11 @@ The field tables hold each Python record that crosses to its C++ table
 (``_core.schemas()``); each record round-trips through the converter, and the
 converter refuses a malformed record by its field's path. A ``_core.Workspace`` built
 from one ``Problem`` with its set-once data, started from one run record, runs a session
-to the same fields as the old seam's session over the same problem; the probe repeats
+to the same fields as the backend's own session over the same problem; the probe repeats
 its trials, reads back an owning copy, refuses the low-storage march's field, and is
-refused while a session holds the workspace. The adapter is not yet on this seam: the
-records' native forms are assembled here from the old adapter's own parts.
+refused while a session holds the workspace. The
+records are the ones the backend built its own workspace from, sent through the
+bindings directly.
 """
 
 from __future__ import annotations
@@ -34,16 +35,14 @@ from solprop.stepper.controller import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import MarchPolicy, Multistep
 from solprop.stepper.schedule import FixedSchedule
-from solprop.stepper.tableau import continuous_extension
 
 from solprop_native import _core
 from solprop_native._load import load
 from solprop_native.backend import (
+    FRESH_WATCH,
     NativeBackend,
-    _chord_tables,  # pyright: ignore[reportPrivateUsage]
     _lower,  # pyright: ignore[reportPrivateUsage]
     _LowerPlan,  # pyright: ignore[reportPrivateUsage]
-    _resident_flows,  # pyright: ignore[reportPrivateUsage]
 )
 
 _testing: Any = cast(Any, _core)._testing
@@ -298,134 +297,28 @@ def test_a_variant_is_told_apart_by_its_fields(phase_a_case: PhaseACase) -> None
         _testing.round_trip("RunRecords", stranger)
 
 
-# -- the workspace: the old adapter's parts in the new seam's records ------------------
+# -- the workspace: a backend's own records, through the bindings directly ------------
 
-_TERMS = {1: "constant", 2: "expansion", 3: "table"}
-_KERR = {0: "none", 1: "density", 2: "table"}
-_CHORD = {0: "none", 1: "constant", 2: "expansion", 3: "table"}
 _PLANNING = {"mode": "legacy"}
-_WATCH = {
-    "has_last": False,
-    "last_z": 0.0,
-    "since": 0,
-    "busy": False,
-    "quiet_run": 0,
-    "quiet": False,
-    "warned": False,
-    "cap": math.inf,
-}
 _OBSERVATION, _TERMINAL = 0, 3
 
 
-def _stage_table(packed: object) -> dict[str, object] | None:
-    if packed is None:
-        return None
-    edges, lower, upper, coefficients = cast("tuple[Any, Any, Any, Any]", packed)
-    return {
-        "edges": np.ascontiguousarray(edges, dtype=np.float64),
-        "lower": float(lower),
-        "upper": float(upper),
-        "coefficients": np.ascontiguousarray(coefficients, dtype=np.float64),
-    }
-
-
-def _stage_tables(old: Mapping[str, Any]) -> dict[str, object]:
-    """Return the old adapter's stage tables in the new seam's record."""
-    return {
-        "n_stages": old["n_stages"],
-        "phi": _TERMS[old["phi"]],
-        "phi_weights": _stage_table(old["phi_weights"]),
-        "phi_rate": _stage_table(old["phi_rate"]),
-        "prefactor": _TERMS[old["prefactor"]],
-        "prefactor_weights": _stage_table(old["prefactor_weights"]),
-        "prefactor_low": old["prefactor_low"],
-        "prefactor_high": old["prefactor_high"],
-        "density": _stage_table(old["density"]),
-        "taper": _stage_table(old["taper"]),
-        "raman_rates": [_stage_table(one) for one in old["raman_rates"]],
-        "kerr": _KERR[old["kerr"]],
-        "kerr_density": _stage_table(old["kerr_density"]),
-        "plasma_densities": [_stage_table(one) for one in old["plasma_densities"]],
-        "plasma_preionisation": [
-            _stage_table(one) for one in old["plasma_preionisation"]
-        ],
-        "raman_densities": [_stage_table(one) for one in old["raman_densities"]],
-        "dispersive_densities": [
-            _stage_table(one) for one in old["dispersive_densities"]
-        ],
-        "chord": _CHORD[old["chord"]],
-        "chord_rate": old["chord_rate"],
-        "chord_terms": list(old["chord_terms"]),
-        "chord_table": _stage_table(old.get("chord_table")),
-        "flow": {
-            "edges": list(old["flow_edges"]),
-            "degrees": old["flow_degrees"],
-            "slack": old["flow_slack"],
-        },
-        "flow_residual": old["flow_residual"],
-        "transform": {
-            "edges": list(old["transform_edges"]),
-            "degrees": old["transform_degrees"],
-            "slack": old["transform_slack"],
-        },
-    }
-
-
 def _workspace(backend: Any, problem: Any, request: Any) -> _core.Workspace:
-    """Build the new seam's workspace from the parts the old adapter formed."""
-    assert backend._flow is None
-    assert backend._z_tables is None
+    """Build a second workspace from the records the backend built its own from."""
     native = _lower(
         problem,
         request,
         _LowerPlan(
             terms=backend._terms,
+            flow=backend._flow,
+            tables=backend._z_tables,
             node_chunk=backend._node_chunk,
             general_chunk=backend._general_chunk,
             cpu_execution=backend._applied_execution,
             fft_planning=_PLANNING,
+            setup=backend._setup(),
         ),
     )
-    stepper = request.stepper
-    integrator = stepper.integrator
-    controller = stepper.controller
-    adams = isinstance(integrator, Multistep)
-    carrier = backend._resident.carrier if adams else None
-    held: Any = native
-    held.stage_tables = _stage_tables(backend._stage_tables() | _chord_tables(carrier))
-    dense = (
-        continuous_extension(stepper.tableau)
-        if stepper.interpolate_planes and not adams
-        else None
-    )
-    weights = (
-        np.empty(0) if controller.weights is None else np.asarray(controller.weights)
-    )
-    held.runge_kutta = {
-        "nodes": np.asarray(stepper.tableau.nodes, dtype=np.float64),
-        "rtol": float(controller.rtol),
-        "atol": float(controller.atol),
-        "weights": weights,
-        "dense_weights": np.empty(0) if dense is None else np.asarray(dense, float),
-    }
-    if adams:
-        resident = backend._resident
-        held.adams = {
-            "slots": resident.n_slots,
-            "compensated": resident.compensated,
-            "interpolate": resident.interpolate,
-            "fused": backend._adams._fused,
-            "rtol": float(controller.rtol),
-            "atol": float(controller.atol),
-            "weights": weights,
-        }
-    if isinstance(integrator, LowStorageRungeKutta):
-        settings = shared.low_storage_settings(problem, stepper)
-        assert settings is not None
-        held.low_storage = dataclasses.replace(
-            settings,
-            flows=_resident_flows(settings.flows, stepper, device=False),
-        )
     return _core.Workspace(native)
 
 
@@ -444,14 +337,13 @@ def _run_start(backend: Any, problem: Any, request: Any) -> dict[str, object]:
     proposal = float(request.stepper.dz_init)
     adams = runge_kutta = None
     if isinstance(request.stepper.integrator, Multistep):
-        state = backend._adams.start_state(loaded.z, proposal, loaded.cursor)
-        adams = {**state, "watch": _WATCH}
+        adams = backend._adams.start_state(loaded.z, proposal, loaded.cursor)
     else:
         runge_kutta = {
             "z": float(loaded.z),
             "proposal": proposal,
             "norms": [],
-            "watch": _WATCH,
+            "watch": dict(FRESH_WATCH),
             "cursor": int(loaded.cursor),
         }
     return {
@@ -465,6 +357,8 @@ def _run_start(backend: Any, problem: Any, request: Any) -> dict[str, object]:
         "row_statistics": None,
         "floor": None,
         "edge_noise": None,
+        "monitor": None,
+        "edge": None,
     }
 
 

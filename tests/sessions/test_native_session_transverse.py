@@ -386,12 +386,10 @@ def test_a_resumed_edge_continues_the_reference_s_record(noise, continued):
         finally:
             _counters.disable()
     reference, native = served
-    # A restart's launch is judged on the loaded state less the draw, which crosses
-    # once; a continued record's launch is not judged, and nothing crosses for it.
-    if continued:
-        assert crossings[1] == {}
-    else:
-        assert sum(crossings[1].values()) == 1, crossings[1]
+    # A restart's launch is judged on the loaded state less the draw, read on the host
+    # before the state crosses (SEP 52); a continued record's launch is not judged.
+    # Neither reads the state back.
+    assert crossings[1] == {}
     _compare(reference, native)
     assert native.record is not None
     edge = native.record["transverse"]

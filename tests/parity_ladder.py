@@ -330,7 +330,7 @@ def projected(backend_class: type, built: Built) -> list[np.ndarray | None]:
     try:
         if backend.name == "native":
             native_source(backend, problem.initial.field0)
-            native = backend._native_state
+            native = backend._workspace
             from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
                 _testing,
             )

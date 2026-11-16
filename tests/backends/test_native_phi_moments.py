@@ -105,7 +105,19 @@ def read_moments(module, grid, values):
     assert terms.shape[1] == 1
     terms[0, 0, bins] = values
     payload.linear.phi_terms = terms
-    state = backend_module._core.State(payload)
+    # The resident history this test reads, uncompensated, with no steps kept for
+    # interpolation; its controller's scale is never read.
+    controller = run_request.stepper.controller
+    payload.adams = {
+        "slots": SLOTS,
+        "compensated": False,
+        "interpolate": False,
+        "fused": False,
+        "rtol": float(controller.rtol),
+        "atol": float(controller.atol),
+        "weights": np.empty(0),
+    }
+    state = backend_module._core.Workspace(payload)
     try:
         (phi_delta, *rest) = arrays
         step = np.zeros_like(phi_delta)
@@ -117,12 +129,11 @@ def read_moments(module, grid, values):
         empty = np.empty(0, dtype=np.float64)
         width = SLOTS
         out = np.zeros((values.size, MAX_PHI_ORDER), dtype=complex)
-        state.adams_allocate(SLOTS, False, False)
         store = np.zeros((SLOTS, 1, n_omega), dtype=complex)
         store[0] = 1.0
         for k in range(MAX_PHI_ORDER):
-            state.set_initial(zero, np.empty(0, dtype=complex))
-            state.adams_rows_from_host("store", store)
+            _testing.load(state, zero, np.empty(0, dtype=complex))
+            _testing.adams_rows_from_host(state, "store", store)
             corrector = np.zeros((width, width))
             corrector[1, k] = 1.0
             _testing.adams_exponential_trial(
@@ -149,7 +160,7 @@ def read_moments(module, grid, values):
             _testing.adams_exponential_accept(
                 state, 1.0, width - 1, np.empty(0, dtype=np.uint64), False
             )
-            out[:, k] = np.asarray(state.field_to_host()).reshape(-1)[bins]
+            out[:, k] = np.asarray(_testing.field(state)).reshape(-1)[bins]
     finally:
         state.close()
     return out

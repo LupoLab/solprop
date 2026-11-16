@@ -128,7 +128,7 @@ def scored_alarm(backend):
     """Read the last step's quadrature score from the backend's own owner.
 
     The reference keeps it on the backend; the native backend's state keeps the last
-    step's score its session's march left (``_core.State.quadrature_error``), which
+    step's score its session's march left (``_testing.quadrature_error``), which
     is what the warning of the retired step driver quoted.
     """
     if backend.name == "numpy_ref":
@@ -137,7 +137,7 @@ def scored_alarm(backend):
         _testing,
     )
 
-    return _testing.quadrature_error(backend._native_state)
+    return _testing.quadrature_error(backend._workspace)
 
 
 ALARM = ("quadrature_error",)

@@ -2343,6 +2343,18 @@ EdgeNumbers GeneralWorkspace::edge_reading(const bool faces, const bool whole,
   return reading;
 }
 
+std::optional<std::array<double, 5>> GeneralWorkspace::split_sums() {
+  if (!monitoring_split())
+    return std::nullopt;
+  // The last step's split adds its chunks' sums here, the removal first (`split_step`):
+  // read where they are kept, nothing drained.
+  execution_space_.fence("solprop_native split sums");
+  const auto found =
+      Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, monitor_found_)();
+  return std::array<double, 5>{found.values[0], found.values[1], found.values[2],
+                               found.values[3], found.values[4]};
+}
+
 std::vector<double> GeneralWorkspace::monitor_reading() {
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");

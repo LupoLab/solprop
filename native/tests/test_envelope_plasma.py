@@ -406,7 +406,7 @@ def test_envelope_native_payload_rejects_inconsistent_inputs(corruption: str) ->
             index = int(np.flatnonzero(mask if corruption == "sign" else ~mask)[0])
             array[index] = 1.0
             plasma.envelope_drude_factor = array
-        _core.State(payload)
+        _core.Workspace(payload)
 
     # A reordered rule keeps its elements: only its layout can refuse it.
     match = "envelope rules require" if corruption == "layout" else "envelope"
@@ -444,7 +444,10 @@ def test_envelope_angular_failure_is_a_solprop_convergence_error(
     payload.plasma.envelope_rule_nodes = nodes
 
     def corrupt_payload(*args: object, **keywords: object) -> _core.Problem:
-        return payload
+        # The backend's own lowering, its set-once data included, with the bad rule.
+        built = _lower(*args, **keywords)  # pyright: ignore[reportArgumentType]
+        built.plasma.envelope_rule_nodes = nodes
+        return built
 
     monkeypatch.setattr(adapter, "_lower", corrupt_payload)
     owner = NativeBackend(

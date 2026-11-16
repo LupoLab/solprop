@@ -267,7 +267,7 @@ class _Planned:
 
 
 def _planning(backend: NativeBackend) -> _Planned:
-    found = backend._native_state.fft_planning  # pyright: ignore[reportPrivateUsage]
+    found = backend._diagnostics()["fft_planning"]  # pyright: ignore[reportPrivateUsage]
     return _Planned(
         measured=cast(dict[str, str], found["measured"]),
         reused=cast(list[str], found["reused"]),
