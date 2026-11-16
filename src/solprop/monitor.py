@@ -306,28 +306,6 @@ class BoundaryCheck:
             msg = f"interval must be finite and positive, got {self.interval!r}"
             raise BoundaryError(msg)
 
-    def thresholds(self) -> dict[str, object]:
-        """Return the fields a monitor's record carries: every one but `interval`.
-
-        The interval is a spacing, not a threshold, so a record (Python's and a
-        native session's alike) keeps the same keys whether or not it is set.
-
-        Returns
-        -------
-        dict
-            ``guard_fraction``, ``budget``, ``stop_factor``, ``quiet_collar`` and
-            ``transverse_budget``.
-
-        Examples
-        --------
-        >>> from solprop.monitor import BoundaryCheck
-        >>> sorted(BoundaryCheck(interval=0.1).thresholds())
-        ['budget', 'guard_fraction', 'quiet_collar', 'stop_factor', 'transverse_budget']
-        """
-        values = dataclasses.asdict(self)
-        del values["interval"]
-        return values
-
     @property
     def edge_budget(self) -> float:  # numpydoc ignore=RT01
         """Transverse edge's budget: `transverse_budget`, else `budget`.
@@ -1260,15 +1238,42 @@ class BoundaryMonitor:
         """
         self._plane_row(z)
 
+    def check_record(self) -> dict[str, object]:
+        """Return the check as a record carries it: its fields, the spacing as used.
+
+        :class:`BoundaryCheck`'s fields, with ``interval`` the distance, m, this
+        monitor's quiet checks are spaced by (:attr:`interval`): the check's own when
+        set, else the grid's length over :data:`CHECKS`, so a record says which.
+        Python's record and a native session's carry it alike.
+
+        Returns
+        -------
+        dict
+            ``guard_fraction``, ``budget``, ``stop_factor``, ``quiet_collar``,
+            ``transverse_budget`` and ``interval``.
+
+        Examples
+        --------
+        >>> from solprop.grid import EnvelopeGrid
+        >>> from solprop.monitor import CHECKS, BoundaryCheck, BoundaryMonitor
+        >>> grid = EnvelopeGrid.from_limits(0.5, 800e-9, (600e-9, 1.2e-6), 1e-12)
+        >>> monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
+        >>> monitor.check_record()["interval"] == 0.5 / CHECKS
+        True
+        """
+        record: dict[str, object] = dataclasses.asdict(self.check)
+        record["interval"] = self.interval
+        return record
+
     def summary(self) -> dict[str, object]:
         """Return the record of the run so far, for its execution record.
 
         Returns
         -------
         dict
-            The thresholds of this execution (``guard_fraction``, ``budget``,
-            ``stop_factor``, ``quiet_collar``, ``transverse_budget``; the check's
-            ``interval`` is a spacing, not a threshold, and is left out); the
+            The check of this execution (:meth:`check_record`: ``guard_fraction``,
+            ``budget``, ``stop_factor``, ``quiet_collar``, ``transverse_budget`` and
+            the ``interval`` its quiet checks were spaced by, m); the
             launch's energy in the monitor's own units, the denominator of every
             fraction
             (``launch_energy``), and where the run was resumed (``resumed_at``,
@@ -1303,7 +1308,7 @@ class BoundaryMonitor:
             return value if math.isfinite(value) else None
 
         record: dict[str, object] = {
-            **self.check.thresholds(),
+            **self.check_record(),
             "launch_energy": _finite(self._launch),
             "resumed_at": list(self._resumed_at),
             "launch_guard_low": _finite(self._launch_occupancy[0]),

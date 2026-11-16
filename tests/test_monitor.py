@@ -145,6 +145,11 @@ def test_the_check_spacing_follows_the_length_unless_pinned() -> None:
     assert default.interval == 0.5 / CHECKS
     pinned = BoundaryMonitor.build(grid, None, BoundaryCheck(interval=0.1))
     assert pinned.interval == 0.1
+    # A record says which spacing its checks used, the default's included.
+    assert default.check_record()["interval"] == 0.5 / CHECKS
+    assert pinned.check_record() == dataclasses.asdict(BoundaryCheck()) | {
+        "interval": 0.1
+    }
 
 
 def test_a_pulse_that_stays_clear_leaves_the_guards_empty() -> None:
@@ -542,7 +547,7 @@ def test_a_run_stopped_at_the_edge_resumes_without_a_launch_check(
     assert executions == 2
     assert len(record["resumed_at"]) == 1
     assert record["guard_high_max"] >= stopped["guard_high_max"]
-    check = BoundaryCheck().thresholds()
+    check = dataclasses.asdict(BoundaryCheck()) | {"interval": LENGTH / CHECKS}
     assert {name: record[name] for name in check} == check
 
 
