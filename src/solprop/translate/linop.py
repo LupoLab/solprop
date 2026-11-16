@@ -4,42 +4,28 @@
 
 """The cumulative linear operator in a form a kernel can evaluate.
 
-``D(omega, z)`` is diagonal in ``omega``, so it commutes with itself along z and
-``exp(Phi(z2) - Phi(z1))`` is the *exact* linear flow over any step.
-For a physical modal index, ``Phi = integral of D - log(w(z)/w(0))/2`` also
-conserves true power along a gradient. This module turns
-:func:`solprop.linear.dispersion_operator` into
-something a kernel can evaluate, plus the hard kinks steps must land on and the frame
-quantities as diagnostics. Section 3 of ``docs/dev/kernel-contract.md`` is the class
-:class:`LinearOperator`, field for field, and the derivation is in
-``docs/guide/numerics/linear-operator.md``.
+This module turns :func:`solprop.linear.dispersion_operator` into the cumulative
+operator ``Phi = integral of D - log(w(z)/w(0))/2``, whose difference
+``exp(Phi(z2) - Phi(z1))`` is the exact linear flow over any step and, for a physical
+modal index, conserves true power along a gradient
+(``docs/guide/numerics/linear-operator.md``), plus the hard kinks steps must land on and
+the frame quantities as diagnostics.
 
-There are three representations, and :func:`delta_phi` and :func:`unitary_phase` take
-any of them, which is what lets the choice change without a backend noticing:
+- :class:`LinearOperator`: section 3 of ``docs/dev/kernel-contract.md``, field for
+  field.
+- :func:`build_phi` chooses the representation: :func:`constant_phi`, exact for a
+  z-constant operator; an expansion in the scalar paths the mode set declares
+  (:mod:`solprop.translate.expansion`); otherwise the adaptive z table
+  (:mod:`solprop.translate.chebyshev`). :func:`tabulate` and :func:`profile_table`
+  table one scalar path.
+- :func:`delta_phi`, :func:`unitary_phase`, :func:`phi_rate` and :func:`rate_weights`
+  take any representation, so the choice changes without a backend noticing;
+  :func:`verify_phi` checks it against ``scipy.integrate.quad_vec``.
+- :func:`with_power_weight`, :func:`power_weight_at`, :func:`power_weight_row` and
+  :func:`power_weight_factors` give the modal power weight outside the step loop.
 
-* a **z-constant** operator is the exact ``D (z2 - z1)``, to the last bit;
-* a mode set whose whole z dependence runs through scalar paths it declares
-  (:class:`solprop.modes.protocol.ParameterisedMode`) takes an **expansion in those
-  parameters** with scalar integral tables along z
-  (:mod:`solprop.translate.expansion`): ``D`` is analytic in the density and the core
-  radius, while it is ``rho(z)`` that carries the cusps and the kinks, so the expensive
-  array-valued object is resolved where it is easy and the hard structure stays in
-  tables of scalars;
-* anything else takes the **z table**, an adaptive piecewise Chebyshev polynomial in z
-  with array-valued coefficients, integrated exactly in the Chebyshev basis. It is the
-  general representation and the fallback for a mode set the expansion cannot serve.
-
-Three things this module is careful about:
-
-* The z-dependent operator is integrated, not applied by a rectangle rule, which would
-  be globally first order in the step and invisible to the error estimate. Either
-  representation is exact instead, and :func:`verify_phi` proves it against
-  ``scipy.integrate.quad_vec``.
-* Both cover slightly beyond the fibre end (a five per cent margin), so the last step
-  and the noise phase are defined there.
-* The tolerance is the measured round-off floor of ``D``, taken in the acceptance test's
-  own norm so that the two are comparable; measured any other way the search is paid
-  twice.
+The representations, their margin past the fibre end and their measured tolerance are
+``docs/guide/numerics/linear-tables.md``.
 """
 
 import functools

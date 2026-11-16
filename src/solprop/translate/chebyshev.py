@@ -4,16 +4,24 @@
 
 """Adaptive piecewise Chebyshev representation of functions of z.
 
-The solver rests on the cumulative linear operator ``Phi(omega, z) = int D dz``: because
-``D`` is diagonal in omega it commutes with itself, so ``exp(Phi(z2) - Phi(z1))`` is the
-*exact* linear flow over any step. This module builds the representation that
-carries it — a piecewise Chebyshev polynomial in z with array-valued coefficients, built
-by Chebfun-style adaptive splitting, integrated exactly in the Chebyshev basis and
-evaluated by Clenshaw recursion.
+The z table: a piecewise Chebyshev polynomial in z with array-valued coefficients,
+built by Chebfun-style adaptive splitting, integrated exactly in the Chebyshev basis
+and evaluated by Clenshaw recursion. It carries the cumulative linear operator
+``Phi(omega, z)`` wherever no expansion serves, the prefactor's path, and the scalar
+paths a stage reads.
 
-The design, the evidence behind each choice and the traps that are silent are in
+- :class:`PiecewiseChebyshev`: the table, with its evaluation at positions, its exact
+  :meth:`~PiecewiseChebyshev.integral` and :meth:`~PiecewiseChebyshev.derivative`,
+  and its hard kinks.
+- :func:`build` resolves a function on ``[z0, z1]``; :func:`build_from_paths` resolves
+  the scalar paths first, then the array-valued function on their union of edges.
+- :func:`clenshaw` evaluates one interval at one point; :func:`resolve_axis`,
+  :func:`trim_axis`, :func:`interleave_axis` and :func:`held_table` are the one-axis
+  steps :mod:`solprop.translate.expansion` reuses.
+
+The design, the evidence behind each choice and the silent traps are in
 ``docs/dev/stepper.md`` section 4; the manual page is
-``docs/guide/numerics/linear-operator.md``.
+``docs/guide/numerics/linear-tables.md``.
 """
 
 import functools
