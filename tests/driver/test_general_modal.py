@@ -1915,9 +1915,10 @@ def test_the_collar_and_not_the_route_sets_the_step_on_every_route():
     # optmat's argon index covers this grid's active band, to 1774 nm (the former
     # registry's stopped at 1 um and warned; SEP 3), so the runs are quiet.
     for collar in (True, False):
+        # The run always went to its last plane, the millimetre (SEP 51 states it).
         simulation = Simulation.from_capillary(
             50e-6,
-            SHORT_Z,
+            GENERAL_Z_END,
             "Ar",
             1.0,
             grid=grid,

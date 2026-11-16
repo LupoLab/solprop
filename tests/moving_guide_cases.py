@@ -25,6 +25,7 @@ import warnings
 
 import numpy as np
 
+from builders import grid_at, held_collar
 from coupled_flow_cases import Case, parity_bound
 from modal_provider_cases import GENERAL_CHI3, grin_grid, grin_provider, make_provider
 from solprop.driver import Simulation
@@ -89,16 +90,22 @@ def kinked_radius():
 
 
 def moving_simulation(guide, grid, *, steps=STEPS, length=LENGTH, **overrides):
-    """Return a general modal simulation of a guide on a fixed schedule."""
+    """Return a general modal simulation of a guide on a fixed schedule.
+
+    A run ends at its grid's length (SEP 51): the grid is cut at `length`, with the
+    collar the whole grid gave.
+    """
+    window = grid_at(grid, length)
     simulation = Simulation.from_waveguide(
         (),
         length,
         provider=guide,
-        grid=grid,
+        grid=window,
         **(
             {
                 "noise": None,
                 **{
+                    "absorber": held_collar(window, grid.length),
                     "save_planes": [length],
                     "dz_max": length / steps,
                     "dz_init": length / steps,
@@ -159,7 +166,8 @@ def ten_step_simulation(guide, grid, length=LENGTH, **pulse) -> Simulation:
             (),
             length,
             provider=guide,
-            grid=grid,
+            # A run ends at its grid's length (SEP 51); no collar is kept.
+            grid=grid_at(grid, length),
             save_planes=[length],
             dz_max=length / STEPS,
             dz_init=length / STEPS,
@@ -375,6 +383,8 @@ def bound_step_problem(descriptors, *, blocks=(), basis_block=None):
         if basis_block is None
         else circular_pair(provider_channels(provider), basis_block),
     )
+    # A run ends at its grid's length (SEP 51); its collar is removed below.
+    grid = grid_at(grid, BOUND_STEP_LENGTH)
     simulation = Simulation.from_waveguide(
         (),
         BOUND_STEP_LENGTH,
