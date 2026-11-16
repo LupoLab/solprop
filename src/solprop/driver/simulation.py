@@ -2437,7 +2437,7 @@ class Simulation(Displayed):
     def from_gnlse(
         cls,
         gamma: float | None,
-        length: float | None = None,
+        length: float | None,
         betas: Sequence[float] | np.ndarray | None = None,
         *,
         wavelength: float,
@@ -2492,12 +2492,13 @@ class Simulation(Displayed):
         ----------
         gamma : float or None
             Nonlinear coefficient in 1/(W m), positive for a self-focusing medium.
-        length : float or None, optional
+        length : float or None
             Fibre length, which is the run's length and its end, m, positive
             (SEP 51): the grid is built with it, and the default steps
-            derive from it. Optional beside `grid`, whose ``grid.length`` it must
-            then agree with to within :data:`~solprop.stepper.schedule.LANDING_ULPS`
-            ulps; one of the two is required.
+            derive from it. Required, but ``None`` beside `grid`, which then
+            supplies it as ``grid.length``; a length given beside a grid must agree
+            with ``grid.length`` to within
+            :data:`~solprop.stepper.schedule.LANDING_ULPS` ulps.
         betas : array_like, optional
             Taylor coefficients of ``beta`` about `wavelength`, ``beta_0, beta_1, ...``,
             in s^n/m. ``beta_0`` and ``beta_1`` only fix the frame and change no
@@ -2779,8 +2780,8 @@ class Simulation(Displayed):
     def from_capillary(
         cls,
         radius: float | ZProfile,
-        length: float | None = None,
-        gas: Gas | str | Mapping[str, float] | Mixture | None = None,
+        length: float | None,
+        gas: Gas | str | Mapping[str, float] | Mixture,
         pressure: Pressure | None = None,
         *,
         pressure_floor: float | None = None,
@@ -2864,15 +2865,16 @@ class Simulation(Displayed):
         ----------
         radius : float or solprop.profiles.ZProfile
             Core radius, m, constant or along z.
-        length : float or None, optional
+        length : float or None
             Capillary length, which is the run's length and its end, m, positive
             (SEP 51): the grid is built with it, and the default steps and profiles
-            derive from it. Optional beside `grid`, whose ``grid.length`` it must
-            then agree with to within :data:`~solprop.stepper.schedule.LANDING_ULPS`
-            ulps; one of the two is required.
+            derive from it. Required, but ``None`` beside `grid`, which then
+            supplies it as ``grid.length``; a length given beside a grid must agree
+            with ``grid.length`` to within
+            :data:`~solprop.stepper.schedule.LANDING_ULPS` ulps.
         gas : Gas, str, Mapping or Mixture
-            Required. Built-in gas, mole fractions keyed by species name, or
-            ordered populations carrying their own density paths. A mapping uses
+            Built-in gas, mole fractions keyed by species name, or ordered
+            populations carrying their own density paths. A mapping uses
             total pressure.
         pressure : float, sequence, ZProfile or None, optional
             None uses one bar for a gas or fractions. Omit pressure beside a Mixture;
@@ -3200,9 +3202,6 @@ class Simulation(Displayed):
         ['core_radius', 'density', 'pressure']
         """
         length = _run_length(length, grid)
-        if gas is None:
-            msg = "a capillary run needs its fill: pass gas="
-            raise DriverError(msg, parameter="gas")
         return _from_hollow(
             cls,
             keyword_request(
@@ -3217,7 +3216,7 @@ class Simulation(Displayed):
     def from_waveguide(
         cls,
         modes: Sequence[Mode],
-        length: float | None = None,
+        length: float | None,
         gas: Gas | str | Mapping[str, float] | Mixture | None = None,
         pressure: Pressure | None = None,
         *,
@@ -3318,12 +3317,13 @@ class Simulation(Displayed):
             `provider` it must be empty or exactly the guide's own ordered channels:
             a guide supplies its channels itself, and the provider has already
             validated their order against its fields.
-        length : float or None, optional
+        length : float or None
             Waveguide length, which is the run's length and its end, m, positive
             (SEP 51): the grid is built with it, and the default steps and profiles
-            derive from it. Optional beside `grid`, whose ``grid.length`` it must
-            then agree with to within :data:`~solprop.stepper.schedule.LANDING_ULPS`
-            ulps; one of the two is required.
+            derive from it. Required, but ``None`` beside `grid`, which then
+            supplies it as ``grid.length``; a length given beside a grid must agree
+            with ``grid.length`` to within
+            :data:`~solprop.stepper.schedule.LANDING_ULPS` ulps.
         gas : Gas, str, Mapping, Mixture or None
             Built-in gas, mole fractions keyed by species name, or ordered populations
             carrying their own density paths. A mapping uses total pressure. Required

@@ -629,6 +629,9 @@ class Recipe:
             )
         context = self._context(grid)
         out: dict[str, object] = {}
+        if "length" not in build and "length" in self._table():
+            # The route's length is required, None where a grid supplies it (SEP 51).
+            out["length"] = None
         for name, value in build.items():
             if name == "grid" and one_pass:
                 out[name] = grid
@@ -650,14 +653,18 @@ class Recipe:
         )
 
     def _missing(self) -> list[str]:
-        """Return the route's required keywords this recipe neither sets nor pins."""
-        pinned = self._document.get("pins", {})
+        """Return the route's required keywords this recipe neither sets nor pins.
+
+        A keyword route's length may be left to a grid (SEP 51), which then supplies
+        it: the route is called with ``length=None`` (:meth:`keywords`).
+        """
+        given = set(self._document["build"]) | set(self._document.get("pins", {}))
         return [
             name
             for name, entry in self._table().items()
             if entry.default is REQUIRED
-            and name not in self._document["build"]
-            and name not in pinned
+            and name not in given
+            and not (name == "length" and "grid" in given)
         ]
 
     def _require_keywords(self) -> None:

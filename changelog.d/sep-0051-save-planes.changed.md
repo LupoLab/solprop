@@ -12,9 +12,11 @@ position within eight ulps of an endpoint is that endpoint. Positions short of t
 no longer end the run: it continues to the length and records it, so indices counted
 from the end (`field_planes=[-1, …]`) may name other planes, and a short window of a
 longer setup is now a shorter grid, with `boundary_length` pinned to keep the absorber.
-`length` is optional on the keyword routes; given beside `grid=`, the two must agree, and
-a call with neither is refused (`prop_capillary` and `from_capillary` therefore refuse a
-missing `gas` themselves). `n_save` beside an interior launch counts over
+On the keyword routes `length` may be `None` beside `grid=`, which then supplies it, as
+in `prop_capillary(radius, None, "Ar", grid=grid, ...)`; it is still passed, so `gas`
+stays required. Given beside `grid=`, the two must agree, and a call with neither is
+refused; a recipe may leave `length` out beside a grid. `n_save` beside an interior
+launch counts over
 `[initial_z, length]`. A replayed `FixedSchedule` must start at the entrance and end at
 the length, within the rounding its step sum accumulates, or it is refused before the
 run. The resolved recipe writes the run's positions in `[build.settings]` on an object

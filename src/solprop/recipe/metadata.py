@@ -473,9 +473,11 @@ def _shared(route: str) -> tuple[Parameter, ...]:
             (_POSITIVE_LENGTH,),
             "geometry",
             "basic",
-            "Propagation length, the run's end; optional beside a grid.",
+            "Propagation length, the run's end; none, or left out, beside a grid, "
+            "which supplies it.",
             "guide/setup/running.md#one-call",
             display="m",
+            none=True,
         ),
         Parameter(
             "wavelength",

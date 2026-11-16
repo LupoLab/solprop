@@ -319,14 +319,9 @@ def test_a_keyword_route_without_a_length_or_a_grid_is_refused(route):
         if route == "gnlse":
             fibre(None)
         elif route == "capillary":
-            Simulation.from_capillary(125e-6, gas="He", wavelength=800e-9)
+            Simulation.from_capillary(125e-6, None, "He", wavelength=800e-9)
         else:
-            Simulation.from_waveguide([], gas="He", wavelength=800e-9)
-
-
-def test_a_capillary_without_its_gas_is_refused():
-    with pytest.raises(DriverError, match="needs its fill"):
-        Simulation.from_capillary(125e-6, 0.1, wavelength=800e-9)
+            Simulation.from_waveguide([], None, "He", wavelength=800e-9)
 
 
 # ---------------------------------------------------------------- replay schedules

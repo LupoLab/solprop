@@ -136,7 +136,10 @@ for two-colour and multi-colour inputs, on every keyword entry point of this pag
 
 Every run marches from its entrance, `initial_z` (zero unless an interior launch sets
 it), to its length, and always records both. The length is stated once. On a keyword
-route it is `length`, or the length of a `grid=` passed instead; given both, they must
+route it is `length`, or the length of a `grid=` passed instead. `length` is the
+positional argument after the fibre or guide and is always passed, as `None` when a grid
+supplies it: `prop_capillary(radius, None, "Ar", 1.0, grid=grid, ...)`, as
+`prop_gnlse(None, ...)` passes `None` for `gamma` beside `n2`. Given both, they must
 agree to within the marches' landing slack of eight ulps
 ({py:data}`~solprop.stepper.schedule.LANDING_ULPS`), and the grid's is then used, while
 a disagreement is refused naming both values, as is a call with neither. On
