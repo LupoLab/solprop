@@ -24,6 +24,21 @@ gradient *from* 1.2 bar *to* 0 bar along the capillary, the example's own profil
 does when it is left empty. **Advanced** holds every other keyword of the route,
 with a *Find any setting* box.
 
+**Saved planes**, in the simulation window, takes one of two forms
+([the length and the saved planes](../setup/running.md#the-length-and-the-saved-planes)):
+
+- *Evenly spaced* is a count of observations, `n_save`, spread from the run's entrance
+  to its end with both ends counted. Changing the length spreads them again.
+- *Explicit positions* is a list, `save_planes`, written as a recipe writes it:
+  `["5 cm", "10 cm"]`. The entrance and the end are recorded as well, one position is a
+  list of one, and `[]` keeps only the two ends. The positions stay as typed when the
+  length changes, and a position beyond the end is shown as an error at the row.
+
+Typing into the other form replaces the first in one edit, which **Undo** takes back,
+so a setup never holds both. A setup opens on the form it holds, and a list is always
+shown as the list, never as its count. Left empty, the row takes solprop's default
+count.
+
 As you type, the right side follows:
 
 - **What this gives** is computed by solprop from the setup as it stands
