@@ -13,12 +13,14 @@ that document and this module together is the only way to extend the contract, a
 ``tests/translate/test_problem.py`` parses the document's tables and checks them against
 this dataclass tree in both directions, so the two cannot drift.
 
-The sections of the contract are grouped into one frozen dataclass each:
+The problem's sections of the contract are grouped into one frozen dataclass each:
 :class:`Flags` (section 1), :class:`solprop.translate.masks.Grids` (2),
 :class:`solprop.translate.linop.LinearOperator` (3),
 :class:`solprop.translate.modal.Transform` (4),
-:class:`solprop.translate.responses.CompiledResponses` (5), :class:`Initial` (6),
-:class:`StepperSettings` (7) and :class:`solprop.stats.StatsSpec` (8).
+:class:`solprop.translate.responses.CompiledResponses` (5) and :class:`Initial` (6).
+The stepper settings (7) and the statistics request (8) are run policy, not fields of
+the problem: they live on :class:`solprop.translate.run_request.RunRequest`, whose
+``stepper`` gathers the former into :class:`StepperSettings`, defined here.
 
 **Sign convention.** Every complex array here is in the **FFT convention** of
 ``docs/dev/conventions.md`` section 2 — raw forward DFTs, propagation
@@ -28,7 +30,6 @@ the output layer; backends never conjugate.
 """
 
 import hashlib
-import importlib
 import json
 import math
 import warnings
@@ -117,45 +118,6 @@ __all__ = [
     "debug_summary",
     "validate_run",
 ]
-
-_MOVED = {
-    "assemble": "assembly",
-    "MAX_GENERAL_FLOW_EXPONENT": "assembly",
-    "validate_coupled_flow": "validation",
-    "DEFAULT_FLOW_CONDITION_LIMIT": "validation",
-    "MOVING_FLOW_CERTIFICATE": "validation",
-    "TAPER_FLOW_CERTIFICATE": "validation",
-}
-"""Public names this module used to define, by the module that defines them now."""
-
-
-def __getattr__(name: str) -> object:
-    """Return a public name that moved to a module building on this one.
-
-    ``solprop.translate.problem.assemble`` and the rest keep working: they are imported
-    from their home on first use, since that module imports this one.
-
-    Parameters
-    ----------
-    name : str
-        The attribute looked up on the module.
-
-    Returns
-    -------
-    object
-        The name's value in its new home.
-
-    Raises
-    ------
-    AttributeError
-        If `name` is not one that moved.
-    """
-    if name in _MOVED:
-        module = importlib.import_module(f"solprop.translate.{_MOVED[name]}")
-        return getattr(module, name)
-    msg = f"module {__name__!r} has no attribute {name!r}"
-    raise AttributeError(msg)
-
 
 DEFAULT_COMPONENTS = ("x",)
 """Canonical component of an unrotated HE_1m mode.
@@ -360,7 +322,7 @@ class Flags:
         >>> from solprop.nonlinear.gnlse import problem_from
         >>> from solprop.pulses import SechPulse
         >>> from solprop.stepper import PIController
-        >>> from solprop.translate.problem import assemble
+        >>> from solprop.translate.assembly import assemble
         >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 4e-12)
         >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0,
         ...                      gamma=0.11, shock=False)
@@ -781,7 +743,7 @@ class PropagationProblem:
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
-    >>> from solprop.translate.problem import assemble
+    >>> from solprop.translate.assembly import assemble
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 4e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0, gamma=0.11,
     ...                      shock=False)
@@ -835,7 +797,7 @@ class PropagationProblem:
         >>> from solprop.nonlinear.gnlse import problem_from
         >>> from solprop.pulses import SechPulse
         >>> from solprop.stepper import PIController
-        >>> from solprop.translate.problem import assemble
+        >>> from solprop.translate.assembly import assemble
         >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 4e-12)
         >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0,
         ...                      gamma=0.11, shock=False)
@@ -887,7 +849,7 @@ class PropagationProblem:
         >>> from solprop.nonlinear.gnlse import problem_from
         >>> from solprop.pulses import SechPulse
         >>> from solprop.stepper import PIController
-        >>> from solprop.translate.problem import assemble
+        >>> from solprop.translate.assembly import assemble
         >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 4e-12)
         >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0,
         ...                      gamma=0.11, shock=False)
@@ -2103,6 +2065,16 @@ def _admit_dense(problem: PropagationProblem, stepper: StepperSettings) -> None:
 
 
 _EDGE_SLACK = 1e-9
+"""Relative window within which a position counts as landing on a plane or a kink.
+
+A hard kink must lie this fraction of the Phi table's span from an interval edge, a
+fixed schedule must reach every save plane and hard kink within it (of the schedule's
+length, at least 1 m), and assembly holds a response's kinks to the operator's
+within it. It is wider than a table's own window
+(:data:`solprop.translate.chebyshev.EDGE_SLACK_FRACTION`); beside a coupled flow a
+schedule's kinks are held to that narrower one as well, for the reason
+:func:`solprop.translate.coupled.flow_edge_slack` gives.
+"""
 
 
 _SPAN_SLACK = 1e-12
