@@ -70,9 +70,11 @@ Pass a path and the run streams to HDF5 instead of memory, one plane at a time:
 output = prop_gnlse(..., output="run.h5")
 ```
 
-The handler is closed when the run ends, so read the file back with
-{py:func}`~solprop.output.hdf5.open_file` rather than through the returned handler; a
-`MemoryOutput` stays readable.
+The handler is closed when the run ends and stays readable: each read through it
+(`output["field"]`, `fields()`, a processing function or a plot) opens the file
+read-only, reads and closes it again, so no handle is left open between reads and the
+file can be copied, appended to or resumed. To read many arrays through one handle,
+open the file with {py:func}`~solprop.output.hdf5.open_file` in a `with` block.
 
 If that run is interrupted — `Ctrl-C`, a crash, a queue limit, a laptop lid — the file
 holds the entrance and every plane completed before the interruption, because the run

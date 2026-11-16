@@ -1647,8 +1647,8 @@ class Simulation(Displayed):
         output : solprop.output.store.Output or pathlib.Path or str or None, optional
             Where the planes go: a handler, a path to write an HDF5 file at, or ``None``
             for a :class:`solprop.output.memory.MemoryOutput`. The handler is closed
-            when the run ends, so a file handler is returned closed and is read back
-            with :func:`solprop.output.hdf5.open_file`; a memory handler stays readable.
+            when the run ends and stays readable: a file handler opens its file for
+            each read and closes it again.
             A run with optmat ionisation rates then annotates it with their peak-field
             report (:data:`~solprop.output.metadata.PEAK_FIELDS_ANNOTATION`).
         progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None, optional

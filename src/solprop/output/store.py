@@ -1405,7 +1405,7 @@ class PlaneStore(Displayed, ABC):
         -------
         bool
             ``True`` when the handler holds the array; ``False`` for an unknown form,
-            a name not stored, nothing saved yet or a closed file.
+            a name not stored, or nothing saved yet.
         """
         if not isinstance(key, str):
             return False

@@ -304,8 +304,9 @@ def test_membership_answers_for_exactly_the_keys_the_accessor_accepts(
     assert 0 not in handler
     assert None not in handler
     handler.close()
-    if factory == "file":
-        assert "z" not in handler
+    # A closed handler still answers, a file handler by opening its file for the read.
+    assert "z" in handler
+    assert "banana" not in handler
 
 
 # --------------------------------------------------------------- the conventions
@@ -422,8 +423,8 @@ def test_open_file_reads_a_finished_run_through_the_protocol(grid, metadata, tmp
         with pytest.raises(OutputError, match="reading only"):
             stored.save(planes[0])
     assert stored.closed
-    with pytest.raises(OutputError, match="not open"):
-        stored["field"]
+    # Closed, it reads the file again for each read rather than holding it.
+    assert np.array_equal(stored["field"], memory["field"])
 
 
 def test_open_file_refuses_what_is_not_a_run(tmp_path):
@@ -580,13 +581,51 @@ def test_the_memory_store_refuses_a_field_before_the_first_plane(metadata):
     assert memory.stat_names == ()
 
 
-def test_a_closed_file_handler_cannot_be_read(grid, metadata, tmp_path):
+def _open_paths() -> list[str]:
+    """Return the names of the HDF5 files this process holds open."""
+    ids = h5py.h5f.get_obj_ids(types=h5py.h5f.OBJ_FILE)
+    return [h5py.h5f.FileID(id_).name.decode() for id_ in ids]
+
+
+def test_a_closed_file_handler_reads_without_holding_the_file(grid, metadata, tmp_path):
+    handler = HDF5Output(tmp_path / "run.h5")
+    planes = run_into(handler, grid, metadata, 2)
+    handler.close()
+    assert str(tmp_path / "run.h5") not in _open_paths()
+    # Each read opens the file read-only and closes it again: the same stored rows.
+    last = planes[-1].field
+    assert last is not None
+    expected = fourier.spectrum_to_optics(last, kind=grid.kind)
+    assert np.array_equal(handler["field"][-1], expected)
+    assert np.array_equal(handler.plane_field(-1), expected)
+    assert np.array_equal(handler.fields("fft")[-1], last)
+    assert np.array_equal(handler["z"], [plane.z for plane in planes])
+    assert handler["stats/energy"].shape[0] == 2
+    assert str(tmp_path / "run.h5") not in _open_paths()
+    # Nothing is left open, so the file can be written to again at once.
+    with h5py.File(tmp_path / "run.h5", "r+"):
+        pass
+    assert handler.path == tmp_path / "run.h5"
+
+
+def test_a_closed_file_handler_names_a_missing_file(grid, metadata, tmp_path):
     handler = HDF5Output(tmp_path / "run.h5")
     run_into(handler, grid, metadata, 1)
     handler.close()
-    with pytest.raises(OutputError, match="is not open"):
+    (tmp_path / "run.h5").unlink()
+    with pytest.raises(OutputError, match="cannot read the output file"):
         handler["field"]
-    assert handler.path == tmp_path / "run.h5"
+
+
+def test_a_suspended_file_handler_refuses_to_read(grid, metadata, tmp_path):
+    handler = HDF5Output(tmp_path / "run.h5")
+    run_into(handler, grid, metadata, 1)
+    handler.suspend()
+    with pytest.raises(OutputError, match="suspended"):
+        handler["field"]
+    handler.reopen()
+    assert handler["field"].shape[0] == 1
+    handler.close()
 
 
 def test_a_never_opened_file_handler_says_so(tmp_path):
