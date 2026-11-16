@@ -32,7 +32,9 @@ __all__ = [
     "HASH_PROBE",
     "fixed_fibre_point",
     "launch_derivative",
+    "load_reference",
     "numpy_ref_launch_derivative",
+    "reference_trial",
     "run_python",
 ]
 
@@ -50,6 +52,36 @@ HASH_PROBE = textwrap.dedent(
 """A prefix for an exported script: its run prints the configuration hash and exits."""
 
 
+def load_reference(
+    backend: Any,
+    field: Any = None,
+    *,
+    noise: Any = None,
+    z: float | None = None,
+    resume: bool = False,
+) -> Any:
+    """Load a ``numpy_ref`` backend's workspace as a session loads its start.
+
+    The state masked to the active band, with the ``input`` noise's draw at the
+    launch (:meth:`solprop.backends.numpy_ref.workspace.NumpyWorkspace.load`), for the
+    workspace- and engine-level checks; no monitor is bound and nothing is stepped.
+
+    - ``field``: the state; the problem's launch by default.
+    - ``z``: its position, m; the problem's entrance by default.
+    - Returns: the committed state.
+    """
+    workspace = backend.workspace
+    problem = workspace.problem
+    values = problem.initial.field0 if field is None else field
+    workspace.load(
+        np.ascontiguousarray(values, dtype=np.complex128),
+        noise,
+        z=float(problem.initial.z) if z is None else float(z),
+        resume=resume,
+    )
+    return workspace.committed()
+
+
 def launch_derivative(backend: NumpyRefBackend, problem: PropagationProblem) -> Any:
     """Return an open ``numpy_ref`` backend's stage derivative ``N(E, z=0)`` at launch.
 
@@ -57,13 +89,24 @@ def launch_derivative(backend: NumpyRefBackend, problem: PropagationProblem) -> 
     for its nonlinear stage there with unit stage weights, as the first stage of a
     trial is.
     """
-    backend.set_initial(problem.initial.field0, None)
-    backend._hoist(0.0)
-    return backend._nonlinear(
-        backend._require_state(),
-        backend._stage_scalars(0.0, 0.0),
+    state = load_reference(backend, problem.initial.field0)
+    backend.workspace.hoist(0.0)
+    return backend.workspace.nonlinear(
+        state,
+        backend.workspace.stage_scalars(0.0, 0.0),
         np.ones(problem.shape, complex),
     )
+
+
+def reference_trial(backend: Any, z: float, dz: float) -> tuple[float, Any]:
+    """Return a ``numpy_ref`` trial's norm and raw end state, committing nothing.
+
+    A Runge-Kutta engine over the backend's workspace forms the trial from the
+    committed state and holds it; its end state is before the accepted step's finish.
+    """
+    engine = backend._runge_kutta(backend.workspace)
+    norm = engine.trial(z, dz)
+    return norm, engine.trial_state
 
 
 def numpy_ref_launch_derivative(

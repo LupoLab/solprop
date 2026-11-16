@@ -15,14 +15,14 @@ the compiled backends' parity.
 
 import dataclasses
 import math
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
 
 from backends.conftest import EQUIVALENCE_BACKENDS
+from sessions.runs import bare, final_field
 from sessions.runs import run as session_run
-from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver.simulation import Simulation
@@ -87,16 +87,14 @@ def march(simulation, backend_class=NumpyRefBackend, *, compensation=None, plane
     )
     if compensation is not None:
         method = run_request.stepper.integrator
-        backend._adams = HostAdamsMarch(backend, method, compensation=compensation)
+        backend._use_adams(method, compensation=compensation)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        steps, fields = [], []
-        for position in run_request.stepper.save_planes:
-            backend.propagate_to(float(position))
-            observed = backend.observe()
-            steps += list(observed.step_history.dz)
-            fields.append(observed.field)
-        return fields[plane], backend._adams, np.array(steps)
+        result = session_run(backend, problem, bare(run_request))
+        # Every attempt's step, rejected ones included, and each save plane's field.
+        steps = list(result.joined[0].dz)
+        fields = result.fields[1:]
+        assert len(fields) == len(run_request.stepper.save_planes)
+        return fields[plane], cast("Any", backend.march), np.array(steps)
     finally:
         backend.close()
 
@@ -165,7 +163,7 @@ def test_a_structurally_absent_source_takes_the_exact_flow():
     problem = simulation.translate()
     assert len(problem.responses.response_order) == 1
     field, adams, _ = march(simulation)
-    assert adams is not None and not adams._engine.compensated
+    assert adams is not None and not cast("Any", adams._engine).compensated
     start = problem.initial.field0 * problem.grids.active_mask
     exact = np.exp(delta_phi(problem.linear, 0.0, LENGTH)) * start
     # Round-off of the flows' products, step by step.
@@ -291,10 +289,7 @@ def _table_field(candidate, simulation, backend_class):
         candidate, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        backend.set_initial(candidate.initial.field0, None)
-        for position in run_request.stepper.save_planes:
-            backend.propagate_to(float(position))
-        return backend.observe().require_field()
+        return final_field(backend, candidate, bare(run_request), ended=True)
     finally:
         backend.close()
 
@@ -375,7 +370,7 @@ def test_an_adiabatic_taper():
     taper = Linear(100e-6, 80e-6, LENGTH)
     reference, _, _ = march(gradient(integrator=RungeKutta(), rtol=1e-11, radius=taper))
     field, adams, _ = march(gradient(radius=taper))
-    assert adams is not None and adams._engine.compensated
+    assert adams is not None and cast("Any", adams._engine).compensated
     error = np.linalg.norm(field - reference) / np.linalg.norm(reference)
     assert error < 1e-5, error
 

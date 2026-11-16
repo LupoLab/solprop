@@ -25,8 +25,8 @@ import solprop.driver.session_loop as session_loop_module
 from driver.test_abandoned_step import built as low_storage
 from driver.test_resume import run_until
 from driver.test_resume_history import AFRESH, soliton
-from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import SessionError
 from solprop.exceptions import SolpropWarning
 from solprop.output import (
@@ -170,7 +170,7 @@ def test_a_history_this_backend_cannot_install_is_recorded_as_incompatible(
     path = tmp_path / "run.h5"
     interrupted(build, path)
     monkeypatch.setattr(
-        HostDriver, "restore_march", lambda self, snapshot: "refused by the test"
+        HostSession, "_restore_march", lambda self, snapshot: "refused by the test"
     )
     warned_once_and_reset(
         build, path, "refused by the test", "incompatible_representation"
@@ -187,9 +187,11 @@ def test_a_resuming_march_that_cannot_carry_a_history_warns_once_and_resets(
     path = tmp_path / "run.h5"
     interrupted(build, path)
     assert restart(path)["retention"]["state"] == "retained"
-    monkeypatch.setattr(
-        HostDriver, "march_export_refusal", lambda self: "refused by the test"
-    )
+    # The backend's answer and its session's, which the service loop reads.
+    for owner in (NumpyRefBackend, HostSession):
+        monkeypatch.setattr(
+            owner, "march_export_refusal", lambda self: "refused by the test"
+        )
     caught = resumed(build, path)
     assert [str(one.message) for one in caught] == [f"{AFRESH}: refused by the test"]
     restoration = restart(path)["restoration"]
@@ -385,10 +387,11 @@ def test_a_history_the_writing_engine_could_not_export_warns_once_on_resume(
     build = soliton(build_simulation, "numpy_ref")
     path = tmp_path / "run.h5"
     with monkeypatch.context() as patched:
-        patched.setattr(HostDriver, "march_snapshot_nbytes", lambda self, z: None)
-        patched.setattr(
-            HostDriver, "march_export_refusal", lambda self: "refused by the test"
-        )
+        patched.setattr(HostSession, "march_snapshot_nbytes", lambda self: None)
+        for owner in (NumpyRefBackend, HostSession):
+            patched.setattr(
+                owner, "march_export_refusal", lambda self: "refused by the test"
+            )
         interrupted(build, path)
     retention = restart(path)["retention"]
     assert (retention["state"], retention["reason"]) == (

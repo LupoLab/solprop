@@ -15,8 +15,12 @@ import numpy as np
 import pytest
 
 from legacy_geometry import LEGACY_GRID
+from sessions.runs import bare
+from sessions.runs import run as session_run
+from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import resolve_name
+from solprop.backends.session import Start
 from solprop.driver.settings import SimulationSettings
 from solprop.driver.simulation import Simulation
 from solprop.exceptions import (
@@ -49,15 +53,34 @@ def narrow_grid():
     return EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID)
 
 
+def _ledger(backend):
+    """Return the last run's Adams call ledger, or ``None`` for another march."""
+    march = backend.march
+    return march.ledger if isinstance(march, HostAdamsMarch) else None
+
+
+def observed(problem, run_request, grid, start=None):
+    """Run a problem through its session; return every plane's field and the ledger.
+
+    The fields are those of the planes beyond the start, launch excluded.
+    """
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
+    try:
+        result = session_run(backend, problem, bare(run_request), start)
+        planes = [
+            field[0, 0]
+            for event, field in zip(result.observations, result.fields, strict=True)
+            if event.plane_index >= 0
+        ]
+        return planes, _ledger(backend)
+    finally:
+        backend.close()
+
+
 def run(problem, run_request, grid):
     """Propagate a problem to its last plane; return the field and the call ledger."""
-    backend = NumpyRefBackend(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-    field = backend.observe().require_field()[0, 0]
-    ledger = None if backend._adams is None else backend._adams.ledger
-    backend.close()
-    return field, ledger
+    planes, ledger = observed(problem, run_request, grid)
+    return planes[-1], ledger
 
 
 @pytest.mark.medium
@@ -184,22 +207,18 @@ def test_dense_observation_is_the_exact_linear_flow_without_a_source(
     problem, run_request = linear_problem(
         narrow_grid, save_planes=planes, integrator=method, interpolate_planes=True
     )
-    backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
+    fields, ledger = observed(problem, run_request, narrow_grid)
     start = problem.initial.field0[0, 0] * problem.grids.active_mask
-    for plane in planes:
-        backend.propagate_to(plane)
-        field = backend.observe().require_field()[0, 0]
+    for plane, field in zip(planes, fields, strict=True):
         exact = np.exp(delta_phi(problem.linear, 0.0, plane))[0, 0] * start
         # With no source the interaction variable is constant across the step, so
         # the interpolant reproduces it: round-off in the propagators only.
         np.testing.assert_allclose(
             field, exact, rtol=0, atol=1e-12 * np.abs(start).max()
         )
-    assert backend._adams is not None
+    assert ledger is not None
     # One step crosses every plane short of the end, which is landed on.
-    assert backend._adams.ledger.dense_observations == len(planes) - 1
-    backend.close()
+    assert ledger.dense_observations == len(planes) - 1
 
 
 @pytest.mark.medium
@@ -215,15 +234,8 @@ def test_dense_observation_matches_landing(narrow_grid, soliton_problem):
             integrator=method,
             interpolate_planes=interpolate,
         )
-        backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-        backend.set_initial(problem.initial.field0, None)
-        observed = []
-        for plane in planes:
-            backend.propagate_to(plane)
-            observed.append(backend.observe().require_field()[0, 0])
-        ledger = backend._adams.ledger if backend._adams is not None else None
-        backend.close()
-        return np.array(observed), ledger
+        found, ledger = observed(problem, run_request, narrow_grid)
+        return np.array(found), ledger
 
     landed, _ = fields(PEC45)
     interpolated, ledger = fields(PEC45, interpolate=True)
@@ -273,17 +285,16 @@ def test_call_budget_stops_before_overspending(narrow_grid, soliton_problem):
         integrator=method,
     )
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
     with pytest.raises(ResponseBudgetError, match="budget of 25") as caught:
-        backend.propagate_to(SOLITON_PERIOD)
-    assert backend._adams is not None
-    ledger = backend._adams.ledger
+        session_run(backend, problem, bare(run_request), export=None)
+    ledger = _ledger(backend)
+    assert ledger is not None
     assert ledger.total == caught.value.calls <= budget
     # PEC needs one call a trial: the stop leaves none unspent.
     assert ledger.total == budget
     assert 0.0 < caught.value.z < SOLITON_PERIOD
-    assert backend._state is not None
-    np.testing.assert_array_equal(caught.value.field, backend._state)
+    assert backend.workspace.state is not None
+    np.testing.assert_array_equal(caught.value.field, backend.workspace.state)
     backend.close()
 
 
@@ -298,23 +309,18 @@ def test_resume_restarts_the_history_and_charges_its_startup(
         controller=PIController(rtol=1e-7, atol=1e-18),
         integrator=method,
     )
-    whole = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    whole.set_initial(problem.initial.field0, None)
-    whole.propagate_to(SOLITON_PERIOD / 2)
-    halfway = whole.observe().require_field()
-    whole.propagate_to(SOLITON_PERIOD)
-    uninterrupted = whole.observe().require_field()
-    whole.close()
-
-    resumed = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    resumed.set_initial(halfway, None, z=SOLITON_PERIOD / 2)
-    resumed.propagate_to(SOLITON_PERIOD)
-    restarted = resumed.observe().require_field()
-    assert resumed._adams is not None
+    (halfway, uninterrupted), _ = observed(problem, run_request, narrow_grid)
+    start = Start(
+        field=np.asarray(halfway)[None, None, :],
+        z=SOLITON_PERIOD / 2,
+        plane_index=1,
+        plane_pending=False,
+    )
+    (restarted,), ledger = observed(problem, run_request, narrow_grid, start)
+    assert ledger is not None
     # A fresh start: one startup call and the order ramp again from one.
-    assert resumed._adams.ledger.startup == 1
-    assert resumed._adams.ledger.orders[0] == 1
-    resumed.close()
+    assert ledger.startup == 1
+    assert ledger.orders[0] == 1
     # Two trajectories each converged to rtol 1e-7: 1.2e-8 apart measured, bounded at
     # ten times that.
     error = np.linalg.norm(restarted - uninterrupted) / np.linalg.norm(uninterrupted)
@@ -395,12 +401,14 @@ def test_an_interior_kink_restarts_the_history():
     backend = NumpyRefBackend(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(0.2)
-    history = backend.observe().step_history
-    assert backend._adams is not None
-    ledger = backend._adams.ledger
-    backend.close()
+    try:
+        history, _ = session_run(
+            backend, problem, bare(run_request), export=None
+        ).joined
+        ledger = _ledger(backend)
+    finally:
+        backend.close()
+    assert ledger is not None
     # The kink is an accepted step's end (the history records each attempt's end), and
     # the history restarts there at order one.
     ends = history.z[history.accepted]
@@ -450,10 +458,9 @@ def test_repeated_rejections_restart_the_history(narrow_grid, soliton_problem):
         integrator=Multistep(formulation="interaction"),
     )
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(SOLITON_PERIOD / 4)
-    march = backend._adams
-    assert march is not None
+    session_run(backend, problem, bare(run_request), export=None)
+    march = backend.march
+    assert isinstance(march, HostAdamsMarch)
     assert len(march._history) > 1
     for _ in range(3):
         march._reject(1e-3, 2.0, 2)

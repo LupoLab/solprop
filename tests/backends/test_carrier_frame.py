@@ -22,7 +22,7 @@ import functools
 import math
 import warnings
 from types import SimpleNamespace
-from typing import Literal
+from typing import Any, Literal, cast
 
 import mpmath
 import numpy as np
@@ -34,8 +34,9 @@ import flow_parity
 from backends.carrier_frame_cases import WINDOW, capillary, gradient
 from backends.conftest import EQUIVALENCE_BACKENDS
 from bounds import EPS, assert_within, carrier_increment_budget
-from sessions.runs import adams_ledger, run
-from solprop.backends.events import ObservationKind
+from sessions.executors import IDENTITY, Started, drive
+from sessions.runs import adams_ledger, bare, final_field, run
+from solprop.backends.events import ObservationKind, ObservationReady
 from solprop.backends.exponential import (
     CarrierReference,
     _carrier_refusal,  # pyright: ignore[reportPrivateUsage]
@@ -55,6 +56,8 @@ from solprop.backends.numpy_ref.multistep import (
     HostHistory,
     coupled_moments,
 )
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BackendError, SolpropWarning, StepperError
 from solprop.grid import EnvelopeGrid, FreeGrid
@@ -198,7 +201,7 @@ def march(
                 del lab, purpose
                 return source.source(position)
 
-            backend._adams_lab_source = lab_source  # pyright: ignore[reportAttributeAccessIssue]
+            backend.workspace.lab_source = lab_source  # pyright: ignore[reportAttributeAccessIssue]
         start = problem.initial.field0
         record: dict[str, object] = {}
         result = run(backend, problem, run_request, record=record)
@@ -218,7 +221,7 @@ def march(
                     / float(np.max(np.abs(exact * active)))
                 )
         attempts = result.joined[0]
-        march = getattr(backend, "_adams", None) if _on_host(backend) else None
+        march = _adams_march(backend)
         return SimpleNamespace(
             fields=fields,
             errors=errors,
@@ -232,8 +235,16 @@ def march(
 
 
 def _on_host(backend) -> bool:
-    """Return whether a backend is the reference, whose march is its own driver's."""
+    """Return whether a backend is the reference, whose march a test can read."""
     return backend.name == "numpy_ref"
+
+
+def _adams_march(backend):
+    """Return the reference's last run's Adams march, or ``None`` for any other."""
+    if not _on_host(backend):
+        return None
+    march = backend.march
+    return march if isinstance(march, HostAdamsMarch) else None
 
 
 def _ledger(backend, record) -> CallLedger | None:
@@ -850,10 +861,9 @@ def gradient_run(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        backend._adams = HostAdamsMarch(backend, method, compensation=compensation)
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-        return backend.observe().require_field(), backend._adams
+        backend._use_adams(method, compensation=compensation)
+        field = final_field(backend, problem, bare(run_request), ended=True)
+        return field, cast("Any", backend.march)
     finally:
         backend.close()
 
@@ -866,7 +876,8 @@ def test_a_varying_operator_is_compensated_under_the_frame(compensation):
     # samples. Both against a converged Runge-Kutta reference.
     reference = march(gradient(RungeKutta(), 1e-11)).fields[-1]
     field, run = gradient_run(SCALAR, compensation)
-    assert run._engine.compensated and shifted(run)
+    assert run is not None
+    assert cast("Any", run._engine).compensated and shifted(run)
     assert relative(field, reference) < 1e-8 * run.ledger.accepted_steps
 
 
@@ -949,7 +960,7 @@ def coupled_run(name, integrator, rtol, backend_class=NumpyRefBackend):
     try:
         record: dict[str, object] = {}
         field = run(backend, problem, run_request, record=record).fields[-1]
-        march = getattr(backend, "_adams", None) if _on_host(backend) else None
+        march = _adams_march(backend)
         return field, SimpleNamespace(march=march, ledger=_ledger(backend, record))
     finally:
         backend.close()
@@ -981,14 +992,19 @@ def test_a_snapshot_continues_only_under_its_own_policy():
     first = NumpyRefBackend(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
+    held = {}
+
+    def keep(session, batch):
+        # The method history at the second plane, as a snapshot service takes it.
+        for event in batch.events:
+            if isinstance(event, ObservationReady) and event.z == planes[1]:
+                held["stored"] = session.march_snapshot(event.ticket)
+
     try:
-        first.set_initial(problem.initial.field0, None)
-        first.propagate_to(planes[1])
-        stored = first.march_snapshot()
-        first.propagate_to(planes[-1])
-        continued = first.observe().require_field()
+        continued = run(first, problem, bare(run_request), between=keep).fields[-1]
     finally:
         first.close()
+    stored = held.get("stored")
     assert stored is not None
     # Under the same policy the saved history continues; with the same steps, orders
     # and history it agrees with the in-memory continuation within a rounding budget
@@ -997,12 +1013,15 @@ def test_a_snapshot_continues_only_under_its_own_policy():
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        second.set_initial(problem.initial.field0, None, z=stored.z)
-        assert second.restore_march(stored) is None
-        second.propagate_to(planes[-1])
-        resumed = second.observe().require_field()
-        assert second._adams is not None
-        steps = second._adams.ledger.accepted_steps
+        session = start_session(
+            second, problem, bare(run_request), _resumed(stored, planes), owns=False
+        )
+        try:
+            assert cast("Any", session).march_refusal is None
+            resumed = drive(Started(session), export=IDENTITY).fields[-1]
+        finally:
+            session.close()
+        steps = cast("Any", second.march).ledger.accepted_steps
     finally:
         second.close()
     assert_within(resumed, continued, max(steps, 1) * 512 * EPS, what="resumed history")
@@ -1015,11 +1034,29 @@ def test_a_snapshot_continues_only_under_its_own_policy():
             problem, other, grid=simulation.grid, modes=simulation.modes
         )
         try:
-            backend.set_initial(problem.initial.field0, None, z=stored.z)
-            reason = backend.restore_march(stored)
+            session = start_session(
+                backend, problem, other, _resumed(stored, planes), owns=False
+            )
+            reason = cast("Any", session).march_refusal
+            session.close()
         finally:
             backend.close()
         assert reason is not None and "scalar-frame" in reason
+
+
+def _resumed(stored, planes):
+    """Return the start of a resume from a snapshot at a saved plane.
+
+    Its own plane is observed again, so that a resume at the last plane still reports
+    the state it holds.
+    """
+    return Start(
+        field=np.array(stored.state),
+        z=stored.z,
+        plane_index=planes.index(stored.z) + 1,
+        march=stored,
+        resume=True,
+    )
 
 
 # --- the parity rounding budget -------------------------------------------------------
@@ -1172,7 +1209,10 @@ def test_the_chord_is_the_engine_s_exponent_at_the_reference(backend_name, opera
             # The stage's scalars as either backend's march forms them, and the
             # backend's own exponent of them.
             bundle = scalars(problem, z1, z2, helpers=backend.helpers)
-            full = backend._delta_phi(bundle)
+            owner = getattr(backend, "workspace", None)
+            full = (
+                backend._delta_phi(bundle) if owner is None else owner.delta_phi(bundle)
+            )
             expected = np.asarray(full)[0, 0, reference.bin]
             found = reference.chord.exponent(z1, z2)
             # The same representation evaluated at one element: a few roundings of the

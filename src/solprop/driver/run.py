@@ -158,11 +158,9 @@ def plane_from_observation(
     Parameters
     ----------
     observation : solprop.backends.protocol.Observation
-        The state at a save plane, from
-        :meth:`solprop.backends.protocol.HostStepping.observe`.
+        The state at a save plane, as a session observes it.
     stats : collections.abc.Mapping, optional
-        What :meth:`solprop.backends.protocol.HostStepping.stats` returned there, keyed
-        by statistic name. Empty when omitted.
+        The plane's statistics, keyed by statistic name. Empty when omitted.
     field : bool, optional
         Whether the plane keeps the field and its noise phase; ``False``, or an
         observation that carries no field, builds a field-free plane (SEP 22), which

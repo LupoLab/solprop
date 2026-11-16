@@ -23,11 +23,13 @@ import dataclasses
 import math
 import warnings
 from contextlib import closing
+from typing import Any, cast
 
 import numpy as np
 import pytest
 
 from axis_plasma_cases import entrance_problem
+from builders import load_reference
 from rate_oracles import adk_oracle
 from sessions.executors import (
     EXECUTORS,
@@ -37,7 +39,6 @@ from sessions.executors import (
 from sessions.runs import load_native
 from solprop.backends.events import ObservationReady, Terminal
 from solprop.backends.export import ExportRecipe
-from solprop.backends.protocol import stepping
 from solprop.backends.registry import select
 from solprop.exceptions import BackendError, MaterialRangeWarning
 from solprop.grid import FieldGrid
@@ -173,10 +174,10 @@ def _reference(grid, modes, problem, request, names, seen):
     out = []
     with closing(select("numpy_ref", problem, run, grid=grid, modes=modes)) as backend:
         for record in seen:
-            stepping(backend).set_initial(
-                record.field, None, z=record.z, resume=record.z > start
+            load_reference(backend, record.field, z=record.z, resume=record.z > start)
+            values = cast("Any", backend).workspace.stats(
+                run.observation.stats, record.z
             )
-            values = stepping(backend).stats(run.observation.stats)
             out.append({name: np.asarray(value) for name, value in values.items()})
     return out
 

@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from bounds import gamma
+from builders import load_reference, reference_trial
 from sessions.runs import load_native, native_trial
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import C
@@ -72,11 +73,11 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(position)
-        expected = reference._nonlinear(
+        load_reference(reference)
+        reference.workspace.hoist(position)
+        expected = reference.workspace.nonlinear(
             rotated,
-            reference._stage_scalars(position, position),
+            reference.workspace.stage_scalars(position, position),
             np.ones(problem.shape, complex),
         )
         # Zero distance isolates one nonlinear evaluation while still exercising
@@ -94,7 +95,7 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
             actual = _testing.stage_to_host(state, 0).reshape(expected.shape)
         else:
             captured = []
-            nonlinear = backend._nonlinear
+            nonlinear = backend.workspace.nonlinear
 
             def capture(lab, bundle, inverse):
                 stage = nonlinear(lab, bundle, inverse)
@@ -102,9 +103,9 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
                     captured.append(stage.copy())
                 return stage
 
-            monkeypatch.setattr(backend, "_nonlinear", capture)
-            backend.set_initial(problem.initial.field0, noise)
-            backend._trial_step(position, 0.0)
+            monkeypatch.setattr(backend.workspace, "nonlinear", capture)
+            load_reference(backend, noise=noise)
+            reference_trial(backend, position, 0.0)
             actual = captured[0].reshape(expected.shape)
         scale = np.max(np.abs(expected))
         assert scale > 0

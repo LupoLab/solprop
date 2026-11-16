@@ -10,13 +10,13 @@ statement passes a resume and a scan's cache. Runs compare structurally, by the 
 """
 
 import dataclasses
+from typing import Any, cast
 
 import numpy as np
 import pytest
 
 from driver.test_field_free_planes import cartesian
 from driver.test_runner import capillary, inputs, stored
-from solprop.backends.protocol import stepping
 from solprop.driver import Simulation
 from solprop.driver.executors import Local
 from solprop.driver.scan import Scan, run_scan
@@ -136,14 +136,16 @@ def test_a_runner_reads_a_small_stated_input_without_a_copy(monkeypatch):
     simulation = cartesian("numpy_ref")
     field = 0.9 * simulation._field0
     with simulation.runner() as runner:
-        load = stepping(runner.backend).set_initial
+        # The reference's session loads its workspace.
+        workspace = cast("Any", runner.backend).workspace
+        load = workspace.load
         shared: list[bool] = []
 
         def spy(given, noise, *, z=0.0, resume=False) -> None:
             shared.append(np.shares_memory(given, field))
             load(given, noise, z=z, resume=resume)
 
-        monkeypatch.setattr(runner.backend, "set_initial", spy)
+        monkeypatch.setattr(workspace, "load", spy)
         runner.run(field, input_identity="a", progress="none")
     assert shared == [True]
 

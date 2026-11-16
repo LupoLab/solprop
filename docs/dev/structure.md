@@ -49,9 +49,9 @@ The spine on the left is the call sequence, from the convenience function down t
 plots; the column on the right is what each stage hands to the next, in the colour of the
 layer that owns it. The annotations between them are
 [architecture.md §5](architecture.md)'s own. The thing to notice is where the boundary
-falls: the outer driver visits save planes, while the step driver's `propagate_to` runs
-the Python step loop (the reference's `HostDriver`, or the native bridge's
-`StepDriver`, [SEP 47](seps/archive/sep-0047-run-ownership.md) phase 2). Reference passes, compiled kernels and library transforms,
+falls: the service loop serves a session's events, while the session runs the step loop
+(the reference's `HostSession` over its Python marches, or native's session over its
+compiled ones, [SEP 47](seps/archive/sep-0047-run-ownership.md), [SEP 52](seps/sep-0052-backend-shape.md)). Reference passes, compiled kernels and library transforms,
 or one native trial do the numerical work behind that loop.
 
 ![One run of solprop, from prop_capillary through the kernel problem and the step driver to a saved plane](figures/one_run.svg)
@@ -91,8 +91,8 @@ Text: [architecture.md §8](architecture.md) for the passes,
 
 The seam at the top is the whole of what a backend is. Under it is the step loop no
 backend reimplements — the march, the replay, the landing, the controller, the history,
-the noise and the per-stage bundle all live in the reference's step driver,
-`backends/host/driver.py`, while the native backend's session marches natively
+the noise and the per-stage bundle all live in the reference's session and marches,
+`backends/host/`, while the native backend's session marches natively
 ([SEP 47](seps/archive/sep-0047-run-ownership.md)) — and under that the
 the implemented backends: NumPy reference and native (built from `native/`). Each
 supplies trial/state operations and the relevant hooks; the loop's

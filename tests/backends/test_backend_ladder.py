@@ -43,6 +43,8 @@ from bounds import (
 from convergence_records import record
 from convergence_studies import BACKEND_EQUIVALENCE
 from sessions.runs import run as session_run
+from solprop.backends.events import ObservationReady
+from solprop.backends.export import ExportRecipe
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
 from solprop.stepper import FixedSchedule, PIController
@@ -367,16 +369,24 @@ def test_a_resume_continues_where_the_run_stopped(
     assert disagreement(resumed, whole[1]) < 32 * EPS
 
 
-def test_the_observation_hook_is_the_identity_on_the_reference(
-    soliton_problem, narrow_grid
-):
-    """The device-state hook cannot copy or perturb the reference's state."""
+def test_the_observation_is_the_reference_s_state(soliton_problem, narrow_grid):
+    """A session's observation neither copies a perturbed state nor perturbs it."""
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[0.01])
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        state = backend._require_state()
-        assert backend._observed_field(state) is state
-        assert np.array_equal(backend.observe().require_field(), state)
+        session = backend.prepare(problem, run_request).start(
+            Start.entrance(problem), owns=False
+        )
+        try:
+            launch = session.advance()
+            state = backend.workspace.committed()
+            event = launch.events[0]
+            assert isinstance(event, ObservationReady)
+            ticket = event.ticket
+            observed = session.export(ticket, ExportRecipe(power=False, optics=False))
+            assert np.array_equal(observed, state)
+            assert backend.workspace.committed() is state
+        finally:
+            session.close()
     finally:
         backend.close()

@@ -214,7 +214,7 @@ def assert_propagates_as_the_reference(backend_class, route):
     }
     reference = NumpyRefBackend(problem, run_request, **context)
     try:
-        reference_back = np.array(reference._adams_propagator(0.0, SOURCE_AT))
+        reference_back = np.array(reference.workspace.propagator(0.0, SOURCE_AT))
     finally:
         reference.close()
     backend = backend_class(problem, run_request, **context)

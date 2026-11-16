@@ -37,7 +37,7 @@ from sessions.executors import (
     window,
 )
 from solprop.backends.events import Eligibility, Outcome
-from solprop.backends.host.driver import HostDriver
+from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.host.session import HostSession
 from solprop.backends.registry import select
 from solprop.exceptions import ConvergenceError
@@ -198,15 +198,22 @@ def _reference(
         "numpy_ref", problem, run_request, grid=window(), modes=[fibre().mode]
     )
     if failing is not None:
-        march = cast("HostDriver[Any]", driver)._low_storage
-        assert march is not None
-        engine = march.engine
-        engine.step = _FailingStep(engine.step, failing)
+        built = cast("Any", driver).method
+
+        def method(host):
+            # The session's own low-storage march, its engine's trial failing.
+            made = built(host)
+            assert isinstance(made.march, HostLowStorageMarch)
+            engine = cast("Any", made.march.engine)
+            engine.trial = _FailingStep(engine.trial, failing)
+            return made
+
+        cast("Any", driver).method = method
     return HostSession(driver, problem, run_request, entrance(problem))
 
 
 class _FailingStep:
-    """An engine step that raises after the step `failing` has made its passes."""
+    """An engine trial that raises after the step `failing` has made its passes."""
 
     def __init__(self, step: Any, failing: int) -> None:
         """Wrap the engine's step."""

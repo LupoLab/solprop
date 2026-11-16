@@ -26,7 +26,7 @@ from typing import Any, Literal, NamedTuple
 import numpy as np
 
 from bounds import departure
-from builders import launch_derivative
+from builders import launch_derivative, load_reference
 from sessions.runs import launch_statistics, native_source, saved, to_planes
 from sessions.runs import run as session_run
 from sessions.runs import summary as run_summary
@@ -278,8 +278,8 @@ def source(backend_class: type, built: Built, *, z: float = 0.0) -> np.ndarray:
     try:
         if backend.name == "native":
             return native_source(backend, launch, z)
-        backend.set_initial(launch, None)
-        return np.array(backend._adams_lab_source(launch, z))
+        load_reference(backend, launch)
+        return np.array(backend.workspace.lab_source(launch, z))
     finally:
         backend.close()
 
@@ -344,11 +344,11 @@ def projected(backend_class: type, built: Built) -> list[np.ndarray | None]:
         forward = np.fft.rfft if problem.grid_kind == "field" else np.fft.fft
         # The launch native loads (:func:`masked_launch`).
         launch = masked_launch(problem)
-        backend.set_initial(launch, None)
-        backend._adams_lab_source(launch, 0.0)
-        coarse = backend._last_coarse
+        load_reference(backend, launch)
+        backend.workspace.lab_source(launch, 0.0)
+        coarse = backend.workspace._last_coarse
         return [
-            forward(np.asarray(backend._last_projected), axis=-1),
+            forward(np.asarray(backend.workspace._last_projected), axis=-1),
             None if coarse is None else forward(np.asarray(coarse), axis=-1),
         ]
     finally:

@@ -26,6 +26,7 @@ import numpy as np
 import pytest
 
 import flow_parity
+from builders import load_reference
 from general_parity import conditioning, moving_count, source_bound
 from moving_guide_cases import (
     BOUND_STEP_LENGTH,
@@ -34,7 +35,7 @@ from moving_guide_cases import (
 )
 from sessions.runs import load_native, native_adams_rows, native_adams_start
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.backend import _general_maps
+from solprop.backends.numpy_ref.workspace import _general_maps
 from solprop.stepper import Multistep
 from solprop.translate.stage import scalars
 
@@ -68,8 +69,8 @@ def source_at(implementation, problem, run_request, grid, positions):
     if implementation is NumpyRefBackend:
         backend = implementation(problem, run_request, grid=grid)
         try:
-            backend.set_initial(state, None)
-            return [np.array(backend._adams_lab_source(state, z)) for z in positions]
+            load_reference(backend, state)
+            return [np.array(backend.workspace.lab_source(state, z)) for z in positions]
         finally:
             backend.close()
     # Native's resident Adams engine, on the same problem under the Adams march: its

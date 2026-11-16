@@ -398,16 +398,16 @@ def test_the_scaled_miss_is_read_far_above_the_stop() -> None:
 
 
 def _driver_class(backend: str) -> type:
-    """Return the class of `backend`'s step driver, which holds its edge reading."""
+    """Return the class holding `backend`'s edge reading, the reference's workspace."""
     if backend == "native":
         from solprop_native.backend import (  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
             NativeBackend,
         )
 
         return NativeBackend
-    from solprop.backends.host.driver import HostDriver  # noqa: PLC0415
+    from solprop.backends.numpy_ref.workspace import NumpyWorkspace  # noqa: PLC0415
 
-    return HostDriver
+    return NumpyWorkspace
 
 
 @pytest.mark.parametrize(
@@ -421,7 +421,7 @@ def test_a_plane_the_step_already_read_reduces_nothing_more(
     # Every step of this schedule is longer than the spacing, so each reads the edge,
     # and a plane landing on one has nothing to add. Its read used to cross the state,
     # synthesise it and only then find the gap zero: on a device, a whole state's copy
-    # for nothing. The reference reads through its driver's `_edge_reading`; the
+    # for nothing. The reference reads through its workspace's `edge_reading`; the
     # native session reads its edge resident (`Session::edge_plane` skips the plane),
     # with no reading through Python.
     _require(backend)
@@ -430,13 +430,14 @@ def test_a_plane_the_step_already_read_reduces_nothing_more(
     planes = [length / 4, length / 2, length]
     calls = {"readings": 0}
     driver = cast("type[Any]", _driver_class(backend))
-    edge_reading = driver._edge_reading
+    name = "_edge_reading" if backend == "native" else "edge_reading"
+    edge_reading = getattr(driver, name)
 
     def counting(self: Any, *args: Any, **keywords: Any) -> _EdgeReading:
         calls["readings"] += 1
         return edge_reading(self, *args, **keywords)
 
-    monkeypatch.setattr(driver, "_edge_reading", counting)
+    monkeypatch.setattr(driver, name, counting)
     schedule = FixedSchedule.uniform(0.0, length, length / 8, save_planes=planes)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)

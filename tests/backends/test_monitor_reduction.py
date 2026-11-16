@@ -28,6 +28,7 @@ import numpy as np
 import pytest
 
 from bounds import device_backend, ladder_bound
+from builders import load_reference
 from capability_routes import LENGTH
 from legacy_geometry import bare_absorber
 from monitor_cases import (
@@ -38,16 +39,17 @@ from monitor_cases import (
     ROUTE_NAMES,
     SCHEMES,
     STEPS,
-    as_driver,
+    as_reference,
     probe,
     reading,
     record_after_march,
     watched,
     with_copy,
 )
-from sessions.runs import bind_native_monitor, load_native, native_reading
+from sessions.runs import bind_native_monitor, load_native, native_reading, to_planes
 from sessions.runs import run as session_run
-from solprop.backends.protocol import stepping
+from solprop.backends.events import ObservationKind, ObservationReady
+from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available, select
 from solprop.backends.session import ExecutionOptions, Start
 from solprop.driver import Simulation
@@ -305,10 +307,10 @@ def test_a_reading_needs_a_monitor(backend: str) -> None:
     made = select(backend, problem, run_request, grid=simulation.grid)
     try:
         if backend == "numpy_ref":
-            driver = as_driver(made)
-            driver.set_initial(problem.initial.field0, None)
+            reference = as_reference(made)
+            load_reference(reference)
             with pytest.raises(BackendError, match="no boundary monitor"):
-                driver._boundary_energies(driver._require_state())
+                reference.workspace.reading()
         else:
             # The native state's own reduction, which its session reads at a check.
             from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
@@ -334,16 +336,10 @@ def test_a_monitor_for_another_grid_is_refused(backend: str) -> None:
     assert other is not None
     made = select(backend, problem, run_request, grid=simulation.grid)
     try:
-        if backend == "numpy_ref":
-            driver = as_driver(made)
-            driver.set_initial(problem.initial.field0, None)
-            with pytest.raises(BackendError, match="do not match the grid"):
-                driver.attach_monitor(other)
-        else:
-            # The native session refuses the weights by name before it binds them
-            # where its state lives.
-            with pytest.raises(BackendError, match="do not match the grid"):
-                session_run(made, problem, run_request.for_run(monitor=other))
+        # Each session refuses the weights by name when it attaches the monitor,
+        # before it binds them where its state lives.
+        with pytest.raises(BackendError, match="do not match the grid"):
+            session_run(made, problem, run_request.for_run(monitor=other))
     finally:
         made.close()
 
@@ -404,14 +400,25 @@ def _host_second_run(
     """The reference's launch reading, a march, and its reading of a second load."""
     made = watched(simulation, "numpy_ref")
     try:
-        driver = as_driver(made)
         first = reading(made)
-        stepping(made).propagate_to(LENGTH)
         problem = simulation.translate()
-        driver.set_initial(with_copy(problem.initial.field0, simulation.grid.n_t), None)
+        launch = with_copy(problem.initial.field0, simulation.grid.n_t)
         monitor = simulation._boundary_monitor()
         assert monitor is not None
-        driver.attach_monitor(monitor)
+        # A watched session marches the state to the end.
+        session_run(
+            made,
+            problem,
+            simulation._run_request().for_run(monitor=monitor),
+            Start(field=launch, z=float(problem.initial.z)),
+        )
+        # The next load, watched by a fresh monitor, as the next run's session has it.
+        load_reference(made, launch)
+        fresh = simulation._boundary_monitor()
+        assert fresh is not None
+        if fresh.split:
+            fresh.crossing = problem.split_crossing
+        as_reference(made).workspace.bind_monitor(fresh)
         return first, reading(made), made.memory_ledger()
     finally:
         made.close()
@@ -576,20 +583,61 @@ def test_successive_occupancies_are_the_reference_s(backend: str, route: str) ->
     _require(backend)
     simulation = probe(route, "split_step", MARCHES["runge_kutta"])
     problem = simulation.translate()
-    theirs = watched(simulation, "numpy_ref")
+    run_request = simulation._run_request()
+    # The schedule's edges a replay to each third of the length stops at.
+    schedule = run_request.stepper.schedule
+    assert schedule is not None
+    edges = np.asarray(schedule.edges)
+    planes = sorted(
+        {
+            float(edges[np.searchsorted(edges, LENGTH * third / 3 * (1 - 1e-12))])
+            for third in (1, 2, 3)
+        }
+    )
+    request = to_planes(run_request, planes)
+    theirs = NumpyRefBackend(
+        problem,
+        request,
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
+        options=simulation.settings.execution_options(),
+    )
     ours = _built(simulation, backend, problem)
     # The matched march's rounding, amplified over its steps, relative to the energy.
     bound = ladder_bound(
         backend, 1e3 * _rounding(simulation), simulation.grid.n_t, 8 * STEPS
     )
+    readings: list[tuple[np.ndarray, np.ndarray]] = []
+
+    def keep(session: Any, batch: Any) -> None:
+        # The reference's reading of the state at each plane, and the state itself.
+        for event in batch.events:
+            if isinstance(event, ObservationReady) and event.kind is (
+                ObservationKind.PLANE
+            ):
+                occupancy = theirs.workspace.reading().occupancy
+                assert occupancy is not None
+                readings.append((occupancy, theirs.workspace.committed().copy()))
+
     try:
-        monitor = _fresh_bound(ours, simulation, problem)
-        for third in (1, 2, 3):
-            stepping(theirs).propagate_to(LENGTH * third / 3)
-            expected = reading(theirs).occupancy
-            state = as_driver(theirs)._require_state()
-            got = native_reading(ours, monitor, np.array(state)).occupancy
-            assert expected is not None and got is not None
+        monitor = simulation._boundary_monitor()
+        assert monitor is not None
+        session_run(
+            theirs,
+            problem,
+            request.for_run(monitor=monitor),
+            Start(
+                field=with_copy(problem.initial.field0, simulation.grid.n_t),
+                z=float(problem.initial.z),
+            ),
+            between=keep,
+        )
+        assert len(readings) == len(planes)
+        bound_monitor = _fresh_bound(ours, simulation, problem)
+        for expected, state in readings:
+            got = native_reading(ours, bound_monitor, state).occupancy
+            assert got is not None
             np.testing.assert_allclose(
                 got, expected, rtol=0.0, atol=bound * float(expected.sum())
             )

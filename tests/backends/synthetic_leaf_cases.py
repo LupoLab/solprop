@@ -20,6 +20,7 @@ import numpy as np
 
 from backends.low_storage_cases import MARCH, parity_bound
 from bounds import propagation_growth, step_evaluations
+from builders import load_reference
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.grid import EnvelopeGrid, FreeGrid
@@ -191,12 +192,11 @@ def nonlinear_rate(problem, run_request, grid):
     """Return ``3 |N| / |a|`` on the launch, the Kerr term's Lipschitz bound, 1/m."""
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)
-        state = reference._require_state()
-        stage = reference._nonlinear(
+        state = load_reference(reference)
+        reference.workspace.hoist(0.0)
+        stage = reference.workspace.nonlinear(
             state,
-            reference._stage_scalars(0.0, 0.0),
+            reference.workspace.stage_scalars(0.0, 0.0),
             np.ones(problem.shape, complex),
         )
         return 3.0 * float(np.max(np.abs(stage)) / np.max(np.abs(state)))

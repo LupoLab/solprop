@@ -124,7 +124,13 @@ def test_the_rate_never_reaches_the_noise_phase(backend):
             # The stage's scalars as either backend's march forms them, and the
             # backend's own unitary phase of them.
             bundle = scalars(problem, 0.0, 7e-4, helpers=selected.helpers)
-            phases.append(np.array(selected._unitary_phase(bundle)))
+            owner = getattr(selected, "workspace", None)
+            phase = (
+                selected._unitary_phase(bundle)
+                if owner is None
+                else owner.unitary_phase(bundle)
+            )
+            phases.append(np.array(phase))
         finally:
             selected.close()
     # The rate is real: Im Phi is the same arithmetic, an exact structural identity.

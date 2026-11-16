@@ -41,6 +41,7 @@ from scipy.optimize import minimize_scalar
 from scipy.special import jn_zeros, jv
 
 from bounds import assert_within, record_backend
+from builders import load_reference
 from convergence_records import Column, Study, record
 from convergence_studies import BACKEND_EQUIVALENCE
 from former_raman import FORMER_H2
@@ -801,8 +802,13 @@ def _peak_intensity(simulation):
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
-    backend.set_initial(problem.initial.field0, None)
-    return float(backend.stats(StatsSpec(names=("peak_intensity",)))["peak_intensity"])
+    try:
+        load_reference(backend)
+        spec = StatsSpec(names=("peak_intensity",))
+        stats = backend.workspace.stats(spec, float(problem.initial.z))
+    finally:
+        backend.close()
+    return float(stats["peak_intensity"])
 
 
 def test_the_field_range_is_not_derived_without_a_plasma():

@@ -7,8 +7,8 @@
 The native backend loads a start (``solprop_native._load``), restores a resumed Adams
 history into its own record (``_NativeAdamsMarch``, no longer an ``AdamsMarch``) and
 times single trials (``solprop_native._probe``) without solprop's legacy step driver.
-These are held to what the reference does with the same inputs: its load
-(``HostDriver.set_initial``), its refusals and its probe's trial.
+These are held to what the reference does with the same inputs: its workspace's load
+(``NumpyWorkspace.load``, which its session calls), its refusals and its probe's trial.
 """
 
 from typing import Any, cast
@@ -55,14 +55,14 @@ def test_an_input_draw_is_added_at_the_launch_alone():
         kept = native._load(field, None, z=z, resume=False)
         assert kept.field.size == 0
         assert np.array_equal(kept.floor, loaded.floor)
-        reference.set_initial(field, None, z=float(problem.initial.z))
         host = cast("Any", reference)
+        host.workspace.load(field, None, z=float(problem.initial.z), resume=False)
         assert loaded.floor is not None and loaded.noise is None
-        assert np.array_equal(loaded.floor, host._input_floor)
+        assert np.array_equal(loaded.floor, host.workspace.input_floor)
         expected = np.asarray(field) + loaded.floor
         assert np.array_equal(loaded.field, expected.reshape(-1))
         assert loaded.clean_columns is not None
-        assert np.array_equal(loaded.clean_columns, host._clean_columns)
+        assert np.array_equal(loaded.clean_columns, host.workspace._clean_columns)
         resumed = native_load.load(
             problem, request.stepper, field, None, z=z, resume=True
         )

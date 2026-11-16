@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from builders import fixed_fibre_point as build
-from solprop.backends.numpy_ref.backend import NumpyRefBackend
+from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.registry import select
 from solprop.driver import Simulation, _scan_run
 from solprop.driver._scan_run import (
@@ -263,10 +263,10 @@ def test_a_probe_whose_launch_fails_raises_the_launch_s_own_error(point, monkeyp
     simulation = build(point)
     problem = simulation.translate()
 
-    def broken(self, spec):
+    def broken(self, spec, z):
         raise OutputError("manufactured launch statistics failure")
 
-    monkeypatch.setattr(NumpyRefBackend, "stats", broken)
+    monkeypatch.setattr(NumpyWorkspace, "stats", broken)
     backend = select(
         "numpy_ref",
         problem,

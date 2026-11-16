@@ -47,7 +47,6 @@ from sessions.executors import (
     trace,
 )
 from solprop.backends.events import (
-    Eligibility,
     EventBatch,
     ObservationReady,
     Outcome,
@@ -323,18 +322,17 @@ def test_a_walking_pulse_warns_and_stops_where_the_reference_does(march, scheme)
 
 @pytest.mark.parametrize("march", sorted(MARCHES))
 def test_a_raised_warning_ends_the_run_at_its_endpoint(march):
+    # Both sessions report the warning as a barrier at its committed endpoint, whose
+    # filters raise it there (SEP 52 section 5.1).
     reference, native = _both(
         lambda: walker(0.47e-12, integrator=MARCHES[march]()), error=True
     )
-    terminal = reference.run.terminal
-    assert terminal.outcome is Outcome.FAILED
-    assert isinstance(terminal.error, BoundaryWarning)
-    assert native.raised is not None
-    z, warning = native.raised
-    assert terminal.error is not None
-    assert type(warning) is type(terminal.error)
-    assert masked(str(warning)) == masked(str(terminal.error))
-    assert z == pytest.approx(terminal.z, rel=TERMINAL_RTOL)
+    assert reference.raised is not None and native.raised is not None
+    (expected_z, expected), (z, warning) = reference.raised, native.raised
+    assert isinstance(expected, BoundaryWarning)
+    assert type(warning) is type(expected)
+    assert masked(str(warning)) == masked(str(expected))
+    assert z == pytest.approx(expected_z, rel=TERMINAL_RTOL)
     # The observations before it are the reference's.
     assert [(one.kind, one.plane_index) for one in native.run.observations] == [
         (one.kind, one.plane_index) for one in reference.run.observations
@@ -390,16 +388,14 @@ def test_the_final_removal_warns_before_completion():
 def test_a_raised_final_warning_is_a_failure_with_its_field():
     check = BoundaryCheck(budget=1e-3, stop_factor=1e3)
     reference, native = _both(lambda: walker(0.9e-12, check=check), error=True)
-    terminal = reference.run.terminal
-    assert terminal.outcome is Outcome.FAILED
-    # The final check runs at the run's end, after its last plane: the committed state
-    # there stays eligible for a checkpoint.
-    assert terminal.eligibility is Eligibility.ELIGIBLE
-    assert native.raised is not None
-    assert terminal.error is not None
-    assert type(native.raised[1]) is type(terminal.error)
-    assert masked(str(native.raised[1])) == masked(str(terminal.error))
-    assert native.raised[0] == pytest.approx(terminal.z, rel=TERMINAL_RTOL)
+    # The final check runs at the run's end, after its last plane: both sessions report
+    # it as a barrier there, whose ticket exports the committed state for a checkpoint
+    # (`_serve` exports it before the warning is raised).
+    assert reference.raised is not None and native.raised is not None
+    expected = reference.raised[1]
+    assert type(native.raised[1]) is type(expected)
+    assert masked(str(native.raised[1])) == masked(str(expected))
+    assert native.raised[0] == pytest.approx(reference.raised[0], rel=TERMINAL_RTOL)
 
 
 def test_a_replay_the_light_outgrows_is_refused_where_the_reference_refuses():

@@ -18,6 +18,7 @@ import pytest
 from backends.envelope_host_cases import argon_host_case
 from backends.mixture_rows import host
 from bounds import scan_bound
+from builders import load_reference
 from sessions.runs import run as session_run
 from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -104,11 +105,13 @@ def test_envelope_population_values_do_not_depend_on_retaining_node_scans(host_c
     """The optional on-axis reuse record must not alter the node statistics."""
     problem, run_request, grid = host_case
     with closing(NumpyRefBackend(problem, run_request, grid=grid)) as backend:
-        backend.set_initial(problem.initial.field0, None)
+        load_reference(backend)
         field = problem.initial.field0
-        plain = backend._species_statistics(field)
+        plain = backend.workspace._species_statistics(field, problem.initial.z)
         scans = []
-        retained = backend._species_statistics(field, scans)
+        retained = backend.workspace._species_statistics(
+            field, problem.initial.z, scans
+        )
         assert len(scans) == 1
         fractions, peaks = scans[0]
         assert (
@@ -166,7 +169,7 @@ def test_prescribed_density_off_carrier_drude_assembly(host_case):
     try:
         bundle = scalars(problem, 0.0, 0.0)
         lab = problem.initial.field0
-        actual = backend._nonlinear(lab, bundle, np.ones_like(lab))
+        actual = backend.workspace.nonlinear(lab, bundle, np.ones_like(lab))
         assembly = problem.responses.envelope_plasma
         assert assembly is not None
         channel = assembly.channels[0]
@@ -175,7 +178,7 @@ def test_prescribed_density_off_carrier_drude_assembly(host_case):
         coefficient = channel.charge_mass_ratio * bundle.plasma_densities[0] * 0.1
         overlap = float((transform.projection @ transform.synthesis)[0, 0])
         expected = (
-            backend._prefactor(bundle)
+            backend.workspace.prefactor(bundle)
             * problem.grids.omega_window
             * assembly.factors.drude
             * coefficient

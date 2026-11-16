@@ -49,6 +49,7 @@ from moving_guide_cases import (
     moving_simulation,
     step_grid,
 )
+from sessions.runs import bare, final_field
 from solprop.backends import select
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
 from solprop.constants import C
@@ -291,10 +292,12 @@ def _single_bin(guide, grid, length, steps, index, **overrides):
         problem, initial=dataclasses.replace(problem.initial, field0=state)
     )
     backend = NumpyRefBackend(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(length)
-    final = backend.observe().require_field()[:, 0, index].copy()
-    backend.close()
+    try:
+        final = final_field(backend, problem, bare(run_request), ended=True)
+    finally:
+        backend.close()
+    assert final_z(run_request) == length
+    final = final[:, 0, index].copy()
     return final / 1e-9, problem, run_request
 
 
@@ -530,11 +533,18 @@ def _step_run(guide, steps, index, launch=None):
         problem, initial=dataclasses.replace(problem.initial, field0=state)
     )
     backend = NumpyRefBackend(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(LENGTH)
-    final = backend.observe().require_field()[:, 0, index].copy()
-    backend.close()
+    try:
+        final = final_field(backend, problem, bare(run_request), ended=True)
+    finally:
+        backend.close()
+    assert final_z(run_request) == LENGTH
+    final = final[:, 0, index].copy()
     return final / 1e-9, problem, run_request
+
+
+def final_z(run_request):
+    """Return the end of a run's itinerary, m: its last save plane."""
+    return float(run_request.stepper.save_planes[-1])
 
 
 def _dense_reference(provider, omega, *, basis=None, samples=33):
@@ -750,10 +760,12 @@ def test_the_connection_is_stored_unconjugated_as_a_complex_basis_decides(
     wrong_problem = dataclasses.replace(problem)
     object.__setattr__(wrong_problem, "linear", linear)
     backend = NumpyRefBackend(wrong_problem, run_request, grid=grid)
-    backend.set_initial(wrong_problem.initial.field0, None)
-    backend.propagate_to(LENGTH)
-    wrong = backend.observe().require_field()[:, 0, index] / 1e-9
-    backend.close()
+    try:
+        wrong = final_field(backend, wrong_problem, bare(run_request), ended=True)
+    finally:
+        backend.close()
+    assert final_z(run_request) == LENGTH
+    wrong = wrong[:, 0, index] / 1e-9
     wrong_departure = float(np.max(abs(wrong[1:] / wrong[0] - expected)))
     record_property("tc801_conjugated_departure", wrong_departure)
     # Conjugating flips the sign of the imaginary couplings, so the channels they fill

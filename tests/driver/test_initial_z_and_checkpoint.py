@@ -5,6 +5,7 @@
 """Exercise interior launches and restartable stops on tiny optical problems."""
 
 import dataclasses
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -13,9 +14,10 @@ from tests.backends.test_tdse_march import ManufacturedBinding
 from tests.driver.test_resume import run_until
 from tests.driver.test_run import NullBackend
 
+from builders import load_reference
+from solprop.backends.host.session import HostSession
 from solprop.backends.ledger import CallLedger
-from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.protocol import stepping
+from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -507,6 +509,11 @@ def _loaded(backend, problem, run_request, start) -> int:
     return start.plane_index
 
 
+def _position(backend) -> float:
+    """Return where the reference's last session left its march, m."""
+    return float(backend.march.state.z)
+
+
 def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path):
     simulation = tiny_simulation()
     problem = simulation.translate()
@@ -534,7 +541,7 @@ def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path
             )
             == 0
         )
-        assert stepping(backend).observe().z == 5e-6
+        assert _position(backend) == 5e-6
         assert state.checkpoint is not None
         invalid = dataclasses.replace(
             state, checkpoint=dataclasses.replace(state.checkpoint, next_save_index=1)
@@ -575,13 +582,13 @@ def test_ordinary_resume_without_outcome_restores_plane_and_starts_fresh_ledgers
             )
             == 1
         )
-        observed = stepping(backend).observe()
-        assert observed.z == 5e-6
+        observed = cast("Any", backend).workspace.committed()
+        assert _position(backend) == 5e-6
         assert_array_equal(
-            observed.require_field()[..., problem.grids.active_mask],
+            observed[..., problem.grids.active_mask],
             problem.initial.field0[..., problem.grids.active_mask],
         )
-        assert np.all(observed.require_field()[..., ~problem.grids.active_mask] == 0)
+        assert np.all(observed[..., ~problem.grids.active_mask] == 0)
         assert backend.metadata()["response_calls"] == CallLedger().to_record()
     finally:
         backend.close()
@@ -598,15 +605,16 @@ def test_statistics_failure_keeps_drained_history_without_retrying_statistics(
         "numpy_ref", problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     calls = []
-    original = NumpyRefBackend.stats
+    # The session evaluates every observation's statistics on its workspace.
+    original = NumpyWorkspace.stats
 
-    def fail_second(self, spec):
+    def fail_second(self, spec, z):
         calls.append(1)
         if len(calls) == 2:
             raise DriverError("manufactured statistics failure")
-        return original(self, spec)
+        return original(self, spec, z)
 
-    monkeypatch.setattr(NumpyRefBackend, "stats", fail_second)
+    monkeypatch.setattr(NumpyWorkspace, "stats", fail_second)
     memory = MemoryOutput()
     try:
         with pytest.raises(DriverError, match="manufactured statistics failure"):
@@ -803,21 +811,22 @@ def test_resume_saves_checkpoint_on_missing_final_plane_before_completion(
 ):
     simulation = tiny_simulation()
     path = tmp_path / "missing-final.h5"
-    original = NumpyRefBackend.stats
+    # The session evaluates every observation's statistics on its workspace.
+    original = NumpyWorkspace.stats
     attempts = []
 
-    def fail_final(self, spec):
+    def fail_final(self, spec, z):
         attempts.append(1)
         if len(attempts) == 2:
             raise DriverError("manufactured final statistics failure")
-        return original(self, spec)
+        return original(self, spec, z)
 
-    monkeypatch.setattr(NumpyRefBackend, "stats", fail_final)
+    monkeypatch.setattr(NumpyWorkspace, "stats", fail_final)
     with pytest.raises(DriverError, match="final statistics"):
         simulation.run(path, progress="none")
     first = resume(path)
     assert first.n_saved == 1 and first.plane.z == 1e-5
-    monkeypatch.setattr(NumpyRefBackend, "stats", original)
+    monkeypatch.setattr(NumpyWorkspace, "stats", original)
     simulation.run(path, resume=True, progress="none")
     finished = resume(path)
     assert finished.n_saved == 2
@@ -1165,7 +1174,8 @@ def test_a_resume_without_an_outcome_loads_the_field_without_restoring_ledgers(
     def forbidden(*args, **kwargs):
         raise AssertionError("a file without an outcome carries no call ledgers")
 
-    monkeypatch.setattr(NumpyRefBackend, "restore_call_ledgers", forbidden)
+    # The reference's session restores a start's ledgers.
+    monkeypatch.setattr(HostSession, "_restore_ledgers", forbidden)
     backend = select(
         "numpy_ref", problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
@@ -1179,7 +1189,7 @@ def test_a_resume_without_an_outcome_loads_the_field_without_restoring_ledgers(
             )
             == 0
         )
-        assert stepping(backend).observe().z == state.plane.z
+        assert _position(backend) == state.plane.z
     finally:
         backend.close()
 
@@ -1239,8 +1249,7 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
         "numpy_ref", problem, run_request, grid=grid, modes=simulation.modes
     )
     try:
-        stepping(backend).set_initial(problem.initial.field0, None)
-        field = stepping(backend).observe().require_field().copy()
+        field = load_reference(backend).copy()
         state = ResumeState(
             simulation.metadata(),
             SavedPlane(z=5e-6, field=field),
@@ -1262,9 +1271,8 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
             )
             == 0
         )
-        restored = stepping(backend).observe()
-        assert restored.z == state.plane.z
-        assert_array_equal(restored.require_field(), field)
+        assert _position(backend) == state.plane.z
+        assert_array_equal(cast("Any", backend).workspace.committed(), field)
     finally:
         backend.close()
 

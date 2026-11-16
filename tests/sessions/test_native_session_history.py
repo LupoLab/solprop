@@ -401,8 +401,7 @@ def test_the_ledger_record_is_the_reference_s():
     request = run_request
     started = _reference_session(problem, request)
     drive(started)
-    driver = started.session.driver  # pyright: ignore[reportAttributeAccessIssue]
-    expected = driver.metadata()["response_calls"]
+    expected = started.session.execution_record()["response_calls"]
     started.session.close()
     session = _native(problem, request, _entrance(problem))
     drive(Started(session))

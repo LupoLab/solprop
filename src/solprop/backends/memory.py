@@ -243,8 +243,8 @@ def low_storage_flows(
     """Return how many flow volumes a compiled backend's low-storage march holds.
 
     The one predicate the engines share (SEP 24 section 4.3): with
-    ``propagator_mode="auto"`` resolved for this march as
-    ``HostDriver._propagator_mode`` resolves it on a CPU, a tabulated constant operator
+    ``propagator_mode="auto"`` resolved for this march as the reference resolves it
+    on a CPU (``NumpyRefBackend._propagator_mode``), a tabulated constant operator
     -- every separable one included, whose ``phi_representation`` is ``"separable"`` --
     holds one volume, ``exp(h_t D / 2)``; a tabulated varying operator holds the
     step's ``P`` and ``Q``; recomputing holds none. A native device build resolves

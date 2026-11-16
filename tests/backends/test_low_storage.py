@@ -19,7 +19,7 @@ import math
 import signal
 import warnings
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -50,12 +50,18 @@ from bounds import (
     propagation_growth,
     step_budget,
 )
+from builders import load_reference
 from legacy_geometry import with_collar_rate
-from solprop.backends.host.driver import HostDriver
+from sessions.executors import IDENTITY
+from sessions.runs import bare
+from sessions.runs import run as session_run
+from solprop.backends.events import Eligibility, ObservationKind, ObservationReady
 from solprop.backends.low_storage import HostLowStorage, schedule_key, table_steps
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.registry import resolve_name
 from solprop.backends.session import Start
+from solprop.backends.session_core import YieldDue
 from solprop.boundaries import absorber
 from solprop.constants import C
 from solprop.driver.scaffold import gnlse_source
@@ -72,7 +78,6 @@ from solprop.output import MemoryOutput
 from solprop.output.records import MarchSnapshot
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium, beam_radius
-from solprop.stats import StatsSpec
 from solprop.stepper import (
     DOPRI5,
     FixedSchedule,
@@ -95,17 +100,40 @@ from solprop.translate.routes import TDSESource
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
 
 
-def run(problem, run_request, grid, *, planes=None, backend=None, options=None):
-    """Replay a problem through its save planes; return the final state and backend."""
-    made = (
-        NumpyRefBackend(problem, run_request, grid=grid, options=options)
-        if backend is None
-        else backend
+def run(problem, run_request, grid, *, start=None, options=None):
+    """Replay a problem through its save planes in its session; return the final state
+    and the backend, still open."""
+    made = NumpyRefBackend(problem, run_request, grid=grid, options=options)
+    result = session_run(made, problem, bare(run_request), start)
+    return result.fields[-1].copy(), made
+
+
+def resumed_at(field, z, planes, *, noise=None):
+    """Return a start from a state at `z`, its plane already saved."""
+    return Start(
+        field=field,
+        z=float(z),
+        noise=noise,
+        plane_index=int(np.searchsorted(np.asarray(planes), z, side="right")),
+        plane_pending=False,
     )
-    made.set_initial(problem.initial.field0, None)
-    for plane in run_request.stepper.save_planes if planes is None else planes:
-        made.propagate_to(float(plane))
-    return made.observe().require_field().copy(), made
+
+
+def drive_to(session, z):
+    """Advance a started session to its observation at `z`; return that field.
+
+    Every batch before it, the observation's included, is acknowledged.
+    """
+    while True:
+        batch = session.advance()
+        assert batch.terminal is None, batch.terminal
+        (event,) = batch.events
+        field = None
+        if isinstance(event, ObservationReady):
+            field = np.array(session.export(event.ticket, IDENTITY))
+        session.acknowledge(batch.receipt)
+        if field is not None and event.z == z:
+            return field
 
 
 def linear_bound(problem, schedule):
@@ -347,12 +375,9 @@ def test_the_third_order_soliton_converges_at_order_four(
         integrator=MARCH,
     )
     backend = NumpyRefBackend(probe, probe_request, grid=soliton_grid)
-    backend.set_initial(probe.initial.field0, None)
-    spectra = [probe.initial.field0]
-    for plane in planes:
-        backend.propagate_to(plane)
-        spectra.append(backend.observe().require_field())
+    result = session_run(backend, probe, bare(probe_request))
     backend.close()
+    spectra = [probe.initial.field0, *result.fields[1:]]
     assert driven_phase(probe, base.max_step, populated(spectra)) < 1.0
     march, _ = assert_order_four(evaluate, base, round_off_floor(evaluate, base))
     # Measured: the march reads 3.96 (errors 7.64e-3, 4.93e-4, 3.36e-5) and IP-DOPRI5
@@ -485,9 +510,8 @@ def evaluation_difference(problem, run_request, grid, gnlse):
     Returns the departure and the masked input it was taken at.
     """
     backend = NumpyRefBackend(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
-    state = backend._require_state()
-    march = backend._adams_lab_source(state, 0.0)[0, 0]
+    state = load_reference(backend)
+    march = backend.workspace.lab_source(state, 0.0)[0, 0]
     backend.close()
     scaffold = gnlse_source(gnlse, grid)(state[0, 0])
     assert np.linalg.norm(scaffold) > 0
@@ -614,16 +638,16 @@ def test_planes_at_natural_steps_match_the_uninterrupted_run(
     backend.close()
     natural, natural_request, _ = lifecycle(step_planes=7)
     backend = NumpyRefBackend(natural, natural_request, grid=narrow_grid)
-    backend.set_initial(natural.initial.field0, None)
-    stops = []
-    while backend._z < length:
-        summary = backend.propagate_to(length)
-        stops.append(summary.z)
-    final = backend.observe().require_field()
+    result = session_run(backend, natural, bare(natural_request))
     backend.close()
+    final = result.fields[-1]
+    stops = [
+        event.z for event in result.observations if event.kind is ObservationKind.STEP
+    ]
     edges = run_request.stepper.schedule.edges
-    # On the same edges, exactly: the 7th, 14th, ... edge, and the end.
-    assert stops == [float(edges[k]) for k in (7, 14, 21, 28, 35)] + [length]
+    # On the same edges, exactly: the 7th, 14th, ... edge; the run ends at the end.
+    assert stops == [float(edges[k]) for k in (7, 14, 21, 28, 35)]
+    assert result.observations[-1].z == length
     bound = rounding_bound(problem, run_request.stepper.schedule, scales)
     assert np.linalg.norm(final - uninterrupted) <= bound * np.linalg.norm(
         uninterrupted
@@ -645,38 +669,48 @@ def test_a_resume_at_an_edge_agrees_to_rounding(lifecycle, narrow_grid, scales, 
         step_planes=7 if edge == "mid-segment" else 0
     )
     backend = NumpyRefBackend(resumable, resumable_request, grid=narrow_grid)
-    backend.set_initial(resumable.initial.field0, None)
-    summary = backend.propagate_to(length / 2)
-    stopped = backend.observe()
+    first = session_run(backend, resumable, bare(resumable_request), observations=2)
     backend.close()
+    stopped_z, stopped_field = first.observations[-1].z, first.fields[-1]
     edges = run_request.stepper.schedule.edges
     expected_stop = float(edges[7]) if edge == "mid-segment" else length / 2
-    assert summary.z == stopped.z == expected_stop
+    assert stopped_z == expected_stop
     resumed = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    resumed.set_initial(stopped.require_field(), None, z=stopped.z)
-    for plane in run_request.stepper.save_planes:
-        if plane > stopped.z:
-            resumed.propagate_to(float(plane))
-    final = resumed.observe().require_field()
-    assert resumed.march_snapshot() is None
+    snapshots = []
+
+    def keep_snapshots(session, batch):
+        snapshots.extend(
+            session.march_snapshot(event.ticket)
+            for event in batch.events
+            if isinstance(event, ObservationReady)
+        )
+
+    start = resumed_at(stopped_field, stopped_z, run_request.stepper.save_planes)
+    final = session_run(
+        resumed, problem, bare(run_request), start, between=keep_snapshots
+    ).fields[-1]
+    assert snapshots and all(one is None for one in snapshots)
     # A snapshot from an Adams run is not continued: this march keeps no history.
     snapshot = MarchSnapshot(
-        z=stopped.z,
-        state=stopped.require_field(),
+        z=stopped_z,
+        state=stopped_field,
         proposal=1e-3,
         method=repr(MARCH),
         order=1,
         rejections=0,
         last_rejected=False,
-        positions=np.array([stopped.z]),
+        positions=np.array([stopped_z]),
         identities=("accepted",),
         slots=np.array([0]),
         rows={},
         history_key="adams",
     )
-    assert "low-storage march, which keeps no history" in str(
-        resumed.restore_march(snapshot)
-    )
+    start = resumed_at(stopped_field, stopped_z, run_request.stepper.save_planes)
+    start = dataclasses.replace(start, march=snapshot)
+    with cast(
+        "Any", resumed.prepare(problem, run_request).start(start, owns=False)
+    ) as session:
+        assert "low-storage march, which keeps no history" in str(session.march_refusal)
     resumed.close()
     bound = rounding_bound(problem, run_request.stepper.schedule, scales)
     assert np.linalg.norm(final - uninterrupted) <= bound * np.linalg.norm(
@@ -890,7 +924,7 @@ class AbandonedError(RuntimeError):
 
 def abandon_after(backend, evaluations):
     """Make the backend's source raise after `evaluations` evaluations."""
-    original = backend._adams_lab_source
+    original = backend.workspace.lab_source
     count = [0]
 
     def evaluate(lab, position, **keywords):
@@ -899,45 +933,48 @@ def abandon_after(backend, evaluations):
             raise AbandonedError
         return original(lab, position, **keywords)
 
-    backend._adams_lab_source = evaluate
-    return lambda: setattr(backend, "_adams_lab_source", original)
+    backend.workspace.lab_source = evaluate
+    return lambda: setattr(backend.workspace, "lab_source", original)
 
 
 def test_an_abandoned_step_leaves_every_reader_refusing(lifecycle, narrow_grid, scales):
     """Between passes the state is neither end of the step: nothing may read it.
 
-    ``observe``, ``propagate_to``, ``stats`` and ``march_snapshot`` refuse it, naming
-    the step; ``set_initial`` alone clears it, and a resume from the last plane agrees
-    with the uninterrupted run to rounding.
+    The session ends failed, poisoned; its observation and its method history refuse
+    the state, naming the step; a new session alone clears it, and a resume from the
+    last plane agrees with the uninterrupted run to rounding.
     """
     problem, run_request, length = lifecycle()
     uninterrupted, backend = run(problem, run_request, narrow_grid)
     backend.close()
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(length / 2)
-    plane = backend.observe()
+    request = bare(run_request)
+    session: Any = backend.prepare(problem, request).start(
+        Start.entrance(problem), owns=False
+    )
+    plane = drive_to(session, length / 2)
     # Two steps and one pass more: the third step is abandoned after its first pass,
     # which has already overwritten the state with its interaction-picture image.
     restore = abandon_after(backend, 4 * 2 + 1)
-    with pytest.raises(AbandonedError):
-        backend.propagate_to(length)
+    terminal = session.advance().terminal
     restore()
+    assert terminal is not None and isinstance(terminal.error, AbandonedError)
+    assert terminal.eligibility is Eligibility.POISONED and terminal.ticket is None
     step = run_request.stepper.schedule.steps[LIFECYCLE_STEPS // 2 + 2]
     message = rf"step of {step:.6g} m from z = .* abandoned in flight"
     for reader in (
-        backend.observe,
-        lambda: backend.propagate_to(length),
-        lambda: backend.stats(StatsSpec(names=("energy",))),
-        backend.march_snapshot,
+        lambda: session._observe(field=True),
+        lambda: session._observe(field=False),
+        session.march_snapshot_nbytes,
     ):
         with pytest.raises(BackendError, match=message):
             reader()
+    assert session.pending_ticket() is None
     # The two committed steps are counted; the abandoned one is not.
     assert backend.metadata()["source_evaluations"] == 4 * (LIFECYCLE_STEPS // 2 + 2)
-    backend.set_initial(plane.require_field(), None, z=plane.z)
-    backend.propagate_to(length)
-    final = backend.observe().require_field()
+    session.close()
+    start = resumed_at(plane, length / 2, run_request.stepper.save_planes)
+    final = session_run(backend, problem, request, start).fields[-1]
     backend.close()
     bound = rounding_bound(problem, run_request.stepper.schedule, scales)
     assert np.linalg.norm(final - uninterrupted) <= bound * np.linalg.norm(
@@ -947,20 +984,19 @@ def test_an_abandoned_step_leaves_every_reader_refusing(lifecycle, narrow_grid, 
 
 def test_a_diverged_state_stops_the_replay_in_flight(lifecycle, narrow_grid):
     """No estimate to watch: the accepted state's norm is the divergence check."""
-    problem, run_request, length = lifecycle()
+    problem, run_request, _ = lifecycle()
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    original = backend._adams_lab_source
+    original = backend.workspace.lab_source
 
     def overflowing(lab, position, **keywords):
         # An overflowed source, as a step past a stability limit leaves one.
         return np.full_like(original(lab, position, **keywords), np.nan)
 
-    backend._adams_lab_source = overflowing
+    backend.workspace.lab_source = overflowing
     with pytest.raises(ConvergenceError, match=r"non-finite state.*lost"):
-        backend.propagate_to(length)
-    with pytest.raises(BackendError, match="abandoned in flight"):
-        backend.observe()
+        session_run(backend, problem, bare(run_request), export=None)
+    # The session ended poisoned: the workspace's state is the step's register.
+    assert cast("Any", backend.march).in_flight is not None
     # The diverged step was not committed, so its evaluations are not counted.
     assert backend.metadata()["source_evaluations"] == 0
     backend.close()
@@ -984,7 +1020,7 @@ def test_an_atomic_engine_commits_its_step_whole(lifecycle, narrow_grid, atomic)
     """
     from solprop._interrupts import handled  # noqa: PLC0415
 
-    problem, run_request, length = lifecycle()
+    problem, run_request, _ = lifecycle()
     if atomic:
         native = pytest.importorskip("solprop_native")
         _native_signal_lands_after_the_step(
@@ -992,12 +1028,12 @@ def test_an_atomic_engine_commits_its_step_whole(lifecycle, narrow_grid, atomic)
         )
         return
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    assert backend._low_storage is not None
-    engine = backend._low_storage.engine
-    assert engine.atomic is atomic
+    session: Any = backend.prepare(problem, bare(run_request)).start(
+        Start.entrance(problem), owns=False
+    )
+    engine = cast("Any", session._march.engine)
     assert isinstance(engine, HostLowStorage) is not atomic
-    original = engine.step
+    original = engine.trial
 
     def interrupted(z, dz):
         squared = original(z, dz)
@@ -1005,14 +1041,17 @@ def test_an_atomic_engine_commits_its_step_whole(lifecycle, narrow_grid, atomic)
         signal.raise_signal(signal.SIGINT)
         return squared
 
-    engine.step = interrupted
+    engine.trial = interrupted
+    # The launch plane, then the first step.
+    session.acknowledge(session.advance().receipt)
     with handled(), pytest.raises(KeyboardInterrupt):
-        backend.propagate_to(length)
+        session.advance()
     schedule = run_request.stepper.schedule
     assert schedule is not None
-    assert backend._in_flight == (0.0, float(schedule.steps[0]))
+    assert session.in_flight == (0.0, float(schedule.steps[0]))
     with pytest.raises(BackendError, match="abandoned in flight"):
-        backend.observe()
+        session._observe(field=True)
+    session.close()
     backend.close()
 
 
@@ -1076,7 +1115,7 @@ def test_the_run_writes_no_checkpoint_from_a_step_in_flight(tmp_path, caplog):
 
     uninterrupted = simulation().run(progress="none")
     path = tmp_path / "run.h5"
-    original = NumpyRefBackend._adams_lab_source
+    original = NumpyWorkspace.lab_source
     count = [0]
 
     def evaluate(self, lab, position, **keywords):
@@ -1086,14 +1125,14 @@ def test_the_run_writes_no_checkpoint_from_a_step_in_flight(tmp_path, caplog):
         return original(self, lab, position, **keywords)
 
     try:
-        NumpyRefBackend._adams_lab_source = evaluate
+        NumpyWorkspace.lab_source = evaluate
         with (
             caplog.at_level(logging.WARNING, logger=run_module.__name__),
             pytest.raises(AbandonedError) as caught,
         ):
             simulation().run(path, progress="none")
     finally:
-        NumpyRefBackend._adams_lab_source = original
+        NumpyWorkspace.lab_source = original
     assert any("no terminal checkpoint" in note for note in caught.value.__notes__)
     assert "abandoned in flight" in caplog.text
     with open_file(path) as stored:
@@ -1138,14 +1177,18 @@ FIELD_ROWS = (
 
 
 def held_volumes(backend, field):
-    """Return the bytes every state-sized array the backend and its engine hold owns.
+    """Return the bytes every state-sized array the workspace and the engine hold owns.
 
-    Each attribute of the backend and of the march's engine, and each array inside a
-    tuple attribute, is followed to the memory it views: a broadcast view of one
-    element owns one element, however large it reads.
+    Each attribute of the backend, its workspace and the march's engine, and each
+    array inside a tuple attribute, is followed to the memory it views: a broadcast
+    view of one element owns one element, however large it reads.
     """
     found = {}
-    owners = {"backend": backend, "engine": backend._low_storage.engine}
+    owners = {
+        "backend": backend,
+        "workspace": backend.workspace,
+        "engine": cast("Any", backend.march).engine,
+    }
     for owner_name, owner in owners.items():
         for name, value in vars(owner).items():
             items = value if isinstance(value, tuple) else (value,)
@@ -1178,18 +1221,17 @@ def test_the_ledger_holds_three_registers_the_scratch_and_the_table(mode, collar
         assert problem.responses.temporal_absorber_fine is not None
     field = 16 * math.prod(problem.shape)
     backend = NumpyRefBackend(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-    assert np.all(np.isfinite(backend.observe().require_field()))
+    final = session_run(backend, problem, bare(run_request)).fields[-1]
+    assert np.all(np.isfinite(final))
     ledger = backend.memory_ledger()
-    assert backend._low_storage is not None
-    engine = backend._low_storage.engine
+    # The run's own engine, which the backend keeps after it.
+    engine = cast("Any", backend.march).engine
     assert isinstance(engine, HostLowStorage)
     assert engine.held() == {
         row: ledger[row]
         for row in ("register_accumulator", "register_stage", "propagators")
     }
-    expected = {"backend._state", "engine._accumulator", "engine._stage"}
+    expected = {"workspace._state", "engine._accumulator", "engine._stage"}
     if mode == "tabulate":
         expected.add("engine._table")
     assert held_volumes(backend, field) == dict.fromkeys(expected, field)
@@ -1252,9 +1294,8 @@ def test_the_noise_draw_never_enters_the_propagating_field():
     length = 1e-3
     grid, _, noise, schedule, problem, run_request = noisy_free_case(length, 3, 8, [])
     backend = NumpyRefBackend(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, noise)
-    backend.propagate_to(length)
-    final = backend.observe().require_field()
+    start = Start(field=problem.initial.field0, z=0.0, noise=noise)
+    final = session_run(backend, problem, bare(run_request), start).fields[-1]
     backend.close()
     assert_linear_limit(problem, final, schedule)
 
@@ -1270,9 +1311,8 @@ def test_each_pass_carries_the_draw_at_its_own_position(monkeypatch):
         length, 94, 2, [KerrResponse(1e-22, thg=False)]
     )
     backend = NumpyRefBackend(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, noise)
     inputs, carried = [], []
-    source, nonlinear = backend._adams_lab_source, backend._nonlinear
+    source, nonlinear = backend.workspace.lab_source, backend.workspace.nonlinear
 
     def lab_source(lab, position, **keywords):
         inputs.append((position, lab.copy()))
@@ -1282,9 +1322,10 @@ def test_each_pass_carries_the_draw_at_its_own_position(monkeypatch):
         carried.append(lab.copy())
         return nonlinear(lab, bundle, inverse)
 
-    monkeypatch.setattr(backend, "_adams_lab_source", lab_source)
-    monkeypatch.setattr(backend, "_nonlinear", capture)
-    backend.propagate_to(length)
+    monkeypatch.setattr(backend.workspace, "lab_source", lab_source)
+    monkeypatch.setattr(backend.workspace, "nonlinear", capture)
+    start = Start(field=problem.initial.field0, z=0.0, noise=noise)
+    session_run(backend, problem, bare(run_request), start, export=None)
     backend.close()
     z, h = float(schedule.edges[1]), float(schedule.steps[1])
     positions = [position for position, _ in inputs[4:]]
@@ -1407,20 +1448,17 @@ def test_the_table_is_keyed_on_its_run_and_rebuilt_where_the_run_changes(
     assert len(set(schedule.steps.tolist())) > 1
     assert abs(float(keys[0]) - length / LIFECYCLE_STEPS) <= 4 * EPS * length
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    assert backend._low_storage is not None
-    engine = backend._low_storage.engine
-    assert isinstance(engine, HostLowStorage)
-    backend.set_initial(problem.initial.field0, None)
     built = []
-    propagator = backend._adams_propagator
+    propagator = backend.workspace.propagator
 
     def counted(anchor, position):
         built.append((anchor, position))
         return propagator(anchor, position)
 
-    backend._adams_propagator = counted
-    backend.propagate_to(length / 2)
-    backend.propagate_to(length)
+    cast("Any", backend.workspace).propagator = counted
+    session_run(backend, problem, bare(run_request), export=None)
+    engine = cast("Any", backend.march).engine
+    assert isinstance(engine, HostLowStorage)
     assert len(built) == 1
     assert engine._table_step == float(keys[0])
     backend.close()
@@ -1435,17 +1473,18 @@ def test_the_table_is_keyed_on_its_run_and_rebuilt_where_the_run_changes(
         dataclasses.replace(varied_request.stepper, save_planes=[length])
     )
     backend = NumpyRefBackend(varied, varied_request, grid=narrow_grid)
-    backend.set_initial(varied.initial.field0, None)
     built.clear()
-    propagator = backend._adams_propagator
-    backend._adams_propagator = counted
-    backend.propagate_to(length)
+    propagator = backend.workspace.propagator
+    cast("Any", backend.workspace).propagator = counted
+    session_run(backend, varied, bare(varied_request), export=None)
     assert len(built) == varied_schedule.n_steps
-    # A load drops the table, which the next step builds again.
-    backend.set_initial(varied.initial.field0, None)
-    assert backend._low_storage is not None
-    engine = backend._low_storage.engine
-    assert isinstance(engine, HostLowStorage) and engine._table is None
+    assert cast("Any", backend.march).engine._table is not None
+    # The next run's engine starts with no table, which its first step builds again.
+    with backend.prepare(varied, varied_request).start(
+        Start.entrance(varied), owns=False
+    ) as session:
+        engine = cast("Any", session)._march.engine
+        assert isinstance(engine, HostLowStorage) and engine._table is None
     backend.close()
 
 
@@ -1466,44 +1505,38 @@ def test_a_run_s_key_is_its_mean_step_and_far_runs_keep_one_key():
     assert len(set(keys.tolist())) == 2
 
 
-class LinearSource(HostDriver):
-    """A stand-in backend whose source is ``lambda u`` and whose flow is one.
+class LinearSource:
+    """A stand-in workspace whose source is ``lambda u`` and whose flow is one.
 
-    Built without the driver's initialiser, which needs a translated problem: the host
-    engine reads only the members set here.
+    The host engine reads only the members set here.
     """
 
     def __init__(self, rate, state):
         self.rate = rate
         self._state = state
-        self._low_storage = None
-        self._stepper = SimpleNamespace(propagator_mode="recompute")
-        self._problem = SimpleNamespace(
+        self.problem = SimpleNamespace(
             flags=SimpleNamespace(constant_linop=True),
             grids=SimpleNamespace(norm_mask=np.ones(state.shape[-1], dtype=bool)),
         )
 
-    def _trial_step(self, z, dz):
-        raise NotImplementedError
+    def committed(self):
+        return self._state
 
-    def _apply_mask(self, state):
-        raise NotImplementedError
+    def install(self, state):
+        self._state = state
 
-    def stats(self, spec):
-        raise NotImplementedError
-
-    def _hoist(self, z0):
+    def hoist(self, z0):
         del z0
 
-    def _stage_bundles(self, z0, positions):
+    def stage_bundles(self, z0, positions):
         del z0, positions
         return ()
 
-    def _adams_propagator(self, anchor, position):
+    def propagator(self, anchor, position):
         del anchor, position
         return np.ones_like(self._state)
 
-    def _adams_lab_source(self, lab, position, *, purpose="predictor"):
+    def lab_source(self, lab, position, *, purpose="predictor"):
         del position, purpose
         return self.rate * lab
 
@@ -1520,9 +1553,9 @@ def test_a_linear_step_is_rk4_s_stability_function_and_reads_its_stiffness(rate)
     state = rng.standard_normal((1, 1, 64)) + 1j * rng.standard_normal((1, 1, 64))
     start = state.copy()
     step = 0.05
-    backend = LinearSource(rate, state)
-    engine = HostLowStorage(backend, MARCH)
-    squared = engine.step(0.0, step)
+    workspace = LinearSource(rate, state)
+    engine = HostLowStorage(cast("Any", workspace), MARCH, None, "recompute")
+    squared = engine._step(state, 0.0, step)
     x = step * rate
     expected = (1 + x + x**2 / 2 + x**3 / 6 + x**4 / 24) * start
     assert np.allclose(state, expected, rtol=64 * EPS, atol=0)
@@ -1533,26 +1566,28 @@ def test_a_linear_step_is_rk4_s_stability_function_and_reads_its_stiffness(rate)
 
 
 def test_the_march_warns_once_when_a_step_passes_the_interval(
-    lifecycle, narrow_grid, caplog
+    lifecycle, narrow_grid, caplog, monkeypatch
 ):
     """A stiffness past 2.785 is logged once per replay, never in the norm column."""
     problem, run_request, length = lifecycle()
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    assert backend._low_storage is not None
-    engine = backend._low_storage.engine
-    assert isinstance(engine, HostLowStorage)
-    step = engine.step
+    step = HostLowStorage.trial
 
-    def stiff(z, dz):
-        squared = step(z, dz)
+    def stiff(engine, z, dz):
+        squared = step(engine, z, dz)
         engine.stiffness = 3.0
         return squared
 
-    engine.step = stiff
+    # The session's own engine, built for its run; no bounded yield splits the plane's
+    # replay into two march calls, each of which warns once.
+    monkeypatch.setattr(HostLowStorage, "trial", stiff)
+    monkeypatch.setattr(YieldDue, "__call__", lambda self: False)
     with caplog.at_level(logging.WARNING, logger="solprop.backends.host.low_storage"):
-        backend.propagate_to(length / 2)
-    history = backend.observe().step_history
+        result = session_run(
+            backend, problem, bare(run_request), export=None, observations=2
+        )
+    history, _ = result.joined
+    assert result.observations[-1].z == length / 2
     backend.close()
     warnings_logged = [
         record.getMessage()
@@ -1566,27 +1601,16 @@ def test_the_march_warns_once_when_a_step_passes_the_interval(
 
 @pytest.mark.parametrize("name", ["numpy_ref", "native"])
 def test_a_replay_that_runs_out_says_so(lifecycle, narrow_grid, name):
-    # The reference's march, and the bridge's around the native resident engine.
-    problem, run_request, length = lifecycle()
-    if name == "native":
-        native = pytest.importorskip("solprop_native")
-        _native_replay_runs_out(native, problem, run_request, narrow_grid, length)
-        return
-    backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    with pytest.raises(BackendError, match="cannot reach"):
-        backend.propagate_to(length * 1.02)
-    # Every step was taken and committed: nothing is left in flight.
-    assert backend.observe().z == length
-    backend.close()
-
-
-def _native_replay_runs_out(native, problem, run_request, grid, length):
-    """A native run whose last plane lies past its schedule is refused by name.
+    """A run whose last plane lies past its schedule is refused by name.
 
     A session's planes are its itinerary, so the target past the schedule is a save
     plane the schedule does not reach, which the run is refused before any step.
     """
+    problem, run_request, length = lifecycle()
+    if name == "native":
+        backend_class = pytest.importorskip("solprop_native").NativeBackend
+    else:
+        backend_class = NumpyRefBackend
     stepper = run_request.stepper
     beyond = run_request.with_stepper(
         dataclasses.replace(
@@ -1594,7 +1618,7 @@ def _native_replay_runs_out(native, problem, run_request, grid, length):
         )
     )
     with pytest.raises(TranslationError, match="does not land on the save plane"):
-        native.NativeBackend(problem, beyond, grid=grid).close()
+        backend_class(problem, beyond, grid=narrow_grid).close()
 
 
 def test_a_failure_record_that_cannot_be_written_keeps_the_original_error(caplog):
@@ -1630,7 +1654,7 @@ def test_a_failure_record_that_cannot_be_written_keeps_the_original_error(caplog
         absorber=False,
         noise=None,
     )
-    original = NumpyRefBackend._adams_lab_source
+    original = NumpyWorkspace.lab_source
     count = [0]
 
     def evaluate(self, lab, position, **keywords):
@@ -1640,11 +1664,11 @@ def test_a_failure_record_that_cannot_be_written_keeps_the_original_error(caplog
         return original(self, lab, position, **keywords)
 
     try:
-        NumpyRefBackend._adams_lab_source = evaluate
+        NumpyWorkspace.lab_source = evaluate
         with pytest.raises(AbandonedError) as caught:
             simulation.run(Unwritable(), progress="none")
     finally:
-        NumpyRefBackend._adams_lab_source = original
+        NumpyWorkspace.lab_source = original
     notes = caught.value.__notes__
     assert any("no terminal checkpoint" in note for note in notes)
     assert any("manufactured record failure" in note for note in notes)

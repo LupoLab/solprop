@@ -62,7 +62,6 @@ from modal_provider_cases import (
     make_provider,
 )
 from solprop import fourier
-from solprop.backends.numpy_ref.backend import _general_maps
 from solprop.backends.numpy_ref.general_modal import (
     GeneralMaps,
     delayed_polarisation,
@@ -70,6 +69,7 @@ from solprop.backends.numpy_ref.general_modal import (
     symmetric_cubic,
     symmetric_kerr_coefficients,
 )
+from solprop.backends.numpy_ref.workspace import _general_maps
 from solprop.constants import EPS0
 from solprop.grid import FieldGrid
 from solprop.modes.guide import ModalGuide

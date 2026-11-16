@@ -38,16 +38,17 @@ pass  evaluation      finish
 **The march** (the reference's
 :class:`solprop.backends.host.low_storage.HostLowStorageMarch`; the native session's
 replay) replays a prescribed schedule and never rejects, so it accepts each step in
-place: from the step's start to its commit the backend is *in flight*
-(``HostDriver._in_flight``) and every entry that reads or advances the state refuses
-it, until a load replaces the state (SEP 24 section 6.2, ADR-050). It records no error
-estimate: the step history's norm is 0.0, "not estimated" (section 6.3). Divergence is
-detected on the accepted state's norm instead.
+place: from the start of the step's trial to its accept the engine is *in flight*
+and every entry that reads or advances the state refuses it, until a load replaces the
+state (SEP 24 section 6.2, ADR-050). It records no error estimate: the step history's
+norm is 0.0, "not estimated" (section 6.3). Divergence is detected on the accepted
+state's norm instead.
 
-**The engine** holds the registers and makes the passes (:class:`LowStorageEngine`); the
-native backend keeps its own where its state lives (``_ResidentLowStorage``).
-:class:`HostLowStorage` is the host engine and the oracle, over the backend's
-``_adams_lab_source`` and ``_adams_propagator``. The engines and the table keys
+**The engine** holds the registers and makes the passes: it is a
+:class:`~solprop.backends.engines.RungeKuttaEngine` with the documented destructive
+trial (SEP 52 section 5.2), as native's low-storage engine is.
+:class:`HostLowStorage` is the host engine and the oracle, over the workspace's
+``lab_source`` and ``propagator``. The engines and the table keys
 (:func:`table_steps`, :func:`schedule_key`) are stateless numerical code the reference
 and the native backend share (SEP 47 Part III decision 5).
 
@@ -63,18 +64,21 @@ References
 
 import logging
 import math
-from typing import Any, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING
 
 import numpy as np
 from jaxtyping import Complex, Float
 
-from solprop.backends.host.driver import HostDriver
+from solprop.backends.engines import AcceptRecord, BoundaryReading
+from solprop.exceptions import BackendError
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule
 
+if TYPE_CHECKING:
+    from solprop.backends.numpy_ref.workspace import NumpyWorkspace
+
 __all__ = [
     "HostLowStorage",
-    "LowStorageEngine",
     "schedule_key",
     "table_steps",
 ]
@@ -174,70 +178,22 @@ def schedule_key(
     return float(keys[min(max(index, 0), keys.size - 1)])
 
 
-@runtime_checkable
-class LowStorageEngine(Protocol):
-    """What a low-storage march asks of the engine that holds its registers.
-
-    Part of the kernel seam (schema 29): the march keeps the schedule, the commit and
-    the records; an engine keeps the registers and the flow table and does every
-    state-sized operation of a step. :class:`HostLowStorage` is the reference. SEP 52's
-    phase 3 replaces it with :class:`solprop.backends.engines.RungeKuttaEngine`, which
-    the native low-storage engine already implements.
-    """
-
-    stiffness: float
-    """``h rho`` of the last completed step (SEP 24 section 6.3), or NaN where the
-    engine does not form it: the march warns when it passes RK4's stability interval."""
-
-    atomic: bool
-    """Whether :meth:`step` is one native call that no signal interrupts (schema 32).
-
-    A signal's Python handler runs at the first bytecode after such a call returns,
-    which is before the commit, so the march then takes the step, the backend's
-    ``_finish`` and the position move in one ``committing()`` block (SEP 24 section
-    6.7): only a native exception can abandon the step in flight. An engine whose step
-    runs Python between its passes is not atomic, and a signal there abandons the step
-    at once rather than waiting up to a step for the commit (section 6.2, Q6)."""
-
-    def step(self, z: float, dz: float) -> float:
-        """Take one step in place, leaving the raw accepted state in the backend.
-
-        Parameters
-        ----------
-        z : float
-            Where the step starts, m.
-        dz : float
-            The step, m, positive.
-
-        Returns
-        -------
-        float
-            The accepted state's squared norm over the norm mask, before the boundary
-            treatments, in the state's units squared; not finite when the field has
-            diverged.
-        """
-        ...
-
-    def reset(self) -> None:
-        """Forget what a step left behind: the state was loaded outside the march."""
-        ...
-
-    def close(self) -> None:
-        """Release the registers and the flow table; the engine is not used again."""
-        ...
-
-
 class HostLowStorage:
     """The host engine: the four register passes over host arrays (SEP 24 6.5).
 
-    The backend's state is the register ``A`` and is updated in place; ``B`` and ``C``
-    are this engine's host arrays, allocated at the first step. Each pass makes one
-    source evaluation through ``HostDriver._adams_lab_source`` (the complete source,
-    the noise draw advanced to the pass's position and the in-stage absorbers
-    included) and takes ``P`` and ``Q`` from ``HostDriver._adams_propagator`` or the
+    The workspace's state is the register ``A`` and is updated in place by the
+    trial; ``B`` and ``C`` are this engine's host arrays, allocated at the first step.
+    Each pass makes one source evaluation through the workspace's ``lab_source`` (the
+    complete source, the noise draw advanced to the pass's position and the in-stage
+    absorbers included) and takes ``P`` and ``Q`` from its ``propagator`` or the
     table, allocating transients as the reference does. The step's three positions
     are known before its first pass, so their host scalars are read together
-    (``HostDriver._stage_bundles``) and the hooks take the kept bundles.
+    (``stage_bundles``) and the evaluations take the kept bundles.
+
+    **The commit contract** (SEP 52 section 5.2): :meth:`trial` overwrites the state,
+    and from its start until :meth:`accept` returns the engine is :attr:`in_flight`.
+    An exception or a non-finite result in that interval leaves no committed state at
+    that position; only :meth:`reset`, at a load, clears the flag.
 
     **The flows.** ``"tabulate"`` on a constant operator holds one volume,
     ``exp(h_t D / 2)``, built at the first step after a load and reused while the
@@ -265,20 +221,22 @@ class HostLowStorage:
 
     Parameters
     ----------
-    backend : solprop.backends.host.driver.HostDriver
-        The reference backend whose state, hooks and boundary treatments are used; its
-        state is a host array in the canonical layout. The native bridge keeps its
-        registers resident and never takes this engine (SEP 47 phase 2).
+    workspace : solprop.backends.numpy_ref.workspace.NumpyWorkspace
+        The reference's workspace, whose state, evaluations and finish are used. The
+        native session keeps its registers resident and never takes this engine.
     method : solprop.stepper.low_storage.LowStorageRungeKutta
         The march.
+    schedule : solprop.stepper.schedule.FixedSchedule or None
+        The replayed schedule, whose runs key the flow table; ``None`` only for an
+        engine that never tabulates.
+    propagator_mode : {'tabulate', 'recompute'}
+        Whether the step's flows are held for it.
 
     Attributes
     ----------
     stiffness : float
-        ``h rho`` of the last completed step, dimensionless; NaN before one, or when
+        ``h rho`` of the last completed trial, dimensionless; NaN before one, or when
         ``F2 - g1`` vanished on the norm mask.
-    atomic : bool
-        Always ``False``: the passes are Python calls a signal may interrupt.
 
     Notes
     -----
@@ -287,23 +245,40 @@ class HostLowStorage:
     memory ledger, and :meth:`close` releases them.
     """
 
-    def __init__(self, backend: HostDriver[Any], method: LowStorageRungeKutta) -> None:
-        """Hold the backend with no registers yet."""
-        self._backend = backend
+    def __init__(
+        self,
+        workspace: "NumpyWorkspace",
+        method: LowStorageRungeKutta,
+        schedule: FixedSchedule | None,
+        propagator_mode: str,
+    ) -> None:
+        """Hold the workspace with no registers yet."""
+        self._workspace = workspace
         self._method = method
+        self._schedule = schedule
+        self._propagator_mode = propagator_mode
         self._accumulator: _State | None = None
         self._stage: _State | None = None
         self._table: _State | None = None
         self._table_step = math.nan
         self._keys: tuple[np.ndarray, np.ndarray] | None = None
+        self._in_flight = False
         self.stiffness = math.nan
-        self.atomic = False
+
+    @property
+    def in_flight(self) -> bool:  # numpydoc ignore=RT01
+        """Whether a trial overwrote the state and its accept has not returned."""
+        return self._in_flight
 
     def reset(self) -> None:
-        """Drop the flow table, which a resume builds again from its own first step."""
+        """Drop the flow table and a step left in flight: a state was loaded.
+
+        A resume builds the table again from its own first step.
+        """
         self._table = None
         self._table_step = math.nan
         self.stiffness = math.nan
+        self._in_flight = False
 
     def close(self) -> None:
         """Release the registers and the flow table."""
@@ -326,8 +301,10 @@ class HostLowStorage:
             "propagators": _bytes(self._table),
         }
 
-    def step(self, z: float, dz: float) -> float:
-        """Take one RK4IP step in the four passes of the register form.
+    def trial(self, z: float, dz: float) -> float:
+        """Take one RK4IP step in place, in the four passes of the register form.
+
+        The engine is in flight from here until :meth:`accept` returns.
 
         Parameters
         ----------
@@ -339,46 +316,102 @@ class HostLowStorage:
         Returns
         -------
         float
-            The accepted state's squared norm over the norm mask, before the boundary
-            treatments.
+            0.0, "not estimated"; or, when the field has diverged, the accepted
+            state's non-finite squared norm over the norm mask.
         """
-        backend = self._backend
+        workspace = self._workspace
+        state = workspace.committed()
+        self._in_flight = True
+        squared = self._step(state, z, dz)
+        return squared if not math.isfinite(squared) else 0.0
+
+    def accept(self, dz: float) -> AcceptRecord:
+        """Finish the state the trial left and commit it; the step leaves flight.
+
+        Parameters
+        ----------
+        dz : float
+            The step, m, which the split collar's rate needs.
+
+        Returns
+        -------
+        solprop.backends.engines.AcceptRecord
+            The stiffness indicator and the finish's split collar's sums.
+        """
+        workspace = self._workspace
+        finished, record = workspace.finish(workspace.committed(), dz)
+        workspace.install(finished)
+        self._in_flight = False
+        return AcceptRecord(
+            stiffness=self.stiffness, removed=record.removed, found=record.found
+        )
+
+    def extend(self, z: float, dz: float) -> None:
+        """Refuse: the low-storage march replays and observes no plane densely.
+
+        Parameters
+        ----------
+        z : float
+            Where the step started, m.
+        dz : float
+            The step, m.
+
+        Raises
+        ------
+        BackendError
+            Always.
+        """
+        del z, dz
+        raise BackendError("the low-storage engine holds no dense extension")
+
+    def reading(self) -> BoundaryReading:
+        """Return the committed state's boundary reading.
+
+        Returns
+        -------
+        solprop.backends.engines.BoundaryReading
+            The workspace's reading.
+        """
+        return self._workspace.reading()
+
+    def _step(self, state: _State, z: float, dz: float) -> float:
+        """Take the step's four passes on `state`; return its squared norm."""
+        workspace = self._workspace
         midpoint, end = z + 0.5 * dz, z + dz
         first, second = self._flows(z, dz)
-        mask = backend._problem.grids.norm_mask
-        state = cast("_State", backend._state)
+        mask = workspace.problem.grids.norm_mask
 
         # Pass 1: F1 at z_n; A <- P A, g <- P S, B <- A + h/6 g, C <- A + h/2 g.
-        source = backend._adams_lab_source(state, z)
-        flow = backend._adams_propagator(z, midpoint) if first is None else first
+        source = workspace.lab_source(state, z)
+        flow = workspace.propagator(z, midpoint) if first is None else first
         if state.flags.writeable:
             np.multiply(state, flow, out=state)
         else:
             # An observation holds the accepted state read-only; it keeps its own.
             state = flow * state
-            backend._state = state
+            workspace.install(state)
         slope = flow * source
         accumulator, stage = self._registers(state)
         np.add(state, (dz / 6.0) * slope, out=accumulator)
         np.add(state, (0.5 * dz) * slope, out=stage)
 
         # Pass 2: F2 at z_m; B <- B + h/3 S, C <- A + h/2 S.
-        source = backend._adams_lab_source(stage, midpoint)
+        source = workspace.lab_source(stage, midpoint)
         lower = _masked_norm(source - slope, mask)
         accumulator += (dz / 3.0) * source
         np.add(state, (0.5 * dz) * source, out=stage)
         previous = source
 
         # Pass 3: F3 at z_m; B <- B + h/3 S, C <- Q (A + h S).
-        source = backend._adams_lab_source(stage, midpoint)
+        source = workspace.lab_source(stage, midpoint)
         upper = _masked_norm(source - previous, mask)
         accumulator += (dz / 3.0) * source
-        flow = backend._adams_propagator(midpoint, end) if second is None else second
+        flow = workspace.propagator(midpoint, end) if second is None else second
         np.multiply(flow, state + dz * source, out=stage)
 
         # Pass 4: F4 at z_n + h; A <- Q B + h/6 S.
-        source = backend._adams_lab_source(stage, end)
-        flow = backend._adams_propagator(midpoint, end) if second is None else second
+        source = workspace.lab_source(stage, end)
+        flow = workspace.propagator(midpoint, end) if second is None else second
         np.multiply(flow, accumulator, out=state)
         state += (dz / 6.0) * source
         self.stiffness = 2.0 * upper / lower if lower > 0.0 else math.nan
@@ -394,35 +427,35 @@ class HostLowStorage:
           constant operator, the pair on a varying one -- or ``None`` each when
           recomputed in the finishes that apply them.
         """
-        backend = self._backend
+        workspace = self._workspace
         midpoint, end = z + 0.5 * dz, z + dz
-        tabulating = backend._propagator_mode == "tabulate"
-        table = tabulating and backend._problem.flags.constant_linop
-        backend._hoist(z)
+        tabulating = self._propagator_mode == "tabulate"
+        table = tabulating and workspace.problem.flags.constant_linop
+        workspace.hoist(z)
         # Each evaluation reads its position as its own anchor and each flow its
         # interval, so the anchors' bundles are read here, once each.
-        backend._stage_bundles(z, [z] if table else [z, midpoint])
-        backend._stage_bundles(midpoint, [midpoint] if table else [midpoint, end])
-        backend._stage_bundles(end, [end])
+        workspace.stage_bundles(z, [z] if table else [z, midpoint])
+        workspace.stage_bundles(midpoint, [midpoint] if table else [midpoint, end])
+        workspace.stage_bundles(end, [end])
         if table:
             if self._keys is None:
-                schedule = backend._stepper.schedule
+                schedule = self._schedule
                 assert schedule is not None  # the translation refused it without one
                 self._keys = (table_steps(schedule), schedule.edges)
             key = schedule_key(*self._keys, z, dz)
             if self._table is None or key != self._table_step:
                 # From the operator's origin, where a constant operator's increment is
                 # the half step itself, not fl(z + h/2) - z (class docstring).
-                origin = backend._problem.linear.z_span[0]
+                origin = workspace.problem.linear.z_span[0]
                 half = origin + 0.5 * key
-                backend._stage_bundles(origin, [half])
-                self._table = backend._adams_propagator(origin, half)
+                workspace.stage_bundles(origin, [half])
+                self._table = workspace.propagator(origin, half)
                 self._table_step = key
             return self._table, self._table
         if tabulating:
             return (
-                backend._adams_propagator(z, midpoint),
-                backend._adams_propagator(midpoint, end),
+                workspace.propagator(z, midpoint),
+                workspace.propagator(midpoint, end),
             )
         return None, None
 

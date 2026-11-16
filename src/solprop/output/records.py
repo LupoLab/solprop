@@ -909,9 +909,8 @@ def _adopted(values: np.ndarray) -> np.ndarray:
     """Mark an array a :class:`SavedPlane` takes as it is, instead of copying it.
 
     The driver's route (:func:`solprop.driver.run.run_problem`) for what an observation
-    holds. Only for an array that nothing writes to again, as
-    :meth:`solprop.backends.protocol.HostStepping.observe` promises, and never for a
-    view into a larger array, which it would pin.
+    holds. Only for an array that nothing writes to again, as a session's observation
+    promises, and never for a view into a larger array, which it would pin.
 
     - Returns: the same array, read-only.
     """
