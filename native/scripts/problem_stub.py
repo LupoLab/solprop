@@ -71,7 +71,7 @@ def _arrays(text: str) -> str:
 
 
 def _body(module: ModuleType, names: list[str] | None = None) -> str:
-    """Return stubgen's stub of `module`'s names, in the stubs' spellings, no imports."""
+    """Return stubgen's stub of `module`'s names in the stubs' spellings, no imports."""
     stub = StubGen(module, quiet=True, include_docstrings=False)
     for name in names if names is not None else sorted(vars(module)):
         if name.startswith("__") or name == "_testing":
@@ -80,9 +80,7 @@ def _body(module: ModuleType, names: list[str] | None = None) -> str:
     text = _arrays(stub.get())
     text = PAIR.sub(r"\2: \4", text)
     lines = [
-        line
-        for line in text.splitlines()
-        if not line.startswith(("import ", "from "))
+        line for line in text.splitlines() if not line.startswith(("import ", "from "))
     ]
     text = "\n".join(lines).strip() + "\n"
     replacements = {
@@ -127,8 +125,8 @@ def generated() -> dict[Path, str]:
     body = _body(core)
     extra = [
         "",
-        "# The private test module, bound as the submodule `_testing` (solprop SEP 52):",
-        "# its stub is `_core_testing.pyi`; the extension has no `_core_testing`.",
+        "# The private test module, bound as the submodule `_testing` (SEP 52): its",
+        "# stub is `_core_testing.pyi`; the extension has no `_core_testing`.",
         "from solprop_native import _core_testing",
         "",
         "_testing = _core_testing",
@@ -145,10 +143,7 @@ def generated() -> dict[Path, str]:
         HEADER
         + "# The private test module `solprop_native._core._testing` (solprop SEP 52 "
         "section 6.5):\n# the entry points only solprop's own tests reach. It promises"
-        " nothing.\n\n"
-        + _imports(testing, testing_extra)
-        + "\n"
-        + testing
+        " nothing.\n\n" + _imports(testing, testing_extra) + "\n" + testing
     )
     return {STUB: _formatted(main, STUB), TESTING_STUB: _formatted(private, STUB)}
 

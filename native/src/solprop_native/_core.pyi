@@ -14,8 +14,8 @@ import numpy as np
 import numpy.typing as npt
 import solprop.backends.records
 
-# The private test module, bound as the submodule `_testing` (solprop SEP 52):
-# its stub is `_core_testing.pyi`; the extension has no `_core_testing`.
+# The private test module, bound as the submodule `_testing` (SEP 52): its
+# stub is `_core_testing.pyi`; the extension has no `_core_testing`.
 from solprop_native import _core_testing
 
 _testing = _core_testing
