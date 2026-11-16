@@ -59,6 +59,7 @@ from solprop.output.store import PlaneStore
 from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
+from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, RungeKutta
 from solprop.stepper.multistep import Multistep
 
@@ -295,8 +296,12 @@ def line_edge(
         SpatialMedium(1.0),
         [],
         _beam(1e-9, 60e-6, propz=-2.4e-2),
+        # Recorded without statistics, before the route took its default ones.
         settings=_spatial_settings(
-            backend, integrator, spatial_absorber=SpatialAbsorber(kappa=8e4)
+            backend,
+            integrator,
+            spatial_absorber=SpatialAbsorber(kappa=8e4),
+            stats=StatsSpec(names=()),
         ),
         noise=None,
     )
@@ -322,7 +327,10 @@ def planar(
         PlanarGrid(modes, 1e-3, 8),
         [KerrResponse(gamma3("Ar", wavelength=800e-9), thg=False)],
         pulse,
-        settings=_spatial_settings(backend, integrator, spatial_absorber=False),
+        # Recorded without statistics, before the route took its default ones.
+        settings=_spatial_settings(
+            backend, integrator, spatial_absorber=False, stats=StatsSpec(names=())
+        ),
     )
 
 

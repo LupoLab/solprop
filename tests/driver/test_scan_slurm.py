@@ -22,7 +22,7 @@ from solprop.driver.executors.pool import Pool
 from solprop.driver.executors.queue import Queue
 from solprop.driver.executors.slurm import Slurm
 from solprop.driver.scan import Scan, run_scan
-from solprop.exceptions import DriverError
+from solprop.exceptions import DriverError, ExecutorError
 from solprop.processing.scans import ScanOutput
 from solprop.scan import current_executor, main
 
@@ -295,7 +295,7 @@ def test_slurm_submission_failure_keeps_reviewable_script(tmp_path, monkeypatch,
     monkeypatch.setattr(subprocess, "run", refuse)
     policy = Slurm(tmp_path / "scan.py")
     destination = tmp_path / "job.sh"
-    with pytest.raises(DriverError, match="submission failed"):
+    with pytest.raises(ExecutorError, match="submission failed"):
         policy.submit(destination)
     assert destination.read_text() == policy.render()
     assert policy.job_id is None

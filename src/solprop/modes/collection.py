@@ -242,7 +242,8 @@ def transverse_measure(modes: Sequence[Mode]) -> TransverseMeasure:
 
     Examples
     --------
-    >>> from solprop.modes import MarcatiliMode, SlabMode, transverse_measure
+    >>> from solprop.modes import MarcatiliMode, SlabMode
+    >>> from solprop.modes.collection import transverse_measure
     >>> transverse_measure([MarcatiliMode(125e-6)])
     'area'
     >>> transverse_measure([SlabMode(50e-6)])
