@@ -14,6 +14,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 /*
@@ -116,6 +117,66 @@ struct State {
   /** The boundary monitor's state, which the march's checks carry (SEP 45 4.8). */
   watch::State watch;
 };
+
+// The field tables (solprop SEP 52 section 5.3): the policy as
+// `solprop.stepper.multistep.MarchPolicy`, the state as a run's start holds it.
+[[nodiscard]] constexpr auto describe(const Policy* /*unused*/) {
+  using P = Policy;
+  return fields::table<P>(
+      "MarchPolicy", fields::value("order", &P::order),
+      fields::value("variable_order", &P::variable_order),
+      fields::value("safety", &P::safety), fields::value("max_growth", &P::max_growth),
+      fields::value("min_factor", &P::min_factor),
+      fields::value("rejection_growth", &P::rejection_growth),
+      fields::value("hysteresis", &P::hysteresis),
+      fields::value("restart_after", &P::restart_after),
+      fields::value("collar_stability", &P::collar_stability),
+      fields::value("real_intervals", &P::real_intervals),
+      fields::value("collar_rate", &P::collar_rate),
+      fields::value("carrier", &P::carrier),
+      fields::value("carrier_cap", &P::carrier_cap),
+      fields::flagged("max_calls", &P::has_budget, &P::max_calls),
+      fields::value("equal_approach", &P::equal_approach),
+      fields::value("interval_cap", &P::interval_cap),
+      fields::value("dz_min", &P::dz_min), fields::value("dz_max", &P::dz_max),
+      fields::value("stretch", &P::stretch), fields::value("z_end", &P::z_end),
+      fields::value("save_planes", &P::save_planes),
+      fields::value("hard_kinks", &P::hard_kinks),
+      fields::value("breakpoints", &P::breakpoints),
+      fields::value("landing_ulps", &P::landing_ulps),
+      fields::value("interpolate", &P::interpolate),
+      fields::flagged("quiet_interval", &P::has_quiet_interval, &P::quiet_interval));
+}
+[[nodiscard]] constexpr auto names(const Identity* /*unused*/) {
+  return std::array{std::pair{"accepted", Identity::accepted},
+                    std::pair{"predicted", Identity::predicted}};
+}
+[[nodiscard]] constexpr auto describe(const Entry* /*unused*/) {
+  return fields::table<Entry>("march.Entry", fields::value("z", &Entry::z),
+                              fields::value("identity", &Entry::identity),
+                              fields::value("row", &Entry::row));
+}
+[[nodiscard]] constexpr auto describe(const Ledger* /*unused*/) {
+  using L = Ledger;
+  return fields::table<L>("march.Ledger", fields::value("startup", &L::startup),
+                          fields::value("predictor", &L::predictor),
+                          fields::value("rejected", &L::rejected),
+                          fields::value("accepted_steps", &L::accepted_steps),
+                          fields::value("rejected_steps", &L::rejected_steps),
+                          fields::value("restarts", &L::restarts),
+                          fields::value("failure_restarts", &L::failure_restarts),
+                          fields::value("dense_observations", &L::dense_observations));
+}
+[[nodiscard]] constexpr auto describe(const State* /*unused*/) {
+  using S = State;
+  return fields::table<S>(
+      "march.State", fields::value("z", &S::z), fields::value("proposal", &S::proposal),
+      fields::value("order", &S::order), fields::value("rejections", &S::rejections),
+      fields::value("last_rejected", &S::last_rejected),
+      fields::value("collar_was_quiet", &S::collar_was_quiet),
+      fields::value("cursor", &S::cursor), fields::value("history", &S::history),
+      fields::value("ledger", &S::ledger), fields::value("watch", &S::watch));
+}
 
 /** A replayed schedule's steps and their edges, one more than the steps (SEP 39 4.3).
  */

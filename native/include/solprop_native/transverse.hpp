@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include "solprop_native/fields.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -108,6 +110,33 @@ struct Config {
   double noise_modes = 1.0;
 };
 
+/** The configuration's field table: `solprop.backends.records.EdgeConfig` (solprop SEP
+    52 section 5.3). */
+[[nodiscard]] constexpr auto describe(const Config* /*unused*/) {
+  using C = Config;
+  using E = fields::Extent;
+  return fields::table<C>(
+      "EdgeConfig", fields::value("faces", &C::faces), fields::value("warn", &C::warn),
+      fields::value("stop", &C::stop), fields::value("length", &C::length),
+      fields::value("guard", &C::guard), fields::value("k_min", &C::k_min),
+      fields::value("k_floor", &C::k_floor), fields::value("reads", &C::reads),
+      fields::value("backstop_reads", &C::backstop_reads),
+      fields::value("reach_growth", &C::reach_growth),
+      fields::value("noise_factor", &C::noise_factor),
+      fields::array("columns", &C::columns, E::of("n_columns")),
+      fields::array("kappa", &C::kappa, E::of("n_kappa")),
+      fields::array("kappa_order", &C::kappa_order, E::of("n_kappa")),
+      fields::value("design", &C::design),
+      fields::array("ramp_rate", &C::ramp_rate, E::of("n_ramp")),
+      fields::value("collar", &C::collar),
+      fields::value("collar_rate", &C::collar_rate),
+      fields::value("declared", &C::declared),
+      fields::value("reads_edge", &C::reads_edge),
+      fields::value("longest_step", &C::longest_step),
+      fields::value("noise_share", &C::noise_share),
+      fields::value("noise_modes", &C::noise_modes));
+}
+
 /** What a backend reads of its state for the edge (`_EdgeReading`): numbers, never the
     field. Each part is present only when it was asked for. */
 struct Reading {
@@ -139,6 +168,14 @@ struct Noise {
       the launch's own. */
   std::optional<std::vector<double>> clean;
 };
+
+/** The noise readings' field table (solprop SEP 52 section 5.3). */
+[[nodiscard]] constexpr auto describe(const Noise* /*unused*/) {
+  return fields::table<Noise>(
+      "transverse.Noise", fields::value("columns", &Noise::columns),
+      fields::value("energy", &Noise::energy), fields::value("ramp", &Noise::ramp),
+      fields::value("strip", &Noise::strip), fields::value("clean", &Noise::clean));
+}
 
 /** The launch's ramp-band reading: the judged columns' total and their energy in the
     band (`_judge_ramp_band`). */
