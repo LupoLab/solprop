@@ -44,13 +44,8 @@ from solprop.backends.events import ObservationReady, Terminal
 from solprop.backends.export import ExportRecipe
 from solprop.backends.registry import select
 from solprop.exceptions import BackendError, SolpropError, TranslationError
-from solprop.stats import (
-    CATALOGUE,
-    PLASMA_INTEGRATION_STATISTICS,
-    StatsSpec,
-    _half_max_range,
-    _power,
-)
+from solprop.stats import CATALOGUE, PLASMA_INTEGRATION_STATISTICS, StatsSpec
+from solprop.stats.definitions import _half_max_range, _power
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.assembly import assemble
 

@@ -297,7 +297,7 @@ Six statistics are functionals of the physical same-frequency flux
 $\sum_{mn}\bar a_m W_{mn} a_n$ — its integral (`physical_energy`), its density in
 frequency (`spectral_flux`), its peak
 (`analytic_flux`), its two widths (`fwhm_t`, `fwhm_t_outer`) and the spectral centroid
-of its per-channel share (`omega0`) — and {py:data}`~solprop.stats.METRIC_WEIGHTED_STATISTICS`
+of its per-channel share (`omega0`) — and {py:data}`~solprop.stats.catalogue.METRIC_WEIGHTED_STATISTICS`
 names them. Each takes `metric=`, the basis's flux metric $W(\omega)$ of shape
 `(n_modes, n_modes, n_omega)`. **`metric=None` is the identity** and is the path an
 ordinary modal or spatial run takes, bit for bit the unweighted statistic.
@@ -324,7 +324,7 @@ column whose density sums to at most one machine epsilon of the largest column's
 basis at all. It is **withheld** beside a coupled flow — a declared basis of a split
 block, whose rotated channels carry only the block's mean propagation constant — and
 asked for by name there it is refused at the driver, the backend and the file
-({py:data}`~solprop.stats.WITHHELD_WITH_A_FLOW`,
+({py:data}`~solprop.stats.catalogue.WITHHELD_WITH_A_FLOW`,
 [general modal propagation](../waveguides/modal-bases.md#a-declared-basis-of-a-block-that-is-only-nearly-degenerate)).
 
 The run's own statistics get $W$ from the backend, which evaluates the
