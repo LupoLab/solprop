@@ -4,8 +4,11 @@
 
 """Resolve a route's built-in materials under a material selection (SEP 3).
 
-Also the policy checks a route applies to its selection: the carrier, and the
-electronic policy its responses can honour.
+``_selected_guide`` resolves a guide's default delayed silica response and
+``_default_cladding`` a numbered capillary set's cladding under the selection; the
+policy checks a route applies to it are the carrier (``_check_selection_carrier``) and
+the electronic policy its responses can honour (``_check_electronic_policy``,
+``_refuse_dispersive_policy``).
 """
 
 import dataclasses

@@ -6,20 +6,15 @@
 
 Not the solver, and not how a simulation is run: that is
 :func:`solprop.driver.interface.prop_gnlse` and
-:class:`solprop.driver.simulation.Simulation`. This is a second, independent integrator
-of the same physics, which is why it **stays** now that the driver has landed: it
-composes the nonlinear term from the physics layer and steps it with the classical
-interaction-picture RK4, sharing nothing with the reference backend's passes but the
-response itself, so agreement between the two checks the stage combination and the
-propagator factors rather than the physics they share
-(``tests/backends/test_numpy_ref_soliton.py``). It is plain NumPy, fixed step, envelope
-grid, mode-averaged, Kerr only, and allocates freely.
-
-The scheme is the classical fourth-order Runge-Kutta method in the interaction picture
-[1]_: the linear flow ``exp(D h)`` is applied exactly, which the diagonal operator
-allows (``docs/guide/numerics/linear-operator.md``), and only the nonlinear term is
-integrated
-numerically.
+:class:`solprop.driver.simulation.Simulation`. :func:`propagate_fixed_rk4` is a second,
+independent integrator of the same physics, the classical fourth-order Runge-Kutta
+method in the interaction picture [1]_, applying the linear flow ``exp(D h)`` exactly
+(``docs/guide/numerics/linear-operator.md``) and integrating only the nonlinear term,
+which :func:`gnlse_source` composes from the physics layer. It shares nothing with the
+reference backend's passes but the response, so agreement between the two checks the
+stage combination and the propagator factors
+(``tests/backends/test_numpy_ref_soliton.py``, ``docs/dev/testing.md``). Plain NumPy,
+fixed step, envelope grid, mode-averaged, Kerr only; it allocates freely.
 
 References
 ----------

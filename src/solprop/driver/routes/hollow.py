@@ -4,8 +4,18 @@
 
 """The hollow-guide route: capillaries and supplied gas-filled mode sets.
 
-The grid, modes, transverse quadrature, responses and statistics of a gas-filled hollow
-guide, the checks of its walls, gas flow and plasma settings, and the route itself.
+``_from_hollow`` builds a simulation of a pulse in a gas-filled hollow waveguide, for
+:meth:`~solprop.driver.simulation.Simulation.from_capillary` and for
+:meth:`~solprop.driver.simulation.Simulation.from_waveguide` given gas-filled modes,
+from its keywords (``_HollowRequest``). Around it: the grid (``_capillary_grid``), the
+mode set, built or supplied and rebound to the fill (``_capillary_modes``,
+``_given_gas_modes``, checked to :data:`ORTHONORMALITY_TOLERANCE`), the transverse
+quadrature (``_capillary_quadrature``, :func:`default_radial_order`), the responses
+(``_capillary_responses``, ``_default_raman``, ``_ionisation_rate``) and the statistics
+(``_capillary_stats``, with :data:`PLASMA_STATISTICS` and
+:data:`BACKEND_STATISTICS`); the checks of its walls, gas flow and plasma settings; and
+the ``tdse=`` capillary keywords (``_tdse_entry``, SEP 20). The manual page is
+``docs/guide/waveguides/capillaries.md``.
 """
 
 import dataclasses

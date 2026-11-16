@@ -4,25 +4,20 @@
 
 """The simulation object: physics objects in, a written, resumable run out.
 
-A :class:`Simulation` holds what a run is made of -- the grid, the modes, the responses,
-the input, the noise and the numerical settings -- translates it **once** into a
+A :class:`Simulation` holds what a run is made of (the grid, the modes, the responses,
+the input, the noise and the numerical settings), translates it **once** into a
 :class:`solprop.translate.problem.PropagationProblem`, and can then be run as often as
-one likes, into memory or into a file. It owns three things the loop of
+one likes, into memory or into a file. Its ``from_*`` constructors are the keyword
+routes (:mod:`solprop.driver.routes`); ``with_input`` and ``with_mixture`` derive a run
+from it, ``runner`` reuses its backend across inputs, and ``estimate`` and
+``calibrate`` cost and tune it. It owns three things the loop of
 :mod:`solprop.driver.run` does not: the translation and its cache, the
 :class:`solprop.output.metadata.RunMetadata` that says what produced a file, and the
-resume decision.
-
-**Resume.** Given a path, a run checks the file that is already there with
-:func:`solprop.output.hdf5.check_cache`: the digest covers the grid, the modes, the
-whole serialised configuration, the noise and the stepper settings, so a file written
-for a different run is refused by name rather than continued from someone else's
-state. If it passes, the last plane comes back through
-:func:`solprop.output.hdf5.resume`, the backend is loaded at that plane's position, and
-the run carries on into the same file with ``HDF5Output(path, append=True)``.
-
-Layer D of ``docs/dev/architecture.md`` section 3: this module imports the physics, the
-translation, the backends and the output layer, and nothing imports it. The manual page
-is ``docs/guide/setup/running.md``.
+resume decision (:mod:`solprop.driver.resume`), which refuses by name a file written
+for a different run and otherwise carries on into the same file. Layer D of
+``docs/dev/architecture.md`` section 3: it imports the physics, the translation, the
+backends and the output layer. The manual pages are ``docs/guide/setup/running.md``
+and ``docs/guide/results/resuming.md``.
 """
 
 import copy
