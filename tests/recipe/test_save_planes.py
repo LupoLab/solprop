@@ -23,7 +23,7 @@ from recipe.test_free_space import RADIAL
 from recipe.test_recipe import GNLSE
 from solprop.driver import Simulation
 from solprop.driver import settings as settings_module
-from solprop.exceptions import MaterialRangeWarning
+from solprop.exceptions import DriverError, MaterialRangeWarning
 from solprop.output.hdf5 import open_file
 from solprop.recipe import Recipe, RecipeError, provenance
 
@@ -77,6 +77,14 @@ def test_an_object_route_recipe_refuses_what_the_driver_refuses(selector, match,
     assert refused.value.parameter == path
     errors = [issue for issue in recipe.check() if issue.severity == "error"]
     assert [issue.parameter for issue in errors] == [path]
+
+
+def test_another_refusal_of_the_settings_keeps_its_own_type():
+    # Only the refusals SEP 51 states become the recipe's; any other stays the driver's.
+    recipe = radial(f"{LISTED}\nnode_budget = -1")
+    with pytest.raises(DriverError, match="node_budget must be a positive") as refused:
+        recipe.build()
+    assert not isinstance(refused.value, RecipeError)
 
 
 def test_a_keyword_route_recipe_refuses_an_integer_save_planes():

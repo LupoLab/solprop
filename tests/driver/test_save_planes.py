@@ -105,6 +105,16 @@ def test_a_malformed_selector_is_refused_by_name_with_its_fix(given, match):
     )
 
 
+@pytest.mark.parametrize(
+    ("selectors", "shown"),
+    [({"n_save": 5}, "5 planes"), ({}, f"{DEFAULT_N_SAVE} planes (default)")],
+    ids=["count", "default"],
+)
+def test_unadopted_settings_print_their_count(selectors, shown):
+    settings = SimulationSettings(dz_max=1e-3, dz_init=1e-4, **selectors)
+    assert settings._planes_text() == shown
+
+
 def test_both_selectors_name_how_to_carry_a_count():
     with pytest.raises(DriverError, match=r"dataclasses\.replace\(settings, n_save=N"):
         settings(save_planes=[], n_save=2)
