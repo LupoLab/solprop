@@ -576,7 +576,6 @@ class ChannelBasis(Displayed):
     --------
     >>> from solprop.modes.guide import circular_pair
     >>> from solprop.modes.protocol import ChannelLabel
-    from solprop.modes.quadrature import quadrature_rule
     >>> pair = (
     ...     ChannelLabel("HE", 1, 1, "even", None, "HE1,1:even"),
     ...     ChannelLabel("HE", 1, 1, "odd", None, "HE1,1:odd"),
@@ -835,7 +834,6 @@ def circular_pair(labels: Sequence[ChannelLabel], block: Sequence[int]) -> Chann
     >>> import numpy as np
     >>> from solprop.modes.guide import circular_pair
     >>> from solprop.modes.protocol import ChannelLabel
-    from solprop.modes.quadrature import quadrature_rule
     >>> pair = (
     ...     ChannelLabel("HE", 1, 1, "even", None, "HE1,1:even"),
     ...     ChannelLabel("HE", 1, 1, "odd", None, "HE1,1:odd"),
