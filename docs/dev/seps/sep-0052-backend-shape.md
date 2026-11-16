@@ -15,7 +15,7 @@
 | **Requires** | SEPs 25, 39, 45 and 47 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, through four stacked pull requests (D7): (1) phases 0–1, branch `feature/sep-0052-backend-shape-p1` ([#853](https://github.com/LupoLab/solprop/pull/853)); (2) phase 2 and phase 3's axis removal, `feature/sep-0052-backend-shape-p2` ([#854](https://github.com/LupoLab/solprop/pull/854)); (3) the rest of phase 3, `feature/sep-0052-backend-shape-p3` ([#858](https://github.com/LupoLab/solprop/pull/858)); (4) phases 4–5, `feature/sep-0052-backend-shape-p4`; started 2026-11-15 |
+| **Implementation** | Opus 5.5 (AI) for John Travers, through four stacked pull requests (D7): (1) phases 0–1, branch `feature/sep-0052-backend-shape-p1` ([#853](https://github.com/LupoLab/solprop/pull/853)); (2) phase 2 and phase 3's axis removal, `feature/sep-0052-backend-shape-p2` ([#854](https://github.com/LupoLab/solprop/pull/854)); (3) the rest of phase 3, `feature/sep-0052-backend-shape-p3` ([#858](https://github.com/LupoLab/solprop/pull/858)); (4) phases 4–5, `feature/sep-0052-backend-shape-p4` ([#859](https://github.com/LupoLab/solprop/pull/859)); started 2026-11-15 |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -1312,8 +1312,10 @@ the rows install) are covered only if CI's coverage lane says so.
 
 ### Milestone 4 (phases 4 and 5) — 2026-11-16
 
-Branch `feature/sep-0052-backend-shape-p4`, stacked on milestone 3, by Opus 5.5 (AI) for
-John Travers. Phase 4 was developed by AI agents in two steps on branches off milestone 2,
+Branch `feature/sep-0052-backend-shape-p4`
+([#859](https://github.com/LupoLab/solprop/pull/859)), stacked on milestone 3, by Opus 5.5
+(AI) for John Travers.
+Phase 4 was developed by AI agents in two steps on branches off milestone 2,
 the new seam beside the old one (4A) and the adapter moved onto it with the old seam
 deleted (4B); they were merged onto milestone 3, where the engine-level parity tests, the
 remaining cleanup and phase 5's documentation were done.
