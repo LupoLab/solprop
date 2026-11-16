@@ -9,6 +9,15 @@ This module imports solprop and runs only in the kernel process (it is imported 
 request's payload and returns plain data: numbers, strings, lists, dicts and NumPy
 arrays. None computes physics of its own; where solprop offers no call for a number,
 the number is not shown.
+
+:data:`HANDLERS` is the request table: the recipe's own requests here (the examples,
+:func:`describe`, :func:`check`, :func:`summarise`, :func:`design`,
+:func:`preview_input`, :func:`estimate`, :func:`to_python`), a results file's
+(:func:`check_resume`, :func:`describe_output`, :func:`recipe_of`, :func:`overview`),
+and the tables of :mod:`~solprop.service.design`, :mod:`~solprop.service.sheet`,
+:mod:`~solprop.service.waveguide`, :mod:`~solprop.service.results`,
+:mod:`~solprop.service.radial_pages`, :mod:`~solprop.service.postprocess` and
+:mod:`~solprop.service.figures`.
 """
 
 import contextlib

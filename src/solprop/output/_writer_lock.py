@@ -2,7 +2,15 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Keep exclusive writer ownership independently of an HDF5 handle's lifetime."""
+"""Exclusive writer ownership of a file, independent of an HDF5 handle's lifetime.
+
+:class:`WriterLock` holds a non-blocking advisory lock on the persistent sidecar
+``<file>.writer.lock``, raising :class:`WriterHeldError` when another writer owns it
+and refusing a file inside a published snapshot (:data:`SNAPSHOT_SCHEMA`). The HDF5
+handler, the TDSE archive and snapshot publication take it, and
+:mod:`solprop.output.resumable` probes it. Why the sidecar is never removed is in
+``docs/guide/results/output.md`` ("The writer-lock sidecar").
+"""
 
 import json
 import os

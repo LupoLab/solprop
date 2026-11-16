@@ -2,11 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Publish immutable, verified checkpoints while a propagation stays alive.
+"""Immutable, verified checkpoints published while a propagation stays alive.
 
-Only closed files are copied. The driver pauses at a committed accepted endpoint;
-the two writers retain their advisory locks and reopen in the same session. Cloud
-transport and retirement belong to the caller. See ``docs/guide/results/output.md``.
+- :class:`SnapshotController` requests bounded local snapshots (``snapshots=`` on a
+  run): at a committed accepted endpoint the driver pauses, the optical file and the
+  TDSE archive are closed, copied and checksummed, and the two writers reopen in the
+  same session, keeping their advisory locks. :class:`SnapshotResult` describes the
+  last attempt.
+- :func:`read_snapshot` verifies a published generation (:class:`SnapshotInfo`,
+  :class:`SnapshotFiles`) and :func:`restore_snapshot` restores it into a new writable
+  directory.
+
+Only closed files are copied; cloud transport and retirement belong to the caller. The
+manual page is ``docs/guide/results/output.md`` ("Periodic snapshots while computing").
 """
 
 import hashlib

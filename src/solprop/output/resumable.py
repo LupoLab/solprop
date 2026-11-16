@@ -4,17 +4,18 @@
 
 """Whether a results file can continue, rebuild itself, and pass the gate (SEP 41, S17).
 
-:func:`resumability` answers three questions about a file separately, so a front end
-can say which applies without trying a resume:
+:func:`resumability` returns a :class:`Resumability` answering three questions
+separately, so a front end can say which applies without trying a resume:
 
-- **Can it continue, and from where?** The position, and the ``resume=`` value it needs
-  (``True`` or ``"interpolated"``), or why not: no work left, no
-  checkpoint written before a failure, another output schema, or a writer still alive.
-- **Can it be rebuilt from itself?** Whether it records a recipe (SEP 41, S2), and
-  whether this solprop reads its format. A file without one can still continue, from
-  the script that wrote it.
+- **Can it continue, and from where?** The position and the ``resume=`` value it needs
+  (:data:`ResumeMode`), or why not: no work left, no checkpoint written before a
+  failure, another output schema, or a writer still alive.
+- **Can it be rebuilt from itself?** Whether it records a recipe (SEP 41, S2) that this
+  solprop reads. A file without one can still continue, from the script that wrote it.
 - **Does the gate pass?** Only on request, at the cost of a rebuild: whether the stored
   record and the one the recorded recipe rebuilds have one hash (ADR-066).
+
+The manual page is ``docs/guide/results/resuming.md`` ("What a file allows").
 """
 
 from dataclasses import dataclass

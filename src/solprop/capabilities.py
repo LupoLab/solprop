@@ -4,29 +4,24 @@
 
 """What solprop can do: for a route, a species and a results file (SEP 41, S8, S16).
 
-A front end asks :func:`route` what a route takes: its keywords, the values of each
-enumerated one, and the **combination rules** its builder enforces, each with an id and
-a reason. Every refusal that enforces a rule raises with that id as its ``rule`` and the
-keywords as its ``parameter`` (:class:`~solprop.exceptions.SolpropError`), and a test
-holds the raise sites to :data:`RULES`. A refusal that depends on a value (grid
-coverage, a node budget, a material's validity range) is not a rule:
-:meth:`~solprop.recipe.core.Recipe.check` finds it.
+- :func:`route` returns a :class:`RouteCapabilities`: a route's keywords, the values of
+  each enumerated one, and the combination rules (:class:`Rule`, all in :data:`RULES`)
+  its builder enforces. A refusal that enforces a rule raises with its id as ``rule``,
+  and a test holds the raise sites to :data:`RULES`; a refusal that depends on a value
+  is not a rule, and :meth:`~solprop.recipe.core.Recipe.check` finds it.
+- :func:`species` returns a :class:`SpeciesCapabilities`: a built-in gas's ionisation
+  models (:class:`IonisationModel`) and Raman response with optmat's status of each,
+  and the ranges optmat records for it.
+- :func:`output` returns an :class:`OutputCapabilities`: a results file's basis, what
+  each derived quantity is (:class:`Quantity`, :data:`QuantityKind`), which planes keep
+  their field, which :data:`OPERATIONS` its readers admit or refuse, the readers that
+  refuse a spatial file (``refused_readers``), and whether it records a recipe and can
+  continue. Its refusals are read from the gates of :mod:`solprop.output.capability`
+  the readers raise from, so the statement and the refusal cannot drift.
 
-It asks :func:`species` what a built-in gas brings: its ionisation models and Raman
-response with optmat's status of each, and the ranges optmat records for it.
-
-A front end that opens a results file asks :func:`output` what it may offer: the
-file's basis, and for each derived quantity whether it is a **physical flux** or a
-**coordinate quantity**; which planes keep their field; which operations a reader
-admits and which it refuses, with the refusal the reader itself gives; and whether
-the file records a recipe and can continue. The refusals come from the same gates the
-readers raise from (:func:`solprop.output.capability.refusal_for`,
-:func:`~solprop.output.capability.reading_refusal` and
-:func:`~solprop.output.capability.compression_refusal`), so the statement and the
-refusal cannot drift. An operation is a statistic or an accessor
-of the run; the processing and plotting readers that would read a spatial file's
-columns as modes are stated apart, in ``refused_readers``, because ``energy`` the
-statistic is a physical flux there and ``energy`` the reader is refused.
+The manual sections are "What a route and a species admit" in
+``docs/guide/setup/recipes.md`` and "What a file can give" in
+``docs/guide/results/output.md``.
 """
 
 import functools

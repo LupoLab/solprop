@@ -4,33 +4,21 @@
 
 """A run's record in its folder: what a run says about itself (design 13.4).
 
-A run with a record writes, beside ``recipe.toml``, ``run.h5`` and ``run.log``:
+Beside ``recipe.toml``, ``run.h5`` and ``run.log`` a run writes ``job.json`` (how it
+was started: :class:`Job`, :func:`write_job`, :func:`read_job`), ``events.bin`` (every
+event it streams, appended as frames by :class:`EventLog` and read back by
+:func:`read_events`) and ``status.json`` (a small summary, :func:`read_status`), and it
+watches a ``stop`` file (:func:`request_stop`, :func:`stop_requested`,
+:func:`watch_stop`, :func:`clear_stop`). So a run needs no connection: whoever can read
+its folder can follow it, whoever can write there can stop it, and its state is read
+from these files, never kept by a daemon. :func:`set_aside` keeps a continued run's
+earlier record apart, :func:`write_json` replaces a file whole, and :func:`alive` says
+whether a run's process still lives.
 
-``job.json``
-    How it was started: where, as which process or Slurm job, when, with which
-    solprop. Written when it starts and again when it ends.
-``events.bin``
-    Every event it streams (its rows, progress, log, a scan's points and its ending),
-    appended as frames (:mod:`solprop.service.frames`). Progress is kept at most every
-    :data:`RECORD_PROGRESS_PERIOD` seconds; rows and endings are never dropped.
-``status.json``
-    A small summary, rewritten as the run goes and at least every
-    :data:`HEARTBEAT` seconds while it lives: the last progress, the scan's count,
-    and the ending.
-
-and reads ``stop``, a file whose appearance asks it to stop as the window's Stop
-does. So a run needs no connection to anything: whoever can read its folder can follow
-it, and whoever can write there can stop it. Its state is read from these files
-(:func:`summary`), never kept by a daemon.
-
-The ending is recorded last. The terminal event is appended to ``events.bin``, which
-is then closed; ``job.json`` gets its end; and only then does ``status.json`` say the
-ending, after which the run writes nothing more to its record. So whoever reads an
-ending in the summary finds the record complete and let go, and may act on it at once:
-list the run as ended, relay its ending, or set the record aside to continue the run
-(Windows refuses to rename a file another process holds open). The terminal event can
-be read from ``events.bin`` a moment before the summary says it; a reader acting on
-the run's end waits for the summary.
+**The ending is recorded last**: the terminal event, then ``job.json``'s end, and only
+then ``status.json``, after which the run writes nothing more, so a reader acting on a
+run's end goes by the summary. The files, the periods and the ending's order are in
+``docs/dev/gui/design.md`` (13.4, "The record").
 """
 
 from __future__ import annotations

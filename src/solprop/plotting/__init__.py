@@ -4,18 +4,21 @@
 
 """Standard plots of propagation results with matplotlib.
 
-The standard figures, drawn from whatever :mod:`solprop.processing` reads out of a saved
-run: the false-colour propagation maps, the time- and spectral-domain slices, the energy
-along the fibre, the statistics panels and the spectrogram. Every function takes an
-:class:`~solprop.output.store.Output`, returns figures and never calls
-:func:`~matplotlib.pyplot.show`, so a script decides for itself whether to save or to
-display. The manual page is ``docs/guide/results/plotting.md``. The cross-section of a
-guide or a free-space grid, drawn from the guide rather than from a run, is in
-:mod:`solprop.plotting.geometry`.
+Every figure is drawn from what :mod:`solprop.processing` reads out of a saved run,
+takes an :class:`~solprop.output.store.Output`, returns figures and never calls
+:func:`~matplotlib.pyplot.show`, so a script decides whether to save or display. The
+package re-exports the public names of:
 
-Display units are fixed across the package: z in centimetres,
-time in femtoseconds, wavelength in nanometres, frequency in petahertz, angular
-frequency in radians per femtosecond, energy in microjoules, power auto-scaled.
+- :mod:`~solprop.plotting.propagation` (the propagation maps, the time and spectral
+  slices and the energy along the guide), :mod:`~solprop.plotting.statistics` (the
+  statistics panels) and :mod:`~solprop.plotting.spectrograms`;
+- :mod:`~solprop.plotting.style` (colours, grids, annotations and the fixed display
+  units: z in cm, time in fs, wavelength in nm, frequency in PHz, angular frequency in
+  rad/fs, energy in µJ, power auto-scaled).
+
+The cross-section of a guide or a free-space grid, drawn from the guide rather than from
+a run, is in :mod:`solprop.plotting.geometry`. The manual page is
+``docs/guide/results/plotting.md``.
 """
 
 from solprop.plotting.propagation import (

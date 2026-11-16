@@ -4,12 +4,16 @@
 
 """The one save protocol both output handlers implement, and the field retention.
 
-:class:`Output` is the protocol :class:`solprop.output.memory.MemoryOutput` and
-:class:`solprop.output.hdf5.HDF5Output` both implement, so processing reads either
-through the same accessors; :class:`PlaneStore` is the base class both are built on,
-and :class:`FieldRetention` says which planes keep their field. A handler converts each
-plane's field to the optics convention on the way to storage
-(``docs/dev/conventions.md`` §2; this module and the handlers are boundary place 2).
+- :class:`Output` is what every handler does and all that processing may assume of one;
+  :class:`CheckpointOutput` and :class:`RetainingOutput` declare the optional outcome
+  and checkpoint persistence and the acceptance of field-free planes.
+- :class:`PlaneStore` is the shared half of :class:`solprop.output.memory.MemoryOutput`
+  and :class:`solprop.output.hdf5.HDF5Output`, with :class:`PlaneLayout` the shape every
+  plane of a run shares; :func:`stored_spectrum` converts a large field to the optics
+  convention on the way to storage (``docs/dev/conventions.md`` §2; this module and the
+  handlers are boundary place 2).
+- :class:`FieldRetention`, :data:`FieldsChoice` and :func:`field_retention_refusal` say
+  which saved planes keep their field (SEP 22).
 
 The manual page is ``docs/guide/results/output.md``.
 """
