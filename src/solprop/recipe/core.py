@@ -21,10 +21,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, cast
 
+import h5py
 import numpy as np
 
 from solprop.exceptions import DriverError, SolpropError, SolpropWarning
+from solprop.grid import EnvelopeGrid
+from solprop.output.hdf5 import open_file
 from solprop.output.records import RecipeRecord
+from solprop.recipe import export, preview, provenance
 from solprop.recipe.document import (
     FORMAT,
     NONE,
@@ -46,6 +50,15 @@ from solprop.recipe.metadata import (
     surface,
 )
 from solprop.recipe.paths import format_path, get_path, parse_path, set_path
+from solprop.recipe.pins import (
+    PULSE_PINS,
+    Pin,
+    design_target,
+    placeholder,
+    read_pins,
+    solve_pin,
+    solve_pulse,
+)
 from solprop.recipe.quantity import Unit, format_quantity, parse_quantity
 from solprop.recipe.registry import (
     REGISTRY,
@@ -64,7 +77,6 @@ if TYPE_CHECKING:
     from solprop.grid import TimeGrid
     from solprop.log import ProgressChoice, ProgressReporter, StopFlag
     from solprop.output.store import Output
-    from solprop.recipe.pins import Pin
     from solprop.recipe.preview import InputPreview, ModeSetPreview
     from solprop.tools import DesignRoots
 
@@ -381,9 +393,6 @@ class Recipe:
             If the file records no recipe, being a file from a script, or its recipe
             is of a newer format.
         """
-        import h5py  # noqa: PLC0415 - only to tell a scan file from a run's
-
-        from solprop.output.hdf5 import open_file  # noqa: PLC0415 - layer above
         from solprop.processing.scans import ScanOutput  # noqa: PLC0415 - layer above
 
         with h5py.File(path, "r") as file:
@@ -764,8 +773,6 @@ class Recipe:
         >>> f"{pinned.resolve().get('energy') * 1e6:.1f} uJ"
         '126.1 uJ'
         """
-        from solprop.recipe.pins import read_pins  # noqa: PLC0415 - cycle
-
         self._require_keywords()
         pins = read_pins(self)
         working = self._copy(("pins",))
@@ -774,7 +781,7 @@ class Recipe:
                 working._document["build"] = set_path(
                     working._document["build"],
                     parse_path(pin.path),
-                    _placeholder(pin.path),
+                    placeholder(pin.path),
                 )
         for pin in pins:
             value = _pick(pin, working._solve(pin))
@@ -806,8 +813,6 @@ class Recipe:
             If the path is not pinned, a pin does not read, or a required keyword is
             missing.
         """
-        from solprop.recipe.pins import read_pins  # noqa: PLC0415 - cycle
-
         self._require_keywords()
         pins = read_pins(self)
         steps = format_path(parse_path(path))
@@ -821,7 +826,7 @@ class Recipe:
                 working._document["build"] = set_path(
                     working._document["build"],
                     parse_path(pin.path),
-                    _placeholder(pin.path),
+                    placeholder(pin.path),
                 )
         if chosen.stage == "pulse":
             for pin in pins:
@@ -860,9 +865,7 @@ class Recipe:
         >>> [mode.label for mode in preview.modes]
         ['HE1,1:even', 'HE1,2:even']
         """
-        from solprop.recipe.preview import modes  # noqa: PLC0415 - layer D
-
-        return modes(self, z)
+        return preview.modes(self, z)
 
     def preview_input(self) -> "InputPreview":
         """Return the input pulse on the run's grid, as launched, without noise (S18).
@@ -882,9 +885,7 @@ class Recipe:
         >>> f"{preview.energy * 1e6:.1f} uJ"
         '275.0 uJ'
         """
-        from solprop.recipe.preview import preview_input  # noqa: PLC0415 - layer D
-
-        return preview_input(self)
+        return preview.preview_input(self)
 
     def _copy(self, drop: tuple[str, ...]) -> "Recipe":
         """Return a copy without some top-level tables, its data files kept."""
@@ -898,12 +899,6 @@ class Recipe:
 
     def _solve(self, pin: "Pin") -> "DesignRoots":
         """Solve one pin on this (unpinned) recipe's keywords."""
-        from solprop.recipe.pins import (  # noqa: PLC0415 - cycle
-            design_target,
-            solve_pin,
-            solve_pulse,
-        )
-
         keywords = self.keywords()
         if any(_needs_grid(value) for value in self._document["build"].values()):
             probe = self._copy(())
@@ -951,9 +946,7 @@ class Recipe:
             The authored and resolved texts, and the data files
             (:mod:`solprop.recipe.provenance`).
         """
-        from solprop.recipe.provenance import record  # noqa: PLC0415 - cycle
-
-        return record(
+        return provenance.record(
             self, simulation, base=self._base, allow_outside=self._allow_outside
         )
 
@@ -1031,7 +1024,7 @@ class Recipe:
         >>> scan.scan.shape, scan.scan.variables["peak_power"].tolist()
         ((2,), [5.0, 10.0])
         """
-        from solprop.driver.scan import Scan  # noqa: PLC0415 - layer D
+        from solprop.driver.scan import Scan  # noqa: PLC0415 - heavy: the executors
 
         table = dict(self._document.get("scan", {}))
         if not table:
@@ -1193,15 +1186,11 @@ class Recipe:
         str
             The script.
         """
-        from solprop.recipe.export import script  # noqa: PLC0415 - only here
-
-        return script(self, output)
+        return export.script(self, output)
 
 
 def _deferred(context: BuildContext) -> BuildContext:
     """Return a context for checking values built on the grid before it exists."""
-    from solprop.grid import EnvelopeGrid  # noqa: PLC0415 - only for the stand-in
-
     grid = EnvelopeGrid.from_limits(1.0, 800e-9, (400e-9, 2e-6), 200e-15)
     return dataclasses.replace(context, grid=grid, stand_in=True)
 
@@ -1296,25 +1285,16 @@ def _with_pulse_placeholders(document: Document) -> dict[str, object]:
 
     - Returns: the ``[build]`` table, unchanged where no pulse pin is unset.
     """
-    from solprop.recipe.pins import PULSE_PINS  # noqa: PLC0415 - cycle
-
     build = document["build"]
     for path in document.get("pins", {}):
         steps = parse_path(path)
         name = format_path(steps[-1:]).lstrip(".")
         if len(steps) > 1 and name in PULSE_PINS:
             try:
-                build = set_path(build, steps, _placeholder(path))
+                build = set_path(build, steps, placeholder(path))
             except RecipeError:
                 continue  # the pin's own check names what is wrong with it
     return build
-
-
-def _placeholder(path: str) -> float:
-    """Return the value a pulse pin stands at while the guide is solved."""
-    from solprop.recipe.pins import placeholder  # noqa: PLC0415 - cycle
-
-    return placeholder(path)
 
 
 def _pick(pin: "Pin", roots: "DesignRoots") -> float:

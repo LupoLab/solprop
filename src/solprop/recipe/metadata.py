@@ -22,18 +22,17 @@ import inspect
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final, Literal
+from typing import Final, Literal
 
 from solprop.driver.defaults import (
     default_scheme,
     describe_default,
     route_row,
 )
+from solprop.driver.settings import SimulationSettings
+from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError
 from solprop.modes.slab import SlabMode
-
-if TYPE_CHECKING:
-    from solprop.driver.simulation import Simulation
 
 __all__ = [
     "OBJECT_ROUTES",
@@ -1461,8 +1460,6 @@ def surface(route: str) -> "Callable[..., Simulation]":
     >>> surface("gnlse").__name__
     'from_gnlse'
     """
-    from solprop.driver.simulation import Simulation  # noqa: PLC0415 - layer D
-
     builders = {
         "gnlse": Simulation.from_gnlse,
         "capillary": Simulation.from_capillary,
@@ -3141,10 +3138,6 @@ def parameters(route: str) -> Mapping[str, Parameter]:
     if route in _TYPES:
         return _type_parameters(route, _TYPES[route])
     if route == "execution":
-        from solprop.driver.settings import (  # noqa: PLC0415 - layer D
-            SimulationSettings,
-        )
-
         fields = {field.name: field for field in dataclasses.fields(SimulationSettings)}
         out = {}
         for entry in _EXECUTION:

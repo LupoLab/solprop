@@ -30,6 +30,7 @@ from solprop.output.hdf5 import ResumeState, _file_path, resume
 from solprop.output.metadata import SCHEMA_VERSION
 from solprop.output.serialisation import deserialise
 from solprop.output.store import Output
+from solprop.recipe.document import FORMAT
 
 __all__ = ["Resumability", "ResumeMode", "resumability"]
 
@@ -160,8 +161,6 @@ def resumability(path: str | Path | Output, *, gate: bool = False) -> Resumabili
     OutputError
         If the file cannot be read as HDF5, or `path` is an output handler.
     """
-    from solprop.recipe.document import FORMAT  # noqa: PLC0415 - the layer above
-
     path = _file_path(path, "resumability")
     try:
         schema = _schema(path)
@@ -203,7 +202,8 @@ def resumability(path: str | Path | Output, *, gate: bool = False) -> Resumabili
     differences = None
     gate_error = None
     if gate and recipe == "stored":
-        from solprop.recipe import Recipe  # noqa: PLC0415 - the layer above
+        # recipe.core imports solprop.output, whose package imports this module.
+        from solprop.recipe import Recipe  # noqa: PLC0415 - cycle
 
         try:
             rebuilt = Recipe.from_output(path, resolved=True).build().metadata()

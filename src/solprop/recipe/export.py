@@ -15,7 +15,9 @@ from typing import TYPE_CHECKING, Final
 
 from solprop.recipe.document import NONE
 from solprop.recipe.errors import RecipeError
-from solprop.recipe.metadata import surface
+from solprop.recipe.metadata import parameters, surface
+from solprop.recipe.paths import parse_path, set_path
+from solprop.recipe.pins import read_pins
 from solprop.recipe.registry import (
     REGISTRY,
     BuildContext,
@@ -141,8 +143,6 @@ def script(
     str
         The script.
     """
-    from solprop.recipe.metadata import parameters  # noqa: PLC0415 - cycle
-
     writer = _Writer(recipe)
     table = parameters(recipe.route)
     document = recipe.to_dict()
@@ -239,8 +239,6 @@ def _pins(
     value it solves to now, with the pin in a comment: the pulse object cannot be
     built without its energy.
     """
-    from solprop.recipe.pins import read_pins  # noqa: PLC0415 - cycle
-
     pins = read_pins(recipe)
     lines: list[str] = []
     keywords: list[str] = []
@@ -292,8 +290,6 @@ def _array_pins(
     - ``build``: its ``[build]`` table.
     - Returns: the table, unchanged when no such pin exists.
     """
-    from solprop.recipe.paths import parse_path, set_path  # noqa: PLC0415 - cycle
-
     paths = [path for path in recipe.to_dict().get("pins", {}) if "[" in path]
     if not paths:
         return build
