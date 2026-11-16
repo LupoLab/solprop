@@ -6,7 +6,7 @@
 | **Title** | One backend shape and a small native seam |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-15; revised after review, 2026-11-15) |
-| **Status** | In progress |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
@@ -15,8 +15,8 @@
 | **Requires** | SEPs 25, 39, 45 and 47 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, through four stacked pull requests (D7): (1) phases 0–1, branch `feature/sep-0052-backend-shape-p1` ([#853](https://github.com/LupoLab/solprop/pull/853)); (2) phase 2 and phase 3's axis removal, `feature/sep-0052-backend-shape-p2` ([#854](https://github.com/LupoLab/solprop/pull/854)); (3) the rest of phase 3, `feature/sep-0052-backend-shape-p3` ([#858](https://github.com/LupoLab/solprop/pull/858)); (4) phases 4–5, `feature/sep-0052-backend-shape-p4` ([#859](https://github.com/LupoLab/solprop/pull/859)); started 2026-11-15 |
-| **Manual pages** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers, through four stacked pull requests (D7): (1) phases 0–1, branch `feature/sep-0052-backend-shape-p1` ([#853](https://github.com/LupoLab/solprop/pull/853)); (2) phase 2 and phase 3's axis removal, `feature/sep-0052-backend-shape-p2` ([#854](https://github.com/LupoLab/solprop/pull/854)); (3) the rest of phase 3, `feature/sep-0052-backend-shape-p3` ([#858](https://github.com/LupoLab/solprop/pull/858)); (4) phases 4–5, `feature/sep-0052-backend-shape-p4` ([#859](https://github.com/LupoLab/solprop/pull/859)); started 2026-11-15, complete 2026-11-16; the device builds compiled, not run (D5) |
+| **Manual pages** | [Parameter scans](../../../guide/workflows/scans.md); developer pages [Backends](../../backends.md), [Testing](../../testing.md), [Running the benchmarks](../../benchmarking.md) and [ADR-079](../../decisions.md); `native/README.md` (the binding rules) |
 
 ## Part I — Proposal
 
@@ -212,13 +212,13 @@ the only reason for the **leading axis of one**, which the trajectory's arrays s
 
 The design pages:
 
-- [backends.md](../backends.md) §1, the seam and the table of marches;
-- [architecture.md](../architecture.md) §9;
-- [kernel-contract.md](../kernel-contract.md) §3, the value tables; §8, the
+- [backends.md](../../backends.md) §1, the seam and the table of marches;
+- [architecture.md](../../architecture.md) §9;
+- [kernel-contract.md](../../kernel-contract.md) §3, the value tables; §8, the
   periodic-statistics hooks; and §§11–12, the compiled marches;
-- [conventions.md](../conventions.md) §6, the axis names;
-- [scans.md](../scans.md) and the user guide's
-  [scans](../../guide/workflows/scans.md) page, for `Batch`;
+- [conventions.md](../../conventions.md) §6, the axis names;
+- [scans.md](../../scans.md) and the user guide's
+  [scans](../../../guide/workflows/scans.md) page, for `Batch`;
 - the native package's `native/README.md`.
 
 **Prior proposals and decisions:**
@@ -292,7 +292,7 @@ in point. They are reductions of the field after the accepted step's first band 
 - the occupancies are judged on $P\,e^{-\alpha h/2}$;
 
 where $P$ is the power in each bin before the split, $\alpha$ the collar's rate and $h$ the
-step (`BoundaryMonitor.split_sums`; [backends.md](../backends.md) §1). Evaluating them on
+step (`BoundaryMonitor.split_sums`; [backends.md](../../backends.md) §1). Evaluating them on
 the damped, re-masked field changes the removal. Reconstructing the earlier field from it
 amplifies mask residue into fictitious loss, which
 `tests/test_monitor.py::test_a_deep_collar_reads_no_removal_from_residue` guards against.
@@ -551,7 +551,7 @@ A trajectory's arrays have no leading axis of one anywhere:
 Changing the snapshot's layout on disk is an output-schema change. It is made with the next
 release's one schema change, and a snapshot written before it is refused by name, not
 squeezed. As §3 notes, that release cannot resume 0.2.0's files in any case.
-[conventions.md](../conventions.md) §6 drops `n_batch`.
+[conventions.md](../../conventions.md) §6 drops `n_batch`.
 
 #### 5.5 The timing probe
 
@@ -834,23 +834,23 @@ before any reduction is claimed.
 
 **User manual:**
 
-- The [scans](../../guide/workflows/scans.md) page loses its fixed-schedule batch section.
+- The [scans](../../../guide/workflows/scans.md) page loses its fixed-schedule batch section.
 - The API, model-selection, interactive, progress and waveguide pages that mention `Batch`
   are updated.
 - A `Removed` changelog entry names the replacement executors.
 
 **Developer pages:**
 
-- [backends.md](../backends.md) §1, §3 and the table of marches: one shape, two
+- [backends.md](../../backends.md) §1, §3 and the table of marches: one shape, two
   implementations, and no groups.
-- [architecture.md](../architecture.md) §9.
-- [kernel-contract.md](../kernel-contract.md) §3, the value tables' axes; §8; and §§11–12,
+- [architecture.md](../../architecture.md) §9.
+- [kernel-contract.md](../../kernel-contract.md) §3, the value tables' axes; §8; and §§11–12,
   for the hooks and names.
-- [conventions.md](../conventions.md) §6, which drops `n_batch`.
-- [scans.md](../scans.md) and [benchmarking.md](../benchmarking.md).
+- [conventions.md](../../conventions.md) §6, which drops `n_batch`.
+- [scans.md](../../scans.md) and [benchmarking.md](../../benchmarking.md).
 - `native/README.md`: the binding's rules, namely records by field table, bindings that only
   marshal, `_testing` that promises nothing, and generated stubs.
-- [testing.md](../testing.md): the engine-level parity pattern and the scripted engines.
+- [testing.md](../../testing.md): the engine-level parity pattern and the scripted engines.
 
 An ADR records the shared shape, the removal of groups and the native seam's rules.
 
@@ -1542,6 +1542,10 @@ finds them), then run `tests/test_seps.py` and `poe docs`.
 - 2026-11-16: Milestone 1 (phases 0–1) reported in Part II.
 - 2026-11-16: Milestone 2 (phase 2 and the axis removal) reported in Part II.
 - 2026-11-16: Milestone 3 (the reference restructured, `HostDriver` deleted) reported in Part II.
+- 2026-11-16: Milestone 4 (the native seam, phase 5's documentation) reported in Part II.
+- 2026-11-16: All four pull requests merged. Final: ADR-079 accepted, the SEP archived, and
+  the issues its milestone 4 report lists updated: #618, #171, #828 and #344 closed as
+  fixed or moot, #107 closed, #110 narrowed, #356 annotated.
 
 ### AI review — 2026-11-15
 
@@ -1608,7 +1612,7 @@ implementation was tested.
 
 3. **R3 — Medium: use the current seam-change process (§§6.1, 9, 11).**
    `KERNEL_SCHEMA_VERSION` no longer exists. ADR-068 and
-   [kernel-contract.md](../kernel-contract.md) explicitly removed the counter and
+   [kernel-contract.md](../../kernel-contract.md) explicitly removed the counter and
    require the affected frozen surface tests and a release-note fragment to change
    with the seam. The proposed bump cannot be performed as written. The
    [automated review](https://github.com/LupoLab/solprop/pull/850#discussion_r4580456601)
@@ -1712,7 +1716,7 @@ implementation was tested.
    concrete scope and phases mainly remove `max_batch` and the fused reference
    group. Those are different changes. `NumpyRefBackend`, its pass functions and
    native's load/readback adapters currently use a private leading axis of one;
-   [conventions.md §6](../conventions.md#6-array-layout-and-axis-names) permits that.
+   [conventions.md §6](../../conventions.md#6-array-layout-and-axis-names) permits that.
    SEP 47 §6.7 separately requires the leading axis in existing `MarchSnapshot`
    payloads to remain readable.
 
