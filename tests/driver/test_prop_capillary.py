@@ -17,6 +17,7 @@ nothing about the run.
 """
 
 import functools
+import inspect
 import json
 import logging
 import math
@@ -3763,8 +3764,10 @@ def test_a_fill_warning_raised_through_another_solprop_module_names_the_caller()
         str(package / "recipe" / "caller.py"),
         "exec",
     )
+    # The session's jaxtyping hook wraps every solprop function in a frame of its own,
+    # outside the package, where the walk would stop; a user's session has none.
     namespace = {
-        "_warn_boreless_gradient": _warn_boreless_gradient,
+        "_warn_boreless_gradient": inspect.unwrap(_warn_boreless_gradient),
         "mixture": boreless,
         "radius": FLOW_TAPER,
     }
