@@ -307,10 +307,10 @@ def export_weight(
 class ObservedField:
     """One committed field per ticket, shared by every export of it (SEP 47 5.4).
 
-    A session observes its driver's field once per state generation, when a consumer
+    A session observes its committed field once per state generation, when a consumer
     first asks for it; every export of that ticket reads the same observation. An
-    observation's arrays are read-only and nothing writes to them again
-    (:meth:`solprop.backends.protocol.HostStepping.observe`), so an export with nothing
+    observation's arrays are read-only and nothing writes to them again (the next step
+    replaces the state rather than writing into it), so an export with nothing
     to convert is that array on a spatial grid, and every other export a new array (or
     the caller's destination). Attempts a field fetch drains are kept for the next
     event's chunk.
@@ -320,13 +320,13 @@ class ObservedField:
     problem : solprop.translate.problem.PropagationProblem
         The run's problem, for the true-power conversion.
     drain : callable
-        ``drain(field=True)`` observes the driver, draining its attempts.
+        ``drain(field=True)`` observes the committed state, draining the attempts.
     """
 
     def __init__(
         self, problem: PropagationProblem, drain: Callable[..., Observation]
     ) -> None:
-        """Hold the problem and the driver's drain; nothing is observed yet."""
+        """Hold the problem and the session's drain; nothing is observed yet."""
         self._problem = problem
         self._drain = drain
         self._observed: Observation | None = None

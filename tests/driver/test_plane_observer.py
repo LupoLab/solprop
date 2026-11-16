@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
-from solprop.backends.host.driver import HostDriver
+from solprop.backends.host.session import HostSession
 from solprop.backends.registry import available
 from solprop.exceptions import DriverError, SolpropWarning
 from solprop.grid import EnvelopeGrid
@@ -159,14 +159,14 @@ def test_a_stop_after_a_fetched_plane_checkpoints_the_field_fetched_once(
     """The observer and the failure checkpoint share one fetch (SEP 47 section 5.4)."""
     fetched = []
 
-    # The reference's driver observes; the native backend's session exports.
-    def counted(self, *, field=True, observe=HostDriver.observe):
+    # The reference's session observes its state; the native session exports.
+    def counted(self, *, field, observe=HostSession._observe):
         observation = observe(self, field=field)
         if field:
             fetched.append(observation.z)
         return observation
 
-    monkeypatch.setattr(HostDriver, "observe", counted)
+    monkeypatch.setattr(HostSession, "_observe", counted)
     if backend == "native":
         # The native session fetches from its resident state: a fetch is a native
         # export, which the session counts.

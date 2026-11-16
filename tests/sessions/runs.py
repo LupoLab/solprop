@@ -654,7 +654,7 @@ def adams_ledger(backend: Any, record: Mapping[str, object]) -> CallLedger:
         The ledger.
     """
     if backend.name == "numpy_ref":
-        return backend._adams.ledger
+        return backend.march.ledger
     return CallLedger.from_record(
         cast("Mapping[str, object]", record["response_calls"])
     )

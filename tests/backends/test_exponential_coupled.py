@@ -197,7 +197,7 @@ def run(name, integrator, rtol, backend_class=NumpyRefBackend, **overrides):
         field = session_run(backend, problem, record=record).fields[-1]
         adams = isinstance(integrator, Multistep)
         return field, SimpleNamespace(
-            march=backend._adams if backend.name == "numpy_ref" else None,
+            march=backend.march if backend.name == "numpy_ref" else None,
             ledger=adams_ledger(backend, record) if adams else None,
         )
     finally:

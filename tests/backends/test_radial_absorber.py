@@ -25,6 +25,7 @@ from backends.radial_absorber_cases import (
     problem_for,
     radial_absorber_case,
 )
+from builders import load_reference
 from sessions.runs import native_trial, run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.spatial import collar_field_fraction
@@ -115,7 +116,7 @@ def test_spatial_absorber_derivative_matches_independent_bessel_operator(
     backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
         if isinstance(backend, NumpyRefBackend):
-            backend.set_initial(problem.initial.field0, None)
+            load_reference(backend)
             backend.workspace.hoist(0.0)
             measured = backend.workspace.nonlinear(
                 problem.initial.field0,

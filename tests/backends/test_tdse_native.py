@@ -322,7 +322,7 @@ def _reference_startup(case, monkeypatch):
 
     def recording_start(self, z):
         start(self, z)
-        seen.setdefault("row", np.array(self.value(0)).reshape(-1))
+        seen.setdefault("row", np.array(self._store[0]).reshape(-1))
         seen.setdefault("history", self)
 
     with monkeypatch.context() as patch:

@@ -38,6 +38,8 @@ import numpy as np
 import pytest
 
 from modal_provider_cases import GENERAL_CHI3, general_guide
+from sessions.runs import bare
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import C
 from solprop.driver import prop_gnlse
@@ -161,12 +163,9 @@ def general_runs(strand):
     for name, one in problems.items():
         owner = NumpyRefBackend(one, run_request, grid=grid)
         try:
-            owner.set_initial(one.initial.field0, None)
-            summary = owner.propagate_to(LENGTH)
-            runs[name] = (
-                np.array(owner.observe().require_field()[0, 0]),
-                summary.n_steps,
-            )
+            result = session_run(owner, one, bare(run_request))
+            assert result.observations[-1].z == LENGTH
+            runs[name] = (np.array(result.fields[-1][0, 0]), result.status.attempts)
         finally:
             owner.close()
     return runs, launch, support, tables.synthesis, centre

@@ -113,10 +113,9 @@ class SimulationRunner(Displayed):
     every input.
 
     A run on the reused backend repeats a fresh backend's run, to the rounding that
-    separates any two runs: loading an input restores everything the march reads
-    (the reference's :meth:`solprop.backends.host.driver.HostDriver.set_initial`, the
-    native backend's own load). Each run's record is
-    its own input's, so each has its own configuration hash.
+    separates any two runs: each run's session builds its march afresh and loads its
+    input, on either backend. Each run's record is its own input's, so each has its own
+    configuration hash.
 
     Use it as a context manager, or call :meth:`close`: the backend holds about
     fifteen copies of the state until then. A closed runner refuses :meth:`run`. A

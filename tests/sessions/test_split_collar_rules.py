@@ -7,11 +7,11 @@
 Under ``absorber_scheme="split_step"`` each accepted step's finish reduces the field
 after its first band mask and before the split: what the split takes, and the power it
 finds halfway through its factor, which the guards are judged on (SEP 52 section 4,
-``BoundaryMonitor.split_sums``). Today the reference keeps those sums on its driver
-(``_finish`` into ``_split_removed`` and ``_split_found``, drained by
-``_boundary_energies``, reset by ``_bind_monitor``) and native in its state and session.
-SEP 52 phase 3 moves their ownership into the session; these tests hold the rules it
-must keep, through sessions on both backends, before anything moves:
+``BoundaryMonitor.split_sums``). The workspace's finish takes them into each step's
+``AcceptRecord``, and the reference's session accumulates them (``HostSession.absorb``
+into ``_split_removed`` and ``_split_found``, drained by ``_energies``, reset by
+``_bind_monitor``), as native's state and session do. These tests hold the rules,
+through sessions on both backends:
 
 - the removal adds over every accepted step since the previous reading, and the next
   boundary reading drains it;

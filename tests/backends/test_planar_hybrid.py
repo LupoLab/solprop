@@ -27,7 +27,10 @@ from numpy.testing import assert_allclose, assert_array_equal
 from backends.planar_hybrid_cases import ENVELOPE, FAMILIES, HALF_GAP, LENGTH, ORDERS
 from backends.rate_bounds import rate_error_bound
 from bounds import fft_bound, gamma, step_evaluations
+from builders import load_reference
 from legacy_geometry import bare_absorber
+from sessions.runs import bare, final_field
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.spatial import (
     slab_columns,
@@ -123,10 +126,13 @@ def modal_and_planar(family):
 def run(problem, run_request, grid, names=()):
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(LENGTH)
-        field = backend.observe().require_field().copy()
-        values = backend.stats(StatsSpec(names=names)) if names else {}
+        result = session_run(
+            backend, problem, run_request.for_run(stats=StatsSpec(names=names))
+        )
+        last = result.observations[-1]
+        assert math.isclose(last.z, LENGTH, rel_tol=1e-12)
+        field = result.fields[-1].copy()
+        values = dict(last.stats) if names else {}
     finally:
         backend.close()
     return field, values
@@ -340,9 +346,7 @@ def test_a_linear_beam_diffracts_in_y_and_decays_as_each_slab_mode():
     problem, run_request = hybrid.translate(), hybrid._run_request()
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(length)
-        final = backend.observe().require_field()[:, 0, 0]
+        final = final_field(backend, problem, bare(run_request), ended=True)[:, 0, 0]
     finally:
         backend.close()
     start = problem.initial.field0[:, 0, 0]
@@ -429,9 +433,9 @@ def test_the_kerr_phase_at_the_beam_centre_is_the_closed_form_b_integral():
         problem, run_request = hybrid.translate(), hybrid._run_request()
         backend = NumpyRefBackend(problem, run_request, grid=grid)
         try:
-            backend.set_initial(problem.initial.field0, None)
-            backend.propagate_to(LENGTH)
-            final = backend.observe().require_field()[:, 0, :]
+            final = final_field(backend, problem, bare(run_request), ended=True)[
+                :, 0, :
+            ]
         finally:
             backend.close()
         centre = np.fft.ifft(final.reshape(space.n_y, -1), axis=0)[space.n_y // 2]
@@ -488,8 +492,8 @@ def test_the_planar_launch_carries_the_coupled_share_of_the_incident_energy():
     run_request = simulation._run_request()
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        values = backend.stats(spec)
+        load_reference(backend)
+        values = backend.workspace.stats(spec, problem.initial.z)
     finally:
         backend.close()
     shares = gaussian_coupling(modes, 0.735 * HALF_GAP)
@@ -559,9 +563,11 @@ def test_a_modulation_in_y_grows_at_the_modulational_instability_rate():
         problem, run_request = hybrid.translate(), hybrid._run_request()
         backend = NumpyRefBackend(problem, run_request, grid=grid)
         try:
-            backend.set_initial(problem.initial.field0, None)
-            backend.propagate_to(length)
-            finals.append(backend.observe().require_field()[:, 0, :].copy())
+            finals.append(
+                final_field(backend, problem, bare(run_request), ended=True)[
+                    :, 0, :
+                ].copy()
+            )
         finally:
             backend.close()
     kerr_run, linear_run = finals

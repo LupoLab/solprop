@@ -52,7 +52,7 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 | `responses` | frozen dataclass | section 5 (`translate.responses.CompiledResponses`) |
 | `initial` | frozen dataclass | section 6 (`translate.problem.Initial`) |
 | `route` | `ModalRoute \| GeneralRoute \| SpatialRoute` | the closed union of route descriptions (`translate.routes`), each variant carrying exactly the fields its executor needs: the transform (§4) and the route's own leaves. Below, under *The route union* |
-| `split_crossing` | `SplitCrossing` or `None` | the split temporal collar's crossing limit (`boundaries.SplitCrossing`): `buckets`, each `(mode, frequency)` bin's walk-off bucket as `(n_modes,n_omega) uint8` (the fastest of its polarisations and positions, a coupled flow's channels with the generator's diagonal added to the shared carrier; `boundaries.split_rate_buckets`), the fastest rate a bin reaches `fastest` (the open first bucket's rate), the collar's `width` and the launch's limit `launch_limit`, which holds an adaptive `dz_max` and a fixed schedule at translation. A backend that reads the boundary monitor under the `"split_step"` scheme returns the state's energy per bucket with every reading (`BoundaryEnergies.occupancy`; native: `bind_occupancy`, then `monitor_reading`'s ten numbers followed by the 128 buckets); the monitor turns it into a cap on the steps until the next check (`HostDriver._split_capped`, the native Adams march's required `step_cap` bound), and a fixed schedule whose steps before the next check exceed it, at a check or when a resumed state is watched, stops with a `BoundaryError`. `None` under the in-stage scheme or without a temporal collar. Added in version 43 |
+| `split_crossing` | `SplitCrossing` or `None` | the split temporal collar's crossing limit (`boundaries.SplitCrossing`): `buckets`, each `(mode, frequency)` bin's walk-off bucket as `(n_modes,n_omega) uint8` (the fastest of its polarisations and positions, a coupled flow's channels with the generator's diagonal added to the shared carrier; `boundaries.split_rate_buckets`), the fastest rate a bin reaches `fastest` (the open first bucket's rate), the collar's `width` and the launch's limit `launch_limit`, which holds an adaptive `dz_max` and a fixed schedule at translation. A backend that reads the boundary monitor under the `"split_step"` scheme returns the state's energy per bucket with every reading (`BoundaryEnergies.occupancy`; native: `bind_occupancy`, then `monitor_reading`'s ten numbers followed by the 128 buckets); the monitor turns it into a cap on the steps until the next check (`host.session.step_cap`, the native Adams march's required `step_cap` bound), and a fixed schedule whose steps before the next check exceed it, at a check or when a resumed state is watched, stops with a `BoundaryError`. `None` under the in-stage scheme or without a temporal collar. Added in version 43 |
 `PropagationProblem` also carries two **properties**, which are not fields and so not rows
 above: `transform`, the route's transform, and `device_ready`, true when Φ (§3) and the prefactor (§5) are each a weighted sum
 of a fixed set of arrays, and false when either took the z table.
@@ -250,7 +250,7 @@ line's `(inward, windowed)` strip and the summed rectified current, never the fi
 `_HostEdgeReduction` on a host copy. Native's takes the edge's `_EdgeTables` and `_EdgeLine`s, whose weights, strides,
 windows and onsets say all there is to know about the geometry, so a backend holds no face, mask or judgement of its own. It
 reads the state at a committed position, so it may use scratch that a step writes before reading, and it must leave the march
-as it was. `HostDriver.edge_memory(space)` says what binding holds, from the grid alone, for `estimate`: the default holds
+as it was. `Backend.edge_memory(space)` says what binding holds, from the grid alone, for `estimate`: the default holds
 nothing beyond the state, and native's is `_transverse_edge_bytes`, equal to its `transverse_edge` ledger row.
 
 **Source reservations in the Adams march.** The engine protocol's
@@ -263,7 +263,7 @@ its workspace (`NumpyWorkspace.reserve_calls`, `record_trial`, `release_calls`),
 without a host source. NumPy's TDSE implementation translates the reservation into the
 required persistent-plan chunks, while provider attempts remain charged before
 invocation, including failures. Logical source-call and atomic-attempt ledgers remain
-separate. The march owns its logical ledger, which the driver exports and restores on
+separate. The march owns its logical ledger, which the session exports and restores on
 every Adams backend. Loading a checkpoint resets numerical history but preserves charged
 calls; startup is charged again. Atomic ledger restoration needs a bound TDSE binding, on
 either backend.
@@ -1088,7 +1088,7 @@ The initial-state fields below are independent of that optional binding.
 | `noise_model` | `"none" \| "input" \| "modified"` | |
 | `z` | `float` | absolute initial position in m, non-negative and before the first requested save; true-power input is normalised at this position |
 
-No kernel indexes `field0`: `HostDriver.set_initial` accepts a state of any strides and
+No kernel indexes `field0`: a session's load accepts a state of any strides and
 copies it contiguous into the backend's own state, so since version 42 `field0` may be a
 zero-stride broadcast view. Every array of `Initial` is the problem's own, so that
 nothing a caller does afterwards to an array it passed changes the problem, and the
@@ -1125,7 +1125,7 @@ launch's remaining planes).
 | `interval_cap` | bool | whether a step is capped at the width of the operator-table interval it starts in. `assemble` turns it off on the diagonal-flow routes and on for a coupled flow or a reject-free controller, unless set ([SEP 14](seps/archive/sep-0014-stepper-efficiency.md) §4.1) |
 | `auto_init` | bool | whether the start-up rule takes the step after the first from the first step's own scaled norm (`PIController.start_factor`, at most 100 times `dz_init`). Set by the convenience interfaces when no `dz_init` is given; off for a coupled flow or a reject-free controller ([SEP 14](seps/archive/sep-0014-stepper-efficiency.md) §4.2) |
 | `interpolate_planes` | bool | steps across the save planes and observes each inside its accepted step, through DOPRI5's continuous extension or, with an `integrator`, the Adams march's own polynomial (ADR-039); the end of the run and the hard kinks are still landed on. Refused with a schedule, a Runge-Kutta tableau without an extension, the per-step collar, a coupled flow and the `modified` noise |
-| `step_planes` | int | a positive `k` also saves the end of every `k`-th accepted step since the load: the shared march returns from `propagate_to` there, short of its target, and the driver saves the plane and asks for the target again (ADR-039). `0` never stops short |
+| `step_planes` | int | a positive `k` also saves the end of every `k`-th accepted step since the load: the march returns to its session there, short of its target, and the session observes the plane and marches on to the target (ADR-039). `0` never stops short |
 
 **The finish's input is on the band.** Under the split-step absorber scheme the reference
 masks before and after the temporal absorber, and native masks only after it. With content
@@ -1143,24 +1143,19 @@ the problem.
 | `stats` | frozen dataclass | `solprop.stats.StatsSpec`: which statistics, energy windows (`(n_windows, 2)` in ω), periodic subset and period, validated against the catalogue at construction; and the far-field tables of [SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md), `apertures` (an `ApertureSet`: centres, diameters, distances, edges, profile, weighting, labels, and from schema 45 the optional shapes, profiles and extents, which a record leaves out while they are unset) and `spectral_regions` (`(n_regions, 4)` boxes of physical transverse wavevector in rad/m, the one leaf whose entries may be infinite), read only when a name that uses them is requested, so a backend that does not know a name refuses it rather than misreading a table. Fields of the leaf, not rows of the contract |
 
 The `periodic` subset and its `period` are read **when the backend is built**, not when a
-run is started: the shared step loop arms the between-planes channel from the statistics
+run is started: the session arms the between-planes channel from the statistics
 of the request the backend was built with, so a spec handed to `run_problem` that
 disagrees with that request's own about either is refused. Every name in the subset must carry the catalogue's
 `between_planes` trait, which `StatsSpec` enforces at construction and by name; a backend
 that cannot form one of them at all refuses the run the same way its plane statistics do.
 
-The driver exposes three storage hooks; the shared march decides which accepted
-steps produce rows and passes their exact history indices:
-
-| hook | contract |
-|---|---|
-| `_reset_step_stats(*, release: bool)` | Discard rows on a fresh load (`True`, release storage) or at a new plane (`False`, retain capacity). Period counting remains in the shared march. |
-| `_record_step_stats(spec: StatsSpec, z: float, step: int)` | Evaluate a row after boundary treatments, state commitment and position advancement. `step` includes rejected attempts. Device implementations retain device values and share their evaluator with `stats()`. |
-| `_drain_step_stats() -> StepStats` | Return owning host rows at observation, then reset the row count while retaining capacity. A device implementation copies packed values once here. An empty drain transfers nothing. |
-
-The defaults keep a host buffer and call `stats()`. No backend needs to
-override the march or read its private row buffer. Device arrays remain behind the
-seam. The native backend inherits the host defaults. A backend must implement the contract,
+Each session decides which accepted steps produce rows and keeps them between events
+(the step-driver storage hooks were removed by SEP 52): a row is evaluated after the
+step's boundary treatments, its commit and the position's advance, with the index of its
+attempt in the event's chunk, rejected attempts counted (`-1` when a warning barrier
+delivered that attempt in the chunk before). The reference keeps a host buffer and
+evaluates the workspace's `stats`; the native session keeps bounded resident chunk
+buffers. Device arrays remain behind the seam. A backend must implement the contract,
 including the device-memory probe of §1, explicit handling or refusal of envelope
 source assemblies, and an explicit refusal of each general-modal leaf, section method and
 spatial kind it does not execute.
@@ -1279,10 +1274,10 @@ records no rejected attempt and raises it at once.
 
 **What a native call takes**: the policy, once per run and again when the monitor's
 interval changes (`MarchPolicy`, every field of the record), with a replay's
-schedule (its steps and edges); the state above, with a replay's cursor (the driver's
-schedule index); and its bounds: the target; for a replay, the edges' slack
+schedule (its steps and edges); the state above, with a replay's cursor (the march
+state's `cursor`); and its bounds: the target; for a replay, the edges' slack
 (`replay_tolerance`); whether the collar rests; the accepted steps after which the
-driver has work (the next statistics row, natural stop or monitor check, whichever comes
+session has work (the next statistics row, natural stop or monitor check, whichever comes
 first; none for zero); the monitor's last check and interval; and the call's own bound,
 256 attempts or 0.1 s of wall time, read after each attempt, which bounds the wait of a
 signal or a stop flag. Where a call returns is not a decision of the march's: a return
@@ -1296,7 +1291,7 @@ one attempt, of seven and of none to one set of bits.
 - each accepted step's order, and the last accepted step's anchor, step, order and
   nodes, for a dense observation;
 - the reason it returned (`march::Reason`): the target reached, or crossed with planes
-  interpolated; an accepted step on which the driver has work; the monitor's distance;
+  interpolated; an accepted step on which the session has work; the monitor's distance;
   the call's bound; the budget, with the refused attempt's cost; the floor, with the
   proposal below it; a replayed step whose norm is not finite, with its step, end and
   norm; or a native error, with its stage (startup, trial, accept), category
@@ -1395,7 +1390,7 @@ start-up rule, before the history's last value is rewritten; and after an accept
 commit and append, before its boundary check and statistics.
 
 **What a native call takes and returns** is §11's, with this march's policy and state:
-the call's bounds (the target, the accepted steps after which the driver has work, the
+the call's bounds (the target, the accepted steps after which the session has work, the
 call's own bound of 256 attempts or 0.1 s), and per attempt one row of end, step, norm
 (non-finite as infinity), accepted and wall time, the reason it returned and the state.
 The call takes the boundary monitor's checks inside the march as §11's does, with the

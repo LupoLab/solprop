@@ -23,8 +23,9 @@ the same tests.
 - ``native-session-low-storage`` is the native execution session replaying the same
   problem's planes on a uniform schedule of :data:`LOW_STORAGE_STEPS` steps with the
   low-storage march (SEP 47 section 6.3), whose loop the native session owns.
-- ``scripted-host`` is :class:`HostSessionScript`, the reference's own driver in the
-  reference's session, whose norms, rejections, failures, in-flight failures and
+- ``scripted-host`` is :class:`HostSessionScript`, the reference backend over a
+  scripted engine under the real march, in the reference's session
+  (:class:`ScriptedSession`), whose norms, rejections, failures, in-flight failures and
   warnings are chosen by the test.
 
 The problem is the fundamental GNLSE soliton of ``tests/backends/conftest.py`` on its
@@ -223,10 +224,10 @@ class ScriptedWarning(UserWarning):
     """What a scripted committed endpoint warns with."""
 
 
-class _Outcomes:
-    """A scripted driver with the outcomes the lifecycle tests choose.
+class HostSessionScript(HostScriptedDriver):
+    """The reference backend with the outcomes the lifecycle tests choose.
 
-    Trials and accepted steps are counted from 1 since the load.
+    Trials and accepted steps are counted from 1 since the session started.
 
     Parameters
     ----------
@@ -243,11 +244,12 @@ class _Outcomes:
         abandoned partway does: the state is then neither end of the step.
     signal : bool, optional
         Whether that trial raises ``KeyboardInterrupt`` instead, as a signal handler
-        does that runs between the driver's steps: a failure outside the session,
-        with nothing in flight.
+        does that runs between the steps: a failure outside the session, with nothing
+        in flight.
     warn_at : int or None, optional
         The accepted step whose committed endpoint warns with
-        :class:`ScriptedWarning`, after the step's statistics row.
+        :class:`ScriptedWarning`, after the step's statistics row
+        (:class:`ScriptedSession`).
     **kwargs
         Passed to :class:`scripted_driver.HostScriptedDriver`.
     """
@@ -264,49 +266,50 @@ class _Outcomes:
         warn_at: int | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(problem, run_request, factor=FACTOR, scale=SCALE, **kwargs)  # pyright: ignore[reportCallIssue]
         self._reject_at = frozenset(reject_at)
         self._fail_at = fail_at
         self._leave_in_flight = in_flight
         self._signal = signal
-        self._warn_at = warn_at
+        self.warn_at = warn_at
         self.trials = 0
-        self.accepted = 0
-        self._left: tuple[float, float] | None = None
+        super().__init__(problem, run_request, factor=FACTOR, scale=SCALE, **kwargs)
 
-    def set_initial(self, *args: Any, **kwargs: Any) -> None:
-        # A load clears a step left in flight, as it does the low-storage march's.
-        self._left = None
-        super().set_initial(*args, **kwargs)  # pyright: ignore[reportAttributeAccessIssue]
-
-    def _abandoned(self) -> tuple[float, float] | None:
-        return self._left
+    def method(self, host: object) -> Any:
+        """Count trials afresh with each session's march."""
+        self.trials = 0
+        return super().method(host)
 
     def _trial_step(self, z, dz):
         self.trials += 1
         if self.trials == self._fail_at:
             if self._leave_in_flight:
-                self._left = (z, dz)
+                self._run.march.engine.left = True  # pyright: ignore[reportAttributeAccessIssue]
             if self._signal:
                 raise KeyboardInterrupt
             msg = f"scripted failure at trial {self.trials}"
             raise ScriptedError(msg)
-        norm, state = super()._trial_step(z, dz)  # pyright: ignore[reportAttributeAccessIssue]
+        norm, state = super()._trial_step(z, dz)
         return (REJECTED if self.trials in self._reject_at else norm), state
 
-    def _take_step_stats(self):
-        super()._take_step_stats()  # pyright: ignore[reportAttributeAccessIssue]
-        self.accepted += 1
-        if self.accepted == self._warn_at:
-            warnings.warn(
-                f"scripted warning at accepted step {self.accepted}",
-                ScriptedWarning,
-                stacklevel=2,
-            )
 
+class ScriptedSession(HostSession):
+    """The reference's session, warning at the committed endpoint a script chooses.
 
-class HostSessionScript(_Outcomes, HostScriptedDriver):
-    """The scripted outcomes on the reference's own driver (SEP 47 phase 2)."""
+    A :class:`HostSessionScript` backend's ``warn_at`` accepted step warns with
+    :class:`ScriptedWarning` after its statistics row, a barrier as a boundary
+    warning is; any other backend runs as in :class:`HostSession`.
+    """
+
+    def __init__(self, backend: Any, *args: Any, **kwargs: Any) -> None:
+        self._warn_at = getattr(backend, "warn_at", None)
+        self._accepted = 0
+        super().__init__(backend, *args, **kwargs)
+
+    def _account_step(self):
+        yield from super()._account_step()
+        self._accepted += 1
+        if self._accepted == self._warn_at:
+            yield ScriptedWarning(f"scripted warning at accepted step {self._accepted}")
 
 
 @dataclass(frozen=True, eq=False)
@@ -350,18 +353,18 @@ class Factory(Protocol):
 
 
 def _over_driver(
-    make: Callable[..., Any], *, host_state: bool, session: type = HostSession
+    make: Callable[..., Any], *, host_state: bool, session: type = ScriptedSession
 ) -> Factory:
-    """Return a factory of sessions over a step driver.
+    """Return a factory of the reference's sessions over a backend.
 
     Parameters
     ----------
     make : callable
-        ``(problem, request, **script) -> driver``.
+        ``(problem, request, **script) -> backend``.
     host_state : bool
-        Whether the driver's state is a host array the aliasing checks can read.
+        Whether the backend's state is a host array the aliasing checks can read.
     session : type, optional
-        The session class: the reference's by default.
+        The session class: the reference's, warning where a script asks.
 
     Returns
     -------
@@ -372,20 +375,22 @@ def _over_driver(
     def start_session(
         problem, request, start, *, stop=None, listener=None, context=None, **script
     ):
-        driver = make(problem, request, context=context, **script)
+        backend = make(problem, request, context=context, **script)
         reads = [0]
-        observe = driver.observe
+        started = session(
+            backend, problem, request, start, listener=listener, stop=stop
+        )
+        observe = started._observe
 
-        def counted(*, field: bool = True):
+        def counted(*, field: bool):
             reads[0] += bool(field)
             return observe(field=field)
 
-        driver.observe = counted
-        started = session(driver, problem, request, start, listener=listener, stop=stop)
+        started._observe = counted
         return Started(
             started,
             field_reads=lambda: reads[0],
-            live_state=(lambda: driver.workspace.state) if host_state else None,
+            live_state=(lambda: backend.workspace.state) if host_state else None,
         )
 
     return start_session
@@ -455,7 +460,7 @@ def _host_scripted(
     Returns
     -------
     HostSessionScript
-        The driver.
+        The backend.
     """
     assert context is None, "a script runs the soliton alone"
     return HostSessionScript(problem, request, grid=window(), **script)

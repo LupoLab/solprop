@@ -303,7 +303,7 @@ def test_the_reference_s_plasma_statistics_refuse_a_problem_with_no_plasma(
         state = simulation._field0
         with pytest.raises(BackendError, match=message):
             cast("NumpyRefBackend", backend).workspace._backend_statistics(
-                (name,), state, cast("NumpyRefBackend", backend)._z
+                (name,), state, float(problem.initial.z)
             )
     finally:
         backend.close()

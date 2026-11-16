@@ -25,6 +25,7 @@ from scipy.integrate import quad
 from scipy.special import j0, j1, jn_zeros
 
 from rate_oracles import adk_oracle
+from sessions.runs import bare, final_field
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import MaterialRangeWarning, ModeError
 from solprop.grid import FieldGrid
@@ -302,9 +303,7 @@ def run(grid, modes, responses, energy, **options):
             **options,
         )
     with closing(NumpyRefBackend(problem, run_request, grid=grid)) as backend:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(LENGTH)
-        return backend.observe().require_field(), problem
+        return final_field(backend, problem, bare(run_request), z=LENGTH), problem
 
 
 def peak_gap(got, want):

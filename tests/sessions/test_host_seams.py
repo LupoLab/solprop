@@ -2,10 +2,9 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The host-only seams refuse the native backend by name (SEP 47 section 6.8).
+"""The reference's session refuses the native backend by name (SEP 47 section 6.8).
 
-Native runs only in its own session: neither the reference's session nor the host
-stepping seam takes it.
+Native runs only in its own session.
 """
 
 import pytest
@@ -16,7 +15,6 @@ from sessions.executors import (  # pyright: ignore[reportPrivateUsage]
     soliton,
 )
 from solprop.backends.host.session import HostSession
-from solprop.backends.protocol import stepping
 from solprop.backends.registry import available, select
 from solprop.exceptions import BackendError
 
@@ -29,17 +27,7 @@ def test_the_reference_session_refuses_a_native_backend():
     problem, request = soliton()
     backend = select("native", problem, request, **_soliton_context())
     try:
-        with pytest.raises(BackendError, match="serves a host driver"):
+        with pytest.raises(BackendError, match="serves a reference backend"):
             HostSession(backend, problem, request, entrance(problem))
-    finally:
-        backend.close()
-
-
-def test_the_stepping_seam_refuses_a_native_backend():
-    problem, request = soliton()
-    backend = select("native", problem, request, **_soliton_context())
-    try:
-        with pytest.raises(BackendError, match="runs in its own session"):
-            stepping(backend)
     finally:
         backend.close()

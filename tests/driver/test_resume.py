@@ -13,13 +13,14 @@ import h5py
 import numpy as np
 import pytest
 
+from builders import load_reference
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_in_envelope, assert_matched, march_bound
 from sessions.executors import IDENTITY
 from sessions.runs import bare
 from solprop.backends.events import ObservationReady
-from solprop.backends.host.driver import HostDriver
-from solprop.backends.protocol import stepping
+from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -353,10 +354,9 @@ def test_the_input_draw_is_added_at_a_launch_and_not_to_a_resumed_state(
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
-    assert isinstance(engine, HostDriver)
+    assert isinstance(engine, NumpyRefBackend)
     try:
-        engine.set_initial(problem.initial.field0, None)
-        launched = engine.observe().require_field().copy()
+        launched = load_reference(engine).copy()
         # In band: the load masks the launch, whose pulse has tails outside it.
         active = problem.grids.active_mask
         np.testing.assert_allclose(
@@ -367,8 +367,8 @@ def test_the_input_draw_is_added_at_a_launch_and_not_to_a_resumed_state(
         )
         # The floor is the draw itself.
         assert cast("Any", engine).workspace.input_floor is draw
-        engine.set_initial(launched, None, z=0.0, resume=True)
-        np.testing.assert_array_equal(engine.observe().require_field(), launched)
+        load_reference(engine, launched, z=0.0, resume=True)
+        np.testing.assert_array_equal(engine.workspace.committed(), launched)
         assert cast("Any", engine).workspace.input_floor is draw
     finally:
         engine.close()
@@ -539,7 +539,7 @@ def test_a_run_interrupted_before_its_first_plane_resumes_without_a_second_entra
         return advance(self, **bounds)
 
     with monkeypatch.context() as patch:
-        patch.setattr(HostDriver, "propagate_to", fail_before_first_step)
+        patch.setattr(HostSession, "_propagate", fail_before_first_step)
         if native is not None:
             advance = native.NativeSession.advance
             patch.setattr(native.NativeSession, "advance", fail_first_march)
@@ -596,26 +596,37 @@ def test_resuming_with_no_file_starts_from_the_beginning(build_simulation, tmp_p
     assert read_file(path, "z").tolist() == [0.0, LENGTH / 2, LENGTH]
 
 
-def test_set_initial_refuses_a_position_outside_the_table(build_simulation):
+def _start_at(backend, problem, run_request, z):
+    """Start the reference's session from the launch field placed at `z`."""
+    planes = run_request.observation.save_planes
+    start = Start(
+        field=problem.initial.field0,
+        z=z,
+        plane_index=int(np.searchsorted(planes, z, side="right")),
+    )
+    return backend.prepare(problem, run_request).start(start, owns=False)
+
+
+def test_a_session_refuses_a_start_outside_the_table(build_simulation):
     simulation = build_simulation(length=LENGTH, n_save=2)
     problem = simulation.translate()
     run_request = simulation._run_request()
     backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
     with pytest.raises(BackendError, match="operator table"):
-        stepping(backend).set_initial(problem.initial.field0, None, z=2 * LENGTH)
+        _start_at(backend, problem, run_request, 2 * LENGTH)
     with pytest.raises(BackendError, match="operator table"):
-        stepping(backend).set_initial(problem.initial.field0, None, z=-LENGTH)
+        _start_at(backend, problem, run_request, -LENGTH)
     backend.close()
 
 
-def test_set_initial_refuses_a_position_off_a_replayed_schedule(build_simulation):
+def test_a_session_refuses_a_start_off_a_replayed_schedule(build_simulation):
     simulation = scheduled(build_simulation)
     problem = simulation.translate()
     run_request = simulation._run_request()
     backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
     # Half a step past an edge: a replay could not continue in step from there.
     with pytest.raises(BackendError, match="one of its edges"):
-        stepping(backend).set_initial(problem.initial.field0, None, z=LENGTH / 80)
+        _start_at(backend, problem, run_request, LENGTH / 80)
     backend.close()
 
 
@@ -625,11 +636,22 @@ def test_a_state_loaded_at_a_plane_starts_the_run_there(build_simulation):
     problem = simulation.translate()
     run_request = simulation._run_request()
     backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
-    stepping(backend).set_initial(problem.initial.field0, None, z=LENGTH / 2)
-    assert stepping(backend).observe().z == LENGTH / 2
-    summary = stepping(backend).propagate_to(LENGTH)
+    session = _start_at(backend, problem, run_request, LENGTH / 2)
+    assert session.status().z == LENGTH / 2
+    ends = []
+    while not session.finished:
+        batch = session.advance()
+        ends += [event.z for event in batch.events]
+        steps = sum(
+            0 if event.history is None else event.history.n_steps
+            for event in batch.events
+        )
+        ends.append(steps)
+        session.acknowledge(batch.receipt)
+    session.close()
     # Half the fibre at forty steps over the whole of it: twenty steps left.
-    assert summary.n_steps == 20
+    assert ends[0] == LENGTH / 2
+    assert sum(ends[1::2]) == 20
     backend.close()
 
 

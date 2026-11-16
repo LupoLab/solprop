@@ -179,7 +179,12 @@ def test_envelope_current_streams_use_large_radial_projection() -> None:
         NativeBackend(problem, run_request, grid=grid),
     )
     try:
-        reference.set_initial(problem.initial.field0, None)
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
         expected = reference.workspace.nonlinear(  # pyright: ignore[reportPrivateUsage]
             problem.initial.field0,
             reference.workspace.stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]

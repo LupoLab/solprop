@@ -108,13 +108,14 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="792.0" y="355.0" font-size="12" class="dim">z, n_steps, n_rejected, max_norm, mean_norm, wall_time</text>
 <path d="M598.0,350.5 L776.0,350.5" class="arrow" />
 <path d="M776.0,350.5 L767.0,354.1 L767.0,346.9 Z" class="head" />
-<text x="687.0" y="366.5" font-size="12" class="mid dim">HostDriver for numpy_ref;</text>
-<text x="687.0" y="382.0" font-size="12" class="mid dim">native's session</text>
+<text x="687.0" y="366.5" font-size="12" class="mid dim">HostSession for</text>
+<text x="687.0" y="382.0" font-size="12" class="mid dim">numpy_ref; native's</text>
+<text x="687.0" y="397.5" font-size="12" class="mid dim">session</text>
 <path d="M312.0,389.5 L312.0,417.5" class="arrow" />
 <path d="M312.0,417.5 L308.4,408.5 L315.6,408.5 Z" class="head" />
 <rect x="32" y="423.5" width="560.0" height="66.0" rx="7" ry="7" class="fill-d" />
 <text x="42.0" y="445.5" font-size="15" class="bold ink-d">run loop over save planes</text>
-<text x="42.0" y="461.0" font-size="12" class="dim">obs = backend.observe()        stats = backend.stats(spec)</text>
+<text x="42.0" y="461.0" font-size="12" class="dim">event = session.advance()     field = session.export(ticket, recipe)</text>
 <text x="42.0" y="476.5" font-size="12" class="dim">output.save(SavedPlane(z, field, stats, step_history, step_stats))</text>
 <rect x="782.0" y="423.5" width="386.0" height="66.0" rx="7" ry="7" class="fill-b" />
 <text x="792.0" y="445.5" font-size="15" class="bold ink-b">Observation  →  SavedPlane</text>

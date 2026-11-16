@@ -22,9 +22,13 @@ import pytest
 
 from bounds import AccuracyEnvelope, assert_within, fft_bound, gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
+from sessions.runs import bare
+from solprop.backends.events import ObservationReady, Terminal
+from solprop.backends.export import ExportRecipe
+from solprop.backends.host.session import HostSession
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.workspace import NumpyWorkspace
-from solprop.backends.protocol import BackendHistory, Observation, stepping
+from solprop.backends.protocol import BackendHistory, Observation
 from solprop.backends.registry import available, select
 from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings
@@ -433,12 +437,24 @@ def test_an_output_that_cannot_store_field_free_planes_is_refused():
         backend.close()
 
 
-# --- the seam: observe(field=False) (SEP 22 phase 2) --------------------------------
+# --- field-free observation (SEP 22 phase 2) -----------------------------------------
+
+
+IDENTITY = ExportRecipe(power=False, optics=False)
+
+
+def _first_plane(owner, problem, run_request, start):
+    """Start the reference's session, acknowledge its launch, return the first plane."""
+    session = owner.prepare(problem, run_request).start(start, owns=False)
+    launch = session.advance()
+    session.acknowledge(launch.receipt)
+    batch = session.advance()
+    return session, batch
 
 
 def test_a_field_free_observation_crosses_no_field(monkeypatch):
-    # The reference's driver seam. The native backend has no such seam: its session
-    # exports a field only on request (SEP 47 section 5.4), which
+    # The reference session's observation of its state (`HostSession._observe`). The
+    # native session exports a field only on request (SEP 47 section 5.4), which
     # tests/sessions/test_conformance.py::test_a_plane_nobody_exports_transfers_no_field
     # counts on every executor.
     backend = "numpy_ref"
@@ -446,6 +462,7 @@ def test_a_field_free_observation_crosses_no_field(monkeypatch):
     problem = simulation.translate()
     run_request = simulation._run_request()
     observations = []
+    histories = []
     for field in (True, False):
         owner = select(backend, problem, run_request, grid=simulation.grid)
         copies = []
@@ -458,20 +475,27 @@ def test_a_field_free_observation_crosses_no_field(monkeypatch):
         # The observation reads the noise phase beside the field and neither without.
         monkeypatch.setattr(NumpyWorkspace, "noise_phase", counted)
         try:
-            stepping(owner).set_initial(problem.initial.field0, None)
-            stepping(owner).propagate_to(float(PLANES[0]))
-            observations.append(stepping(owner).observe(field=field))
+            session, batch = _first_plane(
+                owner, problem, run_request, Start.entrance(problem)
+            )
+            (event,) = batch.events
+            assert isinstance(event, ObservationReady)
+            assert event.z == float(PLANES[0])
+            histories.append(event.history)
+            assert isinstance(session, HostSession)
+            observations.append(session._observe(field=field))
+            session.close()
         finally:
             owner.close()
             monkeypatch.undo()
-        # The field-free observation makes no copy at all.
+        # The field-free observation makes no copy at all, the event's included.
         assert len(copies) == (1 if field else 0)
     kept, free = observations
     assert kept.field is not None and kept.noise_phase is not None
     assert free.field is None and free.noise_phase is None
     # The same replayed march: its history is one structure, observed either way.
-    assert np.array_equal(free.step_history.z, kept.step_history.z)
-    assert np.array_equal(free.step_history.dz, kept.step_history.dz)
+    assert np.array_equal(histories[1].z, histories[0].z)
+    assert np.array_equal(histories[1].dz, histories[0].dz)
     with pytest.raises(BackendError, match=r"observe\(field=False\)"):
         free.require_field()
 
@@ -479,13 +503,13 @@ def test_a_field_free_observation_crosses_no_field(monkeypatch):
 def test_the_run_asks_the_backend_for_exactly_the_kept_fields(monkeypatch):
     simulation = keeping(cartesian("numpy_ref"), "planes", (0, -1))
     asked = []
-    original = NumpyRefBackend.observe
+    original = HostSession._observe
 
-    def observe(self, *, field=True):
+    def observe(self, *, field):
         asked.append(field)
         return original(self, field=field)
 
-    monkeypatch.setattr(NumpyRefBackend, "observe", observe)
+    monkeypatch.setattr(HostSession, "_observe", observe)
     stored(simulation.run(progress="none"))
     # Every event drains its attempts field-free (a yield's and the terminal event's
     # too, SEP 47 section 5.3); the field crosses only for the two planes that keep it
@@ -514,17 +538,24 @@ def test_a_field_free_observation_relies_on_the_step_loop_for_finiteness():
     poisoned[0, 0, np.flatnonzero(problem.grids.active_mask)[0]] = np.nan
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
-        backend.set_initial(poisoned, None)
-        # Nothing scans a field that is not observed...
-        assert backend.observe(field=False).field is None
-        # ...while an observed one is scanned, and the replay refuses to step on.
+        # No statistics: they would read the poisoned field at the launch plane.
+        session = backend.prepare(problem, bare(run_request)).start(
+            Start(field=poisoned, z=float(problem.initial.z)), owns=False
+        )
+        # Nothing scans a field that is not observed: the launch plane is reported...
+        launch = session.advance()
+        (event,) = launch.events
+        assert isinstance(event, ObservationReady)
+        # ...while an exported one is scanned, and the replay refuses to step on.
         with pytest.raises(BackendError, match="not finite"):
-            backend.observe()
-        with (
-            np.errstate(invalid="ignore"),
-            pytest.raises((ConvergenceError, BackendError)),
-        ):
-            backend.propagate_to(float(PLANES[0]))
+            session.export(event.ticket, IDENTITY)
+        session.acknowledge(launch.receipt)
+        with np.errstate(invalid="ignore"):
+            batch = session.advance()
+        terminal = batch.terminal
+        assert isinstance(terminal, Terminal)
+        assert isinstance(terminal.error, (ConvergenceError, BackendError))
+        session.close()
     finally:
         backend.close()
 

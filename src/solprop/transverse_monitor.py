@@ -612,7 +612,7 @@ class _HostEdgeReduction:
     """The reference reductions of the edge, on a host copy of a state (SEP 44).
 
     A backend whose state lives elsewhere forms the same numbers there instead
-    (``HostDriver._edge_reading``), and is held to these.
+    (native's ``Resident::edge_reading``), and is held to these.
 
     Attributes
     ----------
@@ -624,6 +624,10 @@ class _HostEdgeReduction:
         A requested collar's lines; none without one.
     k_min : float
         The smallest wavenumber over the requested band, rad/m.
+    sink : list of Warning or None
+        Where the edge's warnings go instead of being issued, in order, for a session
+        that reports each as a ``WARNING`` barrier event (SEP 52 section 5.1);
+        ``None``, the default, issues them through :func:`warnings.warn`.
     """
 
     space: RadialGrid | FreeGrid | PlanarGrid
@@ -827,6 +831,7 @@ class TransverseEdge:
     length: float
     band: Int[np.ndarray, " n_band"]
     k_min: float
+    sink: list[Warning] | None = field(default=None, init=False, repr=False)
     _faces: tuple[_Face, ...] = field(init=False)
     _weights: np.ndarray = field(init=False)
     _columns: np.ndarray = field(init=False)
@@ -892,6 +897,17 @@ class TransverseEdge:
         self.reduction = _HostEdgeReduction(
             space, self.tables, _edge_lines(space, self.design), self.k_min
         )
+
+    def _warn(self, message: str, stacklevel: int) -> None:
+        """Issue a boundary warning, or put it in the :attr:`sink` a session reports.
+
+        - ``stacklevel``: as the caller would pass to :func:`warnings.warn`.
+        """
+        warning = BoundaryWarning(message)
+        if self.sink is not None:
+            self.sink.append(warning)
+            return
+        warnings.warn(warning, stacklevel=stacklevel + 1)
 
     def _edge_tables(self) -> _EdgeTables:
         """Return the weights a state's node energies are summed with."""
@@ -1024,15 +1040,13 @@ class TransverseEdge:
         if not reads:
             self._status = "unwatched"
             self._reason = _UNWATCHED_REASON
-            warnings.warn(_UNWATCHED_MESSAGE, BoundaryWarning, stacklevel=4)
+            self._warn(_UNWATCHED_MESSAGE, 4)
             return
         for index, face in enumerate(self._faces):
             self._baseline[index] = float(reading.faces[index]) / self._launch
             clipped = float(reading.clip[index]) / self._launch
             if clipped > warn:
-                warnings.warn(
-                    _clip_message(clipped, face.name), BoundaryWarning, stacklevel=4
-                )
+                self._warn(_clip_message(clipped, face.name), 4)
         if noise is not None:
             noise_nodes = self._weights * self.reduction.node_power(noise)
             eta = float(np.sum(noise_nodes)) / self._launch
@@ -1052,11 +1066,7 @@ class TransverseEdge:
             if self._allowance > warn:
                 self._status = "insensitive"
                 self._reason = _insensitive_reason(self._allowance)
-                warnings.warn(
-                    _insensitive_message(self._allowance),
-                    BoundaryWarning,
-                    stacklevel=4,
-                )
+                self._warn(_insensitive_message(self._allowance), 4)
         self._last_columns = self._column_power(columns)
         self._respace(self._last_columns, launch=True)
         spacing = self._spacing_now
@@ -1064,11 +1074,7 @@ class TransverseEdge:
         if steps is not None and steps.size and float(np.max(steps)) > spacing:
             self._status = "coarse" if self._status == "clear" else self._status
             self._largest_gap = float(np.max(steps))
-            warnings.warn(
-                _coarse_message(float(np.max(steps)), spacing),
-                BoundaryWarning,
-                stacklevel=4,
-            )
+            self._warn(_coarse_message(float(np.max(steps)), spacing), 4)
         self._last_rate = (z, self._collar_rate(reading))
         if self.every_step:
             self._launch_return(reading, noise)
@@ -1098,9 +1104,7 @@ class TransverseEdge:
         if share > stop:
             raise BoundaryError(_ramp_band_message(share, stop=True))
         if share > warn:
-            warnings.warn(
-                _ramp_band_message(share, stop=False), BoundaryWarning, stacklevel=5
-            )
+            self._warn(_ramp_band_message(share, stop=False), 5)
 
     def _collar_rate(self, reading: _EdgeReading) -> float:
         """Return a requested collar's removal rate, as a share of the launch per m."""
@@ -1283,9 +1287,7 @@ class TransverseEdge:
                 self._warned_at = z
                 if self._status in ("clear", "coarse"):
                     self._status = "warned"
-                warnings.warn(
-                    _face_message(face_name, z, judged), BoundaryWarning, stacklevel=4
-                )
+                self._warn(_face_message(face_name, z, judged), 4)
         self._judge_ramp_removal()
 
     # ------------------------------------------------------------------ a collar
@@ -1383,9 +1385,7 @@ class TransverseEdge:
             self._warned = True
             self._warned_at = z
             self._status = "warned"
-            warnings.warn(
-                _return_message(returned, z, None), BoundaryWarning, stacklevel=5
-            )
+            self._warn(_return_message(returned, z, None), 5)
 
     def _judge_ramp_removal(self) -> None:
         """Warn, or stop, on what the safety ramp has removed (section 5.3, Q8).
@@ -1404,9 +1404,7 @@ class TransverseEdge:
             # Only a run below the warning throughout is clear (section 5.3).
             if self._status in ("clear", "coarse"):
                 self._status = "warned"
-            warnings.warn(
-                _ramp_removal_message(removed, None), BoundaryWarning, stacklevel=5
-            )
+            self._warn(_ramp_removal_message(removed, None), 5)
 
     def _stop_message(self, face: str, judged: float, z: float) -> str:
         """Return the stop's message, naming a size and a sample count to try.

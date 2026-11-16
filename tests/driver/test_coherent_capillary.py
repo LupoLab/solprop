@@ -53,6 +53,7 @@ from legacy_entry_cases import (
 )
 from march_bounds import FIXED_ORDER
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
+from sessions.runs import bare, final_field
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.workspace import (
@@ -192,10 +193,11 @@ def energy_loss(handler):
 def propagated(problem, run_request, grid, backend=NumpyRefBackend):
     """Run one problem to its end plane on the fixed schedule and return the state."""
     driver = backend(problem, run_request, grid=grid)
-    driver.set_initial(problem.initial.field0, None)
-    driver.propagate_to(LENGTH)
-    final = driver.observe().require_field().copy()
-    driver.close()
+    try:
+        final = final_field(driver, problem, bare(run_request))
+    finally:
+        driver.close()
+    assert final.shape == problem.shape
     return final
 
 

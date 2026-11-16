@@ -41,7 +41,7 @@ def axis_populations(
         Plane position in m.
     axis : numpy.ndarray
         The mode set's synthesis on the axis at `z`, taper included, rows x and y
-        (``HostDriver._on_axis_synthesis``).
+        (``NumpyWorkspace._on_axis_synthesis``).
 
     Returns
     -------

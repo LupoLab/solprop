@@ -23,6 +23,7 @@ import numpy as np
 import pytest
 
 from bounds import assert_within, device_backend, fft_bound, gamma, rate_log_sensitivity
+from builders import load_reference
 from rate_oracles import adk_oracle
 from sessions.executors import IDENTITY
 from sessions.runs import launched, load_native, run
@@ -111,8 +112,8 @@ def entrance_stats(grid, problem, run_request, modes, spec):
     with closing(
         NumpyRefBackend(problem, run_request, grid=grid, modes=modes)
     ) as backend:
-        backend.set_initial(problem.initial.field0, None)
-        values = backend.stats(spec)
+        load_reference(backend)
+        values = backend.workspace.stats(spec, problem.initial.z)
         # select() returns the seam's protocol; the counter is the shared driver's.
         return values, cast("Any", backend).workspace.axis_scans
 
@@ -376,8 +377,8 @@ def test_a_problem_without_plasma_refuses_them(grid):
         ) as backend,
         pytest.raises(BackendError, match="need a compiled plasma response"),
     ):
-        backend.set_initial(problem.initial.field0, None)
-        backend.stats(AXIS)
+        load_reference(backend)
+        backend.workspace.stats(AXIS, problem.initial.z)
 
 
 BACKENDS = ["native"]
@@ -587,10 +588,10 @@ def test_a_host_backend_s_axis_scan_needs_the_field(grid, table):
     with closing(
         NumpyRefBackend(problem, run_request, grid=grid, modes=[mode])
     ) as backend:
-        backend.set_initial(problem.initial.field0, None)
+        load_reference(backend)
         with pytest.raises(BackendError, match="needs the field"):
             backend.workspace._axis_row_populations(  # pyright: ignore[reportPrivateUsage]
-                None, np.zeros((2, 1)), backend._z
+                None, np.zeros((2, 1)), problem.initial.z
             )
 
 

@@ -11,8 +11,13 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
+from sessions.runs import IDENTITY, bare
+from solprop.backends.events import ObservationReady, Terminal
+from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.workspace import NumpyWorkspace
+from solprop.backends.session import Start
 from solprop.driver import Simulation
 from solprop.driver import tdse as runtime_module
 from solprop.exceptions import (
@@ -175,26 +180,37 @@ def test_fused_predictor_failure_charges_both_ledgers_before_invocation(formulat
         problem, run_request, grid=simulation.grid, tdse_binding=binding
     )
     try:
-        backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
-        initial = backend.observe()
-        assert backend._adams is not None
+        session = backend.prepare(problem, bare(run_request)).start(
+            Start.entrance(problem), owns=False
+        )
+        launch = session.advance()
+        (opened,) = launch.events
+        assert isinstance(opened, ObservationReady)
+        initial = session.export(opened.ticket, IDENTITY)
+        session.acknowledge(launch.receipt)
+        march = cast("Any", backend.march)
+        assert isinstance(march, HostAdamsMarch)
         # The interaction formulation's fused path, or the exponential one's own.
-        assert (cast("Any", backend._adams._engine)._exponential is None) is (
+        assert (cast("Any", march._engine)._exponential is None) is (
             formulation == "interaction"
         )
-        with pytest.raises(BackendError, match="predictor chunk failure"):
-            backend.propagate_to(simulation.grid.length)
-        actual = backend.observe()
+        terminal = session.advance().terminal
+        assert isinstance(terminal, Terminal)
+        assert isinstance(terminal.error, BackendError)
+        assert "predictor chunk failure" in str(terminal.error)
+        assert terminal.ticket is not None
+        actual = session.export(terminal.ticket, IDENTITY)
+        session.close()
         assert binding.purposes == ["startup", "predictor"]
         assert binding.ledger.logical_evaluations == 2
         assert binding.ledger.attempted == 3
         assert binding.ledger.failed_calls == 1
         assert binding.ledger.reserved == 0
-        calls = backend._adams.ledger
+        calls = march.ledger
         assert (calls.startup, calls.predictor, calls.corrected) == (1, 1, 0)
         assert calls.accepted_steps == calls.rejected_steps == 0
-        assert actual.z == initial.z == simulation.initial_z
-        assert_array_equal(actual.field, initial.field)
+        assert terminal.z == opened.z == simulation.initial_z
+        assert_array_equal(actual, initial)
     finally:
         backend.close()
         binding.close()
@@ -311,16 +327,17 @@ def test_dense_observation_failure_records_actual_checkpoint_landing(
     monkeypatch, step_planes
 ):
     simulation = _dense_simulation(step_planes=step_planes)
-    original = NumpyRefBackend.stats
+    original = NumpyWorkspace.stats
     observed = []
 
-    def fail_second(self, spec):
-        observed.append(self._z)
+    # The session evaluates each observation's statistics on its workspace.
+    def fail_second(self, spec, z):
+        observed.append(z)
         if len(observed) == 2:
             raise DriverError("manufactured observation statistics failure")
-        return original(self, spec)
+        return original(self, spec, z)
 
-    monkeypatch.setattr(NumpyRefBackend, "stats", fail_second)
+    monkeypatch.setattr(NumpyWorkspace, "stats", fail_second)
     output = MemoryOutput()
     with pytest.raises(DriverError, match="observation statistics failure"):
         simulation.run(output, progress="none")

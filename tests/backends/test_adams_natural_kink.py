@@ -100,12 +100,12 @@ def _march(session: Any) -> tuple[dict[str, int], int, list[int]]:
     """Return a session's Adams march: four of its counters, its history's length and
     the order of every accepted step.
 
-    The reference's march is its driver's (:class:`~solprop.backends.host.session.
+    The reference's march is its session's own (:class:`~solprop.backends.host.session.
     HostSession`); the native session's is the native march's state.
     """
     names = ("accepted_steps", "rejected_steps", "restarts", "startup")
     if isinstance(session, HostSession):
-        march = cast("Any", session.driver)._adams
+        march = cast("Any", session)._march
         counters = {name: int(getattr(march.ledger, name)) for name in names}
         return counters, len(march._history), list(march.ledger.orders)
     state = session.native.march_state(0)

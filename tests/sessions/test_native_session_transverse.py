@@ -303,16 +303,15 @@ def test_a_raised_warning_ends_the_run_at_its_endpoint(march):
     def simulation() -> Simulation:
         return packet_run(REREVIEW, integrator=MARCHES[march](), backend="native")
 
+    # Both sessions report the edge's warning as a barrier at its committed endpoint,
+    # whose filters raise it there (SEP 52 section 5.1).
     reference, native = _both(simulation, error=True)
-    terminal = reference.run.terminal
-    assert terminal.outcome is Outcome.FAILED
-    assert isinstance(terminal.error, BoundaryWarning)
-    assert native.raised is not None
-    z, warning = native.raised
-    assert terminal.error is not None
-    assert type(warning) is type(terminal.error)
-    assert masked(str(warning)) == masked(str(terminal.error))
-    assert z == pytest.approx(terminal.z, rel=PLANE_RTOL)
+    assert reference.raised is not None and native.raised is not None
+    (expected_z, expected), (z, warning) = reference.raised, native.raised
+    assert isinstance(expected, BoundaryWarning)
+    assert type(warning) is type(expected)
+    assert masked(str(warning)) == masked(str(expected))
+    assert z == pytest.approx(expected_z, rel=PLANE_RTOL)
     assert [(one.kind, one.plane_index) for one in native.run.observations] == [
         (one.kind, one.plane_index) for one in reference.run.observations
     ]

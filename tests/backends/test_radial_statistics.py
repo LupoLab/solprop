@@ -11,8 +11,9 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from builders import load_reference
 from hankel_oracles import gamma
-from sessions.runs import launch_statistics
+from sessions.runs import bare, final_field, launch_statistics
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.spatial import collect_spatial
 from solprop.exceptions import BackendError
@@ -123,10 +124,11 @@ def test_radial_statistics_match_the_host_without_field_observation(
     oracle = NumpyRefBackend(problem, run_request, grid=grid)
     backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
-        oracle.set_initial(problem.initial.field0, None)
-        if steps:
-            oracle.propagate_to(grid.length)
-        state = oracle.observe().require_field()
+        state = (
+            final_field(oracle, problem, bare(run_request), ended=True)
+            if steps
+            else load_reference(oracle)
+        )
         reference = collect(spec, grid, SavedPlane(z=0.0, field=state), flux=flux)
         bounds = statistic_bounds(grid, space, state, reference, flux)
         # The backend's own session observes the state as its launch plane; the

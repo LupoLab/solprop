@@ -47,8 +47,7 @@ from solprop.backends.events import (
     join_attempts,
 )
 from solprop.backends.export import ExportRecipe
-from solprop.backends.host.session import HostSession
-from solprop.backends.protocol import Backend, BackendHistory, HostStepping
+from solprop.backends.protocol import Backend, BackendHistory
 from solprop.backends.protocol import StepStats as BackendRows
 from solprop.backends.session import RunSession
 from solprop.driver.plane_view import PlaneWatch
@@ -429,10 +428,9 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
 ) -> None:
     """Advance a session to its end, servicing every event it reports.
 
-    Any :class:`~solprop.backends.session.RunSession` is served: the reference's
-    :class:`~solprop.backends.host.session.HostSession`, whose driver gives the
-    execution facts and method history, or a backend's own session, through its
-    protocol alone (:class:`~solprop.driver.run.SessionFacts`).
+    Any :class:`~solprop.backends.session.RunSession` is served -- the reference's
+    :class:`~solprop.backends.host.session.HostSession` or the native backend's --
+    through its protocol alone (:class:`~solprop.driver.run.SessionFacts`).
 
     Parameters
     ----------
@@ -932,14 +930,12 @@ def _fallback_ticket(session: RunSession) -> ExportTicket | None:
     return session.pending_ticket()
 
 
-def _facts(session: RunSession) -> HostStepping | SessionFacts:
+def _facts(session: RunSession) -> SessionFacts:
     """Return what the service loop's records read as the session's backend.
 
-    The reference session's driver, or a session's own facts
-    (:class:`~solprop.driver.run.SessionFacts`).
+    The session's own facts (:class:`~solprop.driver.run.SessionFacts`), through its
+    protocol: every session reports them through ``execution_record``.
     """
-    if isinstance(session, HostSession):
-        return session.driver
     return SessionFacts(session)
 
 
@@ -1160,7 +1156,7 @@ class _MarchKeeper:
     def __init__(
         self,
         output: Output,
-        backend: HostStepping | SessionFacts,
+        backend: SessionFacts,
         policy: bool | None,
         *,
         method: Literal["adams", "rk", "low_storage"] = "adams",

@@ -4,12 +4,12 @@
 
 """The reference's Runge-Kutta march, adaptive and replayed (SEP 45, SEP 52).
 
-:class:`RungeKuttaMarch` holds the march's state (:class:`~solprop.backends.host.
-marches.MarchState`) and makes its decisions with :mod:`solprop.backends.rk_core`'s
-functions of one policy record; every state-sized operation is its engine's
-(:class:`~solprop.backends.engines.RungeKuttaEngine`). It is the counterpart of
-native's ``rk_march.cpp``, whose decisions on identical inputs are its own (the
-decision traces of ``tests/backends``).
+:class:`RungeKuttaMarch` holds the march's state
+(:class:`~solprop.backends.host.marches.MarchState`) and makes its decisions with
+:mod:`solprop.backends.rk_core`'s functions of one policy record; every state-sized
+operation is its engine's (:class:`~solprop.backends.engines.RungeKuttaEngine`). It is
+the counterpart of native's ``rk_march.cpp``, whose decisions on identical inputs are
+its own (the decision traces of ``tests/backends``).
 
 **The controller's state is its own proposal**, never the clipped or stretched step
 that was executed, and what the history and a rejection see is the norm the proposal
@@ -46,8 +46,7 @@ class RungeKuttaMarch:
     Parameters
     ----------
     engine : solprop.backends.engines.RungeKuttaEngine
-        The engine; beside the protocol, the march's dense observation calls its
-        ``hold``, ``restore`` and ``observe``, and a load its ``reset``.
+        The engine.
     policy : solprop.backends.records.RungeKuttaPolicy
         The controller and the landings.
     host : solprop.backends.host.marches.MarchHost
@@ -84,13 +83,19 @@ class RungeKuttaMarch:
         self.state = MarchState(
             z=0.0, proposal=proposal, norms=deque(maxlen=policy.controller.lag + 2)
         )
-        # The march's own position and state while an interpolated plane is observed.
-        self._ahead: tuple[float, object] | None = None
+        # The step of the trial last begun, which an engine stepping in place may
+        # leave in flight (the commit contract, SEP 52 section 5.2).
+        self._trying = (0.0, 0.0)
 
     @property
-    def holding(self) -> bool:  # numpydoc ignore=RT01
-        """Whether a dense observation holds the state at a plane, the march ahead."""
-        return self._ahead is not None
+    def engine(self) -> object:  # numpydoc ignore=RT01
+        """Engine the march steps through."""
+        return self._engine
+
+    @property
+    def in_flight(self) -> tuple[float, float] | None:  # numpydoc ignore=RT01
+        """The step its engine left in flight, its start and length, m; or ``None``."""
+        return self._trying if self._engine.in_flight else None
 
     def load(self, z: float, proposal: float, cursor: int) -> None:
         """Start afresh at a loaded position.
@@ -105,8 +110,6 @@ class RungeKuttaMarch:
             The replay cursor at `z`.
         """
         self.state.load(z, proposal, cursor)
-        self._ahead = None
-        self._engine.reset()  # pyright: ignore[reportAttributeAccessIssue]
 
     def advance(self, target: float) -> None:
         """Replay the schedule, or step adaptively, towards `target`.
@@ -136,14 +139,6 @@ class RungeKuttaMarch:
         """
         policy, host, state, engine = self._policy, self._host, self.state, self._engine
         dense = policy.interpolate
-        if dense and self._ahead is not None:
-            # The march is ahead of the last interpolated plane; resume it there.
-            z, held = self._ahead
-            engine.restore(z, held)  # pyright: ignore[reportAttributeAccessIssue]
-            state.z = z
-            self._ahead = None
-        if host.natural_stop_due(target):
-            return
         # The policy's landings (SEP 45 section 4.2): only the operator table's two
         # ends bound a step without the interval cap (SEP 14 section 4.1), and dense
         # output steps across the save planes, still landing on the end of the run and
@@ -163,6 +158,7 @@ class RungeKuttaMarch:
             # from a sliver and it regrows at the growth cap, which over two hundred
             # planes costs more steps than the run needs between them (stepper.md 3).
             stop = landing(state.z, host.cap(state.proposal, state.z), targets)
+            self._trying = (state.z, stop.dz)
             norm = engine.trial(state.z, stop.dz)
             # What the controller learns from, and what a rejection is scaled by, is the
             # norm the *proposal* would have scored; what decides acceptance, and what
@@ -177,7 +173,7 @@ class RungeKuttaMarch:
             if accepted:
                 if dense and not reached(target, end):
                     # The step crosses the plane: hold its extension for the
-                    # observation, and for any later plane it also crosses.
+                    # session's observation, and for any later plane it crosses.
                     engine.extend(state.z, stop.dz)
                 with committing():
                     record = engine.accept(stop.dz)
@@ -197,19 +193,6 @@ class RungeKuttaMarch:
                     return
             else:
                 state.proposal = rk_core.reject(policy, state.proposal, equivalent)
-        if dense and not reached(target, state.z):
-            self._observe_inside(target)
-
-    def _observe_inside(self, position: float) -> None:
-        """Make the state the interpolated field at `position` and hold the march's.
-
-        - ``position``: the plane, m, inside the last accepted step.
-        """
-        engine, state = self._engine, self.state
-        observed = engine.observe(position)  # pyright: ignore[reportAttributeAccessIssue]
-        self._ahead = (state.z, engine.hold())  # pyright: ignore[reportAttributeAccessIssue]
-        engine.restore(position, observed)  # pyright: ignore[reportAttributeAccessIssue]
-        state.z = position
 
     def _start_up(self, norm: float) -> None:
         """Take the step after the first from the first step's own estimate.
@@ -256,6 +239,7 @@ class RungeKuttaMarch:
         while state.cursor < schedule.n_steps and state.z < target - slack:
             host.poll_stop()
             dz = float(schedule.steps[state.cursor])
+            self._trying = (state.z, dz)
             norm = engine.trial(state.z, dz)
             if not math.isfinite(norm):
                 msg = (

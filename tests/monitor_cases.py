@@ -22,9 +22,10 @@ from typing import Any, cast
 
 import numpy as np
 
+from builders import load_reference
 from capability_routes import LENGTH, ROUTES
 from solprop.backends.events import Terminal
-from solprop.backends.host.driver import HostDriver
+from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import select
 from solprop.backends.session import ExecutionOptions, Start
@@ -153,24 +154,23 @@ def with_copy(field: np.ndarray, n_t: int) -> np.ndarray:
     return field * (1.0 + COPY_SHARE * phase)
 
 
-def as_driver(backend: Backend) -> HostDriver[Any]:
-    """Return the reference backend as its step driver.
+def as_reference(backend: Backend) -> NumpyRefBackend:
+    """Return the reference backend, whose workspace a test loads and reads directly.
 
     Raises
     ------
     TypeError
-        For any other backend: since SEP 47 phase 5 the native backend has no direct
-        driver API, and its monitor is read through its session
+        For any other backend: the native backend's state is read through its session
         (:func:`record_after_march`, or a session's ``monitor_record``).
     """
-    if not isinstance(backend, HostDriver):
+    if not isinstance(backend, NumpyRefBackend):
         msg = (
-            f"{type(backend).__name__} has no step driver to load and read directly; "
+            f"{type(backend).__name__} has no workspace to load and read directly; "
             "read its boundary monitor through its session "
             "(monitor_cases.record_after_march or RunSession.monitor_record)"
         )
         raise TypeError(msg)
-    return cast("HostDriver[Any]", backend)
+    return backend
 
 
 def watched(
@@ -182,13 +182,15 @@ def watched(
 ) -> Backend:
     """Return the reference backend loaded with the edge-reaching launch and watched.
 
-    `options` default to the simulation's own execution options; `problem` and
-    `run_request` to its own translation.
+    Its workspace holds the launch and reads the simulation's boundary monitor, as a
+    session's attached monitor has it read; nothing is judged. `options` default to
+    the simulation's own execution options; `problem` and `run_request` to its own
+    translation.
 
     Raises
     ------
     TypeError
-        For a backend other than the reference (:func:`as_driver`).
+        For a backend other than the reference (:func:`as_reference`).
     """
     problem = simulation.translate() if problem is None else problem
     run_request = simulation._run_request() if run_request is None else run_request
@@ -202,28 +204,39 @@ def watched(
         options=simulation.settings.execution_options() if options is None else options,
     )
     try:
-        driver = as_driver(backend)
+        reference = as_reference(backend)
     except TypeError:
         backend.close()
         raise
-    driver.set_initial(with_copy(problem.initial.field0, simulation.grid.n_t), None)
+    load_reference(reference, with_copy(problem.initial.field0, simulation.grid.n_t))
     monitor = simulation._boundary_monitor()
     assert monitor is not None
-    driver.attach_monitor(monitor)
+    if monitor.split:
+        # The split collar's crossing limit, which a reading's occupancy needs.
+        monitor.crossing = problem.split_crossing
+    reference.workspace.bind_monitor(monitor)
     return backend
 
 
 def reading(backend: Backend) -> BoundaryEnergies:
     """Return the reference backend's reading of its current state.
 
+    The workspace's reading of the committed state, with nothing taken by a split since
+    the load, as a session's first reading after attaching its monitor.
+
     Raises
     ------
     TypeError
-        For a backend other than the reference (:func:`as_driver`).
+        For a backend other than the reference (:func:`as_reference`).
     """
-    driver = as_driver(backend)
-    driver._require_state()
-    return driver._boundary_energies()
+    reading = as_reference(backend).workspace.reading()
+    return BoundaryEnergies(
+        total=reading.total,
+        regions=reading.regions,
+        removed=0.0,
+        found=None,
+        occupancy=reading.occupancy,
+    )
 
 
 def record_after_march(
@@ -278,7 +291,7 @@ def record_after_march(
                 raise terminal.error
         record = session.monitor_record()
         assert record is not None
-        if isinstance(backend, HostDriver):
+        if isinstance(backend, NumpyRefBackend):
             cap = float(monitor.step_cap)
         else:
             cap = float(cast("Any", session).monitor_cap())

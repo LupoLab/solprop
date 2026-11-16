@@ -9,9 +9,11 @@ A march -- :class:`~solprop.backends.host.runge_kutta.RungeKuttaMarch`,
 :class:`~solprop.backends.host.low_storage.HostLowStorageMarch` -- keeps its
 position, proposal, replay cursor and accepted norms in a :class:`MarchState` of its
 own, hands every state-sized operation to its engine
-(:mod:`solprop.backends.engines`) and asks the session only through the narrow
+(:mod:`solprop.backends.engines`) and asks the session that schedules it
+(:class:`~solprop.backends.host.session.HostSession`) only through the narrow
 :class:`MarchHost`: whether to stop, how far a step may go, and what to record when an
-attempt ends. It touches no other object's fields; the session reads its state.
+attempt ends. It touches no other object's fields; the session reads its state, and
+holds the dense observation of a plane a step crossed (SEP 52 section 5.2).
 """
 
 from collections import deque
@@ -30,8 +32,7 @@ class MarchState:
     Attributes
     ----------
     z : float
-        The committed state's position, m; while a dense observation holds a plane,
-        the plane's.
+        The committed state's position, m.
     proposal : float
         The controller's proposal, m: its own state, never the executed step.
     cursor : int
@@ -67,8 +68,9 @@ class MarchState:
 class MarchHost(Protocol):
     """What a march asks of the session that schedules it.
 
-    The reference's step driver implements it today; SEP 52 moves it into the
-    reference's session.
+    The reference's session implements it
+    (:class:`~solprop.backends.host.session.HostSession`); a decision-trace harness
+    scripts it.
     """
 
     @property
@@ -125,7 +127,7 @@ class MarchHost(Protocol):
         ...
 
     def stepped(self) -> None:
-        """Account the step just committed: the monitor and the statistics row."""
+        """Account the step just committed: the monitor, the edge and the row."""
         ...
 
     def natural_stop(self, target: float) -> bool:
@@ -139,22 +141,7 @@ class MarchHost(Protocol):
         Returns
         -------
         bool
-            Whether a step plane or a halt stops the march here.
-        """
-        ...
-
-    def natural_stop_due(self, target: float) -> bool:
-        """Return whether a step to save, or a halt, ends the march where it stands.
-
-        Parameters
-        ----------
-        target : float
-            The position the call is stepping to, m.
-
-        Returns
-        -------
-        bool
-            Whether the march returns at once.
+            Whether a step plane, a halt or a warning barrier stops the march here.
         """
         ...
 
@@ -183,6 +170,6 @@ def in_flight_refusal(name: str, z: float, dz: float) -> str:
     return (
         f"{name}: the low-storage step of {dz:.6g} m from z = {z:.6g} m was "
         "abandoned in flight, and the state it was accepting in place holds "
-        "neither end of the step; load a state with set_initial (resume from the "
-        "last saved plane) before observing or propagating again"
+        "neither end of the step; start a new session from the last saved plane "
+        "before observing or propagating again"
     )

@@ -30,7 +30,7 @@ import numpy as np
 import pytest
 
 import flow_parity
-from builders import reference_trial
+from builders import load_reference, reference_trial
 from flow_parity import QUIET, STEPS, UNIT, build, reference_formation_bound
 from native_flow_guards import check_flow_conditioning as check_native
 from sessions.runs import load_native, native_trial
@@ -255,9 +255,8 @@ def test_the_partials_read_a_mask_with_a_hard_zero_and_the_old_norm_before_the_a
         patch.setattr(reference_passes, "error_norm", capture)
         reference = NumpyRefBackend(problem, run_request, grid=grid)
         try:
-            reference.set_initial(field, None)
+            expected_state = load_reference(reference, field).copy()
             reference_trial(reference, 0.0, dz)
-            expected_state = reference._require_state().copy()
         finally:
             reference.close()
 

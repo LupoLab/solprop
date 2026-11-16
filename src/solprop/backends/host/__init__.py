@@ -4,11 +4,13 @@
 
 """The NumPy reference's own host execution machinery (SEP 47 phase 2).
 
-The stateful control the reference session runs on: the step driver
-(:mod:`solprop.backends.host.driver`), the Adams march
-(:mod:`~solprop.backends.host.adams`), the low-storage march
-(:mod:`~solprop.backends.host.low_storage`) and the reference's run session
-(:mod:`~solprop.backends.host.session`). The reference shares only stateless
+The stateful control of the reference's runs: the reference's run session
+(:mod:`~solprop.backends.host.session`), which schedules a run and drives its march,
+and the marches it drives -- the Runge-Kutta march
+(:mod:`~solprop.backends.host.runge_kutta`), the Adams march
+(:mod:`~solprop.backends.host.adams`) and the low-storage march
+(:mod:`~solprop.backends.host.low_storage`) -- with what every march holds and asks
+(:mod:`~solprop.backends.host.marches`). The reference shares only stateless
 numerical modules with the native backend -- the controller cores, tableaux, stage
 tables, the exponential coefficients, the Adams and low-storage host engines
 (:class:`~solprop.backends.numpy_ref.multistep.HostHistory`,

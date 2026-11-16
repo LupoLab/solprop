@@ -42,7 +42,7 @@ class HostLowStorageMarch:
     Parameters
     ----------
     engine : solprop.backends.engines.RungeKuttaEngine
-        The engine; beside the protocol, a load calls its ``reset``.
+        The engine.
     method : solprop.stepper.low_storage.LowStorageRungeKutta
         The march.
     host : solprop.backends.host.marches.MarchHost
@@ -105,11 +105,6 @@ class HostLowStorageMarch:
         return self._engine
 
     @property
-    def holding(self) -> bool:  # numpydoc ignore=RT01
-        """Whether a dense observation holds a plane; never, on this march."""
-        return False
-
-    @property
     def in_flight(self) -> tuple[float, float] | None:  # numpydoc ignore=RT01
         """The step a failure left in flight, its start and length, m; or ``None``."""
         return self._pending if self._engine.in_flight else None
@@ -127,7 +122,6 @@ class HostLowStorageMarch:
             The replay cursor at `z`.
         """
         self.state.load(z, proposal, cursor)
-        self._engine.reset()  # pyright: ignore[reportAttributeAccessIssue]
         self._pending = None
         # Its count is the loaded run's, as the Adams ledger is (SEP 22 4.7).
         self.source_evaluations = 0

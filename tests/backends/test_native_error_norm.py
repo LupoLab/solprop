@@ -32,7 +32,7 @@ import numpy as np
 import pytest
 
 from bounds import EPS, gamma, higham_gamma
-from builders import reference_trial
+from builders import load_reference, reference_trial
 from sessions.runs import load_native, native_trial, run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stepper import PIController
@@ -92,7 +92,7 @@ def _operands(backend, reference, problem, run_request, dz):
         np.asarray(_testing.stage_to_host(state, index)).reshape(shape)
         for index in range(len(tableau.nodes))
     ]
-    reference.set_initial(problem.initial.field0, None)
+    load_reference(reference)
     reference_trial(reference, 0.0, dz)
     step = reference.workspace.stage_scalars(0.0, dz)
     propagator = np.exp(reference.workspace.exponents(0.0, dz)(1.0, step))
@@ -157,7 +157,7 @@ def test_a_whole_trial_scores_as_the_reference_s_trial_does(
     reference = NumpyRefBackend(problem, run_request, grid=field_grid)
     backend, score = _native_trial(problem, run_request, field_grid, dz)
     try:
-        reference.set_initial(problem.initial.field0, None)
+        load_reference(reference)
         wanted, _ = reference_trial(reference, 0.0, dz)
     finally:
         backend.close()
@@ -253,7 +253,7 @@ def test_a_weighted_controller_scores_as_the_reference_s_does(
     reference = NumpyRefBackend(problem, run_request, grid=field_grid)
     backend, score = _native_trial(problem, run_request, field_grid, dz)
     try:
-        reference.set_initial(problem.initial.field0, None)
+        load_reference(reference)
         wanted, _ = reference_trial(reference, 0.0, dz)
     finally:
         backend.close()

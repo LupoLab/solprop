@@ -31,6 +31,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from bounds import assert_within, fft_bound, higham_gamma
+from builders import load_reference
 from legacy_geometry import LEGACY_GRID
 from modal_provider_cases import (
     GENERAL_CHI3 as CHI3,
@@ -39,7 +40,7 @@ from modal_provider_cases import (
     GENERAL_Z_END as Z_END,
 )
 from modal_provider_cases import general_case as strand_case
-from sessions.runs import launch_statistics
+from sessions.runs import bare, final_field, launch_statistics, summary
 from sessions.runs import run as session_run
 from solprop import fourier
 from solprop import stats as stats_module
@@ -575,11 +576,11 @@ def test_a_millimetre_of_one_channel_accumulates_the_self_phase(
     index, state = continuous_wave(case, [9.5e3])
     problem, run_request = general_problem(case, state)
     backend = NumpyRefBackend(problem, run_request, grid=case.grid)
-    backend.set_initial(problem.initial.field0, None)
-    summary = backend.propagate_to(length)
-    final = backend.observe().require_field()[0, 0, index]
+    result = session_run(backend, problem, bare(run_request))
+    assert result.observations[-1].z == length
+    final = result.fields[-1][0, 0, index]
     backend.close()
-    assert summary.met_tolerance
+    assert summary(result).met_tolerance
 
     omega = float(case.grid.omega[index])
     sample = case.table.evaluate(omega, 0.0)
@@ -665,8 +666,10 @@ def test_the_reference_executes_a_dense_metric_of_a_declared_basis(circular_stra
     assert problem.linear.modal_metric is not None
     assert problem.linear.modal_metric.kind == "dense"
     backend = NumpyRefBackend(problem, run_request, grid=circular_strand.grid)
-    backend.set_initial(problem.initial.field0, None)
-    values = backend.stats(StatsSpec(names=("physical_energy", "analytic_flux")))
+    load_reference(backend)
+    values = backend.workspace.stats(
+        StatsSpec(names=("physical_energy", "analytic_flux")), problem.initial.z
+    )
     assert set(values) == {"physical_energy", "analytic_flux"}
     # The metric is handed over, so the numbers are the weighted ones. What sets
     # the difference is the **stored block's** departure from the identity at the
@@ -687,7 +690,9 @@ def test_the_reference_executes_a_dense_metric_of_a_declared_basis(circular_stra
         assert_allclose(float(value), plain[name], rtol=2 * departure, atol=0.0)
     # The unlaunched partner carries only the whitening's rounding, so it has no
     # centroid to report: the guard is relative to the plane, not to zero.
-    centroid = backend.stats(StatsSpec(names=("omega0",)))["omega0"]
+    centroid = backend.workspace.stats(StatsSpec(names=("omega0",)), problem.initial.z)[
+        "omega0"
+    ]
     assert np.isfinite(centroid[0, 0])
     assert np.isnan(centroid[1, 0])
     backend.close()
@@ -1296,9 +1301,7 @@ def test_a_linear_guide_does_not_run_the_source_pass(strand, monkeypatch):
     )
 
     def step(backend):
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(plane)
-        field = backend.observe().require_field().copy()
+        field = final_field(backend, problem, bare(run_request), z=plane).copy()
         backend.close()
         return field
 
@@ -1360,9 +1363,7 @@ def test_the_route_carries_the_in_stage_absorber(strand):
             scheme is not None
         )
         backend = NumpyRefBackend(problem, run_request, grid=case.grid)
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(plane)
-        field = backend.observe().require_field()[0, 0]
+        field = final_field(backend, problem, bare(run_request), z=plane)[0, 0]
         backend.close()
         traces[scheme] = np.abs(fourier.inverse(field[None], kind="field")[0])
     middle = len(traces[None]) // 2

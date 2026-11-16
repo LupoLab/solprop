@@ -22,6 +22,7 @@ import math
 from collections import deque
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Any, cast
 
 import numpy as np
@@ -37,7 +38,38 @@ from solprop.stepper.controller import limit_step
 from solprop.stepper.multistep import MarchPolicy, Multistep
 from solprop.stepper.schedule import FixedSchedule, landing, reached, replay_tolerance
 
-__all__ = ["HostAdamsMarch"]
+__all__ = ["AcceptedStep", "HostAdamsMarch"]
+
+
+@dataclass(frozen=True, eq=False)
+class AcceptedStep:
+    """The last accepted step, as the session's dense observation reads it.
+
+    The counterpart of a native march call's ``step_z``, ``step_dz``, ``step_order``,
+    ``step_nodes`` and ``step_carrier``. Equality is by identity (``eq=False``)
+    because it holds an array.
+
+    Attributes
+    ----------
+    z : float
+        Where the step started, m.
+    dz : float
+        Its length, m.
+    order : int
+        Its order.
+    nodes : tuple of float
+        The history's normalised positions it read, newest first, ``order`` of them.
+    carrier : numpy.ndarray
+        Its trial's carrier rotations
+        (:meth:`~solprop.backends.engines.AdamsEngine.step_carrier`); empty without a
+        carrier frame.
+    """
+
+    z: float
+    dz: float
+    order: int
+    nodes: tuple[float, ...]
+    carrier: np.ndarray
 
 
 class HostAdamsMarch:
@@ -46,10 +78,7 @@ class HostAdamsMarch:
     Parameters
     ----------
     engine : solprop.backends.engines.AdamsEngine
-        The engine that holds the history's rows. Beside the protocol, the march's
-        dense observation calls its ``hold``, ``restore`` and ``observe``, a load its
-        ``reset``, and a snapshot its ``n_slots``, ``snapshot_rows``,
-        ``snapshot_nbytes`` and ``load_rows``; SEP 52 moves those to the session.
+        The engine that holds the history's rows.
     method : solprop.stepper.multistep.Multistep
         The method.
     host : solprop.backends.host.marches.MarchHost
@@ -57,11 +86,13 @@ class HostAdamsMarch:
     policy : solprop.stepper.multistep.MarchPolicy
         Every number the controller and the landings read (SEP 39 section 4.2).
     field : callable
-        Returns the committed state, for a snapshot and a budget's error.
+        Returns the committed state, for a budget's error.
     schedule : solprop.stepper.schedule.FixedSchedule or None, optional
         The schedule to replay, or ``None`` to step adaptively.
     interpolate : bool, optional
-        Whether the run interpolates its planes (ADR-036, ADR-039).
+        Whether the run interpolates its planes (ADR-036, ADR-039): each accepted
+        step's record is then kept for the session's dense observation
+        (:attr:`last_step`).
     shape : tuple of int, optional
         The state's shape, which a snapshot's is checked against.
     proposal : float, optional
@@ -77,6 +108,9 @@ class HostAdamsMarch:
         The march's position, proposal, cursor and accepted norms.
     ledger : solprop.backends.ledger.CallLedger
         The run's call counts.
+    last_step : AcceptedStep or None
+        The last accepted step of an interpolated run; ``None`` before one, and
+        always without interpolation.
 
     Raises
     ------
@@ -115,7 +149,9 @@ class HostAdamsMarch:
         self._rejections = 0
         self._last_rejected = False
         self._order = 1 if method.variable_order else method.order
-        self._ahead: tuple[float, object] | None = None
+        # The engine's history rows: the method's order and two more.
+        self._n_slots = method.order + 2
+        self.last_step: AcceptedStep | None = None
         self.ledger = CallLedger()
         # Whether the stages left a quiet collar out at the last attempt: the step
         # after it returns is held to the collar's stable step (`_collar_reentry`).
@@ -123,11 +159,6 @@ class HostAdamsMarch:
         # A floor an attempt's next proposal fell below, raised once the attempt is
         # recorded (`_propose`, `_reject`, `_raise_floor`).
         self._floor: ConvergenceError | None = None
-
-    @property
-    def holding(self) -> bool:  # numpydoc ignore=RT01
-        """Whether a dense observation holds the state at a plane, the march ahead."""
-        return self._ahead is not None
 
     def load(self, z: float, proposal: float, cursor: int) -> None:
         """Start a run afresh at a loaded position.
@@ -154,8 +185,7 @@ class HostAdamsMarch:
         self._floor = None
         self._history = []
         self._rejections = 0
-        self._engine.reset()  # pyright: ignore[reportAttributeAccessIssue]
-        self._ahead = None
+        self.last_step = None
 
     def restore_ledger(self, logical: Mapping[str, object]) -> None:
         """Continue a resumed run's cumulative call counts.
@@ -168,77 +198,75 @@ class HostAdamsMarch:
         """
         self.ledger = CallLedger.from_record(logical)
 
-    def snapshot(self) -> MarchSnapshot | None:
-        """Return the march's state at its accepted position, for a resume.
+    def snapshot_fields(self) -> dict[str, Any] | None:
+        """Return the march's part of a snapshot at its accepted position.
+
+        The session adds the state and the engine's rows
+        (:class:`~solprop.output.records.MarchSnapshot`'s ``state`` and ``rows``).
 
         Returns
         -------
-        solprop.output.records.MarchSnapshot or None
-            The snapshot, or ``None`` where there is nothing a resume could continue:
-            no history yet, or the march ahead of an interpolated observation.
+        dict or None
+            The snapshot's other fields, or ``None`` with no history to continue.
         """
-        if not self._history or self._ahead is not None:
+        if not self._history:
             return None
-        export = self._engine.snapshot_rows  # pyright: ignore[reportAttributeAccessIssue]
         state = self.state
-        return MarchSnapshot(
-            z=float(state.z),
-            state=np.array(self._field(), dtype=np.complex128, copy=True),
-            proposal=float(state.proposal),
-            method=repr(self._method),
-            order=int(self._order),
-            rejections=int(self._rejections),
-            last_rejected=bool(self._last_rejected),
-            positions=np.array([entry.z for entry in self._history], dtype=np.float64),
-            identities=tuple(entry.identity for entry in self._history),
-            slots=np.array([entry.row for entry in self._history], dtype=np.int64),
-            rows=export(),
-            collar_was_quiet=self._collar_was_quiet,
-            history_key=self._method.history_key,
-        )
+        return {
+            "z": float(state.z),
+            "proposal": float(state.proposal),
+            "method": repr(self._method),
+            "order": int(self._order),
+            "rejections": int(self._rejections),
+            "last_rejected": bool(self._last_rejected),
+            "positions": np.array(
+                [entry.z for entry in self._history], dtype=np.float64
+            ),
+            "identities": tuple(entry.identity for entry in self._history),
+            "slots": np.array([entry.row for entry in self._history], dtype=np.int64),
+            "collar_was_quiet": self._collar_was_quiet,
+            "history_key": self._method.history_key,
+        }
 
-    def snapshot_nbytes(self) -> int | None:
-        """Return the bytes :meth:`snapshot` would copy, copying nothing.
+    @property
+    def in_flight(self) -> None:  # numpydoc ignore=RT01
+        """No step in flight: an Adams trial never overwrites the committed state."""
+        return
 
-        Returns
-        -------
-        int or None
-            The state and every engine row, or ``None`` where :meth:`snapshot` returns
-            ``None``.
-        """
-        if not self._history or self._ahead is not None:
-            return None
-        state = math.prod(self._shape) * np.dtype(np.complex128).itemsize
-        return state + self._engine.snapshot_nbytes()  # pyright: ignore[reportAttributeAccessIssue]
+    @property
+    def has_history(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the march holds a history a snapshot could continue."""
+        return bool(self._history)
 
-    def load_snapshot(self, snapshot: MarchSnapshot) -> str | None:
-        """Continue from a snapshot taken where the march now stands.
-
-        The state was loaded at the snapshot's position; this installs the accepted
-        state exactly as it was held, the history, the order, the rejection count and
-        the proposed step, so that the march goes on as the uninterrupted one would
-        have. Nothing is changed when the snapshot cannot be used.
+    def refusal(self, snapshot: MarchSnapshot) -> str | None:
+        """Return why a snapshot cannot continue this march, or ``None``.
 
         Parameters
         ----------
         snapshot : solprop.output.records.MarchSnapshot
-            What :meth:`snapshot` returned, possibly read back from a file.
+            The snapshot, possibly read back from a file.
 
         Returns
         -------
         str or None
-            ``None`` when the history was continued, otherwise why it starts afresh.
+            The reason, or ``None`` when it can.
         """
-        reason = self._refusal(snapshot)
-        if reason is not None:
-            return reason
-        engine = cast("Any", self._engine)
-        try:
-            engine.load_rows(snapshot.rows, self._shape)
-        except BackendError as error:
-            return str(error)
+        return self._refusal(snapshot)
+
+    def continue_from(self, snapshot: MarchSnapshot) -> None:
+        """Continue from a snapshot taken where the march now stands.
+
+        Installs the history, the order, the rejection count, the flags and the
+        proposed step, so that the march goes on as the uninterrupted one would have;
+        the session installs the state and the engine's rows, once :meth:`refusal`
+        found nothing.
+
+        Parameters
+        ----------
+        snapshot : solprop.output.records.MarchSnapshot
+            The snapshot.
+        """
         self.state.z = snapshot.z
-        engine.restore(snapshot.z, np.array(snapshot.state, copy=True))
         self._history = [
             HistoryEntry(float(z), cast("Any", identity), int(slot))
             for z, identity, slot in zip(
@@ -249,14 +277,12 @@ class HostAdamsMarch:
         self._rejections = snapshot.rejections
         self._last_rejected = snapshot.last_rejected
         self._collar_was_quiet = snapshot.collar_was_quiet
-        self._ahead = None
         self.state.proposal = snapshot.proposal
-        return None
 
     def _refusal(self, snapshot: MarchSnapshot) -> str | None:
         """Return why a snapshot cannot continue this march, or ``None``."""
         z = self.state.z
-        n_slots = cast("Any", self._engine).n_slots
+        n_slots = self._n_slots
         checks = (
             (
                 snapshot.history_key != self._method.history_key,
@@ -311,15 +337,7 @@ class HostAdamsMarch:
         ConvergenceError
             If the proposal falls below the contract's ``dz_min``.
         """
-        host, state, engine = self._host, self.state, cast("Any", self._engine)
-        if self._ahead is not None:
-            # The march is ahead of the last observation; resume it there.
-            z, held = self._ahead
-            engine.restore(z, held)
-            state.z = z
-            self._ahead = None
-        if host.natural_stop_due(target):
-            return
+        host, state = self._host, self.state
         if self._schedule is not None:
             self._replay_to(self._schedule, target)
             return
@@ -345,12 +363,6 @@ class HostAdamsMarch:
                 host.stepped()
                 if host.natural_stop(target):
                     return
-        if self._interpolate and state.z > target:
-            observed = engine.observe(target)
-            self._ahead = (state.z, engine.hold())
-            engine.restore(target, observed)
-            state.z = target
-            self.ledger.dense_observations += 1
 
     def _replay_to(self, schedule: FixedSchedule, target: float) -> None:
         """Replay a prescribed schedule's steps to `target` (SEP 16 section 5).
@@ -592,8 +604,7 @@ class HostAdamsMarch:
         z = self.state.z
         keep = self._history[-policy.order :] if policy.order else []
         used = {entry.row for entry in keep}
-        n_slots = cast("Any", engine).n_slots
-        free = next(slot for slot in range(n_slots) if slot not in used)
+        free = next(slot for slot in range(self._n_slots) if slot not in used)
         with committing():
             record = engine.accept(dz, free, stencil, keep)
             self._host.absorb(record)
@@ -605,6 +616,16 @@ class HostAdamsMarch:
                 order, dict(zip(stencil.orders, norms.tolist(), strict=True)), dz
             )
             self._last_rejected = False
+            if self._interpolate:
+                # The step's record for the session's dense observation, its trial's
+                # carrier rotations among it (`adams_march.cpp`'s `step_carrier`).
+                self.last_step = AcceptedStep(
+                    z=z,
+                    dz=dz,
+                    order=order,
+                    nodes=tuple(stencil.nodes[:order]),
+                    carrier=engine.step_carrier(order),
+                )
             self._land(z, dz, landing)
             self._propose(
                 dz,
@@ -742,14 +763,8 @@ _ENGINE_MEMBERS = (
     "begin_attempt",
     "end_attempt",
     "reading",
-    "n_slots",
-    "reset",
-    "hold",
-    "restore",
-    "observe",
 )
-"""What the march asks of an engine: the protocol, and the members that move to the
-session with SEP 52's step 2."""
+"""What the march asks of an engine: the protocol."""
 
 
 def _check_engine(engine: object) -> None:

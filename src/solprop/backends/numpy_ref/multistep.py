@@ -81,6 +81,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "AdamsKernels",
+    "AdamsRows",
     "CoupledBlock",
     "CoupledExponentialKernels",
     "ExponentialKernels",
@@ -105,12 +106,15 @@ _Factors = Complex[np.ndarray, "n_used 1 1 #n_omega"]
 
 @dataclass
 class _DenseStep:
-    """The last accepted step, in its anchor's frame, for dense observation."""
+    """The last accepted step, in its anchor's frame, for dense observation.
+
+    Its slopes, the new source first; the observation's weights are the session's, from
+    the march's record of the step (:class:`solprop.backends.host.adams.AcceptedStep`).
+    """
 
     z: float
     dz: float
     start: _State
-    nodes: np.ndarray
     slopes: list[_State]
 
 
@@ -1112,17 +1116,19 @@ class CoupledExponentialKernels(ExponentialKernels):
 
 @dataclass
 class _ExponentialStep:
-    """The last accepted exponential step, for dense observation."""
+    """The last accepted exponential step, for dense observation.
+
+    Its samples as stored, the new one first; the observation's coefficients and, under
+    a carrier frame, its rotations are the session's, from the march's record of the
+    step (:class:`solprop.backends.host.adams.AcceptedStep`).
+    """
 
     z: float
     dz: float
     start: _State
     exponent: _State
-    coefficients: np.ndarray
     values: list[_State]
     compensation: tuple[list[float], list[_State]] | None = None
-    shift: np.ndarray | None = None
-    """The accepted trial's carrier shift (SEP 35), ``None`` without one."""
 
 
 @dataclass
@@ -1271,6 +1277,150 @@ class _Compensation:
         return [1.0, *self.nodes[:order]], [self.endpoint.copy(), *history]
 
 
+class AdamsRows:
+    """The Adams history's rows, where the state lives (SEP 52 section 5.2).
+
+    The samples a march's entries name, and for a compensated history each sample's
+    state, rate and frozen-residual weights: what the engine
+    (:class:`HostHistory`) writes at a startup and an accepted step, and what the
+    session exports into a snapshot and installs from one, as native's session reads
+    its resident rows.
+
+    Parameters
+    ----------
+    n_slots : int
+        The rows: the method's order and two more.
+    compensated : bool
+        Whether each sample's state, rate and weights are kept too.
+    name : str, optional
+        The backend's name, for messages.
+
+    Attributes
+    ----------
+    n_slots : int
+        As given.
+    compensated : bool
+        As given.
+    name : str
+        As given.
+    store : numpy.ndarray or None
+        The samples, shape ``(n_slots, n_modes, n_pol, n_omega)``; ``None`` before the
+        first startup.
+    states, rates : numpy.ndarray or None
+        A compensated history's per-sample states and rates, shaped as `store`.
+    weights : list
+        A frozen-residual flow's weights per sample, ``None`` where a sample has none.
+    """
+
+    def __init__(
+        self, n_slots: int, compensated: bool, *, name: str = "numpy_ref"
+    ) -> None:
+        """Hold no rows yet."""
+        self.n_slots = n_slots
+        self.compensated = compensated
+        self.name = name
+        self.store: np.ndarray | None = None
+        self.states: np.ndarray | None = None
+        self.rates: np.ndarray | None = None
+        self.weights: list[np.ndarray | None] = []
+
+    def nbytes(self) -> int:
+        """Return the bytes :meth:`export` would copy, copying nothing.
+
+        Returns
+        -------
+        int
+            The size of every row.
+        """
+        assert self.store is not None
+        rows = [self.store, *self.weights]
+        if self.compensated:
+            assert self.states is not None and self.rates is not None
+            rows += [self.states, self.rates]
+        return sum(int(row.nbytes) for row in rows if row is not None)
+
+    def export(self) -> dict[str, np.ndarray]:
+        """Return copies of the rows a resume needs to continue the history.
+
+        Returns
+        -------
+        dict
+            ``"store"``, the samples; for a compensated march also ``"states"`` and
+            ``"rates"``, and ``"weights_<row>"`` for each row a frozen-residual flow
+            weights.
+        """
+        assert self.store is not None
+        rows = {"store": self.store.copy()}
+        if self.compensated:
+            assert self.states is not None and self.rates is not None
+            rows["states"] = self.states.copy()
+            rows["rates"] = self.rates.copy()
+        for slot, weights in enumerate(self.weights):
+            if weights is not None:
+                rows[f"weights_{slot}"] = np.array(weights, copy=True)
+        return rows
+
+    def install(self, rows: Mapping[str, np.ndarray], shape: tuple[int, ...]) -> None:
+        """Install rows :meth:`export` returned, for a state of `shape`.
+
+        Parameters
+        ----------
+        rows : collections.abc.Mapping
+            The rows, by name.
+        shape : tuple of int
+            The state's shape.
+
+        Raises
+        ------
+        BackendError
+            If a row is missing, does not have the store's shape, or is one this
+            history does not keep -- the native engine's applied frozen-residual
+            generators (``"applied"``) among them.
+        """
+        expected = (self.n_slots, *shape)
+        names = ("store", "states", "rates") if self.compensated else ("store",)
+        # A compensated history keeps a frozen-residual flow's weights per sample.
+        kept = set(names) | (
+            {f"weights_{slot}" for slot in range(self.n_slots)}
+            if self.compensated
+            else set()
+        )
+        foreign = sorted(set(rows) - kept)
+        if foreign:
+            name = self.name
+            if "applied" in foreign:
+                msg = (
+                    f"the {name} backend cannot continue this Adams history: the "
+                    "snapshot holds the native engine's applied frozen-residual "
+                    "generators ('applied'), and this engine keeps each sample's "
+                    "weights instead"
+                )
+            else:
+                msg = (
+                    f"the {name} backend cannot continue this Adams history: its "
+                    f"engine keeps no {foreign} rows"
+                )
+            raise BackendError(msg)
+        for name in names:
+            row = rows.get(name)
+            if row is None or row.shape != expected:
+                msg = (
+                    f"the snapshot's {name!r} rows do not fit a store of shape "
+                    f"{expected}"
+                )
+                raise BackendError(msg)
+        self.store = np.array(rows["store"], dtype=np.complex128, copy=True)
+        if self.compensated:
+            self.states = np.array(rows["states"], dtype=np.complex128, copy=True)
+            self.rates = np.array(rows["rates"], dtype=np.complex128, copy=True)
+        self.weights = [
+            None
+            if f"weights_{slot}" not in rows
+            else np.array(rows[f"weights_{slot}"], copy=True)
+            for slot in range(self.n_slots)
+        ]
+
+
 class HostHistory:
     """The Adams history and its field arithmetic, on host arrays (SEP 16 phase 3b).
 
@@ -1280,11 +1430,11 @@ class HostHistory:
     orders, the entries, rejection, restarts, the budget and the ledger -- and hands
     every state-sized operation to this engine over the workspace: the startup sample,
     a trial's predictor, source, corrector and defect norms, and the adoption and
-    transport of an accepted step. The engine holds the history's rows in a NumPy
-    store; between a trial and its acceptance it holds the trial. Beside the protocol
-    it still holds the last accepted step for dense observation (:meth:`hold`,
-    :meth:`restore`, :meth:`observe`) and the rows a snapshot carries, which SEP 52
-    moves to the session.
+    transport of an accepted step. The engine writes the history's rows into
+    :class:`AdamsRows`, which the session exports and installs; between a trial and its
+    acceptance it holds the trial, and an interpolated run's accepted step keeps what
+    its dense observation reads (:attr:`dense`, :attr:`exponential_dense`;
+    :mod:`solprop.backends.numpy_ref.dense`).
 
     Parameters
     ----------
@@ -1300,6 +1450,22 @@ class HostHistory:
         A varying operator's compensation treatment (SEP 16 Q8).
     interpolate : bool, optional
         Whether an accepted step keeps its interpolant for dense observation.
+    rows : AdamsRows or None, optional
+        The rows to write; new ones by default.
+
+    Attributes
+    ----------
+    rows : AdamsRows
+        The history's rows.
+    dense : object
+        The interaction formulation's last accepted step, for dense observation;
+        ``None`` before one.
+    exponential_dense : object
+        The exponential formulation's, likewise.
+    compensated : bool
+        Whether a varying operator's linear compensation is integrated.
+    carrier : solprop.backends.exponential.CarrierReference or None
+        The exponential formulation's carrier frame; ``None`` for the interaction one.
     """
 
     def __init__(
@@ -1311,6 +1477,7 @@ class HostHistory:
         compensation: Literal["transported", "untransported"],
         *,
         interpolate: bool = False,
+        rows: AdamsRows | None = None,
     ) -> None:
         """Hold the workspace, the kernels and an empty store."""
         self._workspace = workspace
@@ -1338,13 +1505,14 @@ class HostHistory:
         if self.compensated and flow is not None and compensation != "transported":
             msg = "the untransported compensation is a witness for diagonal operators"
             raise BackendError(msg)
-        self._weights: list[np.ndarray | None] = []
+        self.rows = (
+            AdamsRows(method.order + 2, self.compensated, name=workspace.name)
+            if rows is None
+            else rows
+        )
         self._trial_weights: np.ndarray | None = None
-        self._store: np.ndarray | None = None
-        self._states: np.ndarray | None = None
-        self._rates: np.ndarray | None = None
         self.dense: Any = None
-        self._exponential_dense: _ExponentialStep | None = None
+        self.exponential_dense: Any = None
         self._fused_trial: _FusedTrial | None = None
         self._exponential_trial: _ExponentialTrial | None = None
         # SEP 35: the carrier phase each exponential trial removes from the samples
@@ -1362,42 +1530,49 @@ class HostHistory:
         # The last exponential trial's carrier shift and row rotations (SEP 35).
         self._carrier_rows: tuple[np.ndarray, np.ndarray] | None = None
 
-    def reset(self) -> None:
-        """Forget the last accepted step and any trial in flight."""
-        self.dense = None
-        self._exponential_dense = None
-        self._fused_trial = None
-        self._exponential_trial = None
-
     @property
     def n_slots(self) -> int:  # numpydoc ignore=RT01
         """The history store's rows: the method's order and two more."""
-        return self._method.order + 2
+        return self.rows.n_slots
 
-    # --- the accepted state, held across a dense observation --------------------------
+    @property
+    def exponential(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the exponential formulation's arithmetic steps the history."""
+        return self._exponential is not None
 
-    def hold(self) -> object:
-        """Return the accepted state, to restore after a dense observation.
+    # The rows' arrays under the names the arithmetic below reads them by.
 
-        Returns
-        -------
-        object
-            The backend's host copy of the accepted state.
-        """
-        return self._workspace.committed()
+    @property
+    def _store(self) -> np.ndarray | None:
+        return self.rows.store
 
-    def restore(self, z: float, held: object) -> None:
-        """Make a held accepted state current again at `z`.
+    @_store.setter
+    def _store(self, value: np.ndarray | None) -> None:
+        self.rows.store = value
 
-        Parameters
-        ----------
-        z : float
-            Its position, m.
-        held : object
-            What :meth:`hold` returned.
-        """
-        del z
-        self._workspace.install(cast("_State", held))
+    @property
+    def _states(self) -> np.ndarray | None:
+        return self.rows.states
+
+    @_states.setter
+    def _states(self, value: np.ndarray | None) -> None:
+        self.rows.states = value
+
+    @property
+    def _rates(self) -> np.ndarray | None:
+        return self.rows.rates
+
+    @_rates.setter
+    def _rates(self, value: np.ndarray | None) -> None:
+        self.rows.rates = value
+
+    @property
+    def _weights(self) -> list[np.ndarray | None]:
+        return self.rows.weights
+
+    @_weights.setter
+    def _weights(self, value: list[np.ndarray | None]) -> None:
+        self.rows.weights = value
 
     # --- startup ----------------------------------------------------------------------
 
@@ -1684,7 +1859,6 @@ class HostHistory:
                 z=trial.z,
                 dz=trial.dz,
                 start=trial.state.copy(),
-                nodes=np.array([1.0, *trial.nodes[:order]]),
                 slopes=slopes,
             )
         self._kernels.transport(store, keep, trial.propagator, free, trial.source)
@@ -1695,121 +1869,6 @@ class HostHistory:
         finished, record = self._workspace.finish(advanced, dz)
         self._workspace.install(finished)
         return record
-
-    def value(self, slot: int) -> _State:
-        """Return a store row, for the history entry that names it.
-
-        Parameters
-        ----------
-        slot : int
-            The row.
-
-        Returns
-        -------
-        numpy.ndarray
-            The row itself, not a copy.
-        """
-        assert self._store is not None
-        return self._store[slot]
-
-    # --- persistence across a resume --------------------------------------------------
-
-    def snapshot_nbytes(self) -> int:
-        """Return the bytes :meth:`snapshot_rows` would copy, copying nothing.
-
-        Returns
-        -------
-        int
-            The size of every row.
-        """
-        assert self._store is not None
-        rows = [self._store, *self._weights]
-        if self.compensated:
-            assert self._states is not None and self._rates is not None
-            rows += [self._states, self._rates]
-        return sum(int(row.nbytes) for row in rows if row is not None)
-
-    def snapshot_rows(self) -> dict[str, np.ndarray]:
-        """Return copies of the rows a resume needs to continue the history.
-
-        Returns
-        -------
-        dict
-            ``"store"``, the samples; for a compensated march also ``"states"`` and
-            ``"rates"``, and ``"weights_<row>"`` for each row a frozen-residual flow
-            weights.
-        """
-        assert self._store is not None
-        rows = {"store": self._store.copy()}
-        if self.compensated:
-            assert self._states is not None and self._rates is not None
-            rows["states"] = self._states.copy()
-            rows["rates"] = self._rates.copy()
-        for slot, weights in enumerate(self._weights):
-            if weights is not None:
-                rows[f"weights_{slot}"] = np.array(weights, copy=True)
-        return rows
-
-    def load_rows(self, rows: Mapping[str, np.ndarray], shape: tuple[int, ...]) -> None:
-        """Install rows :meth:`snapshot_rows` returned, for a state of `shape`.
-
-        Parameters
-        ----------
-        rows : collections.abc.Mapping
-            The rows, by name.
-        shape : tuple of int
-            The state's shape.
-
-        Raises
-        ------
-        BackendError
-            If a row is missing, does not have the store's shape, or is one this
-            history does not keep -- the native engine's applied frozen-residual
-            generators (``"applied"``) among them.
-        """
-        expected = (self.n_slots, *shape)
-        names = ("store", "states", "rates") if self.compensated else ("store",)
-        # A compensated history keeps a frozen-residual flow's weights per sample.
-        kept = set(names) | (
-            {f"weights_{slot}" for slot in range(self.n_slots)}
-            if self.compensated
-            else set()
-        )
-        foreign = sorted(set(rows) - kept)
-        if foreign:
-            name = self._workspace.name
-            if "applied" in foreign:
-                msg = (
-                    f"the {name} backend cannot continue this Adams history: the "
-                    "snapshot holds the native engine's applied frozen-residual "
-                    "generators ('applied'), and this engine keeps each sample's "
-                    "weights instead"
-                )
-            else:
-                msg = (
-                    f"the {name} backend cannot continue this Adams history: its "
-                    f"engine keeps no {foreign} rows"
-                )
-            raise BackendError(msg)
-        for name in names:
-            row = rows.get(name)
-            if row is None or row.shape != expected:
-                msg = (
-                    f"the snapshot's {name!r} rows do not fit a store of shape "
-                    f"{expected}"
-                )
-                raise BackendError(msg)
-        self.reset()
-        self._store = np.array(rows["store"], dtype=np.complex128, copy=True)
-        if self.compensated:
-            self._states = np.array(rows["states"], dtype=np.complex128, copy=True)
-            self._rates = np.array(rows["rates"], dtype=np.complex128, copy=True)
-        self._weights = [
-            None
-            if f"weights_{slot}" not in rows
-            else np.array(rows[f"weights_{slot}"], copy=True)
-            for slot in range(self.n_slots)
-        ]
 
     # --- the exponential formulation --------------------------------------------------
 
@@ -1983,24 +2042,17 @@ class HostHistory:
         compensation = trial.compensation
         if interpolate:
             # Copied: the store's rows are overwritten by later steps.
-            self._exponential_dense = _ExponentialStep(
+            self.exponential_dense = _ExponentialStep(
                 z=z,
                 dz=dz,
                 start=trial.state.copy(),
                 exponent=trial.exponent,
-                coefficients=trial.corrector[: order + 1, : order + 1].copy(),
-                # Under a carrier frame, the rotated samples and the accepted
-                # trial's own shift, held until the next accepted step.
+                # The samples as stored: under a carrier frame the observation
+                # rotates them by the step's rotations (`AcceptedStep.carrier`).
                 values=[
                     trial.source.copy(),
-                    *(
-                        store[slot].copy()
-                        if trial.factors is None
-                        else trial.factors[index] * store[slot]
-                        for index, slot in enumerate(slots[:order])
-                    ),
+                    *(store[slot].copy() for slot in slots[:order]),
                 ],
-                shift=trial.shift,
                 compensation=None
                 if compensation is None
                 else compensation.observation(
@@ -2074,94 +2126,6 @@ class HostHistory:
             treatment=self._compensation,
             helpers=self._workspace.helpers,
         )
-
-    # --- dense observation ------------------------------------------------------------
-
-    def observe(self, position: float) -> object:
-        """Return the field at `position` inside the last accepted step.
-
-        Parameters
-        ----------
-        position : float
-            The observation, m, inside the last accepted step.
-
-        Returns
-        -------
-        object
-            The masked lab-frame field at `position`, as the backend holds a state:
-            a host array, or Kokkos's native state loaded with it.
-        """
-        if self._exponential is not None:
-            return self._observe_exponential(position)
-        step = cast("_DenseStep | None", self.dense)
-        assert step is not None
-        workspace = self._workspace
-        theta = (position - step.z) / step.dz
-        weights = integrated_weights(
-            step.nodes, theta, check=False, helpers=workspace.helpers
-        )
-        value = step.start + _combine(weights, step.slopes, step.dz)
-        # A bin the linear flow changes by more than an e-fold over the step (the
-        # spectral collar's) takes the anchor's linear flow: no polynomial follows its
-        # exponentially growing derivative (as for the Runge-Kutta extension).
-        exponent = workspace.delta_phi(
-            workspace.stage_scalars(step.z, step.z + step.dz)
-        )
-        value = np.where(np.abs(np.real(exponent)) > 1.0, step.start, value)
-        return workspace.mask(workspace.propagator(step.z, position, hold=True) * value)
-
-    def _observe_exponential(self, position: float) -> object:
-        """Return the field at `position` inside the last accepted exponential step.
-
-        The accepted corrector's interpolant integrated exactly against the flow to the
-        fraction ``xi`` of the step (SEP 16 section 4.3):
-        ``exp(xi x) u_n + h sum_k k! xi**(k+1) phi_{k+1}(xi x) sum_j c_jk F_j``; under
-        a carrier frame the rotated samples ``G_j``, the moments at ``xi (x - sigma)``
-        and the factor ``exp(-sigma (1 - xi))``, with the accepted step's ``sigma``
-        (SEP 35 section 4.1). Every
-        factor is a forward flow, so a strongly damped bin needs no guard; no source
-        is evaluated and nothing enters the history.
-
-        - ``position``: the observation, m, inside the last accepted step.
-        """
-        step = self._exponential_dense
-        assert step is not None
-        # One evaluation per plane: the reference passes serve every backend.
-        helpers = self._workspace.helpers
-        kernels = ExponentialKernels(helpers=helpers)
-        xi = (position - step.z) / step.dz
-        count = step.coefficients.shape[1]
-        shift = step.shift
-        # Under a carrier frame (SEP 35 section 4.1) the accepted step's rotated
-        # samples, integrated against the moments at xi (x - sigma) and carried back
-        # by exp(-sigma (1 - xi)); every factor is bounded for an imaginary sigma.
-        moments = kernels.moments(
-            xi * (step.exponent if shift is None else step.exponent - shift), count
-        )
-        scaled = moments * np.array([xi ** (k + 1) for k in range(count)]).reshape(
-            (count, *([1] * step.start.ndim))
-        )
-        increment = kernels.apply(scaled, step.coefficients, step.values, step.dz)
-        if shift is not None:
-            increment = np.exp(-shift * (1.0 - xi)) * increment
-        value = np.exp(xi * step.exponent) * step.start + increment
-        if step.compensation is not None:
-            nodes, terms = step.compensation
-            weights = integrated_weights(
-                np.asarray(nodes), xi, check=False, helpers=helpers
-            )
-            # e^{(xi - theta_j) x} is a forward flow for every history sample; for
-            # the endpoint sample it is an inverse one, which a bin the step damps by
-            # more than an e-fold would amplify: such a bin takes the anchor's flow,
-            # as the interaction formulation's interpolant does (ADR-039).
-            for weight, node, term in zip(weights, nodes, terms, strict=True):
-                value = (
-                    value
-                    + step.dz * weight * np.exp((xi - node) * step.exponent) * term
-                )
-            damped = np.real(step.exponent) < -1.0
-            value = np.where(damped, np.exp(xi * step.exponent) * step.start, value)
-        return self._workspace.mask(value)
 
 
 def _trial_propagators(  # noqa: PLR0917 - called positionally

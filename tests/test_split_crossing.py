@@ -18,14 +18,20 @@ from __future__ import annotations
 import dataclasses
 import logging
 import math
+from typing import Any, cast
 
 import numpy as np
 import pytest
 
 import solprop.translate.assembly as assembly_module
-from monitor_cases import as_driver
-from solprop.backends.protocol import stepping
+from builders import load_reference
+from monitor_cases import as_reference, reading
+from sessions.runs import run as session_run
+from sessions.runs import to_planes
+from solprop.backends.events import ObservationReady
 from solprop.backends.registry import available, select
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.boundaries import (
     SPLIT_CROSSING,
     SPLIT_RATE_BUCKETS,
@@ -299,19 +305,30 @@ def test_the_cap_tightens_as_the_beam_self_focuses() -> None:
     run_request = simulation._run_request()
     crossing = problem.split_crossing
     assert crossing is not None
-    backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
+    planes = [float(z) for z in np.linspace(0.005, 0.05, 10)]
+    request = to_planes(run_request, planes)
+    backend = select("numpy_ref", problem, request, grid=simulation.grid)
     try:
-        driver = as_driver(backend)
-        driver.set_initial(problem.initial.field0, None)
+        # The launch's reading gives the launch's limit, as an attached monitor reads.
+        load_reference(backend)
+        launched = simulation._boundary_monitor()
+        assert launched is not None
+        launched.crossing = crossing
+        as_reference(backend).workspace.bind_monitor(launched)
+        launched.launch(reading(backend), float(problem.initial.z))
+        assert launched.step_cap == crossing.launch_limit
         monitor = simulation._boundary_monitor()
         assert monitor is not None
-        driver.attach_monitor(monitor)
-        assert monitor.step_cap == crossing.launch_limit
-        tightest = monitor.step_cap
-        for z in np.linspace(0.005, 0.05, 10):
-            stepping(backend).propagate_to(float(z))
-            tightest = min(tightest, monitor.step_cap)
-        assert tightest < 0.7 * crossing.launch_limit
+        caps: list[float] = []
+
+        def keep(session: object, batch: object) -> None:
+            for event in batch.events:  # pyright: ignore[reportAttributeAccessIssue]
+                if isinstance(event, ObservationReady) and event.z > 0.0:
+                    caps.append(monitor.step_cap)
+
+        session_run(backend, problem, request.for_run(monitor=monitor), between=keep)
+        assert len(caps) == len(planes)
+        assert min(caps) < 0.7 * crossing.launch_limit
     finally:
         backend.close()
 
@@ -427,19 +444,31 @@ def test_a_longer_step_before_the_next_check_is_refused() -> None:
     run_request = simulation._run_request()
     backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
     try:
-        driver = as_driver(backend)
-        driver.set_initial(problem.initial.field0, None)
         monitor = simulation._boundary_monitor()
         assert monitor is not None
-        driver.attach_monitor(monitor)
-        monitor._cap = 0.03
-        monitor._busy = True
-        assert monitor.steps_to_check() == 1
-        driver._refuse_scheduled_crossing(monitor)
-        monitor._busy = False
-        assert monitor.steps_to_check() >= 3
-        with pytest.raises(BoundaryError, match=r"schedule's step 5\.000e-02 m"):
-            driver._refuse_scheduled_crossing(monitor)
+        session = start_session(
+            backend,
+            problem,
+            run_request.for_run(monitor=monitor),
+            Start.entrance(problem),
+            owns=False,
+        )
+        try:
+            # The monitor launched on the loaded state, as the session attaches it.
+            monitor.crossing = problem.split_crossing
+            as_reference(backend).workspace.bind_monitor(monitor)
+            monitor.launch(reading(backend), float(problem.initial.z))
+            refuse = cast("Any", session)._refuse_scheduled_crossing
+            monitor._cap = 0.03
+            monitor._busy = True
+            assert monitor.steps_to_check() == 1
+            refuse(monitor)
+            monitor._busy = False
+            assert monitor.steps_to_check() >= 3
+            with pytest.raises(BoundaryError, match=r"schedule's step 5\.000e-02 m"):
+                refuse(monitor)
+        finally:
+            session.close()
     finally:
         backend.close()
 
@@ -457,8 +486,6 @@ def test_a_state_that_walks_past_the_schedule_is_refused_when_watched() -> None:
     state[..., edge - 2 : edge] = math.sqrt(5e-4 * total)
     backend = select("numpy_ref", problem, run_request, grid=grid)
     try:
-        driver = as_driver(backend)
-        driver.set_initial(state, None)
         # Relaxed: the spread light fills the window, guards included.
         simulation.settings = dataclasses.replace(
             simulation.settings,
@@ -466,8 +493,14 @@ def test_a_state_that_walks_past_the_schedule_is_refused_when_watched() -> None:
         )
         monitor = simulation._boundary_monitor()
         assert monitor is not None
+        # The session attaches its monitor after the launch plane, and refuses there.
         with pytest.raises(BoundaryError, match="crossing limit fell to"):
-            driver.attach_monitor(monitor)
+            session_run(
+                backend,
+                problem,
+                run_request.for_run(monitor=monitor),
+                Start(field=state, z=float(problem.initial.z)),
+            )
     finally:
         backend.close()
 

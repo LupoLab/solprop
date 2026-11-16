@@ -37,7 +37,7 @@ admittance-weighted flux. The quantities are relative, so the proxy's scale canc
 
 **Where the reduction runs.** A check needs five numbers of the state, its energy and
 its four weighted energies (:class:`BoundaryEnergies`), and the backend forms them
-where its state lives (``HostDriver._boundary_energies``): only the five cross to the
+where its state lives (``HostSession._energies``): only the five cross to the
 host. :meth:`BoundaryMonitor.energies` and :meth:`BoundaryMonitor.split_sums` are
 the host reductions, the reference every backend is held to.
 
@@ -388,6 +388,10 @@ class BoundaryMonitor:
         monitor integrating the rate by the trapezoid (D5), and whose guards are
         judged on the power the split found (:attr:`BoundaryEnergies.found`), which
         every reading after a step must then carry.
+    sink : list of Warning or None
+        Where the monitor's warnings go instead of being issued, in order, for a
+        session that reports each as a ``WARNING`` barrier event (SEP 52 section 5.1);
+        ``None``, the default, issues them through :func:`warnings.warn`.
     """
 
     check: BoundaryCheck
@@ -398,6 +402,7 @@ class BoundaryMonitor:
     interval: float = math.inf
     transverse: TransverseEdge | None = None
     crossing: SplitCrossing | None = None
+    sink: list[Warning] | None = field(default=None, init=False, repr=False)
     _cap: float = field(default=math.inf, init=False)
     _launch: float = field(default=math.nan, init=False)
     _floor: float = field(default=0.0, init=False)
@@ -952,9 +957,8 @@ class BoundaryMonitor:
             raise BoundaryError(_guard_message(check, worst, z, stop=True))
         if worst > check.budget and not self._warned:
             self._warned = True
-            warnings.warn(
-                _boundary_warning(_guard_message(check, worst, z, stop=False)),
-                stacklevel=3,
+            self._warn(
+                _boundary_warning(_guard_message(check, worst, z, stop=False)), 3
             )
 
     def _settle(
@@ -1303,6 +1307,14 @@ class BoundaryMonitor:
         removed = max(self.removed, 0.0)
         _log_finish(removed, self._guard_max[0], self._guard_max[1])
         if removed > 0.0 and math.sqrt(removed) > self.check.budget:
-            warnings.warn(
-                _boundary_warning(_removal_message(self.check, removed)), stacklevel=2
-            )
+            self._warn(_boundary_warning(_removal_message(self.check, removed)), 2)
+
+    def _warn(self, warning: Warning, stacklevel: int) -> None:
+        """Issue a warning, or put it in the :attr:`sink` a session reports from.
+
+        - ``stacklevel``: as the caller would pass to :func:`warnings.warn`.
+        """
+        if self.sink is not None:
+            self.sink.append(warning)
+            return
+        warnings.warn(warning, stacklevel=stacklevel + 1)

@@ -30,6 +30,7 @@ import numpy as np
 import pytest
 
 from bounds import assert_within, fft_bound
+from builders import load_reference
 from former_raman import FORMER_H2, FORMER_N2, former_response
 from legacy_geometry import LEGACY_GRID
 from sessions.runs import run as session_run
@@ -343,7 +344,7 @@ def test_one_stage_matches_the_responses_composed_by_hand(
     """The whole chain against the two oracles, at three densities of the gradient."""
     problem, run_request, kerr, raman = raman_capillary()
     backend = NumpyRefBackend(problem, run_request)
-    backend.set_initial(problem.initial.field0, None)
+    load_reference(backend)
     state = problem.initial.field0
     got = backend.workspace.nonlinear(
         state, backend.workspace.stage_scalars(0.0, z), np.ones_like(state)
