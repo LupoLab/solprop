@@ -150,3 +150,11 @@ __all__ = [
     "weight_refusal_for",
     "zdw",
 ]
+
+# The public classes report the package, their documented home, as their module: a
+# run's configuration record names a class by its module, and that name -- and with it
+# the resume key and the Python a recipe exports -- should not follow the package's
+# internal layout.
+for _public in (ApertureSet, StatDefinition, StatsSpec):
+    _public.__module__ = __name__
+del _public
