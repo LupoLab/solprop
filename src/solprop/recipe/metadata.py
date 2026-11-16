@@ -1520,17 +1520,13 @@ _POSITIVE: Final = _number(minimum=0.0, exclusive=True)
 _FRACTION: Final = _number(minimum=0.0, maximum=1.0)
 _LENGTH: Final = _number("m", minimum=0.0, exclusive=True)
 _POSITION: Final = _number("m")
-_TYPE_DURATION: Final = _number("s", minimum=0.0, exclusive=True)
 _PRESSURE: Final = _number("bar", minimum=0.0)
 _TEMPERATURE: Final = _number("K", minimum=0.0, exclusive=True)
-_TYPE_BOOLEAN: Final = Form("boolean")
 _STRING: Final = Form("string")
 _MAPPING: Final = Form("mapping")
-_TYPE_PROFILES: Final = ("Constant", "Linear", "PiecewiseLinear")
-_PROFILE: Final = _object(*_TYPE_PROFILES)
+_PROFILE: Final = _object(*_PROFILES)
 _CALLABLE: Final = Form("callable", recipe=False)
 _UNREGISTERED: Final = Form("object", recipe=False)
-_TYPE_PULSES: Final = ("GaussianPulse", "SechPulse", "load_spectrum")
 _ALPHA: Final = (_number("m^-1", minimum=0.0), _CALLABLE)
 _CLADDING: Final = (_UNREGISTERED, Form("mapping"))
 _GAS: Final = (_STRING,)
@@ -1568,12 +1564,10 @@ def _type(group: Group, anchor: str, *rows: Row) -> tuple[Parameter, ...]:
 
 # ------------------------------------------------------------------------ the types
 
-_TYPE_PULSE_PAGE: Final = "guide/setup/pulses.md"
 _PROFILE_PAGE: Final = "guide/waveguides/profiles.md"
 _MIXTURE_PAGE: Final = "guide/media/mixtures.md"
 _TYPE_GRID_PAGE: Final = "guide/setup/grids.md"
 _TYPE_STEPPER_PAGE: Final = "guide/numerics/choosing-a-stepper.md"
-_TYPE_BOUNDARY_PAGE: Final = "guide/numerics/boundaries.md"
 _FREE_PAGE: Final = "guide/free-space/model.md"
 _PLANAR_PAGE: Final = "guide/waveguides/planar.md"
 _IONISATION_PAGE: Final = "guide/media/ionisation.md"
@@ -1583,7 +1577,7 @@ def _pulse(*extra: Row) -> tuple[Parameter, ...]:
     """Return a shaped pulse's entries: the shared keywords and its own."""
     return _type(
         "input",
-        _TYPE_PULSE_PAGE,
+        _PULSE_PAGE,
         _keyword("wavelength", _LENGTH, "basic", "Centre wavelength.", display="nm"),
         _keyword(
             "energy",
@@ -1720,14 +1714,14 @@ def _grid(*rows: Row) -> tuple[Parameter, ...]:
         ),
         _keyword(
             "trange",
-            _TYPE_DURATION,
+            _DURATION,
             "basic",
             "Extent of the time window.",
             display="fs",
         ),
         _keyword(
             "dt",
-            _TYPE_DURATION,
+            _DURATION,
             "advanced",
             "Fine sample spacing; the band's own where it is finer.",
             display="fs",
@@ -1806,7 +1800,7 @@ def _beam(*extra: Row) -> tuple[Parameter, ...]:
     """Return a transverse beam's entries."""
     return _type(
         "input",
-        f"{_TYPE_PULSE_PAGE}#transverse-beams",
+        f"{_PULSE_PAGE}#transverse-beams",
         _keyword(
             "temporal",
             _object("GaussianPulse", "SechPulse"),
@@ -1879,7 +1873,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
     "GaussianPulse": _pulse(
         _keyword(
             "fwhm",
-            _TYPE_DURATION,
+            _DURATION,
             "basic",
             "Full width at half maximum of the power.",
             display="fs",
@@ -1889,14 +1883,14 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
     "SechPulse": _pulse(
         _keyword(
             "fwhm",
-            _TYPE_DURATION,
+            _DURATION,
             "basic",
             "Full width at half maximum of the power; give it or the natural width.",
             display="fs",
         ),
         _keyword(
             "width",
-            _TYPE_DURATION,
+            _DURATION,
             "advanced",
             "Natural width of sech^2(t/width); give it or the FWHM.",
             display="fs",
@@ -1904,7 +1898,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
     ),
     "load_spectrum": _type(
         "input",
-        f"{_TYPE_PULSE_PAGE}#measured-spectra-from-a-file",
+        f"{_PULSE_PAGE}#measured-spectra-from-a-file",
         _keyword(
             "path",
             Form("mapping"),
@@ -1947,7 +1941,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
         ),
         _keyword(
             "wrapped",
-            _TYPE_BOOLEAN,
+            _BOOLEAN,
             "advanced",
             "Whether the phase is wrapped; the default decides from its range.",
         ),
@@ -2088,7 +2082,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
         ),
         _keyword(
             "argon",
-            _TYPE_BOOLEAN,
+            _BOOLEAN,
             "advanced",
             "Whether the default composition carries argon.",
         ),
@@ -2104,7 +2098,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
     "EnvelopeGrid.from_limits": _grid(
         _keyword(
             "thg",
-            _TYPE_BOOLEAN,
+            _BOOLEAN,
             "advanced",
             "Leave room for third-harmonic generation.",
         ),
@@ -2165,7 +2159,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
     ),
     "BoundaryCheck": _type(
         "numerics",
-        f"{_TYPE_BOUNDARY_PAGE}#watching-the-windows-edges",
+        f"{_BOUNDARY_PAGE}#watching-the-windows-edges",
         _keyword(
             "guard_fraction",
             _number(minimum=0.0, maximum=0.5, exclusive=True),
@@ -2186,7 +2180,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
         ),
         _keyword(
             "quiet_collar",
-            _TYPE_BOOLEAN,
+            _BOOLEAN,
             "advanced",
             "Leave the in-stage collar out while it is quiet, a speed-up.",
         ),
@@ -2251,7 +2245,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
         _keyword("order", _integer(1, 6), "advanced", "Highest predictor order."),
         _keyword(
             "variable_order",
-            _TYPE_BOOLEAN,
+            _BOOLEAN,
             "advanced",
             "Choose the order step by step.",
         ),
@@ -2263,13 +2257,13 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
         ),
         _keyword(
             "interval_cap",
-            _TYPE_BOOLEAN,
+            _BOOLEAN,
             "advanced",
             "Cap each step at its operator-table interval.",
         ),
         _keyword(
             "equal_approach",
-            _TYPE_BOOLEAN,
+            _BOOLEAN,
             "advanced",
             "Approach a forced landing in two equal steps.",
         ),
@@ -2312,7 +2306,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
     ),
     "absorber": _type(
         "numerics",
-        _TYPE_BOUNDARY_PAGE,
+        _BOUNDARY_PAGE,
         _keyword(
             "boundary_N",
             _POSITIVE,
@@ -2328,13 +2322,13 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
         ),
         _keyword(
             "temporal",
-            _TYPE_BOOLEAN,
+            _BOOLEAN,
             "advanced",
             "Whether the collar absorbs in time; off is a spectral-only collar.",
         ),
         _keyword(
             "walkoff",
-            _TYPE_DURATION,
+            _DURATION,
             "advanced",
             "Group-delay drift the temporal collar must stop, over the grid's length.",
             display="fs",
@@ -2620,7 +2614,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
         ),
         _keyword(
             "thg",
-            _TYPE_BOOLEAN,
+            _BOOLEAN,
             "advanced",
             "Whether the response radiates the third harmonic.",
         ),
@@ -2889,13 +2883,13 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
         _keyword("stretch", _POSITIVE, "advanced", "Landing stretch factor."),
         _keyword(
             "interval_cap",
-            _TYPE_BOOLEAN,
+            _BOOLEAN,
             "advanced",
             "Cap each step at its operator-table interval.",
         ),
         _keyword(
             "interpolate_planes",
-            _TYPE_BOOLEAN,
+            _BOOLEAN,
             "advanced",
             "Observe the save planes inside accepted steps.",
         ),
@@ -2919,7 +2913,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
         ),
         _keyword(
             "shock",
-            _TYPE_BOOLEAN,
+            _BOOLEAN,
             "advanced",
             "Keep the optical shock term.",
         ),
@@ -2955,7 +2949,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
         ),
         _keyword(
             "polarisation_taper",
-            _TYPE_BOOLEAN,
+            _BOOLEAN,
             "advanced",
             "Whether the spectral collar also tapers the nonlinear polarisation.",
         ),
@@ -2979,7 +2973,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
         ),
         _keyword(
             "spatial_absorber",
-            (_object("SpatialAbsorber"), _TYPE_BOOLEAN),
+            (_object("SpatialAbsorber"), _BOOLEAN),
             "advanced",
             "The transverse boundary; false for none.",
         ),
@@ -3019,7 +3013,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
         _keyword("beta2", _number(), "advanced", "Integral gain."),
         _keyword(
             "reject_free",
-            _TYPE_BOOLEAN,
+            _BOOLEAN,
             "advanced",
             "Never reject a step whose error is finite.",
         ),
@@ -3032,7 +3026,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
     ),
     "SpatialAbsorber": _type(
         "numerics",
-        f"{_TYPE_BOUNDARY_PAGE}#the-transverse-boundary",
+        f"{_BOUNDARY_PAGE}#the-transverse-boundary",
         _keyword(
             "kappa",
             _number("rad/m", minimum=0.0, exclusive=True),
@@ -3066,7 +3060,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
         ),
         _keyword(
             "real_space",
-            _TYPE_BOOLEAN,
+            _BOOLEAN,
             "advanced",
             "Whether a real-space collar is asked for.",
         ),
@@ -3082,13 +3076,13 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
         ),
         _keyword(
             "with_profiles",
-            _TYPE_BOOLEAN,
+            _BOOLEAN,
             "advanced",
             "Also record the gas density, pressure and core radius.",
         ),
         _keyword(
             "with_zdw",
-            _TYPE_BOOLEAN,
+            _BOOLEAN,
             "advanced",
             "Also record each mode's zero-dispersion wavelength.",
         ),
