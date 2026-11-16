@@ -196,7 +196,7 @@ Pyroraptor is not tested in CI; it is checked by hand (SEP 49, section 7.4).
 
 Step control, the session lifecycle and the service loop are tested with their numerical
 outcomes scripted, never by substituting the code under test. A scripted engine replaces
-the engine under the real march and the real session ([SEP 52](seps/sep-0052-backend-shape.md)
+the engine under the real march and the real session ([SEP 52](seps/archive/sep-0052-backend-shape.md)
 §6.3), as native's scripted engines test its compiled marches:
 
 - `tests/scripted_driver.py`'s `HostScriptedDriver` is the reference backend whose

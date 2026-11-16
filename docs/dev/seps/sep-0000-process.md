@@ -394,7 +394,7 @@ that edits this document and adds a line to its history.
   even when they change public parameters; a public-interface redesign is no longer on the
   list of changes that require one (maintainer's decision).
 - 2026-11-15: John Travers approved a narrow exception for
-  [SEP 52](sep-0052-backend-shape.md#11-phases): its implementation merges through four
+  [SEP 52](archive/sep-0052-backend-shape.md#11-phases): its implementation merges through four
   stacked phase pull requests, each based on the one before and each leaving main usable
   with green required CI when it merges, although one agent implements them. Temporary
   internal adapters are removed by Final, and its Implementation field lists the
