@@ -12,6 +12,7 @@ cannot change the rebuilt run.
 """
 
 import warnings
+from typing import cast
 
 import numpy as np
 import pytest
@@ -45,14 +46,22 @@ def radial(selector: str) -> Recipe:
     ("selector", "match", "path"),
     [
         ("save_planes = 80", "write n_save = 80", "settings.save_planes"),
-        ('save_planes = "0.25 mm"', r"pass \[0\.00025\], or n_save", "settings.save_planes"),
+        (
+            'save_planes = "0.25 mm"',
+            r"pass \[0\.00025\], or n_save",
+            "settings.save_planes",
+        ),
         ("n_save = 1", "n_save is an integer of at least 2", "settings.n_save"),
         (
             'save_planes = ["1 mm"]\nn_save = 3',
             "give one of n_save and save_planes",
             "settings.save_planes",
         ),
-        ('save_planes = ["2 mm"]', r"raise length \(or grid\.length\)", "settings.save_planes"),
+        (
+            'save_planes = ["2 mm"]',
+            r"raise length \(or grid\.length\)",
+            "settings.save_planes",
+        ),
     ],
     ids=["count", "lone", "small", "both", "beyond"],
 )
@@ -87,14 +96,17 @@ def test_a_keyword_route_recipe_refuses_a_length_its_grid_disagrees_with():
 
 def test_an_object_route_recipe_takes_a_count_over_its_grid_length():
     simulation = radial("n_save = 81").build()
-    planes = simulation.settings.save_planes
+    planes = np.asarray(simulation.settings.save_planes)
     assert planes.tolist() == np.linspace(0.0, 1e-3, 81)[1:].tolist()
     assert planes[-1] == simulation.grid.length
 
 
 def test_an_object_route_recipe_without_a_selector_takes_the_default_count():
     simulation = radial("").build()
-    assert simulation.settings.save_planes.size + 1 == settings_module.DEFAULT_N_SAVE
+    assert (
+        np.asarray(simulation.settings.save_planes).size + 1
+        == settings_module.DEFAULT_N_SAVE
+    )
 
 
 def test_the_count_and_its_positions_build_the_same_run():
@@ -113,9 +125,9 @@ def test_the_resolved_recipe_writes_the_canonical_positions_in_the_settings(sele
     recipe = radial(selector)
     simulation = recipe.build()
     document = provenance.resolved_document(recipe, simulation)
-    table = document["build"]["settings"]
+    table = cast("dict[str, object]", document["build"]["settings"])
     assert "n_save" not in table
-    assert table["save_planes"] == simulation.settings.save_planes.tolist()
+    assert table["save_planes"] == np.asarray(simulation.settings.save_planes).tolist()
     assert "save_planes" not in document["build"]
     assert _hash(Recipe.from_dict(document).build()) == _hash(simulation)
 
@@ -125,7 +137,7 @@ def test_a_resolved_recipe_does_not_depend_on_the_default_count(monkeypatch):
     simulation = recipe.build()
     document = provenance.resolved_document(recipe, simulation)
     monkeypatch.setattr(settings_module, "DEFAULT_N_SAVE", 11)
-    assert radial("").build().settings.save_planes.size == 10
+    assert np.asarray(radial("").build().settings.save_planes).size == 10
     assert _hash(Recipe.from_dict(document).build()) == _hash(simulation)
 
 

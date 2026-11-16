@@ -241,7 +241,7 @@ def repetition(
     record = {
         "accepted": sum(run.accepted for run in watch.runs),
         "rejected": sum(run.rejected for run in watch.runs),
-        "z": float(simulation.settings.save_planes[-1]),
+        "z": float(np.asarray(simulation.settings.save_planes)[-1]),
         "runs": len(SCALES),
         "finite": None if None in finite else all(finite),
     }

@@ -184,7 +184,7 @@ def _propagate(build: Callable[..., Simulation], scope: Mapping[str, object]) ->
         "%s: %d modes, %d save planes, %r backend",
         build.__name__,
         len(simulation.modes),
-        len(simulation.settings.save_planes),
+        len(np.asarray(simulation.settings.save_planes)),
         simulation.settings.backend,
     )
     # Each control is the type Simulation.run declares: prop_* declares it the same.

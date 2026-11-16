@@ -264,7 +264,7 @@ def test_a_low_storage_simulation_times_its_own_march(profiled: Path) -> None:
     from solprop.stepper import FixedSchedule, LowStorageRungeKutta  # noqa: PLC0415
 
     simulation = problems.build("gnlse")
-    planes = list(simulation.settings.save_planes)
+    planes = list(np.asarray(simulation.settings.save_planes))
     length = float(max(planes))
     simulation.settings = dataclasses.replace(
         simulation.settings,

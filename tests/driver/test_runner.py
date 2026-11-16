@@ -101,7 +101,7 @@ def capillary(backend: str, *, dense: bool = False) -> Simulation:
         schedule=None
         if dense
         else FixedSchedule.uniform(
-            0.0, LENGTH, LENGTH / STEPS, save_planes=settings.save_planes
+            0.0, LENGTH, LENGTH / STEPS, save_planes=np.asarray(settings.save_planes)
         ),
         interpolate_planes=dense,
     )
@@ -278,7 +278,7 @@ def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(dense):
         finally:
             fresh.close()
         after = stored(runner.run(inputs(simulation)[1], progress="none"))
-    assert after.n_saved == len(simulation.settings.save_planes) + 1
+    assert after.n_saved == len(np.asarray(simulation.settings.save_planes)) + 1
 
 
 @pytest.mark.medium
@@ -309,7 +309,11 @@ def test_a_native_run_after_a_failed_one_is_a_fresh_backend_s_run(dense, monkeyp
             runner.run(inputs(simulation)[0], progress=_Stop())
         after = stored(runner.run(field, progress="none"))
     assert served == ["NativeSession"] * 3
-    assert after.n_saved == fresh.n_saved == len(simulation.settings.save_planes) + 1
+    assert (
+        after.n_saved
+        == fresh.n_saved
+        == len(np.asarray(simulation.settings.save_planes)) + 1
+    )
     assert np.array_equal(after["field"], fresh["field"])
     for name in fresh.stat_names:
         assert np.array_equal(
@@ -696,7 +700,7 @@ def test_a_runner_runs_an_input_without_noise_when_it_has_none():
     simulation = capillary("numpy_ref")
     with simulation.runner() as runner:
         output = stored(runner.run(inputs(simulation)[0], noise=None, progress="none"))
-    assert output.n_saved == len(simulation.settings.save_planes) + 1
+    assert output.n_saved == len(np.asarray(simulation.settings.save_planes)) + 1
 
 
 @pytest.mark.medium

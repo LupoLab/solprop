@@ -696,4 +696,4 @@ def test_the_settings_leave_the_caller_s_planes_writeable():
     assert not held.flags.writeable
     # Not a view either: a later write by the caller leaves the settings alone.
     planes[0] = 0.25
-    assert settings.save_planes[0] == 0.5
+    assert np.asarray(settings.save_planes)[0] == 0.5

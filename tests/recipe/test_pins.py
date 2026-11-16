@@ -186,7 +186,7 @@ def test_a_pinned_required_keyword_builds_where_a_missing_one_is_refused():
     without = pinned({"radius": pin}, drop=("radius", "length"))
     for call in (without.build, without.resolve, lambda: without.pin_roots("radius")):
         with pytest.raises(
-            RecipeError, match=r"^length: a required keyword is missing$"
+            RecipeError, match=r"^length: a length or a grid is required$"
         ) as caught:
             call()
         assert caught.value.parameter == "length"
