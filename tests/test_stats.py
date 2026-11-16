@@ -14,7 +14,7 @@ from numpy.testing import assert_allclose
 from legacy_geometry import LEGACY_GRID
 from solprop import fourier, stats
 from solprop.constants import C
-from solprop.exceptions import ModeError, OutputError, SolpropWarning
+from solprop.exceptions import ModeError, OutputError, ProcessingError, SolpropWarning
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import MarcatiliMode
 from solprop.output.records import SavedPlane
@@ -410,7 +410,7 @@ def test_a_spec_freezes_its_windows():
     ],
 )
 def test_a_spec_refuses_a_bad_selection(keywords, message):
-    with pytest.raises(OutputError, match=message):
+    with pytest.raises(ProcessingError, match=message):
         StatsSpec(**keywords)
 
 
@@ -457,7 +457,8 @@ def test_a_spec_accepts_a_periodic_subset():
 def test_a_spec_refuses_a_periodic_statistic_no_backend_evaluates_between_planes(name):
     """The trait is the gate, and the refusal names both the statistic and the set."""
     assert not CATALOGUE[name].between_planes
-    with pytest.raises(OutputError, match="cannot be evaluated between save planes"):
+    refusal = "cannot be evaluated between save planes"
+    with pytest.raises(ProcessingError, match=refusal):
         StatsSpec(names=("energy", name), periodic=(name,))
 
 
@@ -795,7 +796,7 @@ def test_the_spectral_flux_is_not_available_between_planes():
     """
     assert not CATALOGUE["spectral_flux"].between_planes
     assert CATALOGUE["physical_energy"].between_planes
-    with pytest.raises(OutputError, match="spectral_flux"):
+    with pytest.raises(ProcessingError, match="spectral_flux"):
         StatsSpec(names=("spectral_flux",), periodic=("spectral_flux",))
 
 

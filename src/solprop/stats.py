@@ -56,6 +56,7 @@ from solprop.exceptions import (
     ApertureEdgeWarning,
     NoZeroDispersionError,
     OutputError,
+    ProcessingError,
     SolpropWarning,
 )
 from solprop.grid import TimeGrid
@@ -2391,7 +2392,7 @@ class StatsSpec:
 
     Raises
     ------
-    OutputError
+    ProcessingError
         If a name is unknown, reserved or repeated; if a window or a region is
         malformed; if ``periodic`` is not a subset of ``names`` or names a statistic
         no backend evaluates between planes; if ``period`` is below 1; or if a name
@@ -2425,7 +2426,7 @@ class StatsSpec:
 
         Raises
         ------
-        OutputError
+        ProcessingError
             If a name is unknown, reserved or repeated; if a window or a region is
             malformed; if ``periodic`` is not a subset of ``names`` or names a
             statistic no backend evaluates between planes; if ``period`` is below 1;
@@ -2437,11 +2438,11 @@ class StatsSpec:
         extra = sorted(set(self.periodic) - set(self.names))
         if extra:
             msg = f"the periodic subset asks for statistics the run does not: {extra}"
-            raise OutputError(msg)
+            raise ProcessingError(msg)
         _check_between_planes(self.periodic)
         if self.period < 1:
             msg = f"the statistics period must be at least 1, got {self.period}"
-            raise OutputError(msg)
+            raise ProcessingError(msg)
         windows = np.array(self.energy_windows, dtype=np.float64, copy=True)
         _check_windows(windows)
         windows.setflags(write=False)
@@ -2461,7 +2462,7 @@ class StatsSpec:
                 "carry: apertures=ApertureSet(...) for the aperture spectra, "
                 "spectral_regions for region_spectrum"
             )
-            raise OutputError(msg)
+            raise ProcessingError(msg)
 
     @property
     def n_apertures(self) -> int:  # numpydoc ignore=RT01
@@ -2490,11 +2491,11 @@ def _check_names(names: Sequence[str]) -> None:
     unknown = sorted(set(names) - set(CATALOGUE))
     if unknown:
         msg = f"unknown statistics {unknown}; the catalogue holds {sorted(CATALOGUE)}"
-        raise OutputError(msg)
+        raise ProcessingError(msg)
     repeated = sorted({name for name in names if list(names).count(name) > 1})
     if repeated:
         msg = f"each statistic may be asked for once; these repeat: {repeated}"
-        raise OutputError(msg)
+        raise ProcessingError(msg)
 
 
 def _check_between_planes(names: Sequence[str]) -> None:
@@ -2513,7 +2514,7 @@ def _check_between_planes(names: Sequence[str]) -> None:
             f"the statistics {refused} cannot be evaluated between save planes, only "
             f"at them; the periodic subset may name {available}"
         )
-        raise OutputError(msg)
+        raise ProcessingError(msg)
 
 
 def _check_windows(windows: Float[np.ndarray, "n_windows 2"]) -> None:
@@ -2523,14 +2524,14 @@ def _check_windows(windows: Float[np.ndarray, "n_windows 2"]) -> None:
     """
     if np.isnan(windows).any():
         msg = "energy_windows must not hold a NaN edge"
-        raise OutputError(msg)
+        raise ProcessingError(msg)
     bad = np.flatnonzero(windows[:, 0] >= windows[:, 1])
     if bad.size:
         msg = (
             f"every energy window needs lo < hi; rows {bad.tolist()} do not: "
             f"{windows[bad].tolist()}"
         )
-        raise OutputError(msg)
+        raise ProcessingError(msg)
 
 
 def _check_regions(regions: Float[np.ndarray, "n_regions 4"]) -> None:
@@ -2542,10 +2543,10 @@ def _check_regions(regions: Float[np.ndarray, "n_regions 4"]) -> None:
         msg = (
             f"spectral_regions holds at most {MAX_REGIONS} rows, got {regions.shape[0]}"
         )
-        raise OutputError(msg)
+        raise ProcessingError(msg)
     if np.isnan(regions).any():
         msg = "spectral_regions must not hold a NaN edge"
-        raise OutputError(msg)
+        raise ProcessingError(msg)
     bad = np.flatnonzero(
         (regions[:, 0] >= regions[:, 1]) | (regions[:, 2] >= regions[:, 3])
     )
@@ -2554,7 +2555,7 @@ def _check_regions(regions: Float[np.ndarray, "n_regions 4"]) -> None:
             f"every spectral region needs lo < hi on both axes; rows {bad.tolist()} "
             f"do not: {regions[bad].tolist()}"
         )
-        raise OutputError(msg)
+        raise ProcessingError(msg)
 
 
 def _profile_for(profiles: Mapping[str, ZProfile] | None, name: str) -> ZProfile:
