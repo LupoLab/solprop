@@ -36,6 +36,7 @@ from solprop.exceptions import (
 )
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.linear import Frame
+from solprop.modes.capillary import CoherentWall
 from solprop.noise import NoiseRealisation
 from solprop.nonlinear.tdse import (
     TDSEBasis,
@@ -310,7 +311,7 @@ def test_a_real_input_is_recorded_as_given_so_an_older_file_resumes(tmp_path):
     # same, and a file written then resumes now.
     real = np.ascontiguousarray(np.real(_column_field()))
     before = _free_from(real)
-    before.initial = real  # what the simulation recorded before it copied its input
+    before._initial = real  # what the simulation recorded before it copied its input
     path = tmp_path / "part.h5"
     run_until(before, path, after=1)
     after = _free_from(real.copy())
@@ -332,7 +333,7 @@ def test_an_input_s_dtype_is_recorded_byte_order_and_all(dtype):
     given = _column_field()
     given = (np.real(given) if dtype.endswith("f8") else given).astype(dtype)
     before = _free_from(given)
-    before.initial = given  # what the simulation recorded before it copied its input
+    before._initial = given  # what the simulation recorded before it copied its input
     after = _free_from(given.copy())
     assert isinstance(after.initial, np.ndarray)
     assert after.initial.dtype == np.dtype(dtype)
@@ -954,10 +955,10 @@ def test_tdse_settings_revalidation_refuses_unsupported_execution(
     simulation = atomic_simulation
     settings = simulation.settings
     if case == "unused":
-        simulation.responses = ()
+        simulation._responses = ()
         message = "requires a TDSEGasResponse"
     elif case == "noise":
-        simulation.noise = NoiseRealisation(
+        simulation._noise = NoiseRealisation(
             np.zeros_like(simulation._field0), 1, "modified"
         )
         message = "modified"
@@ -965,7 +966,7 @@ def test_tdse_settings_revalidation_refuses_unsupported_execution(
         settings = dataclasses.replace(settings, absorber_scheme="split_step")
         message = "in-stage temporal collar"
     else:
-        simulation.wall = object()
+        simulation._wall = CoherentWall()
         message = "uncoupled modal capillary"
     with pytest.raises(DriverError, match=message):
         tdse_run_module._check_tdse_execution(simulation, settings)

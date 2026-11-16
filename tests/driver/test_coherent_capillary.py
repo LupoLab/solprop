@@ -767,7 +767,7 @@ def test_a_wall_declared_on_another_route_is_refused_by_name():
         ),
         noise=None,
     )
-    spatial.wall = CoherentWall()
+    spatial._wall = CoherentWall()
     with pytest.raises(TranslationError, match="a spatial geometry"):
         spatial.translate()
     # Refused before any step: the grid is the tenth it would run (SEP 51).
@@ -786,7 +786,7 @@ def test_a_wall_declared_on_another_route_is_refused_by_name():
         dz_init=GENERAL_Z_END / 20,
         noise=None,
     )
-    general.wall = CoherentWall()
+    general._wall = CoherentWall()
     with pytest.raises(TranslationError, match="the general modal route"):
         general.translate()
 

@@ -711,6 +711,6 @@ def test_a_line_is_recorded_per_metre_of_y_without_from_free_s_key():
         settings=_line_settings(grid, 1e-3, [1e-3]),
         noise=None,
     )
-    simulation.configuration.pop("transverse_measure")
+    simulation._configuration.pop("transverse_measure")
     assert "transverse_measure" not in simulation.configuration
     assert simulation.metadata().transverse_measure == "per_unit_width"

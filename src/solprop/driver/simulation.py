@@ -33,7 +33,8 @@ import math
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Final, Literal, cast
 
 import numpy as np
 from jaxtyping import Complex, Float, Shaped
@@ -244,6 +245,29 @@ logger = logging.getLogger(__name__)
 _PRESSURE_FORM_ENTRIES = 2
 """Entries in either of the two pair forms of the ``pressure`` keyword."""
 
+_FIXED_INPUTS: Final = frozenset(
+    {
+        "configuration",
+        "frame",
+        "general",
+        "grid",
+        "guide",
+        "initial",
+        "initial_z",
+        "materials",
+        "medium",
+        "modes",
+        "noise",
+        "noise_resolution",
+        "profiles",
+        "responses",
+        "spatial_grid",
+        "taper_coupling",
+        "wall",
+    }
+)
+"""What a :class:`Simulation` is built from: read-only, refused on assignment."""
+
 
 def _one_material_context[**P, R](build: Callable[P, R]) -> Callable[P, R]:
     """Run a constructor inside one material evaluation context, the run's own.
@@ -271,7 +295,11 @@ class Simulation(Displayed):
     :meth:`from_gnlse` for a GNLSE fibre. :meth:`translate` assembles the kernel problem
     and caches it, so a second :meth:`run` -- into another handler, or resuming a
     file -- reuses it. :attr:`settings` may be replaced until that first translation;
-    after it only its ``backend`` may change.
+    after it only its ``backend`` may change. What the run is built from -- the grid,
+    the modes, the responses, the input and the rest of the parameters below -- is
+    read-only, because the input, the translation and the record are derived from it:
+    :meth:`with_input` derives a run with a new input, noise or launch position,
+    :meth:`with_mixture` one with a new fill, and anything else is a new simulation.
 
     Parameters
     ----------
@@ -423,21 +451,21 @@ class Simulation(Displayed):
         declared = tuple(responses)
         _check_electronic_policy(materials, declared)
         grid, settings = _resolve_tdse_grid(grid, declared, settings)
-        self.grid = grid
-        self.materials = materials
+        self._grid = grid
+        self._materials = materials
         # The run's material log: the one its constructor opened, or a new one, which
         # its translation, record and run resume (`_one_material_context`).
         self._material_log = _optmat.open_log() or MaterialLog()
-        self.general = general
-        self.guide = guide
-        self.wall = wall
-        self.taper_coupling = taper_coupling
-        self.modes: tuple[Mode, ...] = (
+        self._general = general
+        self._guide = guide
+        self._wall = wall
+        self._taper_coupling = taper_coupling
+        self._modes: tuple[Mode, ...] = (
             tuple(modes) if isinstance(modes, Sequence) else (modes,)
         )
-        self.responses = declared
-        self.initial = initial
-        self.initial_z = initial_z
+        self._responses = declared
+        self._initial = initial
+        self._initial_z = initial_z
         self._problem: PropagationProblem | None = None
         # The request translation returned with the problem: every policy of a fresh
         # run of it (SEP 47 section 5.2).
@@ -455,8 +483,8 @@ class Simulation(Displayed):
                 "but a Simulation built directly needs a PIController"
             )
             raise DriverError(msg)
-        self.noise = noise
-        self.noise_resolution = (
+        self._noise = noise
+        self._noise_resolution = (
             NoiseResolution(
                 None if noise is None else noise.model,
                 None if noise is None else noise.model,
@@ -467,17 +495,17 @@ class Simulation(Displayed):
         # Read once, here, as an array input is: changing what the caller passed
         # afterwards changes neither the run nor its record (issue #471). solprop's
         # profiles keep read-only copies of their tables themselves.
-        self.profiles = dict(profiles or {})
-        self.configuration = _frozen_configuration(configuration)
+        self._profiles = dict(profiles or {})
+        self._configuration = _frozen_configuration(configuration)
         if (spatial_grid is None) != (medium is None):
             msg = "spatial_grid and medium must be supplied together"
             raise DriverError(msg)
         if spatial_grid is not None and self.modes:
             msg = "spatial propagation requires an empty mode sequence"
             raise DriverError(msg)
-        self.spatial_grid = spatial_grid
-        self.medium = medium
-        self.frame = frame
+        self._spatial_grid = spatial_grid
+        self._medium = medium
+        self._frame = frame
         _check_initial_position(self, settings)
         _check_tdse_execution(self, settings)
         self._metadata: RunMetadata | None = None
@@ -490,7 +518,7 @@ class Simulation(Displayed):
         if isinstance(initial, np.ndarray):
             # What was passed is what runs and what is recorded: a read-only view of
             # the simulation's own copy, as the caller gave it (`_given_input`).
-            self.initial = _given_input(initial, self._field0)
+            self._initial = _given_input(initial, self._field0)
 
     def _built_input(
         self,
@@ -512,8 +540,8 @@ class Simulation(Displayed):
         if self.spatial_grid is None or self.medium is None:
             msg = "a SpatialPulse requires spatial_grid and medium"
             raise DriverError(msg)
-        if self.frame is None:
-            self.frame = Frame.comoving(
+        if self._frame is None:
+            self._frame = Frame.comoving(
                 grid, thg=declares_harmonic_carrier(self.responses, grid)
             )
         return _built_state(
@@ -601,13 +629,132 @@ class Simulation(Displayed):
             ]
             if dropped:
                 self._drop_recipe(f"its {', '.join(dropped)} changed")
-        if hasattr(self, "noise"):
+        if hasattr(self, "_noise"):
             _check_initial_position(self, settings)
             _check_tdse_execution(self, settings)
             if _quiet_collar(settings) != _quiet_collar(self._settings):
                 # The opt-in is part of the resume key: the record is built again.
                 self._metadata = None
         self._settings = settings
+
+    def __setattr__(self, name: str, value: object) -> None:
+        """Refuse to replace what the run is built from; set anything else.
+
+        The input is built, and the record and translation are derived, from these
+        when the simulation is constructed, so a new value assigned afterwards would
+        pair with what was built from the old one.
+
+        Parameters
+        ----------
+        name : str
+            The attribute.
+        value : object
+            Its new value.
+
+        Raises
+        ------
+        AttributeError
+            If `name` is one of the simulation's inputs, naming the methods that
+            derive a simulation with a new one.
+        """
+        if name in _FIXED_INPUTS:
+            msg = (
+                f"Simulation.{name} is fixed when the simulation is built, because "
+                "its input, translation and record are derived from it; use "
+                "with_input(...) for a new input, noise or launch position, "
+                "with_mixture(...) for a new fill, or build a new Simulation"
+            )
+            raise AttributeError(msg)
+        super().__setattr__(name, value)
+
+    @property
+    def grid(self) -> TimeGrid:  # numpydoc ignore=RT01
+        """The field or envelope grid the run is built on."""
+        return self._grid
+
+    @property
+    def modes(self) -> tuple[Mode, ...]:  # numpydoc ignore=RT01
+        """The ordered modes; empty on a spatial route."""
+        return self._modes
+
+    @property
+    def responses(self) -> tuple[object, ...]:  # numpydoc ignore=RT01
+        """The declared nonlinear responses."""
+        return self._responses
+
+    @property
+    def initial(  # numpydoc ignore=RT01
+        self,
+    ) -> Pulse | SpatialPulse | SpatialPulseSum | np.ndarray:
+        """The input as given: a pulse, or a read-only view of an array input."""
+        return self._initial
+
+    @property
+    def initial_z(self) -> float:  # numpydoc ignore=RT01
+        """The launch position, m."""
+        return self._initial_z
+
+    @property
+    def noise(self) -> NoiseRealisation | None:  # numpydoc ignore=RT01
+        """The shot-noise realisation the run carries, or ``None``."""
+        return self._noise
+
+    @property
+    def noise_resolution(self) -> NoiseResolution:  # numpydoc ignore=RT01
+        """How the noise model was chosen (SEP 37)."""
+        return self._noise_resolution
+
+    @property
+    def profiles(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
+        """The z-profiles keyed by statistic name, read-only."""
+        return MappingProxyType(self._profiles)
+
+    @property
+    def configuration(self) -> Mapping[str, object]:  # numpydoc ignore=RT01
+        """The extra provenance the run records, read-only."""
+        return MappingProxyType(self._configuration)
+
+    @property
+    def spatial_grid(  # numpydoc ignore=RT01
+        self,
+    ) -> RadialGrid | FreeGrid | PlanarGrid | None:
+        """The transverse grid of a spatial route, or ``None``."""
+        return self._spatial_grid
+
+    @property
+    def medium(self) -> SpatialMedium | None:  # numpydoc ignore=RT01
+        """The bulk material of a spatial route, or ``None``."""
+        return self._medium
+
+    @property
+    def frame(self) -> Frame | None:  # numpydoc ignore=RT01
+        """The propagation frame, or ``None`` for the route's default."""
+        return self._frame
+
+    @property
+    def general(self) -> GeneralModalRoute | None:  # numpydoc ignore=RT01
+        """The seam leaves of a general modal guide, or ``None``."""
+        return self._general
+
+    @property
+    def guide(self) -> ModalGuide | None:  # numpydoc ignore=RT01
+        """The general modal guide `general` was built from, or ``None``."""
+        return self._guide
+
+    @property
+    def wall(self) -> CoherentWall | None:  # numpydoc ignore=RT01
+        """The coherent wall block's declaration, or ``None``."""
+        return self._wall
+
+    @property
+    def taper_coupling(self) -> bool:  # numpydoc ignore=RT01
+        """Whether a varying multimode capillary carries its taper coupling."""
+        return self._taper_coupling
+
+    @property
+    def materials(self) -> MaterialSelection | None:  # numpydoc ignore=RT01
+        """The material selection the run records, or ``None``."""
+        return self._materials
 
     def _kind(self) -> str:
         """Return what kind of run this is, for printing."""
@@ -1009,7 +1156,7 @@ class Simulation(Displayed):
             materials=self.materials,
         )
         # Recorded from what the derived run holds, not from the caller's input.
-        updated.configuration = self._derived_configuration(
+        updated._configuration = self._derived_configuration(
             updated.initial, configuration, coupling
         )
         updated._input_identity = input_identity
@@ -1303,10 +1450,10 @@ class Simulation(Displayed):
         )
         updated._material_log = self._material_log.copy()
         with _optmat.material_context(updated._material_log):
-            updated.noise, updated._noise_redraw = self._rebound_noise(updated.medium)
+            updated._noise, updated._noise_redraw = self._rebound_noise(updated.medium)
         if self._recipe is not None:
             self._warn_recipe_dropped("with_mixture")
-        updated.initial = self.initial
+        updated._initial = self._initial
         updated._input_identity = self._input_identity
         updated._mixture_selection = self._mixture_selection
         updated._reuse = _mixture_reuse(self, updated, old, mixture, original)
@@ -1971,9 +2118,9 @@ class Simulation(Displayed):
         """
         if self._noise_redraw is None or self.noise is None or self.noise.seed == seed:
             return False
-        self.noise = self._noise_redraw(seed)
+        self._noise = self._noise_redraw(seed)
         if self._problem is not None:
-            self._problem = _with_noise(self._problem, self.noise)
+            self._problem = _with_noise(self._problem, self._noise)
         self._metadata = None
         return True
 
@@ -2149,7 +2296,7 @@ class Simulation(Displayed):
         if isinstance(space, LineGrid):
             # The run's powers and energies are per metre of y; processing and
             # plotting label them from this key, as for a slab.
-            simulation.configuration["transverse_measure"] = space.transverse_measure
+            simulation._configuration["transverse_measure"] = space.transverse_measure
         return simulation
 
     @classmethod

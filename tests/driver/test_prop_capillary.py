@@ -2957,7 +2957,7 @@ def ctc_run(
                     )
                     updated_response = replace(response, tensor_terms=terms)
                 responses.append(updated_response)
-            simulation.responses = tuple(responses)
+            simulation._responses = tuple(responses)
         return simulation.run()
 
 

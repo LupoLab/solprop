@@ -478,7 +478,12 @@ simulation are the same run and must digest alike.
 {py:meth}`~solprop.driver.simulation.Simulation.with_input` and
 {py:meth}`~solprop.driver.simulation.Simulation.with_mixture` derive a new simulation
 with another input pulse or another fill while sharing what translation built
-([scans](../workflows/scans.md#reuse-a-translated-simulation)).
+([scans](../workflows/scans.md#reuse-a-translated-simulation)). They are the way to
+change what a simulation is built from: its `grid`, `modes`, `responses`, `initial`,
+`initial_z`, `noise`, `profiles`, `configuration`, `frame` and the rest are read-only,
+because the input was built, and the record is derived, from them when it was
+constructed. Assigning one raises `AttributeError`, naming these methods; only
+`settings` may be replaced, before the first translation.
 
 `SimulationSettings.fields` and `field_planes` choose which saved planes keep their
 field — every one by default, the named ones, or none for a run wanted as statistics

@@ -93,7 +93,7 @@ def capillary(
             absorber=collars[collar],
         )
     if frame_offset:
-        simulation.frame = Frame(
+        simulation._frame = Frame(
             grid.omega0 * (1.0 + frame_offset), subtract_beta0=False, beta1=None
         )
     return simulation

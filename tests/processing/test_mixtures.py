@@ -368,12 +368,12 @@ def test_zero_density_does_not_require_optical_support(case):
     )
     mixture = Mixture.of(first, absent)
     if simulation.medium:
-        simulation.medium = replace(simulation.medium, material=mixture)
+        simulation._medium = replace(simulation.medium, material=mixture)
     else:
-        simulation.modes = tuple(
+        simulation._modes = tuple(
             replace(mode, mixture=mixture) for mode in simulation.modes
         )
-    simulation.configuration["medium"] = mixture
+    simulation._configuration["medium"] = mixture
     # Reconstruct a fresh simulation because the fixture has already translated.
     fresh = Simulation(
         simulation.grid,

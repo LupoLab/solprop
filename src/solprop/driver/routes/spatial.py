@@ -123,10 +123,10 @@ def _from_spatial(  # noqa: PLR0917 - called positionally
         noise,
         seed,
     )
-    simulation.noise_resolution = resolution
+    simulation._noise_resolution = resolution
     if noise_model is not None:
         draw = _spatial_draw(noise_model, simulation, medium)
-        simulation.noise = draw(seed)
+        simulation._noise = draw(seed)
         _redrawable(simulation, draw, seed)
     _bind_spatial_rates(simulation, initial)
     return simulation

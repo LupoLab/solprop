@@ -917,7 +917,7 @@ def _bind_spatial_rates(
     are all bound is only checked.
     """
     if _unbound_rates(simulation.responses):
-        simulation.responses = tuple(
+        simulation._responses = tuple(
             _bound_rates(
                 simulation.responses,
                 _spatial_input_peak(simulation, initial),
