@@ -8,8 +8,8 @@ import json
 import os
 from pathlib import Path
 
+from solprop._file_lock import lock, unlock
 from solprop.exceptions import OutputError
-from solprop.output._file_lock import lock, unlock
 
 SNAPSHOT_SCHEMA = "solprop.snapshot.v1"
 """The schema a snapshot's ``manifest.json`` declares; writes under one are refused."""

@@ -18,9 +18,9 @@ import h5py
 import numpy as np
 import pytest
 
+from solprop._file_lock import lock, unlock
 from solprop.driver.scan import Scan
 from solprop.exceptions import OutputError, ProcessingError
-from solprop.output._file_lock import lock, unlock
 from solprop.output._scan_lock import lock_path, read_scan
 from solprop.output.hdf5 import _dataset, _group
 from solprop.output.metadata import SCHEMA_VERSION, _example_metadata
