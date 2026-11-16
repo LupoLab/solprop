@@ -741,7 +741,9 @@ edge, the guards, and in the collar:
 **How often, and what it saves.** While some guard or the collar holds more than a tenth
 of the budget (as a field amplitude), every committed step is checked. While the edges
 are quiet, a step is checked every eighth step or after `length / 256` of the guide,
-whichever comes first, and the state of every saved plane is checked regardless. The
+whichever comes first, and the state of every saved plane is checked regardless.
+`BoundaryCheck(interval=...)` sets that distance in metres instead, so that a run
+shortened to a window of a longer one keeps its checks where they were. The
 collar itself stays in every stage. On the native backend the Adams march takes these
 checks inside its compiled loop, so a busy monitor no longer costs a return to Python
 at every step; the record, the warning and a stop are the same, at the same step.

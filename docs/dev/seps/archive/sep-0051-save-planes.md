@@ -791,6 +791,10 @@ estimated about 60 lines removed plus the new field and its tests.
 - 2026-11-16: Final. Both phases are reported in Part II and merge in PR #851. Open questions moved to issues: keyword-only `length` ([#857](https://github.com/LupoLab/solprop/issues/857)), the fixed-step scaffold's `n_save` ([#856](https://github.com/LupoLab/solprop/issues/856)) and further length-dependent defaults ([#855](https://github.com/LupoLab/solprop/issues/855)).
 - 2026-11-16: The maintainer settled Q8 (`length` stays positional-or-keyword) and Q9
   (the scaffold's `n_save` takes SEP 51's meaning, in PR #851).
+- 2026-11-16: Rebased on SEP 52. Its backend corpus's walking fibre declared a grid 100
+  times its fibre to space its boundary checks; `BoundaryCheck` gained `interval` so the
+  case ends its grid at the fibre with its numbers unchanged, and monitor records now
+  carry the spacing used (the corpus's records gained it in place).
 
 ### AI review — 2026-11-15
 

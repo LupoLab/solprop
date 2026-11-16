@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 from builders import grid_at
-from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.settings import DEFAULT_N_SAVE, _observation_planes
 from solprop.exceptions import DriverError
@@ -480,17 +480,17 @@ def test_a_file_holding_a_terminal_checkpoint_resumes_to_the_declared_end(
     tmp_path, monkeypatch
 ):
     path = tmp_path / "run.h5"
-    original = NumpyRefBackend.stats
+    original = NumpyWorkspace.stats
     calls: list[int] = []
 
-    def fail_at_the_end(self, spec):
+    def fail_at_the_end(self, spec, z):
         calls.append(1)
         if len(calls) == 5:
             raise CrashError("the last plane's statistics failed")
-        return original(self, spec)
+        return original(self, spec, z)
 
     with monkeypatch.context() as patch:
-        patch.setattr(NumpyRefBackend, "stats", fail_at_the_end)
+        patch.setattr(NumpyWorkspace, "stats", fail_at_the_end)
         with pytest.raises(CrashError):
             resumable().run(path, progress="none")
     stopped = resume(path)
