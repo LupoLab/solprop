@@ -129,10 +129,10 @@ from solprop.driver.settings import (
     _RECIPE_EXECUTION,
     NoiseSetting,
     SimulationSettings,
+    _adopted,
     _boundary,
     _quiet_collar,
     _same_setting,
-    _save_planes,
     _scheme,
     _spatial_default,
     _spatial_settings,
@@ -445,6 +445,7 @@ class Simulation(Displayed):
         # every run repeated (``_transverse_edge``).
         self._edge_k_min: dict[float, float] = {}
         self.settings = settings
+        settings = self.settings
         if settings.controller is None:
             msg = (
                 "settings.controller is None: Simulation.from_free and "
@@ -548,13 +549,24 @@ class Simulation(Displayed):
         settings : SimulationSettings
             The replacement.
 
+        The replacement is adopted as the constructor adopts its settings (SEP 51):
+        validated against this run's interval ``[initial_z, grid.length]`` and
+        resolved into the positions after the entrance, ending exactly at the length,
+        before anything is compared, so a count and the positions it resolves to are
+        the same setting.
+
         Raises
         ------
         DriverError
-            If the simulation has already been translated and the replacement changes
-            a setting other than ``backend``, ``resume_history``, ``fields``,
-            ``field_planes``, ``tdse_execution`` or ``boundary_check``, naming them.
+            If the planes do not fit this run's interval, a replayed schedule does not
+            cover it, or the simulation has already been translated and the
+            replacement changes a setting other than ``backend``, ``resume_history``,
+            ``fields``, ``field_planes``, ``tdse_execution`` or ``boundary_check``,
+            naming them.
         """
+        settings = _adopted(
+            settings, entrance=float(self.initial_z), length=float(self.grid.length)
+        )
         if self._problem is not None:
             changed = [
                 one.name
@@ -890,8 +902,10 @@ class Simulation(Displayed):
             the seed a resume's file or a scan point supplies.
         initial_z : float or None, optional
             Absolute launch position in metres. None retains this simulation's
-            launch. An explicit position keeps only existing save planes beyond
-            it, preserving all absolute profiles, propagation tables and the frame.
+            launch. An explicit position keeps the already resolved observations
+            beyond it, which always include the end, and records the new entrance
+            there (SEP 51): it requests no new count. All absolute profiles,
+            propagation tables and the frame are kept.
         configuration : collections.abc.Mapping or None, optional
             Caller keys merged into the derived run's configuration record, and so
             into its configuration hash: the delay of a scan, the label of an input.
@@ -1017,7 +1031,9 @@ class Simulation(Displayed):
         )
         request = self._run_request()
         updated._request = request.with_stepper(
-            dataclasses.replace(request.stepper, save_planes=settings.save_planes)
+            dataclasses.replace(
+                request.stepper, save_planes=updated.settings.save_planes
+            )
         )
         route = updated._problem.route
         if isinstance(route, SpatialRoute):
@@ -2562,7 +2578,8 @@ class Simulation(Displayed):
             atol=atol,
             dz_max=dz_max,
             dz_init=dz_init,
-            save_planes=_save_planes(length, save_planes, n_save),
+            save_planes=save_planes,
+            n_save=n_save,
             schedule=schedule,
             integrator=integrator,
             interpolate_planes=interpolate_planes,

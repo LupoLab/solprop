@@ -47,7 +47,6 @@ from solprop.driver.routes.materials import _check_selection_carrier, _default_c
 from solprop.driver.settings import (
     NoiseSetting,
     _boundary,
-    _save_planes,
     keyword_settings,
 )
 from solprop.driver.tdse_run import _entry_overrides, _tdse_entry, _tdse_stats
@@ -697,7 +696,8 @@ def _from_hollow(  # noqa: PLR0915 - the route's whole build, keyword by keyword
         atol=request.atol,
         dz_max=request.dz_max,
         dz_init=request.dz_init,
-        save_planes=_save_planes(request.length, request.save_planes, n_save),
+        save_planes=request.save_planes,
+        n_save=n_save,
         schedule=request.schedule,
         integrator=request.integrator,
         interpolate_planes=request.interpolate_planes,
