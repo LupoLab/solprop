@@ -2,9 +2,23 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The integrators, Runge-Kutta tableaux, the step controller and step schedules.
+"""The step specifications a run carries, and the scalar algebra of every step.
 
-Backend-agnostic scalar logic of the solver (``docs/dev/stepper.md``).
+The frozen specifications a :class:`~solprop.translate.run_request.RunRequest` carries,
+plus the backend-agnostic scalar logic every backend runs per step
+(``docs/dev/stepper.md``); applying a method to a state is a backend kernel. The
+package imports only :mod:`solprop.exceptions` and :mod:`solprop._helpers`.
+
+- Integrators: :class:`RungeKutta` (:mod:`~solprop.stepper.runge_kutta`, an embedded
+  interaction-picture pair), :class:`Multistep` (:mod:`~solprop.stepper.multistep`,
+  the low-call Adams family and its variable-step weights) and
+  :class:`LowStorageRungeKutta` (:mod:`~solprop.stepper.low_storage`, the fixed-schedule
+  RK4IP replay).
+- :mod:`~solprop.stepper.tableau`: :class:`Tableau`, the ``DOPRI5`` and ``TSIT5``
+  pairs and :func:`check_order_conditions`.
+- :mod:`~solprop.stepper.controller`: the error-norm scales and :class:`PIController`.
+- :mod:`~solprop.stepper.schedule`: :class:`FixedSchedule` (:func:`discover`,
+  :func:`calibrate`, :func:`replay`) and :func:`landing` on save planes and kinks.
 """
 
 from solprop.stepper.controller import (

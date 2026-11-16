@@ -18,8 +18,10 @@ reproducibility, and on a device. So both are first class:
    target error, and production runs, ensemble members and scan points execute that.
 
 Separately, :func:`landing` is the per-step rule that clips a trial step so it ends
-exactly on the next save plane or hard kink, which is what replaces dense output
-(see ``docs/dev/decisions.md``). See ``docs/dev/stepper.md`` sections 3 and 8.
+exactly on the next save plane or hard kink (:class:`StepTargets` in, a
+:class:`Landing` naming its :class:`LandingTarget` out); landing on save planes
+replaces dense output unless a run asks for interpolated planes (ADR-009, ADR-039 in
+``docs/dev/decisions.md``). See ``docs/dev/stepper.md`` sections 3 and 8.
 """
 
 import bisect
