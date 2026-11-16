@@ -8,7 +8,7 @@
 | **Drafting agent** | Claude Opus 5.5 (2026-11-12); Claude Fable 5.2 (revision after the AI review, 2026-11-13) |
 | **Status** | Draft |
 | **Review status** | In review |
-| **Reviewers** | GPT-6 (AI) |
+| **Reviewers** | GPT-6 (AI); Opus 5.5 (AI) |
 | **Type** | Feature |
 | **Created** | 2026-11-12 |
 | **Resolution** | — |
@@ -1599,6 +1599,9 @@ DOIs, titles and authors checked against Crossref on 2026-11-12, and for [15] on
   [15] (section 4.4); the geometry of [14] is corrected, its stability parameter being
   that of the round trip (sections 4.4 and 7). The record of what was checked is in the
   probes section below.
+- 2026-11-16: Opus 5.5 completed a second AI review below, with a literature search,
+  for Christian Brahms (points R19–R28). Part I is unchanged; the findings await the
+  response of the drafting agent and the author's and maintainers' decisions.
 
 ### AI review — 2026-11-13
 
@@ -2151,3 +2154,266 @@ changed files, clean; `pytest tests/test_seps.py`, 363 passed and 3 skipped;
 `sphinx-build -b html -W -n --keep-going`, the command behind `poe docs`, succeeded on a
 clean export of the branch with the revised pages. The tests and the build ran from an
 existing environment with this branch's sources on the path, not from a fresh `uv sync`.
+
+### AI review — 2026-11-16
+
+Reviewer: **Opus 5.5 (AI)**, working with Christian Brahms. Reviewed all of Part I at
+`b2ef45a129856a74f26c8c5909f5be52a76d6a21` against the acceptance criteria of SEP 0, after
+a literature search on the design and simulation of gas-filled and plate multi-pass
+cells. The search ran keyword and semantic queries on OpenAlex, the forward citations of
+[4], of Seidel et al. 2022 and of the plate-cell papers, and the references these papers
+build on. Part I is unchanged. The points continue the numbering of the review of
+2026-11-13, so that R1–R18 keep their meaning. **P1** and **P2** are used as there.
+
+**Assessment.** The proposal meets most of the acceptance criteria. It names a concrete use
+case and compares implementations, recommending composition on the host with no change
+to the seam. Its verification classes and tolerances follow testing.md, and its
+documentation plan and phases are defined. The numbers it takes from its references were
+checked against the papers and nearly all agree (listed under *Evidence and limits*).
+Its central design choices are better supported in the literature than Part I shows: the
+variance constant $\alpha=2$, the moment lens of a plate, and $M^4$ in $\sigma$ for a
+Gaussian intensity.
+
+Four things stand between it and acceptance:
+- **Attributions.** Two of the attributions in section 4.3 are not what the cited papers
+  say (R19).
+- **Published plate lenses.** Two published Kerr lenses for plates are missing, so
+  section 4.4 and Q7 overstate what is open (R20).
+- **Validation witnesses.** Several of the reference numbers that serve as witnesses rest
+  on inputs the publications do not support (R23, R24).
+- **Open questions.** Q2 and Q8 are neither resolved nor deferred to a named phase (R27).
+
+The stability test of section 4.4 has no precedent in the literature found. It is new and
+should be presented as such, with its limits (R22).
+
+**Evidence and limits.** Read in full, besides [4], [9], [10], [12]–[15]:
+- Hanna et al. 2020, doi:10.1364/JOSAB.395789;
+- Seidel et al. 2022, doi:10.34133/2022/9754919, and its arXiv version with the supplement,
+  arXiv:2111.12834;
+- Fibich & Gaeta [6]; Bélanger & Paré [5];
+- Rivet & Canioni 2007, doi:10.1364/JOSAB.24.001901;
+- Couairon & Mysyrowicz 2007, doi:10.1016/j.physrep.2006.12.005;
+- Fibich & Ilan 2003, doi:10.1103/PhysRevE.67.036622;
+- Daher et al. 2020, doi:10.1364/JOSAB.386049;
+- Hanna et al. 2021 (review), doi:10.1002/lpor.202100220;
+- Manz et al. 2025 (10 mJ), doi:10.1364/OE.561758;
+- Weitenberg et al. 2017, doi:10.1364/OE.25.020502;
+- Lin & Agrawal 2006, doi:10.1364/OL.31.003086;
+- Schönberg et al. 2025, doi:10.1364/PRJ.540977;
+- Mei et al. 2026, arXiv:2608.13288;
+- Wang et al. 2024, doi:10.1088/1402-4896/ada072;
+- and further plate- and gas-cell papers.
+
+Not obtained:
+- the method-of-moments papers of Vlasov et al. [8] and Paré & Bélanger (1992),
+  doi:10.1007/BF01588605;
+- the Kerr-medium ABCD analyses of Magni et al. (1993);
+- the MPC patent (Russbueldt et al., US 9847615) and the thesis of M. Kaumanns (LMU,
+  2020). Both are cited for the behaviour of cells near the edge of stability and could
+  bear on R22 and R24.
+
+Confirmed against the papers:
+- the equations, example cell and simulated radii of [4];
+- Table 2 and Fig. 2 of [10];
+- the geometry of [2];
+- the experimental numbers of [12], [13] and [14];
+- the −30 % and +15 % of [15];
+- Table 1 of [9];
+- the factor $2/3$ for circular polarisation (Fibich & Ilan 2003);
+- the Raman tensor of silica that section 4.4 uses (Lin & Agrawal 2006, eqs. (1) and (4):
+  $f_b=0.21$, $f_c=0.04$, hence 0.75 and 0.25).
+
+The code paths of section 3 were spot-checked: `critical_power` documents 1.86226 as the
+rounding of the computed 1.8622555. No design number was recomputed beyond those quoted
+in R20 and R24, and no cell was propagated.
+
+**Recommendations on the questions.**
+- **Q2:** the directory with a versioned record, as R7 of the earlier review also supports,
+  with the packing tool moved to an issue, so that Q2 can be closed (R27).
+- **Q7:** keep both lenses selectable and settle the default in phase 3 as planned, but
+  widen the comparison as R20 describes.
+- **Q4:** take the definition from its primary source (R26).
+
+1. **R19 — P2: Correct the attributions of the critical-power constants (§§4.3, 13).**
+   - **Fibich & Gaeta [6]** (Table 1, p. 336) give, for a collimated Gaussian:
+     - the numerical collapse threshold $\alpha=1.8962$, that is $3.79\lambda_0^2/(8\pi n_0n_2)$,
+       not $3.77$;
+     - the lower bound $N_{\rm cr}\approx1.86225$;
+     - the Hamiltonian upper bound $G=2$ (their eqs. (7)–(8)). This is exactly the
+       variance constant section 4.3 derives.
+   - **The 3.77 itself** is that of [7] (eq. (103), citing Marburger).
+   - **Bélanger & Paré [5]** obtain their $P_c$ (eq. (15), p. 1294) from the parabolic
+     expansion of the index of a Gaussian about the axis. In the units of section 4.3 that
+     is $\lambda_0^2/(8\pi n_0n_2)$, $\alpha=1/2$: their law with their own constant is the
+     on-axis lens of section 4.4. [4] pairs that law with the constant of [7].
+   - **The identification of $\sigma$ with the variance constant** comes from moment theory:
+     - Rivet & Canioni 2007, eqs. (19)–(20): $P_{NL}=\lambda^2/(2\pi n_0n_2)$ for a Gaussian;
+     - Couairon & Mysyrowicz 2007, §2.4: the paraxial-ray approximation underestimates that
+       threshold by a factor of four;
+     - [6], eq. (7).
+
+   Recommended:
+   - cite these for $\alpha=2$ and for the factor $2\alpha$ between the two lenses;
+   - state what [5]'s own constant is;
+   - write the Gaussian threshold as 1.8962 in [6] and $3.77/2$ in [7].
+
+   The 6 % and the effects quoted in section 4.3 are unchanged.
+
+2. **R20 — P1: Account for the plate lenses already published (§§4.4, 10, 12 Q7, Part
+   III).** Section 4.4 says that none of [13], [14] and [15] prints its lens, and Part III
+   that Seidel et al. 2022 was not read. Two published models give the lens of a plate.
+
+   - **Hanna et al. 2020** (doi:10.1364/JOSAB.395789):
+     - eq. (5), p. 2984, a thin Kerr lens per step, $f=K\pi w^4/(P_{\rm peak}n_2\,dz)$;
+     - $K=0.47$, set so that collapse occurs at the 3.77 constant;
+     - stated (p. 2983) to describe "MPCs including plates of nonlinear material";
+     - $M^2$ enters by replacing $w$ with $wM$ in the lens and the nonlinear coefficient.
+   - **Seidel et al. 2022**, supplement S2 (arXiv:2111.12834, eqs. (4)–(5)):
+     - the lens-like duct of Siegman with $\gamma=(\kappa/w^2)(8n_2P_p/\pi n)^{1/2}$, $P_p$
+       the peak power;
+     - $\kappa=0.43$ fitted to a simulated Z-scan;
+     - [13] states that its matching is this model, and [15] cites it for its matching.
+
+   In the thin limit, and in the units of section 4.4 for a plate in vacuum or air, the
+   lenses compare as follows (my reduction; the thin limit of Seidel's duct assumes $w$ is
+   the $1/e^2$ radius):
+
+   | Lens | $1/f$ in units of $n_2 d/(\pi w^4)$ |
+   |---|---|
+   | Moment lens of the SEP, $\alpha=2$ | $2P_{\rm eff}$, i.e. $1.41P_{\rm peak}$ (Gaussian), $1.33P_{\rm peak}$ (sech²) |
+   | Seidel et al. 2022 | $8\kappa^2P_{\rm peak}=1.48P_{\rm peak}$ |
+   | Hanna et al. 2020 | $P_{\rm peak}/K=2.13P_{\rm peak}$ |
+   | On-axis lens | $8P_{\rm peak}$ |
+
+   Consequences:
+   - **What the agreement with [13] and [15] shows.** That the moment lens reproduces [13]
+     and [15] (section 4.4) is the expected agreement with Seidel's calibration, within
+     5–11 %. It is not independent evidence for the moment lens.
+   - **A second axis to Q7.** Two published calibrations bracket the moment lens and differ
+     by 1.5 in strength, mainly through the power they use. Hanna 2020 validated its
+     peak-power lens against a 4D model at $P_{\rm peak}/P_{\rm crit}=0.6$ (its Fig. 1),
+     while [4] validated $\sigma$ from $P_{\rm eff}$. So Q7 has a second axis: which power
+     enters the lens.
+
+   Recommended:
+   - correct section 4.4 and the Part III statement;
+   - cite both models;
+   - include the two calibrated lenses and the peak-power variant of the moment lens as
+     recorded comparisons in the closure test of phase 3, beside the moment and on-axis
+     lenses. They need not become options of the interface.
+
+3. **R21 — P2: Name the beam-quality conventions and the limit of $M^4$ (§4.3).** Three
+   conventions are in use:
+   - this SEP's $M^4$ in $\sigma$;
+   - [10], eq. (1): $1/\sqrt{\sigma M^2}$ in the B-integral only;
+   - Hanna 2020: $w\to wM$ in the Kerr lens.
+
+   Rivet & Canioni 2007 (eqs. (19)–(20), Table 2) derive the critical power of a modal field
+   from its variances. It depends on $\int I^2/(\int I)^2$ of the actual profile.
+   - For a field whose intensity is Gaussian at the same second-moment radius, the
+     diffraction term scales as $M^4$ and the Kerr term is unchanged, as section 4.3 says.
+   - For Hermite- and Laguerre-Gauss modes the Kerr term changes too.
+
+   Recommended:
+   - cite Rivet & Canioni for the form;
+   - state that $M^4$ in $\sigma$ is exact only under the Gaussian-intensity closure;
+   - record, for each reproduction, which convention the publication used.
+
+4. **R22 — P2: Present the stability test as new, and state what it cannot see (§§4.4,
+   4.6, 7).** No published analysis was found of the stability of a Kerr-corrected
+   stationary beam in a cell with plates.
+   - Wang et al. 2024 treat a plate cell with linear ABCD matrices only.
+   - The review of Hanna et al. 2021 (p. 3) notes only that the oscillation picture fails
+     "if the nonlinearity is so strong that it makes the elementary optical system
+     unstable".
+   - Every plate cell found was matched numerically or by trial.
+
+   The test of section 4.4 is therefore new and has no external check. It is also blind
+   by construction to instabilities that leave the second moments unchanged:
+   - **Mei et al. 2026** show parametric growth of the higher radial modes of a mode-matched
+     cell, phase-matched by the Gouy-phase imbalance per pass. The review of Hanna et al.
+     2021 (p. 5) gives the resonance $\psi=n\pi/p$.
+   - **Daher et al. 2020** (spatio-spectral measurements) report pointing instability from
+     $P_{\rm peak}/P_{\rm crit}\approx0.73$ in their convention.
+   - **Schönberg et al. 2025** (measurements in krypton) report spectral homogeneity
+     degrading from $P/P_c\approx0.55$–0.6.
+
+   Recommended:
+   - state these limits in *Validity*;
+   - add to the per-pass observables of phase 4 the energy fraction in the radial modes of
+     the linear eigenmode. On a radial grid this is one projection per plane;
+   - in phase 3, check that the cell the design refuses as unstable does depart in the
+     propagation as section 7 already plans.
+
+5. **R23 — P2: Bound the aberrationless estimate with the published discrepancies (§4.4,
+   *Validity*).** Section 4.4 quotes the 30 % of [4]. Further evidence:
+   - **Daher et al. 2020** (comparison of their 1D and 3D models): 4.3 rad against an
+     estimated 2.5 rad on the first round trip at $P_{\rm peak}/P_{\rm crit}=0.6$, with the
+     caustic oscillating.
+   - **Fibich & Ilan 2003** (footnote 4): the aberrationless approximation can give
+     "completely incorrect predictions" for the two-dimensional NLS.
+   - **Couairon & Mysyrowicz 2007** (§2.4) list the limits of moment and variational models.
+
+   Recommended: cite these where the design's B-integral and radii are called estimates,
+   so that a user reads the design as sizing only, as section 4.4 intends.
+
+6. **R24 — P1: Correct the inputs of three validation witnesses (§§4.3, 4.4, 7).**
+   - **[10]: wrong measured duration.**
+     - §3.2 of [10] compares the simulated 18.5 fs with **19.4 fs measured at 1.3 bar**.
+       The 19.2 fs that section 4.3 sets beside it is the §2.4 result at 1.1 bar.
+     - [10] says the injection and extraction mirrors share the cell mirrors'
+       *reflectivity* (p. 4), not their coating. Sections 4.1 and 7 should not assume the
+       coating's phase.
+   - **[15]: the pulse was longer than 1 ps.** The 128.5 µJ run of MPC 1 used pulses
+     *longer* than 1 ps ([15], p. 985); the 1-ps run used 96.5 µJ. The $x_p=19$ and the
+     −32 % of section 4.4 assume 128.5 µJ in 1 ps, so the agreement with −30 % rests on an
+     assumed duration as well as on the unpublished plate positions. State both, or use
+     the 96.5 µJ, 1-ps case.
+   - **[14]: 7.2 mm is a linear design value.**
+     - [14] gives the 7.2 mm on the mirrors as the size the cell was designed for ("enlarging
+       the beam size on the mirrors from 4 mm to 7.2 mm", p. 54909), with $S\sim0.992$, and
+       does not say whether $S$ is that of one pass or a round trip.
+     - The linear eigenmode at a round-trip $S=0.992$ with $M^2=1.17$ is 7.0 mm (my
+       calculation), so the reading of section 7 is consistent.
+     - But a linear design value cannot witness the Kerr-corrected design, which gives
+       9.5 mm at $P_{\rm eff}$ (section 4.4). Section 7 should compare the propagated
+       radii with the design's and record 7.2 mm as the publication's linear target.
+
+7. **R25 — P2: Smaller corrections of citations (§§2, 4.3, 7).**
+   - **[9] and sub-20 fs (§2).** [9] does not support "compressed to below 20 fs" for a gas
+     cell: it says a single gas stage "routinely achieves around 30–40 fs" (p. 205). Cite
+     [10] alone for sub-20 fs.
+   - **Argon index of [9] (§4.3).** The argon index of [9] is printed at each cell's
+     pressure in its Table 1. The $7.0\times10^{-24}$ m²/W per bar is derived from it, and
+     should be stated as derived.
+   - **The radius plotted in [4] (§7).** [4] defines its plotted radius as a
+     "time-averaged RMS beam radius" without a formula, and its $w$ as the radius "at
+     $1/e$". That this is the second-moment radius of section 4.6 is an assumption to state
+     in the comparison.
+
+8. **R26 — P2: Take the homogeneity measure from its primary source (Q4).**
+   - Weitenberg et al. 2017 define
+     $V=\big[\int\sqrt{I(\lambda)I_0(\lambda)}\,d\lambda\big]^2/\big[\int I\,d\lambda\int I_0\,d\lambda\big]$
+     (p. 20509).
+   - [14] and Pfaff et al. 2023 (doi:10.1364/OE.494359) print, under the same citation,
+     the squared overlap of $I$ and $I_0$ normalised by $\int I^2\int I_0^2$: a different
+     number for the same spectra.
+
+   Recommended: define $V$ as in the primary source, note that publications differ, and
+   compute the variant a comparison needs.
+
+9. **R27 — P2: Close the open questions before acceptance (§12).**
+   - **Q2** is "left to the review", neither resolved nor deferred to a named phase, as SEP
+     0 requires for acceptance. Resolve it for the directory with its versioned record, and
+     move the packing tool to an issue.
+   - **Q8** is the maintainers' decision and must be recorded before acceptance.
+   - The others are resolved or deferred to named phases.
+
+10. **R28 — P2: Small points of the interface (§§5.1, 4.4).**
+    - **`model_error`.** `CellMirror` requires `model_error` with no default and the SEP does
+      not say what it is. It is the budget of the thin-screen certificate of `ThinLens`
+      (SEP 31); say so, and give the value the examples use a reason.
+    - **The pulse in `design(pulse)`.** The moment lens uses $P_{\rm eff}$ of the launched
+      pulse, while the B-integral of section 4.3 uses $P_{\rm peak}$. Section 5.1 should
+      state which `power` overrides, so that a reproduction of Hanna 2020 or Seidel 2022
+      (R20), which use the peak power in the lens, is expressible.
