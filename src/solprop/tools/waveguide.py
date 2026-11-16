@@ -5,9 +5,9 @@
 
 """The fill and the mode a design evaluates.
 
-A fill as the run interfaces accept it, resolved to an optmat mixture; its Kerr
-coefficient; the default cladding; and the zero-dispersion point of a mode nearest a
-wavelength. Every design search evaluates its probes inside ``_probing``.
+A fill as the run interfaces accept it (:data:`Fill`), resolved to an optmat mixture;
+its Kerr coefficient; the default cladding; and the zero-dispersion point of a mode
+nearest a wavelength. Every design search evaluates its probes inside ``_probing``.
 """
 
 import math

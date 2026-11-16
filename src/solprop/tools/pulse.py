@@ -5,8 +5,9 @@
 
 """Pulse shape numbers: the natural width, peak power and energy of a pulse.
 
-The ``sech`` and Gaussian shapes the design numbers are defined for, and the carrier
-frequency of a vacuum wavelength the other tools modules share.
+:func:`pulse_width`, :func:`pulse_peak_power` and :func:`pulse_energy` for the ``sech``
+and Gaussian shapes (:data:`PulseShape`) the design numbers are defined for, and the
+carrier frequency of a vacuum wavelength that the other tools modules share.
 """
 
 import math
