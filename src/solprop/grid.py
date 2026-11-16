@@ -2068,7 +2068,7 @@ def _extent(pulse: object) -> tuple[float, float, float, float]:
       delay, s.
     """
     from solprop.pulses import (  # noqa: PLC0415 - pulses import this module
-        SECH_FWHM_TO_WIDTH,
+        _SECH_FWHM_TO_WIDTH,
         DataPulse,
         GaussianPulse,
         SechPulse,
@@ -2077,7 +2077,7 @@ def _extent(pulse: object) -> tuple[float, float, float, float]:
     if isinstance(pulse, GaussianPulse | SechPulse):
         fwhm = pulse.fwhm
         if fwhm is None and isinstance(pulse, SechPulse):
-            fwhm = float(cast("float", pulse.width)) / SECH_FWHM_TO_WIDTH
+            fwhm = float(cast("float", pulse.width)) / _SECH_FWHM_TO_WIDTH
         fwhm = float(cast("float", fwhm))
         shape = "sech" if isinstance(pulse, SechPulse) else "gaussian"
         product = _TIME_BANDWIDTH[shape]
