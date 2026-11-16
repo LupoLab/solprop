@@ -30,6 +30,8 @@ option(SOLPROP_NATIVE_ENABLE_CUDA "Use CUDA in Kokkos and cuFFT" OFF)
 option(SOLPROP_NATIVE_ENABLE_HIP "Use HIP in Kokkos and rocFFT" OFF)
 option(SOLPROP_NATIVE_ENABLE_COVERAGE
        "Instrument project CPU sources with Clang source-based atomic coverage" OFF)
+# The source digest's patterns, which the coverage hash below shares.
+include(cmake/SourceDigest.cmake)
 set(SOLPROP_NATIVE_COVERAGE_SOURCE_HASH "")
 if(SOLPROP_NATIVE_ENABLE_COVERAGE)
   if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^(Clang|AppleClang)$" OR
@@ -42,11 +44,11 @@ if(SOLPROP_NATIVE_ENABLE_COVERAGE)
       -O1 -g -fprofile-instr-generate -fcoverage-mapping -fprofile-update=atomic)
   set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
   set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE OFF)
-  # The source digest's set (cmake/SourceDigest.cmake), src/general/'s headers included.
+  # The source digest's C++ set (cmake/SourceDigest.cmake), src/general/'s headers included.
+  list(TRANSFORM SOLPROP_NATIVE_DIGEST_GLOBS PREPEND "${PROJECT_SOURCE_DIR}/"
+       OUTPUT_VARIABLE _coverage_globs)
   file(GLOB_RECURSE _coverage_sources CONFIGURE_DEPENDS RELATIVE "${PROJECT_SOURCE_DIR}"
-    "${PROJECT_SOURCE_DIR}/src/*.cpp" "${PROJECT_SOURCE_DIR}/src/*.hpp"
-    "${PROJECT_SOURCE_DIR}/src/*.h" "${PROJECT_SOURCE_DIR}/include/*.cpp"
-    "${PROJECT_SOURCE_DIR}/include/*.hpp" "${PROJECT_SOURCE_DIR}/include/*.h")
+    ${_coverage_globs})
   list(SORT _coverage_sources)
   set(_coverage_source_record "")
   foreach(_source IN LISTS _coverage_sources)
@@ -537,12 +539,16 @@ solprop_native_link_vector_math(solprop_native_core)
 solprop_native_mark_dependency_headers_system(solprop_native_core)
 solprop_native_configure_project_target(solprop_native_core)
 
-# What the extension is compiled from: this file and the sources the digest's patterns
-# match (cmake/SourceDigest.cmake says why a custom command and not a configure step).
-include(cmake/SourceDigest.cmake)
+# What the extension is compiled from: this file, its cmake/ modules and the sources the
+# digest's patterns match (cmake/SourceDigest.cmake says why a custom command and not a
+# configure step).
 list(TRANSFORM SOLPROP_NATIVE_DIGEST_GLOBS PREPEND "${PROJECT_SOURCE_DIR}/"
      OUTPUT_VARIABLE _source_digest_globs)
 file(GLOB_RECURSE _source_digest_inputs CONFIGURE_DEPENDS ${_source_digest_globs})
+list(TRANSFORM SOLPROP_NATIVE_DIGEST_MODULE_GLOBS PREPEND "${PROJECT_SOURCE_DIR}/"
+     OUTPUT_VARIABLE _source_digest_module_globs)
+file(GLOB _source_digest_modules CONFIGURE_DEPENDS LIST_DIRECTORIES false
+     ${_source_digest_module_globs})
 set(SOLPROP_NATIVE_SOURCE_DIGEST_CPP "${CMAKE_CURRENT_BINARY_DIR}/source_digest.cpp")
 add_custom_command(
   OUTPUT "${SOLPROP_NATIVE_SOURCE_DIGEST_CPP}"
@@ -551,6 +557,7 @@ add_custom_command(
           -P "${PROJECT_SOURCE_DIR}/cmake/SourceDigest.cmake"
   DEPENDS "${PROJECT_SOURCE_DIR}/CMakeLists.txt"
           "${PROJECT_SOURCE_DIR}/cmake/SourceDigest.cmake" ${_source_digest_inputs}
+          ${_source_digest_modules}
   COMMENT "Hashing the native sources"
   VERBATIM
 )
