@@ -1116,7 +1116,7 @@ Withdrawn (development-process record, not a design decision).
   qualified to their rounding budget and to SEP 16's work–precision cases.
 - **Amendment, device builds:** the protected helpers are strict on CPU builds only.
   CUDA and HIP builds leave the strict blocks empty (`SOLPROP_NATIVE_STRICT_FUNCTION`
-  and `SOLPROP_NATIVE_STRICT_BLOCK` in `native/include/solprop_native/fp.hpp`, under
+  and `SOLPROP_NATIVE_STRICT_BLOCK` in `native/include/solprop_native/runtime/fp.hpp`, under
   `__CUDACC__` or `__HIPCC__`, which includes nvcc's host pass) and follow their
   compilers' contraction defaults; `build_info().optimization_policy` records
   "compiler-default contraction". On a device the φ series, the phase sums, the
@@ -1575,7 +1575,7 @@ Withdrawn (development-process record, not a design decision).
   - Apple M5 Max: the system libm 3.25 ns; SLEEF's AdvSIMD functions gain nothing, and
     Accelerate's vForce 1.3 times at 1.7 ulp.
 - **Decision:**
-  - One private layer, `native/include/solprop_native/vmath.hpp`, gives the host kernels
+  - One private layer, `native/include/solprop_native/runtime/vmath.hpp`, gives the host kernels
     batch `exp`, `log`, `sincos` and the complex exponential over contiguous arrays. A
     kernel forms a block's arguments into a buffer, calls the layer once over it, and
     finishes each element from the results. Converted: the Runge–Kutta stage entry, the
@@ -1639,7 +1639,7 @@ Withdrawn (development-process record, not a design decision).
     contract's section 11 specifies them in full.
   - `native` executes `Multistep()` in either formulation, the one-order-higher PEC
     comparisons and replayed schedules on its resident engine for a run of attempts
-    per call (`native/src/adams_march.cpp`, compiled without contraction
+    per call (`native/src/march/adams_march.cpp`, compiled without contraction
     or fast-math), returning only at a host event: a reached target, an accepted step
     on which the driver has work, the monitor, the call's bound (256 attempts or
     0.1 s), the budget, the floor or a native error. solprop books the call's attempts

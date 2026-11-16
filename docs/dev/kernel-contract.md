@@ -1341,7 +1341,7 @@ stripped extension labels only exported functions). The boundary checks above an
 ## 12. The Runge–Kutta march
 
 *Normative from [SEP 45](seps/archive/sep-0045-native-rk-march.md) phase 3. `native` executes it
-(`native/src/rk_march.cpp`), adaptive or replayed, with `PIController`'s norm, weighted or
+(`native/src/march/rk_march.cpp`), adaptive or replayed, with `PIController`'s norm, weighted or
 not, on CPU and device builds. `PIController` is final (ADR-077), so its decisions are
 the only ones either backend takes.*
 

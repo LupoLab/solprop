@@ -8,7 +8,7 @@
 // policy is refused by the field at fault, that a run on a toy engine keeps its
 // ledger and lands on its target, and where a stop request ends a call (SEP 47).
 
-#include "solprop_native/adams_march.hpp"
+#include "solprop_native/march/adams_march.hpp"
 
 #include <gtest/gtest.h>
 

@@ -46,12 +46,12 @@ PROTECTED = [
     ("src/general/kernels.hpp", "decayed_fractions"),
     ("src/general/kernels.hpp", "envelope_fraction"),
     # The small-argument phi-functions (multistep._phi, _weights).
-    ("include/solprop_native/adams_phi.hpp", "adams_phi_fixed"),
-    ("include/solprop_native/adams_phi.hpp", "adams_lanes_classify"),
-    ("include/solprop_native/adams_phi.hpp", "adams_lanes_phi"),
-    ("include/solprop_native/adams_phi.hpp", "adams_lanes_large_exponential"),
-    ("include/solprop_native/lagrange_basis.hpp", "basis_rows"),
-    ("include/solprop_native/lagrange_basis.hpp", "trial_tables"),
+    ("include/solprop_native/march/adams_phi.hpp", "adams_phi_fixed"),
+    ("include/solprop_native/march/adams_phi.hpp", "adams_lanes_classify"),
+    ("include/solprop_native/march/adams_phi.hpp", "adams_lanes_phi"),
+    ("include/solprop_native/march/adams_phi.hpp", "adams_lanes_large_exponential"),
+    ("include/solprop_native/march/lagrange_basis.hpp", "basis_rows"),
+    ("include/solprop_native/march/lagrange_basis.hpp", "trial_tables"),
     # The stable phase increments.
     ("src/general/kernels.hpp", "phase_sum"),
     ("src/general/kernels.hpp", "phase_block"),
@@ -70,9 +70,9 @@ PROTECTED = [
     ("src/general/trial.cpp", "adams_lanes_rate"),
     ("src/general/trial.cpp", "adams_defect_block"),
     # The far field's plane radius (mask_plane_radius).
-    ("include/solprop_native/far_field.hpp", "far_field_radius"),
-    ("include/solprop_native/far_field.hpp", "far_field_offset"),
-    ("include/solprop_native/far_field.hpp", "far_field_scaled_radius"),
+    ("include/solprop_native/response/far_field.hpp", "far_field_radius"),
+    ("include/solprop_native/response/far_field.hpp", "far_field_offset"),
+    ("include/solprop_native/response/far_field.hpp", "far_field_scaled_radius"),
 ]
 """Each helper the licence protects, and the file that defines it.
 
@@ -117,7 +117,7 @@ def test_every_protected_helper_is_strict(path, name):
 
 def test_a_protected_marker_still_does_something():
     """The macro names its two mechanisms: the list cannot see an empty one."""
-    source = NATIVE / "include" / "solprop_native" / "fp.hpp"
+    source = NATIVE / "include" / "solprop_native" / "runtime" / "fp.hpp"
     if not source.exists():
         pytest.skip("the native sources are not in this tree")
     text = source.read_text(encoding="utf-8")
@@ -144,16 +144,16 @@ REFUSED = (
 
 
 STRICT_SOURCES = (
-    "src/adams_march.cpp",
-    "src/watch.cpp",
-    "src/rk_march.cpp",
-    "src/session.cpp",
-    "src/statistics_plan.cpp",
-    "src/session_widths.cpp",
-    "src/low_storage.cpp",
-    "src/transverse.cpp",
-    "src/session_edge.cpp",
-    "src/dense.cpp",
+    "src/march/adams_march.cpp",
+    "src/session/watch.cpp",
+    "src/march/rk_march.cpp",
+    "src/session/session.cpp",
+    "src/session/statistics_plan.cpp",
+    "src/session/session_widths.cpp",
+    "src/march/low_storage.cpp",
+    "src/session/transverse.cpp",
+    "src/session/session_edge.cpp",
+    "src/march/dense.cpp",
 )
 """The translation units built without contraction (ADR-060, SEP 45, SEP 47).
 
@@ -178,7 +178,7 @@ def test_the_build_system_asks_for_none_of_the_refused_flags():
     # The strict translation units round as Python's do, on every compiler, and refuse
     # the general workspace's contracting headers.
     strict = re.search(
-        r"set\(SOLPROP_NATIVE_STRICT_SOURCES\s+((?:src/\w+\.cpp\s*)+)\)", text
+        r"set\(SOLPROP_NATIVE_STRICT_SOURCES\s+((?:src/[\w/]+\.cpp\s*)+)\)", text
     )
     assert strict is not None
     assert tuple(strict.group(1).split()) == STRICT_SOURCES

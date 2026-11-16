@@ -134,8 +134,8 @@ The private extension `_core` is a thin seam (solprop SEP 52 section 5.3):
   (`Workspace.probe(start)`); `Workspace.diagnostics()` returns every fact the
   metadata reads. A session or probe leases the workspace until it closes.
 - **Records by field table.** Each C++ record declares its fields once, beside its
-  definition (`include/solprop_native/fields.hpp`), and one converter
-  (`src/records.hpp`) reads a dataclass, mapping or tuple into it, refusing a missing
+  definition (`include/solprop_native/runtime/fields.hpp`), and one converter
+  (`src/bindings/records.hpp`) reads a dataclass, mapping or tuple into it, refusing a missing
   or unknown field, a wrong dtype, rank or extent relation, a strided array or an
   enumeration given by anything but its name, by the field's path before copying
   anything. `_core.schemas()` exports every table, and a test holds each Python record
@@ -144,7 +144,7 @@ The private extension `_core` is a thin seam (solprop SEP 52 section 5.3):
   storage.
 - **Bindings only marshal.** A binding converts, releases the interpreter lock and
   forwards. The lease, the coupled flow's guard, the marches' construction and the
-  probe live in the C++ library (`native::Workspace`, `src/workspace.cpp`), where the
+  probe live in the C++ library (`native::Workspace`, `src/problem/workspace.cpp`), where the
   native tests reach them.
 - **`_testing` promises nothing.** The test-only entry points live in the submodule
   `_core._testing`, shipped in the wheel for solprop's own tests; they take the

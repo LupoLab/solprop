@@ -6,10 +6,10 @@
 
 :class:`NativeSession` implements solprop's
 :class:`~solprop.backends.session.RunSession` over ``_core.Session``, the native
-session (``native/include/solprop_native/session.hpp``). The native session is the one
-mutable owner of the trajectory: the march's policy, state and history, the plane
-schedule, the periodic statistics rows (taken natively after each commit and kept in a
-resident buffer until the next observation), the stop flag, the snapshot latch, the
+session (``native/include/solprop_native/session/session.hpp``). The native session is
+the one mutable owner of the trajectory: the march's policy, state and history, the
+plane schedule, the periodic statistics rows (taken natively after each commit and kept
+in a resident buffer until the next observation), the stop flag, the snapshot latch, the
 committed-state generation and the pending batch. This adapter only translates: it
 prepares the session once from a :class:`~solprop_native.backend.NativeBackend`'s
 lowering (the native problem, the stage tables and the CPU execution record), turns
@@ -50,7 +50,7 @@ following and refuses every other feature by name before allocating anything
   from the resident state with no return to Python, and a monitored resume continues
   both records natively from solprop's run records
   (:mod:`solprop.backends.records`, read by the extension's record converter,
-  ``native/src/records.hpp``);
+  ``native/src/bindings/records.hpp``);
 - dense output (``interpolate_planes``), for Adams and the embedded Runge-Kutta
   tableau alike: a plane the march steps across is interpolated natively inside the
   step that crossed it, the committed state held aside, and observed in order before

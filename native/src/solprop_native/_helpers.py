@@ -8,8 +8,8 @@ solprop's shared stage code takes a stage table's Chebyshev rows from the backen
 runs it (``NativeBackend.helpers``, solprop SEP 29 section 6.6), so that a native run
 never reaches solprop's Python forms and the NumPy reference never reaches this
 package. :data:`NATIVE` is this backend's record: the C++ transcription in
-``include/solprop_native/chebyshev.hpp``, which performs solprop's operations in its
-order under strict arithmetic.
+``include/solprop_native/march/chebyshev.hpp``, which performs solprop's operations in
+its order under strict arithmetic.
 
 The record names no Adams basis. The native Adams march is compiled and forms its
 Lagrange basis and coefficient tables in C++ (``lagrange_basis.hpp``) every trial, so no

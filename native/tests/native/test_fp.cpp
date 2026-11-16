@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "solprop_native/execution.hpp"
-#include "solprop_native/fp.hpp"
+#include "solprop_native/runtime/execution.hpp"
+#include "solprop_native/runtime/fp.hpp"
 
 #include <gtest/gtest.h>
 

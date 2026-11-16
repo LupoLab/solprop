@@ -95,7 +95,7 @@ elseif(SOLPROP_NATIVE_ENABLE_CUDA AND
 elseif(NOT SOLPROP_NATIVE_ENABLE_CUDA AND
        CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
        CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
-  # GCC 13 compiles the out-of-line strict helpers (include/solprop_native/fp.hpp)
+  # GCC 13 compiles the out-of-line strict helpers (include/solprop_native/runtime/fp.hpp)
   # through the stack, stalling every call on a failed store-to-load forward: coupled
   # Multistep steps took 1.25 to 1.45 times as long as with GCC 14 (Cascade Lake,
   # Zen 5).
@@ -119,7 +119,7 @@ if(NOT APPLE AND NOT SOLPROP_NATIVE_ENABLE_CUDA AND
 endif()
 
 # solprop SEP 25: floating-point contraction (fused multiply-add) is on by default for
-# CPU builds, and the few protected blocks opt out (include/solprop_native/fp.hpp).
+# CPU builds, and the few protected blocks opt out (include/solprop_native/runtime/fp.hpp).
 # Clang's plain `-ffp-contract=fast` ignores `#pragma clang fp contract(off)` and
 # `#pragma STDC FP_CONTRACT OFF`; `fast-honor-pragmas` contracts across statements and
 # keeps the protected blocks strict. GCC ignores both pragmas: its protected functions
@@ -274,7 +274,7 @@ set(SOLPROP_NATIVE_DEVICE_TEAM_SIZE "256" CACHE STRING
     "Maximum accelerator response and scan team width")
 set(SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE "512" CACHE STRING
     "Fixed accelerator deterministic reduction block width")
-# solprop SEP 18's band rule (include/solprop_native/plasma.hpp). The staging changes
+# solprop SEP 18's band rule (include/solprop_native/response/plasma.hpp). The staging changes
 # only how a device team reads a filter's halo, through the same arithmetic (Q8). Its
 # default is the faster read measured on each vendor's device: on an MI325X (HIP)
 # staging the row in team scratch, 1.25 times the trapezoid's RDW window against 1.36
@@ -800,7 +800,7 @@ endfunction()
 if(SOLPROP_NATIVE_ENABLE_COVERAGE)
   # Keep label collection in a separate, uninstrumented Tools module. The runner
   # loads it only for a separate execution-label pass, never a timing sample.
-  add_library(solprop_native_labels MODULE src/coverage_labels.cpp)
+  add_library(solprop_native_labels MODULE src/runtime/coverage_labels.cpp)
   target_include_directories(solprop_native_labels SYSTEM PRIVATE
     "${kokkos_SOURCE_DIR}/core/src")
   target_compile_options(solprop_native_labels PRIVATE
@@ -810,13 +810,13 @@ if(SOLPROP_NATIVE_ENABLE_COVERAGE)
   install(TARGETS solprop_native_labels LIBRARY DESTINATION solprop_native)
 endif()
 
-add_library(solprop_native_core STATIC src/cpu_execution.cpp src/crossing.cpp
+add_library(solprop_native_core STATIC src/runtime/cpu_execution.cpp src/runtime/crossing.cpp
   src/general/checks.cpp src/general/setup.cpp src/general/trial.cpp
-  src/general/statistics.cpp src/general/state.cpp src/general/memory.cpp src/general_modal.cpp src/coupled_flow.cpp src/dispersive.cpp src/far_field.cpp
-  src/adams_march.cpp src/watch.cpp src/rk_march.cpp src/engines.cpp src/session.cpp
-  src/statistics_plan.cpp src/session_widths.cpp src/low_storage.cpp src/transverse.cpp
-  src/session_edge.cpp src/dense.cpp src/workspace.cpp src/problem.cpp
-  src/reference_timing.cpp src/fftw_wisdom.cpp)
+  src/general/statistics.cpp src/general/state.cpp src/general/memory.cpp src/response/general_modal.cpp src/response/coupled_flow.cpp src/response/dispersive.cpp src/response/far_field.cpp
+  src/march/adams_march.cpp src/session/watch.cpp src/march/rk_march.cpp src/march/engines.cpp src/session/session.cpp
+  src/session/statistics_plan.cpp src/session/session_widths.cpp src/march/low_storage.cpp src/session/transverse.cpp
+  src/session/session_edge.cpp src/march/dense.cpp src/problem/workspace.cpp src/problem/problem.cpp
+  src/transforms/reference_timing.cpp src/transforms/fftw_wisdom.cpp)
 # solprop SEP 39, SEP 45 and SEP 47: the Adams march's decisions, the boundary watch's
 # predictions, the Runge-Kutta march's positions and norm, the low-storage replay's
 # positions and table keys, the native session's scheduling, export, statistics
@@ -826,9 +826,9 @@ add_library(solprop_native_core STATIC src/cpu_execution.cpp src/crossing.cpp
 # and the last wins). MSVC's /fp:precise does not contract by default.
 # SOLPROP_NATIVE_STRICT_TU marks them, so that the general workspace's contracting
 # headers (src/general/) refuse to be included there.
-set(SOLPROP_NATIVE_STRICT_SOURCES src/adams_march.cpp src/watch.cpp src/rk_march.cpp
-  src/session.cpp src/statistics_plan.cpp src/session_widths.cpp src/low_storage.cpp
-  src/transverse.cpp src/session_edge.cpp src/dense.cpp)
+set(SOLPROP_NATIVE_STRICT_SOURCES src/march/adams_march.cpp src/session/watch.cpp src/march/rk_march.cpp
+  src/session/session.cpp src/session/statistics_plan.cpp src/session/session_widths.cpp src/march/low_storage.cpp
+  src/session/transverse.cpp src/session/session_edge.cpp src/march/dense.cpp)
 set_source_files_properties(${SOLPROP_NATIVE_STRICT_SOURCES}
   PROPERTIES COMPILE_DEFINITIONS SOLPROP_NATIVE_STRICT_TU)
 if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang|AMDClang)$")
@@ -875,7 +875,7 @@ elseif(SOLPROP_NATIVE_BLAS_BACKEND STREQUAL "rocBLAS")
   )
 endif()
 if(SOLPROP_NATIVE_RAMAN_FFT_PROVIDER STREQUAL "ACCELERATE")
-  target_sources(solprop_native_core PRIVATE src/raman_fft.cpp)
+  target_sources(solprop_native_core PRIVATE src/transforms/raman_fft.cpp)
   target_compile_definitions(solprop_native_core PUBLIC SOLPROP_NATIVE_RAMAN_ACCELERATE=1)
   target_link_libraries(solprop_native_core PUBLIC "-framework Accelerate")
 endif()
@@ -901,8 +901,8 @@ add_custom_command(
   VERBATIM
 )
 
-nanobind_add_module(_core STABLE_ABI NOMINSIZE NB_SUPPRESS_WARNINGS src/bindings.cpp
-  src/bindings_transverse.cpp src/bindings_helpers.cpp src/records.cpp
+nanobind_add_module(_core STABLE_ABI NOMINSIZE NB_SUPPRESS_WARNINGS src/bindings/bindings.cpp
+  src/bindings/bindings_transverse.cpp src/bindings/bindings_helpers.cpp src/bindings/records.cpp
   "${SOLPROP_NATIVE_SOURCE_DIGEST_CPP}")
 target_link_libraries(_core PRIVATE solprop_native_core ${CMAKE_DL_LIBS})
 solprop_native_mark_dependency_headers_system(_core)

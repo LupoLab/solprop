@@ -5,7 +5,7 @@
 """The reference's dense output: a plane interpolated inside the step that crossed it.
 
 The counterparts of native's ``engines::RungeKuttaDense`` and ``engines::AdamsDense``
-(``native/src/dense.cpp``), which implement the session's ``Dense``: the session
+(``native/src/march/dense.cpp``), which implement the session's ``Dense``: the session
 (:class:`~solprop.backends.host.session.HostSession`) decides when a plane is observed
 inside the last accepted step, and asks one of these to hold the committed state aside,
 make the state the interpolated field there, and restore the committed state before

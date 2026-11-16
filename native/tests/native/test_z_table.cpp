@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "solprop_native/chebyshev.hpp"
-#include "solprop_native/execution.hpp"
-#include "solprop_native/stage_tables.hpp"
-#include "solprop_native/z_table.hpp"
+#include "solprop_native/march/chebyshev.hpp"
+#include "solprop_native/march/stage_tables.hpp"
+#include "solprop_native/march/z_table.hpp"
+#include "solprop_native/runtime/execution.hpp"
 
 #include <gtest/gtest.h>
 

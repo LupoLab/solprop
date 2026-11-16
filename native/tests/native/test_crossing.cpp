@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "solprop_native/crossing.hpp"
+#include "solprop_native/runtime/crossing.hpp"
 
 #include <gtest/gtest.h>
 

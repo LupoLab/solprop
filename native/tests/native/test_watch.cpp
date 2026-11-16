@@ -7,7 +7,7 @@
 // see: that the unit rounds every product and sum separately, that a policy is refused
 // by the field at fault, and the split limit's sequential order.
 
-#include "solprop_native/watch.hpp"
+#include "solprop_native/session/watch.hpp"
 
 #include <gtest/gtest.h>
 

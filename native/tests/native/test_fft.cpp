@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "solprop_native/cpu_execution.hpp"
-#include "solprop_native/execution.hpp"
-#include "solprop_native/fft_plan.hpp"
-#include "solprop_native/fftw_wisdom.hpp"
-#include "solprop_native/raman_fft.hpp"
+#include "solprop_native/runtime/cpu_execution.hpp"
+#include "solprop_native/runtime/execution.hpp"
+#include "solprop_native/transforms/fft_plan.hpp"
+#include "solprop_native/transforms/fftw_wisdom.hpp"
+#include "solprop_native/transforms/raman_fft.hpp"
 
 #include <KokkosFFT.hpp>
 #include <gtest/gtest.h>

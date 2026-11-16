@@ -7064,9 +7064,9 @@ GeneralWorkspace::band_team_policy(const std::size_t node_count,
 }
 
 // solprop SEP 18's band rule as a team column in whole-row passes (solprop SEP 25
-// section 6.7.4; include/solprop_native/plasma.hpp): per channel the rates, their
-// filter and scan give the exposure; the fraction (floored where it is formed), the
-// loss guard and the free-current weight follow pointwise, a mixture adding each
+// section 6.7.4; include/solprop_native/response/plasma.hpp): per channel the rates,
+// their filter and scan give the exposure; the fraction (floored where it is formed),
+// the loss guard and the free-current weight follow pointwise, a mixture adding each
 // channel's share in channel order. Per component the free-current integrand is
 // filtered and scanned, and the scan's store forms the current from it, the guard and
 // the field. SEP 27 uses this current directly, without a third running integral.
@@ -7546,8 +7546,8 @@ GeneralWorkspace::tiled_band_policy(const std::size_t rows, const bool scratch,
 }
 
 // The band column in tiles (solprop SEP 25 section 6.7.6;
-// include/solprop_native/plasma.hpp): each running integral is a local kernel of one
-// team per (row, tile), which loads, filters and scans its tile from zero
+// include/solprop_native/response/plasma.hpp): each running integral is a local kernel
+// of one team per (row, tile), which loads, filters and scans its tile from zero
 // (`team_band_tile`), then a finish kernel of one team per (row, tile), which adds the
 // row's earlier tile totals (`team_tile_offset`) and forms the pass's product from the
 // prefix, in the team column's arithmetic:

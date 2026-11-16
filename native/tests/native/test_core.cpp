@@ -4,12 +4,12 @@
 
 #include "bounds.hpp"
 #include "execution.hpp"
-#include "solprop_native/cpu_execution.hpp"
-#include "solprop_native/execution.hpp"
-#include "solprop_native/gemm.hpp"
-#include "solprop_native/general_state.hpp"
-#include "solprop_native/plasma.hpp"
-#include "solprop_native/problem.hpp"
+#include "solprop_native/general/general_state.hpp"
+#include "solprop_native/problem/problem.hpp"
+#include "solprop_native/response/plasma.hpp"
+#include "solprop_native/runtime/cpu_execution.hpp"
+#include "solprop_native/runtime/execution.hpp"
+#include "solprop_native/transforms/gemm.hpp"
 
 #include <Kokkos_Core.hpp>
 #include <gtest/gtest.h>

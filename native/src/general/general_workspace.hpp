@@ -12,7 +12,7 @@
 #endif
 
 #include "kernels.hpp"
-#include "solprop_native/host_source.hpp"
+#include "solprop_native/runtime/host_source.hpp"
 
 namespace solprop_native {
 
@@ -441,9 +441,10 @@ public:
   void device_trapezoid_plasma(std::size_t stage, std::size_t first_node,
                                std::size_t node_count);
 #endif
-  // solprop SEP 18's band rule as a team column (include/solprop_native/plasma.hpp):
-  // filter, then scan, for the population and free current, in whole-row passes.
-  // It writes the current separately from the collared non-plasma response.
+  // solprop SEP 18's band rule as a team column
+  // (include/solprop_native/response/plasma.hpp): filter, then scan, for the population
+  // and free current, in whole-row passes. It writes the current separately from the
+  // collared non-plasma response.
   template <FieldFamily Family, std::size_t Components, bool Multiple,
             bool Folded = false>
   void team_band_plasma_column(std::size_t stage, std::size_t first_node,

@@ -11,9 +11,9 @@
 // bits; hard-edge membership is shared.
 
 #include "bounds.hpp"
-#include "solprop_native/execution.hpp"
-#include "solprop_native/far_field.hpp"
-#include "solprop_native/problem.hpp"
+#include "solprop_native/problem/problem.hpp"
+#include "solprop_native/response/far_field.hpp"
+#include "solprop_native/runtime/execution.hpp"
 
 #include <Kokkos_Core.hpp>
 #include <gtest/gtest.h>

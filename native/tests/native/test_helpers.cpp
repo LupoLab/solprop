@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "solprop_native/chebyshev.hpp"
-#include "solprop_native/lagrange_basis.hpp"
+#include "solprop_native/march/chebyshev.hpp"
+#include "solprop_native/march/lagrange_basis.hpp"
 
 #include <gtest/gtest.h>
 

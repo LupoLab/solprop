@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "execution.hpp"
-#include "solprop_native/cpu_execution.hpp"
-#include "solprop_native/execution.hpp"
-#include "solprop_native/general_modal.hpp"
-#include "solprop_native/general_state.hpp"
-#include "solprop_native/problem.hpp"
-#include "solprop_native/readings.hpp"
+#include "solprop_native/general/general_state.hpp"
+#include "solprop_native/problem/problem.hpp"
+#include "solprop_native/response/general_modal.hpp"
+#include "solprop_native/runtime/cpu_execution.hpp"
+#include "solprop_native/runtime/execution.hpp"
+#include "solprop_native/session/readings.hpp"
 
 #include <Kokkos_Core.hpp>
 #include <gtest/gtest.h>

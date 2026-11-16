@@ -243,7 +243,7 @@ to it.
 - `SOLPROP_THREADS`, the thread budget the native backend's pools stay within, and
   `SOLPROP_OVERSUBSCRIBE`, which lets an explicit count exceed the CPUs (ADR-052).
 - The native backend's plans and neighbours: `SOLPROP_FFTW_PLAN` (`estimate` in CI and
-  tests, `measure` by default, read by `native/src/fftw_wisdom.cpp`),
+  tests, `measure` by default, read by `native/src/transforms/fftw_wisdom.cpp`),
   `SOLPROP_FFTW_WISDOM` (a file name, beside which the native backend keeps the plans its
   runs measure instead of the calibration store, ADR-076)
   and `SOLPROP_BLAS_THREADS` (the width of the other BLAS libraries while a native

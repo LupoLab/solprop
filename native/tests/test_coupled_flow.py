@@ -7,7 +7,7 @@
 The engine carries each stage input forward and
 its source back by the step's actions, adds a frozen-residual flow's explicit
 residual, and carries the accepted step by the whole action
-(``src/coupled_flow.cpp``); it also forms the actions, from each
+(``src/response/coupled_flow.cpp``); it also forms the actions, from each
 section's eigenbasis or by the reference's scaling and squaring, and measures the
 whole step's conditioning, which the adapter checks against the certificate. Two
 capillary cases are propagated ten fixed steps on both backends: a scalar coherent
