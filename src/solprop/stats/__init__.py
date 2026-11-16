@@ -101,10 +101,12 @@ from solprop.stats.spec import (
 )
 
 # isort: split
-# Private to solprop, and read from here by the reference backend's statistics (the
-# Poynting-weighted set and its evaluator) and by processing.time (the half-maximum
-# crossings); solprop-native names the whitening and the crossings here as the
+# Not part of the surface, and read from here by the backends: the reference backend's
+# statistics (the Poynting-weighted set and its evaluator), solprop-native (the
+# far-field names, defined in solprop.spatial) and processing.time (the half-maximum
+# crossings). solprop-native also names the whitening and the crossings here as the
 # definitions it mirrors.
+from solprop.spatial import FAR_FIELD_STATISTICS as FAR_FIELD_STATISTICS
 from solprop.stats.definitions import _half_max_range as _half_max_range
 from solprop.stats.definitions import _whitened as _whitened
 from solprop.stats.evaluation import _POYNTING_STATISTICS as _POYNTING_STATISTICS
