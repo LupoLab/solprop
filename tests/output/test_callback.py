@@ -538,6 +538,11 @@ def test_reading_the_fields_is_refused_by_name(convention):
         opened().fields(convention)
 
 
+def test_a_plane_s_field_is_refused_by_name():
+    with pytest.raises(OutputError, match="does not hold the field of plane 0"):
+        opened().plane_field(0)
+
+
 def test_what_reads_a_run_is_refused_by_name():
     handler = fibre("numpy_ref").run(CallbackOutput(nothing), progress="none")
     assert handler.n_saved == 3

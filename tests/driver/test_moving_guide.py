@@ -85,6 +85,7 @@ from solprop.processing.modal import (
     magnetic_field,
     plane_nodes,
     reconstructed_flux,
+    reference_tables,
 )
 from solprop.profiles import Linear, PiecewiseLinear, ZProfile
 from solprop.stats import analytic_field
@@ -1045,6 +1046,16 @@ def kinked_run(kinked):
         kinked, grid, z_max=LENGTH, omega_reference=float(grid.omega0)
     ).tables
     return run, tables
+
+
+def test_a_moving_guide_s_reference_is_rebuilt_along_its_path(kinked, kinked_run):
+    """The rebuild of a path-sampled guide is the route's own, to the bit."""
+    run, tables = kinked_run
+    rebuilt = reference_tables(run, guide=kinked)
+    assert np.array_equal(
+        reconstructed_flux(run, tables=rebuilt, plane=-1, guide=kinked),
+        reconstructed_flux(run, tables=tables, plane=-1, guide=kinked),
+    )
 
 
 def _constant_reference(radius):

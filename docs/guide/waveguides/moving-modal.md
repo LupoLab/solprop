@@ -47,7 +47,7 @@ solid guide.
 {py:func}`~solprop.modes.connection.modal_connection` measures it from a provider:
 
 ```{code-block} python
-from solprop.modes import modal_connection
+from solprop.modes.connection import modal_connection
 
 link = modal_connection(provider, omega, z)
 link.matrix  # Gamma in 1/m

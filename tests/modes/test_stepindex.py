@@ -75,6 +75,12 @@ def mode(**keywords):
     return StepIndexMode(1e-6, **parameters)
 
 
+def test_a_step_index_mode_prints_its_attenuation():
+    assert "none" in str(mode())
+    assert "alpha 0.1 1/m" in str(mode(alpha=0.1))
+    assert "alpha(omega)" in str(mode(alpha=lambda omega: 0.1 + 0.0 * omega))
+
+
 def test_stepindex_issue320_guided_modes_and_refusals():
     modes = []
     for kind, n in (("HE", 1), ("TE", 0), ("TM", 0), ("HE", 2)):

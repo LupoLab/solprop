@@ -15,6 +15,7 @@ compared to :data:`RECORD_RTOL`, each with its array's FFT floor.
 import hashlib
 import json
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 
@@ -153,7 +154,8 @@ def with_former_names(value: object) -> object:
 
     A reference state's ``pressure`` was ``pressure_bar``, and a hollow mode's
     ``alpha`` and ``loss_scale`` were one ``loss``: the model's own loss, which these
-    records' modes declare, was ``loss=True``.
+    records' modes declare, was ``loss=True``. A recorded pulse's Taylor coefficients,
+    ``phases``, were its ``phase``.
 
     Parameters
     ----------
@@ -176,6 +178,14 @@ def with_former_names(value: object) -> object:
             for key, child in value.items()
             if key not in ("alpha", "loss_scale")
         } | {"loss": True}
+    pulse = value.get("pulse")
+    if isinstance(pulse, dict) and "phases" in pulse:
+        value = value | {
+            "pulse": {
+                ("phase" if name == "phases" else name): item
+                for name, item in cast("dict[str, object]", pulse).items()
+            }
+        }
     if "reference_state" in value and isinstance(value["reference_state"], dict):
         state = value["reference_state"]
         value = value | {

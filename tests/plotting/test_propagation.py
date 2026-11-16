@@ -184,6 +184,11 @@ def test_time_1d_draws_the_end_of_the_run_by_default(single):
     assert "10.00 cm" in str(line.get_label())
 
 
+def test_time_1d_draws_the_time_range_it_is_given(single):
+    figure = propagation.time_1d(single, time_range=(-30e-15, 40e-15))
+    assert figure.axes[0].get_xlim() == pytest.approx((-30.0, 40.0))
+
+
 def test_time_1d_draws_one_line_per_position(single):
     figure = propagation.time_1d(single, [0.0, 0.05, 0.1])
     assert len(figure.axes[0].lines) == 3
