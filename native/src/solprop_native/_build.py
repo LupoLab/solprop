@@ -330,16 +330,16 @@ def _source_digest(root: Path) -> str:
 
     The computation of ``cmake/SourceDigest.cmake``, which embeds it in the build; the
     two must agree. The record is one ``{path}:{sha256 of its bytes}`` line for
-    ``CMakeLists.txt`` and each C++ source and header under ``src`` and ``include``, the
-    paths relative to `root` and sorted bytewise, and the digest is the SHA-256 of the
-    record.
+    ``CMakeLists.txt`` and each C++ source, header and included fragment (``.inc``)
+    under ``src`` and ``include``, the paths relative to `root` and sorted bytewise, and
+    the digest is the SHA-256 of the record.
     """
     paths = ["CMakeLists.txt"]
     for folder in ("src", "include"):
         paths.extend(
             path.relative_to(root).as_posix()
             for path in (root / folder).rglob("*")
-            if path.suffix in {".cpp", ".hpp", ".h"} and path.is_file()
+            if path.suffix in {".cpp", ".hpp", ".h", ".inc"} and path.is_file()
         )
     # Code points sort as their UTF-8 bytes do, so this is CMake's bytewise order.
     record = "".join(

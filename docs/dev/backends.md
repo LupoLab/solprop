@@ -630,7 +630,7 @@ two-stage reductions, and moving the whole inner loop into compiled code: one na
 executes a Runge–Kutta trial (§3.5). On a CPU build's trapezoid column the whole nonlinear
 term at one node — the rate lookup, the plasma's two running sums, the loss-current guard,
 the Kerr cubic and the Raman drive — is **one traversal of `t`**, the plasma's sums carried
-in scalars across the loop (`response_plasma`, `native/src/general/trial.cpp`); the band column
+in scalars across the loop (`response_plasma`, `native/src/general/trial_response.inc`); the band column
 (§3.12) uses complete row passes instead. The solution and the embedded estimate are
 running accumulators (ADR-009), which is also why there is no dense output by default. An
 isolated step timing is not comparable with a whole-run average, which carries the

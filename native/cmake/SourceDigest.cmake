@@ -14,7 +14,8 @@
 #
 #   cmake -DSOURCE_ROOT=<native> -DOUTPUT=<file.cpp> -P SourceDigest.cmake
 set(SOLPROP_NATIVE_DIGEST_GLOBS
-    src/*.cpp src/*.hpp src/*.h include/*.cpp include/*.hpp include/*.h)
+    src/*.cpp src/*.hpp src/*.h src/*.inc
+    include/*.cpp include/*.hpp include/*.h include/*.inc)
 if(NOT CMAKE_SCRIPT_MODE_FILE)
   return()
 endif()

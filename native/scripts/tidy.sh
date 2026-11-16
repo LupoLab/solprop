@@ -25,9 +25,26 @@ else
   base=$(git merge-base "${SOLPROP_TIDY_BASE:-origin/main}" HEAD)
   while IFS= read -r -d '' file; do
     [[ -f $file ]] && files+=("$file")
-  done < <({ git diff -z --name-only "$base" -- 'native/*.cpp' 'native/*.hpp' 'native/*.h'
-             git ls-files -z --others --exclude-standard -- 'native/*.cpp' 'native/*.hpp' 'native/*.h'; } |
+  done < <({ git diff -z --name-only "$base" -- 'native/*.cpp' 'native/*.hpp' 'native/*.h' 'native/*.inc'
+             git ls-files -z --others --exclude-standard -- 'native/*.cpp' 'native/*.hpp' 'native/*.h' 'native/*.inc'; } |
            sort -zu)
+fi
+# A fragment (.inc) never compiles alone: check the units beside it that include it.
+units=()
+for file in ${files[@]+"${files[@]}"}; do
+  if [[ $file == *.inc ]]; then
+    while IFS= read -r unit; do
+      units+=("$unit")
+    done < <(grep -l -F "#include \"$(basename "$file")\"" "$(dirname "$file")"/*.cpp || true)
+  else
+    units+=("$file")
+  fi
+done
+files=()
+if [[ ${#units[@]} -gt 0 ]]; then
+  while IFS= read -r -d '' file; do
+    files+=("$file")
+  done < <(printf '%s\0' "${units[@]}" | sort -zu)
 fi
 if [[ ${#files[@]} -eq 0 ]]; then
   echo "tidy-native: no C++ files to check"
