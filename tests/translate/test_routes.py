@@ -96,10 +96,11 @@ def spatial(kind):
 
 def general():
     """A general modal guide: the general route."""
-    grid = general_grid()
+    # Translated, not run: the grid is the tenth it would run (SEP 51).
+    grid = general_grid(GENERAL_Z_END / 10)
     return Simulation.from_waveguide(
         (),
-        GENERAL_Z_END,
+        GENERAL_Z_END / 10,
         provider=general_guide(grid=grid),
         grid=grid,
         noise=None,

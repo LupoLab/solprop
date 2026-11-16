@@ -16,6 +16,7 @@ import dataclasses
 import numpy as np
 
 from backends.matched import fixed_order
+from builders import grid_at, held_collar
 from parity_ladder import Built
 from solprop.driver.simulation import Simulation
 from solprop.grid import EnvelopeGrid, FieldGrid
@@ -47,11 +48,14 @@ def source_case(route, length, **settings):
     temporal collar.
     """
     limits = (0.01, 800e-9, (200e-9, 2e-6), 100e-15)
-    grid = (
+    window = (
         EnvelopeGrid.from_limits(*limits, thg=False)
         if route.get("envelope")
         else FieldGrid.from_limits(*limits)
     )
+    # A run ends at its grid's length (SEP 51): the grid is cut at the run's length,
+    # with the collar the centimetre window gave.
+    grid = grid_at(window, length)
     simulation = Simulation.from_capillary(
         150e-6,
         length,
@@ -61,6 +65,7 @@ def source_case(route, length, **settings):
         fwhm=10e-15,
         energy=5e-5,
         grid=grid,
+        absorber=held_collar(grid, window.length),
         n_save=2,
         noise=None,
         integrator=Multistep(formulation="interaction"),

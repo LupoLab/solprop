@@ -11,6 +11,7 @@ no new physical fit or validity claim is introduced by these benchmarks.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -26,6 +27,7 @@ from solprop.boundaries import absorber
 from solprop.constants import C
 from solprop.coupling import CouplingModel
 from solprop.driver import Simulation
+from solprop.driver.settings import default_collar
 from solprop.grid import FieldGrid
 from solprop.modes import (
     CoherentWall,
@@ -308,11 +310,15 @@ def grin(
     q = float(grid.omega[centre]) / C * radius * 1.45
     beta = np.sqrt(q * q - 2 * q * np.sqrt(2 * contrast) * np.array([1, 3])) / radius
     length = float(2 * np.pi / (beta[0] - beta[1]))
+    # A run ends at its grid's length (SEP 51): the millimetre grid the guide was
+    # sampled for is cut at the beat length, and keeps the collar the millimetre gave.
+    whole, grid = grid, dataclasses.replace(grid, length=length)
     simulation = Simulation.from_waveguide(
         (),
         length,
         provider=guide,
         grid=grid,
+        absorber=default_collar(whole),
         wavelength=wavelength,
         fwhm=40e-15,
         energy=1e-15,

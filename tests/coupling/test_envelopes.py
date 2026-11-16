@@ -37,6 +37,7 @@ import numpy as np
 import pytest
 from scipy.special import jn_zeros, jv
 
+from builders import grid_at
 from facet_mode_matching import (
     Y_VACUUM,
     Beam,
@@ -1165,11 +1166,12 @@ def facet_port(contrast, v_centre):
         nodes=provider.node_rule(0.99 * active[0], n_r=48, n_theta=48),
         degenerate_blocks=((0, 1),),
     )
+    # Built for its port only: the grid is the tenth it would run (SEP 51).
     simulation = Simulation.from_waveguide(
         (),
         1e-4,
         provider=guide,
-        grid=grid,
+        grid=grid_at(grid, 1e-4),
         wavelength=wavelength,
         energy=1e-12,
         fwhm=20e-15,

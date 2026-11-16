@@ -9,6 +9,7 @@ exactly what it built before; a builder that assembles a problem or a simulation
 pinned, when it was migrated, by the configuration hash of what the old copies built.
 """
 
+import dataclasses
 import subprocess
 import sys
 import textwrap
@@ -20,8 +21,10 @@ import numpy as np
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.boundaries import DEFAULT_BOUNDARY_N, Absorber, absorber
 from solprop.driver import Simulation
 from solprop.driver.scan import ScanPoint
+from solprop.exceptions import GridError
 from solprop.grid import EnvelopeGrid, TimeGrid
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
@@ -31,6 +34,8 @@ from solprop.translate.run_request import RunRequest
 __all__ = [
     "HASH_PROBE",
     "fixed_fibre_point",
+    "grid_at",
+    "held_collar",
     "launch_derivative",
     "load_reference",
     "numpy_ref_launch_derivative",
@@ -80,6 +85,30 @@ def load_reference(
         resume=resume,
     )
     return workspace.committed()
+
+
+def grid_at[G: TimeGrid](grid: G, length: float) -> G:
+    """Return `grid` with another length, m, and every sample as it was.
+
+    A run ends at its grid's length (SEP 51), so a test that ran a short window of a
+    longer grid shortens the grid instead. The length also sets the default absorber's
+    reference length; :func:`held_collar` keeps the rates the old length gave.
+    """
+    return dataclasses.replace(grid, length=length)
+
+
+def held_collar(grid: TimeGrid, length: float) -> Absorber:
+    """Return the default collar on `grid`, at the rates a grid of `length` gave.
+
+    :func:`solprop.driver.settings.default_collar` with its reference length pinned to
+    ``length / DEFAULT_BOUNDARY_N``, m, so that shortening a test's grid to the window
+    it runs (:func:`grid_at`) leaves its absorber unchanged.
+    """
+    reference = length / DEFAULT_BOUNDARY_N
+    try:
+        return absorber(grid, boundary_length=reference)
+    except GridError:
+        return absorber(grid, boundary_length=reference, temporal=False)
 
 
 def launch_derivative(backend: NumpyRefBackend, problem: PropagationProblem) -> Any:

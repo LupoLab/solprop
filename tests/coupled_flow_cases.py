@@ -30,6 +30,7 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 
+from builders import grid_at
 from flow_parity import formation_bound, radial_family
 from legacy_geometry import LEGACY_GRID
 from modal_provider_cases import (
@@ -520,7 +521,9 @@ def wide_simulation(modes: int, backend: str = "numpy_ref") -> Simulation:
         cladding=1.45,
         modes=modes,
         wavelength=800e-9,
-        grid=GRID,
+        # A run ends at its grid's length (SEP 51): the shared grid cut at the wide
+        # run's; the collar is pinned already.
+        grid=grid_at(GRID, length),
         absorber=WEAK_COLLAR,
         fwhm=30e-15,
         energy=ENERGY,

@@ -17,12 +17,14 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from builders import grid_at, held_collar
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop import fourier
 from solprop.backends import available
 from solprop.coupling import CouplingModel
 from solprop.driver import Simulation
 from solprop.driver._launch import _resolve_launch, launch_pulse
+from solprop.driver.defaults import default_step
 from solprop.exceptions import DriverError, OutputError
 from solprop.modes import MarcatiliMode
 from solprop.modes.collection import ModeCollection
@@ -103,14 +105,20 @@ def circular_guide(grid):
 
 
 def general(guide, grid, **overrides):
-    """Return a general modal simulation on a guide."""
+    """Return a general modal simulation on a guide.
+
+    A run ends at its grid's length (SEP 51): the grid is cut at the tenth of a
+    millimetre it runs, with the collar and the largest step the millimetre gave.
+    """
+    short = grid_at(grid, GENERAL_Z_END / 10)
     return Simulation.from_waveguide(
         (),
-        GENERAL_Z_END,
+        GENERAL_Z_END / 10,
         provider=guide,
-        grid=grid,
+        grid=short,
+        absorber=held_collar(short, grid.length),
+        dz_max=default_step("dz_max", grid.length),
         noise=None,
-        save_planes=[GENERAL_Z_END / 10],
         backend="numpy_ref",
         **PULSE | overrides,
     )

@@ -112,12 +112,14 @@ print(f"imaging length  {length * 1e6:.2f} um")
 # A continuous wave in both channels at once, propagated to that length in ten
 # steps. One coarse bin is exactly periodic on the time window, so the beat is
 # the two channels' relative phase and nothing else. A wave that fills the window
-# wants neither the temporal collar nor the watch on the window's edges.
+# wants neither the temporal collar nor the watch on the window's edges. A run
+# ends at its grid's length, so its grid samples as the guide's did, built for the
+# imaging length.
 simulation = Simulation.from_waveguide(
     (),
     length,
     provider=guide,
-    grid=grid,
+    grid=FieldGrid.from_limits(length, WAVELENGTH, (1.0e-6, 1.06e-6), 100e-15),
     wavelength=WAVELENGTH,
     fwhm=40e-15,
     energy=1e-15,

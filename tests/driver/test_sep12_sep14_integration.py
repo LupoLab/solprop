@@ -372,7 +372,7 @@ def test_dense_natural_reporter_failure_retains_saved_endpoint_classification():
     assert checkpoint is not None and checkpoint.landed
     # The equal-approach rule may shorten this natural step. Its actual saved
     # accepted endpoint, rather than the requested step length, defines landing.
-    assert 0.0 < checkpoint.plane.z < simulation.settings.save_planes[0]
+    assert 0.0 < checkpoint.plane.z < np.asarray(simulation.settings.save_planes)[0]
     assert checkpoint.plane.z == (
         output["step_history/z"][-1] + output["step_history/h"][-1]
     )

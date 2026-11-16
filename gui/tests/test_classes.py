@@ -9,8 +9,10 @@ import warnings
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 from solprop.recipe import Recipe
+from solprop.recipe.paths import set_path
 from solprop.service.handlers import HANDLERS, describe, describe_output
 from solprop.stats import CATALOGUE
 
@@ -30,7 +32,6 @@ from solprop_gui.classes.problem import (
     Target,
     derived_text,
     derived_value,
-    even_planes,
     field_changes,
     field_meta,
     field_value,
@@ -202,9 +203,8 @@ def test_every_link_of_a_class_is_in_its_example() -> None:
             for row in section.fields:
                 for pattern in row.also:
                     assert linked_paths(build, pattern), (problem.key, pattern)
-                for path in (row.planes_over, row.moves_planes, *row.goes_with):
-                    if path is not None:
-                        assert linked_paths(build, path), (problem.key, path)
+                for path in row.goes_with:
+                    assert linked_paths(build, path), (problem.key, path)
 
 
 def test_a_switch_takes_an_entry_out_and_brings_it_back_with_today_s_gas() -> None:
@@ -248,18 +248,106 @@ def test_the_filament_s_linked_rows_write_a_recipe_solprop_builds() -> None:
         "responses[1].gas",
         "responses[1].rate.source",
     }
-    length = FILAMENT.sections[0].fields[2]
-    moved: dict[str, Any] = dict(field_changes(FILAMENT, length, "20 cm", build))
-    assert moved["settings.save_planes"][-1] == "20 cm"
-    assert len(moved["settings.save_planes"]) == 80
-    assert field_changes(FILAMENT, length, MISSING, build) == [("grid.length", MISSING)]
-    assert field_changes(FILAMENT, length, "20 cm", {"grid": {"length": "25 cm"}}) == [
-        ("grid.length", "20 cm")
-    ]
-    planes = Field("settings.save_planes", planes_over="grid.length")
-    assert field_value(planes, {}) is MISSING
     assert negated_value(True) is True
-    assert even_planes(2, 4.0) == [2.0, 4.0]
+
+
+def _planes_row(problem: ProblemClass) -> Field:
+    return next(
+        row
+        for section in problem.sections
+        for row in section.fields
+        if row.positions is not None
+    )
+
+
+def _applied(
+    build: dict[str, Any], changes: list[tuple[str, object]]
+) -> dict[str, Any]:
+    for path, value in changes:
+        if value is MISSING:
+            head, _, name = path.rpartition(".")
+            (build[head] if head else build).pop(name, None)
+        else:
+            build = set_path(build, path, value)
+    return build
+
+
+@pytest.mark.parametrize("problem", CLASSES, ids=lambda p: p.key)
+def test_every_class_offers_both_forms_of_the_saved_planes(
+    problem: ProblemClass,
+) -> None:
+    # SEP 51: the count and the explicit positions, at the route's level.
+    row = _planes_row(problem)
+    nested = "settings." if row.path.startswith("settings.") else ""
+    assert (row.path, row.positions) == (f"{nested}n_save", f"{nested}save_planes")
+
+
+def test_a_loaded_list_is_shown_as_the_list_and_never_as_its_count() -> None:
+    row = _planes_row(FILAMENT)
+    example: Any = Recipe.example("filament").to_dict()["build"]
+    uniform = example["settings"]["save_planes"]
+    assert len(uniform) > 2
+    assert field_value(row, example) == uniform
+    uneven = {"settings": {"save_planes": ["1 cm", "4 cm", "4.5 cm"]}}
+    assert field_value(row, uneven) == ["1 cm", "4 cm", "4.5 cm"]
+    assert field_value(row, {"settings": {"save_planes": []}}) == []
+    assert field_value(row, {"settings": {"n_save": 81}}) == 81
+    assert field_value(row, {}) is MISSING
+
+
+def test_each_form_of_the_saved_planes_replaces_the_other() -> None:
+    row = _planes_row(FILAMENT)
+    build: dict[str, Any] = Recipe.example("filament").to_dict()["build"]
+    count = field_changes(FILAMENT, row, 81, build)
+    assert count == [("settings.n_save", 81), ("settings.save_planes", MISSING)]
+    build = _applied(build, count)
+    assert build["settings"]["n_save"] == 81
+    assert "save_planes" not in build["settings"]
+    listed = field_changes(FILAMENT, row, ["5 cm", "8 cm"], build)
+    assert listed == [
+        ("settings.save_planes", ["5 cm", "8 cm"]),
+        ("settings.n_save", MISSING),
+    ]
+    build = _applied(build, listed)
+    assert "n_save" not in build["settings"]
+    # Unset, neither is held, and the route's default count applies.
+    cleared = field_changes(FILAMENT, row, MISSING, build)
+    assert dict(cleared) == {
+        "settings.n_save": MISSING,
+        "settings.save_planes": MISSING,
+    }
+
+
+def test_a_length_moves_the_length_alone() -> None:
+    # A count follows the length by itself; explicit positions stay as entered.
+    length = FILAMENT.sections[0].fields[2]
+    assert length.path == "grid.length"
+    build = Recipe.example("filament").to_dict()["build"]
+    assert field_changes(FILAMENT, length, "20 cm", build) == [("grid.length", "20 cm")]
+
+
+def test_solprop_takes_a_count_and_refuses_a_position_beyond_a_shortened_length() -> (
+    None
+):
+    row = _planes_row(FILAMENT)
+    length = FILAMENT.sections[0].fields[2]
+    document: Any = Recipe.example("filament").to_dict()
+    build = document["build"]
+    build = _applied(build, field_changes(FILAMENT, row, 11, build))
+    build = _applied(build, field_changes(FILAMENT, length, "10 cm", build))
+    simulation = Recipe.from_dict({**document, "build": build}).build()
+    planes = np.asarray(simulation.settings.save_planes)
+    # Eleven observations over [0, 10 cm], so ten planes after the entrance.
+    assert planes.shape == (10,)
+    # The end is the length: one rounding of "10 cm" to metres at most.
+    assert planes[-1] == pytest.approx(0.1, rel=1e-15)
+    build = _applied(build, field_changes(FILAMENT, row, ["5 cm", "12 cm"], build))
+    errors = [
+        issue
+        for issue in Recipe.from_dict({**document, "build": build}).check()
+        if issue.severity == "error"
+    ]
+    assert [issue.parameter for issue in errors] == ["settings.save_planes"]
 
 
 def test_other_geometry_s_form_comes_from_the_metadata() -> None:

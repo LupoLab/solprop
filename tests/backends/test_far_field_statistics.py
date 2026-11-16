@@ -20,6 +20,7 @@ from scipy import integrate
 
 from backends.planar_cases import planar_case
 from bounds import EPS, assert_within, gamma
+from builders import grid_at
 from legacy_geometry import bare_absorber
 from sessions.runs import launch_statistics
 from solprop.backends import registry, select
@@ -102,8 +103,11 @@ def free_simulation(grid, space, launch, *, medium=None, spec=None, **settings):
         "stats": far_spec() if spec is None else spec,
     }
     options.update(settings)
+    # A run ends at its grid's length (SEP 51): the run's grid is the fixture's cut at
+    # the last plane, while every collar is the fixture grid's own, so the rates the
+    # millimetre gave are kept.
     return Simulation.from_free(
-        grid,
+        grid_at(grid, float(np.max(options["save_planes"]))),
         space,
         SpatialMedium() if medium is None else medium,
         [],
@@ -214,7 +218,7 @@ def test_the_bands_follow_the_shapes_and_the_budget(monkeypatch):
 
 def test_a_radial_problem_takes_no_partials(grid):
     radial = Simulation.from_free(
-        grid,
+        grid_at(grid, 1e-4),
         RadialGrid(3e-4, 8),
         SpatialMedium(),
         [],
@@ -668,7 +672,7 @@ def test_the_operator_refuses_a_share_above_the_total(grid, lossy_launch):
 def test_radial_and_planar_geometry_are_refused_before_any_step(grid):
     spec = StatsSpec(names=("energy", "beam_spectrum"))
     radial = Simulation.from_free(
-        grid,
+        grid_at(grid, 1e-4),
         RadialGrid(3e-4, 16),
         SpatialMedium(),
         [],

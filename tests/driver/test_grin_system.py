@@ -22,6 +22,7 @@ from typing import cast
 import numpy as np
 import pytest
 
+from builders import grid_at, held_collar
 from modal_provider_cases import (
     GENERAL_CHI3,
     grin_grid,
@@ -177,11 +178,15 @@ def test_grin_self_imaging(grid, linear_guide, imaging, record_property):
     record_property("grin_phase_budget_rad", turn)
     record_property("grin_interpolation_budget_rad", interpolation)
     length, centre = imaging["length"], imaging["index"]
+    # A run ends at its grid's length (SEP 51): the millimetre grid cut at the
+    # imaging length, with the collar the millimetre gave.
+    window = grid_at(grid, length)
     simulation = Simulation.from_waveguide(
         (),
         length,
         provider=linear_guide,
-        grid=grid,
+        grid=window,
+        absorber=held_collar(window, grid.length),
         wavelength=1.03e-6,
         fwhm=40e-15,
         energy=1e-15,

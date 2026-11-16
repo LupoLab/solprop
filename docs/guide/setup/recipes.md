@@ -180,6 +180,16 @@ dz_max = "2 mm"
 stats = { type = "StatsSpec", names = ["energy"] }
 ```
 
+The settings' planes follow the rule of every route
+([the length and the saved planes](running.md#the-length-and-the-saved-planes)): the run
+ends at the grid's `length` and records its entrance and end, `n_save = 81` gives 81
+evenly spaced observations over the run, and `save_planes` lists positions inside it, so
+the table above could say `save_planes = []`. A bare integer, `save_planes = 80`, is
+refused by `Recipe.check()` and `build()` with "write `n_save = 80`", as are both
+selectors together, a position beyond the end and, on a keyword route, a `length` its
+`grid` disagrees with: each is a {py:class}`~solprop.recipe.errors.RecipeError` naming the
+keyword.
+
 A recipe holds the `from_*` form, so the temporal absorber and its scheme are keywords
 of the `settings` table, `absorber = { type = "absorber" }` built on the `grid`, and not
 of `[build]`, although `prop_free` and `prop_planar` take them as
@@ -330,6 +340,11 @@ goes to each point's run.
 A simulation built by `recipe.build()` carries its recipe, and its first run records it
 in the output beside the run, as the recipe was written and as it resolved: the recipe
 that rebuilds the run, seed included ([the file's layout](../results/output.md#the-recipe-a-run-was-built-from)).
+The resolved recipe writes the run's planes as positions, ending at its length, where the
+route reads them (at the top level of a keyword route, in `[build.settings]` on an
+object route), and drops `n_save`; a route default, the TDSE capillary's two
+observations and natural steps included, is written out too, so a later change of a
+default cannot change the run it rebuilds.
 A change the recipe would not describe drops it with a warning, and the run then records
 none: `with_input`, `with_mixture`, or a new value of a setting other than `fields`,
 `field_planes` and `resume_history`.
@@ -433,3 +448,5 @@ its reason, in the test that holds the examples to the gallery, so the list stay
 
 This page documents the functionality proposed and implemented by
 [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+The saved planes follow
+[SEP 51](../../dev/seps/archive/sep-0051-save-planes.md).

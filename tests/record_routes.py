@@ -13,6 +13,7 @@ import sys
 import warnings
 from collections.abc import Callable
 
+from builders import grid_at, held_collar
 from modal_provider_cases import general_grid, general_guide
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings
@@ -118,12 +119,16 @@ def cartesian() -> Simulation:
 
 def general() -> Simulation:
     """Return a general modal run on a provider's guide."""
-    grid = general_grid()
+    window = general_grid()
+    # A run ends at its grid's length (SEP 51): the millimetre grid cut at the run's
+    # tenth, with the collar the millimetre gave.
+    grid = grid_at(window, 1e-4)
     return Simulation.from_waveguide(
         (),
         1e-4,
-        provider=general_guide(grid=grid),
+        provider=general_guide(grid=window),
         grid=grid,
+        absorber=held_collar(grid, window.length),
         fwhm=30e-15,
         energy=1e-9,
         wavelength=800e-9,

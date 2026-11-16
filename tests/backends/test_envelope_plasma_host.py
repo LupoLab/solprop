@@ -18,7 +18,7 @@ import pytest
 from backends.envelope_host_cases import argon_host_case
 from backends.mixture_rows import host
 from bounds import scan_bound
-from builders import load_reference
+from builders import grid_at, load_reference
 from sessions.runs import run as session_run
 from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -214,7 +214,8 @@ def test_direct_simulation_records_carrier_approximation_and_runs(host_case):
     assert assembly is not None
     mode = MarcatiliMode(125e-6, "Ar", 1.0, loss=False)
     simulation = Simulation(
-        grid,
+        # The run ends at its grid's length (SEP 51); no collar reads the length.
+        grid_at(grid, 8e-6),
         mode,
         [EnvelopePlasmaResponse("Ar", assembly.channels[0].rate, preionisation=0.1)],
         original.initial.field0,

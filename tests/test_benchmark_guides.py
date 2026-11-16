@@ -47,7 +47,8 @@ def test_wall_cases_keep_full_profiles(name):
 def test_linear_grin_launch_is_configurable_before_translation(stepper):
     case = CASES["grin_linear"]
     simulation = build(configuration("grin_linear", stepper))
-    assert simulation.grid.length == 1e-3
+    # The millimetre grid cut at the beat length the run ends at (SEP 51).
+    assert simulation.grid.length == case.length
     waveguide = simulation.configuration["waveguide"]
     assert isinstance(waveguide, dict)
     assert waveguide["length"] == case.length

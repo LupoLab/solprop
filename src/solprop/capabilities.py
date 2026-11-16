@@ -330,6 +330,7 @@ _GNLSE: Final = ("gnlse",)
 _CAPILLARY: Final = ("capillary",)
 _WAVEGUIDE: Final = ("waveguide",)
 _MODAL: Final = ("capillary", "waveguide")
+_KEYWORD: Final = ("gnlse", "capillary", "waveguide")
 
 _RULES: Final = (
     # The grid, the input pulse and the saved planes, on both routes.
@@ -390,6 +391,36 @@ _RULES: Final = (
         ("save_planes", "n_save"),
         "The saved planes are given as positions or as a count, not both.",
         _BOTH,
+    ),
+    Rule(
+        "save-planes-count",
+        ("save_planes",),
+        "save_planes takes positions in m; a count of evenly spaced planes is n_save.",
+        _KEYWORD,
+    ),
+    Rule(
+        "save-planes-outside",
+        ("save_planes",),
+        "Every saved plane lies inside the run, from its entrance to its length.",
+        _KEYWORD,
+    ),
+    Rule(
+        "length-or-grid",
+        ("length", "grid"),
+        "A run's length is given as length or as its grid's; one of them is needed.",
+        _KEYWORD,
+    ),
+    Rule(
+        "length-grid",
+        ("length", "grid"),
+        "A length given beside a grid agrees with the grid's length.",
+        _KEYWORD,
+    ),
+    Rule(
+        "replay-interval",
+        ("schedule",),
+        "A replayed schedule covers the run, from its entrance to its length.",
+        _KEYWORD,
     ),
     Rule(
         "fields-planes-step-planes",
