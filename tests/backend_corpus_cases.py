@@ -328,7 +328,7 @@ def general_modal(
     One HE11 channel of a 1.5 um strand with a Kerr core, over the catalogue's 0.2 mm.
     """
     simulation = general_constant(None)
-    length = float(simulation.settings.save_planes[-1])
+    length = float(np.asarray(simulation.settings.save_planes)[-1])
     planes = (length / 2, length)
     schedule = _schedule(length, planes[:1])
     simulation.settings = dataclasses.replace(
