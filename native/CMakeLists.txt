@@ -814,7 +814,7 @@ add_library(solprop_native_core STATIC src/cpu_execution.cpp src/crossing.cpp
   src/general/checks.cpp src/general/setup.cpp src/general/trial.cpp
   src/general/statistics.cpp src/general/state.cpp src/general/memory.cpp src/general_modal.cpp src/coupled_flow.cpp src/dispersive.cpp src/far_field.cpp
   src/adams_march.cpp src/watch.cpp src/rk_march.cpp src/engines.cpp src/session.cpp
-  src/session_statistics.cpp src/session_widths.cpp src/low_storage.cpp src/transverse.cpp
+  src/statistics_plan.cpp src/session_widths.cpp src/low_storage.cpp src/transverse.cpp
   src/session_edge.cpp src/dense.cpp src/workspace.cpp src/problem.cpp
   src/reference_timing.cpp src/fftw_wisdom.cpp)
 # solprop SEP 39, SEP 45 and SEP 47: the Adams march's decisions, the boundary watch's
@@ -827,7 +827,7 @@ add_library(solprop_native_core STATIC src/cpu_execution.cpp src/crossing.cpp
 # SOLPROP_NATIVE_STRICT_TU marks them, so that the general workspace's contracting
 # headers (src/general/) refuse to be included there.
 set(SOLPROP_NATIVE_STRICT_SOURCES src/adams_march.cpp src/watch.cpp src/rk_march.cpp
-  src/session.cpp src/session_statistics.cpp src/session_widths.cpp src/low_storage.cpp
+  src/session.cpp src/statistics_plan.cpp src/session_widths.cpp src/low_storage.cpp
   src/transverse.cpp src/session_edge.cpp src/dense.cpp)
 set_source_files_properties(${SOLPROP_NATIVE_STRICT_SOURCES}
   PROPERTIES COMPILE_DEFINITIONS SOLPROP_NATIVE_STRICT_TU)
