@@ -33,12 +33,8 @@ from solprop.exceptions import BackendError
 from solprop.grid import RadialGrid
 from solprop.stats import StatsSpec
 from solprop.stepper.multistep import Multistep
-from solprop.translate.chebyshev import (
-    EDGE_SLACK_FRACTION as _EDGE_SLACK_FRACTION,  # the tables' own admitted span
-)
-from solprop.translate.chebyshev import (
-    PiecewiseChebyshev,
-)
+from solprop.translate.chebyshev import EDGE_SLACK_FRACTION as _EDGE_SLACK_FRACTION
+from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.coupled import flow_edge_slack
 from solprop.translate.general import (
     node_delayed_maps,
