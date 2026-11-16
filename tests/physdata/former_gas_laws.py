@@ -30,16 +30,16 @@ from solprop.physdata import (
 
 ATM_IN_BAR = STD_ATMOSPHERE / BAR
 
-BAR_0C = ReferenceState(pressure_bar=1.0, temperature=273.15)
+BAR_0C = ReferenceState(pressure=1.0, temperature=273.15)
 """1 bar, 0 degrees Celsius: Börzsönyi et al. 2008."""
 
-ATM_0C = ReferenceState(pressure_bar=ATM_IN_BAR, temperature=273.15)
+ATM_0C = ReferenceState(pressure=ATM_IN_BAR, temperature=273.15)
 """1 atm, 0 degrees Celsius: Peck and Hung, Bideau-Mehu, Ermolov, the krypton fit."""
 
-ATM_15C = ReferenceState(pressure_bar=ATM_IN_BAR, temperature=288.15)
+ATM_15C = ReferenceState(pressure=ATM_IN_BAR, temperature=288.15)
 """1 atm, 15 degrees Celsius: He et al. 2021, section 3.3."""
 
-ATM_20C = ReferenceState(pressure_bar=ATM_IN_BAR, temperature=293.15)
+ATM_20C = ReferenceState(pressure=ATM_IN_BAR, temperature=293.15)
 """1 atm, 20 degrees Celsius: Zhang et al. 2008 as corrected by Kren 2011."""
 
 BORZSONYI_CITATION = (

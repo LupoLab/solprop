@@ -73,8 +73,8 @@ def quiet(call, *arguments, **keywords):
 # Luna's inputs for its witnesses below, supplied as a caller's own data: the published
 # fits solprop's former registry carried (dc4ca0d), which Luna implements too, and the
 # registry's former helium and krypton gamma3 (Lehmeier et al. 1985).
-BAR_0C = ReferenceState(pressure_bar=1.0, temperature=273.15)
-ATM_0C = ReferenceState(pressure_bar=1.01325, temperature=273.15)
+BAR_0C = ReferenceState(pressure=1.0, temperature=273.15)
+ATM_0C = ReferenceState(pressure=1.01325, temperature=273.15)
 HELIUM_BORZSONYI = PoleSumSusceptibility(
     gas=Gas.He,
     source="borzsonyi",

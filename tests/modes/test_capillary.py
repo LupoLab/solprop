@@ -1248,7 +1248,7 @@ def test_an_injected_susceptibility_replaces_the_one_the_gas_selects():
     mode = MarcatiliMode(125e-6, "He", 0.8, susceptibility=luna_helium())
     injected = mode.susceptibility
     assert injected is not None
-    assert injected.reference_state.pressure_bar == 1.0
+    assert injected.reference_state.pressure == 1.0
 
 
 def test_an_injected_susceptibility_leaves_the_density_path_alone():

@@ -1571,7 +1571,7 @@ def luna_helium():
     return PoleSumSusceptibility(
         gas=Gas.He,
         source="ermolov (Luna's normalisation)",
-        reference_state=ReferenceState(pressure_bar=1.0, temperature=273.15),
+        reference_state=ReferenceState(pressure=1.0, temperature=273.15),
         wavelength_range=(90e-9, 1000e-9),
         citation=(
             "A. Ermolov et al., Phys. Rev. A 92, 033821 (2015), "
@@ -1672,7 +1672,7 @@ def luna_hydrogen():
     return InversePoleIndex(
         gas=Gas.H2,
         source="peck (Luna's)",
-        reference_state=ReferenceState(pressure_bar=1.01325, temperature=273.15),
+        reference_state=ReferenceState(pressure=1.01325, temperature=273.15),
         wavelength_range=(168.0e-9, 1694.5e-9),
         citation=(
             "E. R. Peck and S. Hung, J. Opt. Soc. Am. 67, 1550 (1977), "
@@ -2239,14 +2239,12 @@ def test_lunas_helium_is_the_ermolov_fit_at_the_reference_state_luna_assumed():
     # this witness had before SEP 3).
     state = luna_helium().reference_state
     lunas = (
-        PropsSI(
-            "Dmolar", "P", state.pressure_bar * 1e5, "T", state.temperature, "Helium"
-        )
+        PropsSI("Dmolar", "P", state.pressure * 1e5, "T", state.temperature, "Helium")
         * N_A
     )
     optmats = float(
         equation_of_state("He").number_density(
-            State(pressure=state.pressure_bar * 1e5, temperature=state.temperature)
+            State(pressure=state.pressure * 1e5, temperature=state.temperature)
         )
     )
     assert abs(float(np.mean(ratio)) * optmats / lunas - 1.0) < 3e-8

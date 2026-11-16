@@ -40,7 +40,7 @@ import math
 from collections.abc import Mapping
 from typing import Final
 
-from solprop.constants import BAR, K_B, N_A
+from solprop.constants import BAR, K_B, N_A, ROOM_TEMPERATURE
 from solprop.exceptions import MaterialError
 from solprop.physdata.gases import Gas, as_gas
 from solprop.physdata.species import OptmatGas, Species
@@ -195,7 +195,7 @@ def molar_mass(gas: Composition) -> float:
     )
 
 
-def viscosity(gas: Composition, temperature: float) -> float:
+def viscosity(gas: Composition, temperature: float = ROOM_TEMPERATURE) -> float:
     """Return the dilute dynamic viscosity of a gas or a mixture.
 
     Parameters
@@ -203,8 +203,9 @@ def viscosity(gas: Composition, temperature: float) -> float:
     gas : Gas, str, Species or Mapping
         One built-in gas, or gases to mole fractions summing to one, which take
         Wilke's mixing rule.
-    temperature : float
-        Temperature in K, inside :func:`temperature_range` of every gas.
+    temperature : float, optional
+        Temperature in K, inside :func:`temperature_range` of every gas. Defaults to
+        293.15 K.
 
     Returns
     -------
@@ -228,15 +229,18 @@ def viscosity(gas: Composition, temperature: float) -> float:
     return _viscosity(_composition(gas, "viscosity"), temperature)
 
 
-def heat_capacity_ratio(gas: Composition, temperature: float) -> float:
+def heat_capacity_ratio(
+    gas: Composition, temperature: float = ROOM_TEMPERATURE
+) -> float:
     """Return the dilute heat-capacity ratio of a gas or a mixture.
 
     Parameters
     ----------
     gas : Gas, str, Species or Mapping
         One built-in gas, or gases to mole fractions summing to one.
-    temperature : float
-        Temperature in K, inside :func:`temperature_range` of every gas.
+    temperature : float, optional
+        Temperature in K, inside :func:`temperature_range` of every gas. Defaults to
+        293.15 K.
 
     Returns
     -------
@@ -265,7 +269,9 @@ def heat_capacity_ratio(gas: Composition, temperature: float) -> float:
 
 
 def sound_speed(
-    gas: Composition, temperature: float, pressure_bar: float | None = None
+    gas: Composition,
+    pressure: float | None = None,
+    temperature: float = ROOM_TEMPERATURE,
 ) -> float:
     """Return the adiabatic speed of sound in a gas or a mixture.
 
@@ -273,13 +279,14 @@ def sound_speed(
     ----------
     gas : Gas, str, Species or Mapping
         One built-in gas, or gases to mole fractions summing to one.
-    temperature : float
-        Temperature in K, inside :func:`temperature_range` of every gas.
-    pressure_bar : float or None, optional
+    pressure : float or None, optional
         ``None`` (the default) gives the dilute value
         ``sqrt(gamma R T / M)`` of :func:`heat_capacity_ratio` and
         :func:`molar_mass`. A pressure in **bar**, > 0, gives the real-gas value
         from the equation of state, for a pure gas only.
+    temperature : float, optional
+        Temperature in K, inside :func:`temperature_range` of every gas. Defaults to
+        293.15 K.
 
     Returns
     -------
@@ -296,26 +303,28 @@ def sound_speed(
     Examples
     --------
     >>> from solprop.physdata.transport import sound_speed
-    >>> f"{sound_speed('N2', 293.15):.1f}"
+    >>> f"{sound_speed('N2'):.1f}"
     '349.0'
-    >>> f"{sound_speed('N2', 293.15, 1.0):.1f}"
+    >>> f"{sound_speed('N2', 1.0, 293.15):.1f}"
     '349.1'
     """
-    if pressure_bar is None:
+    if pressure is None:
         ratio = heat_capacity_ratio(gas, temperature)
         return math.sqrt(ratio * _GAS_CONSTANT * temperature / molar_mass(gas))
     parts = _composition(gas, "sound-speed")
     if len(parts) != 1:
         raise MaterialError(
             "a real-gas sound speed at a stated pressure is available for a pure gas "
-            "only; pass pressure_bar=None for a mixture's dilute value"
+            "only; pass pressure=None for a mixture's dilute value"
         )
-    if not (math.isfinite(pressure_bar) and pressure_bar > 0.0):
-        raise MaterialError(f"pressure must be positive, got {pressure_bar} bar")
-    return parts[0][0].sound_speed(pressure_bar, temperature)
+    if not (math.isfinite(pressure) and pressure > 0.0):
+        raise MaterialError(f"pressure must be positive, got {pressure} bar")
+    return parts[0][0].sound_speed(pressure, temperature)
 
 
-def mean_free_path(gas: Composition, pressure_bar: float, temperature: float) -> float:
+def mean_free_path(
+    gas: Composition, pressure: float, temperature: float = ROOM_TEMPERATURE
+) -> float:
     r"""Return the mean free path of a gas from its viscosity.
 
     Uses :math:`\lambda = (\eta / p)\sqrt{\pi k_B T / (2 m)}` with the molecular
@@ -327,10 +336,11 @@ def mean_free_path(gas: Composition, pressure_bar: float, temperature: float) ->
     ----------
     gas : Gas, str, Species or Mapping
         One built-in gas, or gases to mole fractions summing to one.
-    pressure_bar : float
+    pressure : float
         Pressure in **bar**, > 0.
-    temperature : float
-        Temperature in K, inside :func:`temperature_range` of every gas.
+    temperature : float, optional
+        Temperature in K, inside :func:`temperature_range` of every gas. Defaults to
+        293.15 K.
 
     Returns
     -------
@@ -348,7 +358,7 @@ def mean_free_path(gas: Composition, pressure_bar: float, temperature: float) ->
     >>> f"{mean_free_path('N2', 1.0, 293.15) * 1e9:.1f}"
     '64.9'
     """
-    if not (math.isfinite(pressure_bar) and pressure_bar > 0.0):
-        raise MaterialError(f"pressure must be positive, got {pressure_bar} bar")
+    if not (math.isfinite(pressure) and pressure > 0.0):
+        raise MaterialError(f"pressure must be positive, got {pressure} bar")
     speed = math.sqrt(math.pi * _GAS_CONSTANT * temperature / (2.0 * molar_mass(gas)))
-    return viscosity(gas, temperature) / (pressure_bar * BAR) * speed
+    return viscosity(gas, temperature) / (pressure * BAR) * speed
