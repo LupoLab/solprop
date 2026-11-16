@@ -885,6 +885,106 @@ The pools, the widths and the wait policy are stored in the output metadata
 `SOLPROP_FFTW_PLAN` and `SOLPROP_FFTW_WISDOM` remain. Pass timings are the native engine's
 Kokkos regions.
 
+### 3.4a Machine calibration
+
+The widths, waits and team of §3.4 are fitted to a machine by `solprop.calibration`
+(SEP 46). What a user sees (the levels, the store, the first run, `--show`, refining one
+simulation) is the [calibration manual](../guide/performance/calibration.md); this is the
+design its modules implement.
+
+**Processes.** The controller (`calibration/controller.py`) never loads the native
+extension or a device runtime (SEP 46 §6.2), since importing `solprop_native` starts its
+OpenMP runtime. The native allocation, cpu, execution, fingerprint, profile, store and
+topology modules import nothing but the standard library and each other, so
+`calibration/_native.py` loads them by path into a private package of its own, as the backend registry loads its
+processor check (`backends/registry.py`), without running `solprop_native/__init__`. The
+controller starts one child (`calibration/child.py`) per candidate process setting, with
+the setting in its environment, plus one child on the built-in rules. A child pins itself
+to the allocation being calibrated before the native runtime starts, builds the
+calibration problems, and then times their windows as the controller asks, under the
+workspace record it is given or its process's own. It never calibrates and never reads a
+profile (`SOLPROP_CALIBRATION=off`). It runs as `python -m solprop.calibration.child CPUS`,
+`CPUS` a comma-separated list of logical CPUs (empty for no pinning), and is driven over
+JSON lines on its standard input and output, one reply line per request, `{"ok": ...}` or
+`{"error": "..."}`:
+
+```text
+{"op": "prepare", "problems": {"gnlse": 1.0, ...}}
+{"op": "time", "problem": "gnlse", "repeats": 40, "record": {...} | null,
+ "planning": {...} | null}
+{"op": "sizing", "record": {...} | null}
+{"op": "capture", "effort": "measure", "limit": 2.0, "budget": 30.0,
+ "record": {...} | null}
+{"op": "regions", "elements": 1000, "repeats": 200}
+{"op": "exit"}
+```
+
+**Rounds, deadline and publication.** The controller times the problems' windows in
+interleaved rounds: in each round every child once, in a fresh order, and the built-in
+child twice for the A/A noise. The selection rule below admits a candidate only if it
+wins every round by more than the noise; the winner is then validated against the
+built-in child on fresh rounds, window by window. Everything runs under one monotonic
+deadline per level (§6.9): a child that overruns is terminated, a stage that cannot
+finish its rounds is skipped and reported, and nothing partial is published. Publication
+writes one complete generation, keeping the other allocation classes' rows, and swaps
+`current` (§6.8).
+
+**The statistical rule** (`calibration/selection.py`, §6.5, the `ab` harness's rule;
+every function there is pure, reading timings and returning a verdict):
+
+- *Pairs.* Each candidate is timed interleaved with the built-in value, in rounds; a round
+  times each once in a fresh order. A candidate's score is the median of its per-round
+  ratios to the built-in.
+- *Noise.* Each session also times the built-in against itself (A/A). The noise is the
+  largest per-round deviation of that ratio from one, and at least `NOISE_FLOOR`.
+- *Admission.* A candidate replaces the built-in value only if its largest per-round ratio
+  is below one minus the noise: it wins in every round by more than the noise. And no
+  problem may be slower beyond the noise and `TOLERANCE`: its median ratio on each problem
+  timed must stay within `1 + noise + TOLERANCE`, so that a large win on some problems
+  cannot carry a real loss on another, while a loss within the bar does not veto a broad
+  win. Ties keep the built-in. A failed round is dropped; fewer than the level's minimum
+  rounds keeps the built-in.
+- *Combined validation.* The admitted settings are timed together against the table on
+  fresh rounds; the combination is published only if no window is slower than that same
+  bar and the geometric mean is below one. Otherwise groups are dropped in `DROP_ORDER`
+  and the remainder validated again.
+
+**Operation-grain candidates** (`calibration/grain.py`, pure functions). Each CPU
+operation class threads by its work: serially below its threshold, on the medium width
+below its full size, on its pool's capacity from there (`_execution.ExecutionRecord`). A
+workspace's `execution_sizing` records every operation it runs, with its class, work and
+width. A threshold or full size matters only where it falls between two work sizes the
+problems actually run, so the candidates of a class are its one-step moves past the
+nearest of them: thread one more size, serialise one more, widen one more to the full
+pool, narrow one more to the medium width. At most four a class (§6.5); a candidate that
+changes no operation's width is left out. The medium width and the compact team take a
+short ladder of their own. Each candidate is then timed on the problems it changes, and
+the rule above decides.
+
+**The problems** (`calibration/problems.py`, §6.3). The five problems the manual lists
+together exercise every CPU operation class: stage passes, responses with short and long
+columns, modal and dense products, Raman histories, plasma columns, radial and temporal
+transforms. Each is adapted from the benchmark tracking set's case of the same physics
+(`benchmarks/builders.py`), with no noise so that every candidate does the same work, and
+with a *scale* that sizes its grid: the time window for the one-dimensional problems and
+the transverse count for the spatial ones. A calibration times their trial steps
+(`Backend.timing_probe`), never a propagation. The four production-size problems
+(`*_large`) are as large as the tracking set's cases of their kind: on these alone a
+narrower team or a higher threshold that wins on the small problems shows what it costs a
+production run. On 16 cores of a Google Axion, a team of 8 won the small problems by 16 %
+and ran the tracking set's large cases up to 1.8 times slower (SEP 46 Part II).
+
+**Refinement** (`calibration/refine.py`, §6.6). `refine` builds fresh workspaces from the
+simulation's translated problem in the calling process, under the process's record and
+under each candidate's, and never touches the simulation's state, output or callbacks.
+The candidates are the operation-grain moves of the simulation's own work sizes, each
+timed by trial steps of the simulation's own operators at positions spread along its
+length, interleaved with the base record and admitted by the rule above; the winners are
+validated together. Speed alone never admits a candidate: every candidate's trial steps
+must end finite and within ten times the run's relative tolerance of the base's (SEP 46
+§12 item 4). The result is stored under the simulation's execution descriptor
+(`_profile.descriptor`).
+
 ### 3.5 The session's march: Python first, compiled when measured
 
 **One session per backend, the same shape.** `backends/host/session.py` is the

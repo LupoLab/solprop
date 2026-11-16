@@ -4,28 +4,22 @@
 
 """The outer loop of a run: save planes in, saved planes out.
 
-The inner loop -- many adaptive or replayed steps between two save planes -- lives
-inside a backend and is compiled; this is the Python loop around it, which runs a few
-hundred times at most (``docs/dev/architecture.md`` section 5). It asks the backend to
-land on each save plane in turn, takes the observation and the statistics there, and
-hands them to an output handler.
-
-**What this module does not do.** It never conjugates a spectrum and never touches the
-state between planes: the backend owns the step loop and the output handler owns the
-sign convention on disk (``docs/dev/conventions.md`` section 2, boundary place 2). A
-plane is carried across as a :class:`solprop.output.records.SavedPlane` in the internal
-FFT convention, with modal amplitudes converted to true-power units.
-
-Progress is reported through :class:`solprop.log.ProgressReporter` -- the run's summary
-(:mod:`solprop.driver.summary`) before the first step, one call at the start, one per
-attempted step from inside the backend, one per save plane and one at the end. The
-protocol and the default :class:`solprop.log.LogReporter` live in :mod:`solprop.log`,
-and are re-exported here because this is where a run reaches them. A bar shows the
-summary and the closing line on its stream; the line reporter logs them, and
-:func:`solprop.log.configure_logging` is how a script sees those records
-(``docs/dev/architecture.md`` section 14).
-
-The manual page is ``docs/guide/setup/running.md``.
+The inner loop, many adaptive or replayed steps between two save planes, lives inside a
+backend and is compiled; :func:`run_problem` is the Python loop around it, which runs a
+few hundred times at most (``docs/dev/architecture.md`` section 5). It opens the
+output (:func:`open_run`), starts the backend's session and hands it to
+:mod:`solprop.driver.session_loop`, which lands on each save plane in turn and hands
+the plane (:func:`plane_from_observation`, :func:`history_of`) to the output handler.
+It never conjugates a spectrum and never touches the state between planes: the
+backend owns the step loop and the output handler the sign convention on disk
+(``docs/dev/conventions.md`` section 2); a plane crosses as a
+:class:`solprop.output.records.SavedPlane` in the internal FFT convention, with modal
+amplitudes in true-power units. :func:`field_retention`, :func:`retention_at` and
+:func:`check_snapshot_request` resolve what a run keeps. Progress goes to a
+:class:`solprop.log.ProgressReporter`, re-exported here with
+:class:`solprop.log.LogReporter` because this is where a run reaches them; the
+protocol is ``docs/dev/architecture.md`` section 14. The manual page is
+``docs/guide/setup/running.md``.
 """
 
 import logging

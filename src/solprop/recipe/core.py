@@ -4,11 +4,17 @@
 
 """Recipes: a simulation as versioned TOML, read, built, run and saved (SEP 41, S1).
 
-A recipe is read, checked against the parameter metadata, built into a
-:class:`~solprop.driver.simulation.Simulation`, run, written back and exported as a
-plain Python script. It is one-way: objects are built from it and never turned back
-into tables, so a saved recipe always comes from a recipe or from plain values
-(:meth:`Recipe.from_keywords`).
+:class:`Recipe` is the whole life of one recipe: loaded (``load``, ``loads``,
+``from_dict``, ``example``, ``from_output``), edited by parameter path (``get``,
+``set``), checked against the parameter metadata (``check``, returning
+:class:`RecipeIssue` rows), built into a :class:`~solprop.driver.simulation.Simulation`
+(``build``, after its pins resolve), previewed, run, recorded in its output, saved and
+exported as a Python script. It is one-way: objects are built from it and never turned
+back into tables, so a saved recipe always comes from a recipe or from plain values
+(``from_keywords``). :class:`RecipeScan`, with the picklable :class:`RecipeBuilder`, is
+its ``[scan]`` table ready for :func:`~solprop.driver.scan.run_scan`;
+:func:`resume_file` continues a run from its file and the recipe it records;
+:data:`ROUTES` names the routes. The manual page is ``docs/guide/setup/recipes.md``.
 """
 
 import copy

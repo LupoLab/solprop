@@ -5,13 +5,15 @@
 """The recipe a run records: the authored text, the resolved one, and the data files.
 
 A run built from a recipe writes a ``recipe`` group in its output, once, at its first
-start (SEP 41, S2). The **authored** recipe is the text as loaded, or its canonical
-TOML once edited. The **resolved** recipe is what rebuilds the run: the authored keys,
-the noise seed that was drawn, each keyword the metadata marks resolvable at the value
-the build used, and ``[execution]`` from the settings at run start. A keyword is
-resolvable only where its value written back gives the same record; the rest stay
-with the build, so a later solprop's default cannot move a resolvable one, and the
-resume gate notices the others.
+start (SEP 41, S2); :func:`record` builds its
+:class:`~solprop.output.records.RecipeRecord`, embedding data files up to
+:data:`EMBED_LIMIT`. The **authored** recipe is the text as loaded, or its canonical
+TOML once edited. The **resolved** recipe (:func:`resolved_document`) is what rebuilds
+the run: the authored keys, the noise seed that was drawn, each keyword the metadata
+marks resolvable at the value the build used, and ``[execution]`` from the settings at
+run start. A keyword is resolvable only where its value written back gives the same
+record; the rest stay with the build, so a later solprop's default cannot move a
+resolvable one, and the resume gate notices the others.
 """
 
 from collections.abc import Iterator, Mapping

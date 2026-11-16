@@ -6,12 +6,23 @@
 
 The native backend's CPU execution settings (how each operation threads, how idle
 threads wait, how wide the team is) are fitted to the machine by a bounded, one-off
-measurement, kept in a per-user store in the platform's cache directory and applied
-by every later run, which records the settings it used in its metadata
-(``calibration``). Without a profile the native backend runs its built-in table.
+measurement, kept in a per-user store and applied by every later run, which records the
+settings it used in its metadata (``calibration``). Without a profile the native backend
+runs its built-in table. This package's own functions read, show, export, import and
+clear profiles without loading the native extension: ``MachineProfile``, ``profile``,
+``store_directory``, ``export_profile``, ``import_profile``, ``clear``, and
+``calibrate``, which measures one.
 
-This package reads, shows, exports, imports and clears profiles without loading the
-native extension. The manual page is ``docs/guide/performance/calibration.md``.
+Modules: :mod:`~solprop.calibration.controller` (the measurement: children, rounds,
+deadline, publication), :mod:`~solprop.calibration.child` (one candidate's timing
+process), :mod:`~solprop.calibration.selection` (the statistical rule),
+:mod:`~solprop.calibration.grain` (operation-grain candidates),
+:mod:`~solprop.calibration.problems` (the synthetic problems),
+:mod:`~solprop.calibration.first_use` (calibrating on first use and for a scan),
+:mod:`~solprop.calibration.refine` (fitting one simulation) and
+:mod:`~solprop.calibration.command` (``solprop calibrate``). The manual page is
+``docs/guide/performance/calibration.md``; the design is ``docs/dev/backends.md``
+(section 3.4a).
 """
 
 from __future__ import annotations

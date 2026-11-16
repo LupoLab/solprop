@@ -4,14 +4,19 @@
 
 """The simulation driver: physics objects in, a written run out.
 
-Layer D of ``docs/dev/architecture.md`` section 3.
-:class:`~solprop.driver.simulation.Simulation` holds a run and translates it once;
-:func:`~solprop.driver.run.run_problem` is the loop over save planes;
-:func:`~solprop.driver.interface.prop_gnlse` is the keyword interface for a GNLSE fibre.
-:mod:`solprop.driver.scaffold` stays as the independent fixed-step integrator the
-backend tests cross-check against.
-
-The manual page is ``docs/guide/setup/running.md``.
+Layer D of ``docs/dev/architecture.md`` section 3. The package re-exports ``Simulation``
+(:mod:`~solprop.driver.simulation`, a run that translates once and writes a resumable
+file), ``SimulationSettings`` (:mod:`~solprop.driver.settings`), ``run_problem``
+(:mod:`~solprop.driver.run`, the loop over save planes), ``SimulationRunner``
+(:mod:`~solprop.driver.runner`), the keyword interfaces ``prop_gnlse``,
+``prop_capillary``, ``prop_waveguide``, ``prop_free`` and ``prop_planar``
+(:mod:`~solprop.driver.interface`), and the TDSE presets and consistency check
+(:mod:`~solprop.driver.tdse`, :mod:`~solprop.driver.tdse_consistency`). The
+constructors' keyword routes are :mod:`solprop.driver.routes`; scans and their executors
+are :mod:`solprop.driver.scan` and :mod:`solprop.driver.executors`; the session's
+service loop, inputs, defaults, metadata, resume, summary and estimate have a module
+each. :mod:`solprop.driver.scaffold` stays as the independent fixed-step integrator the
+backend tests cross-check against. The manual page is ``docs/guide/setup/running.md``.
 """
 
 from solprop.driver.interface import (

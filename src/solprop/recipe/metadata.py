@@ -5,17 +5,18 @@
 """Machine-readable metadata of every keyword a recipe can set (SEP 41, S9).
 
 One :class:`Parameter` per keyword of a route's ``Simulation.from_*`` constructor, of
-its ``prop_*`` function and of the execution settings: its forms (a keyword often takes
-several, as ``pressure`` takes a number, a gradient or a profile), their units and
-ranges, whether it needs the ``"none"`` spelling, the unit a front end shows it in,
-whether the resolved recipe writes it back, the rule that resolves a ``None`` default,
-and where it is documented. The function's signature stays the single source of the
-default: :func:`parameters` reads it, and a test holds the table and the signature to
-the same names. The keywords of a registered type's table are described in
-:mod:`solprop.recipe.type_metadata`, which :func:`parameters` also answers for.
-
-A front end's tooltips and field validation come from this table; its labels and
-wording are its own.
+its ``prop_*`` function and of the execution settings: its :class:`Form` values (a
+keyword often takes several, as ``pressure`` takes a number, a gradient or a profile)
+with their units and ranges, the unit a front end shows it in, its group, whether the
+resolved recipe writes it back, the rule that resolves a ``None`` default (a
+:class:`Resolution`), and where it is documented. :func:`parameters` is the way in: it
+reads each default from the signature :func:`surface` names, which stays its single
+source, and also answers for a registered type's table, described in
+:mod:`solprop.recipe.type_metadata` (imported only then, to break the import cycle
+through the registry). :func:`per_unit_width` says when a slab set's energy and power
+are per metre of y. A test holds the table and the signatures to the same names. A
+front end's tooltips and field validation come from this table; its labels and wording
+are its own.
 """
 
 import dataclasses

@@ -6,20 +6,20 @@
 
 Each interface (``prop_gnlse``, ``prop_capillary``, ``prop_waveguide``, ``prop_free`` on
 a radial or a Cartesian grid, and ``prop_planar``, and their ``Simulation.from_*``
-constructors) steps
-with its own integrator and tolerances, carries its own noise and applies the temporal
-collar in its own scheme, each qualified separately (SEP 37, SEP 21). This module holds
-those choices in one frozen table, :data:`ROUTE_DEFAULTS`, and resolves them in one
-place, so that the constructors, the metadata a front end reads (SEP 41) and the tests
-cannot disagree. The guide's table of the defaults is
-``docs/guide/numerics/choosing-a-stepper.md``.
-
-A default is resolved once, when the settings are built, and the choice is recorded
+constructors) steps with its own integrator and tolerances, carries its own noise and
+applies the temporal collar in its own scheme, each qualified separately (SEP 37,
+SEP 21). :data:`ROUTE_DEFAULTS` holds those choices as one frozen
+:class:`RouteDefaults` row per route (:func:`route_row` picks a run's row,
+:func:`route_defaults` reads it), so that the constructors, the metadata a front end
+reads (SEP 41) and the tests cannot disagree. :func:`default_rtol`,
+:func:`default_controller`, :func:`default_integrator`, :func:`default_scheme`,
+:func:`default_step` and :func:`resolve_noise` resolve each default once, when the
+settings are built, and the choice is recorded
 (:class:`solprop.output.records.NoiseResolution` for the noise,
-:class:`solprop.output.records.DefaultsResolution` for the rest), so a run that took a
-default says so in its summary and its record.
-
-Layer D of ``docs/dev/architecture.md`` section 3, beside the constructors that read it.
+:class:`solprop.output.records.DefaultsResolution` for the rest;
+:func:`describe_default` words it), so a run that took a default says so in its
+summary and its record. The guide's table of the defaults is
+``docs/guide/numerics/choosing-a-stepper.md``.
 """
 
 import warnings

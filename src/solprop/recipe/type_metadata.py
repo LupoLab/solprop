@@ -8,14 +8,13 @@ A recipe's tables name registered types (:data:`solprop.recipe.registry.REGISTRY
 second pulse, a pressure gradient, a grid, a mode, the whole ``[build]`` of a
 free-space route. Each type's keywords get the
 :class:`~solprop.recipe.metadata.Parameter` a route keyword has, so that a front end
-builds every table's form from solprop's own description. A test holds every form's
-unit to the registry's, every keyword to the target's signature and every anchor to
-the manual.
-
-The rows are ``_TYPES``; :func:`solprop.recipe.metadata.parameters` is the public way
-in, and adds each keyword's default from the target's signature (``_type_parameters``).
-This module imports the registry, which imports :mod:`solprop.recipe.metadata`, so the
-latter imports this one only when a type is asked for.
+builds every table's form from solprop's own description. The rows are ``_TYPES``,
+built by ``_type`` and its family helpers (``_pulse``, ``_gradient``, ``_grid``,
+``_beam``, ...); :func:`solprop.recipe.metadata.parameters` is the public way in, and
+adds each keyword's default from the target's signature (``_type_parameters``). This
+module imports the registry, which imports :mod:`solprop.recipe.metadata`, so the
+latter imports this one only when a type is asked for. A test holds every form's unit to
+the registry's, every keyword to the target's signature and every anchor to the manual.
 """
 
 import dataclasses

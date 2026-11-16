@@ -5,12 +5,13 @@
 """The lazy view of a saved plane that a plane observer is shown (SEP 41, S3).
 
 A reporter that defines ``observe_plane`` (:class:`~solprop.log.ProgressReporter`) is
-shown each saved plane as a :class:`PlaneView`: the plane's position, statistics row
-and basis at once, and its field, spectrum, power and spectral density only on
-request, computed by the same :mod:`solprop.processing` functions that read a file, so
-what an observer draws is what the file holds. On a device a plane whose field the
-output does not keep is fetched only when asked for, and the fetch is counted in the
-run's resources.
+shown each saved plane as a :class:`PlaneView`, through a run's :class:`PlaneWatch`:
+the plane's position, statistics row and basis at once, and its field, spectrum, power
+and spectral density only on request, computed by the same :mod:`solprop.processing`
+functions that read a file, so what an observer draws is what the file holds. On a
+device a plane whose field the output does not keep is fetched only when asked for,
+and the fetch is counted in the run's resources. The manual page is
+``docs/guide/performance/progress.md`` ("Watching each saved plane").
 """
 
 import logging

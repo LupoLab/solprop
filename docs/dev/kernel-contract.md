@@ -1037,6 +1037,30 @@ and the session raises the kept exception unchanged; an abandoned attempt's fail
 release rides on the run's own error as a note. A device build refuses a TDSE
 problem at preparation.
 
+**The provider worker** (`driver/_source_worker.py`, SEP 49 §6.5, ADR-078). The binding
+never imports the provider: it runs in a worker process, provider-agnostic, in which an
+*adapter* module runs it (`driver/_pyroraptor.py` for Pyroraptor; the tests run a
+manufactured one). The parent starts `sys.executable -m solprop.driver._source_worker
+<adapter> <limit>` with `subprocess` (never `multiprocessing`, whose spawn re-imports
+the parent's `__main__` and whose fork inherits its runtimes) in a session of its own,
+so that a terminal's Ctrl-C or a scheduler's signal to the job reaches the parent alone,
+which then ends the worker. The worker moves the protocol off its standard input and
+output before importing the adapter, points standard output at standard error, ignores
+SIGINT and SIGTERM, and exits at once when its pipe from the parent reaches end of file,
+even during a call.
+
+- *Frames.* An 8-byte little-endian length, then the payload. A message is one control
+  frame, a UTF-8 JSON object `{"kind", "body", "arrays"}`, followed by one raw frame per
+  entry of `arrays`, each the array's bytes in the dtype (byte order included) and shape
+  its entry names. Nothing is pickled. Every frame's declared length is checked against
+  the channel's limit, and an array frame's against its declared shape, before anything
+  is allocated.
+- *Values.* A body is JSON with tagged objects: `{"$a": i}` the i-th array, `{"$t":
+  [...]}` a tuple, `{"$d": {...}}` a mapping, `{"$f": "nan"}` a non-finite float and
+  `{"$r": type, "f": fields, "c": computed}` a record (a dataclass or a plain object's
+  attributes, received as a `Record`); any other object travels as its type and `repr`
+  only (`Opaque`).
+
 The backend independently projects macroscopic P and J with the existing modal
 weights and crop scale. It subtracts unscaled discrete shadows, then applies
 density and the declared scales once. The ordinary optmat cubic keeps its

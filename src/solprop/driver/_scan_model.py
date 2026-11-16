@@ -7,9 +7,9 @@
 :class:`Scan` holds the ordered variables and enumerates their Cartesian product as
 :class:`ScanPoint` records; :func:`name_seed` derives a point's noise seed from the
 scan's name and the point's index. Nothing here runs a simulation:
-:mod:`solprop.driver.scan` dispatches them. The model lives apart from that module,
-which imports the executors and backends, so that :mod:`solprop.output.scan` can import
-:class:`Scan` without them.
+:func:`solprop.driver.scan.run_scan` does, through :mod:`solprop.driver._scan_run`. The
+model lives apart from those modules, which import the executors and backends, so that
+:mod:`solprop.output.scan` can import :class:`Scan` without them.
 
 Scan indices are zero-based and use C order, with the last declared variable fastest.
 Selecting a subset never renumbers points. See ``docs/guide/workflows/scans.md`` for

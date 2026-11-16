@@ -5,18 +5,18 @@
 """Pins: a recipe value set from a design target instead of a literal (SEP 41, S1).
 
 A recipe's ``[pins]`` table sets a whole value from a target of
-:func:`solprop.tools.design.solve_parameter`::
-
-    [pins]
-    pressure = {target = "zdw", wavelength = "800 nm", search = ["0.1 bar", "10 bar"]}
-    energy = {target = "soliton_order", order = 4}
-
-Pins resolve in two fixed stages after the literals: at most one pin on a parameter
-of the guide or fill (``zdw`` or ``rdw``), solved on the launch mode at the launch
-position; then the pins on pulses (``soliton_order``), which read the mode the first
-stage settled. So no order has to be declared and no cycle can be written.
-:func:`solve_pin` is the solver call on a route's own keywords, which the Python
-export writes before the route's call.
+:func:`solprop.tools.design.solve_parameter`, as in
+``energy = {target = "soliton_order", order = 4}``. :func:`read_pins` reads the table
+into checked :class:`Pin` records, guide pin first. They resolve in two fixed stages
+after the literals: at most one pin on a keyword of the guide or fill
+(:data:`GUIDE_PINS`), solved on the launch mode at the launch position, then the pins
+on pulses (:data:`PULSE_PINS`), which read the mode the first stage settled, so no
+order is declared and no cycle can be written. :func:`design_target` makes a guide
+pin's :data:`~solprop.tools.design.DesignTarget`; :func:`solve_pin` and
+:func:`solve_pulse` are the solver calls on a route's own keywords, which the Python
+export writes before the route's call; :func:`placeholder` is the value a pulse pin
+stands at while the guide is solved. The manual page is
+``docs/guide/setup/recipes.md`` ("Pins").
 """
 
 import math

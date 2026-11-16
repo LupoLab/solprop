@@ -4,13 +4,15 @@
 
 """Previews: what a recipe will build, shown before the run (SEP 41, S18).
 
-:func:`modes` gives the mode set a guided route builds, with its effective index,
+:func:`modes` gives a guided route's (:data:`GUIDED`) mode set as a
+:class:`ModeSetPreview` of :class:`ModePreview` rows: each mode's effective index,
 dispersion to third order, loss, effective area and nonlinear coefficient over the
-grid's band, and each mode's phase matching to a soliton at the pump in the launch
-mode; :func:`preview_input` gives the input pulse on the
-run's grid as the launch sets it, without noise, through the same processing functions
-that read a run's file, and on the free-space routes the beam's fluence across the
-launch plane too. Both resolve the recipe's pins first.
+grid's band, and its phase matching to a soliton at the pump in the launch mode.
+:func:`preview_input` gives the input pulse on the run's grid as the launch sets it,
+without noise, as an :class:`InputPreview`, through the same processing functions that
+read a run's file, and on the free-space routes the beam's fluence across the launch
+plane too. Both resolve the recipe's pins first. The manual page is
+``docs/guide/setup/recipes.md`` ("Previews").
 """
 
 from collections.abc import Mapping

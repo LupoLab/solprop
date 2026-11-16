@@ -4,9 +4,16 @@
 
 """The run glue of a TDSE response (SEP 20): its archive, atomic state and gate.
 
-A run with a TDSE response opens its archive, prepares and restores its atomic state,
-and passes the consistency gate before its march. The ``tdse=`` capillary keywords
-resolve in :mod:`solprop.driver.routes.hollow`, the route that takes them.
+The simulation calls these private helpers around a run with a TDSE response: the
+response lattice is resolved once before the optical input is built
+(``_resolve_tdse_grid``, refining the analytic collar) and unsupported execution
+choices are refused (``_check_tdse_execution``); then the run opens its raw response
+archive and prepares its atomic binding (``_prepare_atomic``, through
+``_open_tdse_archive``), restores its atomic state at a resumed start
+(``_restore_atomic``), passes the consistency gate (``_consistency_gate``) before its
+march, and closes the backend, the binding, the archive and the output in order
+(``_close_run``). The ``tdse=`` capillary keywords resolve in
+:mod:`solprop.driver.routes.hollow`, the route that takes them.
 """
 
 import dataclasses

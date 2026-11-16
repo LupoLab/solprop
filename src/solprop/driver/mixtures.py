@@ -4,9 +4,19 @@
 
 """Resolve material declarations and population selections at the driver boundary.
 
-Also what a :meth:`~solprop.driver.simulation.Simulation.with_mixture` update may keep
-of the translation it replaces: the undamped Raman kernels and the sampled operator
-expansions whose inputs the new mixture leaves unchanged.
+A run's fill from its keywords: :func:`capillary_fill` resolves one material
+declaration (a gas, its name, a mapping of fractions or a
+:class:`~solprop.physdata.mixtures.Mixture`) with its pressure, temperature and
+explicit initial populations into the run's mixture, and :func:`mixture_profiles`
+gives that mixture's density and total-pressure profiles for the statistics.
+:class:`ResponseSelection` keeps the public response choices a
+:meth:`~solprop.driver.simulation.Simulation.with_mixture` update applies again, and
+``_mixture_reuse`` says what such an update may keep of the translation it replaces:
+the undamped Raman kernels and the sampled operator expansions whose inputs the new
+mixture leaves unchanged. Of the four ``mixtures`` modules, one per layer, this is the
+driver's declaration resolution: :mod:`solprop.physdata.mixtures` is the type,
+:mod:`solprop.nonlinear.mixtures` the response selection and
+:mod:`solprop.processing.mixtures` the analysis of saved planes.
 """
 
 import logging

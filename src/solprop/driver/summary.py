@@ -4,19 +4,18 @@
 
 """The block a run shows before its first step: what is about to be computed, and how.
 
-Every route reaches :func:`solprop.driver.run.run_problem`, which builds this summary
-from the translated :class:`~solprop.translate.problem.PropagationProblem`, the run's
+:func:`run_summary` builds a :class:`RunSummary` from the translated
+:class:`~solprop.translate.problem.PropagationProblem`, the run's
 :class:`~solprop.output.metadata.RunMetadata` (whose ``configuration`` holds the physics
-objects the problem was built from: the responses, the medium, the profiles), the
-backend's own execution record and the output. It hands the text to the progress
-reporter, so it follows the ``progress`` choice exactly as the progress lines do, and
-records it on a plane store as the
-:data:`~solprop.output.metadata.RUN_SUMMARY_ANNOTATION`.
-
-The rows are descriptions for a person, not a record: everything in them is also in the
-run's metadata, which is what a program should read. Nothing here evaluates physics.
-
-The manual page is ``docs/guide/performance/progress.md``.
+objects the problem was built from), the backend's own execution record and the output;
+the session loop (:func:`solprop.driver.session_loop.serve`) hands its text to the
+progress reporter, so it follows the ``progress`` choice exactly as the progress lines
+do, and records it on a plane store as the
+:data:`~solprop.output.metadata.RUN_SUMMARY_ANNOTATION`. :func:`memory_size` and
+:func:`resources` word sizes and a run's spent resources. The rows are descriptions for
+a person, not a record: everything in them is also in the run's metadata, which is what
+a program should read. Nothing here evaluates physics. The manual page is
+``docs/guide/performance/progress.md``.
 """
 
 from collections.abc import Mapping, Sequence
