@@ -387,6 +387,26 @@ class Output(Protocol):
         """
         ...
 
+    def plane_field(self, index: int, convention: Convention = "optics") -> np.ndarray:
+        """Return one saved plane's field, in the requested sign convention.
+
+        The reader that works whatever planes the run kept its field on, and the one
+        processing uses to read a single plane.
+
+        Parameters
+        ----------
+        index : int
+            The saved plane, the entrance as 0 and negative from the end.
+        convention : {'optics', 'fft'}, optional
+            As for :meth:`fields`.
+
+        Returns
+        -------
+        numpy.ndarray
+            Shape ``(n_modes, n_pol, n_omega)``, complex.
+        """
+        ...
+
 
 @runtime_checkable
 class CheckpointOutput(Protocol):

@@ -482,8 +482,8 @@ def layout(output: Output) -> tuple[int, int, int, int]:
     """Return the shape of a saved run as ``(n_z, n_modes, n_pol, n_omega)``.
 
     The mode and polarisation counts are not in the metadata -- a mode-averaged run
-    records no modes at all -- so they are read off the stored field, which on an HDF5
-    handler means reading it.
+    records no modes at all -- so they come from the store's ``field_shape``, which
+    reads no field; a handler that is not a plane store is asked for its fields.
 
     Parameters
     ----------
@@ -494,7 +494,7 @@ def layout(output: Output) -> tuple[int, int, int, int]:
     Returns
     -------
     tuple of int
-        ``(n_z, n_modes, n_pol, n_omega)``.
+        ``(n_z, n_modes, n_pol, n_omega)``, ``n_z`` counting every saved plane.
 
     Examples
     --------
@@ -503,6 +503,9 @@ def layout(output: Output) -> tuple[int, int, int, int]:
     >>> layout(example_output())[1:3]
     (1, 1)
     """
+    if isinstance(output, PlaneStore) and output.field_shape:
+        n_modes, n_pol, n_omega = output.field_shape
+        return int(output.n_saved), int(n_modes), int(n_pol), int(n_omega)
     n_z, n_modes, n_pol, n_omega = output["field"].shape
     return int(n_z), int(n_modes), int(n_pol), int(n_omega)
 
@@ -517,6 +520,32 @@ def _nearest_plane(output: Output, z: float) -> int:
         msg = "the output holds no saved plane, so no position can be selected"
         raise OutputError(msg)
     return int(np.argmin(np.abs(positions - z)))
+
+
+def _check_plane_or_z(
+    plane: int | None, z: float | None, *, default: int | None
+) -> None:
+    """Refuse a selection that names a plane both by index and by position.
+
+    - ``default``: the plane index a function selects when given neither, ``-1`` for a
+      reader of one plane and ``None`` for one of every plane; an index equal to it
+      was not given.
+    """
+    if z is not None and plane != default:
+        msg = f"give a plane index or a position, not both: plane={plane}, z={z}"
+        raise ProcessingError(msg)
+
+
+def _plane_index(output: Output, plane: int, z: float | None) -> int:
+    """Return the index of the one saved plane a reader of one plane is asked for.
+
+    - ``plane``: plane index, negative from the end; ``-1``, the last, by default.
+    - ``z``: plane position, m: the nearest saved plane; given with any `plane` but
+      the default, the selection is refused.
+    - Returns: the index as given, or the nearest plane's to `z`.
+    """
+    _check_plane_or_z(plane, z, default=-1)
+    return plane if z is None else _nearest_plane(output, z)
 
 
 def _refuse_by_basis(output: Output, name: str) -> None:
@@ -551,34 +580,21 @@ def _plane_field(
 ) -> Complex[np.ndarray, "*planes n_modes n_pol n_omega"]:
     """Return the stored spectrum of the selected plane, or of every plane.
 
+    One plane is read alone (``Output.plane_field``), so a run that kept its field
+    on some planes only answers for those and refuses the others by name.
+
     - ``plane``: plane index, negative from the end, or ``None``.
-    - ``z``: plane position, m, or ``None``.
+    - ``z``: plane position, m, or ``None``: the nearest saved plane.
     - ``convention``: sign convention wanted.
     - Returns: shape ``(n_z, n_modes, n_pol, n_omega)`` when no plane was selected, and
       ``(n_modes, n_pol, n_omega)`` when one was.
     """
-    if plane is not None and z is not None:
-        msg = f"give a plane index or a position, not both: plane={plane}, z={z}"
-        raise OutputError(msg)
-    if isinstance(output, PlaneStore) and (plane is not None or z is not None):
-        # One plane is read alone, so a run that kept its field on some planes only
-        # answers for those, and refuses the others by name.
-        index = _nearest_plane(output, z) if z is not None else cast("int", plane)
-        return output.plane_field(index, convention)
-    values = output.fields(convention)
-    n_z = values.shape[0]
-    if n_z == 0:  # pragma: no cover - the handlers refuse to read an empty run
-        msg = "the output holds no saved plane"
-        raise OutputError(msg)
+    _check_plane_or_z(plane, z, default=None)
     if z is not None:
-        return values[_nearest_plane(output, z)]
-    if plane is None:
-        return values
-    index = plane + n_z if plane < 0 else plane
-    if not 0 <= index < n_z:
-        msg = f"plane {plane} is out of range for a run of {n_z} saved planes"
-        raise OutputError(msg)
-    return values[index]
+        return output.plane_field(_nearest_plane(output, z), convention)
+    if plane is not None:
+        return output.plane_field(plane, convention)
+    return output.fields(convention)
 
 
 def _keep_index(grid: TimeGrid, band: Band) -> Int[np.ndarray, " n_x"]:

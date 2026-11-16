@@ -1011,6 +1011,9 @@ class LegacyOutput:
     def fields(self, convention: Convention = "optics"):
         return self.stored.fields(convention)
 
+    def plane_field(self, index, convention: Convention = "optics"):
+        return self.stored.plane_field(index, convention)
+
 
 @pytest.mark.parametrize("entry", ["simulation", "run_problem"])
 def test_tdse_requires_checkpoint_output_before_preparing_native_resources(

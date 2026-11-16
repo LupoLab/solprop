@@ -134,9 +134,9 @@ Reading a field that was not kept is refused, naming the run's `fields`:
 {py:meth}`~solprop.output.store.PlaneStore.fields` need every plane's field and answer
 only for an `"all"` run; {py:meth}`~solprop.output.store.PlaneStore.plane_field` reads
 one saved plane's field and works for any plane that kept one; `output["field_planes"]`
-lists them. {py:mod}`solprop.processing` reads one plane through `plane_field`, so a
-processing function asked for a kept plane works and one asked for another plane is
-refused by name. {py:meth}`~solprop.output.memory.MemoryOutput.planes` returns
+lists them. `plane_field` is part of the {py:class}`~solprop.output.store.Output`
+protocol, and {py:mod}`solprop.processing` reads one plane through it, so a processing
+function asked for a kept plane works and one asked for another plane is refused by name. {py:meth}`~solprop.output.memory.MemoryOutput.planes` returns
 `field=None` where no field was kept. A run that stops on an error or a signal still
 writes its terminal checkpoint **with** the field ([resuming](resuming.md)).
 

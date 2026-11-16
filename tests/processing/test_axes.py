@@ -120,11 +120,32 @@ def test_nearest_plane_needs_a_saved_plane():
 
 
 @pytest.mark.parametrize(
-    ("index", "z", "message"), [(0, 0.0, "not both"), (9, None, "out of range")]
+    ("index", "z", "error", "message"),
+    [(0, 0.0, ProcessingError, "not both"), (9, None, OutputError, "out of range")],
 )
-def test_plane_field_refuses_a_plane_it_cannot_name(output, index, z, message):
-    with pytest.raises(OutputError, match=message):
+def test_plane_field_refuses_a_plane_it_cannot_name(output, index, z, error, message):
+    with pytest.raises(error, match=message):
         axes._plane_field(output, index, z, convention="fft")
+
+
+def test_plane_index_takes_the_last_plane_or_the_nearest_position(output):
+    assert axes._plane_index(output, -1, None) == -1
+    assert axes._plane_index(output, 2, None) == 2
+    assert axes._plane_index(output, -1, 0.049) == 2
+    # A plane other than the default beside a position names two planes.
+    with pytest.raises(ProcessingError, match="not both"):
+        axes._plane_index(output, 1, 0.049)
+
+
+def test_layout_reads_no_field(synthetic, monkeypatch):
+    output = synthetic.build_run("envelope", n_modes=2, n_pol=1)
+    expected = output["field"].shape
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("layout read the whole field")
+
+    monkeypatch.setattr(type(output), "_read", refuse)
+    assert axes.layout(output) == expected
 
 
 def test_plane_field_counts_a_negative_index_from_the_end(output):
@@ -178,6 +199,9 @@ class _ProtocolOnly:
     def fields(self, convention: Convention = "optics"):
         return self.stored.fields(convention)
 
+    def plane_field(self, index, convention: Convention = "optics"):
+        return self.stored.plane_field(index, convention)
+
 
 def keeping_planes(memory: MemoryOutput, kept: tuple[int, ...]) -> MemoryOutput:
     """Return the run stored again keeping the field on the planes `kept` alone."""
@@ -230,9 +254,11 @@ def test_a_run_keeping_some_fields_answers_for_those_planes_alone(memory):
         axes._plane_field(partial, 2, None, convention="fft")
     with pytest.raises(OutputError, match="fields='planes'"):
         axes._plane_field(partial, None, 0.049, convention="fft")
-    # A handler that reads only whole runs cannot pick out the kept planes.
-    with pytest.raises(OutputError, match="fields='planes'"):
-        axes._plane_field(_ProtocolOnly(partial), 0, None, convention="fft")
+    # A handler that is not a store reads one plane through the protocol too.
+    assert np.array_equal(
+        axes._plane_field(_ProtocolOnly(partial), 0, None, convention="fft"),
+        axes._plane_field(memory, 0, None, convention="fft"),
+    )
 
 
 @pytest.mark.parametrize(

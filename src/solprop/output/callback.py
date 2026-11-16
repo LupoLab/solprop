@@ -64,8 +64,9 @@ class CallbackOutput:
     its field.
 
     What it cannot do, it refuses by name. Reading anything back (``handler[key]``,
-    :meth:`fields`) raises :class:`~solprop.exceptions.OutputError`, and a handler that
-    has served a run refuses another, which would continue it. A resume needs a file
+    :meth:`fields`, :meth:`plane_field`) raises
+    :class:`~solprop.exceptions.OutputError`, and a handler that has served a run
+    refuses another, which would continue it. A resume needs a file
     (:func:`~solprop.output.hdf5.check_cache`, :func:`~solprop.output.hdf5.resume`,
     ``resume=True``), as does a TDSE run's ledger. A stopped run returns the handler
     with no state written.
@@ -261,3 +262,20 @@ class CallbackOutput:
             Always.
         """
         raise _not_held("the fields")
+
+    def plane_field(self, index: int, convention: Convention = "optics") -> np.ndarray:  # noqa: ARG002 - the protocol's signature
+        """Refuse to read a plane's field back.
+
+        Parameters
+        ----------
+        index : int
+            The plane that was asked for.
+        convention : {'optics', 'fft'}, optional
+            The convention that was asked for.
+
+        Raises
+        ------
+        OutputError
+            Always.
+        """
+        raise _not_held(f"the field of plane {index}")
