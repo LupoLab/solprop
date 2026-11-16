@@ -32,6 +32,7 @@ import numpy as np
 
 from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.driver.settings import SimulationSettings
+from solprop.exceptions import DriverError
 from solprop.grid import (
     EnvelopeGrid,
     FieldGrid,
@@ -87,6 +88,7 @@ from solprop.stepper import LowStorageRungeKutta, Multistep, PIController, Runge
 from solprop.stepper.schedule import FixedSchedule
 
 __all__ = [
+    "PLANE_PARAMETERS",
     "REGISTRY",
     "RETIRED_KEYWORDS",
     "BuildContext",
@@ -97,6 +99,8 @@ __all__ = [
     "coerce",
     "decode",
     "decode_keyword",
+    "plane_parameter",
+    "refuse_plane_count",
     "retired",
     "unit_of",
 ]
@@ -732,15 +736,95 @@ def build_object(
                 "route's gas, pressure and temperature, so a mode table names no fill"
             )
             raise RecipeError(msg, path=path)
+        if factory.target is SimulationSettings:
+            refuse_plane_count(key, item, f"{path}.{key}")
         decoded = decode(item, factory.units.get(key), context, f"{path}.{key}")
         arguments[key] = coerce(factory.target, key, decoded)
     if factory.solves and context.stand_in:
         # A solve on a band that is not the run's would refuse what the run accepts.
         return None
+    return _constructed(factory, positional, arguments, path)
+
+
+def _constructed(
+    factory: Factory,
+    positional: Sequence[object],
+    arguments: Mapping[str, object],
+    path: str,
+) -> object:
+    """Call a factory's target, its refusals of the planes reported as the recipe's."""
     try:
         return factory.target(*positional, **arguments)
     except TypeError as error:
         raise RecipeError(f"{factory.name}: {error}", path=path) from error
+    except DriverError as error:
+        planes = plane_parameter(error)
+        if planes is None:
+            raise
+        raise RecipeError(str(error), path=f"{path}.{planes}") from error
+
+
+PLANE_PARAMETERS: Final = ("save_planes", "n_save", "length", "grid", "schedule")
+"""The keywords whose refusals SEP 51 states, which a recipe reports as its own."""
+
+
+def plane_parameter(error: DriverError) -> str | None:
+    """Return the keyword a refusal of the planes, the length or replay names.
+
+    Parameters
+    ----------
+    error : solprop.exceptions.DriverError
+        A refusal raised while a recipe's run is built.
+
+    Returns
+    -------
+    str or None
+        The first keyword it names of :data:`PLANE_PARAMETERS`, or ``None`` for
+        another refusal, which keeps its own type.
+
+    Examples
+    --------
+    >>> from solprop.exceptions import DriverError
+    >>> from solprop.recipe.registry import plane_parameter
+    >>> plane_parameter(DriverError("...", parameter=("save_planes", "n_save")))
+    'save_planes'
+    """
+    named = error.parameter
+    paths = (named,) if isinstance(named, str) else tuple(named or ())
+    return next((one for one in paths if one in PLANE_PARAMETERS), None)
+
+
+def refuse_plane_count(key: str, value: object, path: str) -> None:
+    """Refuse a bare integer given as ``save_planes``, naming ``n_save`` (SEP 51).
+
+    A recipe once read ``save_planes = 80`` as one plane at 80 m (#533); positions and
+    a count have one name each, so the integer is refused with the fix.
+
+    Parameters
+    ----------
+    key : str
+        The keyword.
+    value : object
+        Its value as TOML read it.
+    path : str
+        The value's parameter path, for the error.
+
+    Raises
+    ------
+    RecipeError
+        If `key` is ``save_planes`` and `value` an integer.
+
+    Examples
+    --------
+    >>> from solprop.recipe.registry import refuse_plane_count
+    >>> refuse_plane_count("save_planes", [0.1, 0.2], "settings.save_planes")
+    """
+    if key == "save_planes" and isinstance(value, int) and not isinstance(value, bool):
+        msg = (
+            f"save_planes = {value} reads as one position in m, not a count; for "
+            f"evenly spaced planes write n_save = {value}"
+        )
+        raise RecipeError(msg, path=path)
 
 
 @functools.cache
@@ -903,6 +987,7 @@ def decode_keyword(entry: Parameter, value: object, context: BuildContext) -> ob
             "hold; use the Python export (Recipe.to_python)"
         )
         raise RecipeError(msg, path=entry.name)
+    refuse_plane_count(entry.name, value, entry.name)
     unit = unit_of(entry, value)
     if unit is None and _numeric_rows(entry, value):
         msg = f"{entry.name} takes one row of numbers, not a list of rows"

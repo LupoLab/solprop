@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Final, Literal, cast
 
 import numpy as np
 
-from solprop.exceptions import SolpropError, SolpropWarning
+from solprop.exceptions import DriverError, SolpropError, SolpropWarning
 from solprop.output.records import RecipeRecord
 from solprop.recipe.document import (
     FORMAT,
@@ -52,6 +52,7 @@ from solprop.recipe.registry import (
     BuildContext,
     coerce,
     decode_keyword,
+    plane_parameter,
     retired,
 )
 
@@ -694,11 +695,21 @@ class Recipe:
         if self._document.get("pins"):
             return self.resolve().build()
         builder = surface(self.route)
-        simulation = builder(**self.keywords())
-        if not self._grid_first() and any(
-            _needs_grid(value) for value in self._document["build"].values()
-        ):
-            simulation = builder(**self.keywords(grid=simulation._base_grid))
+        try:
+            simulation = builder(**self.keywords())
+            if not self._grid_first() and any(
+                _needs_grid(value) for value in self._document["build"].values()
+            ):
+                simulation = builder(**self.keywords(grid=simulation._base_grid))
+        except DriverError as error:
+            # SEP 51's refusals of the planes, the length and replay are the recipe's.
+            planes = plane_parameter(error)
+            if planes is None:
+                raise
+            prefix = "settings." if self.route in OBJECT_ROUTES else ""
+            if planes in ("length", "grid"):
+                prefix = ""
+            raise RecipeError(str(error), path=f"{prefix}{planes}") from error
         execution = self._execution()
         if execution:
             simulation.settings = dataclasses.replace(simulation.settings, **execution)
