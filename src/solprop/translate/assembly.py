@@ -124,6 +124,7 @@ from solprop.translate.routes import (
     TDSESource,
     spatial_kind,
 )
+from solprop.translate.run_request import describe_run
 from solprop.translate.spatial import (
     FluxPlan,
     SeparableOperator,
@@ -1450,8 +1451,6 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
         ),
         split_crossing=crossing,
     )
-    # The run module builds on this one, for the stepper section.
-    from solprop.translate.run_request import describe_run  # noqa: PLC0415
 
     statistics = StatsSpec() if stats_spec is None else stats_spec
     request = describe_run(settings, stats=statistics)

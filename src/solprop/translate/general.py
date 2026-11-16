@@ -66,10 +66,17 @@ from solprop.stats import GENERAL_MODAL_ACCESSORS, WITHHELD_WITH_A_FLOW
 from solprop.translate.coupled import (
     CoupledFlowTables,
     ModalMetricTables,
+    coefficient_tail,
     dense_metric,
     orthonormal_metric,
 )
 from solprop.translate.linop import DEFAULT_MARGIN, profile_table
+from solprop.translate.modal_path import (
+    in_frequency,
+    path_connections,
+    path_transform_tables,
+    section_coefficients,
+)
 from solprop.translate.modal_tables import ModalTransformTables, modal_transform_tables
 from solprop.translate.responses import (
     DELAYED_MODEL_ID,
@@ -899,8 +906,6 @@ def _path_reference(
     - ``z_end``: where the run ends, m; the tables keep every section up to it.
     - Returns: the sampled path and the tables.
     """
-    from solprop.translate.modal_path import path_transform_tables  # noqa: PLC0415
-
     sampling = guide.sampling
     assert sampling is not None and sampling.path is not None
     path = sampling.path
@@ -1015,16 +1020,6 @@ def _moving_route(
 
     - ``z_max``: where the run ends, m.
     """
-    # Imported here: modal_path imports this module's siblings only, but keeping the
-    # moving machinery out of the snapshot route's import path keeps that route's
-    # import graph what it was.
-    from solprop.translate.coupled import coefficient_tail  # noqa: PLC0415
-    from solprop.translate.modal_path import (  # noqa: PLC0415
-        in_frequency,
-        path_connections,
-        section_coefficients,
-    )
-
     sampling = guide.sampling
     assert sampling is not None and sampling.path is not None
     path = sampling.path

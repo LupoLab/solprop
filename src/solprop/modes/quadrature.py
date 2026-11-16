@@ -99,6 +99,7 @@ from scipy.special import j0, jn_zeros, roots_legendre
 
 from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError
+from solprop.modes.capillary import MarcatiliMode
 from solprop.modes.protocol import CrossSection, Mode
 
 __all__ = [
@@ -643,8 +644,6 @@ def check_field_scale_modes(modes: Sequence[Mode]) -> None:
         profile is not Marcatili's ``J_0(u_01 r / a)``: a mode merely labelled HE_11
         with another radial profile does not qualify.
     """
-    from solprop.modes.capillary import MarcatiliMode  # noqa: PLC0415 - a cycle
-
     mode = modes[0] if len(modes) == 1 else None
     if (
         mode is None
