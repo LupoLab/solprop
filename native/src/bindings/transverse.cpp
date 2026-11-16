@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "bindings_transverse.hpp"
+#include "transverse.hpp"
 
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/optional.h>
@@ -79,8 +79,8 @@ nb::tuple pair(const double first, const double second) {
   return nb::make_tuple(first, second);
 }
 
-} // namespace
-
+/** The input noise's readings a launch carries (`noise` of `TransverseEdge.launch`,
+    `_transverse.noise_readings`). */
 transverse::Noise transverse_noise_from(const nb::dict values) {
   transverse::Noise noise;
   try {
@@ -98,6 +98,8 @@ transverse::Noise transverse_noise_from(const nb::dict values) {
   return noise;
 }
 
+/** The edge's configuration from `EdgeConfig.native()`; throws `std::invalid_argument`
+    for a missing field or a wrong type. */
 transverse::Config transverse_config_from(const nb::dict values) {
   transverse::Config config;
   try {
@@ -137,6 +139,7 @@ transverse::Config transverse_config_from(const nb::dict values) {
   return config;
 }
 
+/** The record a resume continues, from `_transverse.resumption(...)`. */
 transverse::Resumption transverse_resumption_from(const nb::dict values) {
   transverse::Resumption record;
   const auto number = [&values](const char* name) -> std::optional<double> {
@@ -180,6 +183,8 @@ transverse::Resumption transverse_resumption_from(const nb::dict values) {
   }
   return record;
 }
+
+} // namespace
 
 nb::dict transverse_record_to(const transverse::Record& record,
                               const transverse::Finish& finish) {

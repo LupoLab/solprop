@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "bindings_helpers.hpp"
+#include "helpers.hpp"
 
 #include "solprop_native/march/chebyshev.hpp"
 #include "solprop_native/march/lagrange_basis.hpp"
