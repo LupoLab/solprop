@@ -7,12 +7,13 @@
 A plane's spectral density and power come from solprop (a
 :class:`~solprop.driver.plane_view.PlaneView` during a run, the file's
 :mod:`solprop.processing` functions after it), the density on both spectral axes
-(wavelength and frequency, solprop applying the Jacobian, so a view switches between
-them at once) and the power within the display's bandpass; this module only puts them
-on the display's bins. Each display bin keeps the **largest**
-value that falls in it, so a narrow peak survives the reduction; a bin no sample falls
-in takes the value interpolated at its centre. The reduction is for display only, and
-says so: exports and "Copy as Python" are computed from the file.
+(solprop applying the Jacobian, so a view switches between them at once) and the power
+within the display's bandpass; this module only puts them on the display's bins
+(:class:`Display`, :class:`Reducer`). Each display bin keeps the **largest** value that
+falls in it (:func:`bin_max`), so a narrow peak survives; a bin no sample falls in
+takes the value interpolated at its centre. :func:`even_rows`, :func:`stats_row` and
+:func:`light_range` serve the maps, the statistics and the axis ranges. The reduction
+is for display only: exports and "Copy as Python" are computed from the file.
 """
 
 from collections.abc import Mapping

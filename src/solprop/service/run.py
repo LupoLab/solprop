@@ -4,17 +4,17 @@
 
 """A run's job: build, run, continue or scan, observe, and record (design 13.4).
 
-Every run is a job of its own (:mod:`solprop.service.job`), on this computer or
-another, and streams to nothing but its record (:mod:`solprop.service.record`): the
-window follows the record. The march runs in the main thread, and its plane observer
-(:class:`LiveObserver`) only reduces each plane and hands the row to the record, whose
-own thread writes it. The run's stop file sets its stop token
-(:class:`solprop.backends.session.StopToken`), which reaches the session.
+:func:`execute` runs, or continues, one run or scan as a job of its own
+(:mod:`solprop.service.job`), streaming to nothing but its record
+(:mod:`solprop.service.record`): the window follows the record. The march runs in the
+main thread, and its plane observer (:class:`LiveObserver`) only reduces each plane
+and hands the row to the record, whose own thread writes it; :class:`ScanObserver`
+turns a scan's progress into events and :class:`EventHandler` forwards log records.
+The run's stop file sets its stop token (:class:`solprop.backends.session.StopToken`).
 
 Whether a run *stopped* comes from the worker's own flag and the run's clean return,
-never from solprop's outcome, which records a stop as a failure.
-
-This module imports solprop and runs only in a worker process.
+never from solprop's outcome, which records a stop as a failure. This module imports
+solprop and runs only in a worker process.
 """
 
 import logging
