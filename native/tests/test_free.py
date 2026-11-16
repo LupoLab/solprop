@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -279,7 +279,7 @@ def test_adams_rows_cross_to_the_host_and_back_exactly(
         with pytest.raises(ValueError, match="must have shape"):
             _testing.adams_rows_from_host(state, "store", rows.reshape(3, -1))
         with pytest.raises(TypeError):
-            _testing.adams_rows_from_host(state, "store", rows.real.copy())
+            _testing.adams_rows_from_host(state, "store", cast("Any", rows.real.copy()))
         with pytest.raises(TypeError):
             _testing.adams_rows_from_host(state, "store", np.asfortranarray(rows))
         with pytest.raises(ValueError, match="unknown Adams history row"):

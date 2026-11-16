@@ -147,12 +147,16 @@ def _same(left: object, right: object) -> None:
             _same(value, right_map[key])
     elif isinstance(left, np.ndarray):
         assert isinstance(right, np.ndarray)
-        assert right.dtype == left.dtype
-        np.testing.assert_array_equal(right.reshape(left.shape), left)
+        left_array = cast("np.ndarray[Any, np.dtype[Any]]", left)
+        right_array = cast("np.ndarray[Any, np.dtype[Any]]", right)
+        assert right_array.dtype == left_array.dtype
+        np.testing.assert_array_equal(right_array.reshape(left_array.shape), left_array)
     elif isinstance(left, (list, tuple)):
         assert isinstance(right, list)
-        assert len(right) == len(left)  # pyright: ignore[reportUnknownArgumentType]
-        for one, other in zip(left, right, strict=True):  # pyright: ignore[reportUnknownArgumentType]
+        left_items = cast("list[object] | tuple[object, ...]", left)
+        right_items = cast("list[object]", right)
+        assert len(right_items) == len(left_items)
+        for one, other in zip(left_items, right_items, strict=True):
             _same(one, other)
     elif isinstance(left, float) and math.isnan(left):
         assert isinstance(right, float)
@@ -229,42 +233,45 @@ def _table(n_edges: int = 3) -> dict[str, object]:
     }
 
 
-@pytest.mark.parametrize(
-    ("spoil", "error", "message"),
-    [
-        (lambda t: t.pop("lower"), ValueError, r"stage\.Table\.lower is missing"),
-        (lambda t: t.update(extra=1), ValueError, "unknown field 'extra'"),
-        (
-            lambda t: t.update(coefficients=np.zeros((2, 2, 1), dtype=np.float32)),
-            TypeError,
-            r"coefficients must be a C-contiguous float64 array of rank 3",
-        ),
-        (
-            lambda t: t.update(coefficients=np.zeros((2, 2))),
-            ValueError,
-            "of rank 3",
-        ),
-        # The right element count with its axes swapped breaks the relation.
-        (
-            lambda t: t.update(coefficients=np.zeros((1, 2, 2))),
-            ValueError,
-            r"axis 0 gives n_edges = 2, where the record has 3",
-        ),
-        (
-            lambda t: t.update(coefficients=np.zeros((2, 4, 1))[:, ::2]),
-            ValueError,
-            "not a strided or overlapping view",
-        ),
-        (
-            lambda t: t.update(coefficients=np.broadcast_to(np.zeros(1), (2, 2, 1))),
-            ValueError,
-            "not a strided or overlapping view",
-        ),
-        (lambda t: t.update(lower="0"), TypeError, r"stage\.Table\.lower must be a"),
-    ],
-)
+type _Spoil = typing.Callable[[dict[str, Any]], object]
+
+_SPOILED: list[tuple[_Spoil, type[Exception], str]] = [
+    (lambda t: t.pop("lower"), ValueError, r"stage\.Table\.lower is missing"),
+    (lambda t: t.update(extra=1), ValueError, "unknown field 'extra'"),
+    (
+        lambda t: t.update(coefficients=np.zeros((2, 2, 1), dtype=np.float32)),
+        TypeError,
+        r"coefficients must be a C-contiguous float64 array of rank 3",
+    ),
+    (
+        lambda t: t.update(coefficients=np.zeros((2, 2))),
+        ValueError,
+        "of rank 3",
+    ),
+    # The right element count with its axes swapped breaks the relation.
+    (
+        lambda t: t.update(coefficients=np.zeros((1, 2, 2))),
+        ValueError,
+        r"axis 0 gives n_edges = 2, where the record has 3",
+    ),
+    (
+        lambda t: t.update(coefficients=np.zeros((2, 4, 1))[:, ::2]),
+        ValueError,
+        "not a strided or overlapping view",
+    ),
+    (
+        lambda t: t.update(coefficients=np.broadcast_to(np.zeros(1), (2, 2, 1))),
+        ValueError,
+        "not a strided or overlapping view",
+    ),
+    (lambda t: t.update(lower="0"), TypeError, r"stage\.Table\.lower must be a"),
+]
+"""Ways to spoil a stage table: each refusal names the field's path."""
+
+
+@pytest.mark.parametrize(("spoil", "error", "message"), _SPOILED)
 def test_the_converter_refuses_a_malformed_record_by_its_path(
-    spoil: Any, error: type[Exception], message: str
+    spoil: _Spoil, error: type[Exception], message: str
 ) -> None:
     table = _table()
     spoil(table)
@@ -352,7 +359,8 @@ def _run_start(backend: Any, problem: Any, request: Any) -> dict[str, object]:
         resume=start.resume,
     )
     proposal = float(request.stepper.dz_init)
-    adams = runge_kutta = None
+    adams: Any = None
+    runge_kutta: dict[str, object] | None = None
     if isinstance(request.stepper.integrator, Multistep):
         adams = backend._adams.start_state(loaded.z, proposal, loaded.cursor)
     else:
@@ -424,7 +432,7 @@ def test_a_workspace_runs_a_session_as_the_old_seam_does(
         backend.close()
     try:
         session = workspace.start(start)
-        fields, terminal = _drive(session, int(np.prod(problem.shape)))
+        fields, terminal = _drive(session, math.prod(problem.shape))
         session.close()
         assert terminal.outcome == 1  # completed
         old_planes = old.all_planes()
@@ -448,7 +456,7 @@ def test_a_workspace_is_reused_across_starts_and_its_arrays_outlive_it(
         second_start = _run_start(backend, problem, request)
     finally:
         backend.close()
-    n = int(np.prod(problem.shape))
+    n = math.prod(problem.shape)
     session = workspace.start(first_start)
     # The launch's batch, taken by hand: its arrays are kept past everything below.
     batch = session.advance(1, 3600.0)
@@ -625,7 +633,7 @@ def test_an_injected_fault_fails_the_run_at_its_stage(phase_a_case: PhaseACase) 
         # The second step's trial fails, after the first committed.
         _testing.inject_fault(workspace, "trial", 1, "value")
         session = workspace.start(start)
-        _, terminal = _drive(session, int(np.prod(problem.shape)))
+        _, terminal = _drive(session, math.prod(problem.shape))
         session.close()
         assert terminal.outcome == 3  # failed
         assert "injected" in terminal.message

@@ -158,7 +158,6 @@ from .backend import (
     _FLOOR,  # pyright: ignore[reportPrivateUsage]
     FRESH_WATCH,
     NativeBackend,
-    _aperture_payload,  # pyright: ignore[reportPrivateUsage]
     _envelope_errors,  # pyright: ignore[reportPrivateUsage]
     _raise_native,  # pyright: ignore[reportPrivateUsage]
 )
@@ -179,6 +178,7 @@ if TYPE_CHECKING:
     from solprop.modes.protocol import Mode
     from solprop.monitor import BoundaryMonitor
     from solprop.profiles import ZProfile
+    from solprop.spatial import ApertureTables
     from solprop.stats import StatsSpec
     from solprop.stepper.multistep import MarchPolicy
     from solprop.translate.problem import PropagationProblem, StepperSettings
@@ -200,6 +200,46 @@ _KINDS = (
     ObservationKind.STEP,
     ObservationKind.NATURAL,
 )
+_APERTURE_CONSTANTS = 11
+"""The constants before an aperture row's scale row (``far_field.hpp``)."""
+
+
+def _aperture_payload(
+    tables: ApertureTables | None, n_omega: int
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], int]:
+    """Pack far-field tables as the native pass reads them (solprop SEP 23 section 6).
+
+    Returns the ``(n_apertures, 11 + n_omega)`` aperture rows (centre x and y, the
+    half-width and half-height, the two stretches, the reciprocal edge width, the edge
+    or order, the profile and shape codes, the distance, then the scale row
+    ``z c / omega`` that every backend reads to the bit), the ``(n_regions, 4)`` boxes
+    and the exponent; empty tables without any.
+    """
+    if tables is None:
+        return np.empty((0, _APERTURE_CONSTANTS + n_omega)), np.empty((0, 4)), 2
+    assert tables.half_heights is not None
+    assert tables.stretches is not None
+    constants = np.column_stack(
+        (
+            tables.centres,
+            tables.half_widths,
+            tables.half_heights,
+            tables.stretches,
+            tables.inverse_widths,
+            tables.edges,
+            tables.profile_codes,
+            tables.shape_codes,
+            tables.distances,
+        )
+    )
+    apertures = np.ascontiguousarray(np.hstack((constants, tables.scale)))
+    return (
+        apertures,
+        np.ascontiguousarray(tables.regions, dtype=np.float64),
+        tables.exponent,
+    )
+
+
 _STATES = (
     SessionState.READY,
     SessionState.PENDING,
@@ -724,8 +764,8 @@ class NativeSession:
             plane_index=status.plane_index,
             attempts=status.attempts,
             rejected=status.rejected,
-            state=_STATES[status.state],
-            outcome=_OUTCOMES[status.outcome],
+            state=_STATES[int(status.state)],
+            outcome=_OUTCOMES[int(status.outcome)],
         )
 
     def advance(

@@ -72,7 +72,6 @@ from solprop.output.records import MarchSnapshot
 from solprop.profiles import ZProfile
 from solprop.spatial import (
     FAR_FIELD_STATISTICS,
-    ApertureTables,
 )
 from solprop.stats import (
     StatsSpec,
@@ -833,7 +832,7 @@ class NativeBackend:
 
     def _diagnostics(self) -> dict[str, Any]:
         """Return the workspace's facts and counters (``Workspace.diagnostics``)."""
-        return cast("dict[str, Any]", self._workspace.diagnostics())
+        return self._workspace.diagnostics()
 
     def _monitor_binding(self, monitor: BoundaryMonitor) -> dict[str, object]:
         """Return a run's boundary monitor weights where the state lives (SEP 21).
@@ -1189,12 +1188,6 @@ def _build_facts() -> _BuildFacts:
         device_team_size=int(native_record["device_team_size"]),
         device_reduction_size=int(native_record["device_reduction_size"]),
     )
-
-
-def _required(values: RealArray | None, name: str) -> RealArray:
-    if values is None:
-        raise BackendError(f"device-ready problem has no {name}")
-    return values
 
 
 def _require_initial_array(field: object, shape: tuple[int, ...]) -> None:
@@ -2263,46 +2256,6 @@ _MAX_FLOW_SQUARINGS = 30
 def _flow_allowance(modes: int) -> float:
     """Return the rounding allowance on two spectral norms of `modes` channels."""
     return 1.0 + 64.0 * modes * float(np.finfo(float).eps)
-
-
-_APERTURE_CONSTANTS = 11
-"""The constants before an aperture row's scale row (``far_field.hpp``)."""
-
-
-def _aperture_payload(
-    tables: ApertureTables | None, n_omega: int
-) -> tuple[RealArray, RealArray, int]:
-    """Pack far-field tables as the native pass reads them (solprop SEP 23 section 6).
-
-    Returns the ``(n_apertures, 11 + n_omega)`` aperture rows (centre x and y, the
-    half-width and half-height, the two stretches, the reciprocal edge width, the edge
-    or order, the profile and shape codes, the distance, then the scale row
-    ``z c / omega`` that every backend reads to the bit), the ``(n_regions, 4)`` boxes
-    and the exponent; empty tables without any.
-    """
-    if tables is None:
-        return np.empty((0, _APERTURE_CONSTANTS + n_omega)), np.empty((0, 4)), 2
-    assert tables.half_heights is not None
-    assert tables.stretches is not None
-    constants = np.column_stack(
-        (
-            tables.centres,
-            tables.half_widths,
-            tables.half_heights,
-            tables.stretches,
-            tables.inverse_widths,
-            tables.edges,
-            tables.profile_codes,
-            tables.shape_codes,
-            tables.distances,
-        )
-    )
-    apertures = np.ascontiguousarray(np.hstack((constants, tables.scale)))
-    return (
-        apertures,
-        np.ascontiguousarray(tables.regions, dtype=np.float64),
-        tables.exponent,
-    )
 
 
 def _refined_record(

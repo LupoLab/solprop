@@ -12,7 +12,7 @@ import functools
 import math
 import re
 from types import SimpleNamespace
-from typing import NoReturn, cast
+from typing import Any, NoReturn, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -760,9 +760,10 @@ def test_native_raman_rates_refuse_wrong_dtype_and_shape(
     """The diagnostic preparation seam has the same exact-array contract as trials."""
     workspace = _core.Workspace(_raman_native_payload(raman_case))
     none = np.empty(0, dtype=np.float64)
+    single: Any = np.zeros(1, dtype=np.float32)
     try:
         with pytest.raises(TypeError):
-            _testing.prepare_raman(workspace, np.zeros(1, dtype=np.float32), none)
+            _testing.prepare_raman(workspace, single, none)
         with pytest.raises(ValueError, match="shape"):
             _testing.prepare_raman(workspace, np.zeros((1, 1), dtype=np.float64), none)
     finally:
