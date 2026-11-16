@@ -10,13 +10,13 @@ import math
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from pathlib import Path
 from typing import Final
 
 import numpy as np
 from jaxtyping import Float
 from scipy.integrate import quad
 
+from solprop._validation import PACKAGE_FILES
 from solprop.exceptions import MaterialError, RamanTemperatureWarning
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.ionisation import IntegrationPolicy, IonisationRate, rate_species
@@ -48,8 +48,6 @@ __all__ = ["electronic_response", "raman_temperature", "responses_for"]
 
 logger = logging.getLogger(__name__)
 
-_PACKAGE_FILES: Final = (str(Path(__file__).resolve().parents[1]),)
-"""Frames the temperature warning skips, so that it names the caller's line."""
 
 _TEMPERATURE_SPREAD_PROBES: Final = 65
 """Evenly spaced positions over the run, beside the breakpoints, at which the warning
@@ -293,7 +291,7 @@ def raman_temperature(
             "reference",
             RamanTemperatureWarning,
             stacklevel=2,
-            skip_file_prefixes=_PACKAGE_FILES,
+            skip_file_prefixes=PACKAGE_FILES,
         )
     return reference
 

@@ -40,6 +40,7 @@ from scipy.interpolate import CubicSpline
 from scipy.optimize import minimize_scalar
 from scipy.special import jn_zeros, jv
 
+import solprop
 from bounds import assert_within, record_backend
 from builders import load_reference
 from convergence_records import Column, Study, record
@@ -71,6 +72,7 @@ from solprop.driver.mixtures import capillary_fill
 from solprop.driver.routes.hollow import (
     BACKEND_STATISTICS,
     PLASMA_STATISTICS,
+    _warn_boreless_gradient,
     default_radial_order,
 )
 from solprop.exceptions import (
@@ -3746,6 +3748,29 @@ def test_a_boreless_gradient_in_a_taper_warns():
         warnings.simplefilter("error", GasFlowWarning)
         _flow_build(radius=FLOW_TAPER, length=FLOW_LENGTH, pressure=bored)
         _flow_build(length=FLOW_LENGTH, pressure=boreless)
+
+
+def test_a_fill_warning_raised_through_another_solprop_module_names_the_caller():
+    # Regression: the route skipped only the frames under driver/, so a fill warning
+    # raised through recipe/, a scan or the service named that solprop line instead of
+    # the caller's. A frame compiled under recipe/ stands in for such a module.
+    boreless = Mixture.fill(
+        {"He": 1.0}, PressureGradient.two_point(FLOW_LENGTH, 1.0, 0.1)
+    )
+    package = Path(solprop.__file__).resolve().parent
+    frame = compile(
+        "_warn_boreless_gradient(mixture, radius)",
+        str(package / "recipe" / "caller.py"),
+        "exec",
+    )
+    namespace = {
+        "_warn_boreless_gradient": _warn_boreless_gradient,
+        "mixture": boreless,
+        "radius": FLOW_TAPER,
+    }
+    with pytest.warns(GasFlowWarning, match="built without the bore") as caught:
+        exec(frame, namespace)
+    assert [w.filename for w in caught] == [__file__]
 
 
 def test_vacuum_end_is_refused_where_nothing_can_honour_it():
