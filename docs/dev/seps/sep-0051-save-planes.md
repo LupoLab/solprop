@@ -673,10 +673,14 @@ coverage lane, `native/tests`, the front-end gate and the galleries; CI is the g
   the changed tests moved; §3 does not list them.
 - `test_modal_launch.py`'s general runs keep the default first step, which is a fraction
   of the length and refined by the start-up rule; their checks are of the launch.
-- No new test resumes a file to its declared end: resume already reads the last
-  requested plane of the request, which now ends at the length, and the existing resume
-  modules pass. Replay from `FixedSchedule.from_history` and the TDSE capillary's
-  resolved recipe are not tested here.
+- A recipe cannot hold a TDSE response (`tdse` has no recipe form), so the TDSE
+  capillary's resolved recipe is checked at construction, through `resolved_document`,
+  not round-tripped through `Recipe.from_output`. Added after review:
+  `tests/driver/test_save_planes.py` resumes an interrupted file, one holding a terminal
+  checkpoint and a completed one to the length, directly and through
+  `recipe.resume_file`, and replays `from_history` and `uniform` schedules drifting
+  below and above the length; `tests/recipe/test_save_planes.py` rebuilds a run from its
+  file's resolved recipe with `DEFAULT_N_SAVE` changed, keeping its hash.
 
 **Open questions.**
 
