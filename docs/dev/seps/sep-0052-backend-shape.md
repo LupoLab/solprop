@@ -1446,7 +1446,20 @@ had changed; after each later change, the engine-parity tests (6), the traces, t
 corpus, the session-history and snapshot modules and `native/tests/test_workspace.py`,
 `test_backend.py`, `test_api_contract.py` and `test_session_failure.py`; ruff,
 basedpyright, clang-format, the docstring and size checks, codespell, `tests/test_seps.py`,
-the structure-figure tests and `native/scripts/problem_stub.py --check`. SWEEP_RESULTS
+the structure-figure tests, `native/scripts/problem_stub.py --check` and `poe docs`
+(clean). On a 32-core AMD EPYC 7763 node of a Slurm cluster (GCC 16.2, CPU wheel, one
+thread a worker), after merging milestone 3's CI fixes: the native GoogleTest suite
+(passed), and `tests/backends`, `tests/driver`, `tests/sessions`, `tests/output`,
+`tests/stepper`, the top-level `tests/test_*.py` (12,274 passed, two failures) and
+`native/tests` (674 passed). The two failures: `test_convergence_records`'s writer
+check, which needs the whole suite collected and passes in a full run; and
+`test_native_session_history.py::test_a_noisy_run_on_a_z_table_meets_the_reference[input-runge-kutta]`,
+whose adaptive run's step positions are held to 1e-6 relative and missed by 1.3e-6 at
+three steps. That one is intermittent: run alone on the same build it failed once and
+passed once, it passes on milestone 3's tip and fails on this milestone's first merge
+alone, and it passes inside its file; milestone 2 saw it fail once under load. It is a
+tolerance tighter than an adaptive comparison's envelope, not a seam change, and is
+worth an issue.
 
 4B's measurements, on an exclusive node of two AMD EPYC 7763 (32 cores) of a Slurm
 cluster, `--threading bound`, `--calibrate none`, three rounds of three repeats, ratios
