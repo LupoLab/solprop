@@ -53,7 +53,7 @@ from solprop.optics import (
     TaylorPhase,
     TransferFunction,
 )
-from solprop.output.capability import capability_of
+from solprop.output.capability import capability_of, compression_refusal
 from solprop.output.store import Output
 from solprop.processing import spectra, time
 from solprop.processing.axes import _keep_index, _plane_field, _plane_index, grid_of
@@ -405,21 +405,14 @@ def _select_modes(
 def _require_modal(output: Output) -> None:
     """Refuse an output whose amplitudes are not orthogonal modal powers.
 
-    Every compressor's objective sums ``|a|^2`` over the selected modes and
-    polarisations, which is the physical power only on an orthogonal modal basis
-    (:func:`solprop.output.capability.capability_of`). A general modal or spatial
-    run's coordinates are not that, so it is refused by name rather than optimised on
-    a quantity that is not a power.
+    The refusal is :func:`solprop.output.capability.compression_refusal`'s, which
+    :func:`solprop.capabilities.output` states for a file.
     """
     if output.metadata is None:
         raise ProcessingError("output has no metadata")
-    capability = capability_of(output.metadata)
-    if capability != "modal":
-        raise ProcessingError(
-            f"compression requires orthogonal modal power amplitudes, and this is a "
-            f"{capability} output: its summed |a|^2 is not a physical power, so it "
-            f"needs an explicit physical-flux objective"
-        )
+    refusal = compression_refusal(capability_of(output.metadata))
+    if refusal is not None:
+        raise ProcessingError(refusal)
 
 
 def _pulse_of(

@@ -36,10 +36,16 @@ per y frequency, so ``|a|^2`` summed over them is neither a power nor an energy:
 the quantity instead. A run's statistics are not readers and are not narrowed: the
 spatial route's ``stats/energy`` is the physical energy and is admitted as before.
 
+It also says what a file's derived quantities are on its basis (:func:`quantities`:
+a physical flux or a coordinate quantity, with its unit), and why the compressors
+refuse a basis (:func:`compression_refusal`), which :mod:`solprop.capabilities` states
+and :mod:`solprop.processing.compression` raises.
+
 The manual page is ``docs/guide/results/statistics.md``.
 """
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal
 
@@ -60,8 +66,12 @@ __all__ = [
     "COLUMN_READINGS",
     "GENERAL_MODAL_ACCESSORS",
     "BasisCapability",
+    "Quantity",
+    "QuantityKind",
     "capability_of",
+    "compression_refusal",
     "declared_capability",
+    "quantities",
     "reading_refusal",
     "refusal_for",
     "spatial_field_unit",
@@ -541,3 +551,101 @@ def withheld_from(metadata: RunMetadata) -> tuple[str, ...]:
     if not isinstance(published, list):
         return ()
     return tuple(sorted(name for name in WITHHELD_WITH_A_FLOW if name not in published))
+
+
+QuantityKind = Literal["physical", "coordinate"]
+"""Whether a derived quantity is a physical flux, or a quantity of the coordinates."""
+
+
+@dataclass(frozen=True)
+class Quantity:
+    """What a derived quantity of a file is.
+
+    Attributes
+    ----------
+    kind : {'physical', 'coordinate'}
+        A physical flux, which sums to the pulse's power and energy, or a quantity
+        of the basis's coordinates, which does not on a basis with cross terms.
+    unit : str
+        Its unit.
+    """
+
+    kind: QuantityKind
+    unit: str
+
+
+def quantities(metadata: RunMetadata, basis: BasisCapability) -> dict[str, Quantity]:
+    """Return what each derived quantity of a stored record is on its basis.
+
+    On an orthogonal modal basis the power, energy, spectral density and field are
+    physical; on a general one they are coordinate quantities (whose physical energy
+    is :func:`solprop.processing.modal.physical_energy`). On a spatial grid there is
+    only the field, per transverse column in its route's stored unit: the readers that
+    would give the power, energy and spectral density read the columns as modes and
+    refuse the file (:func:`reading_refusal`).
+
+    Parameters
+    ----------
+    metadata : solprop.output.metadata.RunMetadata
+        The stored record, which gives a spatial route's field unit.
+    basis : {'modal', 'general_modal', 'spatial'}
+        The record's basis, from :func:`capability_of`.
+
+    Returns
+    -------
+    dict
+        :class:`Quantity` by name: ``power`` (W), ``energy`` (J),
+        ``spectral_density`` (J s/rad) and ``field`` (sqrt(W)) on a modal basis;
+        ``field`` alone on a spatial one.
+
+    Examples
+    --------
+    >>> from solprop.output.capability import quantities
+    >>> from solprop.output.metadata import _example_metadata
+    >>> quantities(_example_metadata(), "general_modal")["energy"]
+    Quantity(kind='coordinate', unit='J')
+    """
+    if basis == "spatial":
+        return {"field": Quantity("coordinate", spatial_field_unit(metadata))}
+    kind: QuantityKind = "physical" if basis == "modal" else "coordinate"
+    return {
+        "power": Quantity(kind, "W"),
+        "energy": Quantity(kind, "J"),
+        "spectral_density": Quantity(kind, "J s/rad"),
+        "field": Quantity(kind, "sqrt(W)"),
+    }
+
+
+def compression_refusal(basis: BasisCapability) -> str | None:
+    """Return why the compressors refuse a basis, or ``None`` when they admit it.
+
+    Every compressor's objective sums ``|a|^2`` over the selected modes and
+    polarisations, which is the physical power only on an orthogonal modal basis. A
+    general modal or spatial run's coordinates are not that, so it is refused by name
+    rather than optimised on a quantity that is not a power.
+
+    Parameters
+    ----------
+    basis : {'modal', 'general_modal', 'spatial'}
+        The output's basis, from :func:`capability_of`.
+
+    Returns
+    -------
+    str or None
+        The refusal, or ``None`` on an orthogonal modal basis.
+
+    Examples
+    --------
+    >>> from solprop.output.capability import compression_refusal
+    >>> compression_refusal("modal") is None
+    True
+    >>> compression_refusal("spatial")[:47]
+    'compression requires orthogonal modal power amp'
+    """
+    if basis == "modal":
+        return None
+    return (
+        f"compression requires orthogonal modal power amplitudes, and this is a "
+        f"{basis} output: its summed |a|^2 is not a physical power, so it needs an "
+        "explicit physical-flux objective"
+    )
