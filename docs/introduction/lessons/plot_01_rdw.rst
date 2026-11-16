@@ -133,14 +133,13 @@ emergence and separation of the ultraviolet radiation.
 intensity: interfering modes require their transverse fields as well. The
 distinction is developed in :doc:`/guide/results/power-and-intensity`.
 
-.. GENERATED FROM PYTHON SOURCE LINES 100-113
+.. GENERATED FROM PYTHON SOURCE LINES 100-112
 
 .. code-block:: Python
 
 
     figures = prop_2d(
         run,
-        "wavelength",
         spec_range=(100e-9, 1e-6),
         time_range=(-20e-15, 20e-15),
         db_min=-30,
@@ -162,7 +161,7 @@ distinction is developed in :doc:`/guide/results/power-and-intensity`.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 114-125
+.. GENERATED FROM PYTHON SOURCE LINES 113-124
 
 Select the dispersive-wave band
 --------------------------------
@@ -176,7 +175,7 @@ total input energy. It includes both retained modes and is not a peak spectral
 density ratio. The window is applied in processing; it does not change the
 propagation already computed.
 
-.. GENERATED FROM PYTHON SOURCE LINES 125-140
+.. GENERATED FROM PYTHON SOURCE LINES 124-139
 
 .. code-block:: Python
 
@@ -214,7 +213,7 @@ propagation already computed.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 141-153
+.. GENERATED FROM PYTHON SOURCE LINES 140-152
 
 Follow modal energies and plasma
 --------------------------------
@@ -229,7 +228,7 @@ statistics collected during propagation. The latter avoids reopening all fields
 for commonly needed quantities. See :doc:`/guide/results/statistics` for the
 catalogue and :doc:`/guide/results/output` for saving and reopening a run.
 
-.. GENERATED FROM PYTHON SOURCE LINES 153-170
+.. GENERATED FROM PYTHON SOURCE LINES 152-169
 
 .. code-block:: Python
 
@@ -262,7 +261,7 @@ catalogue and :doc:`/guide/results/output` for saving and reopening a run.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 171-183
+.. GENERATED FROM PYTHON SOURCE LINES 170-182
 
 Check the approximation before refining the integrator
 -------------------------------------------------------
@@ -277,7 +276,7 @@ The electron density is read at the quadrature node of largest ionisation, which
 need not be the axis. Output labels and units matter as much as the numerical
 value.
 
-.. GENERATED FROM PYTHON SOURCE LINES 183-194
+.. GENERATED FROM PYTHON SOURCE LINES 182-193
 
 .. code-block:: Python
 
@@ -303,12 +302,12 @@ value.
     largest recorded quadrature diagnostic: 9.84e-10
     peak on-axis intensity 9.251e+14 W/cm²
     peak sampled electron density 1.619e+16 cm⁻³
-    2.9 s; backend native
+    15.8 s; backend native
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 195-202
+.. GENERATED FROM PYTHON SOURCE LINES 194-201
 
 Continue with the idealised :doc:`plot_02_soliton` to isolate the balance of
 dispersion and Kerr nonlinearity. For a fuller capillary simulation see
@@ -321,7 +320,7 @@ illustrative calculation, not a fit to one measurement in that paper.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 2.931 seconds)
+   **Total running time of the script:** (0 minutes 15.794 seconds)
 
 
 .. _sphx_glr_download_introduction_lessons_plot_01_rdw.py:

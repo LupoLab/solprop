@@ -105,7 +105,7 @@ solitons as they walk off; 201 planes resolve the evolution along the fibre.
 
  .. code-block:: none
 
-    Propagated in 22.4 s
+    Propagated in 45.8 s
 
 
 
@@ -117,13 +117,12 @@ The evolution along the fibre
 The spectral energy density in decibels beside the instantaneous power, against
 distance, as in the review's figure.
 
-.. GENERATED FROM PYTHON SOURCE LINES 85-93
+.. GENERATED FROM PYTHON SOURCE LINES 85-92
 
 .. code-block:: Python
 
     prop_2d(
         output,
-        "wavelength",
         spec_range=(450e-9, 1350e-9),
         time_range=(-1e-12, 5e-12),
         db_min=-40.0,
@@ -147,16 +146,16 @@ distance, as in the review's figure.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 94-96
+.. GENERATED FROM PYTHON SOURCE LINES 93-95
 
 The spectrum at the exit
 ------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 96-98
+.. GENERATED FROM PYTHON SOURCE LINES 95-97
 
 .. code-block:: Python
 
-    spec_1d(output, 0.15, "wavelength", spec_range=(450e-9, 1350e-9), log_min=1e-4)
+    spec_1d(output, 0.15, spec_range=(450e-9, 1350e-9), db_min=-40.0)
 
 
 
@@ -176,7 +175,7 @@ The spectrum at the exit
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 99-104
+.. GENERATED FROM PYTHON SOURCE LINES 98-103
 
 Related reading
 ---------------
@@ -187,7 +186,7 @@ continuum breaks up from is the subject of
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 24.888 seconds)
+   **Total running time of the script:** (0 minutes 54.330 seconds)
 
 
 .. _sphx_glr_download_auto_examples_supercontinuum_plot_05_fibre_supercontinuum.py:

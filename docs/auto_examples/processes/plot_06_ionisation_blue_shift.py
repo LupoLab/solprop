@@ -64,7 +64,7 @@ run = prop_capillary(
     wavelength=800e-9,
     fwhm=30e-15,
     energy=3e-6,
-    loss=False,
+    loss_scale=0.0,
     trange=600e-15,
     wavelength_limits=(300e-9, 4e-6),
     n_save=301,
@@ -78,7 +78,6 @@ run = prop_capillary(
 
 figures = prop_2d(
     run,
-    "wavelength",
     spec_range=(300e-9, 1.6e-6),
     time_range=(-125e-15, 50e-15),
     db_min=-40,

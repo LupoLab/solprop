@@ -417,7 +417,7 @@ one is installed.
                        peak_intensity
       between planes:  energy, on_axis_intensity, peak_intensity
       run:             RunMetadata(slab, envelope grid of 576, 0 modes, native,
-                       2026-11-04T09:24:30.738096+00:00)
+                       2026-11-16T16:54:16.935561+00:00)
     peak intensity in the guide at the entrance 3.25e+13 W/cm^2
 
 
@@ -565,7 +565,7 @@ spectrum on top.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 411-419
+.. GENERATED FROM PYTHON SOURCE LINES 411-420
 
 The compressed pulse
 --------------------
@@ -574,14 +574,16 @@ standing in for chirped mirrors.
 :func:`~solprop.processing.compression.compress_taylor` searches that phase for
 the highest peak power of the pulse at the beam centre, summed over the modes: the
 power per metre of y there. It returns the phase, the durations and the transform
-limit.
+limit. It takes the spectrum in the optics convention a saved field is read in, so
+the centre row, built here from the internal-convention fields, is converted first.
 
-.. GENERATED FROM PYTHON SOURCE LINES 419-462
+.. GENERATED FROM PYTHON SOURCE LINES 420-464
 
 .. code-block:: Python
 
 
-    compression = compress_taylor(grid=grid, spectrum=exit_[centre][:, None, :], order=2)
+    centre_row = fourier.spectrum_to_optics(exit_[centre][:, None, :], kind=grid.kind)
+    compression = compress_taylor(grid=grid, spectrum=centre_row, order=2)
     print(compression)
     gdd = compression.coefficients[2]
     print(
@@ -647,7 +649,7 @@ limit.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 463-476
+.. GENERATED FROM PYTHON SOURCE LINES 465-478
 
 Across the beam
 ---------------
@@ -663,7 +665,7 @@ see less self-phase modulation, so the centre's phase compresses them less. The
 share of the energy within 1.5 times the centre's duration is the number Arnold
 *et al.* (2010) give as 71 % (67.6 % measured).
 
-.. GENERATED FROM PYTHON SOURCE LINES 476-524
+.. GENERATED FROM PYTHON SOURCE LINES 478-526
 
 .. code-block:: Python
 
@@ -733,7 +735,7 @@ share of the energy within 1.5 times the centre's duration is the number Arnold
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 525-549
+.. GENERATED FROM PYTHON SOURCE LINES 527-551
 
 A beam that is not clean
 ------------------------
@@ -760,7 +762,7 @@ break-up also reaches the y grid's outer wavenumbers, which the 1024 samples don
 resolve: the safety ramp removes about 4e-5 of the launch energy, and the monitor
 says so below.
 
-.. GENERATED FROM PYTHON SOURCE LINES 549-578
+.. GENERATED FROM PYTHON SOURCE LINES 551-580
 
 .. code-block:: Python
 
@@ -806,7 +808,7 @@ says so below.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 579-584
+.. GENERATED FROM PYTHON SOURCE LINES 581-586
 
 The B integral of both runs along z: the model's own nonlinear phase at its peak,
 :math:`k_0 n_2 \int I_{\rm peak}\,dz`, with :math:`I_{\rm peak}` the largest
@@ -814,7 +816,7 @@ intensity anywhere in the beam at each step. The ripples are measured as the rms
 relative departure of the fluence from its own smooth part (wavenumbers below
 5e3 rad/m, periods above 1.3 mm) within one beam radius of the centre.
 
-.. GENERATED FROM PYTHON SOURCE LINES 584-637
+.. GENERATED FROM PYTHON SOURCE LINES 586-639
 
 .. code-block:: Python
 
@@ -902,14 +904,14 @@ relative departure of the fluence from its own smooth part (wavenumbers below
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 638-642
+.. GENERATED FROM PYTHON SOURCE LINES 640-644
 
 The seeded beam's fluence across y at every saved plane, and at the guide's own
 length and at 50 cm, beside the clean beam at 21 cm. The gain is largest where the
 intensity is, so the ripples should appear first at the centre of the beam, at
 about the MI period, and spread outwards as they deepen into filaments.
 
-.. GENERATED FROM PYTHON SOURCE LINES 642-661
+.. GENERATED FROM PYTHON SOURCE LINES 644-663
 
 .. code-block:: Python
 
@@ -944,14 +946,14 @@ about the MI period, and spread outwards as they deepen into filaments.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 662-666
+.. GENERATED FROM PYTHON SOURCE LINES 664-668
 
 Runtime and reproducibility
 ---------------------------
 Two runs of four slab modes by 1024 samples in y by 576 in time: 21 cm with a clean
 beam and 50 cm with a seeded one.
 
-.. GENERATED FROM PYTHON SOURCE LINES 666-674
+.. GENERATED FROM PYTHON SOURCE LINES 668-676
 
 .. code-block:: Python
 
@@ -971,12 +973,12 @@ beam and 50 cm with a seeded one.
 
  .. code-block:: none
 
-    1293 s; backend native, 36 threads
+    591 s; backend native, 32 threads
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 675-681
+.. GENERATED FROM PYTHON SOURCE LINES 677-683
 
 Related reading
 ---------------
@@ -988,7 +990,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (21 minutes 33.146 seconds)
+   **Total running time of the script:** (9 minutes 51.158 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_06_planar_compressor.py:

@@ -33,7 +33,7 @@ Gaussian in both directions (``w_x = 0.735a`` projected onto TE1, TE3 and TE5;
 ``w_y = 0.5 mm``), propagates 10 cm with the Kerr effect under the step controller;
 the run takes seconds.
 
-.. GENERATED FROM PYTHON SOURCE LINES 21-46
+.. GENERATED FROM PYTHON SOURCE LINES 21-45
 
 .. code-block:: Python
 
@@ -56,7 +56,6 @@ the run takes seconds.
         planar_fluence,
         planar_mode_energy,
     )
-    from solprop.stats import default_spec
     from solprop.stepper import PIController
 
     started = perf_counter()
@@ -69,7 +68,7 @@ the run takes seconds.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 47-52
+.. GENERATED FROM PYTHON SOURCE LINES 46-51
 
 The grid carries the slab channels, their rule in x and the y axis with its
 absorbing collar; the launch projects its x profile onto the modes, with signs, and
@@ -77,7 +76,7 @@ its energy is the incident beam's, measured in the fill, so the modes carry the
 coupled share. Each mode's energy uses the slab metric, whose weight at k_y = 0 is
 the mode's real effective index (:doc:`/guide/free-space/flux`).
 
-.. GENERATED FROM PYTHON SOURCE LINES 52-62
+.. GENERATED FROM PYTHON SOURCE LINES 51-61
 
 .. code-block:: Python
 
@@ -111,7 +110,7 @@ the mode's real effective index (:doc:`/guide/free-space/flux`).
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 63-69
+.. GENERATED FROM PYTHON SOURCE LINES 62-68
 
 The Kerr effect of argon, whose per-particle hyperpolarisability the run scales by
 the fill's density. The collar absorbs whatever reaches it. Its damping is
@@ -120,7 +119,7 @@ here is unstable (:doc:`/guide/free-space/model`): the step controller's error
 estimate keeps its steps below that, while a fixed schedule of ten 1 cm steps would
 be refused at translation.
 
-.. GENERATED FROM PYTHON SOURCE LINES 69-94
+.. GENERATED FROM PYTHON SOURCE LINES 68-92
 
 .. code-block:: Python
 
@@ -130,7 +129,6 @@ be refused at translation.
         dz_max=length / 10,
         dz_init=1e-3,
         absorber=absorber(grid, boundary_length=1.0),
-        stats=default_spec("free"),
     )
     output = prop_planar(
         grid,
@@ -165,13 +163,13 @@ be refused at translation.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 95-98
+.. GENERATED FROM PYTHON SOURCE LINES 93-96
 
 The fluence, the time-integrated axial flux, at the exit on the rule's (x, y) nodes,
 and across y after integrating over the gap. The widths in y are the run's
 ``beam_radius`` statistic.
 
-.. GENERATED FROM PYTHON SOURCE LINES 98-111
+.. GENERATED FROM PYTHON SOURCE LINES 96-109
 
 .. code-block:: Python
 
@@ -206,7 +204,7 @@ and across y after integrating over the gap. The widths in y are the run's
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 112-114
+.. GENERATED FROM PYTHON SOURCE LINES 110-112
 
 .. code-block:: Python
 
@@ -225,7 +223,7 @@ and across y after integrating over the gap. The widths in y are the run's
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 115-121
+.. GENERATED FROM PYTHON SOURCE LINES 113-119
 
 Related reading
 ---------------
@@ -237,7 +235,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.824 seconds)
+   **Total running time of the script:** (0 minutes 0.812 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_04_planar_hybrid.py:

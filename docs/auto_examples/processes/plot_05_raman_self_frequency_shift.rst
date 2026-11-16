@@ -89,7 +89,7 @@ Molecular hydrogen carries its rotational and vibrational Raman response by defa
         wavelength=1030e-9,
         fwhm=40e-15,
         energy=4e-6,
-        loss=False,
+        loss_scale=0.0,
         plasma=False,
         trange=5e-12,
         wavelength_limits=(400e-9, 4e-6),
@@ -110,14 +110,13 @@ Molecular hydrogen carries its rotational and vibrational Raman response by defa
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 84-95
+.. GENERATED FROM PYTHON SOURCE LINES 84-94
 
 .. code-block:: Python
 
 
     figures = prop_2d(
         run,
-        "wavelength",
         spec_range=(400e-9, 3e-6),
         time_range=(-200e-15, 1.7e-12),
         db_min=-40,
@@ -137,7 +136,7 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 96-103
+.. GENERATED FROM PYTHON SOURCE LINES 95-102
 
 The shift
 ---------
@@ -147,7 +146,7 @@ maximum (with a prominence of 10 % of it). The tallest red-side peak would follo
 cluster near 1.33 um wherever it outgrew the soliton; at the exit it reaches about
 three quarters of the soliton's height.
 
-.. GENERATED FROM PYTHON SOURCE LINES 103-134
+.. GENERATED FROM PYTHON SOURCE LINES 102-133
 
 .. code-block:: Python
 
@@ -212,12 +211,12 @@ three quarters of the soliton's height.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 135-137
+.. GENERATED FROM PYTHON SOURCE LINES 134-136
 
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 137-139
+.. GENERATED FROM PYTHON SOURCE LINES 136-138
 
 .. code-block:: Python
 
@@ -231,7 +230,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    224 s; backend native
+    381 s; backend native
 
 
 
@@ -239,7 +238,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (3 minutes 44.127 seconds)
+   **Total running time of the script:** (6 minutes 22.368 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_05_raman_self_frequency_shift.py:

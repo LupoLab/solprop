@@ -129,14 +129,13 @@ The run
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 97-108
+.. GENERATED FROM PYTHON SOURCE LINES 97-107
 
 .. code-block:: Python
 
 
     figures = prop_2d(
         run,
-        "wavelength",
         spec_range=(130e-9, 1.2e-6),
         time_range=(-60e-15, 60e-15),
         db_min=-40,
@@ -156,14 +155,14 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 109-113
+.. GENERATED FROM PYTHON SOURCE LINES 108-112
 
 The idler
 ---------
 The energy in a band around the idler along the fibre, and the input and output
 spectra.
 
-.. GENERATED FROM PYTHON SOURCE LINES 113-134
+.. GENERATED FROM PYTHON SOURCE LINES 112-133
 
 .. code-block:: Python
 
@@ -206,13 +205,13 @@ spectra.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 135-138
+.. GENERATED FROM PYTHON SOURCE LINES 134-137
 
 The two input pulses in time, as launched. Their coherent power beats at the
 difference frequency. The width of one beat is not the 35 fs duration of either
 input pulse, so the automatic single-peak width label is disabled.
 
-.. GENERATED FROM PYTHON SOURCE LINES 138-143
+.. GENERATED FROM PYTHON SOURCE LINES 137-142
 
 .. code-block:: Python
 
@@ -233,12 +232,12 @@ input pulse, so the automatic single-peak width label is disabled.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 144-146
+.. GENERATED FROM PYTHON SOURCE LINES 143-145
 
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 146-148
+.. GENERATED FROM PYTHON SOURCE LINES 145-147
 
 .. code-block:: Python
 
@@ -252,7 +251,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    5 s; backend native
+    6 s; backend native
 
 
 
@@ -260,7 +259,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 4.772 seconds)
+   **Total running time of the script:** (0 minutes 6.437 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_03_four_wave_mixing.py:

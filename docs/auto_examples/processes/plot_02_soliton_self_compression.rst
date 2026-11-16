@@ -110,14 +110,13 @@ The run
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 84-95
+.. GENERATED FROM PYTHON SOURCE LINES 84-94
 
 .. code-block:: Python
 
 
     figures = prop_2d(
         run,
-        "wavelength",
         spec_range=(150e-9, 3e-6),
         time_range=(-30e-15, 30e-15),
         db_min=-40,
@@ -137,13 +136,13 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 96-99
+.. GENERATED FROM PYTHON SOURCE LINES 95-98
 
 Maximum compression
 -------------------
 The plane of highest peak power, and the pulse there against the input.
 
-.. GENERATED FROM PYTHON SOURCE LINES 99-118
+.. GENERATED FROM PYTHON SOURCE LINES 98-117
 
 .. code-block:: Python
 
@@ -185,12 +184,12 @@ The plane of highest peak power, and the pulse there against the input.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 119-121
+.. GENERATED FROM PYTHON SOURCE LINES 118-120
 
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 121-123
+.. GENERATED FROM PYTHON SOURCE LINES 120-122
 
 .. code-block:: Python
 
@@ -204,7 +203,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    8 s; backend native
+    9 s; backend native
 
 
 
@@ -212,7 +211,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 8.133 seconds)
+   **Total running time of the script:** (0 minutes 8.553 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_02_soliton_self_compression.py:

@@ -633,6 +633,22 @@
    "name": "inverse"
   }
  ],
+ "fourier.spectrum_to_optics": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.fourier",
+   "module_short": "solprop.fourier",
+   "name": "spectrum_to_optics"
+  }
+ ],
  "fused_silica": [
   {
    "is_class": false,
@@ -752,6 +768,15 @@
    "module": "solprop",
    "module_short": "solprop",
    "name": "EnvelopeGrid"
+  }
+ ],
+ "grid.kind": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
   }
  ],
  "grid.t": [
