@@ -45,8 +45,9 @@ if(SOLPROP_NATIVE_ENABLE_COVERAGE)
   # The source digest's set (cmake/SourceDigest.cmake), src/general/'s headers included.
   file(GLOB_RECURSE _coverage_sources CONFIGURE_DEPENDS RELATIVE "${PROJECT_SOURCE_DIR}"
     "${PROJECT_SOURCE_DIR}/src/*.cpp" "${PROJECT_SOURCE_DIR}/src/*.hpp"
-    "${PROJECT_SOURCE_DIR}/src/*.h" "${PROJECT_SOURCE_DIR}/include/*.cpp"
-    "${PROJECT_SOURCE_DIR}/include/*.hpp" "${PROJECT_SOURCE_DIR}/include/*.h")
+    "${PROJECT_SOURCE_DIR}/src/*.h" "${PROJECT_SOURCE_DIR}/src/*.inc"
+    "${PROJECT_SOURCE_DIR}/include/*.cpp" "${PROJECT_SOURCE_DIR}/include/*.hpp"
+    "${PROJECT_SOURCE_DIR}/include/*.h" "${PROJECT_SOURCE_DIR}/include/*.inc")
   list(SORT _coverage_sources)
   set(_coverage_source_record "")
   foreach(_source IN LISTS _coverage_sources)

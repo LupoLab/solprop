@@ -262,4 +262,5 @@ in a repository-root `changelog.d/` fragment
 Code is `GPL-3.0-or-later` and documentation `CC-BY-4.0`. Every code file starts with
 the SPDX header that `uv run reuse annotate --copyright "John C. Travers and
 contributors" --year 2026 --license GPL-3.0-or-later <file>` writes (above
-`#pragma once` and any shebang); the repository's `REUSE.toml` covers the rest.
+`#pragma once` and any shebang; a fragment a unit includes, `*.inc`, needs
+`--style cpp`); the repository's `REUSE.toml` covers the rest.

@@ -245,6 +245,7 @@ def source_tree(tmp_path: Path) -> tuple[Path, list[str]]:
         "include/solprop_native/kept.txt": "not a source",
         "src/B.cpp": "// sorts before a lower-case name, bytewise\n",
         "src/a.hpp": "// \u00e9 and CRLF\r\n",
+        "src/general/part.inc": "// a fragment one unit includes\n",
         "src/solprop_native/module.py": "not a source",
     }.items():
         path = tmp_path / name
@@ -255,6 +256,7 @@ def source_tree(tmp_path: Path) -> tuple[Path, list[str]]:
         "include/solprop_native/deep.h",
         "src/B.cpp",
         "src/a.hpp",
+        "src/general/part.inc",
     ]
 
 

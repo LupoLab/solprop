@@ -470,10 +470,10 @@ help = "The definition-of-done gate, in order."
 cmd = "bash native/scripts/check.sh"
 help = "The native package's gate (C++ and its Python adapter)."
 
-# The pinned clang-format over every tracked C++ file under native/ (the lint stage of
-# check-native checks the same list).
+# The pinned clang-format over every tracked C++ file under native/, the fragments a unit
+# includes (.inc) among them (the lint stage of check-native checks the same list).
 [tool.poe.tasks.fmt-native]
-shell = "git ls-files -z -- 'native/*.cpp' 'native/*.hpp' 'native/*.h' | xargs -0 clang-format -i"
+shell = "git ls-files -z -- 'native/*.cpp' 'native/*.hpp' 'native/*.h' 'native/*.inc' | xargs -0 clang-format -i"
 interpreter = "bash"
 help = "Format every tracked native C++ file with the pinned clang-format."
 
