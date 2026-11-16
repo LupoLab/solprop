@@ -12,8 +12,10 @@ estimate for free (``docs/dev/stepper.md`` sections 2 and 3).
 A tableau is data, not behaviour: it carries the nodes, the Butcher matrix, the
 propagated weights and the error weights, and it validates its own structure.
 :func:`check_order_conditions` measures the order the coefficients actually attain,
-from the rooted-tree conditions [3]_. Applying a tableau to a state is a backend kernel
-and does not live here.
+from the rooted-tree conditions [3]_. DOPRI5's continuous extension (``DOPRI5_DENSE``,
+:func:`continuous_extension`, :func:`extension_coefficients`, :func:`extension_value`)
+serves the opt-in interpolated planes (ADR-039). Applying a tableau to a state is a
+backend kernel and does not live here.
 
 Every rational coefficient is written as the exact rational of its reference and
 evaluated once, at import, so each constant is a single correctly-rounded division and

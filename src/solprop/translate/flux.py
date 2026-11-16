@@ -6,10 +6,13 @@
 
 A free-space field's power crossing a plane is measured with the scalar forward
 equation's axial admittance ``Y_c = eps0 c**2 k_z / omega`` of the medium at that
-plane (``docs/guide/free-space/flux.md``). Every evaluation reads the one
-longitudinal root of :func:`solprop.translate.spatial.longitudinal_root`, on the
-same separable coefficients the propagation uses, so a plane's measure and its
-propagation see the same ``k_z``.
+plane (``docs/guide/free-space/flux.md``). Every evaluation reads the one longitudinal
+root of :func:`solprop.translate.spatial.longitudinal_root`, on the same separable
+coefficients the propagation uses, so a plane's measure and its propagation see the
+same ``k_z``. :func:`plane_coefficients` gives one plane's coefficients,
+:func:`flux_plan` the run's :class:`~solprop.translate.spatial.FluxPlan`, and
+:func:`flux_record` and :func:`flux_from_record` its round trip through the output's
+spatial record.
 """
 
 import math

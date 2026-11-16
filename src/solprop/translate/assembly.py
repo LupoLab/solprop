@@ -6,10 +6,12 @@
 
 :func:`assemble` is the translation layer's entry point. It chooses the route -- the
 mode-set route (with the coupled flows of :mod:`solprop.translate.walls`), the general
-modal route or a spatial geometry -- builds its operator, transform and prefactor,
-compiles the responses, resolves the step limits the collars set, and returns the
-:class:`~solprop.translate.problem.PropagationProblem` with its run's request,
-validated.
+modal route (:mod:`solprop.translate.general`) or a spatial geometry -- builds its
+operator, transform and prefactor, compiles the responses, resolves the step limits
+the collars set, and returns a :class:`~solprop.translate.problem.Translation`: the
+validated :class:`~solprop.translate.problem.PropagationProblem` and its run's
+:class:`~solprop.translate.run_request.RunRequest`. The policy it applies is
+:mod:`solprop.translate.validation`'s.
 """
 
 import logging

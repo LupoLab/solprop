@@ -4,9 +4,21 @@
 
 """Define the provider-free host contract for the helium TDSE response.
 
-The seam holds immutable descriptors and owning SI arrays. The driver owns the
-optional native runtime, stable row chunks and transactional call reservations.
-No physical subtraction, calibration or density factor is applied here.
+The seam holds immutable descriptors and owning SI arrays; the driver owns the optional
+native runtime, stable row chunks and transactional call reservations. No physical
+subtraction, calibration or density factor is applied here.
+
+- :class:`TDSEDescriptor`: the resolved response identity the route carries
+  (:class:`solprop.translate.routes.TDSESource`), with its
+  :class:`AtomicWindowRecord` (:func:`resolve_atomic_window`) on the fine response
+  lattice (:func:`refine_response_grid`, :func:`lattice_times`).
+- :class:`TDSEBinding`: the driver's resource-owning atomic service, returning
+  :class:`TDSEResult` responses and charging calls through :class:`AtomicCallBudget`
+  and :class:`AtomicCallLedger`.
+- :func:`waveform_identity` hashes host waveforms for diagnostic reuse.
+
+The manual page is ``docs/guide/media/tdse.md``; the binding is
+``docs/dev/kernel-contract.md`` section 6.
 """
 
 import functools

@@ -4,23 +4,28 @@
 
 """The general modal route: the seam leaves of one guide, and their certificates.
 
-A general modal guide reaches a backend as three of the four optional leaves kernel
-schema 12 added -- the E/H reference and its execution
-maps (``transform.modal_tables``), the basis metric (``linear.modal_metric``) and the
-per-region response (``responses.regional_responses``) -- plus the ordinary diagonal
-linear operator every modal route has. :class:`GeneralModalRoute` is what
-:func:`solprop.translate.assembly.assemble` is handed: the leaves that were built
-together, with the certificate that binds them.
+A general modal guide reaches a backend as the E/H reference and its execution maps
+(``transform.modal_tables``), the basis metric (``linear.modal_metric``) and the
+per-region response (``responses.regional_responses``), beside the ordinary diagonal
+linear operator every modal route has. ``linear.coupled_flow`` is filled only for a
+declared unitary basis of a split block, where the channels genuinely beat:
+:func:`coupled_block` gives the generator relative to one reference channel and
+:func:`solprop.translate.assembly.assemble` turns it into the leaf.
 
-The fourth leaf, ``linear.coupled_flow``, is filled for exactly one case: a
-**declared unitary basis of a split block**,
-where ``U.H diag(beta) U`` is not diagonal and the channels genuinely beat. The
-route carries the transformed generator relative to one reference channel
-(:func:`coupled_block`) and :func:`solprop.translate.assembly.assemble` turns it into
-the leaf with its certificate, because the largest step the flow's conditioning is
-declared over is the assembly's to know. A guide in the provider's own coordinates,
-and a declared basis of an exactly degenerate block, leave it ``None`` and propagate
-through the diagonal flow alone.
+- :class:`GeneralModalRoute` (:func:`general_modal_route`): the leaves built together,
+  with the certificate that binds them; :func:`reference_tables` rebuilds the
+  reference tables a run was executed against.
+- The basis gate: :func:`metric_departure` (within
+  :data:`MAX_DENSE_METRIC_DEPARTURE`), :func:`interpolated_gram`,
+  :func:`occupancy_weight` and :func:`check_noise_basis`.
+- Per-region responses: :func:`check_regional_responses`, :func:`node_kerr_tensor`,
+  :func:`node_kerr_form` and :func:`node_delayed_maps`.
+- :func:`guide_identity` and :func:`modal_identity`: what a run records and a resume
+  compares.
+
+The manual pages are ``docs/guide/waveguides/general-modal.md`` and
+``docs/guide/waveguides/modal-bases.md``; the leaves are
+``docs/dev/kernel-contract.md`` sections 3 to 5.
 """
 
 import dataclasses

@@ -653,9 +653,15 @@ medium measure is [SEP 34](../../dev/seps/archive/sep-0034-medium-flux.md).
 ## What `collect` guarantees
 
 Each statistic is evaluated by the public function of the same name, so there is exactly
-one definition of each and no path computes anything twice. Reductions run over the contiguous frequency and time axes, and two evaluations of the
+one definition of each and no path computes anything twice: no host definition beside a
+device one, and a backend's fused pass is validated against it. Reductions run over the contiguous frequency and time axes, and two evaluations of the
 same input agree to rounding ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)). Every value is a NumPy array — zero-dimensional for a scalar — and its shape
 is the `shape` field of its {py:class}`~solprop.stats.StatDefinition`.
+
+Spatial statistics are in field units on the geometry's transverse integration measure;
+their host definitions are in {py:mod}`solprop.spatial`, and a backend's periodic
+reductions are qualified against them. Plasma statistics need the compiled response, and
+spatial widths need the geometry declared at assembly.
 
 A dependency that is missing raises {py:class}`~solprop.exceptions.OutputError` naming
 what is wanted: a windowed statistic with no windows, `zdw` with no modes, a profile

@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Assembly of the linear operator ``D(omega, z)``.
+"""Assembly of the linear operator ``D(omega, z)`` of one mode at one ``z``.
 
 The linear operator carries the dispersion and the loss of one mode in a co-moving
 frame, plus any spectral absorber expressed as a rate:
@@ -11,14 +11,21 @@ frame, plus any spectral absorber expressed as a rate:
 
 with ``beta = (omega/c) Re n_eff`` and ``alpha = 2 (omega/c) Im n_eff``, in the internal
 FFT convention of ``docs/dev/conventions.md`` section 2. It is diagonal in ``omega``,
-which is the property the whole solver rests on; this module only evaluates it at one
-``z``, and the translation layer turns those samples into the cumulative operator
-``Phi(omega, z)``, piecewise Chebyshev in ``z`` (see ``docs/dev/decisions.md``).
+which is the property the whole solver rests on.
 
-The frame's ``beta_1`` comes from the mode's analytic ``dneff_domega`` rather than
-from a finite-difference stencil, and the loss limit is a stated policy derived from the
-fibre length rather than empirical constants. The narrative, including which
-reference each term uses on each grid, is in ``docs/guide/numerics/linear-operator.md``.
+- :func:`dispersion_operator` evaluates ``D`` at one ``z``; the translation layer turns
+  those samples into the cumulative operator ``Phi(omega, z)``
+  (:mod:`solprop.translate.linop`).
+- :class:`Frame` is the reference the operator is written in, and
+  :func:`frame_quantities` and :func:`frame_origin` the ``beta_0``, ``beta_1`` and
+  delay origin it removes; ``beta_1`` comes from the mode's analytic ``dneff_domega``.
+- :class:`LossPolicy` (:data:`DEFAULT_LOSS_POLICY`) is the stated limit on a loss too
+  large to represent, derived from the fibre length.
+- :func:`power_weight` and :func:`log_power_weight` are the true-power weight
+  ``Re n_eff`` and its logarithm.
+
+The narrative, including which reference each term uses on each grid, is in
+``docs/guide/numerics/linear-operator.md``.
 """
 
 import logging

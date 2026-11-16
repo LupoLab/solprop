@@ -4,26 +4,26 @@
 
 """The metric and the coupled-flow representation of a general modal guide.
 
-Two leaves of section 3 of ``docs/dev/kernel-contract.md``, added at kernel schema
-12: :class:`ModalMetricTables`, the explicit physical flux metric the controller, the
-linear flow and the output layer all read, and :class:`CoupledFlowTables`, the frozen
-or ordered representation of a generator whose channels couple.
+Two leaves of section 3 of ``docs/dev/kernel-contract.md``. Units are SI throughout
+(``omega`` in rad/s, ``z_edges`` in m, generators in 1/m, metric entries, errors and
+bounds dimensionless) and every complex array is in the internal FFT convention.
 
-:class:`CoupledFlowTables` is the record, its validation and its printing, built by
-:func:`constant_schur_flow` and :func:`frozen_residual_flow` for the
-routes whose channels couple -- a capillary's coherent wall and taper coupling, and a
-general modal guide whose declared basis or motion couples its channels. Everywhere
-else it is ``None`` and a guide propagates through the diagonal cumulative flow.
-:class:`ModalMetricTables` admits all three kinds: ``"identity"``, ``"diagonal"`` and
-the ``"dense"`` kind a declared unitary change of basis produces
-(:func:`dense_metric`). Which of them
-a **backend** executes is its own admission, and ``numpy_ref`` refuses the diagonal
-one, which nothing here builds.
-
-Units are SI throughout (``docs/dev/conventions.md``): ``omega`` in rad/s, ``z_edges``
-in m, the generator and every term of it in 1/m, metric entries dimensionless, errors
-and bounds dimensionless. Every complex array is in the **internal FFT convention**,
-like the rest of the contract; there is no fourth conversion site.
+- :class:`ModalMetricTables`: the physical flux metric the controller, the linear flow
+  and the output read, of kind ``"identity"`` (:func:`orthonormal_metric`) or
+  ``"dense"`` (:func:`dense_metric`, a declared unitary change of basis);
+  ``"diagonal"`` is admitted by the record, built by nothing and refused at
+  :mod:`solprop.translate.admission`. :func:`metric_at` evaluates it at a plane.
+- :class:`CoupledFlowTables`: the frozen or ordered representation of a generator whose
+  channels couple -- a capillary's coherent wall and taper
+  (:mod:`solprop.translate.walls`), or a general guide's declared basis or motion. It
+  is built by :func:`constant_schur_flow` for a constant section and
+  :func:`frozen_residual_flow` for a varying guide; elsewhere it is ``None``.
+- Their pieces: the Schur factors and eigenbases (:func:`schur_blocks`,
+  :func:`schur_eigenbasis`), the per-section expansion (:func:`section_expansion`,
+  :func:`frozen_generator`, :func:`coupled_flow_factors`), and what a stage reads
+  (:func:`flow_section`, :func:`flow_weights`, :func:`advisory_step`,
+  :func:`residual_truncation`).
+- :func:`wall_identity` and :func:`taper_identity`: the modal identity a run records.
 """
 
 import logging

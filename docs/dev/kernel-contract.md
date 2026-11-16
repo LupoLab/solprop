@@ -135,7 +135,8 @@ about the representation. It is the arithmetic of `delta_phi` and
 rounding.
 
 **The z table has no such split** — its evaluation is a Clenshaw pass over an array of the
-state's size times the degree. NumPy evaluates it directly. The native CPU
+state's size times the degree (1.55 GB at the comb-to-continuum size), walked through a
+Python object that a compiled step loop cannot call. NumPy evaluates it directly. The native CPU
 build holds the coefficients resident and evaluates the table at each native call's
 distinct positions into term slots, which the stage weights then select (`+-1` for an
 increment, one-hot for a value), so the bundle's arithmetic is unchanged and no field of

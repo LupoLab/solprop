@@ -5,28 +5,27 @@
 """The kernel contract: the one object that crosses into a backend.
 
 :class:`PropagationProblem` is a frozen dataclass of plain NumPy arrays and scalars,
-validated, versioned and documented field by field in
-``docs/dev/kernel-contract.md``. A backend may assume everything stated there and
-nothing else; the translation layer promises everything stated there and nothing else.
-Changing
-that document and this module together is the only way to extend the contract, and
-``tests/translate/test_problem.py`` parses the document's tables and checks them against
-this dataclass tree in both directions, so the two cannot drift.
+validated and documented field by field in ``docs/dev/kernel-contract.md``: a backend
+may assume everything stated there and nothing else, and
+``tests/translate/test_problem.py`` checks the document's tables against this dataclass
+tree in both directions.
 
-The problem's sections of the contract are grouped into one frozen dataclass each:
-:class:`Flags` (section 1), :class:`solprop.translate.masks.Grids` (2),
-:class:`solprop.translate.linop.LinearOperator` (3),
-:class:`solprop.translate.modal.Transform` (4),
-:class:`solprop.translate.responses.CompiledResponses` (5) and :class:`Initial` (6).
-The stepper settings (7) and the statistics request (8) are run policy, not fields of
-the problem: they live on :class:`solprop.translate.run_request.RunRequest`, whose
-``stepper`` gathers the former into :class:`StepperSettings`, defined here.
+- One frozen dataclass per section: :class:`Flags` (1),
+  :class:`~solprop.translate.masks.Grids` (2),
+  :class:`~solprop.translate.linop.LinearOperator` (3),
+  :class:`~solprop.translate.modal.Transform` (4),
+  :class:`~solprop.translate.responses.CompiledResponses` (5) and :class:`Initial` (6),
+  beside the route variant of :mod:`solprop.translate.routes`.
+- Run policy is not a field of the problem: :class:`StepperSettings`, defined here, is
+  the stepper section (7) a :class:`~solprop.translate.run_request.RunRequest`
+  carries beside the statistics request (8).
+- :class:`Translation` is what :func:`solprop.translate.assembly.assemble` returns,
+  ``(problem, request)``; :func:`validate_run` checks the pair before anything is
+  allocated; :class:`TranslationReuse` carries prequalified data into a material-path
+  update; :func:`debug_summary` describes a problem for a log.
 
-**Sign convention.** Every complex array here is in the **FFT convention** of
-``docs/dev/conventions.md`` section 2 — raw forward DFTs, propagation
-``exp(i(omega t - beta z))``, linear operator ``-i beta``. The user's optics-convention
-inputs are converted by the pulse builders and the observations are converted back by
-the output layer; backends never conjugate.
+**Sign convention.** Every complex array here is in the internal **FFT convention** of
+``docs/dev/conventions.md`` section 2; backends never conjugate.
 """
 
 import hashlib
