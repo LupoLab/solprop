@@ -166,6 +166,9 @@ nitpick_ignore = [
     ("py:class", "solprop.transverse_monitor._EdgeTables"),
     ("py:class", "solprop.transverse_monitor._HostEdgeReduction"),
     ("py:class", "Helpers"),
+    # The transverse edge's verdict literal, named in a signature as the run records
+    # import it for type checking only (solprop.backends.records).
+    ("py:class", "TransverseStatus"),
 ]
 # Array annotations are written with jaxtyping on numpy arrays (ADR-018). Neither
 # jaxtyping nor numpy's private typing aliases publish an inventory Sphinx can resolve,

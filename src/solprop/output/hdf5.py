@@ -231,7 +231,7 @@ def _read_march(file: h5py.File, z: float) -> MarchSnapshot | None:
         return None
     try:
         held = np.asarray(_dataset(group, "state")[()])
-    except OutputError as error:
+    except (KeyError, ValueError) as error:
         logger.warning("ignoring the unreadable march snapshot in the file: %s", error)
         return None
     # Outside the tolerant reads: an earlier layout is refused, not ignored.
