@@ -638,8 +638,10 @@ once-per-run FFTW planning and the output's planes.
 
 ### 3.1a What exists
 
-The adapter `native/src/solprop_native/backend.py`, its session
-`native/src/solprop_native/session.py` and the engine under `native/src/general/`. The public default is `"auto"`: the
+The adapter `native/src/solprop_native/backend.py` (with the lowering
+`_lowering.py`, the march protocol `_march.py` and the build's facts `_device.py`), its
+session `native/src/solprop_native/session.py` and the engine under
+`native/src/general/`. The public default is `"auto"`: the
 native backend, with no fallback (§1, ADR-029).
 `numpy_ref` stays selectable by name.
 

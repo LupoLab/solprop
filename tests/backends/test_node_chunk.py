@@ -447,8 +447,18 @@ def native_backend():
     return pytest.importorskip("solprop_native.backend")
 
 
-def test_native_lowering_keeps_the_host_chunk_and_whole_planar_rows(native_backend):
-    lower = native_backend.native_node_chunk
+@pytest.fixture(scope="module")
+def native_device():
+    return pytest.importorskip("solprop_native._device")
+
+
+@pytest.fixture(scope="module")
+def native_lowering():
+    return pytest.importorskip("solprop_native._lowering")
+
+
+def test_native_lowering_keeps_the_host_chunk_and_whole_planar_rows(native_device):
+    lower = native_device.native_node_chunk
     for name in ("collar-free", "collar-radial", "plasma-line", "capillary-3-modes"):
         problem = BUILDERS[name]()
         for budget in (None, 2**21, 2**23):
@@ -464,9 +474,7 @@ def test_native_lowering_keeps_the_host_chunk_and_whole_planar_rows(native_backe
         assert lower(planar, plan, device=False) == rows * n_x
 
 
-def test_the_device_rule_applies_to_an_automatic_plan_alone(
-    native_backend, monkeypatch
-):
+def test_the_device_rule_applies_to_an_automatic_plan_alone(native_device, monkeypatch):
     """A later qualified device default changes `device_node_chunk` and nothing else."""
     problem = BUILDERS["collar-free"]()
     calls = []
@@ -476,8 +484,8 @@ def test_the_device_rule_applies_to_an_automatic_plan_alone(
         calls.append(planned)
         return problem.transform.n_nodes
 
-    monkeypatch.setattr(native_backend, "device_node_chunk", larger)
-    lower = native_backend.native_node_chunk
+    monkeypatch.setattr(native_device, "device_node_chunk", larger)
+    lower = native_device.native_node_chunk
     automatic = plan_node_chunk(problem, ExecutionOptions())
     explicit = plan_node_chunk(problem, ExecutionOptions(node_budget=2**18))
     forced = plan_node_chunk(problem, ExecutionOptions(node_chunk=3))
@@ -489,14 +497,14 @@ def test_the_device_rule_applies_to_an_automatic_plan_alone(
     assert calls == [automatic.chunk]
     # A host build knows no free device bytes: the host plan's chunk.
     monkeypatch.undo()
-    assert native_backend.device_node_chunk(problem, 7, None) == 7
+    assert native_device.device_node_chunk(problem, 7, None) == 7
 
 
-def test_the_device_rule_budgets_a_share_of_the_free_device_bytes(native_backend):
+def test_the_device_rule_budgets_a_share_of_the_free_device_bytes(native_device):
     """One chunk where a quarter of the free bytes holds it, else the largest that
     does, never below the host plan's chunk (solprop issue #361)."""
-    rule = native_backend.device_node_chunk
-    share = native_backend.DEVICE_BUDGET_SHARE
+    rule = native_device.device_node_chunk
+    share = native_device.DEVICE_BUDGET_SHARE
     problem = BUILDERS["collar-free"]()
     n_nodes = problem.transform.n_nodes
     narrow = plan_node_chunk(problem, ExecutionOptions(node_budget=2**18)).chunk
@@ -532,7 +540,7 @@ def test_the_native_backend_executes_and_records_its_lowered_chunk(native_backen
     assert record["node_chunk_rule"] in {"host", "device"}
 
 
-def test_a_general_guide_takes_the_plan_s_budget(native_backend):
+def test_a_general_guide_takes_the_plan_s_budget(native_lowering):
     """The general route's own chunk at the plan's budget, the same on both backends."""
     from backends.dispersive_route_cases import (  # noqa: PLC0415
         ARGON_FILL,
@@ -552,15 +560,15 @@ def test_a_general_guide_takes_the_plan_s_budget(native_backend):
     assert general_planned_chunk(problem, forced) == 2
     whole = _general_maps(problem, automatic)
     assert whole is not None and whole.node_chunk > 1
-    payload = native_backend._lower(
+    payload = native_lowering._lower(
         problem,
         run_request,
-        native_backend._LowerPlan(terms=terms(problem), general_chunk=2),
+        native_lowering._LowerPlan(terms=terms(problem), general_chunk=2),
     )
     assert payload.general.node_chunk == 2
     assert (
-        native_backend._lower(
-            problem, run_request, native_backend._LowerPlan(terms=terms(problem))
+        native_lowering._lower(
+            problem, run_request, native_lowering._LowerPlan(terms=terms(problem))
         ).general.node_chunk
         == whole.node_chunk
     )

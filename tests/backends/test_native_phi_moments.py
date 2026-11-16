@@ -89,12 +89,13 @@ def read_moments(module, grid, values):
     assert active.size >= values.size
     bins = active[: values.size]
     backend_module = module.backend
+    lowering = module._lowering
     backend = module.NativeBackend(problem, run_request, grid=grid)
     try:
         # The payload and the step's resident rows are the backend's own; the state
         # they open is this test's, so nothing is loaded into the backend's.
-        payload = backend_module._lower(
-            problem, run_request, backend_module._LowerPlan(terms=backend._terms)
+        payload = lowering._lower(
+            problem, run_request, lowering._LowerPlan(terms=backend._terms)
         )
         arrays, material = native_stage_rows(backend, 0.0, 1e-3)
     finally:

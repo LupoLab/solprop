@@ -55,7 +55,7 @@ pytestmark = [
 ]
 
 backend_module = pytest.importorskip("solprop_native.backend")
-NativeAdamsMarch = backend_module._NativeAdamsMarch
+NativeAdamsMarch = pytest.importorskip("solprop_native._march")._NativeAdamsMarch
 NativeSession = pytest.importorskip("solprop_native.session").NativeSession
 _testing = pytest.importorskip("solprop_native._core")._testing
 

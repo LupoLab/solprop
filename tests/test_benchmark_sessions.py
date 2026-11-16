@@ -24,6 +24,7 @@ from solprop.exceptions import HostMarchWarning
 
 backend = pytest.importorskip("solprop_native.backend")
 _counters = pytest.importorskip("solprop_native._counters")
+_march = pytest.importorskip("solprop_native._march")
 NativeBackend = backend.NativeBackend
 
 
@@ -237,8 +238,8 @@ def test_counters_attribute_a_host_step_to_the_work_due_on_it():
     assert dict(vars(NativeBackend)) == before
     assert isinstance(_counters.disable(), _counters.Counters)
     assert _counters.active is None
-    # The reason names are the backend's, in march::Reason order.
-    assert backend._REASONS[backend._HOST_STEP] == "host_step"
+    # The reason names are the native march's, in march::Reason order.
+    assert _march._REASONS[_march._HOST_STEP] == "host_step"
 
 
 def test_cases_that_set_their_integrator_refuse_an_override():

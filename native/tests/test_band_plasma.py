@@ -62,7 +62,7 @@ from bounds import fft_bound
 from conftest import PhaseACase
 from plasma_bounds import assert_regression_guard, plasma_stage_bound, rate_roundoff
 from solprop_native import NativeBackend, _core
-from solprop_native.backend import (
+from solprop_native._lowering import (
     _lower,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
     _LowerPlan,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
 )
