@@ -51,6 +51,7 @@ from solprop.modes import (
 )
 from solprop.modes.connection import ModalConnection
 from solprop.modes.guide import ModalPath, circular_pair
+from solprop.modes.path import sample_modal_path
 from solprop.modes.protocol import ChannelLabel
 from solprop.modes.tables import sample_modal_table
 from solprop.nonlinear.raman import SilicaTensorResponse
@@ -83,7 +84,6 @@ from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController, RungeKutta
 from solprop.translate.coupled import CoupledFlowTables, ModalMetricTables
 from solprop.translate.general import GeneralModalRoute
-from solprop.translate.modal_path import sample_modal_path
 from solprop.translate.modal_tables import (
     modal_transform_tables,
     project_transverse_field,

@@ -31,6 +31,12 @@ from numpy.polynomial import chebyshev as chebyshev_basis
 from solprop._helpers import PLAIN, Helpers
 from solprop._ownership import hold
 from solprop.exceptions import TranslationError
+from solprop.modes.quadrature import (
+    lobatto_coefficients,
+    lobatto_nodes,
+    lobatto_points,
+    refinement_points,
+)
 
 __all__ = [
     "DEFAULT_MAX_DEGREE",
@@ -1188,7 +1194,7 @@ def _resolve_many(
                 refine.append(index)
         if refine:
             fine = sample(
-                [_refinement_positions(degree, *intervals[index]) for index in refine]
+                [refinement_points(degree, *intervals[index]) for index in refine]
             )
             for index, added in zip(refine, fine, strict=True):
                 values[index] = _interleave(values[index], added)
@@ -1294,7 +1300,7 @@ def _resolve(
             return coefficients, True
         if 2 * degree > n_max:
             return coefficients, False
-        values = _interleave(values, _sample(f, _refinement_positions(degree, lo, hi)))
+        values = _interleave(values, _sample(f, refinement_points(degree, lo, hi)))
         degree *= 2
 
 
@@ -1352,18 +1358,6 @@ def _sample(
     return values
 
 
-def _nodes(degree: int) -> Float[np.ndarray, " n_deg"]:
-    """Return the Chebyshev-Lobatto points of ``degree``, ascending on ``[-1, 1]``.
-
-    Points of the second kind because they include both endpoints, which the continuity
-    fix needs, and because they nest: the degree ``2 d`` set contains the degree ``d``
-    set at even indices, bitwise, so a degree doubling costs ``d`` new evaluations.
-
-    - ``degree``: polynomial degree, ``>= 1``.
-    """
-    return -np.cos(np.pi * np.arange(degree + 1) / degree)
-
-
 def _sample_positions(degree: int, lo: float, hi: float) -> Float[np.ndarray, " n_z"]:
     """Map the Chebyshev-Lobatto points onto ``[lo, hi]``, insetting the ends one ulp.
 
@@ -1379,24 +1373,11 @@ def _sample_positions(degree: int, lo: float, hi: float) -> Float[np.ndarray, " 
     - Returns: sample positions, m, increasing, strictly inside ``[lo, hi]`` at the
       ends.
     """
-    positions = 0.5 * (lo + hi) + 0.5 * (hi - lo) * _nodes(degree)
+    positions = 0.5 * (lo + hi) + 0.5 * (hi - lo) * lobatto_nodes(degree)
     inset = float(np.spacing(max(abs(lo), abs(hi), hi - lo)))
     positions[0] = lo + inset
     positions[-1] = hi - inset
     return positions
-
-
-def _refinement_positions(
-    degree: int, lo: float, hi: float
-) -> Float[np.ndarray, " n_z"]:
-    """Return the positions the degree doubling adds, all interior.
-
-    - ``lo``, ``hi``: ends of the interval, m.
-    - Returns: the ``degree`` new positions, m, increasing. They are interior, so they
-      need no endpoint inset.
-    """
-    odd = -np.cos(np.pi * np.arange(1, 2 * degree, 2) / (2 * degree))
-    return 0.5 * (lo + hi) + 0.5 * (hi - lo) * odd
 
 
 def _interleave(
@@ -1411,49 +1392,6 @@ def _interleave(
     merged[0::2] = coarse
     merged[1::2] = fine
     return merged
-
-
-def lobatto_coefficients(
-    values: Inexact[np.ndarray, " n_z *value"],
-) -> Inexact[np.ndarray, " n_deg *value"]:
-    """Transform samples at the Chebyshev-Lobatto points into Chebyshev coefficients.
-
-    The discrete Chebyshev transform is the type-I DCT of the samples up to the end
-    weights; taking it as the FFT of the mirror extension lets complex-valued integrands
-    go through the same path as real ones. The coefficients are those
-    :func:`numpy.polynomial.chebyshev.chebval` and
-    :class:`PiecewiseChebyshev` evaluate, so one transform serves the adaptive
-    builder here and the fixed-section expansions of
-    :mod:`solprop.translate.coupled`.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Samples at :func:`lobatto_points` in increasing position, shape
-        ``(n_deg, *value_shape)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        Coefficients of ``sum_j c_j T_j``, shape ``(n_deg, *value_shape)``, real when
-        the samples are real.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop.translate.chebyshev import lobatto_coefficients, lobatto_points
-    >>> nodes = lobatto_points(4, -1.0, 1.0)
-    >>> lobatto_coefficients(nodes**2).round(12) + 0.0
-    array([0.5, 0. , 0.5, 0. , 0. ])
-    """
-    n_deg = values.shape[0]
-    degree = n_deg - 1
-    mirrored = np.concatenate([values[degree:0:-1], values[0:degree]], axis=0)
-    coefficients = np.fft.ifft(mirrored, axis=0)[:n_deg].copy()
-    coefficients[1:degree] *= 2.0
-    if np.iscomplexobj(values):
-        return coefficients
-    return np.ascontiguousarray(np.real(coefficients))
 
 
 def _tail_ratio(coefficients: Inexact[np.ndarray, " n_deg *value"]) -> float:
@@ -1568,59 +1506,10 @@ def _log_summary(representation: PiecewiseChebyshev) -> None:
 # arithmetic is the same in every dimension -- the same node set, the same transform,
 # the same tail criterion, the same noise trim -- so it is written once, here, and
 # applied to whichever axis is being resolved. Everything below is that arithmetic
-# exposed one axis at a time; nothing about z enters.
-
-
-def lobatto_points(degree: int, lo: float, hi: float) -> Float[np.ndarray, " n_deg"]:
-    """Return the Chebyshev-Lobatto points of ``degree`` mapped onto ``[lo, hi]``.
-
-    Unlike the z sampler these are not inset at the ends: a parameter range has no
-    discontinuity sitting on its own boundary, and its ends are values the paths
-    actually reach, where the function must be evaluated as it stands.
-
-    Parameters
-    ----------
-    degree : int
-        Polynomial degree, ``>= 1``.
-    lo, hi : float
-        Ends of the range, in the parameter's own units, with ``hi > lo``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The ``degree + 1`` points, increasing from `lo` to `hi`.
-
-    Examples
-    --------
-    >>> from solprop.translate.chebyshev import lobatto_points
-    >>> [round(value, 12) for value in lobatto_points(2, 0.0, 1.0).tolist()]
-    [0.0, 0.5, 1.0]
-    """
-    return 0.5 * (lo + hi) + 0.5 * (hi - lo) * _nodes(degree)
-
-
-def refinement_points(degree: int, lo: float, hi: float) -> Float[np.ndarray, " n_deg"]:
-    """Return the points a degree doubling adds to :func:`lobatto_points`.
-
-    Parameters
-    ----------
-    degree : int
-        Current degree; the result completes the grid of degree ``2 * degree``.
-    lo, hi : float
-        Ends of the range, in the parameter's own units.
-
-    Returns
-    -------
-    numpy.ndarray
-        The ``degree`` new points, increasing, all interior.
-
-    Examples
-    --------
-    >>> from solprop.translate.chebyshev import refinement_points
-    >>> [round(value, 6) for value in refinement_points(1, 0.0, 1.0).tolist()]
-    [0.5]
-    """
-    return _refinement_positions(degree, lo, hi)
+# exposed one axis at a time; nothing about z enters. The node set and the transform
+# themselves (`lobatto_points`, `refinement_points`, `lobatto_coefficients`) live in
+# `solprop.modes.quadrature`, which a moving guide's path sampling shares, and are
+# re-exported here.
 
 
 def interleave_axis(

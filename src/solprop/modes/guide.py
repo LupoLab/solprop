@@ -26,8 +26,15 @@ from solprop.modes.material import (
     PermittivityLaw,
     quantised_measurement,
 )
+from solprop.modes.path import (
+    PATH_RTOL_FLOOR,
+    path_rule,
+    path_sections,
+    path_snapshot,
+    sample_modal_path,
+)
 from solprop.modes.protocol import ChannelLabel, CrossSection, PolarisationComponent
-from solprop.modes.quadrature import quadrature_rule
+from solprop.modes.quadrature import lobatto_points, quadrature_rule
 from solprop.modes.stepindex import StepIndexMode, _material
 from solprop.modes.tables import (
     DenseModalTable,
@@ -516,7 +523,7 @@ class ModalPath(Displayed):
     solved at the Chebyshev-Lobatto points of one degree along z, the degree the
     accuracy check demanded: doubled until the expansion reproduced a fresh solve at
     the points a doubling adds to within `rtol`
-    (:func:`solprop.translate.modal_path.sample_modal_path`). A run rebuilds the same
+    (:func:`solprop.modes.path.sample_modal_path`). A run rebuilds the same
     positions from this record rather than searching again.
 
     Attributes
@@ -614,11 +621,8 @@ class ModalPath(Displayed):
         Shape ``(n_intervals, degree + 1)``, increasing inside a section, so a position
         on an interior edge appears twice.
         """
-        # Imported here: solprop.translate imports solprop.modes. The positions are
-        # the translation layer's own Chebyshev-Lobatto points, bit for bit, because
-        # the run solves exactly these positions again.
-        from solprop.translate.chebyshev import lobatto_points  # noqa: PLC0415
-
+        # The same Chebyshev-Lobatto points the path was sampled at, bit for bit,
+        # because the run solves exactly these positions again.
         return np.stack(
             [
                 lobatto_points(self.degree, float(lo), float(hi))
@@ -782,7 +786,7 @@ class ChannelSource:
     nodes : ModalNodeRule
         The rule the guide was sampled on: the entrance rule of a moving guide,
         which the provider is asked for again at every position
-        (:func:`solprop.translate.modal_path.path_rule`).
+        (:func:`solprop.modes.path.path_rule`).
     z : float
         The position in m the snapshot, or a moving guide's entrance, was solved at.
     basis : ChannelBasis or None
@@ -1131,7 +1135,7 @@ class ProviderChannelMode(Displayed):
         the sampled band, which is where a scalar model's pump usually is not. The
         provider is solved at `omega` on the guide's own rule: the sampling rule
         for a snapshot, and for a moving guide the rule the provider builds at `z`
-        on the same request (:func:`solprop.translate.modal_path.path_rule`), which
+        on the same request (:func:`solprop.modes.path.path_rule`), which
         is the rule the path's own samples were taken on. The declared channel
         basis is applied first; no tracking gauge is, so a channel inside a
         degenerate block that no basis declares has the provider's own member of
@@ -1156,9 +1160,6 @@ class ProviderChannelMode(Displayed):
             If the channel carries no :class:`ChannelSource`, or the provider
             refuses the frequency or the position.
         """
-        # Imported here: solprop.translate imports solprop.modes.
-        from solprop.translate.modal_path import path_rule  # noqa: PLC0415
-
         source = self.source
         if source is None:
             raise ModeError(
@@ -1797,7 +1798,7 @@ class ModalGuide(Displayed):
         `sections` times, and every section is solved at the Chebyshev-Lobatto points
         of the degree its own accuracy check demands, on the provider's own rule at
         each position and in its own gauge
-        (:func:`solprop.translate.modal_path.sample_modal_path`). The checks below are
+        (:func:`solprop.modes.path.sample_modal_path`). The checks below are
         then taken at the entrance, which is the provider's own z domain start, and
         each channel carries its index and area along the path
         (:class:`ModalPath`, :attr:`ProviderChannelMode.path`). A guide whose
@@ -1849,7 +1850,7 @@ class ModalGuide(Displayed):
         path_rtol : float or None, optional
             Budget on a moving guide's held-out departure along z; ``None`` takes
             the frequency interpolation's own measured profile error, floored at
-            :data:`solprop.translate.modal_path.PATH_RTOL_FLOOR`, so that the
+            :data:`solprop.modes.path.PATH_RTOL_FLOOR`, so that the
             sampling in z is never the coarser of the two. A snapshot refuses one.
 
         Returns
@@ -2096,9 +2097,6 @@ def _check_entrance_rule(
 
     - ``z``: the entrance, m.
     """
-    # Imported here: solprop.translate imports solprop.modes.
-    from solprop.translate.modal_path import path_rule  # noqa: PLC0415
-
     again = path_rule(provider, nodes, z)
     if not (
         np.array_equal(again.xy, nodes.xy)
@@ -2124,13 +2122,6 @@ def _sampled_path(
 
     - Returns: the path record and the channels carrying it.
     """
-    # Imported here: solprop.translate imports solprop.modes.
-    from solprop.translate.modal_path import (  # noqa: PLC0415
-        PATH_RTOL_FLOOR,
-        path_sections,
-        sample_modal_path,
-    )
-
     assert isinstance(table, DenseModalTable)
     edges = path_sections(provider, sections)
     budget = max(float(rtol), PATH_RTOL_FLOOR)
@@ -2205,9 +2196,6 @@ def _entrance_table(
     - Returns: what moves (empty for a snapshot), the position the table is at, the rule
       and the table.
     """
-    # Imported here: solprop.translate imports solprop.modes.
-    from solprop.translate.modal_path import path_snapshot  # noqa: PLC0415
-
     # The radius paths are on the protocol, as the regions' own radii, and a
     # declared kink is motion too: the slope jumps there.
     moving = _moving_geometry(provider)

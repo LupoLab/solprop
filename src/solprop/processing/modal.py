@@ -53,6 +53,7 @@ from jaxtyping import Complex, Float, Inexact
 from solprop import fourier, stats
 from solprop.exceptions import ModeError, OutputError, TranslationError
 from solprop.modes.guide import ModalGuide
+from solprop.modes.path import path_rule, path_snapshot
 from solprop.modes.protocol import ChannelLabel
 from solprop.modes.tables import DEFAULT_GRAM_ATOL
 from solprop.modes.vector import ModalNodeRule
@@ -63,7 +64,6 @@ from solprop.output.store import Output
 from solprop.processing.axes import _plane_field, _plane_index, grid_of
 from solprop.translate import general
 from solprop.translate.chebyshev import _EDGE_SLACK_FRACTION
-from solprop.translate.modal_path import path_rule, path_snapshot
 from solprop.translate.modal_tables import ModalTransformTables
 
 __all__ = [
@@ -330,7 +330,7 @@ def _moved_rule(guide: ModalGuide, position: float) -> tuple[float, ModalNodeRul
 
     - ``position``: the plane's own position, m.
     - Returns: the position, snapped onto the path's end when within the edge slack, and
-      the provider's own rule there (:func:`solprop.translate.modal_path.path_rule`).
+      the provider's own rule there (:func:`solprop.modes.path.path_rule`).
     """
     sampling = guide.sampling
     if sampling is None or sampling.path is None:
@@ -378,8 +378,8 @@ def _plane_reference(
     the rule that has moved with the interfaces to that plane (node ``q`` is the point
     ``x_q(z)``), so the guide is solved again there exactly as
     its path was sampled -- the provider's own rule asked for as the entrance rule was
-    (:func:`solprop.translate.modal_path.path_rule`), in the provider's own gauge
-    (:func:`solprop.translate.modal_path.path_snapshot`), then carried to the run's
+    (:func:`solprop.modes.path.path_rule`), in the provider's own gauge
+    (:func:`solprop.modes.path.path_snapshot`), then carried to the run's
     bins by the same cubic in frequency the maps were built with. It is the same
     field the run's Chebyshev-expanded synthesis stores at that position, to the
     path's held-out accuracy, and H comes from the same solve; the expansion carries
@@ -961,7 +961,7 @@ def plane_nodes(
     every plane. For a **moving** guide they are the plane's own: the rule that has
     moved with the interfaces to that plane's position, which is the provider's
     rule asked for there exactly as the entrance rule was
-    (:func:`solprop.translate.modal_path.path_rule`) -- the same rule the field
+    (:func:`solprop.modes.path.path_rule`) -- the same rule the field
     accessors solve on, so no caller needs the translation layer to plot a plane.
 
     Parameters

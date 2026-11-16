@@ -29,7 +29,7 @@ import math
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final, cast
+from typing import Final, cast
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int32
@@ -52,6 +52,7 @@ from solprop.modes.material import (
     MaterialRegion,
     quantised_measurement,
 )
+from solprop.modes.path import ModalPathTable, sample_modal_path
 from solprop.modes.protocol import ChannelLabel
 from solprop.modes.tables import DEFAULT_GRAM_ATOL, DenseModalTable, sample_modal_table
 from solprop.nonlinear.mixtures import electronic_response
@@ -99,9 +100,6 @@ __all__ = [
     "occupancy_weight",
     "reference_tables",
 ]
-
-if TYPE_CHECKING:
-    from solprop.translate.modal_path import ModalPathTable
 
 logger = logging.getLogger(__name__)
 
@@ -895,16 +893,13 @@ def _snapshot_reference(
 
 def _path_reference(
     guide: ModalGuide, grid: TimeGrid, *, z_end: float, gram_atol: float
-) -> tuple["ModalPathTable", ModalTransformTables]:
+) -> tuple[ModalPathTable, ModalTransformTables]:
     """Sample a moving guide's path and expand its maps on a run's grids.
 
     - ``z_end``: where the run ends, m; the tables keep every section up to it.
     - Returns: the sampled path and the tables.
     """
-    from solprop.translate.modal_path import (  # noqa: PLC0415
-        path_transform_tables,
-        sample_modal_path,
-    )
+    from solprop.translate.modal_path import path_transform_tables  # noqa: PLC0415
 
     sampling = guide.sampling
     assert sampling is not None and sampling.path is not None

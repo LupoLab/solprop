@@ -21,18 +21,20 @@ from solprop.backends.numpy_ref.general_modal import GeneralMaps
 from solprop.exceptions import BackendError, ModeError
 from solprop.modes.connection import band_connection, modal_connection
 from solprop.modes.guide import ModalGuide, ModalPath, ProviderChannelMode
+from solprop.modes.path import (
+    INITIAL_PATH_DEGREE,
+    MAX_PATH_DEGREE,
+    path_rule,
+    path_sections,
+    path_snapshot,
+    sample_modal_path,
+)
 from solprop.modes.tables import sample_modal_table
 from solprop.modes.vector import ModalNodeRule, flux_product
 from solprop.profiles import Linear, PiecewiseLinear
 from solprop.translate.modal_path import (
-    INITIAL_PATH_DEGREE,
-    MAX_PATH_DEGREE,
     in_frequency,
-    path_rule,
-    path_sections,
-    path_snapshot,
     path_transform_tables,
-    sample_modal_path,
     section_coefficients,
     transform_section,
     transform_weights,
