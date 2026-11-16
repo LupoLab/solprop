@@ -214,8 +214,7 @@ from solprop.processing import (
     time_bandwidth,
     transform_limit,
 )
-from solprop.processing.scans import ScanOutput
-from solprop.processing.scans import open as open_scan
+from solprop.processing.scans import ScanOutput, open_scan
 from solprop.profiles import (
     Constant,
     DensityPath,
