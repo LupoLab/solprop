@@ -128,7 +128,7 @@ def propagate_fixed_rk4(
     z_end: float,
     n_steps: int,
     *,
-    n_save: int = 1,
+    n_save: int = 2,
 ) -> tuple[Float[np.ndarray, " n_z"], Complex[np.ndarray, "n_z n_omega"]]:
     """Propagate a mode-averaged envelope spectrum with fixed-step IP-RK4.
 
@@ -160,15 +160,17 @@ def propagate_fixed_rk4(
     z_end : float
         Propagation length, m, positive.
     n_steps : int
-        Number of equal steps, at least 1 and a multiple of ``n_save``.
+        Number of equal steps, at least 1 and a multiple of ``n_save - 1``.
     n_save : int, optional
-        Number of planes to save after ``z = 0``, at least 1. Default 1: the end only.
+        Number of evenly spaced planes to save over ``[0, z_end]``, both ends included,
+        as on every :class:`~solprop.driver.simulation.Simulation` route; at least 2.
+        Default 2: the entrance and the end.
 
     Returns
     -------
     tuple
-        ``(z, spectra)``: the saved positions, shape ``(n_save + 1,)``, m, starting at
-        zero; and the stored spectra there, shape ``(n_save + 1, n_omega)``.
+        ``(z, spectra)``: the saved positions, shape ``(n_save,)``, m, from zero to
+        ``z_end``; and the stored spectra there, shape ``(n_save, n_omega)``.
 
     Raises
     ------
@@ -176,8 +178,8 @@ def propagate_fixed_rk4(
         If the grid is not an envelope grid, or the spectrum does not match it.
     StepperError
         If the fibre varies along z, ``z_end`` is not positive and finite,
-        ``n_steps`` or ``n_save`` is below 1, or ``n_steps`` is not a multiple of
-        ``n_save``.
+        ``n_steps`` is below 1, ``n_save`` is below 2, or ``n_steps`` is not a
+        multiple of ``n_save - 1``.
 
     Examples
     --------
@@ -221,19 +223,26 @@ def propagate_fixed_rk4(
     if n_steps < 1:
         msg = f"n_steps must be at least 1, got {n_steps!r}"
         raise StepperError(msg)
-    if n_save < 1:
-        msg = f"n_save must be at least 1, got {n_save!r}"
+    if n_save < 2:
+        msg = (
+            "n_save counts the saved planes, both ends included, so it must be at "
+            f"least 2, got {n_save!r}"
+        )
         raise StepperError(msg)
-    if n_steps % n_save:
-        msg = f"n_steps ({n_steps}) must be a multiple of n_save ({n_save})"
+    intervals = n_save - 1
+    if n_steps % intervals:
+        msg = (
+            f"n_steps ({n_steps}) must be a multiple of n_save - 1 ({intervals}), the "
+            "number of intervals between saved planes"
+        )
         raise StepperError(msg)
 
     operator = dispersion_operator(problem.mode, grid, Frame.comoving(grid))
     step = z_end / n_steps
     half = np.exp(0.5 * step * operator)
-    per_save = n_steps // n_save
+    per_save = n_steps // intervals
     state = values * grid.active_mask
-    saved = np.empty((n_save + 1, grid.n_omega), dtype=np.complex128)
+    saved = np.empty((n_save, grid.n_omega), dtype=np.complex128)
     saved[0] = state
     logger.debug(
         "scaffold IP-RK4: %d steps of %.6e m over %.6e m, saving %d planes",
@@ -252,4 +261,4 @@ def propagate_fixed_rk4(
         state = state + step / 6.0 * k4
         if (index + 1) % per_save == 0:
             saved[(index + 1) // per_save] = state
-    return np.linspace(0.0, z_end, n_save + 1), saved
+    return np.linspace(0.0, z_end, n_save), saved

@@ -626,9 +626,8 @@ That count is what decided the first deviation below.
 **Deviations from the proposal.**
 
 1. *`length` is optional but stays positional-or-keyword* (§5.1, Q7 item 6). Making it
-   keyword-only would edit about 509 calls in 227 files and regenerate 43 galleries. This
-   is an interim choice, pending with the maintainer; the signature
-   change is one commit, so the keyword-only form can follow as one mechanical commit.
+   keyword-only would edit about 509 calls in 227 files and regenerate 43 galleries. The
+   maintainer accepted this deviation on 2026-11-16, so the positional form stays.
    Because Python allows no required parameter after an optional one,
    `from_capillary`'s and `prop_capillary`'s `gas` now defaults to `None` and is refused
    when omitted. A hazard for the keyword-only form: with `length` keyword-only, the next
@@ -685,9 +684,10 @@ coverage lane, `native/tests`, the front-end gate and the galleries; CI is the g
 **Open questions.**
 
 - Q8: keyword-only `length` (deviation 1), with the slide of `betas`/`gas` into its
-  slot. Owner: the maintainer.
-- Q9: `driver/scaffold.py`'s fixed-step tool has its own `n_save`, which does not count
-  the entrance; it is a separate tool and left unchanged. Owner: the maintainer.
+  slot. Settled by the maintainer: `length` stays positional-or-keyword.
+- Q9: `driver/scaffold.py`'s fixed-step tool had its own `n_save`, which did not count
+  the entrance. Settled by the maintainer: it now takes SEP 51's meaning, evenly spaced
+  planes over `[0, z_end]` with both ends counted, at least 2.
 - Q10: whether the loss clamp and the monitor spacing should follow a pinned reference
   length, as the absorber's does. Owner: an issue.
 
@@ -789,6 +789,8 @@ estimated about 60 lines removed plus the new field and its tests.
   deviation on keyword-only `length` pending with the maintainer.
 - 2026-11-16: Phase 2 (front end) reported in Part II, on `feature/sep-0051-gui`.
 - 2026-11-16: Final. Both phases are reported in Part II and merge in PR #851. Open questions moved to issues: keyword-only `length` ([#857](https://github.com/LupoLab/solprop/issues/857)), the fixed-step scaffold's `n_save` ([#856](https://github.com/LupoLab/solprop/issues/856)) and further length-dependent defaults ([#855](https://github.com/LupoLab/solprop/issues/855)).
+- 2026-11-16: The maintainer settled Q8 (`length` stays positional-or-keyword) and Q9
+  (the scaffold's `n_save` takes SEP 51's meaning, in PR #851).
 
 ### AI review — 2026-11-15
 
