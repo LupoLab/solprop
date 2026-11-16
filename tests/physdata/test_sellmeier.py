@@ -279,7 +279,7 @@ def test_index_is_physical_over_the_whole_parameter_space(
 def test_a_supplied_law_declares_a_range_a_state_and_a_citation(law):
     shortest, longest = law.wavelength_range
     assert 0.0 < shortest < longest
-    assert law.reference_state.pressure_bar > 0.0
+    assert law.reference_state.pressure > 0.0
     assert law.reference_state.temperature > 0.0
     assert "doi:" in law.citation or "Luna" in law.citation
     assert not law.absorbing
@@ -288,7 +288,7 @@ def test_a_supplied_law_declares_a_range_a_state_and_a_citation(law):
 @pytest.mark.parametrize("law", ALL_LAWS, ids=LAW_IDS)
 def test_a_supplied_reference_density_is_the_state_of_the_source(law):
     assert law.reference_density == density(
-        law.gas, law.reference_state.pressure_bar, law.reference_state.temperature
+        law.gas, law.reference_state.pressure, law.reference_state.temperature
     )
 
 

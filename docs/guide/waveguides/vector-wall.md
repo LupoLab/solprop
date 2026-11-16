@@ -164,7 +164,7 @@ $\mathrm{HE}_{11}, \mathrm{HE}_{12}, \mathrm{EH}_{11}, \mathrm{EH}_{12}$.
 A **supplied** mode set is the run's geometry: its modes keep their own radius, model,
 loss and cladding. `prop_capillary`'s positional `radius` must therefore agree with
 every mode's core radius along the run -- a different bore, or a taper beside a
-constant-bore set, is refused by name -- and a `model`, `loss` or `cladding` declared
+constant-bore set, is refused by name -- and a `model`, `alpha`, `loss_scale` or `cladding` declared
 away from its default must be the modes' own, or it is refused rather than ignored.
 {doc}`../../auto_tutorials/capillaries/plot_09_vector_wall` sets out each family's own loss, the
 $\mathrm{HE}_{11}\to\mathrm{EH}_{11}$ conversion and its $\delta^2$ scaling.

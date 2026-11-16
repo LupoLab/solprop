@@ -85,8 +85,9 @@ beside it.
 
 Two settings are refused rather than quietly overridden, because the block *is* what they
 describe. **The wall is the loss model**: it replaces each channel's Marcatili
-attenuation, so `loss=` must be `True` — `False`, a scale or a measured curve beside a
-wall would otherwise vanish without a word, and is refused by name instead. And the
+attenuation, so `alpha` and `loss_scale` must keep their defaults — a `loss_scale` of
+zero or another scale, or a measured `alpha`, beside a wall would otherwise vanish
+without a word, and is refused by name instead. And the
 condensation inverts the **full** model's transverse eigenvalue, so `model="reduced"` is
 refused too. A tube lattice is refused for the same kind of reason: an antiresonant
 guide's loss is its tubes' resonances, not a Robin condition at one radius, so

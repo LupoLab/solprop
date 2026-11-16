@@ -439,6 +439,9 @@ class _Reducing:
     def fields(self, convention="optics") -> np.ndarray:
         raise OutputError("this handler stores no field")
 
+    def plane_field(self, index, convention="optics") -> np.ndarray:
+        raise OutputError("this handler stores no field")
+
 
 def _run_with(handler, *, fields, field_planes=()) -> None:
     simulation = low_storage()

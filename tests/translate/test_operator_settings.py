@@ -516,7 +516,7 @@ def lossy_fibre(alpha: float, integrator) -> Simulation:
     length = 0.04
     grid = EnvelopeGrid.from_limits(length, WAVELENGTH, (600e-9, 1.2e-6), 2e-12)
     mode = SpecifiedMode.from_taylor(
-        [0.0, 0.0, -2e-26], omega_ref=grid.omega0, loss=alpha, aeff=8e-11
+        [0.0, 0.0, -2e-26], omega_ref=grid.omega0, alpha=alpha, aeff=8e-11
     )
     pulse = GaussianPulse(wavelength=WAVELENGTH, fwhm=100e-15, energy=1e-9)
     step = length / 4

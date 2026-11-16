@@ -294,7 +294,7 @@ This table samples an analytic Taylor model, rather than a FEM solution.
     synthetic_mode = SpecifiedMode.from_taylor(
         [1.45 * omega0 / C, 1.45 / C, -11.83e-27],
         omega0,
-        loss=attenuation_from_db(0.2),
+        alpha=attenuation_from_db(0.2),
         aeff=area,
     )
     nodes = np.linspace(0.3e15, 4.5e15, 200)
@@ -328,7 +328,7 @@ This table samples an analytic Taylor model, rather than a FEM solution.
 
  .. code-block:: none
 
-    Tabulated examples completed in 6.63 s
+    Tabulated examples completed in 4.19 s
 
 
 
@@ -346,7 +346,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 6.627 seconds)
+   **Total running time of the script:** (0 minutes 4.193 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_02_tabulated_modes.py:

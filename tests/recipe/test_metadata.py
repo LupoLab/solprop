@@ -172,7 +172,7 @@ def test_the_resolvable_keywords_are_those_the_sep_measured():
         "raman",
         "step_planes",
         "save_planes",
-        "loss",
+        "loss_scale",
         "model",
     }
     found = {

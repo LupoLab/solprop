@@ -220,6 +220,27 @@ def test_an_object_route_runs_to_its_grid_length():
     assert np.asarray(direct.settings.save_planes).tolist() == [LENGTH / 2, LENGTH]
 
 
+def test_steps_left_unset_take_the_keyword_routes_fractions_of_the_grid_length():
+    # The same defaults as the keyword routes: half the length, a ten-thousandth of
+    # it refined by the start-up rule. Exact: one product each.
+    simulation = fibre()
+    direct = adopted(simulation, SimulationSettings(backend="numpy_ref"))
+    assert (direct.settings.dz_max, direct.settings.dz_init) == (
+        0.5 * LENGTH,
+        1e-4 * LENGTH,
+    )
+    assert direct.settings.auto_init
+    keyword = fibre(dz_max=None, dz_init=None).settings
+    assert (keyword.dz_max, keyword.dz_init) == (
+        direct.settings.dz_max,
+        direct.settings.dz_init,
+    )
+    given = adopted(simulation, settings())
+    assert (given.settings.dz_max, given.settings.dz_init) == (1e-6, 1e-6)
+    assert not given.settings.auto_init
+    assert "dz_max half the length" in str(SimulationSettings())
+
+
 # ------------------------------------------------------------- interior launches
 
 
@@ -319,14 +340,9 @@ def test_a_keyword_route_without_a_length_or_a_grid_is_refused(route):
         if route == "gnlse":
             fibre(None)
         elif route == "capillary":
-            Simulation.from_capillary(125e-6, gas="He", wavelength=800e-9)
+            Simulation.from_capillary(125e-6, None, "He", wavelength=800e-9)
         else:
-            Simulation.from_waveguide([], gas="He", wavelength=800e-9)
-
-
-def test_a_capillary_without_its_gas_is_refused():
-    with pytest.raises(DriverError, match="needs its fill"):
-        Simulation.from_capillary(125e-6, 0.1, wavelength=800e-9)
+            Simulation.from_waveguide([], None, "He", wavelength=800e-9)
 
 
 # ---------------------------------------------------------------- replay schedules

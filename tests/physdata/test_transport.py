@@ -15,7 +15,7 @@ import math
 import numpy as np
 import pytest
 
-from solprop.constants import BAR, K_B, N_A
+from solprop.constants import BAR, K_B, N_A, ROOM_TEMPERATURE
 from solprop.exceptions import MaterialError
 from solprop.physdata import Gas, IdealGas, Species, gamma, species
 from solprop.physdata.transport import (
@@ -101,7 +101,7 @@ def test_the_dilute_sound_speed_is_the_ideal_gas_form(gas):
     expected = math.sqrt(
         heat_capacity_ratio(gas, 294.0) * GAS_CONSTANT * 294.0 / molar_mass(gas)
     )
-    assert sound_speed(gas, 294.0) == pytest.approx(expected, rel=1e-14)
+    assert sound_speed(gas, temperature=294.0) == pytest.approx(expected, rel=1e-14)
 
 
 def test_the_mixture_sound_speed_uses_the_mean_mass_and_mixed_heat_capacities():
@@ -110,7 +110,9 @@ def test_the_mixture_sound_speed_uses_the_mean_mass_and_mixed_heat_capacities():
     expected = math.sqrt(5.0 / 3.0 * GAS_CONSTANT * 294.0 / mean)
     assert molar_mass(fractions) == pytest.approx(mean, rel=1e-15)
     # Both noble gases' c_p are 5R/2 to rounding, so the mixture's ratio is 5/3.
-    assert sound_speed(fractions, 294.0) == pytest.approx(expected, rel=1e-12)
+    assert sound_speed(fractions, temperature=294.0) == pytest.approx(
+        expected, rel=1e-12
+    )
 
 
 def test_the_mean_free_path_is_the_viscosity_form():
@@ -166,11 +168,21 @@ def test_an_unknown_gas_is_refused():
 @pytest.mark.parametrize("pressure", [0.0, -1.0, math.inf])
 def test_a_non_positive_pressure_is_refused(pressure):
     with pytest.raises(MaterialError, match="positive"):
-        sound_speed("N2", 294.0, pressure)
+        sound_speed("N2", pressure, 294.0)
     with pytest.raises(MaterialError, match="positive"):
         mean_free_path("N2", pressure, 294.0)
 
 
 def test_a_real_gas_sound_speed_of_a_mixture_is_refused():
     with pytest.raises(MaterialError, match="pure gas only"):
-        sound_speed({"N2": 0.5, "O2": 0.5}, 294.0, 1.0)
+        sound_speed({"N2": 0.5, "O2": 0.5}, 1.0, 294.0)
+
+
+def test_every_transport_function_defaults_to_room_temperature():
+    # One argument order with the rest of physdata: (gas, pressure, temperature), the
+    # temperature defaulting to 293.15 K. Identical calls, so exact equality.
+    assert viscosity("N2") == viscosity("N2", ROOM_TEMPERATURE)
+    assert heat_capacity_ratio("N2") == heat_capacity_ratio("N2", ROOM_TEMPERATURE)
+    assert sound_speed("N2") == sound_speed("N2", None, ROOM_TEMPERATURE)
+    assert sound_speed("N2", 2.0) == sound_speed("N2", 2.0, ROOM_TEMPERATURE)
+    assert mean_free_path("N2", 2.0) == mean_free_path("N2", 2.0, ROOM_TEMPERATURE)

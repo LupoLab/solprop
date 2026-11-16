@@ -45,7 +45,7 @@ from solprop.translate.tdse_source import current_numerator
 @pytest.fixture
 def projection_case(request):
     grid = FieldGrid.from_limits(0.001, 800e-9, (500e-9, 1e-6), 8e-15)
-    mode = MarcatiliMode(125e-6, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, cladding=1.45, loss_scale=0.0)
     rule = transverse_quadrature([mode], n_r=16, radial_rule="gauss_kronrod")
     problem = assemble(
         grid,

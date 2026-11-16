@@ -24,7 +24,7 @@ from solprop import _process
 from solprop.driver.executors import pool
 from solprop.driver.executors.queue import Queue
 from solprop.driver.executors.slurm import Slurm
-from solprop.exceptions import DriverError
+from solprop.exceptions import DriverError, ExecutorError
 
 
 @pytest.fixture(autouse=True)
@@ -86,7 +86,7 @@ def test_a_slurm_memory_limit_below_the_group_still_binds(tmp_path, monkeypatch)
 
 
 @pytest.mark.parametrize("readable", [True, False])
-def test_an_unreadable_memory_limit_is_a_driver_error_naming_it(
+def test_an_unreadable_memory_limit_is_an_executor_error_naming_it(
     tmp_path, monkeypatch, readable
 ):
     root = _cgroup_tree(tmp_path, "0::/job", {"job": "garbled"})
@@ -98,7 +98,7 @@ def test_an_unreadable_memory_limit_is_a_driver_error_naming_it(
         record.mkdir()
     _linux(monkeypatch, root)
     # Any separator: Windows quotes the path with doubled backslashes.
-    with pytest.raises(DriverError, match=r"job\W+memory\.max"):
+    with pytest.raises(ExecutorError, match=r"job\W+memory\.max"):
         pool._memory_limit()
 
 
@@ -436,9 +436,9 @@ def test_windows_reads_peak_working_set_and_physical_memory(monkeypatch):
 
 def test_windows_memory_queries_report_a_refusal(monkeypatch):
     monkeypatch.setattr(pool, "_kernel32", lambda: _FakeKernel32(succeed=False))
-    with pytest.raises(DriverError, match="process memory query"):
+    with pytest.raises(ExecutorError, match="process memory query"):
         pool._windows_peak_working_set()
-    with pytest.raises(DriverError, match="physical memory query"):
+    with pytest.raises(ExecutorError, match="physical memory query"):
         pool._windows_physical_memory()
 
 

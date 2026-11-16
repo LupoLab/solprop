@@ -200,7 +200,6 @@ RULE_OF_CASE = {
     "gnlse-pulse-duration": "fwhm-or-width",
     "gnlse-pulse-scale": "energy-or-peak-power",
     "capillary-raman-kerr": "raman-needs-kerr",
-    "capillary-polarisation": "scalar-capillary-polarisation",
     "capillary-averaged-modes": "mode-average-one-mode",
     "capillary-averaged-rule": "mode-average-no-quadrature",
     "capillary-envelope-thg": "envelope-plasma-no-thg",

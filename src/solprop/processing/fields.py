@@ -65,6 +65,7 @@ from solprop.processing.axes import (
     _keep_index,
     _nearest_plane,
     _plane_field,
+    _plane_index,
     _refuse_by_basis,
     _squeeze,
     grid_of,
@@ -193,6 +194,8 @@ def get_spectrum(
     ------
     solprop.exceptions.ModeError
         If ``modes='sum'``.
+    solprop.exceptions.ProcessingError
+        If both ``plane`` and ``z`` are given.
 
     Examples
     --------
@@ -866,11 +869,11 @@ def get_spectrogram(
         An opened output handler.
     axis : {'f', 'omega', 'wavelength'}
         The spectral abscissa, in Hz, rad/s or m.
-    plane : int or None
-        Index of the plane, negative from the end; the last plane when neither it nor
-        ``z`` is given.
+    plane : int or None, optional
+        Index of the plane, negative from the end; the last by default.
     z : float or None
-        Position of the plane, m: the nearest saved plane.
+        Position of the plane instead, m: the nearest saved plane. Refused beside a
+        `plane`.
     modes : int, sequence of int, 'sum' or None
         Which mode. A multimode run must name one: a spectrogram is of a field, and
         modal fields do not add away from a point in space.
@@ -905,7 +908,8 @@ def get_spectrogram(
     solprop.exceptions.ProcessingError
         If the time range misses the time window or selects no gate position, the
         gate is not positive or is wider than the window, the number of positions is
-        not positive, or ``axis`` is unknown.
+        not positive, ``axis`` is unknown, or the plane is named both by index and by
+        position.
 
     Examples
     --------
@@ -917,13 +921,10 @@ def get_spectrogram(
     (True, True)
     """
     choice(axis, "axis", SPECTRAL_AXES, ProcessingError)
-    if plane is None and z is None:
-        plane = -1
     t, field = get_field(
         output,
         kind="real",
-        plane=plane,
-        z=z,
+        plane=_plane_index(output, plane, z),
         modes=modes,
         oversampling=real_field_oversampling(grid_of(output)),
         bandpass=bandpass,

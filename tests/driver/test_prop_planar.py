@@ -69,7 +69,7 @@ from solprop.spatial import (
     spatial_fluence,
     spatial_intensity,
 )
-from solprop.stats import analytic_field, default_spec
+from solprop.stats import analytic_field
 from solprop.stepper import PIController
 from solprop.stepper.schedule import FixedSchedule
 
@@ -137,7 +137,7 @@ def test_prop_planar_runs_a_launch_and_records_the_slab_geometry(tmp_path):
         space,
         [kerr()],
         pulse(),
-        settings=settings(stats=default_spec("free")),
+        settings=settings(),
         output=path,
         progress="none",
     )

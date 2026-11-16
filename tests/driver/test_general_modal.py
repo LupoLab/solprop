@@ -208,7 +208,6 @@ GAS_KEYWORDS = {
     "n_theta": 9,
     "radial_rule": "gauss",
     "ionisation_field_range": (1e9, 1e11),
-    "polarisation": "x",
     "envelope": True,
     "node_budget": 1024,
     "taper_coupling": False,

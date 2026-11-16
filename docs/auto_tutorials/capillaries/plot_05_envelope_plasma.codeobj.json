@@ -136,7 +136,7 @@
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.nonlinear.optmat_rates",
-   "module_short": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear",
    "name": "OptmatRate"
   },
   {
@@ -157,7 +157,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.nonlinear.optmat_rates",
-   "module_short": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear",
    "name": "OptmatRate"
   }
  ],
@@ -523,7 +523,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.nonlinear.optmat_rates",
-   "module_short": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear",
    "name": "OptmatRate"
   },
   {
@@ -624,7 +624,7 @@
    "is_class": false,
    "is_explicit": true,
    "module": "solprop.nonlinear.optmat_rates",
-   "module_short": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear",
    "name": "OptmatRate"
   }
  ],

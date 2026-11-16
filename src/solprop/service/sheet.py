@@ -73,7 +73,15 @@ __all__ = [
     "run_options",
 ]
 
-_SHARED = ("shape", "temperature", "model", "loss", "cladding", "materials")
+_SHARED = (
+    "shape",
+    "temperature",
+    "model",
+    "alpha",
+    "loss_scale",
+    "cladding",
+    "materials",
+)
 """The capillary's keywords that ``tools.capillary_params`` also takes, by name."""
 
 _DB_PER_NEPER = 10.0 / math.log(10.0)

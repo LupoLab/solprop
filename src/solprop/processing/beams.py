@@ -24,6 +24,7 @@ from solprop.grid import RadialGrid
 from solprop.output.store import Output
 from solprop.processing.axes import (
     SpectralAxis,
+    _plane_index,
     grid_of,
     spatial_grid_of,
     spectral_axis,
@@ -80,16 +81,12 @@ def _measured_plane(
 ) -> tuple[np.ndarray, SpatialFlux]:
     """Return one saved plane's spectrum and its measure, from the file alone.
 
-    - ``plane``: the plane, negative from the end; the last when neither it nor ``z`` is
-      given.
-    - ``z``: its position, m: the nearest saved plane.
+    - ``plane``: the plane, negative from the end.
+    - ``z``: its position instead, m: the nearest saved plane (:func:`_plane_index`).
     - Returns: the stored spectrum, ``(n_r, n_pol, n_omega)``, and the plane's measure.
     """
+    index = _plane_index(output, plane, z)
     positions = np.asarray(output["z"], dtype=float)
-    if z is not None:
-        index = int(np.argmin(np.abs(positions - z)))
-    else:
-        index = -1 if plane is None else plane
     space = _radial_space(output)
     metadata = output.metadata
     assert metadata is not None  # _radial_space read it
@@ -171,9 +168,9 @@ def radial_spectrum(
     axis : {'f', 'omega', 'wavelength'}, optional
         The spectral abscissa.
     plane : int or None, optional
-        The plane, negative from the end; the last when neither it nor ``z`` is given.
+        The plane, negative from the end; the last by default.
     z : float or None, optional
-        Its position, m: the nearest saved plane.
+        Its position instead, m: the nearest saved plane. Refused beside a `plane`.
 
     Returns
     -------
@@ -221,9 +218,9 @@ def far_field(
     axis : {'f', 'omega', 'wavelength'}, optional
         The spectral abscissa.
     plane : int or None, optional
-        The plane, negative from the end; the last when neither it nor ``z`` is given.
+        The plane, negative from the end; the last by default.
     z : float or None, optional
-        Its position, m: the nearest saved plane.
+        Its position instead, m: the nearest saved plane. Refused beside a `plane`.
     angles : int, optional
         How many angles to read onto, evenly spaced from the axis.
 
@@ -331,9 +328,9 @@ def radial_intensity(
     output : solprop.output.store.Output
         The run's output.
     plane : int or None, optional
-        The plane, negative from the end; the last when neither it nor ``z`` is given.
+        The plane, negative from the end; the last by default.
     z : float or None, optional
-        Its position, m: the nearest saved plane.
+        Its position instead, m: the nearest saved plane. Refused beside a `plane`.
 
     Returns
     -------
@@ -367,9 +364,9 @@ def on_axis_power(
     output : solprop.output.store.Output
         The run's output.
     plane : int or None, optional
-        The plane, negative from the end; the last when neither it nor ``z`` is given.
+        The plane, negative from the end; the last by default.
     z : float or None, optional
-        Its position, m: the nearest saved plane.
+        Its position instead, m: the nearest saved plane. Refused beside a `plane`.
     oversampling : int, optional
         Factor by which to resample the time axis by zero-padding the spectrum, at
         least 1, as :func:`~solprop.processing.fields.get_power` does.
@@ -412,9 +409,9 @@ def on_axis_spectrogram(
     axis : {'f', 'omega', 'wavelength'}, optional
         The spectral abscissa.
     plane : int or None, optional
-        The plane, negative from the end; the last when neither it nor ``z`` is given.
+        The plane, negative from the end; the last by default.
     z : float or None, optional
-        Its position, m: the nearest saved plane.
+        Its position instead, m: the nearest saved plane. Refused beside a `plane`.
     time_range : tuple of float or None, optional
         The time range the gate positions cover, s; the whole window by default.
     gate_fwhm : float or None, optional

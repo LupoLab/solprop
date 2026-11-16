@@ -324,6 +324,16 @@ def test_a_spectrogram_refuses_what_it_cannot_draw(output, synthetic):
     last = fields.get_spectrogram(output, positions=8)[2]
     nearest = fields.get_spectrogram(output, z=synthetic.length, positions=8)[2]
     assert np.array_equal(last, nearest)
+    with pytest.raises(ProcessingError, match="not both"):
+        fields.get_spectrogram(output, plane=0, z=synthetic.length)
+
+
+@pytest.mark.parametrize(
+    "reader", [fields.get_spectrum, fields.get_power, fields.get_spectral_density]
+)
+def test_a_reader_of_every_plane_refuses_a_plane_named_twice(output, reader):
+    with pytest.raises(ProcessingError, match="not both"):
+        reader(output, plane=-1, z=0.0)
 
 
 def test_a_spectrogram_on_a_narrow_envelope_grid_has_its_carrier(tmp_path):

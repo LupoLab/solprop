@@ -37,8 +37,13 @@ from sessions.runs import run_error
 from solprop import stats
 from solprop.backends import select
 from solprop.driver import Simulation
-from solprop.exceptions import BackendError, OutputError
-from solprop.grid import FieldGrid
+from solprop.exceptions import (
+    BackendError,
+    OutputError,
+    ProcessingError,
+    TranslationError,
+)
+from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.output.capability import (
     GENERAL_MODAL_ACCESSORS,
     capability_of,
@@ -59,8 +64,10 @@ from solprop.processing.modal import (
     physical_energy,
     plane_nodes,
     reconstructed_flux,
+    reference_tables,
 )
 from solprop.stats import StatsSpec
+from solprop.translate import general
 from solprop.translate.general import general_modal_route
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
@@ -155,8 +162,8 @@ def test_the_reconstruction_carries_si_units_and_three_components(
     run, tables, grid, guide
 ):
     """E in V/m and H in A/m at every node, with a longitudinal component."""
-    electric = electric_field(run, tables, plane=-1, guide=guide)
-    magnetic = magnetic_field(run, tables, plane=-1, guide=guide)
+    electric = electric_field(run, tables=tables, plane=-1, guide=guide)
+    magnetic = magnetic_field(run, tables=tables, plane=-1, guide=guide)
     assert electric.shape == (tables.node_xy.shape[1], 3, grid.n_t)
     assert magnetic.shape == electric.shape
     assert np.all(np.isfinite(electric)) and np.all(np.isfinite(magnetic))
@@ -166,7 +173,9 @@ def test_the_reconstruction_carries_si_units_and_three_components(
     transverse = float(np.max(np.abs(electric[:, :2])))
     assert 0.0 < float(np.max(np.abs(electric[:, 2]))) < transverse
     assert np.array_equal(
-        np.real(electric_field(run, tables, plane=-1, analytic=True, guide=guide)),
+        np.real(
+            electric_field(run, tables=tables, plane=-1, analytic=True, guide=guide)
+        ),
         electric,
     )
 
@@ -282,7 +291,7 @@ def test_the_reconstructed_peak_is_the_statistic_plus_the_cross_frequency_term(
     assert diagonal < profile_error
     recorded = float(np.ravel(run.planes()[-1].stats["analytic_flux"])[0])
     reconstructed = float(
-        np.max(reconstructed_flux(run, tables, plane=-1, guide=guide))
+        np.max(reconstructed_flux(run, tables=tables, plane=-1, guide=guide))
     )
     departure = abs(reconstructed - recorded) / recorded
     record_property("flux_against_the_statistic", departure)
@@ -301,15 +310,17 @@ def test_a_plane_s_nodes_are_where_the_accessors_return_their_values(
     same ``einsum`` over the same weights, so the two agree to the rounding of a
     reduction over the node axis.
     """
-    xy, weights = plane_nodes(run, tables, plane=-1, guide=guide)
+    xy, weights = plane_nodes(run, tables=tables, plane=-1, guide=guide)
     np.testing.assert_array_equal(xy, tables.node_xy[0])
     np.testing.assert_array_equal(weights, tables.weights[0])
     assert xy.shape == (weights.size, 2)
-    first, _ = plane_nodes(run, tables, plane=0, guide=guide)
+    first, _ = plane_nodes(run, tables=tables, plane=0, guide=guide)
     np.testing.assert_array_equal(first, xy)
-    density = reconstructed_flux(run, tables, plane=-1, density=True, guide=guide)
+    density = reconstructed_flux(
+        run, tables=tables, plane=-1, density=True, guide=guide
+    )
     assert density.shape[0] == weights.size
-    flux = reconstructed_flux(run, tables, plane=-1, guide=guide)
+    flux = reconstructed_flux(run, tables=tables, plane=-1, guide=guide)
     assert_allclose(weights @ density, flux, rtol=0, atol=ROUNDING * np.max(flux))
 
 
@@ -324,7 +335,7 @@ def test_the_energy_is_the_time_integral_of_the_flux(
     is left is the sampled Gram defect of the basis, and arithmetic.
     """
     grid = grid_of(run)
-    flux = reconstructed_flux(run, tables, plane=-1, guide=guide)
+    flux = reconstructed_flux(run, tables=tables, plane=-1, guide=guide)
     integrated = float(np.sum(flux)) * float(grid.dt)
     recorded = float(np.ravel(run.planes()[-1].stats["physical_energy"])[0])
     departure = abs(integrated - recorded) / recorded
@@ -343,8 +354,8 @@ def test_the_instantaneous_flux_averages_to_the_analytic_one(
     cycle-averaging detector does not see; over the whole window it sums to a
     fraction of the first, set by how many carrier cycles the window holds.
     """
-    analytic = reconstructed_flux(run, tables, plane=-1, guide=guide)
-    instantaneous = instantaneous_flux(run, tables, plane=-1, guide=guide)
+    analytic = reconstructed_flux(run, tables=tables, plane=-1, guide=guide)
+    instantaneous = instantaneous_flux(run, tables=tables, plane=-1, guide=guide)
     assert instantaneous.shape == analytic.shape
     # They are not the same trace: the sum-frequency term is of the same size as
     # the flux itself at any one instant.
@@ -381,9 +392,11 @@ def test_a_coordinate_intensity_is_not_the_physical_one(pair_guide, grid):
     state[0] = built[0] / np.sqrt(2.0)
     state[1] = built[0] / np.sqrt(2.0)
     output = cast("MemoryOutput", simulation.with_input(state).run(progress="none"))
-    per_channel = coordinate_intensity(output, route.tables, plane=-1, guide=pair_guide)
+    per_channel = coordinate_intensity(
+        output, tables=route.tables, plane=-1, guide=pair_guide
+    )
     total = reconstructed_flux(
-        output, route.tables, plane=-1, density=True, guide=pair_guide
+        output, tables=route.tables, plane=-1, density=True, guide=pair_guide
     )
     assert per_channel.shape == (2, *total.shape)
     scale = float(np.max(np.abs(total)))
@@ -453,9 +466,9 @@ def test_an_ordinary_run_is_refused_every_general_accessor(tables, guide):
         plane_nodes,
     ):
         with pytest.raises(OutputError, match="is unavailable for this modal run"):
-            accessor(ordinary, tables, plane=-1, guide=guide)
+            accessor(ordinary, tables=tables, plane=-1, guide=guide)
     with pytest.raises(OutputError, match="is unavailable for this modal run"):
-        coordinate_intensity(ordinary, tables, plane=-1, guide=guide)
+        coordinate_intensity(ordinary, tables=tables, plane=-1, guide=guide)
     with pytest.raises(OutputError, match="is unavailable for this modal run"):
         physical_energy(ordinary)
 
@@ -464,17 +477,44 @@ def test_a_handler_with_no_record_is_refused(tables, guide):
     """Nothing is reconstructed from a handler that was never opened."""
     empty = MemoryOutput()
     with pytest.raises(OutputError, match="needs an opened output"):
-        electric_field(empty, tables, plane=-1, guide=guide)
+        electric_field(empty, tables=tables, plane=-1, guide=guide)
     with pytest.raises(OutputError, match="needs an opened output"):
         channel_labels(empty)
 
 
-def test_a_reconstruction_needs_one_plane(run, tables, guide):
-    """A whole run of physical fields is not what an accessor returns by default."""
-    with pytest.raises(OutputError, match="made on one saved plane"):
-        electric_field(run, tables, guide=guide)
-    with pytest.raises(OutputError, match="made on one saved plane"):
-        plane_nodes(run, tables, guide=guide)
+def test_a_reconstruction_reads_the_last_plane_by_default(run, tables, guide):
+    """One plane, the last unless another is named, and never two names for one."""
+    positions = run["z"]
+    # The same stored plane and the same tables either way: exact.
+    assert np.array_equal(
+        electric_field(run, tables=tables, guide=guide),
+        electric_field(run, tables=tables, plane=len(positions) - 1, guide=guide),
+    )
+    assert np.array_equal(
+        plane_nodes(run, tables=tables, z=float(positions[0]), guide=guide)[1],
+        plane_nodes(run, tables=tables, plane=0, guide=guide)[1],
+    )
+    with pytest.raises(ProcessingError, match="not both"):
+        electric_field(run, tables=tables, plane=0, z=0.0, guide=guide)
+
+
+def test_the_tables_are_rebuilt_from_the_guide_when_not_given(run, tables, guide):
+    """The guide alone is enough: the rebuild has the run's own table identity."""
+    # The rebuild repeats the same deterministic solve and tabulation, so the
+    # reconstruction agrees with the one from the route's tables to the bit.
+    assert np.array_equal(
+        reconstructed_flux(run, guide=guide),
+        reconstructed_flux(run, tables=tables, guide=guide),
+    )
+    xy, weights = plane_nodes(run, guide=guide)
+    assert np.array_equal(weights, plane_nodes(run, tables=tables, guide=guide)[1])
+    assert xy.shape == (weights.size, 2)
+
+
+def test_a_file_without_a_table_extent_asks_for_the_tables(guide):
+    """A record whose table identity has no z_span cannot say what to rebuild."""
+    with pytest.raises(OutputError, match="records no z_span"):
+        electric_field(example_general_output(), guide=guide)
 
 
 def test_the_wrong_guides_tables_are_refused_by_the_field_that_disagrees(
@@ -484,7 +524,7 @@ def test_the_wrong_guides_tables_are_refused_by_the_field_that_disagrees(
     other = route_for(general_guide(grid=grid, radius=1.6e-6), grid).tables
     assert other.identity["n_nodes"] == tables.identity["n_nodes"]
     with pytest.raises(OutputError, match=r"their modal\.tables\.model_id is"):
-        electric_field(run, other, plane=-1, guide=guide)
+        electric_field(run, tables=other, plane=-1, guide=guide)
 
 
 def test_the_analytic_signal_comes_back_in_the_convention_asked_for(run, tables, guide):
@@ -494,25 +534,31 @@ def test_the_analytic_signal_comes_back_in_the_convention_asked_for(run, tables,
     processing hands back the optics one by default; the reconstruction did not,
     which made it the one accessor whose complex output meant something else.
     """
-    optics = electric_field(run, tables, plane=-1, analytic=True, guide=guide)
+    optics = electric_field(run, tables=tables, plane=-1, analytic=True, guide=guide)
     internal = electric_field(
-        run, tables, plane=-1, analytic=True, convention="fft", guide=guide
+        run, tables=tables, plane=-1, analytic=True, convention="fft", guide=guide
     )
     assert np.array_equal(optics, np.conj(internal))
     assert not np.array_equal(optics, internal)
     assert np.array_equal(
-        magnetic_field(run, tables, plane=-1, analytic=True, guide=guide),
+        magnetic_field(run, tables=tables, plane=-1, analytic=True, guide=guide),
         np.conj(
             magnetic_field(
-                run, tables, plane=-1, analytic=True, convention="fft", guide=guide
+                run,
+                tables=tables,
+                plane=-1,
+                analytic=True,
+                convention="fft",
+                guide=guide,
             )
         ),
     )
     # The real field is convention-free, and both conventions give it.
-    real = electric_field(run, tables, plane=-1, guide=guide)
+    real = electric_field(run, tables=tables, plane=-1, guide=guide)
     assert np.array_equal(real, np.real(internal))
     assert np.array_equal(
-        real, electric_field(run, tables, plane=-1, convention="fft", guide=guide)
+        real,
+        electric_field(run, tables=tables, plane=-1, convention="fft", guide=guide),
     )
 
 
@@ -535,18 +581,38 @@ def test_a_guide_sampled_at_other_knots_is_refused_although_its_tables_agree(
         guide, sampling=dataclasses.replace(sampling, omega=moved)
     )
     with pytest.raises(OutputError, match=r"their modal\.guide\.sampling\.omega\."):
-        electric_field(run, tables, plane=-1, guide=other)
+        electric_field(run, tables=tables, plane=-1, guide=other)
     # The tables alone do not catch it, which is why the guide is **required**:
     # the keyword has no default and no alias, so the narrower check cannot be
     # reached at all.
     with pytest.raises(TypeError, match="guide"):
-        electric_field(run, tables, plane=-1)  # type: ignore[call-arg]
+        electric_field(run, tables=tables, plane=-1)  # type: ignore[call-arg]
     # And the guide that produced the file goes through every accessor.
-    assert electric_field(run, tables, plane=-1, guide=guide).shape[1] == 3
-    assert reconstructed_flux(run, tables, plane=-1, guide=guide).ndim == 1
-    assert instantaneous_flux(run, tables, plane=-1, guide=guide).ndim == 1
-    assert magnetic_field(run, tables, plane=-1, guide=guide).shape[1] == 3
-    assert coordinate_intensity(run, tables, plane=-1, guide=guide).ndim == 3
+    assert electric_field(run, tables=tables, plane=-1, guide=guide).shape[1] == 3
+    assert reconstructed_flux(run, tables=tables, plane=-1, guide=guide).ndim == 1
+    assert instantaneous_flux(run, tables=tables, plane=-1, guide=guide).ndim == 1
+    assert magnetic_field(run, tables=tables, plane=-1, guide=guide).shape[1] == 3
+    assert coordinate_intensity(run, tables=tables, plane=-1, guide=guide).ndim == 3
+
+
+def test_a_rebuild_from_a_guide_that_cannot_rebuild_is_refused_by_name(run, guide):
+    """With no tables given, a guide with no sampling has nothing to rebuild from."""
+    bare = dataclasses.replace(guide, sampling=None)
+    with pytest.raises(OutputError, match="cannot be rebuilt from this guide"):
+        electric_field(run, guide=bare)
+
+
+def test_the_reference_is_rebuilt_on_a_field_grid_only(guide):
+    """An envelope grid has no general modal tables to rebuild."""
+    envelope = EnvelopeGrid.from_limits(SHORT_Z, 835e-9, (815e-9, 860e-9), 60e-15)
+    with pytest.raises(TranslationError, match="field grid"):
+        general.reference_tables(guide, envelope, z_end=SHORT_Z, gram_atol=1e-9)
+
+
+def test_an_ordinary_run_has_no_reference_to_rebuild(guide):
+    """`reference_tables` is for a general modal run's record."""
+    with pytest.raises(OutputError, match="does not hold one"):
+        reference_tables(example_output(), guide=guide)
 
 
 def test_a_guide_with_no_sampling_has_no_identity_to_check(run, tables, guide):
@@ -558,7 +624,7 @@ def test_a_guide_with_no_sampling_has_no_identity_to_check(run, tables, guide):
     """
     bare = dataclasses.replace(guide, sampling=None)
     with pytest.raises(OutputError, match="declares no sampling"):
-        electric_field(run, tables, plane=-1, guide=bare)
+        electric_field(run, tables=tables, plane=-1, guide=bare)
 
 
 def test_a_guide_whose_region_declares_another_response_is_refused(run, tables, grid):
@@ -566,7 +632,7 @@ def test_a_guide_whose_region_declares_another_response_is_refused(run, tables, 
     other = general_guide(grid=grid, chi3=3.0e-22)
     expected = r"their modal\.guide\.regions\.0\.kerr\.chi3"
     with pytest.raises(OutputError, match=expected):
-        reconstructed_flux(run, tables, plane=-1, guide=other)
+        reconstructed_flux(run, tables=tables, plane=-1, guide=other)
 
 
 def test_an_identity_block_that_is_a_subset_is_refused_as_incomplete(tables, guide):
@@ -577,7 +643,7 @@ def test_an_identity_block_that_is_a_subset_is_refused_as_incomplete(tables, gui
     the standing exercise of this branch.
     """
     with pytest.raises(OutputError, match=r"carries no modal\.tables\.n_nodes"):
-        electric_field(example_general_output(), tables, plane=-1, guide=guide)
+        electric_field(example_general_output(), tables=tables, plane=-1, guide=guide)
 
 
 def edited(run, entry, value):
@@ -600,7 +666,9 @@ def test_an_identity_block_carrying_more_than_the_reference_is_refused(
         "sidecar_digest": "0" * 8
     }
     with pytest.raises(OutputError, match=r"carries modal\.tables\.sidecar_digest"):
-        electric_field(edited(run, "tables", fuller), tables, plane=-1, guide=guide)
+        electric_field(
+            edited(run, "tables", fuller), tables=tables, plane=-1, guide=guide
+        )
 
 
 def test_a_record_with_no_identity_block_at_all_is_refused(run, tables, guide):
@@ -610,9 +678,11 @@ def test_a_record_with_no_identity_block_at_all_is_refused(run, tables, guide):
     the gate says what it found rather than raising where a type was assumed.
     """
     with pytest.raises(OutputError, match=r"records no modal\.guide identity"):
-        electric_field(edited(run, "guide", None), tables, plane=-1, guide=guide)
+        electric_field(edited(run, "guide", None), tables=tables, plane=-1, guide=guide)
     with pytest.raises(OutputError, match=r"records no modal\.tables identity"):
-        electric_field(edited(run, "tables", "a digest"), tables, plane=-1, guide=guide)
+        electric_field(
+            edited(run, "tables", "a digest"), tables=tables, plane=-1, guide=guide
+        )
 
 
 def test_a_reference_on_another_grid_is_refused(run, tables, guide):
@@ -629,13 +699,13 @@ def test_a_reference_on_another_grid_is_refused(run, tables, guide):
     assert narrow.n_omega != len(tables.omega)
     other = route_for(general_guide(grid=narrow), narrow).tables
     with pytest.raises(OutputError, match=r"their modal\.tables\.n_omega is"):
-        electric_field(run, other, plane=-1, guide=guide)
+        electric_field(run, tables=other, plane=-1, guide=guide)
     moved = np.array(tables.omega, dtype=float)
     moved[len(moved) // 2] *= 1.0 + 1e-6
     shifted = dataclasses.replace(tables, omega=moved)
     assert dict(shifted.identity) == dict(tables.identity)
     with pytest.raises(OutputError, match="rebuild the route on this run"):
-        electric_field(run, shifted, plane=-1, guide=guide)
+        electric_field(run, tables=shifted, plane=-1, guide=guide)
 
 
 # ---------------------------------------------------------------- the whitelist

@@ -80,7 +80,10 @@ there is no constructor that expands the series about zero frequency.
 
 Loss is stated in dB/m at the interface and converted by
 {func}`solprop.nonlinear.gnlse.attenuation_from_db`:
-$\alpha = \ln(10)\,L/10$, so that the power falls as $\mathrm{e}^{-\alpha z}$.
+$\alpha = \ln(10)\,L/10$, so that the power falls as $\mathrm{e}^{-\alpha z}$. A
+specified mode takes the coefficient as `alpha=` (a number, a function of frequency or
+a declared path), as a step-index fibre and a hollow mode's absolute attenuation do, and
+returns it from `attenuation(omega)`.
 
 ### A varying effective area
 

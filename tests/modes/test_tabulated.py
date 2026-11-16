@@ -213,7 +213,8 @@ class AbsoluteLoss:
         return np.full_like(omega, 1e-15)
 
 
-def marcatili_errors(count, *, kind="HE", loss=True, gradient=False, mixture=False):
+def marcatili_errors(count, *, kind="HE", loss=None, gradient=False, mixture=False):
+    loss = {} if loss is None else loss
     omega = 2 * np.pi * C / np.linspace(300e-9, 2e-6, count)
     family = {"kind": kind, "n": 1 if kind == "HE" else 0}
     vacuum = MarcatiliMode(15e-6, cladding=1.45, **family)
@@ -224,16 +225,16 @@ def marcatili_errors(count, *, kind="HE", loss=True, gradient=False, mixture=Fal
         # rationalised root; the rule must be exact on that path as well.
         populations = Mixture.fill({"Ar": 0.8, "Ne": 0.2}, pressure=pressure)
         model = TabulatedHollowMode(
-            15e-6, mixture=populations, table=table, loss=loss, **family
+            15e-6, mixture=populations, table=table, **loss, **family
         )
         exact = MarcatiliMode(
-            15e-6, mixture=populations, cladding=1.45, loss=loss, **family
+            15e-6, mixture=populations, cladding=1.45, **loss, **family
         )
     else:
         model = TabulatedHollowMode(
-            15e-6, "Ar", pressure, table=table, loss=loss, **family
+            15e-6, "Ar", pressure, table=table, **loss, **family
         )
-        exact = MarcatiliMode(15e-6, "Ar", pressure, cladding=1.45, loss=loss, **family)
+        exact = MarcatiliMode(15e-6, "Ar", pressure, cladding=1.45, **loss, **family)
     query = 2 * np.pi * C / np.linspace(500e-9, 1500e-9, 501)
     errors = []
     # optmat's argon is qualified over the mandated 2 um window (SEP 3, Phase 4a),
@@ -276,7 +277,11 @@ def marcatili_errors(count, *, kind="HE", loss=True, gradient=False, mixture=Fal
 
 
 @pytest.mark.parametrize("kind", ["HE", "TE", "TM"])
-@pytest.mark.parametrize("loss", [True, False, 2.0, AbsoluteLoss()])
+@pytest.mark.parametrize(
+    "loss",
+    [{}, {"loss_scale": 0.0}, {"loss_scale": 2.0}, {"alpha": AbsoluteLoss()}],
+    ids=["model", "lossless", "scaled", "alpha"],
+)
 @pytest.mark.parametrize("gradient", [False, True])
 def test_marcatili_exactness_and_convergence(kind, loss, gradient):
     errors = np.array(

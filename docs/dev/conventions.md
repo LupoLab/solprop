@@ -294,7 +294,8 @@ Cartesian one).
   the full Marcatili model onto one Robin impedance and shares that row's `v_n`: its
   `k_eff = k/v_n` uses the same vacuum `k = ω/c`, while the paraxial carrier it is written
   about is the in-core `k√ε_co`. It is the loss model of its channels, so it is
-  declared instead of a `LossSpec`, never beside one. `CoherentWall(impedance="te_tm")`
+  declared instead of a loss setting (`alpha`, or a `loss_scale` other than one), never
+  beside one. `CoherentWall(impedance="te_tm")`
   condenses the wall's **two** grazing impedances instead of their average — `1/k_TM` for
   the field normal to the wall and `1/k_TE` for the field tangential to it, this package's
   own `v_TM` and `v_TE` over `k_0` — rotated into the radial families of one total
@@ -307,7 +308,7 @@ Cartesian one).
   measured in `docs/guide/waveguides/modes.md`. For a solid guide the same connection is `Γ = W⁻¹S`
   with `S_mn = ⟨ψ_m|∂_zψ_n⟩` on the flux metric and its self-terms kept, anti-Hermitian
   rather than antisymmetric, its diagonal the normalisation's own rate plus a gauge phase
-  (`solprop.modes.modal_connection`, `docs/guide/waveguides/general-modal.md`); the Bessel form is its
+  (`solprop.modes.connection.modal_connection`, `docs/guide/waveguides/general-modal.md`); the Bessel form is its
   real exactly-normalised special case. The cumulative `Φ` beside such a block must be a
   multiple of the identity in the channel axis, so its normalisation term is the lowest
   channel's, and the flow's diagonal carries the rest of each channel's own,

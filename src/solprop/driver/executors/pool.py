@@ -28,7 +28,7 @@ from solprop._process import (
     spawn_environment,
     thread_budget,
 )
-from solprop.exceptions import DriverError, StopRequested
+from solprop.exceptions import DriverError, ExecutorError, StopRequested
 from solprop.log import PlaneSummary, ProgressReporter, StopFlag
 
 __all__ = ["ControlledWork", "MemoryBudget", "PlaneScalars", "Pool", "peak_rss"]
@@ -340,7 +340,7 @@ def _windows_peak_working_set() -> int:
     if not kernel32.K32GetProcessMemoryInfo(
         process, ctypes.byref(counters), counters.cb
     ):
-        raise DriverError("Windows refused the process memory query")
+        raise ExecutorError("Windows refused the process memory query")
     return int(counters.PeakWorkingSetSize)
 
 
@@ -352,7 +352,7 @@ def _windows_physical_memory() -> int:
     status = _MemoryStatus()
     status.dwLength = ctypes.sizeof(status)
     if not _kernel32().GlobalMemoryStatusEx(ctypes.byref(status)):
-        raise DriverError("Windows refused the physical memory query")
+        raise ExecutorError("Windows refused the physical memory query")
     return int(status.ullTotalPhys)
 
 
@@ -369,7 +369,7 @@ def _memory_limit() -> int:
         try:
             group = cgroup_memory()
         except (OSError, ValueError) as error:
-            raise DriverError(
+            raise ExecutorError(
                 f"cannot read the control-group memory limit: {error}"
             ) from error
         if group is not None:

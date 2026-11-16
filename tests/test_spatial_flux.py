@@ -350,7 +350,7 @@ def test_an_incident_beam_is_the_launch_its_build_gives(order, requested, kind) 
     )
     space = RadialGrid(1e-3, 64)
     pulse = SpatialPulse(
-        GaussianPulse(wavelength=800e-9, fwhm=30e-15, **requested), 2e-4, order=order
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, **requested), 2e-4, m=order
     )
     built = pulse.build(grid, space, medium=SpatialMedium(1.45))
     field = np.moveaxis(space.hankel.inverse(np.moveaxis(built, 0, -1)), -1, 0)

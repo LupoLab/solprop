@@ -67,7 +67,7 @@ def grid():
 @pytest.fixture(scope="module")
 def capillary():
     """A lossless helium-filled capillary, so a Kerr run conserves energy exactly."""
-    return MarcatiliMode(125e-6, "He", 1.0, cladding=1.45, loss=False)
+    return MarcatiliMode(125e-6, "He", 1.0, cladding=1.45, loss_scale=0.0)
 
 
 def modes_of(capillary, count):
@@ -79,7 +79,7 @@ def modes_of(capillary, count):
             capillary.pressure,
             m=m,
             cladding=capillary.cladding,
-            loss=False,
+            loss_scale=0.0,
         )
         for m in range(1, count + 1)
     ]

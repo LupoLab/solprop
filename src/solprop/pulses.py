@@ -157,9 +157,9 @@ class SpatialPulse(Displayed):
     waist : float
         Positive finite 1/e^2 intensity radius in m; on a line, the 1/e^2
         intensity half-width in x.
-    order : int
-        Super-Gaussian order, at least 1. The field profile is
-        ``exp(-(r/waist)**(2*order))``, with ``r = |x|`` on a line.
+    m : int
+        Super-Gaussian order, at least 1, as :class:`GaussianPulse`'s in time. The
+        field profile is ``exp(-(r/waist)**(2*m))``, with ``r = |x|`` on a line.
     propz : float
         Signed launch pre-propagation distance in m, finite. Applied by the exact
         longitudinal operator with the launch plane's material frozen. Zero launches
@@ -178,7 +178,7 @@ class SpatialPulse(Displayed):
     Raises
     ------
     PulseError
-        If the waist, order, distance, Jones vector, displacement or tilt is invalid.
+        If the waist, `m`, distance, Jones vector, displacement or tilt is invalid.
 
     Notes
     -----
@@ -199,7 +199,7 @@ class SpatialPulse(Displayed):
 
     temporal: Pulse
     waist: float
-    order: int = 1
+    m: int = 1
     propz: float = 0.0
     jones: tuple[complex, ...] = (1.0 + 0.0j,)
     displacement: tuple[float, float] = (0.0, 0.0)
@@ -208,13 +208,9 @@ class SpatialPulse(Displayed):
     def __post_init__(self) -> None:
         """Validate the beam specification before sampling any grids."""
         positive(self.waist, "waist", PulseError, parameter="waist")
-        if (
-            isinstance(self.order, bool)
-            or not isinstance(self.order, int)
-            or self.order < 1
-        ):
-            msg = "spatial order must be an integer of at least 1"
-            raise PulseError(msg)
+        if isinstance(self.m, bool) or not isinstance(self.m, int) or self.m < 1:
+            msg = f"m must be a super-Gaussian order of at least 1, got {self.m!r}"
+            raise PulseError(msg, parameter="m")
         if not math.isfinite(self.propz):
             msg = "spatial propz must be finite"
             raise PulseError(msg)
@@ -252,13 +248,13 @@ class SpatialPulse(Displayed):
         Returns
         -------
         str
-            For example ``SpatialPulse(waist=100 um, order=1, GaussianPulse(...))``.
+            For example ``SpatialPulse(waist=100 um, m=1, GaussianPulse(...))``.
         """
         return line(
             "SpatialPulse",
             [
                 ("waist", engineering(self.waist, "m")),
-                ("order", self.order),
+                ("m", self.m),
                 ("", repr(self.temporal)),
             ],
         )
@@ -270,7 +266,7 @@ class SpatialPulse(Displayed):
         """
         rows: list[tuple[str, object]] = [
             ("waist", f"{engineering(self.waist, 'm')} (1/e^2 intensity radius)"),
-            ("order", self.order),
+            ("m", self.m),
             ("launched", f"{engineering(self.propz, 'm')} from the waist"),
             ("components", len(self.jones)),
         ]
@@ -501,7 +497,7 @@ class SpatialPulse(Displayed):
             )
             raise PulseError(msg)
         live = grid.active_mask & (grid.omega > 0) & (reference > 0.0)
-        order = self.order
+        order = self.m
         area = (
             math.pi * self.waist**2 * 2.0 ** (-1.0 / order) * math.gamma(1 + 1 / order)
         )
@@ -546,9 +542,9 @@ class SpatialPulse(Displayed):
 
         - ``radius``: distances from the beam axis in m, shape ``(n_r,)``.
         """
-        limit = _GAUSS_EXPONENT_CLIP ** (1 / (2 * self.order))
+        limit = _GAUSS_EXPONENT_CLIP ** (1 / (2 * self.m))
         scaled = np.minimum(radius, self.waist * limit) / self.waist
-        return np.exp(-(scaled ** (2 * self.order)))
+        return np.exp(-(scaled ** (2 * self.m)))
 
 
 @dataclass(frozen=True, eq=False, repr=False)
@@ -771,9 +767,7 @@ class _Aligner:
                 )
                 raise PulseError(msg)
         # The beam's width where its intensity falls to the edge's fluence.
-        width = (
-            2 * beam.waist * (math.log(1 / _EDGE_FLUENCE) / 2) ** (1 / (2 * beam.order))
-        )
+        width = 2 * beam.waist * (math.log(1 / _EDGE_FLUENCE) / 2) ** (1 / (2 * beam.m))
         slope = math.hypot(math.sin(beam.tilt[0]), math.sin(beam.tilt[1]))
         delay = width * slope * float(np.max(wavenumber)) / float(np.max(grid.omega))
         span = float(grid.t[-1] - grid.t[0])
@@ -883,7 +877,7 @@ def _unit_jones(jones: Sequence[complex]) -> Complex[np.ndarray, " n_pol"]:
 class PlanarPulse(SpatialPulse):
     """Launch an astigmatic Gaussian beam into the hybrid planar grid.
 
-    The beam is ``exp(-((x - offset_x)/waist_x)**2) exp(-(|y|/waist)**(2 order))`` in
+    The beam is ``exp(-((x - offset_x)/waist_x)**2) exp(-(|y|/waist)**(2 m))`` in
     field, carrying the temporal pulse, polarised along the slab modes' own
     component (``y`` for TE, ``x`` for TM). In x it is projected onto the slab modes
     (:func:`solprop.modes.slab.gaussian_projection`, with signs); in y it is sampled
@@ -901,7 +895,7 @@ class PlanarPulse(SpatialPulse):
         beam's.
     waist : float
         The 1/e **field** radius in y (the 1/e^2 intensity radius), m, positive.
-    order : int
+    m : int
         Super-Gaussian order in y, at least 1.
     propz : float
         Must be 0: the launch is at the entrance plane; a free-space
@@ -918,7 +912,7 @@ class PlanarPulse(SpatialPulse):
     Raises
     ------
     PulseError
-        If a waist, the order, `offset_x`, `propz` or `jones` is invalid.
+        If a waist, `m`, `offset_x`, `propz` or `jones` is invalid.
 
     Examples
     --------
@@ -992,7 +986,7 @@ class PlanarPulse(SpatialPulse):
             ("waist in x", f"{engineering(self.waist_x, 'm')} (1/e field radius)"),
             ("offset in x", engineering(self.offset_x, "m")),
             ("waist in y", f"{engineering(self.waist, 'm')} (1/e field radius)"),
-            ("order in y", self.order),
+            ("m in y", self.m),
             ("temporal", str(self.temporal)),
         ]
 
@@ -1046,11 +1040,11 @@ class PlanarPulse(SpatialPulse):
         if not isinstance(space, PlanarGrid):
             msg = "a PlanarPulse launches into a PlanarGrid"
             raise PulseError(msg)
-        limit = _GAUSS_EXPONENT_CLIP ** (1 / (2 * self.order))
+        limit = _GAUSS_EXPONENT_CLIP ** (1 / (2 * self.m))
         profile_y = np.exp(
             -(
                 (np.minimum(np.abs(space.y), self.waist * limit) / self.waist)
-                ** (2 * self.order)
+                ** (2 * self.m)
             )
         )
         coupled = gaussian_projection(space.modes, self.waist_x, offset=self.offset_x)
@@ -1385,17 +1379,17 @@ def _normalised(  # noqa: PLR0917 - called positionally
     return field
 
 
-def _frozen_phase(phase: Sequence[float] | np.ndarray) -> Float[np.ndarray, " n_deg"]:
+def _frozen_phase(phases: Sequence[float] | np.ndarray) -> Float[np.ndarray, " n_deg"]:
     """Return the Taylor coefficients as a validated read-only array.
 
-    - ``phase``: coefficients about the centre frequency, rad for order 0 and
+    - ``phases``: coefficients about the centre frequency, rad for order 0 and
       ``s**n`` for order ``n`` thereafter.
     - Returns: a read-only copy, shape ``(n_deg,)``.
     """
-    coefficients = np.array(phase, dtype=np.float64).reshape(-1)
+    coefficients = np.array(phases, dtype=np.float64).reshape(-1)
     if not np.all(np.isfinite(coefficients)):
-        msg = f"every spectral phase coefficient must be finite, got {phase!r}"
-        raise PulseError(msg, parameter="phase")
+        msg = f"every spectral phase coefficient must be finite, got {phases!r}"
+        raise PulseError(msg, parameter="phases")
     coefficients.setflags(write=False)
     return coefficients
 
@@ -1527,7 +1521,7 @@ class ShapedPulse(Displayed):
         Pulse energy, J. Exactly one of ``energy`` and ``peak_power`` is given.
     peak_power : float or None
         Peak power, W, realised *after* the spectral phase is applied.
-    phase : array_like
+    phases : array_like
         Optics-convention spectral phase as Taylor coefficients about ``wavelength``:
         ``[CEP (rad), group delay (s), GDD (s**2), TOD (s**3), ...]``. Empty by default.
     t0 : float
@@ -1537,7 +1531,7 @@ class ShapedPulse(Displayed):
     wavelength: float
     energy: float | None = None
     peak_power: float | None = None
-    phase: Sequence[float] | np.ndarray = ()
+    phases: Sequence[float] | np.ndarray = ()
     t0: float = 0.0
 
     def __post_init__(self) -> None:
@@ -1551,7 +1545,7 @@ class ShapedPulse(Displayed):
         """
         positive(self.wavelength, "wavelength", PulseError, parameter="wavelength")
         _scaling(self.energy, self.peak_power)
-        object.__setattr__(self, "phase", _frozen_phase(self.phase))
+        object.__setattr__(self, "phases", _frozen_phase(self.phases))
 
     def _shape_fields(self) -> list[tuple[str, object]]:
         """Return the fields a subclass adds, for printing.
@@ -1582,8 +1576,8 @@ class ShapedPulse(Displayed):
             *self._shape_fields(),
             self._scale(),
         ]
-        if len(self.phase):
-            fields.append(("phase", f"[{phase_text(self.phase)}]"))
+        if len(self.phases):
+            fields.append(("phases", f"[{phase_text(self.phases)}]"))
         if self.t0:
             fields.append(("t0", engineering(self.t0, "s")))
         return line(type(self).__name__, fields)
@@ -1597,7 +1591,7 @@ class ShapedPulse(Displayed):
             ("wavelength", engineering(self.wavelength, "m")),
             *self._shape_fields(),
             self._scale(),
-            ("spectral phase", phase_text(self.phase)),
+            ("spectral phase", phase_text(self.phases)),
             ("delay", engineering(self.t0, "s")),
         ]
 
@@ -1672,7 +1666,7 @@ class ShapedPulse(Displayed):
         else:
             samples = amplitude * np.exp(1j * (omega_p - grid.omega0) * grid.t)
         spectrum = fourier.forward(samples, kind=grid.kind)
-        phase = np.asarray(self.phase)
+        phase = np.asarray(self.phases)
         spectrum = spectrum * _phase_factor(grid, phase, self.t0, omega_p)
         return _canonical(_rescale(spectrum, grid, target, quantity))
 
@@ -1827,7 +1821,7 @@ class GaussianPulse(ShapedPulse):
         Pulse energy, J. Exactly one of ``energy`` and ``peak_power`` is given.
     peak_power : float or None
         Peak power, W, realised after the spectral phase.
-    phase : array_like
+    phases : array_like
         Optics-convention Taylor coefficients about ``wavelength``: radians at order 0
         and ``s**n`` at order ``n`` thereafter.
     t0 : float
@@ -1920,7 +1914,7 @@ class SechPulse(ShapedPulse):
         Pulse energy, J. Exactly one of ``energy`` and ``peak_power`` is given.
     peak_power : float or None
         Peak power, W, realised after the spectral phase.
-    phase : array_like
+    phases : array_like
         Optics-convention Taylor coefficients about ``wavelength``: radians at order 0
         and ``s**n`` at order ``n`` thereafter.
     t0 : float
@@ -2028,7 +2022,7 @@ class CustomPulse(ShapedPulse):
         Pulse energy, J. Exactly one of ``energy`` and ``peak_power`` is given.
     peak_power : float or None
         Peak power, W, realised after the spectral phase.
-    phase : array_like
+    phases : array_like
         Optics-convention Taylor coefficients about ``wavelength``: radians at order 0
         and ``s**n`` at order ``n`` thereafter.
     t0 : float
@@ -2129,7 +2123,7 @@ class _MeasuredPulse(Displayed):
     """
 
     energy: float
-    phase: Sequence[float] | np.ndarray = ()
+    phases: Sequence[float] | np.ndarray = ()
     t0: float = 0.0
     wavelength: float | None = None
     _TITLE: ClassVar[str]
@@ -2142,7 +2136,7 @@ class _MeasuredPulse(Displayed):
         positive(self.energy, "energy", PulseError, parameter="energy")
         if self.wavelength is not None:
             positive(self.wavelength, "wavelength", PulseError, parameter="wavelength")
-        object.__setattr__(self, "phase", _frozen_phase(self.phase))
+        object.__setattr__(self, "phases", _frozen_phase(self.phases))
 
     def _data_centre(self) -> float:
         """Return the data's spectral centre of mass, rad/s."""
@@ -2182,7 +2176,7 @@ class _MeasuredPulse(Displayed):
         return f"{type(self).__name__}: {self._TITLE}", [
             ("data", self._data_text()),
             ("energy", engineering(self.energy, "J")),
-            ("further phase", f"{phase_text(self.phase)} about {reference}"),
+            ("further phase", f"{phase_text(self.phases)} about {reference}"),
             ("further delay", engineering(self.t0, "s")),
         ]
 
@@ -2196,7 +2190,7 @@ class _MeasuredPulse(Displayed):
         """
         optics = optics * grid.omega_window
         spectrum = fourier.spectrum_to_internal(optics, kind=grid.kind)
-        phase = np.asarray(self.phase)
+        phase = np.asarray(self.phases)
         spectrum = spectrum * _phase_factor(
             grid, phase, self.t0, self._reference_frequency()
         )
@@ -2243,7 +2237,7 @@ class DataPulse(_MeasuredPulse):
         ``None``, the default, recovers the phase from ``spectrum`` by unwrapping it.
     energy : float
         Pulse energy to scale to, J.
-    phase : array_like
+    phases : array_like
         Further optics-convention Taylor coefficients, applied on top of the phase
         already in the data, about ``wavelength``; radians at order 0 and ``s**n``
         thereafter.
@@ -2414,7 +2408,7 @@ class DataPulse(_MeasuredPulse):
         spectral_phase: Float[np.ndarray, " n_data_phase"],
         *,
         energy: float,
-        phase: Sequence[float] | np.ndarray = (),
+        phases: Sequence[float] | np.ndarray = (),
         t0: float = 0.0,
         wavelength: float | None = None,
         # The return annotation stays quoted: beartype resolves it while the class body
@@ -2438,7 +2432,7 @@ class DataPulse(_MeasuredPulse):
             shape ``(n_data,)``.
         energy : float
             Pulse energy to scale to, J.
-        phase : array_like, optional
+        phases : array_like, optional
             Further Taylor coefficients about ``wavelength``, ``s**n`` at order ``n``.
         t0 : float, optional
             Further delay, s.
@@ -2481,7 +2475,7 @@ class DataPulse(_MeasuredPulse):
             spectrum=spectrum,
             spectral_phase=angle,
             energy=energy,
-            phase=phase,
+            phases=phases,
             t0=t0,
             wavelength=wavelength,
         )
@@ -2557,7 +2551,7 @@ class TimeDataPulse(_MeasuredPulse):
         Measured field on ``t``, arbitrary units, shape ``(n_data,)``, real or complex.
     energy : float
         Pulse energy to scale to, J.
-    phase : array_like
+    phases : array_like
         Further optics-convention Taylor coefficients, applied on top of the phase
         already in the record, about ``wavelength``; radians at order 0 and ``s**n``
         thereafter.

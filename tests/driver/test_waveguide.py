@@ -260,10 +260,10 @@ def test_capillary_refuses_a_declaration_a_supplied_set_would_ignore():
     """A supplied set is the geometry; a declared argument it ignores is named.
 
     The radius is positional and so always declared: a different bore, and a taper
-    beside a constant-bore set, are refused by the argument's name. `model`, `loss`
-    and `cladding` are refused only away from their defaults and away from the
-    modes' own value, so a consistent call -- the same number, the same profile, or
-    the modes' own setting repeated -- stays admitted.
+    beside a constant-bore set, are refused by the argument's name. `model`, `alpha`,
+    `loss_scale` and `cladding` are refused only away from their defaults and away
+    from the modes' own value, so a consistent call -- the same number, the same
+    profile, or the modes' own setting repeated -- stays admitted.
     """
 
     def build(radius, modes, **changes):
@@ -286,10 +286,11 @@ def test_capillary_refuses_a_declaration_a_supplied_set_would_ignore():
         build(125e-6, [MarcatiliMode(taper)])
     for name, value in (
         ("model", "reduced"),
-        ("loss", False),
-        ("loss", 0.5),
+        ("loss_scale", 0.0),
+        ("loss_scale", 0.5),
         ("cladding", 1.45),
-        ("loss", lambda omega: omega),
+        ("alpha", 0.1),
+        ("alpha", lambda omega: omega),
     ):
         with pytest.raises(DriverError, match=f"from_capillary's {name}="):
             build(125e-6, bore, **{name: value})
@@ -298,10 +299,10 @@ def test_capillary_refuses_a_declaration_a_supplied_set_would_ignore():
     build(125e-6, bore)
     build(Linear(125e-6, 100e-6, 0.001), [MarcatiliMode(taper)])
     own = [
-        MarcatiliMode(125e-6, m=index, model="reduced", loss=False, cladding=1.45)
+        MarcatiliMode(125e-6, m=index, model="reduced", loss_scale=0.0, cladding=1.45)
         for index in (1, 2)
     ]
-    build(125e-6, own, model="reduced", loss=False, cladding=1.45)
+    build(125e-6, own, model="reduced", loss_scale=0.0, cladding=1.45)
     build(125e-6, own)
     # A set with no core radius at all ignores the radius whatever it says.
     with pytest.raises(DriverError, match="declares no core radius"):

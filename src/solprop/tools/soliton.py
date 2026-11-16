@@ -50,6 +50,9 @@ def dispersion_length(fwhm: float, beta2: float, shape: PulseShape = "sech") -> 
         Group-velocity dispersion in s^2/m, non-zero.
     shape : {'sech', 'gauss'}, optional
         The pulse shape; see :func:`~solprop.tools.pulse.pulse_width`.
+        Default ``"sech"``, unlike the ``"gauss"`` default of
+        :func:`~solprop.driver.interface.prop_capillary` and
+        :func:`~solprop.driver.interface.prop_gnlse`.
 
     Returns
     -------
@@ -128,6 +131,9 @@ def soliton_order(
         Group-velocity dispersion in s^2/m, non-zero.
     shape : {'sech', 'gauss'}, optional
         The pulse shape, used for the width **throughout**.
+        Default ``"sech"``, unlike the ``"gauss"`` default of
+        :func:`~solprop.driver.interface.prop_capillary` and
+        :func:`~solprop.driver.interface.prop_gnlse`.
 
     Returns
     -------
@@ -173,6 +179,9 @@ def soliton_peak_power(
         Group-velocity dispersion in s^2/m, non-zero.
     shape : {'sech', 'gauss'}, optional
         The pulse shape, used for the width.
+        Default ``"sech"``, unlike the ``"gauss"`` default of
+        :func:`~solprop.driver.interface.prop_capillary` and
+        :func:`~solprop.driver.interface.prop_gnlse`.
 
     Returns
     -------
@@ -295,6 +304,9 @@ def soliton_content(
         Anomalous group-velocity dispersion in s^2/m, finite and negative.
     shape : {'sech', 'gauss'}, optional
         Unchirped input field shape; the Gaussian power is exp(-t^2/tau0^2).
+        Default ``"sech"``, unlike the ``"gauss"`` default of
+        :func:`~solprop.driver.interface.prop_capillary` and
+        :func:`~solprop.driver.interface.prop_gnlse`.
 
     Returns
     -------
@@ -358,6 +370,9 @@ def fission_length(
         Group-velocity dispersion in s^2/m, non-zero.
     shape : {'sech', 'gauss'}, optional
         The pulse shape; see :func:`~solprop.tools.pulse.pulse_width`.
+        Default ``"sech"``, unlike the ``"gauss"`` default of
+        :func:`~solprop.driver.interface.prop_capillary` and
+        :func:`~solprop.driver.interface.prop_gnlse`.
 
     Returns
     -------

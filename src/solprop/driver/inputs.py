@@ -29,7 +29,7 @@ from solprop.coupling import (
 )
 from solprop.driver._launch import launch_pulse
 from solprop.driver.defaults import NoiseModel
-from solprop.driver.routes.keywords import _PULSE_KEYWORDS, _about
+from solprop.driver.routes.keywords import _about
 from solprop.driver.settings import SimulationSettings
 from solprop.exceptions import CouplingError, DriverError
 from solprop.fourier import power_amplitude
@@ -357,15 +357,14 @@ def _shaped_pulse(
             return PulseSum(tuple(pulses))
     if shape == "sech":
         # The pulse names its own arguments, which are the keywords but for phase.
-        with _about(renamed=_PULSE_KEYWORDS):
-            return SechPulse(
-                wavelength=wavelength,
-                fwhm=fwhm,
-                width=width,
-                energy=energy,
-                peak_power=peak_power,
-                phase=phases,
-            )
+        return SechPulse(
+            wavelength=wavelength,
+            fwhm=fwhm,
+            width=width,
+            energy=energy,
+            peak_power=peak_power,
+            phases=phases,
+        )
     if shape != "gauss":
         msg = f"shape must be 'gauss' or 'sech', got {shape!r}"
         raise DriverError(msg, parameter="shape")
@@ -379,14 +378,13 @@ def _shaped_pulse(
             parameter="fwhm" if width is None else ("width", "shape"),
             rule="gauss-fwhm",
         )
-    with _about(renamed=_PULSE_KEYWORDS):
-        return GaussianPulse(
-            wavelength=wavelength,
-            fwhm=fwhm,
-            energy=energy,
-            peak_power=peak_power,
-            phase=phases,
-        )
+    return GaussianPulse(
+        wavelength=wavelength,
+        fwhm=fwhm,
+        energy=energy,
+        peak_power=peak_power,
+        phases=phases,
+    )
 
 
 def _shot_noise(
@@ -664,7 +662,7 @@ is below exp(-1000): the beam is resolved to rounding.
 
 def _beam_grid(pulse: SpatialPulse) -> RadialGrid:
     """Return the radial plane an incident beam is sampled on before coupling."""
-    radius = _BEAM_MARGIN * pulse.waist * _BEAM_EXTENT ** (1.0 / (2.0 * pulse.order))
+    radius = _BEAM_MARGIN * pulse.waist * _BEAM_EXTENT ** (1.0 / (2.0 * pulse.m))
     return RadialGrid(radius, _BEAM_NODES)
 
 
@@ -917,7 +915,7 @@ def _bind_spatial_rates(
     are all bound is only checked.
     """
     if _unbound_rates(simulation.responses):
-        simulation.responses = tuple(
+        simulation._responses = tuple(
             _bound_rates(
                 simulation.responses,
                 _spatial_input_peak(simulation, initial),

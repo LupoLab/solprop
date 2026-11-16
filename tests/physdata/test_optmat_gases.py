@@ -174,7 +174,7 @@ def test_a_named_or_supplied_model_is_checked_against_its_gas():
 
 def test_the_reference_state_is_the_dilute_limit():
     argon = OptmatSusceptibility.resolve("Ar")
-    assert argon.reference_state.pressure_bar == 0.0
+    assert argon.reference_state.pressure == 0.0
     assert argon.reference_density == 0.0
     with pytest.raises(MaterialError, match="no reference-state susceptibility"):
         argon._chi_and_derivative(np.array([1.0]))
@@ -450,7 +450,7 @@ def test_a_built_in_population_is_one_species_resolved():
     law = PoleSumSusceptibility(
         gas=Gas.N2,
         source="supplied",
-        reference_state=ReferenceState(pressure_bar=1.0, temperature=273.15),
+        reference_state=ReferenceState(pressure=1.0, temperature=273.15),
         wavelength_range=(400e-9, 1e-6),
         citation="a caller's own two-pole fit",
         b=(5.8e-4,),

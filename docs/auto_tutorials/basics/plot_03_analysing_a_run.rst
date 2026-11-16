@@ -193,14 +193,12 @@ The propagation maps. One figure per mode and one for the modal sum; here there 
 mode, so there is one figure. The spectral panel is in decibels below the peak and the
 temporal one is a linear power in an auto-chosen unit.
 
-.. GENERATED FROM PYTHON SOURCE LINES 115-122
+.. GENERATED FROM PYTHON SOURCE LINES 115-120
 
 .. code-block:: Python
 
 
-    figures = prop_2d(
-        run, "wavelength", spec_range=(650e-9, 1000e-9), time_range=(-150e-15, 150e-15)
-    )
+    figures = prop_2d(run, spec_range=(650e-9, 1000e-9), time_range=(-150e-15, 150e-15))
     figures[0].set_size_inches(9.5, 3.4)
     figures[0].tight_layout()
 
@@ -216,13 +214,13 @@ temporal one is a linear power in an auto-chosen unit.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 123-126
+.. GENERATED FROM PYTHON SOURCE LINES 121-124
 
 Slices at three positions. A colour per position; the temporal legend carries each
 trace's width at half maximum, and the spectral axis is logarithmic over six decades
 by default.
 
-.. GENERATED FROM PYTHON SOURCE LINES 126-132
+.. GENERATED FROM PYTHON SOURCE LINES 124-130
 
 .. code-block:: Python
 
@@ -244,13 +242,13 @@ by default.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 133-136
+.. GENERATED FROM PYTHON SOURCE LINES 131-134
 
 The energy along the fibre, with the conversion efficiency on the right-hand axis.
 Pure dispersion moves neither, which is the point: a plot that shows nothing happening
 is how you find out that nothing happened.
 
-.. GENERATED FROM PYTHON SOURCE LINES 136-141
+.. GENERATED FROM PYTHON SOURCE LINES 134-139
 
 .. code-block:: Python
 
@@ -271,12 +269,12 @@ is how you find out that nothing happened.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 142-144
+.. GENERATED FROM PYTHON SOURCE LINES 140-142
 
 The statistics the run recorded. Only the groups with something in them are drawn, so
 a run that recorded no waveguide statistics gets one figure rather than an error.
 
-.. GENERATED FROM PYTHON SOURCE LINES 144-149
+.. GENERATED FROM PYTHON SOURCE LINES 142-147
 
 .. code-block:: Python
 
@@ -297,7 +295,7 @@ a run that recorded no waveguide statistics gets one figure rather than an error
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 150-155
+.. GENERATED FROM PYTHON SOURCE LINES 148-153
 
 The same run from disk. A memory handler writes exactly the file the HDF5 handler
 would have written, ``open_file`` opens it again read-only through the same protocol,
@@ -305,7 +303,7 @@ and an accessor reading either returns the same bits -- which is what makes it s
 to develop an analysis against a small in-memory run and then point it at a large
 file.
 
-.. GENERATED FROM PYTHON SOURCE LINES 155-168
+.. GENERATED FROM PYTHON SOURCE LINES 153-166
 
 .. code-block:: Python
 
@@ -336,7 +334,7 @@ file.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 169-175
+.. GENERATED FROM PYTHON SOURCE LINES 167-173
 
 Related reading
 ---------------
@@ -348,7 +346,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.566 seconds)
+   **Total running time of the script:** (0 minutes 1.296 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_basics_plot_03_analysing_a_run.py:

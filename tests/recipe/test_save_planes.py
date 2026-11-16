@@ -104,6 +104,23 @@ def test_a_keyword_route_recipe_refuses_a_length_its_grid_disagrees_with():
         Recipe.loads(text).build()
 
 
+@pytest.mark.parametrize("length", ["", 'length = "none"\n'], ids=["omitted", "none"])
+def test_a_keyword_route_recipe_takes_its_length_from_its_grid(length):
+    # The route's length is required, None beside a grid: a recipe may leave it out or
+    # write none, and the route and the exported script both pass None.
+    text = GNLSE.replace('length = "1 cm"\n', length).replace(
+        'wavelength_limits = ["500 nm", "2 um"]\ntrange = "4 ps"\n',
+        'grid = { type = "EnvelopeGrid.from_limits", length = "2 cm", '
+        'reference_wavelength = "835 nm", wavelength_limits = ["500 nm", "2 um"], '
+        'trange = "4 ps" }\n',
+    )
+    assert "grid = " in text
+    recipe = Recipe.loads(text)
+    assert recipe.keywords()["length"] is None
+    assert recipe.build().grid.length == 0.02
+    assert "    length=None," in recipe.to_python()
+
+
 # ------------------------------------------------------------------ the selectors
 
 

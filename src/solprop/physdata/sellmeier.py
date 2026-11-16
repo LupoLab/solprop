@@ -86,14 +86,14 @@ class ReferenceState:
 
     Attributes
     ----------
-    pressure_bar : float
+    pressure : float
         Absolute pressure of the reported measurement, in bar.
     temperature : float
         Temperature of the reported measurement, in K, or room temperature where the
         source declares none.
     """
 
-    pressure_bar: float
+    pressure: float
     temperature: float
 
 
@@ -103,7 +103,7 @@ def _reference_density(gas: Gas, state: ReferenceState) -> float:
 
     - Returns: number density in m^-3, from optmat's equation of state.
     """
-    return density(gas, state.pressure_bar, state.temperature)
+    return density(gas, state.pressure, state.temperature)
 
 
 def _wavelength_extremes(omega: Float[np.ndarray, "*shape"]) -> tuple[float, float]:

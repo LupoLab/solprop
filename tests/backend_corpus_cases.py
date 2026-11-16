@@ -59,6 +59,7 @@ from solprop.output.store import PlaneStore
 from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
+from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, RungeKutta
 from solprop.stepper.multistep import Multistep
 
@@ -141,7 +142,7 @@ def walking_fibre(
         50.0, FIBRE, [0.0, 0.0, FIBRE_BETA2], wavelength=1e-6, grid=grid,
         pulses=[GaussianPulse(
             wavelength=2 * np.pi * C / (omega0 + offset), fwhm=200e-15,
-            peak_power=1.0, phase=[0.0, 0.1e-12],
+            peak_power=1.0, phases=[0.0, 0.1e-12],
         )],
         noise=None, raman=False, shock=False, save_planes=list(planes),
         backend=backend, integrator=integrator, absorber_scheme="split_step",
@@ -295,8 +296,12 @@ def line_edge(
         SpatialMedium(1.0),
         [],
         _beam(1e-9, 60e-6, propz=-2.4e-2),
+        # Recorded without statistics, before the route took its default ones.
         settings=_spatial_settings(
-            backend, integrator, spatial_absorber=SpatialAbsorber(kappa=8e4)
+            backend,
+            integrator,
+            spatial_absorber=SpatialAbsorber(kappa=8e4),
+            stats=StatsSpec(names=()),
         ),
         noise=None,
     )
@@ -322,7 +327,10 @@ def planar(
         PlanarGrid(modes, 1e-3, 8),
         [KerrResponse(gamma3("Ar", wavelength=800e-9), thg=False)],
         pulse,
-        settings=_spatial_settings(backend, integrator, spatial_absorber=False),
+        # Recorded without statistics, before the route took its default ones.
+        settings=_spatial_settings(
+            backend, integrator, spatial_absorber=False, stats=StatsSpec(names=())
+        ),
     )
 
 

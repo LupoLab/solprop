@@ -416,7 +416,7 @@ def test_capillary_interface_default_matches_explicit_optmat_rate():
         "length": 1e-4,
         "energy": 8e-6,
         "kerr": False,
-        "loss": False,
+        "loss_scale": 0.0,
         "backend": "numpy_ref",
         "schedule": FixedSchedule.uniform(0.0, 1e-4, 1e-5, save_planes=[]),
         "integrator": FIXED_ORDER,
@@ -496,7 +496,7 @@ CTC = {
     "fwhm": 400e-15,
     "energy": 10e-6,
     "modes": 6,
-    "loss": False,
+    "loss_scale": 0.0,
     "raman": True,
 }
 
@@ -621,7 +621,6 @@ BUILD_REFUSALS = [
         DriverError,
         "needs kerr=True",
     ),
-    (build, {"polarisation": "circular"}, DriverError, "this path is scalar"),
     (
         build,
         {"envelope": True, "plasma": True, "thg": True},
@@ -715,7 +714,7 @@ def test_oxygen_raman_propagates_through_both_cpu_backends():
         "trange": 300e-15,
         "energy": 1e-6,
         "plasma": False,
-        "loss": False,
+        "loss_scale": 0.0,
         "rtol": 1e-10,
         "n_r": 24,
     }
@@ -1256,7 +1255,7 @@ def undepleted_solprop(*, kerr, energy):
         # temperature, stated rather than defaulted, as is every other input.
         cladding=fused_silica(model="fit/SiO2"),
         temperature=293.15,
-        loss=True,
+        loss_scale=1.0,
         **{"noise": None, **witness_inputs(grid, 2)},
     )
     pulse = GaussianPulse(
@@ -1571,7 +1570,7 @@ def luna_helium():
     return PoleSumSusceptibility(
         gas=Gas.He,
         source="ermolov (Luna's normalisation)",
-        reference_state=ReferenceState(pressure_bar=1.0, temperature=273.15),
+        reference_state=ReferenceState(pressure=1.0, temperature=273.15),
         wavelength_range=(90e-9, 1000e-9),
         citation=(
             "A. Ermolov et al., Phys. Rev. A 92, 033821 (2015), "
@@ -1672,7 +1671,7 @@ def luna_hydrogen():
     return InversePoleIndex(
         gas=Gas.H2,
         source="peck (Luna's)",
-        reference_state=ReferenceState(pressure_bar=1.01325, temperature=273.15),
+        reference_state=ReferenceState(pressure=1.01325, temperature=273.15),
         wavelength_range=(168.0e-9, 1694.5e-9),
         citation=(
             "E. R. Peck and S. Hung, J. Opt. Soc. Am. 67, 1550 (1977), "
@@ -1860,7 +1859,7 @@ def stored_field(name) -> np.ndarray:
                 susceptibility=luna_hydrogen() if ctc else luna_helium(),
                 model="full",
                 cladding=luna_cladding(tag, grid, CTC_MEDIA if ctc else MEDIA),
-                loss=not ctc,
+                loss_scale=0.0 if ctc else 1.0,
             )
             for plane, z in enumerate(positions):
                 weight = np.ones(grid.n_omega)
@@ -1934,7 +1933,7 @@ def luna_launch_energy(case, tag, *, ctc=False):
             susceptibility=luna_hydrogen() if ctc else luna_helium(),
             model="full",
             cladding=luna_cladding(tag, grid, CTC_MEDIA if ctc else MEDIA),
-            loss=not ctc,
+            loss_scale=0.0 if ctc else 1.0,
         )
         # One outside the active band, which is what `translate.linop` assembles and
         # what `stored_field` applies to Luna's side, so the 4.4e-7 of the reduced
@@ -1975,7 +1974,7 @@ def test_trimmed_luna_witness_uses_its_stored_plane_positions():
             susceptibility=luna_helium(),
             model="full",
             cladding=luna_cladding("FULL", grid, MEDIA),
-            loss=True,
+            loss_scale=1.0,
         )
         for plane, z in enumerate(positions):
             weight = np.ones(grid.n_omega)
@@ -2026,7 +2025,7 @@ def witness_run(
         energy=luna_launch_energy(case, tag),
         modes=case["modes"],
         cladding=luna_cladding(tag, grid),
-        loss=True,
+        loss_scale=1.0,
         temperature=WITNESS["temperature_k"],
         raman=False,
         n_save=case["n_save"] if planes is None else planes,
@@ -2239,14 +2238,12 @@ def test_lunas_helium_is_the_ermolov_fit_at_the_reference_state_luna_assumed():
     # this witness had before SEP 3).
     state = luna_helium().reference_state
     lunas = (
-        PropsSI(
-            "Dmolar", "P", state.pressure_bar * 1e5, "T", state.temperature, "Helium"
-        )
+        PropsSI("Dmolar", "P", state.pressure * 1e5, "T", state.temperature, "Helium")
         * N_A
     )
     optmats = float(
         equation_of_state("He").number_density(
-            State(pressure=state.pressure_bar * 1e5, temperature=state.temperature)
+            State(pressure=state.pressure * 1e5, temperature=state.temperature)
         )
     )
     assert abs(float(np.mean(ratio)) * optmats / lunas - 1.0) < 3e-8
@@ -2918,7 +2915,7 @@ def ctc_run(
             # worth several per cent on a Stokes rung (ADR-030).
             energy=luna_launch_energy(case, tag, ctc=True),
             modes=case["modes"],
-            loss=False,
+            loss_scale=0.0,
             raman=True,
             plasma=luna_hydrogen_rate(),
             # The witness was made by Luna's cumulative trapezoid (SEP 18).
@@ -2957,7 +2954,7 @@ def ctc_run(
                     )
                     updated_response = replace(response, tensor_terms=terms)
                 responses.append(updated_response)
-            simulation.responses = tuple(responses)
+            simulation._responses = tuple(responses)
         return simulation.run()
 
 
@@ -2975,7 +2972,7 @@ def ctc_field_range(case):
             fwhm=CTC_WITNESS["tau_fwhm"],
             energy=CTC_WITNESS["energy"],
             modes=case["modes"],
-            loss=False,
+            loss_scale=0.0,
             raman=True,
             plasma=luna_hydrogen_rate(),
             # The witness was made by Luna's cumulative trapezoid (SEP 18).
@@ -3216,7 +3213,7 @@ def test_the_two_codes_start_from_the_same_state(ctc_reduced, luna_ctc_reduced):
                 susceptibility=luna_hydrogen(),
                 cladding=luna_cladding("REDUCED", grid, CTC_MEDIA),
                 model="full",
-                loss=False,
+                loss_scale=0.0,
             )
             independent[index, grid.active_mask] = np.real(
                 mode.neff(grid.omega[grid.active_mask], 0.0)
@@ -3326,7 +3323,7 @@ def reduced_m2_simulation(**overrides):
             energy=WITNESS["energy"],
             modes=case["modes"],
             cladding=luna_cladding(tag, grid),
-            loss=True,
+            loss_scale=1.0,
             temperature=WITNESS["temperature_k"],
             raman=False,
             n_save=case["n_save"],

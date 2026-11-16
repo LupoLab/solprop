@@ -27,16 +27,16 @@ from solprop.modes import (
     SlabPolarisation,
     gaussian_coupling,
     gaussian_to_per_unit_width,
-    on_axis_rule,
     per_unit_width_to_gaussian,
-    taper_scale,
-    transverse_measure,
 )
+from solprop.modes.collection import transverse_measure
 from solprop.modes.protocol import PolarisationComponent
 from solprop.modes.quadrature import (
     cartesian_nodes,
     mode_matrix,
+    on_axis_rule,
     quadrature_rule,
+    taper_scale,
     transverse_quadrature,
 )
 from solprop.physdata import Mixture, aluminium, silver
@@ -332,7 +332,7 @@ def test_slab_quartic_bound_is_the_cartesian_one():
 
 
 def test_slab_rule_kronrod_alarm_on_axis_and_warnings():
-    modes = ModeCollection.slab(63.5e-6, (1, 3, 5), "Ar", 1.0)
+    modes = ModeCollection.slab(63.5e-6, "Ar", 1.0, orders=(1, 3, 5))
     rule = transverse_quadrature(modes.modes, n_r=36, radial_rule="gauss_kronrod")
     assert rule.kronrod and rule.has_embedded_rule and rule.n_r == 37
     limits = modes.dimlimits()
@@ -524,7 +524,9 @@ def test_slab_labels_components_partners_and_measure():
 
 def test_slab_collection_constructor_and_measure_refusals():
     modes = ModeCollection.slab(
-        Linear(60e-6, 50e-6, 0.1), (1, 3, 5), mixture=Mixture.fill({"Ar": 1.0}, 1.0)
+        Linear(60e-6, 50e-6, 0.1),
+        orders=(1, 3, 5),
+        mixture=Mixture.fill({"Ar": 1.0}, 1.0),
     )
     assert [label.display_label for label in modes.channel_labels] == [
         "TE1",
@@ -534,9 +536,9 @@ def test_slab_collection_constructor_and_measure_refusals():
     assert not modes.needs_full_rule and modes.scale_invariant
     assert transverse_measure([MarcatiliMode(125e-6)]) == "area"
     with pytest.raises(ModeError, match="at least one order"):
-        ModeCollection.slab(50e-6, ())
+        ModeCollection.slab(50e-6, orders=())
     with pytest.raises(ModeError, match="duplicate physical channel"):
-        ModeCollection.slab(50e-6, (1, 1))
+        ModeCollection.slab(50e-6, orders=(1, 1))
     with pytest.raises(ModeError, match=r"MarcatiliMode\) measures 'area'"):
         ModeCollection([SlabMode(50e-6), MarcatiliMode(50e-6)])
     with pytest.raises(ModeError, match="per_unit_width"):
@@ -555,7 +557,8 @@ def test_slab_collection_constructor_and_measure_refusals():
         ({"half_gap": 0.0}, "half-gap must be positive"),
         ({"half_gap": Linear(50e-6, -1e-6, 0.1)}, "half-gap must be positive"),
         ({"gas": "Ar", "mixture": Mixture.fill({"He": 1.0}, 1.0)}, "mixture carries"),
-        ({"loss": -1.0}, "loss scale"),
+        ({"loss_scale": -1.0}, "loss_scale"),
+        ({"alpha": 1.0, "loss_scale": 2.0}, "not both"),
     ],
 )
 def test_slab_constructor_refusals(keywords, message):
@@ -585,7 +588,7 @@ def test_slab_quadrature_and_model_refusals():
         mode._model_values(
             replace(terms, chi=np.asarray([np.nan + 0j])), mode._walls(0.0)
         )
-    loss = replace(mode, loss=False)
+    loss = replace(mode, loss_scale=0.0)
     assert np.imag(loss.neff(OMEGA_800))[0] == 0.0
 
 

@@ -549,13 +549,6 @@ _RULES: Final = (
         _CAPILLARY,
         "gas given as a Mixture, a fraction mapping or air",
     ),
-    Rule(
-        "scalar-capillary-polarisation",
-        ("polarisation",),
-        "The capillary route is scalar and propagates one transverse component "
-        "per mode; the polarisation is declared in the modes.",
-        _CAPILLARY,
-    ),
     # The capillary route: the guide and its modes.
     Rule(
         "lattice-builds-modes",
@@ -578,8 +571,9 @@ _RULES: Final = (
     ),
     Rule(
         "wall-is-the-loss",
-        ("wall", "loss"),
-        "A coherent wall block is the loss model, so loss stays True beside it.",
+        ("wall", "alpha", "loss_scale"),
+        "A coherent wall block is the loss model, so alpha and loss_scale keep "
+        "their defaults beside it.",
         _CAPILLARY,
     ),
     Rule(

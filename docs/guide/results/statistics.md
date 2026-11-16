@@ -76,11 +76,14 @@ percentage point of the first case's step.
 to evaluate, the spectral windows the windowed statistics need, the periodic subset and
 its period. It validates on construction — an unknown name, a repeated name, a window
 that is not ordered, a periodic statistic the run does not record, all raise
-{py:class}`~solprop.exceptions.OutputError` — so a mistake surfaces where the run is set
+{py:class}`~solprop.exceptions.ProcessingError` — so a mistake surfaces where the run is set
 up rather than at the first save plane.
 
 {py:func}`~solprop.stats.default_spec` returns what a run of each kind records unless
-told otherwise; it names no periodic subset, so the channel is off unless asked for.
+told otherwise; it names no periodic subset, so the channel is off unless asked for. The
+`prop_*` interfaces and `Simulation.from_*` start from it and add their route's
+statistics; a `Simulation` built directly records none until given a spec
+([configure before running](../setup/running.md#configure-before-running)).
 
 ```{code-block} python
 import numpy as np
@@ -136,7 +139,7 @@ below. What disqualifies one is cost per step, not difficulty: `zdw` is a root s
 mode, which would dominate the step if paid on every accepted one; `peak_intensity` is
 admitted because its on-axis matrix is built once and rescaled with the taper rather than
 rebuilt on every call. A spec naming `zdw` in the periodic subset raises
-{py:class}`~solprop.exceptions.OutputError` when it is built. `zdw` searches the grid's own
+{py:class}`~solprop.exceptions.ProcessingError` when it is built. `zdw` searches the grid's own
 band; a mode with one sign of $\beta_2$ at both ends of the band records `nan` with a
 warning, and the run continues.
 

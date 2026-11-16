@@ -36,7 +36,7 @@ from solprop.exceptions import (
     BackendError,
     DriverError,
     MaterialRangeWarning,
-    OutputError,
+    ProcessingError,
     SampledPeakWarning,
 )
 from solprop.grid import FieldGrid
@@ -66,7 +66,7 @@ def table():
 
 
 def argon(m=1, phi=0.0):
-    return MarcatiliMode(125e-6, "Ar", 1.0, m=m, cladding=1.45, loss=False, phi=phi)
+    return MarcatiliMode(125e-6, "Ar", 1.0, m=m, cladding=1.45, loss_scale=0.0, phi=phi)
 
 
 def problem_on(
@@ -572,7 +572,7 @@ def test_the_native_row_refuses_a_matrix_that_is_not_one_or_two_rows(grid, table
 
 
 def test_they_are_saved_plane_statistics_and_tdse_never_defines_them():
-    with pytest.raises(OutputError, match="between save planes"):
+    with pytest.raises(ProcessingError, match="between save planes"):
         StatsSpec(names=ON_AXIS_PLASMA_STATISTICS, periodic=ON_AXIS_PLASMA_STATISTICS)
     assert set(ON_AXIS_PLASMA_STATISTICS) <= TDSE_UNAVAILABLE_STATISTICS
 

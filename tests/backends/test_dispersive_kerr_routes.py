@@ -405,7 +405,7 @@ def planar_simulation(
     grid = FieldGrid.from_limits(
         PLANAR_LENGTH, 800e-9, (200e-9, 3e-6), 100e-15, **LEGACY_GRID
     )
-    modes = [SlabMode(HALF_GAP, "Ar", 2.0, order=p, loss=False) for p in (1, 3)]
+    modes = [SlabMode(HALF_GAP, "Ar", 2.0, order=p, loss_scale=0.0) for p in (1, 3)]
     pulse = PlanarPulse(
         GaussianPulse(wavelength=800e-9, fwhm=15e-15, energy=2e-4),
         3e-4,

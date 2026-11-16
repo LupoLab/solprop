@@ -63,18 +63,18 @@ def test_marcatili_collection_preserves_indices_and_material_settings():
         100e-6,
         "Ar",
         1.0,
-        ["HE", "HE", "TE", "TM"],
-        [1, 2, 0, 0],
-        [2, 1, 1, 2],
+        kinds=["HE", "HE", "TE", "TM"],
+        n=[1, 2, 0, 0],
+        m=[2, 1, 1, 2],
         model="reduced",
-        loss=False,
+        loss_scale=0.0,
         cladding=1.45,
     )
     indices = []
     for mode in collection:
         assert isinstance(mode, MarcatiliMode)
         indices.append((mode.kind, mode.n, mode.m))
-        assert mode.model == "reduced" and mode.loss is False
+        assert mode.model == "reduced" and mode.loss_scale == 0.0
     assert indices == [
         ("HE", 1, 2),
         ("HE", 2, 1),
@@ -89,9 +89,9 @@ def test_marcatili_collection_preserves_indices_and_material_settings():
 )
 def test_marcatili_collection_rejects_mismatched_index_sequences(kinds, n, m):
     with pytest.raises(ModeError, match="equal length"):
-        ModeCollection.marcatili(100e-6, "Ar", 1.0, kinds, n, m)
+        ModeCollection.marcatili(100e-6, "Ar", 1.0, kinds=kinds, n=n, m=m)
 
 
 def test_marcatili_collection_rejects_invalid_family_indices():
     with pytest.raises(ModeError, match="needs n = 0"):
-        ModeCollection.marcatili(100e-6, "Ar", 1.0, ["TM"], [1], [1])
+        ModeCollection.marcatili(100e-6, "Ar", 1.0, kinds=["TM"], n=[1], m=[1])

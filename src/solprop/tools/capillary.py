@@ -26,7 +26,8 @@ from solprop.exceptions import (
     ToolsError,
 )
 from solprop.modes import base
-from solprop.modes.capillary import LossSpec, MarcatiliMode, MarcatiliModel, ModeKind
+from solprop.modes.capillary import MarcatiliMode, MarcatiliModel, ModeKind
+from solprop.modes.fill import LossFunction
 from solprop.modes.protocol import Mode
 from solprop.modes.quadrature import BASIS_NORMALISATION, mode_matrix, on_axis_rule
 from solprop.physdata import (
@@ -338,6 +339,9 @@ def soliton_params(
         Pump wavelength in m, > 0.
     shape : {'sech', 'gauss'}, optional
         The pulse shape, used consistently for the width and the peak power.
+        Default ``"sech"``, unlike the ``"gauss"`` default of
+        :func:`~solprop.driver.interface.prop_capillary` and
+        :func:`~solprop.driver.interface.prop_gnlse`.
     temperature : float or None, optional
         Fill temperature in K; ``None`` is room temperature, or the mixture's own
         beside a `Mixture`, which refuses any other.
@@ -428,7 +432,8 @@ def _capillary(
     m: int,
     kind: ModeKind,
     model: MarcatiliModel,
-    loss: LossSpec,
+    alpha: float | LossFunction | None,
+    loss_scale: float,
     cladding: GlassIndex | complex | None,
 ) -> MarcatiliMode:
     """Build the HE, TE or TM capillary the capillary design tools report on.
@@ -444,7 +449,8 @@ def _capillary(
         m=m,
         kind=kind,
         model=model,
-        loss=loss,
+        alpha=alpha,
+        loss_scale=loss_scale,
         cladding=_default_cladding(cladding),
     )
 
@@ -463,7 +469,8 @@ def capillary_params(
     m: int = 1,
     kind: ModeKind = "HE",
     model: MarcatiliModel = "full",
-    loss: LossSpec = True,
+    alpha: float | LossFunction | None = None,
+    loss_scale: float = 1.0,
     cladding: GlassIndex | complex | None = None,
     materials: MaterialSelection | None = None,
 ) -> SolitonParams:
@@ -490,6 +497,9 @@ def capillary_params(
         Pump wavelength in m, > 0.
     shape : {'sech', 'gauss'}, optional
         The pulse shape.
+        Default ``"sech"``, unlike the ``"gauss"`` default of
+        :func:`~solprop.driver.interface.prop_capillary` and
+        :func:`~solprop.driver.interface.prop_gnlse`.
     temperature : float or None, optional
         Fill temperature in K; ``None`` is room temperature, or the mixture's own
         beside a `Mixture`, which refuses any other.
@@ -501,8 +511,11 @@ def capillary_params(
         Mode family.
     model : {'full', 'reduced'}, optional
         Marcatili model.
-    loss : bool, float or callable, optional
-        Loss policy of the mode.
+    alpha : float, callable or None, optional
+        Absolute power attenuation in 1/m replacing the mode's own loss
+        (:class:`~solprop.modes.capillary.MarcatiliMode`); ``None`` keeps it.
+    loss_scale : float, optional
+        Factor on the mode's own loss; 0 is lossless.
     cladding : GlassIndex, complex or None, optional
         Cladding index; ``None`` is fused silica.
     materials : MaterialSelection or None, optional
@@ -534,7 +547,8 @@ def capillary_params(
         m=m,
         kind=kind,
         model=model,
-        loss=loss,
+        alpha=alpha,
+        loss_scale=loss_scale,
         cladding=cladding,
     )
     return soliton_params(
@@ -596,7 +610,8 @@ def capillary_design(
     temperature: float = ROOM_TEMPERATURE,
     m: int = 1,
     model: MarcatiliModel = "full",
-    loss: LossSpec = True,
+    alpha: float | LossFunction | None = None,
+    loss_scale: float = 1.0,
     cladding: GlassIndex | complex | None = None,
     materials: MaterialSelection | None = None,
     pressure_max: float = 100.0,
@@ -640,14 +655,20 @@ def capillary_design(
         dimensionless with time in units of the shape's natural width, > 0.
     shape : {'sech', 'gauss'}, optional
         The pulse shape, used for the width, the peak power and the content.
+        Default ``"sech"``, unlike the ``"gauss"`` default of
+        :func:`~solprop.driver.interface.prop_capillary` and
+        :func:`~solprop.driver.interface.prop_gnlse`.
     temperature : float, optional
         Fill temperature in K.
     m : int, optional
         Radial index of the HE_1m mode.
     model : {'full', 'reduced'}, optional
         Marcatili model.
-    loss : bool, float or callable, optional
-        Loss policy of the mode in the returned numbers.
+    alpha : float, callable or None, optional
+        Absolute power attenuation in 1/m replacing the mode's own loss in the
+        returned numbers; ``None`` keeps it.
+    loss_scale : float, optional
+        Factor on the mode's own loss in the returned numbers; 0 is lossless.
     cladding : GlassIndex, complex or None, optional
         Cladding index; ``None`` is fused silica.
     materials : MaterialSelection or None, optional
@@ -706,7 +727,8 @@ def capillary_design(
         m=m,
         kind="HE",
         model=model,
-        loss=loss,
+        alpha=alpha,
+        loss_scale=loss_scale,
         cladding=cladding,
     )
     beta2 = float(base.beta2(mode, np.array([_omega(wavelength)]))[0])

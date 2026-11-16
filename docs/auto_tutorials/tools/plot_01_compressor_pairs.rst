@@ -84,22 +84,30 @@ Build a small envelope grid and a transform-limited 15 fs pulse.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 61-63
+.. GENERATED FROM PYTHON SOURCE LINES 61-65
 
-Stored spectra use the internal Fourier convention. The conjugate of
-``stored_factor`` applies the inverse phase and the same fixed band selection.
+A pulse's ``build`` and ``stored_factor`` use the internal Fourier convention. The
+conjugate of ``stored_factor`` applies the inverse phase and the same fixed band
+selection. The compressors take a spectrum in the optics convention, the one a saved
+field is read in, so each input is converted on the way in.
 
-.. GENERATED FROM PYTHON SOURCE LINES 63-74
+.. GENERATED FROM PYTHON SOURCE LINES 65-82
 
 .. code-block:: Python
 
     grating_input = clean * stored_factor(grid, gratings).conj()
     prism_input = clean * stored_factor(grid, prisms).conj()
     grating_fit = compress_gratings(
-        grid=grid, spectrum=grating_input, pair=gratings, separation_range=(0.0, 1e-3)
+        grid=grid,
+        spectrum=fourier.spectrum_to_optics(grating_input, kind=grid.kind),
+        pair=gratings,
+        separation_range=(0.0, 1e-3),
     )
     prism_fit = compress_prisms(
-        grid=grid, spectrum=prism_input, pair=prisms, insertion_range=(0.008, 0.021)
+        grid=grid,
+        spectrum=fourier.spectrum_to_optics(prism_input, kind=grid.kind),
+        pair=prisms,
+        insertion_range=(0.008, 0.021),
     )
     assert grating_fit.success and prism_fit.success
     assert min(grating_fit.quality, prism_fit.quality) >= 1 - 1e-6
@@ -111,12 +119,12 @@ Stored spectra use the internal Fourier convention. The conjugate of
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 75-77
+.. GENERATED FROM PYTHON SOURCE LINES 83-85
 
 Compare the selected pulses before and after compression. Both fitted settings
 recover the transform-limited pulse. Absolute CEP and transit time were removed.
 
-.. GENERATED FROM PYTHON SOURCE LINES 77-95
+.. GENERATED FROM PYTHON SOURCE LINES 85-103
 
 .. code-block:: Python
 
@@ -150,7 +158,7 @@ recover the transform-limited pulse. Absolute CEP and transit time were removed.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 96-102
+.. GENERATED FROM PYTHON SOURCE LINES 104-110
 
 Related reading
 ---------------
@@ -162,7 +170,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.107 seconds)
+   **Total running time of the script:** (0 minutes 0.321 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_tools_plot_01_compressor_pairs.py:

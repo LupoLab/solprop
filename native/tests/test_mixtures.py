@@ -34,7 +34,7 @@ def mixture_case() -> tuple[PropagationProblem, RunRequest, FieldGrid]:
     """Declare nitrogen and oxygen channels with optmat's molecular rates."""
     mixture = Mixture.air(1.0)
     grid = FieldGrid.from_limits(1e-4, 800e-9, (400e-9, 2e-6), 400e-15, ffac=4.0)
-    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
+    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss_scale=0.0)
     responses = responses_for(
         mixture,
         thg=False,

@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
+from solprop import fourier
 from solprop.constants import C
 from solprop.exceptions import ProcessingError
 from solprop.optics import ChirpedMirror, Material, TaylorPhase, stored_factor
@@ -35,9 +36,14 @@ FWHM = 30e-15
 WINDOW = calcium_fluoride(model="malitson_1963/sellmeier")
 
 
+def as_optics(grid, stored):
+    """Return an internal-convention spectrum in the optics convention."""
+    return fourier.spectrum_to_optics(stored, kind=grid.kind)
+
+
 def gaussian(kind="envelope", phase=(), wavelength=WAVELENGTH, energy=1e-6, fwhm=FWHM):
     grid = example_grid(kind)
-    pulse = GaussianPulse(wavelength=wavelength, fwhm=fwhm, energy=energy, phase=phase)
+    pulse = GaussianPulse(wavelength=wavelength, fwhm=fwhm, energy=energy, phases=phase)
     return grid, pulse.build(grid)
 
 
@@ -59,7 +65,7 @@ def phase_only_mirror(gdd=-60e-30):
 def test_a_known_gdd_is_recovered_with_the_opposite_sign(kind):
     gdd = 900e-30
     grid, stored = gaussian(kind, phase=(0.0, 0.0, gdd))
-    found = compression.compress_taylor(grid=grid, spectrum=stored)
+    found = compression.compress_taylor(grid=grid, spectrum=as_optics(grid, stored))
     assert found.success, found.message
     assert found.kind == "taylor"
     assert found.coefficients[:2] == (0.0, 0.0)
@@ -84,7 +90,7 @@ def test_the_refinement_refines_whatever_the_scan_grid_happens_to_be(bound_facto
     gdd = 900e-30
     grid, stored = gaussian(phase=(0.0, 0.0, gdd))
     found = compression.compress_taylor(
-        grid=grid, spectrum=stored, bound_factor=bound_factor
+        grid=grid, spectrum=as_optics(grid, stored), bound_factor=bound_factor
     )
     assert found.success, found.message
     assert found.coefficients[2] == pytest.approx(-gdd, rel=1e-6)
@@ -97,7 +103,10 @@ def test_a_thin_insertion_is_refined_below_the_scan_spacing():
     grid, clean = gaussian(fwhm=10e-15)
     stored = clean * stored_factor(grid, Material(WINDOW, 37e-6, WAVELENGTH))
     found = compression.compress_material(
-        grid=grid, spectrum=stored, medium=WINDOW, thickness_range=(-100e-6, 100e-6)
+        grid=grid,
+        spectrum=as_optics(grid, stored),
+        medium=WINDOW,
+        thickness_range=(-100e-6, 100e-6),
     )
     assert found.success, found.message
     # The objective is flat to 1e-16 within a few nanometres of the optimum.
@@ -118,9 +127,15 @@ def test_a_refinement_that_does_not_improve_on_the_scan_says_so():
 def test_third_order_is_recovered_by_the_seeded_global_search():
     gdd, tod = 700e-30, 25000e-45
     grid, stored = gaussian(phase=(0.0, 0.0, gdd, tod))
-    first = compression.compress_taylor(grid=grid, spectrum=stored, order=3, seed=3)
-    again = compression.compress_taylor(grid=grid, spectrum=stored, order=3, seed=3)
-    other = compression.compress_taylor(grid=grid, spectrum=stored, order=3, seed=11)
+    first = compression.compress_taylor(
+        grid=grid, spectrum=as_optics(grid, stored), order=3, seed=3
+    )
+    again = compression.compress_taylor(
+        grid=grid, spectrum=as_optics(grid, stored), order=3, seed=3
+    )
+    other = compression.compress_taylor(
+        grid=grid, spectrum=as_optics(grid, stored), order=3, seed=11
+    )
     assert first.success, first.message
     assert first.coefficients == again.coefficients
     # Differential evolution is polished by L-BFGS-B, whose default gradient tolerance
@@ -135,7 +150,7 @@ def test_a_global_search_that_ends_on_its_box_says_which_order(caplog):
     grid, stored = gaussian(phase=(0.0, 0.0, 700e-30, 25000e-45))
     with caplog.at_level(logging.WARNING, logger="solprop.processing.compression"):
         found = compression.compress_taylor(
-            grid=grid, spectrum=stored, order=3, bound_factor=0.2
+            grid=grid, spectrum=as_optics(grid, stored), order=3, bound_factor=0.2
         )
     assert not found.success
     assert "lies on its bound" in found.message
@@ -144,14 +159,14 @@ def test_a_global_search_that_ends_on_its_box_says_which_order(caplog):
 
 def test_second_order_alone_improves_a_pulse_carrying_third_order_but_says_so():
     grid, stored = gaussian(phase=(0.0, 0.0, 700e-30, 60000e-45))
-    found = compression.compress_taylor(grid=grid, spectrum=stored)
+    found = compression.compress_taylor(grid=grid, spectrum=as_optics(grid, stored))
     assert found.peak_power_after > found.peak_power_before
     assert found.quality < 0.95
 
 
 def test_a_transform_limited_pulse_is_left_alone():
     grid, stored = gaussian()
-    found = compression.compress_taylor(grid=grid, spectrum=stored)
+    found = compression.compress_taylor(grid=grid, spectrum=as_optics(grid, stored))
     assert found.success
     # No chirp to scale the box with: the box falls back to the limit's own width.
     assert abs(found.coefficients[2]) < 1e-30
@@ -187,9 +202,9 @@ def test_a_multimode_output_is_compressed_on_its_summed_power():
 def test_a_bandpass_restricts_what_is_compressed():
     grid, stored = gaussian(phase=(0.0, 0.0, 900e-30))
     narrow = compression.compress_taylor(
-        grid=grid, spectrum=stored, bandpass=(780e-9, 820e-9)
+        grid=grid, spectrum=as_optics(grid, stored), bandpass=(780e-9, 820e-9)
     )
-    whole = compression.compress_taylor(grid=grid, spectrum=stored)
+    whole = compression.compress_taylor(grid=grid, spectrum=as_optics(grid, stored))
     assert narrow.fwhm_limit > whole.fwhm_limit
     assert narrow.peak_power_limit < whole.peak_power_limit
 
@@ -202,7 +217,10 @@ def test_the_thickness_that_was_inserted_is_removed():
     grid, clean = gaussian()
     stored = clean * stored_factor(grid, Material(WINDOW, thickness, WAVELENGTH))
     found = compression.compress_material(
-        grid=grid, spectrum=stored, medium=WINDOW, thickness_range=(-30e-3, 5e-3)
+        grid=grid,
+        spectrum=as_optics(grid, stored),
+        medium=WINDOW,
+        thickness_range=(-30e-3, 5e-3),
     )
     assert found.success, found.message
     assert found.kind == "material"
@@ -219,14 +237,24 @@ def test_the_global_optimum_is_found_among_several():
         grid, Material(WINDOW, 40e-3, WAVELENGTH)
     ) + blue * stored_factor(grid, Material(WINDOW, 10e-3, WAVELENGTH))
     found = compression.compress_material(
-        grid=grid, spectrum=stored, medium=WINDOW, thickness_range=(-60e-3, 0.0)
+        grid=grid,
+        spectrum=as_optics(grid, stored),
+        medium=WINDOW,
+        thickness_range=(-60e-3, 0.0),
     )
     # An independent oracle: a dense scan of the same objective.
     scan = np.linspace(-60e-3, 0.0, 1201)
     peaks = [
         np.max(
             compression._pulse_of(
-                None, grid, stored, plane=-1, modes=None, bandpass=None, oversampling=2
+                None,
+                grid,
+                as_optics(grid, stored),
+                plane=None,
+                z=None,
+                modes=None,
+                bandpass=None,
+                oversampling=2,
             ).power(Material(WINDOW, float(value), WAVELENGTH))
         )
         for value in scan
@@ -246,7 +274,10 @@ def test_an_optimum_on_a_bound_is_reported_and_logged(caplog):
     stored = clean * stored_factor(grid, Material(WINDOW, 12e-3, WAVELENGTH))
     with caplog.at_level(logging.WARNING, logger="solprop.processing.compression"):
         found = compression.compress_material(
-            grid=grid, spectrum=stored, medium=WINDOW, thickness_range=(-5e-3, 5e-3)
+            grid=grid,
+            spectrum=as_optics(grid, stored),
+            medium=WINDOW,
+            thickness_range=(-5e-3, 5e-3),
         )
     assert not found.success
     assert "lower bound" in found.message
@@ -256,7 +287,10 @@ def test_an_optimum_on_a_bound_is_reported_and_logged(caplog):
     )
     with caplog.at_level(logging.WARNING, logger="solprop.processing.compression"):
         upper = compression.compress_material(
-            grid=grid, spectrum=stored, medium=WINDOW, thickness_range=(-40e-3, -30e-3)
+            grid=grid,
+            spectrum=as_optics(grid, stored),
+            medium=WINDOW,
+            thickness_range=(-40e-3, -30e-3),
         )
     assert "upper bound" in upper.message
 
@@ -267,7 +301,7 @@ def test_a_gas_path_needs_its_pressure():
     with nullcontext():
         found = compression.compress_material(
             grid=grid,
-            spectrum=stored,
+            spectrum=as_optics(grid, stored),
             medium="Ar",
             pressure=5.0,
             thickness_range=(0.0, 10.0),
@@ -285,7 +319,7 @@ def test_the_number_of_bounces_that_was_undone_is_found():
     grid, clean = gaussian()
     stored = clean * stored_factor(grid, mirror.bounces(-3))
     found = compression.compress_mirrors(
-        grid=grid, spectrum=stored, mirror=mirror, max_reflections=6
+        grid=grid, spectrum=as_optics(grid, stored), mirror=mirror, max_reflections=6
     )
     assert found.success, found.message
     assert found.kind == "mirrors"
@@ -307,7 +341,7 @@ def test_a_wedge_trims_what_whole_bounces_cannot():
     )
     found = compression.compress_mirrors(
         grid=grid,
-        spectrum=stored,
+        spectrum=as_optics(grid, stored),
         mirror=mirror,
         max_reflections=5,
         medium=WINDOW,
@@ -325,7 +359,10 @@ def test_using_every_reflection_allowed_is_not_a_clean_answer(caplog):
     stored = clean * stored_factor(grid, mirror.bounces(-8))
     with caplog.at_level(logging.WARNING, logger="solprop.processing.compression"):
         found = compression.compress_mirrors(
-            grid=grid, spectrum=stored, mirror=mirror, max_reflections=4
+            grid=grid,
+            spectrum=as_optics(grid, stored),
+            mirror=mirror,
+            max_reflections=4,
         )
     assert found.reflections == 4
     assert not found.success
@@ -339,7 +376,7 @@ def test_a_shipped_mirror_is_named_and_its_loss_lowers_the_quality():
     single = ChirpedMirror.lookup("PC70")
     stored = clean * stored_factor(grid, single.bounces(-6))
     found = compression.compress_mirrors(
-        grid=grid, spectrum=stored, mirror="PC70", max_reflections=9
+        grid=grid, spectrum=as_optics(grid, stored), mirror="PC70", max_reflections=9
     )
     assert found.reflections == 6
     # Six reflections of a real coating: a few per cent are not returned.
@@ -352,8 +389,8 @@ def test_a_shipped_mirror_is_named_and_its_loss_lowers_the_quality():
 def test_the_transform_limit_of_a_chirped_gaussian_is_the_unchirped_one():
     grid, clean = gaussian()
     _, chirped = gaussian(phase=(0.0, 0.0, 900e-30, 30000e-45))
-    limit = compression.transform_limit(grid=grid, spectrum=chirped)
-    plain = compression.transform_limit(grid=grid, spectrum=clean)
+    limit = compression.transform_limit(grid=grid, spectrum=as_optics(grid, chirped))
+    plain = compression.transform_limit(grid=grid, spectrum=as_optics(grid, clean))
     # The same modulus by construction; the chirp's unit phasor costs an ulp per bin.
     assert limit[0] == pytest.approx(plain[0], rel=1e-12)
     assert limit[1] == pytest.approx(plain[1], rel=1e-12)
@@ -378,12 +415,12 @@ def test_the_accessors_take_the_same_element(kind):
 def test_apply_transfer_is_the_spectrum_times_the_element():
     run = example_output(n_modes=2)
     element = TaylorPhase((0.1, 0.0, 300e-30), WAVELENGTH)
-    omega, after = compression.apply_transfer(element, run)
-    _, before = compression.apply_transfer(TaylorPhase((), WAVELENGTH), run)
+    omega, after = compression.apply_transfer(run, element)
+    _, before = compression.apply_transfer(run, TaylorPhase((), WAVELENGTH))
     assert after.shape == (2, 1, omega.size)
     assert np.all(np.diff(omega) > 0.0)
     np.testing.assert_array_equal(after, before * element(omega))
-    assert compression.apply_transfer(element, run, modes=1)[1].shape == (
+    assert compression.apply_transfer(run, element, modes=1)[1].shape == (
         1,
         1,
         omega.size,
@@ -414,22 +451,80 @@ def test_the_carrier_envelope_phase_puts_the_field_maximum_on_the_envelope_peak(
     # enough to be found (at 30 fs the dependence is below the sampling's own ripple).
     for kind in ("field", "envelope"):
         grid, stored = gaussian(kind, phase=(1.3,), fwhm=4e-15)
-        found = compression.optimise_cep(grid=grid, spectrum=stored, oversampling=8)
+        found = compression.optimise_cep(
+            grid=grid, spectrum=as_optics(grid, stored), oversampling=8
+        )
         # The pulse was built with a carrier-envelope phase of 1.3 rad; the field's
         # maximum reaches the envelope's peak when that phase is taken out. The peak is
         # quadratic in the phase, so a bounded search good to 1e-5 of 0.1 rad gives it
         # to 1e-3 rad, and the peak itself to the oversampled grid's 1e-5.
         assert found.phase == pytest.approx(-1.3, abs=1e-3)
         envelope = math.sqrt(
-            compression.transform_limit(grid=grid, spectrum=stored, oversampling=8)[1]
+            compression.transform_limit(
+                grid=grid, spectrum=as_optics(grid, stored), oversampling=8
+            )[1]
         )
         assert found.peak_field == pytest.approx(envelope, rel=1e-5)
         assert isinstance(found.transfer, TaylorPhase)
     _, near_pi = gaussian("envelope", phase=(math.pi - 0.05,), fwhm=4e-15)
-    wrapped = compression.optimise_cep(grid=grid, spectrum=near_pi, oversampling=8)
+    wrapped = compression.optimise_cep(
+        grid=grid, spectrum=as_optics(grid, near_pi), oversampling=8
+    )
     assert -math.pi < wrapped.phase <= math.pi
     # The optimum sits across the branch cut, where a search over [-pi, pi] is blind.
     assert abs(math.remainder(wrapped.phase + math.pi - 0.05, 2.0 * math.pi)) < 1e-3
+
+
+# ----------------------------------------------------------- the two input forms
+
+
+@pytest.mark.parametrize("kind", ["envelope", "field"])
+def test_a_plane_of_a_run_compresses_as_the_run_itself(kind):
+    """The array form takes the optics convention a saved plane is read in."""
+    run = example_output(kind)
+    grid = grid_of(run)
+    plane = run.plane_field(-1)
+    # The boundary is an exact involution, so the compressor works on the very array
+    # it reads from the run, and every number agrees to the bit.
+    from_run = compression.compress_taylor(run)
+    from_array = compression.compress_taylor(grid=grid, spectrum=plane)
+    assert from_array.coefficients == from_run.coefficients
+    assert from_array.quality == from_run.quality
+    assert compression.transform_limit(
+        grid=grid, spectrum=run["field"][-1]
+    ) == compression.transform_limit(run)
+    assert (
+        compression.optimise_cep(grid=grid, spectrum=plane).phase
+        == compression.optimise_cep(run).phase
+    )
+
+
+def test_a_compressor_reads_the_plane_nearest_a_position():
+    run = example_output()
+    positions = run["z"]
+    by_z = compression.compress_taylor(run, z=float(positions[1]) + 1e-6)
+    assert by_z.coefficients == compression.compress_taylor(run, plane=1).coefficients
+    omega, after = compression.apply_transfer(
+        run, TaylorPhase((), WAVELENGTH), z=float(positions[1])
+    )
+    assert np.array_equal(
+        after, compression.apply_transfer(run, TaylorPhase((), WAVELENGTH), plane=1)[1]
+    )
+    assert omega.size == after.shape[-1]
+
+
+def test_a_plane_named_twice_is_refused():
+    run = example_output()
+    grid, stored = gaussian()
+    with pytest.raises(ProcessingError, match="not both"):
+        compression.compress_taylor(run, plane=0, z=0.0)
+    # The last plane named explicitly is still a plane named.
+    with pytest.raises(ProcessingError, match="not both"):
+        compression.compress_taylor(run, plane=-1, z=0.0)
+    with pytest.raises(ProcessingError, match="not both"):
+        compression.apply_transfer(run, TaylorPhase((), WAVELENGTH), plane=0, z=0.0)
+    with pytest.raises(ProcessingError, match="a spectrum is one plane"):
+        compression.transform_limit(grid=grid, spectrum=as_optics(grid, stored), z=0.0)
 
 
 # -------------------------------------------------------------------------- refusals
@@ -440,9 +535,11 @@ def test_the_two_input_forms_are_not_mixed():
     run = example_output()
     for call in (
         compression.compress_taylor,
-        lambda: compression.compress_taylor(run, grid=grid, spectrum=stored),
+        lambda: compression.compress_taylor(
+            run, grid=grid, spectrum=as_optics(grid, stored)
+        ),
         lambda: compression.compress_taylor(grid=grid),
-        lambda: compression.transform_limit(spectrum=stored),
+        lambda: compression.transform_limit(spectrum=as_optics(grid, stored)),
     ):
         with pytest.raises(ProcessingError, match="not both"):
             call()
@@ -451,20 +548,34 @@ def test_the_two_input_forms_are_not_mixed():
 def test_unusable_requests_are_refused_by_name():
     grid, stored = gaussian()
     with pytest.raises(ProcessingError, match="order must be at least 2"):
-        compression.compress_taylor(grid=grid, spectrum=stored, order=1)
+        compression.compress_taylor(
+            grid=grid, spectrum=as_optics(grid, stored), order=1
+        )
     with pytest.raises(ProcessingError, match="bound_factor must be positive"):
-        compression.compress_taylor(grid=grid, spectrum=stored, bound_factor=0.0)
+        compression.compress_taylor(
+            grid=grid, spectrum=as_optics(grid, stored), bound_factor=0.0
+        )
     with pytest.raises(ProcessingError, match="must be ordered"):
         compression.compress_material(
-            grid=grid, spectrum=stored, medium=WINDOW, thickness_range=(1e-3, -1e-3)
+            grid=grid,
+            spectrum=as_optics(grid, stored),
+            medium=WINDOW,
+            thickness_range=(1e-3, -1e-3),
         )
     with pytest.raises(ProcessingError, match="at least 1"):
         compression.compress_mirrors(
-            grid=grid, spectrum=stored, mirror="PC70", max_reflections=0
+            grid=grid,
+            spectrum=as_optics(grid, stored),
+            mirror="PC70",
+            max_reflections=0,
         )
     with pytest.raises(ProcessingError, match="together, or neither"):
         compression.compress_mirrors(
-            grid=grid, spectrum=stored, mirror="PC70", max_reflections=2, medium=WINDOW
+            grid=grid,
+            spectrum=as_optics(grid, stored),
+            mirror="PC70",
+            max_reflections=2,
+            medium=WINDOW,
         )
     with pytest.raises(ProcessingError, match="no power to compress"):
         compression.compress_taylor(grid=grid, spectrum=np.zeros_like(stored))
@@ -520,7 +631,9 @@ def test_an_output_without_metadata_is_refused():
 
 def test_a_one_dimensional_spectrum_is_a_single_mode():
     grid, stored = gaussian(phase=(0.0, 0.0, 500e-30))
-    flat = compression.compress_taylor(grid=grid, spectrum=stored[0, 0])
-    full = compression.compress_taylor(grid=grid, spectrum=stored)
+    flat = compression.compress_taylor(
+        grid=grid, spectrum=as_optics(grid, stored[0, 0])
+    )
+    full = compression.compress_taylor(grid=grid, spectrum=as_optics(grid, stored))
     assert flat.coefficients == full.coefficients
     assert grid_of(example_output()).kind == "envelope"

@@ -72,7 +72,7 @@ def test_constant_phi_split_at_kinks_stays_exact_and_keeps_its_constant():
 def test_an_expansion_takes_the_further_kinks_beside_the_modes():
     grid = EnvelopeGrid.from_limits(0.05, 800e-9, (400e-9, 2e-6), 200e-15)
     fill = PressureGradient.two_point(0.05, 2.0, 1.0)
-    mode = MarcatiliMode(125e-6, "He", fill, loss=False)
+    mode = MarcatiliMode(125e-6, "He", fill, loss_scale=0.0)
     frame = Frame.comoving(grid)
     plain = build_phi(mode, grid, frame, z_max=0.05)
     kinked = build_phi(mode, grid, frame, z_max=0.05, kinks=[0.0123, 0.05, 7.0])

@@ -26,6 +26,7 @@ from solprop.nonlinear.normalisation import (
     sqrtw_to_vm,
     uppe_prefactor,
 )
+from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.raman import (
     DampedOscillator,
     Dephasing,
@@ -77,6 +78,7 @@ __all__ = [
     "IntermediateBroadening",
     "KerrResponse",
     "MolecularOptions",
+    "OptmatRate",
     "PlasmaResponse",
     "Polarisation",
     "RamanModel",

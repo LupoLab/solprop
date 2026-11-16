@@ -372,7 +372,7 @@ def _check_resume_choice(resume: object) -> None:
     if resume is True or resume is False or resume == "interpolated":
         return
     msg = f"resume must be False, True or 'interpolated', got {resume!r}"
-    raise ValueError(msg)
+    raise DriverError(msg, parameter="resume")
 
 
 def _work_left(request: RunRequest, state: ResumeState, next_plane: int) -> bool:

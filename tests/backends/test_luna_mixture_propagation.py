@@ -106,7 +106,7 @@ def problem_for(tag, steps):
             )
     mixture = Mixture.of(*components)
     mode = MarcatiliMode(
-        p["radius"], mixture=mixture, cladding=1.45, loss=False, model="full"
+        p["radius"], mixture=mixture, cladding=1.45, loss_scale=0.0, model="full"
     )
     problem, run_request = assemble(
         grid,

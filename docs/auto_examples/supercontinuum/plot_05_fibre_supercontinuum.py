@@ -84,7 +84,6 @@ print(f"Propagated in {time.perf_counter() - started:.1f} s")
 # distance, as in the review's figure.
 prop_2d(
     output,
-    "wavelength",
     spec_range=(450e-9, 1350e-9),
     time_range=(-1e-12, 5e-12),
     db_min=-40.0,
@@ -93,7 +92,7 @@ prop_2d(
 # %%
 # The spectrum at the exit
 # ------------------------
-spec_1d(output, 0.15, "wavelength", spec_range=(450e-9, 1350e-9), log_min=1e-4)
+spec_1d(output, 0.15, spec_range=(450e-9, 1350e-9), db_min=-40.0)
 
 # %%
 # Related reading

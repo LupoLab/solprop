@@ -286,11 +286,13 @@ STEP_FRACTIONS: Mapping[str, tuple[float, str]] = MappingProxyType(
         "dz_init": (1e-4, "a ten-thousandth of the length"),
     }
 )
-"""The step lengths a keyword route takes when none is given, as fractions of length.
+"""The step lengths a run takes when none is given, as fractions of its length.
 
 Relative, so that the first step and the cap scale with the guide; each with its rule in
-words. The same on every keyword route (``from_gnlse``, ``from_capillary`` and
-``from_waveguide``); the object routes take their steps in their settings.
+words. The same on every route: the keyword routes (``from_gnlse``, ``from_capillary``
+and ``from_waveguide``) apply them to `length`, and a
+:class:`~solprop.driver.settings.SimulationSettings` that leaves a step ``None`` takes
+it from ``grid.length`` when a simulation adopts it.
 """
 
 
@@ -506,7 +508,7 @@ def resolve_noise(
 
 
 def default_step(keyword: Literal["dz_max", "dz_init"], length: float) -> float:
-    """Return a keyword route's default step length.
+    """Return a run's default step length.
 
     Parameters
     ----------

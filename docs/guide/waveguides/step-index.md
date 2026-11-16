@@ -13,7 +13,7 @@ It solves the lossless vector eigenproblem exactly, with no weak-guidance approx
 so it holds for high index contrast. A glass's real part is what it solves with: an
 optmat index is held as its recorded transparent approximation, which warns once per run
 where the absorption it drops exceeds 100 m⁻¹
-([materials](../media/material-selection.md#materials-from-optmat)), and a loss is declared with `loss=`.
+([materials](../media/material-selection.md#materials-from-optmat)), and a loss is declared with `alpha=`.
 The family and indices follow Snyder and Love
 (`kind="HE"`, `"EH"`, `"TE"` or `"TM"`, azimuthal `n`, radial `m` counted from the
 highest effective index, and `parity="even"` or `"odd"` for a hybrid). Declare the
@@ -121,7 +121,7 @@ factor and never appear as sign changes, so they can never be reported as roots.
 $dn_e/d\omega=-(\partial G/\partial\omega)/(\partial G/\partial n_e)$,
 including both material slopes. A 40-digit mpmath reference checks this derivative
 independently, and Richardson differences check the material chain between its points.
-`loss` is a non-negative absolute power attenuation in m⁻¹, constant or callable,
+`alpha` is a non-negative absolute power attenuation in m⁻¹, constant or callable,
 with $\operatorname{Im}n_e=c\alpha/(2\omega)$. A callable's `derivative` attribute
 supplies its analytic slope; only this loss term is differenced when that attribute is
 absent. The material's imaginary index is not converted to mode loss: material

@@ -21,13 +21,7 @@ from solprop.driver.interface import (
     prop_planar,
     prop_waveguide,
 )
-from solprop.driver.metadata import metadata_for
-from solprop.driver.run import (
-    LogReporter,
-    ProgressReporter,
-    plane_from_observation,
-    run_problem,
-)
+from solprop.driver.run import run_problem
 from solprop.driver.runner import SimulationRunner
 from solprop.driver.settings import SimulationSettings
 from solprop.driver.simulation import Simulation
@@ -37,16 +31,12 @@ from solprop.driver.tdse_consistency import ConsistencyResult, check_consistency
 __all__ = [
     "ConsistencyResult",
     "HaccPreset",
-    "LogReporter",
-    "ProgressReporter",
     "Simulation",
     "SimulationRunner",
     "SimulationSettings",
     "check_consistency",
     "hacc_basis",
     "hacc_preset",
-    "metadata_for",
-    "plane_from_observation",
     "prop_capillary",
     "prop_free",
     "prop_gnlse",

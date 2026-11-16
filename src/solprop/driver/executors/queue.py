@@ -37,7 +37,7 @@ from solprop.driver.executors._queue_state import (
 )
 from solprop.driver.executors._request import ScanRequest
 from solprop.driver.executors.pool import Pool
-from solprop.exceptions import DriverError, OutputError
+from solprop.exceptions import DriverError, ExecutorError, OutputError
 from solprop.output.hdf5 import _dataset, _group
 from solprop.output.scan import PointResult, ScanWriter, _hash, _json
 from solprop.output.scan_artifacts import artifact_digest, read_artifact, write_artifact
@@ -222,7 +222,7 @@ class _Heartbeat:
     def check(self) -> None:
         """Raise a captured heartbeat failure before dispatch continues."""
         if self.error is not None:
-            raise DriverError(f"queue lease refresh failed:\n{self.error}")
+            raise ExecutorError(f"queue lease refresh failed:\n{self.error}")
 
     def close(self) -> None:
         """Stop the refresher and propagate any failure."""

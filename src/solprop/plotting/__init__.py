@@ -19,9 +19,6 @@ frequency in radians per femtosecond, energy in microjoules, power auto-scaled.
 """
 
 from solprop.plotting.propagation import (
-    DEFAULT_SLICE_WAVELENGTH_RANGE,
-    DEFAULT_TIME_RANGE,
-    DEFAULT_WAVELENGTH_RANGE,
     SLICE_QUANTITIES,
     SliceQuantity,
     plot_energy,
@@ -49,9 +46,6 @@ from solprop.plotting.style import (
 
 __all__ = [
     "CORNERS",
-    "DEFAULT_SLICE_WAVELENGTH_RANGE",
-    "DEFAULT_TIME_RANGE",
-    "DEFAULT_WAVELENGTH_RANGE",
     "OTHER_STATISTICS",
     "POWER_UNITS",
     "PULSE_STATISTICS",

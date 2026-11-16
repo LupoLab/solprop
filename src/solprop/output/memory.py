@@ -112,9 +112,10 @@ def _step_stats_slice(
 class MemoryOutput(PlaneStore):
     """Hold a whole run in memory, in the layout an HDF5 file would use.
 
-    Reading stays available after :meth:`~solprop.output.store.PlaneStore.close`,
-    unlike the file handler: nothing is
-    released, so a driver may close in a ``finally`` and a caller keep reading.
+    Reading stays available after :meth:`~solprop.output.store.PlaneStore.close`:
+    nothing is released, so a driver may close in a ``finally`` and a caller keep
+    reading. What ``handler[key]`` returns is a read-only view of the stored buffer,
+    with no copy; ``.copy()`` gives an array to change.
 
     Parameters
     ----------
@@ -407,10 +408,20 @@ class MemoryOutput(PlaneStore):
                 pieces.append(np.zeros((0, *shape)))
 
     def _read(self, group: str, name: str) -> np.ndarray:
-        """Return one stored array, trimmed to the planes actually saved.
+        """Return one stored array, trimmed to the planes saved, as a read-only view.
+
+        The view shares the handler's buffers, so a write through it would change the
+        stored run; it is refused instead, and :meth:`numpy.ndarray.copy` gives an
+        array to change.
 
         - ``group``: ``''``, ``'stats'``, ``'step_history'`` or ``'step_stats'``.
         """
+        view = self._stored(group, name).view()
+        view.flags.writeable = False
+        return view
+
+    def _stored(self, group: str, name: str) -> np.ndarray:
+        """Return one stored array, trimmed to the planes saved (:meth:`_read`)."""
         saved = self._n_saved
         if group == "":
             return self._read_plane_array(name, saved)

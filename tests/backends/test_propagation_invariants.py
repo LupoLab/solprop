@@ -168,7 +168,7 @@ def capillary(raman: bool) -> Simulation:
         fwhm=30e-15,
         energy=1e-5,
         modes=3,
-        loss=False,
+        loss_scale=0.0,
         plasma=False,
         raman=raman,
         absorber=False,
@@ -239,8 +239,8 @@ def planar(raman: bool, *, lossy: bool = False) -> Simulation:
     `lossy` gives the modes a hundredth of their modelled wall loss.
     """
     grid = EnvelopeGrid.from_limits(LENGTH, WAVELENGTH, (650e-9, 1000e-9), 600e-15)
-    loss = 0.01 if lossy else False
-    modes = [SlabMode(HALF_GAP, GAS, 1.0, order=p, loss=loss) for p in (1, 3)]
+    scale = 0.01 if lossy else 0.0
+    modes = [SlabMode(HALF_GAP, GAS, 1.0, order=p, loss_scale=scale) for p in (1, 3)]
     pulse = PlanarPulse(
         GaussianPulse(wavelength=WAVELENGTH, fwhm=100e-15, energy=1e-3),
         400e-6,

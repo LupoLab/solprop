@@ -94,7 +94,7 @@ def build(*, backend="numpy_ref", waveguide=False, **overrides):
     } | overrides
     if waveguide:
         simulation = Simulation.from_waveguide(
-            [MarcatiliMode(125e-6, "Ar", 1.0, loss=False, cladding=1.45)],
+            [MarcatiliMode(125e-6, "Ar", 1.0, loss_scale=0.0, cladding=1.45)],
             8e-6,
             "Ar",
             1.0,
@@ -106,7 +106,7 @@ def build(*, backend="numpy_ref", waveguide=False, **overrides):
             8e-6,
             "Ar",
             1.0,
-            loss=False,
+            loss_scale=0.0,
             cladding=1.45,
             **{"noise": None, **options},
         )

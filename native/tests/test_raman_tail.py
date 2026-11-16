@@ -85,7 +85,7 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
     grid_class = EnvelopeGrid if family == "envelope" else FieldGrid
     grid = grid_class.from_limits(1e-6, 800e-9, (200e-9, 4e-6), 80e-15)
     thg = family == "real"
-    mode = MarcatiliMode(125e-6, "H2", 2.0, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, "H2", 2.0, cladding=1.45, loss_scale=0.0)
     quadrature = transverse_quadrature([mode], n_r=7, radial_rule="gauss_kronrod")
     # optmat disperses H2's vibrational strengths to the carrier and builds its
     # density-shifted lines at the fill's constant density.
@@ -212,7 +212,7 @@ def test_raman_modal_products_match_reference(
     grid = grid_class.from_limits(1e-6, 800e-9, (200e-9, 4e-6), 80e-15)
     thg = family == "real"
     modes = [
-        MarcatiliMode(125e-6, "H2", 2.0, m=m, cladding=1.45, loss=False)
+        MarcatiliMode(125e-6, "H2", 2.0, m=m, cladding=1.45, loss_scale=0.0)
         for m in range(1, n_modes + 1)
     ]
     quadrature = transverse_quadrature(modes, n_r=n_r, radial_rule="gauss_kronrod")

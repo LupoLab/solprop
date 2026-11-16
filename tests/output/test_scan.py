@@ -25,8 +25,7 @@ from solprop.output._scan_lock import lock_path, read_scan
 from solprop.output.hdf5 import _dataset, _group
 from solprop.output.metadata import SCHEMA_VERSION, _example_metadata
 from solprop.output.scan import PointResult, ScanWriter, _hash, _json, read_point
-from solprop.processing.scans import ScanOutput
-from solprop.processing.scans import open as open_scan
+from solprop.processing.scans import ScanOutput, open_scan
 
 
 def test_failed_scan_point_keeps_provenance_and_masks_numerical_arrays(tmp_path):

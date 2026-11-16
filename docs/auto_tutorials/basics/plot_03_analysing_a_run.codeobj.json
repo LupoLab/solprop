@@ -175,7 +175,7 @@
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.output.store",
-   "module_short": "solprop.output",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore"
   },
   {
@@ -1470,7 +1470,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.output.store",
-   "module_short": "solprop.output",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.n_saved"
   },
   {
@@ -1535,7 +1535,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.output.store",
-   "module_short": "solprop.output",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.open"
   },
   {
@@ -1600,7 +1600,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.output.store",
-   "module_short": "solprop.output",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.save"
   },
   {

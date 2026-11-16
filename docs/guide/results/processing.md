@@ -11,7 +11,7 @@ metrics, smoothing and bandpass tools. Read [power and intensity](power-and-inte
 before comparing a reconstructed amplitude with a broadband Poynting-flux statistic.
 [Plotting](plotting.md) converts those SI results into labelled display units.
 
-## Three rules that hold everywhere
+## Four rules that hold everywhere
 
 **Convention.** Arrays come back in the **optics** convention by default, and in the FFT
 convention on request (see [output](output.md) for why the file is in the optics
@@ -46,6 +46,26 @@ the FFT-order storage has been shifted — [conventions.md](../../dev/convention
 {py:func}`~solprop.processing.axes.spectral_order`. Pass `band="all"` for every stored
 bin, remembering that a field grid then includes the zero-frequency bin, where a
 wavelength is undefined and asking for one raises.
+
+**Plane.** Every function of {py:mod}`solprop.processing` (and the compressors) selects
+a saved plane the same way: by index with `plane=` (negative from the end) or by position
+with `z=` (the nearest saved plane), never both: giving both raises
+{py:class}`~solprop.exceptions.ProcessingError`. Both default to `None`. With neither, a
+function that returns **one** plane — the compressors, `apply_transfer`,
+`get_spectrogram`, the beam readers of {py:mod}`~solprop.processing.beams`, the
+reconstructions of {py:mod}`~solprop.processing.modal`, `fluence_map` and `field_plane` —
+reads the last plane, and the metrics and field accessors that can return **every**
+plane (`energy`, `peak_power`, `get_spectrum`, `get_power`, `physical_energy`, ...)
+return them all with a leading `n_z` axis. `fluence_map` and
+`field_plane` read a plane for a coupling or a map, so their `z=` must be a stored
+plane's position rather than the nearest one.
+
+```{code-block} python
+compress_taylor(output)               # the last plane
+compress_taylor(output, z=0.35)       # the plane nearest 0.35 m
+energy(output)                        # every plane, shape (n_z,)
+energy(output, plane=0)               # the entrance
+```
 
 And one rule about what does *not* happen: no window is applied unless the call asks for
 one. `bandpass` is an explicit keyword, it is a pair of wavelengths, a
