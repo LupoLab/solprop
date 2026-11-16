@@ -126,14 +126,6 @@ class HostLowStorageMarch:
         # Its count is the loaded run's, as the Adams ledger is (SEP 22 4.7).
         self.source_evaluations = 0
 
-    def snapshot(self) -> None:
-        """Return nothing for a resume to continue: the march keeps no history.
-
-        A resume at a schedule edge needs no history and no recycled stage
-        (SEP 24 section 5), as under ``RungeKutta()``.
-        """
-        return
-
     def refusal(self) -> str | None:
         """Return why the state cannot be read or advanced, or ``None``.
 

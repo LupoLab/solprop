@@ -188,6 +188,19 @@ def test_the_low_storage_march_hands_the_stiffness_from_the_accept(caplog):
     assert "stiffness indicator" not in caplog.text
 
 
+def test_a_low_storage_replay_that_runs_out_says_so():
+    engine, host = Engine([]), Host()
+    schedule = FixedSchedule.uniform(0.0, 0.5, 0.25)
+    march = HostLowStorageMarch(
+        engine, LowStorageRungeKutta(), host, schedule=schedule, proposal=0.25
+    )
+    march.load(0.0, 0.25, 0)
+    with pytest.raises(BackendError, match="cannot reach z = 1"):
+        march.advance(1.0)
+    # Every step of the schedule committed before the refusal.
+    assert march.state.z == 0.5
+
+
 def test_an_adams_floor_after_a_rejection_keeps_a_failed_release_as_a_note():
     from solprop.backends.host.adams import HostAdamsMarch, _Attempt  # noqa: PLC0415
 
