@@ -37,8 +37,13 @@ from sessions.runs import run_error
 from solprop import stats
 from solprop.backends import select
 from solprop.driver import Simulation
-from solprop.exceptions import BackendError, OutputError, ProcessingError
-from solprop.grid import FieldGrid
+from solprop.exceptions import (
+    BackendError,
+    OutputError,
+    ProcessingError,
+    TranslationError,
+)
+from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.output.capability import (
     GENERAL_MODAL_ACCESSORS,
     capability_of,
@@ -59,8 +64,10 @@ from solprop.processing.modal import (
     physical_energy,
     plane_nodes,
     reconstructed_flux,
+    reference_tables,
 )
 from solprop.stats import StatsSpec
+from solprop.translate import general
 from solprop.translate.general import general_modal_route
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
@@ -586,6 +593,26 @@ def test_a_guide_sampled_at_other_knots_is_refused_although_its_tables_agree(
     assert instantaneous_flux(run, tables=tables, plane=-1, guide=guide).ndim == 1
     assert magnetic_field(run, tables=tables, plane=-1, guide=guide).shape[1] == 3
     assert coordinate_intensity(run, tables=tables, plane=-1, guide=guide).ndim == 3
+
+
+def test_a_rebuild_from_a_guide_that_cannot_rebuild_is_refused_by_name(run, guide):
+    """With no tables given, a guide with no sampling has nothing to rebuild from."""
+    bare = dataclasses.replace(guide, sampling=None)
+    with pytest.raises(OutputError, match="cannot be rebuilt from this guide"):
+        electric_field(run, guide=bare)
+
+
+def test_the_reference_is_rebuilt_on_a_field_grid_only(guide):
+    """An envelope grid has no general modal tables to rebuild."""
+    envelope = EnvelopeGrid.from_limits(SHORT_Z, 835e-9, (815e-9, 860e-9), 60e-15)
+    with pytest.raises(TranslationError, match="field grid"):
+        general.reference_tables(guide, envelope, z_end=SHORT_Z, gram_atol=1e-9)
+
+
+def test_an_ordinary_run_has_no_reference_to_rebuild(guide):
+    """`reference_tables` is for a general modal run's record."""
+    with pytest.raises(OutputError, match="does not hold one"):
+        reference_tables(example_output(), guide=guide)
 
 
 def test_a_guide_with_no_sampling_has_no_identity_to_check(run, tables, guide):

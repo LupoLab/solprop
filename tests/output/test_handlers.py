@@ -266,6 +266,16 @@ def test_a_handler_refuses_to_work_after_it_is_closed(grid, metadata, tmp_path):
             handler.open(metadata)
 
 
+def test_a_finished_file_run_refuses_a_write_by_saying_it_can_only_be_read(
+    grid, metadata, tmp_path
+):
+    handler = HDF5Output(tmp_path / "run.h5")
+    run_into(handler, grid, metadata, 1)
+    handler.close()
+    with pytest.raises(OutputError, match="has finished, so it can only be read"):
+        handler._require_file()
+
+
 def test_an_unknown_key_names_the_ones_that_exist(grid, metadata):
     memory = MemoryOutput()
     run_into(memory, grid, metadata, 1)

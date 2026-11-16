@@ -223,6 +223,10 @@ def keeping_planes(memory: MemoryOutput, kept: tuple[int, ...]) -> MemoryOutput:
     return partial
 
 
+def test_the_layout_of_a_handler_that_is_not_a_store_is_its_field_s_shape(memory):
+    assert axes.layout(_ProtocolOnly(memory)) == memory["field"].shape
+
+
 def test_a_handler_that_is_not_a_store_reads_its_planes_by_index_and_position(memory):
     view = _ProtocolOnly(memory)
     # The same stored rows read through either path: exact.
