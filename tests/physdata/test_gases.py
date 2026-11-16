@@ -5,7 +5,7 @@
 import pytest
 
 from solprop.exceptions import MaterialError
-from solprop.physdata import Gas, as_gas, is_molecule
+from solprop.physdata import Gas, as_gas, is_air, is_molecule
 
 
 def test_gas_members_are_strings():
@@ -77,3 +77,14 @@ def test_the_two_classes_partition_the_registry():
 def test_is_molecule_rejects_an_unknown_species():
     with pytest.raises(MaterialError, match="unknown gas"):
         is_molecule("Unobtainium")
+
+
+@pytest.mark.parametrize("material", [Gas.Air, "air", "Air", " AIR "])
+def test_is_air_accepts_the_member_and_the_name_in_any_case(material):
+    # Unlike as_gas: "air" is the interface's own spelling, not a typo of "Air".
+    assert is_air(material)
+
+
+@pytest.mark.parametrize("material", [Gas.Ar, Gas.N2, "He", "airy", "Unobtainium"])
+def test_is_air_answers_false_for_any_other_name_without_refusing_it(material):
+    assert not is_air(material)

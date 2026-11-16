@@ -51,7 +51,7 @@ from solprop.output.hdf5 import open_file
 from solprop.output.metadata import RunMetadata
 from solprop.output.resumable import Resumability, resumability
 from solprop.output.store import Output
-from solprop.physdata.gases import Gas, as_gas, is_molecule
+from solprop.physdata.gases import Gas, as_gas, is_air, is_molecule
 from solprop.physdata.selection import MaterialRecord
 
 __all__ = [
@@ -919,8 +919,6 @@ def species(name: str | Gas) -> SpeciesCapabilities:
     >>> species("He").raman, species("N2O").raman
     ('atom', 'provisional')
     """
-    from solprop.driver.mixtures import is_air  # noqa: PLC0415 - layer above
-
     if is_air(name):
         msg = (
             'the capillary\'s "air" is a mixture of nitrogen and oxygen, each '

@@ -33,7 +33,6 @@ from solprop.driver.inputs import (
 from solprop.driver.mixtures import (
     ResponseSelection,
     capillary_fill,
-    is_air,
     mixture_profiles,
 )
 from solprop.driver.routes.keywords import (
@@ -91,7 +90,7 @@ from solprop.nonlinear.responses import (
 )
 from solprop.nonlinear.tdse import TDSEExecution, TDSEGasResponse
 from solprop.output.records import ModeRecord
-from solprop.physdata import Gas, Mixture, species
+from solprop.physdata import Gas, Mixture, is_air, species
 from solprop.physdata.mixtures import Pressure
 from solprop.physdata.selection import MaterialSelection
 from solprop.physdata.sellmeier import GasSusceptibility

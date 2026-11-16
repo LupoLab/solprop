@@ -29,6 +29,7 @@ from solprop.modes.protocol import Mode
 from solprop.physdata import (
     Gas,
     Mixture,
+    is_air,
     n2_from_chi3,
     species,
 )
@@ -129,7 +130,7 @@ def _resolve_fill(
             for name, fraction in gas.items()
         }
         return Mixture.fill(fractions, total, temperature=temperature)
-    if gas is Gas.Air or (isinstance(gas, str) and gas.strip().lower() == "air"):
+    if is_air(gas):
         return Mixture.air(
             total, temperature=temperature, argon=False, selection=materials
         )

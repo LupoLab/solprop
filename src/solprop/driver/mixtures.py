@@ -17,7 +17,7 @@ from solprop.nonlinear.ionisation import IntegrationPolicy, IonisationRate
 from solprop.nonlinear.mixtures import responses_for
 from solprop.nonlinear.optmat_rates import bind_reference_field
 from solprop.nonlinear.raman import MolecularOptions
-from solprop.physdata import Gas, Mixture, species
+from solprop.physdata import Gas, Mixture, is_air, species
 from solprop.physdata.mixtures import Pressure
 from solprop.physdata.selection import MaterialSelection
 from solprop.physdata.sellmeier import GasSusceptibility
@@ -33,7 +33,6 @@ from solprop.profiles import (
 __all__ = [
     "ResponseSelection",
     "capillary_fill",
-    "is_air",
     "mixture_profiles",
 ]
 
@@ -269,24 +268,6 @@ def capillary_fill(
             vacuum_end=vacuum_end,
         )
     return _with_initial_populations(mixture, preionisation)
-
-
-def is_air(material: Gas | str) -> bool:
-    """Return whether a built-in gas's name means air.
-
-    Parameters
-    ----------
-    material : Gas or str
-        The name given to the interface.
-
-    Returns
-    -------
-    bool
-        ``True`` for ``Gas.Air`` and for ``"air"`` in any case.
-    """
-    if isinstance(material, Gas):
-        return material is Gas.Air
-    return material.strip().lower() == "air"
 
 
 def _with_initial_populations(
