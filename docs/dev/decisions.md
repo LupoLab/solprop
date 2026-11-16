@@ -73,7 +73,7 @@ it is qualified, [backends.md](backends.md); for the current seam,
 - **Status:** accepted; amended by [SEP 47](seps/archive/sep-0047-run-ownership.md) §6.2, which
   removes the nominal `n_batch` from the single-trajectory seam: the state is
   `(n_modes, n_pol, n_omega)` and a group is a sequence of member problems; and by
-  [SEP 52](seps/sep-0052-backend-shape.md) §5.4, which removes the remaining leading axis
+  [SEP 52](seps/archive/sep-0052-backend-shape.md) §5.4, which removes the remaining leading axis
   of one everywhere: the backends' state, the operator's value tables, the memory ledgers
   and a march snapshot's stored state
 - **Context:** Luna has different array shapes per geometry and special code paths for scalar
@@ -2350,9 +2350,10 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-079 — One backend shape; no groups or unit axis; a native seam that only marshals
 
-- **Status:** proposed, with [SEP 52](seps/sep-0052-backend-shape.md) (accepted
-  2026-11-15 in PR #850); accepted when the SEP is `Final`. Amends ADR-003 (the state
-  has no leading axis of one).
+- **Status:** accepted (maintainer), 2026-11-16, with
+  [SEP 52](seps/archive/sep-0052-backend-shape.md) (accepted 2026-11-15 in PR #850,
+  implemented in PRs #853, #854, #858 and #859). Amends ADR-003 (the state has no
+  leading axis of one).
 - **Context:** after SEP 47 both backends kept one external contract, but behind it they
   were built differently. Native composed a workspace, engines, marches and a session in
   C++; the reference was an inheritance stack (`NumpyRefBackend` on `HostDriver`, steered

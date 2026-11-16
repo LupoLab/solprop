@@ -10,8 +10,8 @@ workspace that holds the state and does every state-sized operation
 engines a march asks of it
 (:class:`~solprop.backends.numpy_ref.engines.NumpyRungeKutta`,
 :class:`~solprop.backends.numpy_ref.multistep.HostHistory`,
-:class:`~solprop.backends.low_storage.HostLowStorage`), the run's march and its dense
-output (:meth:`NumpyRefBackend.method`); it keeps ``prepare``, the metadata, the
+:class:`~solprop.backends.numpy_ref.engines.NumpyLowStorage`), the run's march and its
+dense output (:meth:`NumpyRefBackend.method`); it keeps ``prepare``, the metadata, the
 memory ledger, the timing probe and ``close``. Every run is the reference's own
 session's (:class:`~solprop.backends.host.session.HostSession`), which schedules it.
 The step control follows ``docs/dev/stepper.md`` section 3 exactly: the controller's
@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Literal, cast
 import numpy as np
 from jaxtyping import Complex
 
-from solprop._helpers import Helpers
+from solprop._helpers import PLAIN, Helpers
 from solprop.backends.exponential import (
     CarrierReference,
     refuse_carrier_frame,
@@ -38,14 +38,15 @@ from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.host.runge_kutta import RungeKuttaMarch
 from solprop.backends.host.session import HostMethod, HostPrepared, start_position
 from solprop.backends.ledger import CallLedger
-from solprop.backends.low_storage import HostLowStorage
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
-from solprop.backends.numpy_ref.engines import NumpyRungeKutta
-from solprop.backends.numpy_ref.workspace import (
-    BlockResidual,
-    NumpyWorkspace,
-    SourceTables,
+from solprop.backends.numpy_ref.dense import AdamsDense, RungeKuttaDense
+from solprop.backends.numpy_ref.engines import NumpyLowStorage, NumpyRungeKutta
+from solprop.backends.numpy_ref.multistep import (
+    ExponentialHistory,
+    HostHistory,
+    InteractionHistory,
 )
+from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.protocol import TimingProbe
 from solprop.backends.records import adams_policy, runge_kutta_policy
 from solprop.backends.session import ExecutionOptions, PreparedExecution, Start
@@ -76,26 +77,28 @@ from solprop.translate.tdse import TDSEBinding
 if TYPE_CHECKING:
     from solprop.backends.protocol import Backend
 
-__all__ = ["BlockResidual", "NumpyRefBackend", "SourceTables"]
+__all__ = ["NumpyRefBackend"]
 
 logger = logging.getLogger(__name__)
 
 
 class NumpyRefBackend:
-    """Propagate one Kerr and plasma problem with interaction-picture DOPRI5.
+    """Propagate one problem in plain NumPy: the oracle.
 
-    The oracle of ``docs/dev/backends.md`` section 2. It implements
+    The reference of ``docs/dev/backends.md`` section 2. It implements
     :class:`solprop.backends.protocol.Backend` and steps a single problem on either
-    grid: mode-averaged or multimode on the fixed transverse quadrature, scalar or
-    vector-isotropic, with the Kerr term, the delayed Raman term and the plasma.
-    Mode-averaged propagation is the one-node case of the same pipeline and not a
-    second code path.
+    grid, on every route -- mode-averaged or multimode on the fixed transverse
+    quadrature, scalar or vector-isotropic, the general modal guide, the spatial
+    geometries and the TDSE response -- with every march: interaction-picture
+    Runge-Kutta, the low-storage step and both Adams formulations. Mode-averaged
+    propagation is the one-node case of the modal pipeline and not a second code path.
 
     **Refusals.** A problem is refused by name, with
-    :class:`solprop.exceptions.BackendError`, when its flags declare a spectral
-    response, when a Raman kernel meets two polarisation components, or when the
-    transform and the state would both carry the transverse components. A term
-    silently dropped would run, converge and be wrong.
+    :class:`solprop.exceptions.BackendError`, when its route is not one of the union's,
+    when an Adams method meets what it does not step, when a declared Raman term meets
+    two polarisation components without a tensor kernel, or when the transform and the
+    state would both carry the transverse components. A term silently dropped would
+    run, converge and be wrong.
 
     **Convention.** Every array held or returned is in the FFT convention of
     ``docs/dev/conventions.md`` section 2; the backend never conjugates. The
@@ -136,8 +139,8 @@ class NumpyRefBackend:
     reads_transverse_edge : bool
         True: the reference reads a free-space run's transverse edge on the host.
     helpers : solprop._helpers.Helpers
-        The uncompiled stage-table and Adams-basis evaluations, ``PLAIN``, which the
-        engines and marches are passed rather than choosing one (SEP 29 section 6.6).
+        The uncompiled stage-table and Adams-basis evaluations, ``PLAIN``: the oracle
+        never runs the compiled code it exists to check (SEP 29 section 6.6).
 
     Raises
     ------
@@ -181,9 +184,7 @@ class NumpyRefBackend:
     reads_transverse_edge: bool = True
 
     name: str = "numpy_ref"
-    # The oracle evaluates its stage tables and Adams bases with the uncompiled forms,
-    # never with the compiled code it exists to check (SEP 29 section 6.6).
-    helpers: Helpers = NumpyWorkspace.helpers
+    helpers: Helpers = PLAIN
     # The reference forms `exp(+dPhi)` and `exp(-dPhi)` afresh at every stage, so
     # keeping the six distinct exponents of a step is worth its memory here where it is
     # not on a backend that takes both signs from one transcendental.
@@ -280,7 +281,7 @@ class NumpyRefBackend:
             # The host engine is the oracle (SEP 24 section 6.5).
             schedule = stepper.schedule
             assert schedule is not None  # the translation refused it without one
-            engine = HostLowStorage(
+            engine = NumpyLowStorage(
                 self._workspace, integrator, schedule, self._propagator_mode
             )
             method = HostMethod(
@@ -301,10 +302,6 @@ class NumpyRefBackend:
 
     def _runge_kutta_method(self, host: object) -> HostMethod:
         """Return the Runge-Kutta march over a fresh engine, and its dense output."""
-        from solprop.backends.numpy_ref.dense import (  # noqa: PLC0415 - it builds on the engines
-            RungeKuttaDense,
-        )
-
         stepper = self._stepper
         engine = self._runge_kutta(self._workspace)
         policy = runge_kutta_policy(self._problem, stepper)
@@ -340,30 +337,16 @@ class NumpyRefBackend:
 
     def _adams(self, method: Multistep, host: object) -> HostMethod:
         """Return the Adams march over a fresh engine, its dense output and rows."""
-        # The engine reads this package's passes, so it is imported when a run asks
-        # for it rather than with the package.
-        from solprop.backends.numpy_ref.dense import AdamsDense  # noqa: PLC0415
-        from solprop.backends.numpy_ref.multistep import (  # noqa: PLC0415
-            AdamsKernels,
-            ExponentialKernels,
-            HostHistory,
-        )
-
-        compensation = self._compensation
         stepper = self._stepper
         interpolate = bool(stepper.interpolate_planes)
-        engine = HostHistory(
-            self._workspace,
-            method,
-            AdamsKernels(helpers=self.helpers),
-            # SEP 16's exponential formulation keeps untransported samples in the same
-            # store and shares everything else: the lifecycle, the controller, the
-            # ledger.
-            ExponentialKernels(helpers=self.helpers)
+        # SEP 16's exponential formulation keeps untransported samples in the same
+        # store and shares everything else: the lifecycle, the controller, the ledger.
+        engine: HostHistory = (
+            ExponentialHistory(
+                self._workspace, method, self._compensation, interpolate=interpolate
+            )
             if method.formulation == "exponential"
-            else None,
-            compensation,
-            interpolate=interpolate,
+            else InteractionHistory(self._workspace, method, interpolate=interpolate)
         )
         carrier = engine.carrier
         # Every number the controller and the landings read, from one record (SEP 39
@@ -616,7 +599,7 @@ class NumpyRefBackend:
         march = self._run.march
         if isinstance(march, HostLowStorageMarch):
             engine = march.engine
-            assert isinstance(engine, HostLowStorage)
+            assert isinstance(engine, NumpyLowStorage)
             engine.close()
         self._closed = True
 
@@ -672,7 +655,7 @@ class _TrialProbe:
             assert schedule is not None  # the translation refuses the march without one
             index = min(self._index, schedule.n_steps - 1)
             length = float(schedule.steps[index]) if dz is None else float(dz)
-            cast("HostLowStorage", self._engine).trial(start, length)
+            cast("NumpyLowStorage", self._engine).trial(start, length)
             return
         length = float(stepper.dz_init) if dz is None else float(dz)
         cast("NumpyRungeKutta", self._engine).trial(start, length)
@@ -707,10 +690,11 @@ class _TrialProbe:
 def _refuse_adams(problem: PropagationProblem, stepper: StepperSettings) -> None:
     """Refuse what the Adams march does not execute (SEP 13 sections 2 and 6.2).
 
-    Its history is of source samples along a diagonal flow, so a coupled flow is
-    refused by name rather than stepped with a stale history, and the exponential
-    formulation refuses a varying operator until SEP 16's phase 4
-    (:func:`solprop.backends.exponential.refuse_formulation`). The ``modified`` noise is
+    The interaction formulation's history is of source samples transported along a
+    diagonal flow, so a coupled flow is refused by name rather than transported through
+    inverse actions; the exponential formulation refuses the coupled-flow sections it
+    does not step (:func:`solprop.backends.exponential.refuse_formulation`) and the
+    carrier frames it does not deliver. The ``modified`` noise is
     admitted for both formulations (SEP 16 section 4.4): its draw is fixed for the run
     and added to each sample's field at that sample's own position, never to the
     propagating state, so conditional on the draw the source is a deterministic,

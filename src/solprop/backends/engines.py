@@ -12,7 +12,7 @@ included: :class:`RungeKuttaEngine` is ``rk::Engine``
 implements too, and :class:`AdamsEngine` is ``march::Engine``
 (``native/include/solprop_native/march/adams_march.hpp``). The reference's engines are
 :class:`~solprop.backends.numpy_ref.engines.NumpyRungeKutta`, the low-storage step
-:class:`~solprop.backends.low_storage.HostLowStorage` and the Adams history
+:class:`~solprop.backends.numpy_ref.engines.NumpyLowStorage` and the Adams history
 :class:`~solprop.backends.numpy_ref.multistep.HostHistory`.
 
 **The commit contract.**

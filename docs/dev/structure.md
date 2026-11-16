@@ -51,7 +51,7 @@ layer that owns it. The annotations between them are
 [architecture.md §5](architecture.md)'s own. The thing to notice is where the boundary
 falls: the service loop serves a session's events, while the session runs the step loop
 (the reference's `HostSession` over its Python marches, or native's session over its
-compiled ones, [SEP 47](seps/archive/sep-0047-run-ownership.md), [SEP 52](seps/sep-0052-backend-shape.md)). Reference passes, compiled kernels and library transforms,
+compiled ones, [SEP 47](seps/archive/sep-0047-run-ownership.md), [SEP 52](seps/archive/sep-0052-backend-shape.md)). Reference passes, compiled kernels and library transforms,
 or one native trial do the numerical work behind that loop.
 
 ![One run of solprop, from prop_capillary through the kernel problem and the step driver to a saved plane](figures/one_run.svg)
@@ -76,7 +76,7 @@ Text: [kernel-contract.md §1](kernel-contract.md) to §8, the split in
 ## 4. One stage
 
 The seven numbered passes of one stage of the interaction-picture DOPRI5 step, each one
-pass over its data and each a named function in `backends/numpy_ref/passes.py`. The
+pass over its data and each a named function in `backends/numpy_ref/passes/`. The
 column beside pass 4 is `response_order`, the fused pass that is the whole reason the
 seam is drawn where it is; the panel on the right is the step the seven passes sit
 inside, and what runs once per step rather than once per stage.

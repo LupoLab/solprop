@@ -29,7 +29,7 @@ from former_raman import (
     former_response,
 )
 from solprop import fourier
-from solprop.backends.numpy_ref.passes import raman_polarisation
+from solprop.backends.numpy_ref.passes.responses import raman_polarisation
 from solprop.constants import EPS0
 from solprop.exceptions import GridError, MaterialError
 from solprop.nonlinear.raman import (

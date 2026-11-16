@@ -175,7 +175,7 @@ order conditions are checked for both weight vectors and the propagated solution
 fifth-order one, and the FSAL stage is not recycled before anything that depends on the
 completed step (irrelevant without dense output, but tested).
 
-**Who marches** ([SEP 47](seps/archive/sep-0047-run-ownership.md), [SEP 52](seps/sep-0052-backend-shape.md)).
+**Who marches** ([SEP 47](seps/archive/sep-0047-run-ownership.md), [SEP 52](seps/archive/sep-0052-backend-shape.md)).
 The NumPy reference's session schedules its runs and drives its marches in
 `backends/host/`: `HostSession` over `RungeKuttaMarch`, `HostAdamsMarch` and
 `HostLowStorageMarch`. Every native run is its native session's, whose compiled Runge-Kutta, Adams and low-storage
@@ -273,7 +273,7 @@ position) and one fold:
 | 4 | `F4` at `z_n + h` | `A <- Q B + h/6 S` |
 
 `HostLowStorageMarch` replays a schedule and nothing else, mirroring `HostAdamsMarch`'s
-replay: each step's trial (`HostLowStorage.trial`) overwrites the state, in flight until
+replay: each step's trial (`NumpyLowStorage.trial`) overwrites the state, in flight until
 the engine's accept finishes it, and the march moves its position in the same commit
 (SEP 52 §5.2). The native backend holds no such march in Python: a timing probe's
 trial is one step of the workspace's own low-storage engine (`Workspace.probe`, which
@@ -305,7 +305,8 @@ a Cartesian Kerr beam, `tests/backends/test_low_storage.py`).
 
 ### Low-call Adams methods
 
-`stepper/multistep.py` and `backends/numpy_ref/multistep.py` hold the Adams integrator, the default
+`stepper/multistep.py` and `backends/numpy_ref/multistep.py` (with `adams_kernels.py` and
+`adams_tables.py`) hold the Adams integrator, the default
 of `prop_capillary`, `prop_free` on a radial grid and `prop_planar` (ADR-037, ADR-045, ADR-055;
 `stepper/runge_kutta.py`'s `RungeKutta` names the tableau's march, the default of
 `prop_gnlse`, `prop_waveguide` and `prop_free`).

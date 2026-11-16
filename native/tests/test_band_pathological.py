@@ -173,9 +173,7 @@ def synthesised(
         )
         state = reference.workspace.committed()  # pyright: ignore[reportPrivateUsage]
         return np.real(
-            np.concatenate(
-                list(reference.workspace._plasma_nodes(state, 0.0))  # pyright: ignore[reportPrivateUsage]
-            )
+            np.concatenate(list(reference.workspace.statistics.node_fields(state, 0.0)))
         )
     finally:
         reference.close()

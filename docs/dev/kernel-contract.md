@@ -840,11 +840,12 @@ P_R(t) = \varepsilon_0\,\rho\,E(t)\;
 \mathrm{irfft}\!\left[\tilde H \cdot \mathrm{rfft}(D)\right](t)
 $$
 
-per chunk of quadrature nodes (`solprop.backends.numpy_ref.passes.raman_polarisation`),
+per chunk of quadrature nodes
+(`solprop.backends.numpy_ref.passes.responses.raman_polarisation`),
 with $D$ the real drive of the grid written into the first half of an array of twice the
 length. The damped kernel spectrum $\tilde H$ does not depend on the nodes, so a stage
 forms it once and shares it between the chunks
-(`solprop.backends.numpy_ref.passes.raman_spectrum`: each row damped at the rate its
+(`solprop.backends.numpy_ref.passes.responses.raman_spectrum`: each row damped at the rate its
 table gives at this plane, summed, scaled by `fraction` and transformed). A backend
 memoises it on **the rates**, not on the density, because the rates are what it depends
 on: a glass's are zero at every density, so its kernel is transformed once for a whole
@@ -1411,7 +1412,8 @@ rejection, each step recorded after its commit with its raw norm, the edges with
 replay's slack; a non-finite norm returns `diverged`, the step uncommitted. *A coupled
 flow:* the stage rows carry the anchor's section and each stage's residual weights, and the
 state forms the step's actions for one (section, step) at a time behind
-`_flow_squarings` and `_check_flow_conditioning`, transcribed, with the Taylor scale, the
+the reference's `_flow_squarings` and `check_flow_conditioning`
+(`backends/numpy_ref/coupled_flow.py`), transcribed, with the Taylor scale, the
 squarings admitted, the sections' row sums, the certificate and the rounding allowance in
 a record; a refusal returns as `BackendError`. *A z table:* the state loads the stages'
 positions into the one slot cache. *The transverse edge:* its ceiling caps every candidate

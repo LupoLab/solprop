@@ -47,4 +47,5 @@ sep-0047-run-ownership
 sep-0048-julia-backend
 sep-0049-tdse-on-native
 sep-0051-save-planes
+sep-0052-backend-shape
 ```

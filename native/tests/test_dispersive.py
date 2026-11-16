@@ -332,7 +332,7 @@ def test_one_evaluation_matches_the_reference(evaluator: str, thg: bool) -> None
                     resume=False,
                 )
                 backend.workspace.lab_source(problem.initial.field0, 0.0)
-                projected = np.asarray(backend.workspace._last_projected)  # pyright: ignore[reportPrivateUsage]
+                projected = np.asarray(backend.workspace.stage_source._last_projected)  # pyright: ignore[reportPrivateUsage]
                 spectra.append(np.asarray(np.fft.rfft(projected, axis=-1)))
         finally:
             backend.close()

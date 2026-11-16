@@ -126,8 +126,8 @@ The column is defined in [nonlinear.md](../../../guide/media/field-plasma.md#the
 [algorithms.md](../../algorithms.md) ("Ionisation and the plasma current", "Order and
 accuracy"). Where it is implemented:
 
-- **`numpy_ref`.** The oracle is {py:func}`solprop.backends.numpy_ref.passes.plasma_scan`
-  (exposure and free current), {py:func}`~solprop.backends.numpy_ref.passes.plasma_current`
+- **`numpy_ref`.** The oracle is {py:func}`solprop.backends.numpy_ref.passes.plasma.plasma_scan`
+  (exposure and free current), {py:func}`~solprop.backends.numpy_ref.passes.plasma.plasma_current`
   (polarisation), and `plasma_channel_fractions` with `plasma_channels_polarisation` for
   mixtures. Each running integral is a call to {py:func}`scipy.integrate.cumulative_trapezoid`.
 - **The physics layer.** {py:class}`solprop.nonlinear.responses.PlasmaResponse` repeats the

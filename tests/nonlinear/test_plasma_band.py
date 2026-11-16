@@ -27,7 +27,7 @@ from plasma_cases import (
     power_rate,
     zero_rate,
 )
-from solprop.backends.numpy_ref.passes import (
+from solprop.backends.numpy_ref.passes.plasma import (
     plasma_integration_diagnostics,
     plasma_integration_statistics,
 )

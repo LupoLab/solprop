@@ -30,10 +30,7 @@ import numpy.typing as npt
 import pytest
 from session_runs import run as run_session
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.workspace import (
-    _coupled_flow_maps,  # pyright: ignore[reportPrivateUsage]
-    _flow_action,  # pyright: ignore[reportPrivateUsage]
-)
+from solprop.backends.numpy_ref.coupled_flow import flow_action, held_flow
 from solprop.backends.session import Start
 from solprop.boundaries import absorber
 from solprop.driver import Simulation
@@ -336,7 +333,7 @@ def test_the_engine_forms_the_reference_s_actions_within_the_formation_bound() -
     case = CASES["taper_gradient"]()
     problem = case.translate()
     run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
-    reference = _coupled_flow_maps(problem)
+    reference = held_flow(problem)
     assert reference is not None
     dz = LENGTH / STEPS
     bound = _formation_bound(problem, run_request, dz)
@@ -355,13 +352,13 @@ def test_the_engine_forms_the_reference_s_actions_within_the_formation_bound() -
             for slot, fraction in enumerate(fractions):
                 if fraction == 0.0:
                     continue
-                expected = _flow_action(reference, section, float(fraction) * dz)
+                expected = flow_action(reference, section, float(fraction) * dz)
                 for got, want in zip(
                     (forward[slot], inverse[slot]), expected, strict=True
                 ):
                     error = _norms(got - want) / _norms(want)
                     assert float(np.max(error)) <= bound
-            pair = _flow_action(reference, section, dz)
+            pair = flow_action(reference, section, dz)
             whole = _norms(pair[0]) * _norms(pair[1])
             assert (
                 float(np.max(abs(measured / whole - 1.0)))

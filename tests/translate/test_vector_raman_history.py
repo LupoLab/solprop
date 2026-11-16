@@ -8,7 +8,10 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from solprop.backends.numpy_ref.passes import raman_polarisation, tensor_raman_spectrum
+from solprop.backends.numpy_ref.passes.responses import (
+    raman_polarisation,
+    tensor_raman_spectrum,
+)
 from solprop.constants import EPS0
 from solprop.grid import EnvelopeGrid
 from solprop.nonlinear.raman import (

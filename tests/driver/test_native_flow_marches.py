@@ -27,10 +27,10 @@ from flow_parity import (
     formation_bound,
     section_formation_bounds,
 )
-from solprop.backends.numpy_ref.workspace import (
-    _coupled_flow_maps,
-    _flow_action,
+from solprop.backends.numpy_ref.coupled_flow import (
     _triangular_exponential,
+    flow_action,
+    held_flow,
 )
 from solprop.translate.coupled import schur_blocks, schur_eigenbasis
 
@@ -97,7 +97,7 @@ def test_the_flow_s_actions_are_the_reference_s_within_the_formation_bound(
     held = backend_module._host_flow(problem)
     assert held is not None
     assert np.all(held.route) if route == "eigenbasis" else not np.any(held.route)
-    reference = _coupled_flow_maps(problem)
+    reference = held_flow(problem)
     assert reference is not None
     nodes = run_request.stepper.tableau.nodes
     fractions = np.array([*(float(node) for node in nodes), 1.0])
@@ -116,11 +116,11 @@ def test_the_flow_s_actions_are_the_reference_s_within_the_formation_bound(
             for slot, fraction in enumerate(fractions):
                 if fraction == 0.0:
                     continue
-                pair = _flow_action(reference, section, float(fraction) * dz)
+                pair = flow_action(reference, section, float(fraction) * dz)
                 for got, want in zip((forward[slot], inverse[slot]), pair, strict=True):
                     error = _spectral(got - want) / _spectral(want)
                     worst = max(worst, float(np.max(error)))
-            pair = _flow_action(reference, section, dz)
+            pair = flow_action(reference, section, dz)
             whole = _spectral(pair[0]) * _spectral(pair[1])
             assert np.max(abs(measured / whole - 1.0)) <= 32 * reference.n_modes * UNIT
     finally:

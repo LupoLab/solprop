@@ -111,7 +111,7 @@ from general_parity import source_bound as general_source_bound
 from march_bounds import FIXED_ORDER, march_bound
 from parity_ladder import Built, Row
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.workspace import _general_maps
+from solprop.backends.numpy_ref.source import _general_maps
 from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import Absorber, absorber
 from solprop.constants import C
