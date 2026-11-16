@@ -14,11 +14,11 @@
 #include "arrays.hpp"
 #include "bind.hpp"
 #include "records.hpp"
-#include "solprop_native/problem/run_records.hpp"
 #include "solprop_native/runtime/cpu_execution.hpp"
 #include "solprop_native/runtime/fields.hpp"
 #include "solprop_native/runtime/refuse.hpp"
 #include "solprop_native/transforms/fftw_wisdom.hpp"
+#include "solprop_native/workspace/run_records.hpp"
 
 #include <Kokkos_Core.hpp>
 #include <nanobind/nanobind.h>

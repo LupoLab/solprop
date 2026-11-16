@@ -16,8 +16,8 @@
 #include "records.hpp"
 #include "solprop_native/march/adams_march.hpp"
 #include "solprop_native/march/rk_march.hpp"
-#include "solprop_native/problem/run_records.hpp"
 #include "solprop_native/session/watch.hpp"
+#include "solprop_native/workspace/run_records.hpp"
 
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
