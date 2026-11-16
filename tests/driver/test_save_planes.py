@@ -19,17 +19,25 @@ import numpy as np
 import pytest
 
 from builders import grid_at
+from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.settings import DEFAULT_N_SAVE, _observation_planes
 from solprop.exceptions import DriverError
 from solprop.grid import EnvelopeGrid
-from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep
-from solprop.stepper.schedule import LANDING_ULPS
+from solprop.log import NullReporter
+from solprop.output.hdf5 import resume
+from solprop.recipe import Recipe, resume_file
+from solprop.stats import StatsSpec
+from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep, RungeKutta
+from solprop.stepper.schedule import LANDING_ULPS, replay_tolerance
 
 LENGTH = 1e-5
 """The tiny fibre's length, m: ten micrometres."""
 
 STEPS = {"dz_max": 1e-6, "dz_init": 1e-6}
+
+ULP = math.ulp(LENGTH)
+"""One representable increment at the run's end, m."""
 
 
 def grid(length: float = LENGTH) -> EnvelopeGrid:
@@ -314,16 +322,69 @@ def test_a_capillary_without_its_gas_is_refused():
 # ---------------------------------------------------------------- replay schedules
 
 
+def history(steps: np.ndarray, z_start: float = 0.0) -> FixedSchedule:
+    """Return the schedule a run that accepted `steps` from `z_start` records."""
+    starts = z_start + np.concatenate(([0.0], np.cumsum(steps)[:-1]))
+    return FixedSchedule.from_history(starts, steps)
+
+
+def drift(schedule: FixedSchedule) -> float:
+    """Return how far a schedule's step sum ends from the run's length, in ulps."""
+    return (schedule.z_end - LENGTH) / math.ulp(LENGTH)
+
+
 @pytest.mark.parametrize(
-    "steps",
-    [np.full(160, LENGTH / 160), np.full(1000, LENGTH / 1000)],
-    ids=["drifts-below", "drifts-above"],
+    ("schedule", "below"),
+    [
+        # 160 and 300 equal steps of a 10 um run end 13 ulps short and 21 ulps past
+        # it: beyond the landing slack, within replay_tolerance's step count.
+        (history(np.full(160, LENGTH / 160)), True),
+        (history(np.full(300, LENGTH / 300)), False),
+        (FixedSchedule.uniform(0.0, LENGTH - 3 * math.ulp(LENGTH), LENGTH / 100), True),
+        (
+            FixedSchedule.uniform(0.0, LENGTH + 3 * math.ulp(LENGTH), LENGTH / 100),
+            False,
+        ),
+    ],
+    ids=["history-below", "history-above", "uniform-below", "uniform-above"],
 )
-def test_a_replayed_schedule_whose_sum_drifts_within_its_tolerance_is_accepted(steps):
-    schedule = FixedSchedule(steps)
-    assert schedule.z_end != LENGTH
+def test_a_replayed_schedule_whose_sum_drifts_within_its_tolerance_is_accepted(
+    schedule, below
+):
+    assert (drift(schedule) < 0) == below and drift(schedule) != 0
+    assert abs(schedule.z_end - LENGTH) <= replay_tolerance(schedule, LENGTH)
     simulation = fibre(schedule=schedule, integrator=LowStorageRungeKutta(), n_save=2)
     assert simulation.settings.schedule is schedule
+    assert np.asarray(simulation.settings.save_planes)[-1] == LENGTH
+
+
+def test_an_adaptive_run_s_own_history_replays_over_the_same_run():
+    # No collar, whose in-stage stability would cap the replayed steps.
+    run = fibre(n_save=2, integrator=RungeKutta(), absorber=False).run(progress="none")
+    schedule = FixedSchedule.from_history(
+        np.asarray(run["step_history/z"]),
+        np.asarray(run["step_history/h"]),
+        np.asarray(run["step_history/accepted"]),
+    )
+    replayed = fibre(
+        n_save=2, integrator=RungeKutta(), absorber=False, schedule=schedule
+    )
+    assert replayed.run(progress="none")["z"][-1] == LENGTH
+
+
+@pytest.mark.parametrize(
+    "schedule",
+    [
+        history(np.full(10, LENGTH / 20)),
+        history(np.full(30, LENGTH / 20)),
+        history(np.full(10, LENGTH / 10), z_start=LENGTH / 10),
+    ],
+    ids=["shorter", "longer", "late-start"],
+)
+def test_a_history_that_does_not_cover_the_run_is_refused_before_it_runs(schedule):
+    with pytest.raises(DriverError, match="the replayed schedule") as refused:
+        fibre(schedule=schedule, integrator=LowStorageRungeKutta(), n_save=2)
+    assert refused.value.rule == "replay-interval"
 
 
 def test_a_uniform_schedule_over_the_run_is_accepted():
@@ -355,3 +416,106 @@ def test_an_interior_launch_still_refuses_a_schedule():
         DriverError, match="refuses the modified noise model and a fixed"
     ):
         adopted(simulation, replay, initial_z=4e-6)
+
+
+# ------------------------------------------------------- resume to the declared end
+
+
+class CrashError(RuntimeError):
+    """What an interrupted run raises, standing in for a machine going away."""
+
+
+class Interrupt(NullReporter):
+    """Stop a run once it has saved `after` planes."""
+
+    def __init__(self, after: int) -> None:
+        self.after, self.seen = after, 0
+
+    def plane(self, z: float, summary: object) -> None:
+        del z, summary
+        self.seen += 1
+        if self.seen >= self.after:
+            raise CrashError(f"stopped after plane {self.seen}")
+
+
+def resumable(**keywords) -> Simulation:
+    """Return the tiny fibre with five observations, one statistic at each."""
+    return fibre(
+        n_save=5,
+        integrator=RungeKutta(),
+        stats=StatsSpec(names=("energy",)),
+        **keywords,
+    )
+
+
+def ends_complete(path) -> None:
+    """Assert a file holds its whole run, ending at the grid's length."""
+    state = resume(path)
+    assert state.plane.z == LENGTH
+    assert state.n_saved == 5
+    assert state.checkpoint is None
+    assert state.outcome is not None and state.outcome.status == "complete"
+
+
+def test_an_interrupted_file_resumes_to_the_declared_end(tmp_path):
+    path = tmp_path / "run.h5"
+    with pytest.raises(CrashError):
+        resumable().run(path, progress=Interrupt(2))
+    assert resume(path).plane.z < LENGTH
+    resumable().run(path, resume=True, progress="none")
+    ends_complete(path)
+
+
+def test_a_file_holding_a_terminal_checkpoint_resumes_to_the_declared_end(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "run.h5"
+    original = NumpyRefBackend.stats
+    calls: list[int] = []
+
+    def fail_at_the_end(self, spec):
+        calls.append(1)
+        if len(calls) == 5:
+            raise CrashError("the last plane's statistics failed")
+        return original(self, spec)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(NumpyRefBackend, "stats", fail_at_the_end)
+        with pytest.raises(CrashError):
+            resumable().run(path, progress="none")
+    stopped = resume(path)
+    # The march reached the end; its last plane was never saved.
+    assert stopped.checkpoint is not None and stopped.n_saved < 5
+    resumable().run(path, resume=True, progress="none")
+    ends_complete(path)
+
+
+def test_a_completed_file_resumes_to_its_end_and_saves_nothing_more(tmp_path):
+    path = tmp_path / "run.h5"
+    resumable().run(path, progress="none")
+    resumable().run(path, resume=True, progress="none")
+    ends_complete(path)
+
+
+def test_a_recipe_s_file_resumes_to_the_declared_end_from_the_file_alone(tmp_path):
+    recipe = Recipe.from_keywords(
+        "gnlse",
+        gamma=0.0,
+        length=LENGTH,
+        betas=[0.0, 0.0, -1e-26],
+        wavelength=800e-9,
+        wavelength_limits=[500e-9, 1.6e-6],
+        trange=200e-15,
+        fwhm=20e-15,
+        peak_power=1.0,
+        n_save=5,
+        backend="numpy_ref",
+        noise=None,
+        dz_max=1e-6,
+        dz_init=1e-6,
+    )
+    path = tmp_path / "run.h5"
+    with pytest.raises(CrashError):
+        recipe.build().run(path, progress=Interrupt(2))
+    resume_file(path, progress="none")
+    ends_complete(path)
