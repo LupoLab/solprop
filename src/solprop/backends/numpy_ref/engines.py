@@ -111,7 +111,7 @@ class NumpyRungeKutta:
         workspace.stage_bundles(
             z, [z + dz, *(z + float(node) * dz for node in tableau.nodes)]
         )
-        exponents = workspace.exponents(z, dz)
+        exponents = workspace.exponents()
         step = workspace.stage_scalars(z, z + dz)
         actions = workspace.flow_actions(step.flow_section, dz)
         stages: list[_State] = []

@@ -20,26 +20,6 @@ kinks, the shot-noise field and the hard band mask.
 from collections.abc import Mapping, Sequence
 
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
-from solprop.backends.numpy_ref.passes import (
-    accept_step,
-    accumulate,
-    apply_hard_mask,
-    apply_temporal_rate,
-    error_norm,
-    ionisation_rate,
-    kerr_polarisation,
-    nonlinear_polarisation,
-    plasma_current,
-    plasma_scan,
-    project,
-    raman_polarisation,
-    raman_spectrum,
-    stage_input,
-    stage_output,
-    synthesise,
-    to_frequency,
-    to_time,
-)
 from solprop.backends.session import ExecutionOptions
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
@@ -48,28 +28,7 @@ from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 from solprop.translate.tdse import TDSEBinding
 
-__all__ = [
-    "NumpyRefBackend",
-    "accept_step",
-    "accumulate",
-    "apply_hard_mask",
-    "apply_temporal_rate",
-    "construct",
-    "error_norm",
-    "ionisation_rate",
-    "kerr_polarisation",
-    "nonlinear_polarisation",
-    "plasma_current",
-    "plasma_scan",
-    "project",
-    "raman_polarisation",
-    "raman_spectrum",
-    "stage_input",
-    "stage_output",
-    "synthesise",
-    "to_frequency",
-    "to_time",
-]
+__all__ = ["NumpyRefBackend", "construct"]
 
 
 def construct(

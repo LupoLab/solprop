@@ -1044,10 +1044,12 @@ def plasma_channels_polarisation(
 ) -> Float[np.ndarray, "n_nodes_chunk n_pol n_to"]:
     r"""Sum channel weights before the two shared current integrals.
 
-    Each fraction has its own exposure scan. The free-current weight is
-    ``sum rho_c f_c e_c²/m_c``; the loss numerator is
-    ``sum rho_c I_p,c W_c (1-f_c)``. Their time integrals are shared.
-    The original one-channel pass retains its density outside the integrals.
+    Each fraction has its own exposure scan (:func:`plasma_channel_fractions`). The
+    free-current weight is ``sum rho_c f_c e_c^2/m_c`` (times each channel's electrons
+    per event); the loss numerator is ``sum rho_c I_p,c W_c (1-f_c)``, divided by
+    ``|E|^2`` and directed along the field as in :func:`plasma_current`. The densities
+    are inside the sums, where the one-channel pass keeps its density outside the
+    integrals.
 
     Parameters
     ----------
@@ -1090,20 +1092,12 @@ def _plasma_channels_current(  # noqa: PLR0917 - called through a reference
     dt: float,
     integral: RunningIntegral | None = None,
 ) -> Float[np.ndarray, "n_nodes_chunk n_pol n_to"]:
-    r"""Sum every channel into the free and loss current densities.
+    r"""Return every channel's free and loss current, summed, before the last integral.
 
-    Each fraction has its own exposure scan. The free-current weight is
-    ``sum rho_c f_c e_c²/m_c``; the loss numerator is
-    ``sum rho_c I_p,c W_c (1-f_c)``. The free-current integral is shared; the loss
-    current is pointwise.
-    The original one-channel pass retains its density outside the integrals.
+    The integrand of :func:`plasma_channels_polarisation`, and what a stage takes: the
+    free current is the one shared integral of the weighted field, the loss current is
+    pointwise.
 
-    - ``field_t``: real node fields in V/m, shape (n_nodes_chunk, n_pol, n_to).
-    - ``densities``: number density of each population in m^-3.
-    - ``preionisation``: initial fraction of each population, dimensionless in [0, 1].
-    - ``dt``: Fine-grid sample spacing in s.
-    - ``integral``: the running-integral rule shared by every channel; ``None`` is the
-      trapezoid.
     - Returns: the total plasma current density in A/m², with the field's shape.
     """
     if len(densities) != len(channels):
@@ -1244,15 +1238,14 @@ def nonlinear_polarisation(
     raman_spectrum: Complex[np.ndarray, "... n_omega_doubled"] | None = None,
     scalars: StageScalars | None = None,
 ) -> Num[np.ndarray, "n_nodes_chunk n_pol n_to"]:
-    r"""Run the fused response pass over a chunk of nodes and window it.
+    r"""Return the total physical polarisation of a chunk of nodes, windowed.
 
-    Pass 4 of ``architecture.md`` section 8: the traversal ``responses.response_order``
-    names, term by term, accumulating ``P(t)`` and applying the temporal collar at the
-    end -- but for SEP 6's dispersive response, whose collar acts on its products
-    before its output multipliers (:func:`dispersive_kerr_polarisation`) and which is
-    added after. Each stage is one of the named functions of this module, so the order
-    the translation layer compiled is the order that runs, and a term this backend
-    cannot execute is refused at construction rather than dropped here.
+    :func:`nonlinear_sources`' collared local polarisation plus the plasma current
+    integrated along t by the problem's running-integral rule and collared: the
+    time-domain form the oracles of
+    :meth:`solprop.nonlinear.responses.PlasmaResponse.evaluate` compare against. A
+    stage never takes it: the stage assembles the current in frequency instead
+    (:func:`held_plasma_spectrum`, SEP 27).
 
     Parameters
     ----------
@@ -1280,7 +1273,6 @@ def nonlinear_polarisation(
         shape ``(n_to + 1,)``. Required when the order names ``raman_drive``; the caller
         forms it once per stage rather than once per chunk, because it does not depend
         on the nodes.
-
     scalars : StageScalars or None, optional
         Labelled component densities and preionisations at the stage. Required for
         multiple plasma channels; None retains the standalone single-response call.
@@ -1334,8 +1326,6 @@ def nonlinear_polarisation(
     )
     if sources.current is None:
         return sources.polarisation
-    # Physical-polarisation oracle and private historical comparison only. Production
-    # assembles the current in frequency through held_plasma_spectrum (SEP 27).
     return sources.polarisation + t_window_fine * responses.plasma_integral.integrate(
         sources.current, dt
     )
@@ -1408,7 +1398,6 @@ def nonlinear_sources(
         shape ``(n_to + 1,)``. Required when the order names ``raman_drive``; the caller
         forms it once per stage rather than once per chunk, because it does not depend
         on the nodes.
-
     scalars : StageScalars or None, optional
         Labelled component densities and preionisations at the stage. Required for
         multiple plasma channels; None retains the standalone single-response call.
@@ -1662,14 +1651,10 @@ def _plasma(responses: CompiledResponses) -> PlasmaCoefficients:
 def _raman_thg(responses: CompiledResponses) -> bool:
     """Return whether a field grid's Raman drive keeps the ``2 omega`` beat.
 
-    The drive form is a property of the problem and not of each response, and until
-    contract version 3 it had no row: the translation layer checked that the declared
-    Kerr and Raman responses agree about it on a field grid, refused a field-grid Raman
-    with no Kerr beside it, and a backend read the answer off the Kerr term's own flag.
-    Both refusals stand -- they are what makes the agreement true -- but the answer is
-    now carried, so it is read where it belongs: the stage runs exactly when the leaf is
-    present. An envelope grid's drive is ``|A|^2/2``
-    whatever it says, which is why the value is not checked there.
+    The drive form is a property of the problem, carried on the Raman leaf; the
+    translation layer has already checked that the declared Kerr and Raman responses
+    agree about it. An envelope grid's drive is ``|A|^2/2`` whatever it says, which is
+    why the value is not checked there.
 
     - Returns: True when the drive is ``E^2`` rather than ``|E_a|^2/2``.
     """
@@ -1702,18 +1687,22 @@ def _checked[T](value: T | None) -> T:
 
 def absorber_term(
     modal_t: Inexact[np.ndarray, "n_modes n_pol n_to"],
-    temporal_rate_fine: Float[np.ndarray, " n_to"],
+    temporal_rate_fine: Float[np.ndarray, " n_to"] | None,
+    radial: Float[np.ndarray, "n_modes_r n_modes_r"] | None,
     crop_index: Int[np.ndarray, " n_crop"],
     active_mask: Bool[np.ndarray, " n_active"],
     *,
     kind: GridKind,
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
-    r"""Return the temporal absorber as a contribution to the stage derivative.
+    r"""Return the in-stage absorbers as a contribution to the stage derivative.
 
     The ``"nonlinear"`` absorber scheme: ``-alpha(t) E(t) / 2`` on the modal time-domain
     field, transformed and cropped so that it can be added to the stage in the same
     place the normalised polarisation is. ``alpha`` is a **power** coefficient, so the
-    field carries the half (:func:`solprop.boundaries.nonlinear_absorber_term`).
+    field carries the half (:func:`solprop.boundaries.nonlinear_absorber_term`). The
+    radial route's transverse collar is a matrix on the mode axis
+    (:func:`solprop.backends.spatial.radial_absorber_matrix`) and adds to the same
+    time-domain term, so both share one transform.
 
     It cannot ride the polarisation's own transform, and this is the whole reason the
     two schemes exist: the polarisation is multiplied by the UPPE prefactor *after* the
@@ -1741,8 +1730,12 @@ def absorber_term(
     modal_t : numpy.ndarray
         The lab-frame modal field on the fine time grid, shape
         ``(n_modes, n_pol, n_to)``, as :func:`to_time` produced it.
-    temporal_rate_fine : numpy.ndarray
-        The collar rate on the fine time axis, 1/m, non-negative, shape ``(n_to,)``.
+    temporal_rate_fine : numpy.ndarray or None
+        The collar rate on the fine time axis, 1/m, non-negative, shape ``(n_to,)``;
+        ``None`` when the temporal collar is not applied in-stage.
+    radial : numpy.ndarray or None
+        The radial collar's matrix on the mode axis, 1/m, shape
+        ``(n_modes, n_modes)``; ``None`` off the radial route or without its collar.
     crop_index : numpy.ndarray
         Where each coarse bin sits in the fine spectrum, ``numpy.intp``, shape
         ``(n_omega,)``.
@@ -1765,14 +1758,16 @@ def absorber_term(
     >>> field = np.ones((1, 1, 8))
     >>> rate = np.full(8, 2.0)
     >>> index = np.arange(2, dtype=np.intp)
-    >>> absorber_term(field, rate, index, np.ones(2, bool), kind="field").real
+    >>> absorber_term(field, rate, None, index, np.ones(2, bool), kind="field").real
     array([[[-8.,  0.]]])
     """
-    n_modes, n_pol = modal_t.shape[:2]
-    flat = modal_t.reshape(n_modes * n_pol, -1)
-    damped = boundaries.nonlinear_absorber_term(flat, temporal_rate_fine)
-    spectrum = fourier.forward(damped, kind=kind)[..., crop_index] * active_mask
-    return spectrum.reshape(n_modes, n_pol, -1)
+    term = np.zeros_like(modal_t)
+    if temporal_rate_fine is not None:
+        term = boundaries.nonlinear_absorber_term(modal_t, temporal_rate_fine)
+    if radial is not None:
+        n_modes = modal_t.shape[0]
+        term = term + (radial @ modal_t.reshape(n_modes, -1)).reshape(modal_t.shape)
+    return to_frequency(term, crop_index, kind=kind) * active_mask
 
 
 def stage_output(

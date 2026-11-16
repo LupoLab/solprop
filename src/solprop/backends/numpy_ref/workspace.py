@@ -850,12 +850,10 @@ class NumpyWorkspace:
         self._held = None
         noise = self.noise_at(bundle)
         field_in = lab if noise is None else lab + noise
-        if self._tdse_binding is not None:
-            return (
-                self.nonlinear(field_in, bundle, 1.0 / propagator, purpose=purpose),
-                propagator,
-            )
-        return self.nonlinear(field_in, bundle, 1.0 / propagator), propagator
+        return (
+            self.nonlinear(field_in, bundle, 1.0 / propagator, purpose=purpose),
+            propagator,
+        )
 
     def coupled_block(self, z: float, dz: float) -> object:
         """Return the frozen block of the section a step from `z` is anchored in.
@@ -941,9 +939,7 @@ class NumpyWorkspace:
         bundle = self.stage_scalars(position, position)
         noise = self.noise_at(bundle)
         field_in = lab if noise is None else lab + noise
-        if self._tdse_binding is not None:
-            return self.nonlinear(field_in, bundle, self._lab_frame, purpose=purpose)
-        return self.nonlinear(field_in, bundle, self._lab_frame)
+        return self.nonlinear(field_in, bundle, self._lab_frame, purpose=purpose)
 
     def propagator(
         self, anchor: float, position: float, *, hold: bool = False
@@ -2450,22 +2446,21 @@ class NumpyWorkspace:
           ``"split_step"`` scheme is active and the rate is applied to the state after
           the step instead.
         """
-        rate = self._tables.temporal_rate
         if not self._in_stage_absorber:
             return None
-        if may_quiet and self.collar_quiet and not self._spatial_absorber.size:
+        radial = self._spatial_absorber if self._spatial_absorber.size else None
+        if may_quiet and self.collar_quiet and radial is None:
             return None
+        rate = self._tables.temporal_rate
+        in_stage = self._problem.responses.absorber_scheme == "nonlinear"
         grids = self._problem.grids
-        term = np.zeros_like(modal_t)
-        if rate is not None and self._problem.responses.absorber_scheme == "nonlinear":
-            term = -0.5 * rate * modal_t
-        if self._spatial_absorber.size:
-            term = term + (
-                self._spatial_absorber @ modal_t.reshape(modal_t.shape[0], -1)
-            ).reshape(modal_t.shape)
-        return (
-            passes.to_frequency(term, grids.crop_index, kind=self._kind)
-            * grids.active_mask
+        return passes.absorber_term(
+            modal_t,
+            rate if in_stage else None,
+            radial,
+            grids.crop_index,
+            grids.active_mask,
+            kind=self._kind,
         )
 
     def _over_nodes(
@@ -2629,7 +2624,7 @@ class NumpyWorkspace:
         return self._raman_kernel
 
     def exponents(
-        self, z: float, dz: float
+        self,
     ) -> Callable[[float, StageScalars], Complex[np.ndarray, "n_modes n_pol n_omega"]]:
         """Return the memoised ``dPhi`` of a step, keyed by the stage fraction.
 
@@ -2640,19 +2635,11 @@ class NumpyWorkspace:
         itself is one linear combination of the terms over the bundle's weights,
         whatever the representation (:mod:`solprop.translate.stage`).
 
-        Parameters
-        ----------
-        z : float
-            Position at the start of the step, m.
-        dz : float
-            Length of the step, m.
-
         Returns
         -------
         callable
             ``(fraction, bundle) -> dPhi``, of the state's broadcast shape.
         """
-        del z, dz
         if self._propagator_mode == "recompute":
             return lambda fraction, bundle: self.delta_phi(bundle)  # noqa: ARG005
         cache: dict[float, Complex[np.ndarray, "n_modes n_pol n_omega"]] = {}
@@ -3306,10 +3293,8 @@ def _harmonic_carrier(
     """Return ``exp(2 i omega_0 t)`` on the fine grid when the harmonic is radiated.
 
     The envelope-grid third-harmonic term needs the carrier the coarse grid does not
-    resolve. Until contract version 3 the contract carried neither it nor a fine time
-    axis and a backend built it from ``omega0``, ``n_to`` and ``dt_fine`` -- one piece
-    of physics inside a backend, against ``docs/dev/architecture.md`` section 3, which
-    is why it now arrives as ``grids.carrier_2w0``. The sign is the FFT convention's
+    resolve; it arrives as ``grids.carrier_2w0``, so that no physics is formed inside a
+    backend (``docs/dev/architecture.md`` section 3). The sign is the FFT convention's
     (``docs/guide/media/nonlinear.md``). ``validate`` refuses a harmonic term without
     the carrier, so only a hand-built problem reaches the refusal here.
 

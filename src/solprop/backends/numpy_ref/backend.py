@@ -41,11 +41,7 @@ from solprop.backends.ledger import CallLedger
 from solprop.backends.low_storage import HostLowStorage
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.numpy_ref.engines import NumpyRungeKutta
-from solprop.backends.numpy_ref.workspace import (
-    BlockResidual,
-    NumpyWorkspace,
-    SourceTables,
-)
+from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.protocol import TimingProbe
 from solprop.backends.records import adams_policy, runge_kutta_policy
 from solprop.backends.session import ExecutionOptions, PreparedExecution, Start
@@ -76,26 +72,28 @@ from solprop.translate.tdse import TDSEBinding
 if TYPE_CHECKING:
     from solprop.backends.protocol import Backend
 
-__all__ = ["BlockResidual", "NumpyRefBackend", "SourceTables"]
+__all__ = ["NumpyRefBackend"]
 
 logger = logging.getLogger(__name__)
 
 
 class NumpyRefBackend:
-    """Propagate one Kerr and plasma problem with interaction-picture DOPRI5.
+    """Propagate one problem in plain NumPy: the oracle.
 
-    The oracle of ``docs/dev/backends.md`` section 2. It implements
+    The reference of ``docs/dev/backends.md`` section 2. It implements
     :class:`solprop.backends.protocol.Backend` and steps a single problem on either
-    grid: mode-averaged or multimode on the fixed transverse quadrature, scalar or
-    vector-isotropic, with the Kerr term, the delayed Raman term and the plasma.
-    Mode-averaged propagation is the one-node case of the same pipeline and not a
-    second code path.
+    grid, on every route -- mode-averaged or multimode on the fixed transverse
+    quadrature, scalar or vector-isotropic, the general modal guide, the spatial
+    geometries and the TDSE response -- with every march: interaction-picture
+    Runge-Kutta, the low-storage step and both Adams formulations. Mode-averaged
+    propagation is the one-node case of the modal pipeline and not a second code path.
 
     **Refusals.** A problem is refused by name, with
-    :class:`solprop.exceptions.BackendError`, when its flags declare a spectral
-    response, when a Raman kernel meets two polarisation components, or when the
-    transform and the state would both carry the transverse components. A term
-    silently dropped would run, converge and be wrong.
+    :class:`solprop.exceptions.BackendError`, when its route is not one of the union's,
+    when an Adams method meets what it does not step, when a declared Raman term meets
+    two polarisation components without a tensor kernel, or when the transform and the
+    state would both carry the transverse components. A term silently dropped would
+    run, converge and be wrong.
 
     **Convention.** Every array held or returned is in the FFT convention of
     ``docs/dev/conventions.md`` section 2; the backend never conjugates. The
@@ -707,10 +705,11 @@ class _TrialProbe:
 def _refuse_adams(problem: PropagationProblem, stepper: StepperSettings) -> None:
     """Refuse what the Adams march does not execute (SEP 13 sections 2 and 6.2).
 
-    Its history is of source samples along a diagonal flow, so a coupled flow is
-    refused by name rather than stepped with a stale history, and the exponential
-    formulation refuses a varying operator until SEP 16's phase 4
-    (:func:`solprop.backends.exponential.refuse_formulation`). The ``modified`` noise is
+    The interaction formulation's history is of source samples transported along a
+    diagonal flow, so a coupled flow is refused by name rather than transported through
+    inverse actions; the exponential formulation refuses the coupled-flow sections it
+    does not step (:func:`solprop.backends.exponential.refuse_formulation`) and the
+    carrier frames it does not deliver. The ``modified`` noise is
     admitted for both formulations (SEP 16 section 4.4): its draw is fixed for the run
     and added to each sample's field at that sample's own position, never to the
     propagating state, so conditional on the draw the source is a deterministic,
