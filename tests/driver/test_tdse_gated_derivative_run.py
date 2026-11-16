@@ -23,6 +23,9 @@ from scipy.special import erf
 from tests.edge_source_cases import ManufacturedBinding, case_from_problem, evaluate
 from tests.hacc_cases import alpha_law, hacc_response, install, plain, preset_basis
 
+from sessions.runs import bare, to_planes
+from sessions.runs import run as session_run
+from solprop.backends.events import ObservationReady
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.driver import tdse as runtime_module
@@ -227,21 +230,26 @@ def test_the_fake_drift_keeps_its_rise_and_reports_its_edge_ratio(bindings):
 def test_the_edge_entry_is_the_last_evaluation_and_keeps_no_history(bindings):
     simulation = _sae(TDSEAtomicWindow(40e-15, 5e-15))
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    # Two planes, each a session's observation, read between the session's batches.
+    run_request = to_planes(bare(simulation._run_request()), [2 * _STEP, 4 * _STEP])
     assert tdse_descriptor(problem.route) is not None
     binding = ManufacturedBinding(tdse_descriptor(problem.route), 1000, _drift)
     backend = NumpyRefBackend(
         problem, run_request, grid=simulation.grid, tdse_binding=binding
     )
+    records = []
+
+    def between(_, batch):
+        for event in batch.events:
+            if isinstance(event, ObservationReady) and event.plane_index >= 0:
+                records.append(plain(backend.metadata()["tdse_last_evaluation"]))
+                binding.law = lambda times: 3 * _drift(times)
+
     try:
-        backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
-        backend.propagate_to(2 * _STEP)
-        first = plain(backend.metadata()["tdse_last_evaluation"])
-        binding.law = lambda times: 3 * _drift(times)
-        backend.propagate_to(4 * _STEP)
-        second = plain(backend.metadata()["tdse_last_evaluation"])
+        session_run(backend, problem, between=between)
     finally:
         backend.close()
+    first, second = records
     before = first["projection"]["edge"]["bands"]["active"]
     after = second["projection"]["edge"]["bands"]["active"]
     # A linear map of a remainder three times larger: three times the norms, to the

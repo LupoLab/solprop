@@ -5,7 +5,7 @@
 """The outer loop: what it saves, what it reports and what it refuses."""
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import h5py
 import numpy as np
@@ -26,8 +26,6 @@ from solprop.backends.protocol import (
     Backend,
     BackendHistory,
     Observation,
-    StepSummary,
-    stepping,
 )
 from solprop.backends.registry import select
 from solprop.backends.session import Start
@@ -164,56 +162,17 @@ class NullBackend:
         # Every refusal this double reaches fires before the run is prepared.
         raise AssertionError("the null backend prepares no run")
 
-    def set_initial(self, field, noise, *, z=0.0, resume=False):
-        pass
-
-    def set_progress(self, reporter):
-        self.reporter = reporter
-
-    def set_stop(self, flag):
-        pass
-
     def edge_memory(self, space):
         return 0
 
-    def attach_monitor(self, monitor):
-        pass
-
-    def march_snapshot(self):
-        return None
-
-    def march_snapshot_nbytes(self, z):
-        return None
-
     def march_export_refusal(self):
-        return None
-
-    def restore_march(self, snapshot):
         return None
 
     def timing_probe(self, start):
         raise NotImplementedError
 
-    def propagate_to(self, z):
-        if self.failure is not None:
-            raise self.failure
-        return StepSummary(z, 1, 0, 0.5, 0.5, 0.0, True)
-
-    def observe(self, *, field=True):
-        history = BackendHistory(
-            np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0, bool), np.zeros(0)
-        )
-        state = np.zeros(self.shape, complex) if field else None
-        return Observation(0.0, state, None, history, 0, 0)
-
-    def stats(self, spec):
-        return {}
-
     def metadata(self) -> dict[str, object]:
         return {"backend": self.name, "propagator_mode": "tabulate"}
-
-    def restore_call_ledgers(self, logical, atomic=None):
-        pass
 
     def memory_ledger(self):
         return {}
@@ -239,12 +198,20 @@ def failing_backend(simulation, error):
         modes=simulation.modes,
     )
 
-    def propagate_to(z):
-        raise error
+    built = cast("Any", backend).method
 
-    # A patched instance attribute: the reference's stepping seam fails each march.
-    stepped = stepping(backend)
-    stepped.propagate_to = propagate_to  # pyright: ignore[reportAttributeAccessIssue]
+    def method(host):
+        # Each session's march, whose every advance raises.
+        made = built(host)
+
+        def advance(target):
+            raise error
+
+        made.march.advance = advance  # pyright: ignore[reportAttributeAccessIssue]
+        return made
+
+    # A patched instance attribute: every run the backend serves fails its march.
+    backend.method = method  # pyright: ignore[reportAttributeAccessIssue]
     return backend
 
 
@@ -693,9 +660,9 @@ def test_a_run_that_raises_tells_the_reporter_it_was_interrupted(build_simulatio
             metadata=simulation.metadata(),
             progress=events,
         )
-    # The failing march never calls `started` (a real march does), so the
-    # interruption is the only event, and it names the last plane reached: none.
-    assert events.calls == [("interrupted", 0.0, "RuntimeError")]
+    # The session announces the run before its first march, which fails: the
+    # interruption follows, naming the last plane reached: none.
+    assert events.calls == ["started", ("interrupted", 0.0, "RuntimeError")]
 
 
 def testhistory_of_stores_start_positions_and_per_attempt_times():

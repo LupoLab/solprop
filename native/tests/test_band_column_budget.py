@@ -226,11 +226,16 @@ def stages(
     """Return native's and the reference's first stage on the launch."""
     reference = NumpyRefBackend(problem, run_request, grid=GRID)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
-        expected = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
-            reference._require_state(),  # pyright: ignore[reportPrivateUsage]
-            reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
+        reference.workspace.hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
+        expected = reference.workspace.nonlinear(  # pyright: ignore[reportPrivateUsage]
+            reference.workspace.committed(),  # pyright: ignore[reportPrivateUsage]
+            reference.workspace.stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
             np.ones(problem.shape, complex),
         )
     finally:
@@ -274,13 +279,18 @@ def launch_fraction_bound(
     dt = GRID.dt_fine
     reference = NumpyRefBackend(problem, run_request, grid=GRID)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
-        state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
-        bundle = reference._stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
+        reference.workspace.hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
+        state = reference.workspace.committed()  # pyright: ignore[reportPrivateUsage]
+        bundle = reference.workspace.stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         fields = np.real(
             np.concatenate(
-                list(reference._plasma_nodes(state))  # pyright: ignore[reportPrivateUsage]
+                list(reference.workspace._plasma_nodes(state, 0.0))  # pyright: ignore[reportPrivateUsage]
             )
         )
         field_error = node_field_error(reference, problem, fields)

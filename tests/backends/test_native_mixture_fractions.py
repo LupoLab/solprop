@@ -35,6 +35,7 @@ from backends.forced_threads import assert_threaded
 from backends.matched import native_thread_fields
 from backends.native_mixture_launch_probe import NAMES, launch_case
 from bounds import EPS
+from builders import load_reference
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 
 native = pytest.importorskip("solprop_native")
@@ -51,11 +52,13 @@ def oracle(kerr, n_pol):
     grid, problem, run_request = launch_case(kerr, n_pol)
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)
-        bundle = reference._stage_scalars(0.0, 0.0)
+        state = load_reference(reference)
+        reference.workspace.hoist(0.0)
+        bundle = reference.workspace.stage_scalars(0.0, 0.0)
         fields = np.real(
-            np.concatenate(list(reference._plasma_nodes(reference._require_state())))
+            np.concatenate(
+                list(reference.workspace._plasma_nodes(state, problem.initial.z))
+            )
         )
     finally:
         reference.close()

@@ -17,6 +17,8 @@ import numpy as np
 import pytest
 
 from solprop.backends.registry import select
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.boundaries import SpatialAbsorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BoundaryWarning
@@ -54,7 +56,7 @@ def _line() -> Simulation:
 
 
 def _judged(simulation: Simulation, state: np.ndarray, draw, *, resume: bool) -> None:
-    """Load `state` with `draw` and attach a fresh monitor, which judges the launch."""
+    """Start a session at `state` with `draw`, whose fresh monitor judges the launch."""
     problem = simulation.translate()
     run_request = simulation._run_request()
     backend = cast(
@@ -69,12 +71,24 @@ def _judged(simulation: Simulation, state: np.ndarray, draw, *, resume: bool) ->
         ),
     )
     try:
-        backend.set_initial(state, draw, resume=resume)
         monitor = simulation._boundary_monitor()
         assert monitor is not None
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", BoundaryWarning)
-            backend.attach_monitor(monitor)
+        start = Start(
+            field=state, z=float(problem.initial.z), noise=draw, resume=resume
+        )
+        session = start_session(
+            backend, problem, run_request.for_run(monitor=monitor), start, owns=False
+        )
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", BoundaryWarning)
+                # The launch plane, then the advance that attaches the monitor, which
+                # judges the launch.
+                for _ in range(2):
+                    batch = session.advance()
+                    session.acknowledge(batch.receipt)
+        finally:
+            session.close()
     finally:
         backend.close()
 

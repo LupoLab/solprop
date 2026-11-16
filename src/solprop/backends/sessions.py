@@ -8,8 +8,7 @@
 47 section 5.2), ``backend.prepare(problem, request).start(start, ...)``, so a backend
 chooses its session and nothing here names one. The NumPy reference's prepared
 execution opens its own session
-(:class:`solprop.backends.host.session.HostSession`, over
-:class:`solprop.backends.host.driver.HostDriver`); a native backend's
+(:class:`solprop.backends.host.session.HostSession`); a native backend's
 (``solprop_native.session.NativePrepared``) opens the native execution session
 (``solprop_native.session.NativeSession``), on a CPU or a device build alike, which
 refuses by name, before the start is loaded, what it does not run.

@@ -109,7 +109,7 @@ from modal_provider_cases import (
 )
 from sessions.runs import bare, final_field
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.backend import (
+from solprop.backends.numpy_ref.workspace import (
     _TAYLOR_ORDER,
     _TAYLOR_SCALE,
     _coupled_flow_maps,
@@ -579,7 +579,9 @@ def adams_formation_bound(
     try:
         anchors = np.concatenate(([0.0], np.cumsum(schedule.steps)[:-1]))
         exponents = [
-            backend._delta_phi(backend._stage_scalars(float(z), float(z + step)))
+            backend.workspace.delta_phi(
+                backend.workspace.stage_scalars(float(z), float(z + step))
+            )
             for z, step in zip(anchors, schedule.steps, strict=True)
         ]
     finally:
@@ -671,8 +673,8 @@ def flow_scales(
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         state = problem.initial.field0
-        bundle = backend._stage_scalars(0.0, 0.0)
-        source = backend._nonlinear(state, bundle, np.ones_like(state))
+        bundle = backend.workspace.stage_scalars(0.0, 0.0)
+        source = backend.workspace.nonlinear(state, bundle, np.ones_like(state))
     finally:
         backend.close()
     schedule = run_request.stepper.schedule

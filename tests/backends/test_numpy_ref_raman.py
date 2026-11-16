@@ -30,6 +30,7 @@ import numpy as np
 import pytest
 
 from bounds import assert_within, fft_bound
+from builders import load_reference
 from former_raman import FORMER_H2, FORMER_N2, former_response
 from legacy_geometry import LEGACY_GRID
 from sessions.runs import run as session_run
@@ -61,11 +62,17 @@ from solprop.translate.raman import (
     kernel_taper,
 )
 from solprop.translate.responses import ResponseStage, prefactor_at
+from solprop.translate.stage import scalars
 
 # The pass is the oracle's own arithmetic -- the same padded real transform pair, the
 # same product, the same final multiplication -- but need not keep its order (SEP 25):
 # the two agree to one round trip on the doubled grid, `fft_bound(2 n_to)` with its
 # pointwise work, batched over a chunk of nodes as well as one column at a time.
+
+
+def _owner(backend):
+    """Return what holds a backend's Raman kernel: the reference's workspace."""
+    return getattr(backend, "workspace", backend)
 
 
 def convolution_bound(grid):
@@ -337,9 +344,11 @@ def test_one_stage_matches_the_responses_composed_by_hand(
     """The whole chain against the two oracles, at three densities of the gradient."""
     problem, run_request, kerr, raman = raman_capillary()
     backend = NumpyRefBackend(problem, run_request)
-    backend.set_initial(problem.initial.field0, None)
+    load_reference(backend)
     state = problem.initial.field0
-    got = backend._nonlinear(state, backend._stage_scalars(0.0, z), np.ones_like(state))
+    got = backend.workspace.nonlinear(
+        state, backend.workspace.stage_scalars(0.0, z), np.ones_like(state)
+    )
     want = reference_nonlinear(problem, raman_field_grid, kerr, raman, state, z)
     # The Raman half is one convolution's rounding -- its kernel spectrum and its
     # convolution each have their own test above -- and the Kerr coefficient's grouping:
@@ -417,9 +426,9 @@ def test_the_kernel_is_transformed_once_per_change_of_the_decay_rates(
     problem, run_request, _, _ = raman_capillary(responses)
     backend = backend_class(problem, run_request)
     for z in (0.0, 0.05, 0.05, 0.15, 0.15):
-        rates = backend._stage_scalars(0.0, z).raman_rates
-        backend._raman_spectrum(rates)
-    transforms = backend._raman_transforms
+        rates = scalars(problem, 0.0, z, helpers=backend.helpers).raman_rates
+        _owner(backend)._raman_spectrum(rates)
+    transforms = _owner(backend)._raman_transforms
     backend.close()
     assert transforms == expected
 
@@ -429,7 +438,12 @@ def test_a_problem_without_a_raman_kernel_has_no_spectrum(
 ):
     problem, run_request, _, _ = raman_capillary([KerrResponse(chi3=1.0e-51, thg=True)])
     backend = backend_class(problem, run_request)
-    assert backend._raman_spectrum(backend._stage_scalars(0.0, 0.0).raman_rates) is None
+    assert (
+        _owner(backend)._raman_spectrum(
+            scalars(problem, 0.0, 0.0, helpers=backend.helpers).raman_rates
+        )
+        is None
+    )
     backend.close()
 
 
@@ -899,7 +913,7 @@ def test_a_raman_run_steps_and_shifts_a_capillary_pulse(
     backend = backend_class(problem, run_request, grid=raman_field_grid)
     try:
         plane = session_run(backend, problem, run_request, owns=False, until=0.1).final
-        transforms = backend._raman_transforms
+        transforms = _owner(backend)._raman_transforms
     finally:
         backend.close()
     assert plane.z == 0.1

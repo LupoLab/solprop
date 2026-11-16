@@ -130,7 +130,7 @@ def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_boun
         _host_flow,
     )
 
-    from solprop.backends.numpy_ref.backend import (  # noqa: PLC0415 - private oracle
+    from solprop.backends.numpy_ref.workspace import (  # noqa: PLC0415 - private oracle
         _coupled_flow_maps,
         _flow_action,
     )

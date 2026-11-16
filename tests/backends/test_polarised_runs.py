@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from bounds import gamma, ladder_bound, record_backend
+from builders import load_reference
 from convergence_records import record
 from convergence_studies import BACKEND_EQUIVALENCE
 from legacy_geometry import LEGACY_GRID
@@ -146,10 +147,10 @@ def problem_derivative(backend_class, problem, run_request, grid, modes):
     backend = backend_class(problem, run_request, grid=grid, modes=modes)
     try:
         if isinstance(backend, NumpyRefBackend):
-            backend.set_initial(problem.initial.field0, None)
-            backend._hoist(0.0)
-            bundle = backend._stage_scalars(0.0, 0.0)
-            derivative = backend._nonlinear(
+            load_reference(backend)
+            backend.workspace.hoist(0.0)
+            bundle = backend.workspace.stage_scalars(0.0, 0.0)
+            derivative = backend.workspace.nonlinear(
                 problem.initial.field0,
                 bundle,
                 np.ones(problem.shape, complex),

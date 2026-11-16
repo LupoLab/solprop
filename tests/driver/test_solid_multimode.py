@@ -43,7 +43,7 @@ from modal_provider_cases import (
     GRIN_RADIUS,
     make_provider,
 )
-from sessions.runs import final_field
+from sessions.runs import bare, final_field
 from solprop.backends import select
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import EPS0
@@ -621,9 +621,7 @@ def grin_exit_energies(elements, trange, steps):
     )
     owner = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        owner.set_initial(problem.initial.field0, None)
-        owner.propagate_to(GRIN_LENGTH)
-        final = owner.observe().require_field()
+        final = final_field(owner, problem, bare(run_request), ended=True)
     finally:
         owner.close()
     return energy(grid, final)[:, 0]

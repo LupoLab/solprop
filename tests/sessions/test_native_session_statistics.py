@@ -24,11 +24,13 @@ import dataclasses
 import functools
 import math
 import re
+from typing import Any, cast
 
 import numpy as np
 import pytest
 
 from bounds import INTEGRATION_AGREEMENT, gamma
+from builders import load_reference
 from sessions.executors import (
     PLANES,
     device_build,
@@ -40,7 +42,6 @@ from sessions.executors import (
 from sessions.runs import load_native
 from solprop.backends.events import ObservationReady, Terminal
 from solprop.backends.export import ExportRecipe
-from solprop.backends.protocol import stepping
 from solprop.backends.registry import select
 from solprop.exceptions import BackendError, SolpropError, TranslationError
 from solprop.stats import (
@@ -186,10 +187,8 @@ def _reference(problem, run_request, spec, seen, *, grid, modes=None, profiles=N
     out = []
     try:
         for record in seen:
-            stepping(backend).set_initial(
-                record.field, None, z=record.z, resume=record.z > start
-            )
-            values = stepping(backend).stats(spec)
+            load_reference(backend, record.field, z=record.z, resume=record.z > start)
+            values = cast("Any", backend).workspace.stats(spec, record.z)
             out.append({name: np.asarray(value) for name, value in values.items()})
     finally:
         backend.close()
@@ -951,8 +950,10 @@ def test_a_negative_lobe_s_widths_are_refused_by_the_session_as_by_the_reference
     with pytest.raises(BackendError, match="nonnegative fluence profile") as want:
         reference = select("numpy_ref", problem, run_request, grid=grid)
         try:
-            stepping(reference).set_initial(field, None)
-            stepping(reference).stats(StatsSpec(names=("beam_radius",)))
+            load_reference(reference, field)
+            cast("Any", reference).workspace.stats(
+                StatsSpec(names=("beam_radius",)), float(problem.initial.z)
+            )
         finally:
             reference.close()
     session = native_session.NativeSession(
@@ -1036,10 +1037,8 @@ def test_a_varying_metric_s_statistics_are_refused_by_native_before_allocation()
     inside = float(run_request.stepper.save_planes[-1]) / 8
     reference = select("numpy_ref", problem, request, grid=grid)
     try:
-        stepping(reference).set_initial(
-            problem.initial.field0, None, z=inside, resume=True
-        )
-        values = stepping(reference).stats(spec)
+        load_reference(reference, z=inside, resume=True)
+        values = cast("Any", reference).workspace.stats(spec, inside)
     finally:
         reference.close()
     assert set(values) == set(GENERAL)

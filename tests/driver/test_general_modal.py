@@ -33,6 +33,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from bounds import departure
+from builders import load_reference
 from legacy_geometry import LEGACY_GRID
 from march_bounds import (
     FIXED_ORDER,
@@ -47,7 +48,6 @@ from modal_provider_cases import (
 )
 from solprop import fourier
 from solprop.backends import select
-from solprop.backends.protocol import stepping
 from solprop.backends.session import Start
 from solprop.constants import ROOM_TEMPERATURE, C
 from solprop.coupling import CouplingModel, CouplingReport
@@ -1132,14 +1132,14 @@ def test_the_backend_refuses_an_inadmissible_name_on_its_own(guide, grid):
     run_request = simulation._run_request()
     backend = select("numpy_ref", problem, run_request, grid=grid)
     try:
-        stepping(backend).set_initial(problem.initial.field0, None)
+        load_reference(backend)
+        workspace = cast("Any", backend).workspace
+        z = float(problem.initial.z)
         with pytest.raises(BackendError, match="peak_intensity is unavailable"):
-            stepping(backend).stats(StatsSpec(names=("peak_intensity",)))
+            workspace.stats(StatsSpec(names=("peak_intensity",)), z)
         with pytest.raises(BackendError, match="energy is unavailable"):
-            stepping(backend).stats(StatsSpec(names=("energy",)))
-        assert stepping(backend).stats(
-            StatsSpec(names=("physical_energy", "analytic_flux"))
-        )
+            workspace.stats(StatsSpec(names=("energy",)), z)
+        assert workspace.stats(StatsSpec(names=("physical_energy", "analytic_flux")), z)
     finally:
         backend.close()
 

@@ -16,7 +16,9 @@ from functools import partial
 import numpy as np
 import pytest
 
+from sessions.runs import bare, run
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import Start
 from solprop.driver import simulation as simulation_module
 from solprop.driver.simulation import Simulation
 from solprop.gasflow import steady_fill
@@ -34,18 +36,21 @@ LENGTH = 0.05
 def history(problem, run_request, grid, *, z_start=0.0):
     """Run a problem to its last plane; return the accepted starts and lengths."""
     backend = NumpyRefBackend(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, None, z=z_start)
-    starts, lengths = [], []
-    for plane in run_request.stepper.save_planes:
-        if plane <= z_start:
-            continue
-        backend.propagate_to(float(plane))
-        steps = backend.observe().step_history
-        # The history records where each attempt ended.
-        starts += list((steps.z - steps.dz)[steps.accepted])
-        lengths += list(steps.dz[steps.accepted])
-    backend.close()
-    return np.array(starts), np.array(lengths)
+    planes = np.asarray(run_request.stepper.save_planes)
+    start = Start(
+        field=problem.initial.field0,
+        z=z_start,
+        plane_index=int(np.searchsorted(planes, z_start, side="right")),
+        plane_pending=z_start == problem.initial.z,
+    )
+    try:
+        steps, _ = run(backend, problem, bare(run_request), start, export=None).joined
+    finally:
+        backend.close()
+    accepted = np.asarray(steps.accepted, dtype=bool)
+    # The history records where each attempt ended.
+    starts = (np.asarray(steps.z) - np.asarray(steps.dz))[accepted]
+    return starts, np.asarray(steps.dz)[accepted]
 
 
 def with_limits(run_request, **limits):

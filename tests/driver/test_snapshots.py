@@ -122,8 +122,9 @@ def test_several_tdse_snapshots_keep_the_same_plans_and_all_calls(
         identities.append(
             (
                 id(backend),
-                id(backend._adams),
-                id(backend._tdse_binding),
+                # The reference's session's march (its latest), native's own record.
+                id(backend.march if backend.name == "numpy_ref" else backend._adams),
+                id(getattr(backend, "workspace", backend)._tdse_binding),
                 # The model and its plans live behind the provider's worker (SEP 49):
                 # the same worker, the same view of the model and the same plans.
                 id(binding._worker),

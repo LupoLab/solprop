@@ -59,7 +59,7 @@ __all__ = [
 if TYPE_CHECKING:
     import numpy as np
 
-    from solprop.backends.protocol import Backend, HostStepping
+    from solprop.backends.protocol import Backend
     from solprop.driver import Simulation
     from solprop.monitor import BoundaryMonitor
     from solprop.output.store import FieldRetention, Output
@@ -202,8 +202,8 @@ class _Loaded:
     loaded, before the output opens and the launch plane is saved. Within the block
     the backend's load is wrapped to read the clock and the counter as it returns; it
     is restored on exit. The load is the native backend's own ``_load`` where it has
-    one (SEP 47 phase 5), else ``set_initial``, the reference's and an earlier
-    native build's.
+    one (SEP 47 phase 5), else the reference's workspace's ``load``, which its session
+    calls (SEP 52), else ``set_initial``, an earlier build's.
 
     Attributes
     ----------
@@ -215,28 +215,29 @@ class _Loaded:
 
     def __init__(self, engine: Backend) -> None:
         self._engine = engine
-        self._name = (
-            "_load"
-            if callable(getattr(type(engine), "_load", None))
-            else ("set_initial")
-        )
+        workspace = getattr(engine, "workspace", None)
+        self._owner: object = engine
+        if callable(getattr(type(engine), "_load", None)):
+            self._name = "_load"
+        elif callable(getattr(type(workspace), "load", None)):
+            self._owner, self._name = workspace, "load"
+        else:
+            self._name = "set_initial"
         self.ended = 0
         self.calls: int | None = None
 
     def _load(self, *args: object, **keywords: object) -> object:
-        loaded = getattr(type(self._engine), self._name)(
-            self._engine, *args, **keywords
-        )
+        loaded = getattr(type(self._owner), self._name)(self._owner, *args, **keywords)
         self.calls = source_calls(self._engine)
         self.ended = time.perf_counter_ns()
         return loaded
 
     def __enter__(self) -> _Loaded:
-        setattr(self._engine, self._name, self._load)
+        setattr(self._owner, self._name, self._load)
         return self
 
     def __exit__(self, kind: type[BaseException] | None, *rest: object) -> None:
-        delattr(self._engine, self._name)
+        delattr(self._owner, self._name)
         if kind is None and not self.ended:
             msg = "the run never loaded its backend, so nothing was timed"
             raise SuiteError(msg)
@@ -298,7 +299,7 @@ def timed_run(
     if Start is None:
         # A build from before SEP 47's sessions: run_problem takes a loaded backend,
         # so the load comes first and the window starts after it, as it did then.
-        cast("HostStepping", engine).set_initial(
+        cast("Any", engine).set_initial(
             problem.initial.field0, None, z=problem.initial.z
         )
         before = source_calls(engine)
@@ -542,7 +543,7 @@ def warm_up(engine: Backend, problem: PropagationProblem, until: float) -> None:
     if Start is None:
         # Before SEP 47: load, march and observe the backend directly, through the
         # stepping seam every backend had then.
-        stepped = cast("HostStepping", engine)
+        stepped = cast("Any", engine)
         stepped.set_initial(problem.initial.field0, None, z=problem.initial.z)
         if until > problem.initial.z:
             stepped.propagate_to(until)

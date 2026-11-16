@@ -325,9 +325,14 @@ def test_one_evaluation_matches_the_reference(evaluator: str, thg: bool) -> None
                 native_trial(backend, 0.0, 0.0)
                 spectra.append(_testing.projected_to_host(state, False))
             else:
-                backend.set_initial(problem.initial.field0, None)
-                backend._adams_lab_source(problem.initial.field0, 0.0)  # pyright: ignore[reportPrivateUsage]
-                projected = np.asarray(backend._last_projected)  # pyright: ignore[reportPrivateUsage]
+                backend.workspace.load(
+                    np.ascontiguousarray(problem.initial.field0, dtype=complex),
+                    None,
+                    z=0.0,
+                    resume=False,
+                )
+                backend.workspace.lab_source(problem.initial.field0, 0.0)
+                projected = np.asarray(backend.workspace._last_projected)  # pyright: ignore[reportPrivateUsage]
                 spectra.append(np.asarray(np.fft.rfft(projected, axis=-1)))
         finally:
             backend.close()

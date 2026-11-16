@@ -23,6 +23,7 @@ import numpy as np
 import pytest
 
 from bounds import fft_bound, scan_bound
+from builders import load_reference
 from plasma_cases import (
     CARRIER,
     CHARGE_MASS_RATIO,
@@ -369,10 +370,12 @@ def test_one_stage_matches_the_responses_composed_by_hand(
     """The whole chain against the two oracles, with nothing of the backend in it."""
     problem, run_request, kerr, plasma = ionising_capillary(preionisation)
     backend = NumpyRefBackend(problem, run_request)
-    backend.set_initial(problem.initial.field0, None)
+    load_reference(backend)
     state = problem.initial.field0
     ones = np.ones_like(state)
-    got = backend._nonlinear(state, backend._stage_scalars(0.0, 0.05), ones)
+    got = backend.workspace.nonlinear(
+        state, backend.workspace.stage_scalars(0.0, 0.05), ones
+    )
     want = reference_nonlinear(problem, kerr, plasma, state, 0.05)
     # Identical formulas, held to the plasma chain's rounding and the transforms'.
     samples = problem.grids.n_to
@@ -622,7 +625,7 @@ def test_the_plasma_statistics_are_the_same_between_planes_as_at_one(
 
 
 MODE_MATRIX_BUILDERS = (
-    "solprop.backends.host.driver",
+    "solprop.backends.numpy_ref.workspace",
     "solprop_native._statistics",
     "solprop_native.backend",
 )
@@ -650,7 +653,7 @@ def test_the_on_axis_matrix_is_built_once_and_rescaled(
     )
     builds = []
     real = importlib.import_module("solprop.modes.quadrature").mode_matrix
-    # Every module that builds it: the reference's driver, native's statistics and,
+    # Every module that builds it: the reference's workspace, native's statistics and,
     # while it exists, the legacy step driver.
     for name in MODE_MATRIX_BUILDERS:
         try:
@@ -716,7 +719,7 @@ def test_the_on_axis_matrix_follows_a_taper(field_grid, backend_class):
     try:
         observed = run(backend, problem, run_request).final
         if isinstance(backend, NumpyRefBackend):
-            rescaled = backend._on_axis_synthesis([mode])
+            rescaled = backend.workspace._on_axis_synthesis([mode], observed.z)
         else:
             # Native keeps the entrance matrix (its statistics' own) and rescales it
             # by the transform's taper factor where it reads it. This is that law on

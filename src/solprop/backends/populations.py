@@ -212,7 +212,7 @@ def axis_row_matrix(
         The translated problem.
     axis : numpy.ndarray
         The mode set's synthesis on the axis at this position, taper included, rows x
-        and y (``HostDriver._on_axis_synthesis``).
+        and y (``NumpyWorkspace._on_axis_synthesis``).
 
     Returns
     -------

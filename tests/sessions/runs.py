@@ -4,8 +4,8 @@
 
 """Run a constructed backend through its own session, for the tests outside the suite.
 
-SEP 47 phase 5 retired the native backend's step-driver calls (``set_initial``,
-``propagate_to``, ``observe``, ``stats``): every run starts through
+SEP 47 phase 5 retired the native backend's step-driver calls, and SEP 52 the
+reference's: every run starts through
 :func:`solprop.backends.sessions.start_session`, which opens the native session for a
 native backend and the reference's own
 :class:`~solprop.backends.host.session.HostSession` for ``numpy_ref``, so one call
@@ -654,7 +654,7 @@ def adams_ledger(backend: Any, record: Mapping[str, object]) -> CallLedger:
         The ledger.
     """
     if backend.name == "numpy_ref":
-        return backend._adams.ledger
+        return backend.march.ledger
     return CallLedger.from_record(
         cast("Mapping[str, object]", record["response_calls"])
     )

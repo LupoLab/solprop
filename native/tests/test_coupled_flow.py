@@ -30,7 +30,7 @@ import numpy.typing as npt
 import pytest
 from session_runs import run as run_session
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.backend import (
+from solprop.backends.numpy_ref.workspace import (
     _coupled_flow_maps,  # pyright: ignore[reportPrivateUsage]
     _flow_action,  # pyright: ignore[reportPrivateUsage]
 )

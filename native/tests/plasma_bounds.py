@@ -241,9 +241,9 @@ def node_field_error(
         # within fft_bound of the field's 2-norm over every node and sample.
         size = grids.n_to * transform.n_nodes
         return np.full(fields.shape, fft_bound(size) * float(np.linalg.norm(fields)))
-    state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
-    kind = reference._kind  # pyright: ignore[reportPrivateUsage]
-    bundle = reference._stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
+    state = reference.workspace.committed()  # pyright: ignore[reportPrivateUsage]
+    kind = reference.workspace._kind  # pyright: ignore[reportPrivateUsage]
+    bundle = reference.workspace.stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
     taper = float(bundle.taper_scale)
     modal = np.real_if_close(
         passes.to_time(state, grids.crop_index, grids.n_to, kind=kind)
@@ -386,8 +386,8 @@ def stage_error(
             * float(np.max(abs(prefactor * window)))
             * float(np.max(joined))
         )
-    bundle = reference._stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
-    prefactor = reference._prefactor(bundle)  # pyright: ignore[reportPrivateUsage]
+    bundle = reference.workspace.stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
+    prefactor = reference.workspace.prefactor(bundle)  # pyright: ignore[reportPrivateUsage]
     n_nodes, n_pol_node, n_omega = nodes.shape
     columns = nodes.reshape(
         n_nodes * transform.n_pol, n_pol_node // transform.n_pol, n_omega
@@ -409,16 +409,21 @@ def plasma_stage_bound(
     """
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
-        state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
-        bundle = reference._stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
-        stage = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
+        reference.workspace.hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
+        state = reference.workspace.committed()  # pyright: ignore[reportPrivateUsage]
+        bundle = reference.workspace.stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
+        stage = reference.workspace.nonlinear(  # pyright: ignore[reportPrivateUsage]
             state, bundle, np.ones(problem.shape, complex)
         )
         fields = np.real(
             np.concatenate(
-                list(reference._plasma_nodes(state))  # pyright: ignore[reportPrivateUsage]
+                list(reference.workspace._plasma_nodes(state, 0.0))  # pyright: ignore[reportPrivateUsage]
             )
         )
         field_error = node_field_error(reference, problem, fields)

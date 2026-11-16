@@ -62,6 +62,7 @@ from legacy_geometry import LEGACY_GRID
 from march_bounds import FIXED_ORDER
 from modal_provider_cases import GENERAL_Z_END
 from sessions.runs import bare, final_field, to_planes
+from sessions.runs import run as session_run
 from solprop.backends import available, records
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
@@ -308,12 +309,17 @@ def test_a_coupled_flow_keeps_its_collar_in_every_stage(transient, name, monkeyp
     problem, run_request, grid = transient
     assert problem.linear.coupled_flow is not None
     if name == "numpy_ref":
-        # The reference's driver, whose collar rule the native session's mirrors.
+        # The reference's session, whose collar rule the native session's mirrors.
+        assert not records.collar_rests(problem, run_request.stepper)
         driver: Any = backend(problem, run_request, grid=grid)
         try:
-            assert not driver._collar_can_rest()
-            driver._set_collar_quiet(True)
-            assert not driver._collar_quiet
+            session: Any = driver.prepare(problem, run_request).start(
+                Start.entrance(problem), owns=False
+            )
+            session._set_collar_quiet(True)
+            assert not session.collar_quiet
+            assert not driver.workspace.collar_quiet
+            session.close()
         finally:
             driver.close()
         return
@@ -443,15 +449,16 @@ def test_the_in_band_answer_moves_by_less_than_the_derived_bound(case):
     run_request = simulation._run_request()
     grid = simulation.grid
     band = problem.grids.inband_mask
-    planes = []
-    driver = NumpyRefBackend(problem, run_request, grid=grid)
+    # Every step's end observed, through the backend's session (SEP 47).
+    request = to_planes(
+        bare(run_request), [(step + 1) * LENGTH / STEPS for step in range(STEPS)]
+    )
+    driver = NumpyRefBackend(problem, request, grid=grid)
     try:
-        driver.set_initial(problem.initial.field0, None)
-        for step in range(STEPS):
-            driver.propagate_to((step + 1) * LENGTH / STEPS)
-            planes.append(driver.observe().require_field().copy())
+        planes = [field.copy() for field in session_run(driver, problem).fields[1:]]
     finally:
         driver.close()
+    assert len(planes) == STEPS
     old = run(NumpyRefBackend, scored_everywhere(problem), run_request, grid)
     departure = float(
         np.linalg.norm((planes[-1] - old)[..., band]) / np.linalg.norm(old[..., band])

@@ -118,7 +118,7 @@ def test_the_response_pass_is_the_reference_evaluation(case, evaluator):
     assert (problem.grids.carrier_2w0 is not None) == (case == "envelope full")
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
-        bundle = backend._stage_scalars(0.0, 0.0)
+        bundle = backend.workspace.stage_scalars(0.0, 0.0)
     finally:
         backend.close()
     field_t = node_field(problem, bundle)
@@ -151,7 +151,7 @@ def test_a_polynomial_mixture_is_the_sum_of_its_species():
     assert leaf.n_channels == 2
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
-        bundle = backend._stage_scalars(0.0, 0.0)
+        bundle = backend.workspace.stage_scalars(0.0, 0.0)
     finally:
         backend.close()
     field_t = node_field(problem, bundle)
@@ -191,7 +191,7 @@ def test_a_symmetric_mixture_is_one_cubic_under_its_mixture_filter():
     assert leaf is not None and leaf.n_channels == 2
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
-        bundle = backend._stage_scalars(0.0, 0.0)
+        bundle = backend.workspace.stage_scalars(0.0, 0.0)
     finally:
         backend.close()
     field_t = node_field(problem, bundle)
@@ -353,7 +353,7 @@ def test_the_pass_refuses_stage_inputs_that_do_not_match_the_leaf():
     assert leaf is not None and leaf.carrier
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
-        bundle = backend._stage_scalars(0.0, 0.0)
+        bundle = backend.workspace.stage_scalars(0.0, 0.0)
     finally:
         backend.close()
     field_t = node_field(problem, bundle)

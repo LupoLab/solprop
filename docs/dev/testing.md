@@ -192,6 +192,25 @@ signal and stop flag, and clean-up. These tests have hard deadlines, so a broken
 cancellation fails instead of hanging; the production code has none. An installed
 Pyroraptor is not tested in CI; it is checked by hand (SEP 49, section 7.4).
 
+### Scripted engines
+
+Step control, the session lifecycle and the service loop are tested with their numerical
+outcomes scripted, never by substituting the code under test. A scripted engine replaces
+the engine under the real march and the real session ([SEP 52](seps/sep-0052-backend-shape.md)
+§6.3), as native's scripted engines test its compiled marches:
+
+- `tests/scripted_driver.py`'s `HostScriptedDriver` is the reference backend whose
+  Runge-Kutta engine multiplies the state by a constant and scores norms from a list,
+  with statistics that read the position; `tests/sessions/executors.py`'s
+  `HostSessionScript` adds the lifecycle suite's rejections, failures and in-flight
+  failures, and `ScriptedSession` a warning barrier at a chosen endpoint.
+- The decision traces (`tests/backends/rk_traces.py`, `adams_traces.py`) run each
+  reference march over a scripted engine and a stub session that applies the session's
+  own rules (`host.session.step_cap`, `natural_stop`), and the native marches over the same
+  stub (`tests/backends/native_trace_marches.py`); the stored corpora
+  (`tests/data/*_traces.json.gz`) hold both to the same decisions and are regenerated only
+  under SEP 52 §4's rule.
+
 ### Budgets and timing assertions
 
 The fast and medium budgets are judged on CI's macOS arm64 test lane, from each test's

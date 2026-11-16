@@ -24,10 +24,12 @@ import pytest
 
 from bounds import assert_within, gamma, step_evaluations
 from legacy_geometry import LEGACY_GRID
+from sessions.runs import bare
+from sessions.runs import run as session_run
 from solprop._helpers import PLAIN
 from solprop.backends.exponential import refuse_formulation
 from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.host.driver import HostDriver
+from solprop.backends.host.marches import MarchState
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.multistep import (
     compensation_tables,
@@ -92,16 +94,12 @@ def replay_bound(run_request, steps: int) -> float:
 def run(problem, run_request, grid):
     """Propagate to the last plane; return the final field, the march and its steps."""
     backend = NumpyRefBackend(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
-    steps, field = [], None
-    for plane in run_request.stepper.save_planes:
-        backend.propagate_to(float(plane))
-        observed = backend.observe()
-        steps += list(observed.step_history.dz)
-        field = observed.require_field()[0, 0]
-    march = backend._adams
+    result = session_run(backend, problem, bare(run_request))
+    # Every attempt's step, rejected ones included, and the last plane's field.
+    steps = list(result.joined[0].dz)
+    field = result.fields[-1][0, 0]
+    march = backend.march
     backend.close()
-    assert field is not None
     return field, march, np.array(steps)
 
 
@@ -337,12 +335,10 @@ def test_exponential_dense_observation_matches_landing(narrow_grid, soliton_prob
             interpolate_planes=interpolate,
         )
         backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-        backend.set_initial(problem.initial.field0, None)
-        fields = []
-        for plane in planes:
-            backend.propagate_to(float(plane))
-            fields.append(backend.observe().require_field()[0, 0])
-        ledger = ledger_of(backend._adams)
+        result = session_run(backend, problem, bare(run_request))
+        assert [event.z for event in result.observations[1:]] == planes
+        fields = [field[0, 0] for field in result.fields[1:]]
+        ledger = ledger_of(backend.march)
         backend.close()
         return np.array(fields), ledger
 
@@ -367,9 +363,9 @@ def test_exponential_dense_observation_is_the_linear_flow_without_a_source(
         dz_max=0.3,
     )
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(planes[0])
-    observed = backend.observe().require_field()[0, 0]
+    result = session_run(backend, problem, bare(run_request), observations=2)
+    assert result.observations[-1].z == planes[0]
+    observed = result.fields[-1][0, 0]
     backend.close()
     start = problem.initial.field0[0, 0] * problem.grids.active_mask
     exact = np.exp(delta_phi(problem.linear, 0.0, planes[0]))[0, 0] * start
@@ -520,27 +516,22 @@ def test_a_replayed_schedule_stops_to_save_and_refuses_to_run_out(
             soliton_problem, narrow_grid, fixed(method), schedule, length, **overrides
         )
         backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-        backend.set_initial(problem.initial.field0, None)
-        return backend
+        return backend, session_run(backend, problem, bare(run_request))
 
-    def field_of(runner):
-        return runner.observe().field[0, 0, 0]
-
-    # Every third step's end is saved: each call stops there, and the steps, so the
+    # Every third step's end is saved: the march stops there, and the steps, so the
     # field, are those of the uninterrupted replay.
-    whole = start()
-    whole.propagate_to(length)
-    stopping = start(step_planes=3)
-    calls = 0
-    while stopping._z < length * (1 - 1e-12):
-        stopping.propagate_to(length)
-        calls += 1
-    assert calls == 3
+    whole, uninterrupted = start()
+    stopping, stopped = start(step_planes=3)
+    assert len(stopped.observations) - 1 == 3
     matched = scheduled(soliton_problem, narrow_grid, fixed(method), schedule, length)
-    assert_within(field_of(stopping), field_of(whole), replay_bound(matched.request, 9))
+    assert_within(
+        stopped.fields[-1][0, 0, 0],
+        uninterrupted.fields[-1][0, 0, 0],
+        replay_bound(matched.request, 9),
+    )
     # Past its last edge the schedule cannot take the march.
     with pytest.raises(BackendError, match="cannot reach"):
-        whole.propagate_to(1.01 * length)
+        cast("Any", whole.march).advance(1.01 * length)
     whole.close()
     stopping.close()
 
@@ -555,36 +546,15 @@ def test_a_replayed_step_with_a_non_finite_norm_is_refused(
         soliton_problem, narrow_grid, method, schedule, length
     )
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
     # A diverged field: a replay cannot reject the step, so it stops and says why.
     monkeypatch.setattr(
-        backend._adams, "_attempt", lambda dz, *, fixed, landing: (None, math.nan)
+        HostAdamsMarch,
+        "_attempt",
+        lambda self, dz, *, fixed, landing: (None, math.nan),
     )
     with pytest.raises(ConvergenceError, match="non-finite error norm"):
-        backend.propagate_to(length)
+        session_run(backend, problem, bare(run_request))
     backend.close()
-
-
-DRIVERS = pytest.mark.parametrize("driver", [HostDriver], ids=["host"])
-"""The reference's driver, whose default hooks refuse what it lacks."""
-
-
-@DRIVERS
-def test_a_backend_without_the_lab_frame_source_refuses_the_formulation(driver):
-    # Every shipped backend implements the hook; an external one that does not is
-    # told which formulation to use instead.
-    stub = SimpleNamespace(name="external")
-    lab = np.zeros((1, 1, 4), dtype=complex)
-    with pytest.raises(BackendError, match="external does not execute"):
-        driver._adams_lab_source(stub, lab, 0.0, purpose="startup")
-
-
-@DRIVERS
-def test_a_backend_without_a_coupled_flow_hands_the_march_no_block(driver):
-    # The default hook: every shipped backend that steps a coupled flow returns its
-    # block; an external one that holds none gives the march nothing to step.
-    stub = SimpleNamespace(name="external")
-    assert driver._adams_block(stub, 0.0, 1e-3) is None
 
 
 def test_the_formulation_refuses_a_section_it_does_not_step(
@@ -646,9 +616,11 @@ def _chooser(march_class, method, collar_rate, *, quiet=False):
         collar_rate=collar_rate,
     )
     march._order = 5
-    # A stand-in, not a driver: the order choice reads one flag from it.
-    march._backend = cast("Any", SimpleNamespace(_collar_quiet=quiet))
+    # A stand-in, not a session: the order choice reads one flag from it.
+    march._host = cast("Any", SimpleNamespace(collar_quiet=quiet))
     march._collar_was_quiet = False
+    march.state = MarchState(z=0.0, proposal=1.0)
+    march._engine = cast("Any", SimpleNamespace(reset=lambda: None))
     return march
 
 
@@ -692,7 +664,7 @@ def test_the_step_after_a_collar_returns_is_held_to_its_stable_step(march_class)
     stable = PEC_REAL_INTERVAL[4] / rate
     march = _chooser(march_class, EXPONENTIAL, rate, quiet=True)
     assert march._collar_reentry(1.0) == 1.0
-    march._backend._collar_quiet = False
+    march._host.collar_quiet = False
     assert march._collar_reentry(1.0) == pytest.approx(stable)
     assert march._collar_reentry(1.0) == 1.0
     assert _chooser(march_class, EXPONENTIAL, 0.0)._collar_reentry(1.0) == 1.0
@@ -706,7 +678,7 @@ def test_a_new_run_clears_the_collar_flag_and_a_pending_floor(march_class):
     march._collar_was_quiet = True
     march._last_rejected = True
     march._floor = ConvergenceError("pending")
-    march.begin_run()
+    march.load(0.0, 1.0, 0)
     assert march._collar_was_quiet is False
     assert march._last_rejected is False
     assert march._floor is None
@@ -746,8 +718,8 @@ def test_only_the_exponential_formulation_reads_the_collar(integrator):
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        march = backend._adams
-        assert march is not None
+        march = cast("Any", backend.march)
+        assert isinstance(march, HostAdamsMarch)
         collar = problem.responses.temporal_absorber
         assert collar is not None
         expected = 0.5 * float(np.max(collar))

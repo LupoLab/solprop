@@ -103,8 +103,8 @@ def launch_source(problem, run_request, grid) -> tuple[np.ndarray, float]:
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         state = problem.initial.field0
-        bundle = backend._stage_scalars(0.0, 0.0)
-        source = backend._nonlinear(state, bundle, np.ones_like(state))
+        bundle = backend.workspace.stage_scalars(0.0, 0.0)
+        source = backend.workspace.nonlinear(state, bundle, np.ones_like(state))
         return np.array(source), float(np.linalg.norm(state))
     finally:
         backend.close()

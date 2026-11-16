@@ -39,7 +39,6 @@ __all__ = [
     "factor",
     "next_landing",
     "order_weight",
-    "quiet_capped",
     "rejection",
     "replay_kink",
     "stable_factor",
@@ -386,31 +385,6 @@ def carrier_capped(
     if phase <= policy.carrier_cap:
         return proposal
     return (end - z) * (policy.carrier_cap / phase)
-
-
-def quiet_capped(proposal: float, *, quiet: bool, interval: float | None) -> float:
-    """Return the proposal, held to the monitor's interval while the collar rests.
-
-    The rule of ``solprop.backends.host.driver.HostDriver._quiet_capped``, with the
-    collar's state and the monitor's interval passed in.
-
-    Parameters
-    ----------
-    proposal : float
-        The controller's proposal, m.
-    quiet : bool
-        Whether the stages leave a quiet collar out.
-    interval : float or None
-        The monitor's interval, m, or ``None`` without a monitor.
-
-    Returns
-    -------
-    float
-        The proposal, or the interval while the collar is left out, m.
-    """
-    if not quiet or interval is None:
-        return proposal
-    return min(proposal, interval)
 
 
 def collar_reentry(

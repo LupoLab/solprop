@@ -49,37 +49,19 @@ class Backend(Protocol):
     def close(self) -> None: ...  # idempotent
     @property
     def closed(self) -> bool: ...  # a failure can close a backend
-
-
-class HostStepping(Backend, Protocol):  # the reference's seam; `stepping(backend)`
-    def set_initial(
-        self,
-        field: Field,
-        noise: NoiseRealisation | None,
-        *,
-        z: float = 0.0,
-        resume: bool = False,
-    ) -> None: ...
-    def set_progress(self, reporter: ProgressReporter) -> None: ...  # observer only
-    def set_stop(self, flag: StopFlag | None) -> None: ...  # polled between trials
-    def attach_monitor(self, monitor: BoundaryMonitor) -> None: ...
-    def propagate_to(self, z: float) -> StepSummary: ...
-    def observe(
-        self, *, field: bool = True
-    ) -> Observation: ...  # host arrays: field at z, step history
-    @property
-    def in_flight(self) -> tuple[float, float] | None: ...  # a step abandoned there
-    def stats(self, spec: StatsSpec) -> dict[str, NDArray]: ...
-    def restore_call_ledgers(self, logical, atomic=None) -> None: ...
-    def march_snapshot(self) -> MarchSnapshot | None: ...  # the Adams history
-    def march_snapshot_nbytes(self, z: float) -> int | None: ...  # copying nothing
-    def restore_march(self, snapshot: MarchSnapshot) -> str | None: ...
 ```
 
-A run goes through the backend's session (`prepare(...).start(...)`, SEP 47 §5.2). The
-NumPy reference's session drives the host stepping seam, `HostStepping`, which the
-reference's `HostDriver` implements; the native backend implements `Backend` alone, and
-its session marches natively (SEP 47 §6.8).
+Each backend also sets the class attribute `helpers` (SEP 29). That is the whole
+protocol (SEP 52 §5.1): a run goes through the backend's session
+(`prepare(...).start(...)`, SEP 47 §5.2), which loads the start, schedules the run,
+reports its events and exports its fields, on both backends. Each backend has the same
+five parts behind it: a lowering, a workspace that holds the state and does every
+state-sized operation, the engines a march asks of it, the marches, and the session
+(§1, point 3). The NumPy reference's are `NumpyRefBackend`'s constructor tables,
+`NumpyWorkspace`, the engines of `solprop.backends.engines`, the marches of
+`backends/host/` and `HostSession`; the native backend's are its lowering into
+`_core.Problem`, its resident state, `rk::Engine` and `march::Engine`, its compiled
+marches and `session.cpp`, of which `HostSession` is the Python counterpart.
 
 The listing is abbreviated; `solprop/backends/protocol.py` holds the exact signatures and
 docstrings, in the order of [architecture.md §9](architecture.md#9-backends-in-one-page).
@@ -88,8 +70,8 @@ Rules: a backend is constructed from a validated `PropagationProblem`
 ([kernel-contract.md](kernel-contract.md)), the `RunRequest` that carries the run's
 policy ([SEP 47](seps/archive/sep-0047-run-ownership.md) §5.2; it checks the two with
 `validate_run` before it allocates) and host arrays, and returns host arrays; its
-buffers, layout and plans are private; the state is never a parameter of `propagate_to` or
-`observe`; the numbers are the contract — a backend is correct when it reproduces the
+buffers, layout and plans are private; the state is never a parameter of anything a
+session is asked; the numbers are the contract — a backend is correct when it reproduces the
 reference to the stated bound. Selection is by name (`backends.select(name, problem, request)`);
 availability is detected with `importlib.util.find_spec` (importing an accelerator package
 can initialise a device runtime), never cached; a name that is neither backend, a retired
@@ -111,12 +93,20 @@ reference is refused a required device by name); and `statistics_refusal` reads 
 far-field statistics `NativeBackend.far_field_statistics` declares. `auto` is
 `registry.AUTO`, `native`, with no fallback.
 
-**Periodic-statistics storage hooks.** The seam carries three storage hooks for the
-periodic statistics — `_reset_step_stats`, `_record_step_stats`, `_drain_step_stats` — so
-that a device backend can keep its rows resident and copy them once per plane; the shared
-march still decides which accepted steps produce rows and passes their history indices.
-The CPU backends inherit the host defaults. The hooks are part of the frozen surface
-([kernel-contract.md §8](kernel-contract.md)).
+**Periodic statistics are the session's.** Each session decides which accepted steps
+produce rows and keeps them between events: the reference's in a host buffer it drains at
+each event, the native session in its bounded resident chunk buffers. The storage hooks
+the step driver once carried for a device backend are gone with it (SEP 52 §5.1).
+
+**Boundary warnings are barriers on both backends.** The boundary monitor's and the
+transverse edge's warnings arrive as `ServiceRequired` events of kind `WARNING` at the
+committed endpoint they arose at, one barrier each, in order (SEP 52 §5.1): the caller
+emits each with `emit_warning`, so its filters may raise it and fail the run there with
+that endpoint's field checkpointed, and once allowed the next advance does the rest of
+that point's work, once. The reference's monitor and edge put their warnings into a sink
+the session drains (`BoundaryMonitor.sink`); used on its own, a monitor issues them
+through `warnings.warn` as before. Both sessions report their execution facts through
+`execution_record`, which the service loop reads (`driver.run.SessionFacts`).
 
 **No groups.** A backend runs one trajectory per session; there is no group or batch
 interface. A fixed-schedule `Batch` executor and its groups (`GroupSession`,
@@ -178,7 +168,7 @@ and `rate_weights`) and the Lagrange basis of an Adams formula on its actual nod
 takes the implementation from the backend that runs the stage, never from a
 process-wide switch or from what is installed (SEP 29 section 6.6, R16): each
 backend sets the class attribute `helpers` (kernel schema 34), a
-`solprop._helpers.Helpers` record of the two operations, and the reference's driver, its
+`solprop._helpers.Helpers` record of the two operations, and the reference's session, its
 Adams march, its engines and the native backend's own load and resident engine pass it
 down. `numpy_ref` takes
 `PLAIN`, the uncompiled Python forms, so the oracle never runs the compiled code it
@@ -201,18 +191,25 @@ both backends in one process, with every other implementation made to raise afte
 translation, and a native z-table run of each march with the plain forms
 forbidden.
 
-**3. Two owners, eight marches.** The reference steps through its own driver,
-`HostDriver.propagate_to`, which hands the steps to one of its loops; every native run is
-its native session's (`solprop_native.session`), whose compiled marches advance to an
-event from one policy record and hand back the events (SEP 47):
+**3. One shape, two implementations: the marches.** Every reference run is its session's,
+`HostSession` (`backends/host/session.py`), which drives the run's march directly; every
+native run is its native session's (`solprop_native.session`, over `session.cpp`), whose
+compiled marches advance to an event from one policy record and hand back the events
+(SEP 47). Each reference march keeps its position, proposal, replay cursor and accepted
+norms in its own `MarchState` (`backends/host/marches.py`), asks the session only through
+the narrow `MarchHost`, and hands every state-sized operation to an engine of
+`solprop.backends.engines` over the reference's workspace, `NumpyWorkspace`
+(`backends/numpy_ref/workspace.py`), which holds the state and does every state-sized
+operation (SEP 52 §5.1). The backend builds a fresh march and engines for each run
+(`NumpyRefBackend.method`), so a reused backend repeats a fresh backend's run:
 
 | Loop | Steps | Where its state-sized work runs |
 |---|---|---|
-| `HostDriver._march_to`, in `backends/host/driver.py` | adaptive Runge-Kutta | the backend's `_trial_step` |
-| `HostDriver._replay_to` | Runge-Kutta on a fixed schedule | the backend's `_trial_step` |
+| `RungeKuttaMarch.march_to`, in `backends/host/runge_kutta.py` | adaptive Runge-Kutta | a `RungeKuttaEngine`: `NumpyRungeKutta` (`backends/numpy_ref/engines.py`) |
+| `RungeKuttaMarch.replay_to` | Runge-Kutta on a fixed schedule | the same engine |
 | `HostAdamsMarch.march_to`, in `backends/host/adams.py` | adaptive Adams | an `AdamsEngine`: `HostHistory` |
 | `HostAdamsMarch._replay_to` | Adams on a fixed schedule | the same engine |
-| `HostLowStorageMarch.replay_to`, in `backends/host/low_storage.py` | low-storage, always on a schedule | a `LowStorageEngine`: `HostLowStorage` |
+| `HostLowStorageMarch.replay_to`, in `backends/host/low_storage.py` | low-storage, always on a schedule | a `RungeKuttaEngine` with a destructive trial: `HostLowStorage` |
 | the native session's Adams march, `native/src/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine (`_ResidentAdams`), from the record `_NativeAdamsMarch` |
 | the native session's Runge-Kutta march, `native/src/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)) | the staged trial and native norm |
 | the native session's low-storage replay | low-storage, always on a schedule | one in-place native step a schedule step |
@@ -220,23 +217,32 @@ event from one policy record and hand back the events (SEP 47):
 The reference's Runge-Kutta march is the reference for the compiled Runge-Kutta march,
 which holds to it through kernel contract §12 (ADR-069), and for the march's bookkeeping.
 `HostAdamsMarch` is the reference for the compiled Adams march, which holds to it through
-kernel contract §11 (ADR-060). The decision-trace tests drive each compiled march a call
-at a time over a scripted host backend (`tests/backends/native_trace_marches.py`) and
-hold it to the reference's decisions on the same readings. A new compiled loop needs a
+kernel contract §11 (ADR-060). The decision-trace tests drive each reference march over a
+scripted engine and a stub session that applies the session's rules
+(`host.session.step_cap`, `host.session.natural_stop`), and each compiled march a call at
+a time over the same stub (`tests/backends/native_trace_marches.py`), and hold the two to
+the same decisions on the same readings. A new compiled loop needs a
 contract that specifies it in full and a reference to compare it with.
 
-What the reference's loops share around a step, and the native session transcribes, is:
-`propagate_to` and `observe`, the history (`_record`, or `_record_attempt` and `_skip_step`
-for the attempts a compiled march books together), the committed step's work
-(`_take_step_stats`: **the statistics channel between planes** and the boundary monitor), the
-natural stops, the noise models and **the progress reporter**. A backend supplies
-`_trial_step`, `_apply_mask` and `stats`, overrides `_finish` if it has boundary treatments,
-and hooks `_begin_plane` and `_on_accepted_step` if it has something to score.
+What the reference's marches share around a step is the session's, transcribing
+`session.cpp`'s order: the planes, step planes and natural stops, the bounded yields and
+the snapshot latch's halts, the history (`record`), the committed step's work
+(`_account_step`: the boundary monitor's check, the transverse edge's read and **the
+statistics channel between planes**), the dense hold and observation of a plane a step
+crossed, the snapshot rows, the load with its noise, the events and **the progress
+listener**. A march reaches them through `MarchHost` (`collar_quiet`, `poll_stop`, `cap`,
+`record`, `absorb`, `stepped`, `natural_stop`), which `HostSession` implements. The dense
+observation is the backend's dense output (`numpy_ref/dense.py`: DOPRI5's continuous
+extension, or the Adams interpolant at the weights of the march's record of its last
+step, `AcceptedStep`, with its trial's carrier rotations applied to the samples, as
+native's `dense.cpp` does); the session holds the committed state aside while a plane is
+observed and restores it before the march goes on. The snapshot's rows are the Adams
+history's `AdamsRows`, which the session exports and installs. The session's `record`
+scores the workspace's quadrature alarm at each accepted step and reports it once per
+plane, as native reads `quadrature_peak`.
 
-`set_progress` attaches the observer the loop calls (the driver, not the backend, also
-tells the reporter when its loop raised). `HostDriver` calls
-`ProgressReporter.step` from `_record`, which every attempted step of every backend already
-passes through, so a host backend gets the per-step channel for nothing; a backend whose
+The session's attempt listener is the observer the loop calls. `HostSession` calls it from
+`record`, which every attempted step passes through, so a host backend gets the per-step channel for nothing; a backend whose
 loop runs on a **device** -- where a per-step host callback would mean a synchronisation per
 step -- is allowed to call `step` once per plane instead, with the plane's own totals. That
 is the only place a backend may differ in what it reports. What it may never do is let the
@@ -245,14 +251,15 @@ with a reporter is the run without one, to the rounding bound of any repeat of t
 (`tests/backends/test_driver.py`); the reporter's calls are exact no-ops on the state.
 
 **The statistics channel between planes** is the second thing the loop owns and a backend
-does not. After every `period`-th accepted step the march calls the backend's own `stats`
-with the periodic subset promoted to `names`, and appends one row — the position, the index
+does not. After every `period`-th accepted step the session evaluates the workspace's own
+`stats` with the periodic subset promoted to `names`, and appends one row — the position, the index
 of the accepted step in this plane's history, and one small array per statistic — to a
-buffer that `observe` drains into `Observation.step_stats`. Two rules make it sound:
+buffer that each event drains into its chunk's `step_stats`. Two rules make it sound:
 
-- **The call site is the loop body, after `_finish` and after `z` advances**, not
-  `_on_accepted_step`. The two marches are not symmetric there: `_march_to` records an
-  attempt *before* it finishes the state and advances `z`, `_replay_to` after both, so a
+- **The call site is the march's `MarchHost.stepped`, after the engine's accept and
+  after `z` advances**, not at the attempt's record. The two marches are not symmetric there:
+  an adaptive march records an attempt *before* it accepts and advances `z`, a replay
+  after both, so a
   hook would read the previous accepted step on an adaptive run and the current one on a
   replayed one — and a replayed schedule is exactly what a cost measurement uses, so the
   wrong version measures clean and records a curve shifted by one step.
@@ -267,9 +274,7 @@ repeat its last bit). Luna carries a
 plane starts with — a measured estimate of a plane's step count rather than a predicted one,
 and after the first plane a run allocates nothing per step. **On a device** the rows are the
 same host buffer: the reductions run on the device, to the bound of rule 1 above, and
-each row returns one packed scalar transfer. The hooks (`_reset_step_stats`,
-`_record_step_stats`, `_drain_step_stats`) would let a backend keep rows on the device and copy
-them once per plane, but none does. A backend that
+each row returns one packed scalar transfer. A backend that
 cannot evaluate one of the subset's statistics between planes refuses the spec by name, as it
 refuses a plane statistic it cannot form.
 
@@ -279,19 +284,23 @@ the run adopted. `native` does this for the plasma pair: §3.1a has the measurem
 predicate.
 
 **The boundary monitor's reading** is the third thing the loop calls at the same point, and
-the backend reduces it (SEP 21, ADR-057). At a check the driver asks
-`_boundary_energies(state)` for five numbers, the state's energy and its four weighted
+the backend reduces it (SEP 21, ADR-057). At a check the session asks the workspace
+(`HostSession._energies`) for five numbers, the state's energy and its four weighted
 energies (`solprop.monitor.BoundaryEnergies`), and the backend forms them where its state
 lives: `native` in its memory space through its statistics buffers (CPU and device builds
 alike). Only the five cross to the host; `numpy_ref`'s host reduction
-(`BoundaryMonitor.energies`) is the reference. `_bind_monitor` hands a backend the run's
-monitor when it is attached, and `None` when a state is loaded. Under the `split_step`
-scheme the backend's `_finish` — and the native engine's own finish, on every march —
-adds what each accepted step's split takes of the power it finds, `P (1 − e^{−αh})`, to an
-accumulator the next reading drains, so the removal is exact on unchecked steps too, and
-keeps the energy and the guards' and collar's energies of that power halfway through the
-factor, `P e^{−αh/2}`, which the reading returns beside the five (`BoundaryEnergies.found`,
-kernel schema 43) and the monitor judges the occupancies on. The split collar's crossing limit
+(`NumpyWorkspace.reading`, over `BoundaryMonitor.energies`) is the reference.
+`_bind_monitor` binds the run's monitor to the workspace when it is attached, and `None`
+when a state is loaded, either emptying the split accumulator. Under the `split_step`
+scheme each accepted step's finish (`NumpyWorkspace.finish`, and the native engine's own
+finish, on every march) takes, from the masked field **before** the split, what the split
+takes of the power it finds, `P (1 − e^{−αh})`, and the energy and the guards' and
+collar's energies of that power halfway through the factor, `P e^{−αh/2}`, and returns
+them in the step's `AcceptRecord` (SEP 52 §5.2). The session adds the removal to an
+accumulator the next reading drains (`HostSession.absorb`), so the removal is exact on unchecked
+steps too, and keeps the latest step's energies, which the reading returns beside the
+five (`BoundaryEnergies.found`, kernel schema 43) and the monitor judges the occupancies
+on. The split collar's crossing limit
 reads the state's energy per walk-off bucket at each check, in the same reduction style: one
 histogram per thread and no atomics, which is why its bucket count has a compiled limit. The
 input-noise floor is read on the host, once, at the launch.
@@ -404,7 +413,7 @@ through this backend. Each section's method is one of two:
 - **`"constant_schur"`.** The leaf's frozen generator is decomposed once per section,
   in the backend's constructor, by the factors both backends read
   (`translate/coupled.py`, `coupled_flow_factors`), and the backend applies a Schur matrix-function action over the
-  channel axis inside `_trial_step`, taking the inverse the interaction picture needs as
+  channel axis inside the Runge-Kutta trial (`NumpyRungeKutta.trial`), taking the inverse the interaction picture needs as
   the matrix function of the negated exponent rather than as a solve and measuring
   `norm(U) norm(U^-1)` of the whole step against the leaf's declared bound. The Schur
   factors never cross the seam. The vector wall block is the same section with a
@@ -495,7 +504,7 @@ starts through the backend's own preparation shape (SEP 47 §5.2):
 without the run layer naming it. The reference's (`backends.host.session.HostPrepared`)
 opens `HostSession`, which composes the parts the Python sessions share
 (`backends.session_core`: the attempt counter, yield check, snapshot latch, shared
-observation and preparation refusals) and imports nothing of the inherited driver; the
+observation and preparation refusals) and imports nothing of the native backend's; the
 native backend's (`solprop_native.session.NativePrepared`) opens `NativeSession`, the only
 native executor since SEP 47 phase 5, which refuses by name what it does not run, and
 refuses a `NativeBackend` subclass, whose overrides it would not call. Statistics the problem does not
@@ -541,8 +550,8 @@ as one; its end-of-plane log is retired, and the boundary monitor's transverse e
 (SEP 40) judges the boundary instead. A backend whose own statistics do not apply this measure refuses the problem.
 
 **The transverse edge is read where the state lives** ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md), [SEP 44](seps/archive/sep-0044-native-edge-read.md)).
-A backend whose `HostDriver.reads_transverse_edge` is set hands the monitor's
-`TransverseEdge` an `_EdgeReading` from `HostDriver._edge_reading` at the edge's reads, at saved planes, and with a
+A backend whose `reads_transverse_edge` is set hands the monitor's
+`TransverseEdge` an `_EdgeReading` from `NumpyWorkspace.edge_reading` at the edge's reads, at saved planes, and with a
 requested collar at every committed step. The reading is numbers and never the field: region sums, each
 column's energy and any collar's strip and current. The default forms them with `_HostEdgeReduction` on a host copy,
 the reference, which `numpy_ref` uses. `native` forms them on its own state against
@@ -550,8 +559,8 @@ the edge's `_EdgeTables`, four regions' weights on the nodes, so it holds no fac
 field-free run crosses no state (`tests/backends/test_native_edge_reading.py`). A requested collar's lines are described
 once, as `_edge_lines`, for both reductions (`tests/backends/test_native_edge_collar.py`): native takes each strip's padded
 transform in batches of planes under `_STRIP_BATCH_BYTES`, on buffers listed in the `transverse_edge` ledger row, and the
-current from the onset's three nodes, rectified per row, all on one load of the transverse scratch. Under the driver
-the current is still accumulated in Python (under the native session, below, nothing is). Everything else, the weights, the spacing, the ledgers and the judgement, is one
+current from the onset's three nodes, rectified per row, all on one load of the transverse scratch. Under the reference's
+session the current is accumulated in Python (under the native session, below, nothing is). Everything else, the weights, the spacing, the ledgers and the judgement, is one
 code on every backend. The read spacing is a ceiling on the step, and
 a step is not made to land on a read: the edge is read at the last committed position
 from which the next step, a replay's scheduled one or else the controller's proposal, would
@@ -559,7 +568,7 @@ carry past the next read (`TransverseEdge.due`), so
 reads stay at most a spacing apart without shortening the steps between them (landing on
 each read cost 10-35 % more steps on the suite's line and planar cases). Every solprop
 backend sets it; `numpy_ref` keeps its state on the host and steps from there, under the
-driver's ceiling. The native Adams march
+session's ceiling. The native Adams march
 takes the next read and the spacing as the call's `read_at` and `read_spacing` bounds:
 an adaptive step is capped at the spacing, and the call returns at the committed
 position from which the next step would pass the read, so the host reads the state
@@ -572,12 +581,13 @@ A backend that does not set it reports `unwatched` and refuses a requested colla
 (`native/include/solprop_native/transverse.hpp`, a strict translation unit) owns the edge's every decision and record
 -- the launch's judgements, the spacing and its ceiling, each read's ledgers and verdict, a collar's current and return,
 the resume and the record -- and the session reads the resident state for it (`Resident::edge_reading`, the same
-reduction as `_edge_reading`). The march's `read_at`/`read_spacing` bounds return it to the session, not to Python, where
+reduction as `NumpyWorkspace.edge_reading`). The march's `read_at`/`read_spacing` bounds return it to the session, not to Python, where
 a read falls due, and with a collar at every committed step, so a collar's current costs no return to Python. The edge
 follows the temporal monitor at each point of SEP 47 §5.3: launched after the temporal launch, read after a committed
 step's check and before its statistics row, and at a plane before its row. A point's several warnings (a launch can
 raise five) are each a `ServiceRequired` barrier, the edge holding its place between them (`Edge::proceed`), so a
-warning the caller raises leaves the rest of that point undone, as solprop's inline warning does. The scalar decisions
+warning the caller raises leaves the rest of that point undone, as the reference's session does (a suspended point's
+work resumes after its barrier). The scalar decisions
 are solprop's exactly on the same readings, the worst face's ties broken on its name as `max` breaks a tuple's and the
 reach's tail summed in order over the columns as solprop sorted them; the launch's share in the ramp's band and the
 ramp's removal per interval are the native reading, summed in order with the C library's `expm1` where NumPy sums
@@ -865,17 +875,18 @@ The pools, the widths and the wait policy are stored in the output metadata
 `SOLPROP_FFTW_PLAN` and `SOLPROP_FFTW_WISDOM` remain. Pass timings are the native engine's
 Kokkos regions.
 
-### 3.5 The step driver: Python first, compiled when measured
+### 3.5 The session's march: Python first, compiled when measured
 
-**One driver for the reference, one session for native.** `backends/host/driver.py` is the
-reference's Runge-Kutta march and replay, the controller bookkeeping, the history and the
-noise models, which every NumPy reference backend inherits; the native backend inherits no
-driver, and its session marches natively (§1, point 3, lists the marches). Per stage a backend asks the translation layer for one bundle of host
-scalars and combines the terms it holds over them (§1); the driver applies the boundary
-treatments of `_finish` to a step it keeps, so a rejected step does not pay the temporal
+**One session per backend, the same shape.** `backends/host/session.py` is the
+reference's schedule -- the planes, halts, history, statistics rows, dense observation and
+boundary checks -- over its marches (`backends/host/runge_kutta.py`, `adams.py`,
+`low_storage.py`), which own their state; the native backend's session marches natively
+(§1, point 3, lists the marches). Per stage a backend asks the translation layer for one bundle of host
+scalars and combines the terms it holds over them (§1); an engine applies the boundary
+treatments of the workspace's `finish` only to a step it accepts, so a rejected step does not pay the temporal
 absorber's transform pair for a state that is thrown away.
 
-Under Runge–Kutta the driver's loop is the reference, and on `native` one call executes all
+Under Runge–Kutta the reference's march is the reference, and on `native` one call executes all
 seven stages of a trial (§4), its rows formed natively from the uploaded stage tables and its
 norm reduced natively ([SEP 45](seps/archive/sep-0045-native-rk-march.md) phase 2). An earlier
 measurement on the retired `numba_cpu` backend found the loop's Python cheap (about 50 calls a
@@ -907,7 +918,7 @@ builds, the system libm, with each element's own calls, on Arm and on devices
 the stage that formed them — the forward in pass 1 and the inverse in pass 7 — so
 recomputing evaluates `ΔΦ` exactly as often as tabulating does and the table buys residency
 and nothing else (a step within 2 %, measured on the retired `numba_cpu` backend). The flag's
-default is therefore `"auto"` and the choice is the backend's (`HostDriver.propagator_default`):
+default is therefore `"auto"` and the choice is the backend's (`NumpyRefBackend.propagator_default`):
 `numpy_ref` resolves it to `tabulate`, because it forms two complex exponentials per stage and
 the table saves five of them, and implements both paths; `native` resolves it to `recompute`,
 because both signs come from one `exp` and a `sincos` in the stage that consumes them

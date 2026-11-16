@@ -27,7 +27,6 @@ import flow_parity
 from sessions.runs import adams_ledger
 from sessions.runs import run as session_run
 from solprop.backends import available
-from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.multistep import (
     CoupledBlock,
@@ -198,7 +197,7 @@ def run(name, integrator, rtol, backend_class=NumpyRefBackend, **overrides):
         field = session_run(backend, problem, record=record).fields[-1]
         adams = isinstance(integrator, Multistep)
         return field, SimpleNamespace(
-            march=backend._adams if backend.name == "numpy_ref" else None,
+            march=backend.march if backend.name == "numpy_ref" else None,
             ledger=adams_ledger(backend, record) if adams else None,
         )
     finally:
@@ -259,7 +258,7 @@ def test_the_untransported_witness_is_for_diagonal_operators_only():
     )
     try:
         with pytest.raises(BackendError, match="diagonal operators"):
-            HostAdamsMarch(backend, EXPONENTIAL, compensation="untransported")
+            backend._use_adams(EXPONENTIAL, compensation="untransported")
     finally:
         backend.close()
 

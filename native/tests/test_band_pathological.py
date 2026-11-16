@@ -168,11 +168,13 @@ def synthesised(
     """Return the reference's node fields of `field`, ``(nodes, n_pol, n_to)``."""
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        reference.set_initial(field, None)
-        state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
+        reference.workspace.load(
+            np.ascontiguousarray(field, dtype=complex), None, z=0.0, resume=False
+        )
+        state = reference.workspace.committed()  # pyright: ignore[reportPrivateUsage]
         return np.real(
             np.concatenate(
-                list(reference._plasma_nodes(state))  # pyright: ignore[reportPrivateUsage]
+                list(reference.workspace._plasma_nodes(state, 0.0))  # pyright: ignore[reportPrivateUsage]
             )
         )
     finally:
@@ -185,11 +187,16 @@ def source_of_reference(
     """Return the reference's first stage on the launch, ``N(E, z = 0)``."""
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
-        return reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
-            reference._require_state(),  # pyright: ignore[reportPrivateUsage]
-            reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
+        reference.workspace.hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
+        return reference.workspace.nonlinear(  # pyright: ignore[reportPrivateUsage]
+            reference.workspace.committed(),  # pyright: ignore[reportPrivateUsage]
+            reference.workspace.stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
             np.ones(problem.shape, complex),
         )
     finally:

@@ -10,10 +10,10 @@ protocols here mirror the native marches' C++ interfaces one-to-one, every argum
 included: :class:`RungeKuttaEngine` is ``rk::Engine``
 (``native/include/solprop_native/rk_march.hpp``), which the low-storage step implements
 too, and :class:`AdamsEngine` is ``march::Engine``
-(``native/include/solprop_native/adams_march.hpp``). They are the target the
-reference's engines take in SEP 52's phase 3; until then its Adams march reads
-:class:`solprop.backends.numpy_ref.multistep.AdamsEngine` and its low-storage march
-:class:`solprop.backends.low_storage.LowStorageEngine`.
+(``native/include/solprop_native/adams_march.hpp``). The reference's engines are
+:class:`~solprop.backends.numpy_ref.engines.NumpyRungeKutta`, the low-storage step
+:class:`~solprop.backends.low_storage.HostLowStorage` and the Adams history
+:class:`~solprop.backends.numpy_ref.multistep.HostHistory`.
 
 **The commit contract.**
 

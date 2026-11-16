@@ -88,9 +88,9 @@ def test_embedded_current_projection_accumulates_partial_chunks(
     assert relative > 0
     reference = NumpyRefBackend(problem, run_request, grid=grid, options=options)
     try:
-        reference._hoist(0.0)
+        reference.workspace.hoist(0.0)
         state = problem.initial.field0
-        bundle = reference._stage_scalars(0.0, 0.0)
+        bundle = reference.workspace.stage_scalars(0.0, 0.0)
         transform, grids = problem.transform, problem.grids
         nodes = passes.synthesise(
             passes.to_time(state, grids.crop_index, grids.n_to, kind="field"),
@@ -98,7 +98,7 @@ def test_embedded_current_projection_accumulates_partial_chunks(
             bundle.taper_scale,
             transform.n_pol,
         )
-        current = reference._column_sources(nodes, bundle, None).current
+        current = reference.workspace._column_sources(nodes, bundle, None).current
         assert current is not None
         # SEP 27 section 4.6: the existing column allowance on J before either collar
         # multiplies it, then projected with absolute weights.
@@ -124,12 +124,12 @@ def test_embedded_current_projection_accumulates_partial_chunks(
             )
             for collar in collars
         ]
-        reference._nonlinear(state, bundle, np.ones_like(state))
-        assert reference._last_plasma is not None
-        _, _, coarse_gate, coarse_edge = reference._last_plasma
+        reference.workspace.nonlinear(state, bundle, np.ones_like(state))
+        assert reference.workspace._last_plasma is not None
+        _, _, coarse_gate, coarse_edge = reference.workspace._last_plasma
         assert coarse_gate is not None and coarse_edge is not None
         assert np.max(abs(coarse_gate)) > 0 and np.max(abs(coarse_edge)) > 0
-        expected = reference._held_streams(coarse_gate, coarse_edge)
+        expected = reference.workspace._held_streams(coarse_gate, coarse_edge)
     finally:
         reference.close()
     # The forward transform: l1 -> linf of each row's allowance, with its own normwise

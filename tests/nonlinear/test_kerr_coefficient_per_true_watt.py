@@ -34,7 +34,7 @@ def true_watt_slope(problem, run_request, grid):
         carrier = int(np.argmin(abs(grid.omega - grid.omega0)))
         state[..., carrier] = grid.n_t / (2 if grid.kind == "field" else 1)
         state /= np.sqrt(power_weight_at(problem, 0.0))
-        derivative = backend._nonlinear(
+        derivative = backend.workspace.nonlinear(
             state,
             stage.scalars(problem, 0.0, 0.0),
             np.ones(problem.shape, complex),
