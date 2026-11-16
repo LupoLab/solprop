@@ -8,8 +8,9 @@
 #include "solprop_native/general_state.hpp"
 #include "solprop_native/host_source.hpp"
 #include "solprop_native/rk_march.hpp"
-#include "solprop_native/session.hpp"
+#include "solprop_native/session_resident.hpp"
 #include "solprop_native/stage_tables.hpp"
+#include "solprop_native/transverse.hpp"
 
 #include <cstddef>
 #include <cstdint>
