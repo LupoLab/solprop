@@ -1211,7 +1211,7 @@ class NumpyWorkspace:
         ``nan`` where the polarisation itself vanishes, at a true vacuum end, because a
         relative measure of nothing says nothing. The session reports a value above
         :data:`~solprop.translate.modal.QUADRATURE_ALARM` once per plane, and the
-        ``quadrature_error`` statistic reads it (:attr:`quadrature`).
+        ``quadrature_error`` statistic reads it.
 
         Returns
         -------
