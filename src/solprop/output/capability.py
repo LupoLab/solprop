@@ -44,7 +44,7 @@ from types import MappingProxyType
 from typing import Literal
 
 from solprop.output.metadata import RunMetadata
-from solprop.stats import (
+from solprop.stats.catalogue import (
     _GAS_OR_SPATIAL_NAMES,
     _STEP_DIAGNOSTICS,
     ACCESSOR_ADVICE,

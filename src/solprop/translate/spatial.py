@@ -29,7 +29,8 @@ from solprop.spatial import (
     ApertureTables,
     attenuation_extremes,
 )
-from solprop.stats import StatsSpec, far_field_tables
+from solprop.stats import StatsSpec
+from solprop.stats.spec import far_field_tables
 from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.masks import Grids
 
@@ -944,7 +945,7 @@ def aperture_tables(
     """Form the far-field statistics' tables once, for every backend (SEP 23 §6).
 
     The geometry's Cartesian columns -- its stored axes, weights and on-axis vector --
-    and the frequency axis go to :func:`solprop.stats.far_field_tables`, which
+    and the frequency axis go to :func:`solprop.stats.spec.far_field_tables`, which
     forms the per-aperture outlines and scale table and the spec's regions. Every
     backend calls this at construction and :func:`solprop.stats.collect` reaches the
     same tables for a saved plane, so all of them use the same scale to the bit.
