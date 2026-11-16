@@ -12,6 +12,7 @@
 
 #include <nanobind/stl/string.h>
 
+#include <algorithm>
 #include <limits>
 #include <map>
 #include <set>
@@ -143,10 +144,8 @@ Source::Source(const nb::handle value, const std::string& path) : value_(value) 
 bool Source::has(const char* name, const std::size_t index) const {
   if (positional_)
     return index < size_;
-  for (const auto& entry : *names_)
-    if (entry == name)
-      return true;
-  return false;
+  return std::ranges::any_of(*names_,
+                             [name](const auto& entry) { return entry == name; });
 }
 
 nb::object Source::get(const char* name, const std::size_t index) const {
@@ -268,8 +267,15 @@ void relate(const std::vector<std::size_t>& shape, const fields::Extent* extents
     const auto& extent = extents[axis];
     const std::size_t size = shape[axis];
     const auto refuse_axis = [&](const std::string& why) {
-      value_refusal(path, "has shape " + shape_text(shape) + ", and its layout is " +
-                              relation + ": axis " + std::to_string(axis) + " " + why);
+      std::string message = "has shape ";
+      message += shape_text(shape);
+      message += ", and its layout is ";
+      message += relation;
+      message += ": axis ";
+      message += std::to_string(axis);
+      message += ' ';
+      message += why;
+      value_refusal(path, message);
     };
     if (extent.fixed_size) {
       if (size != extent.literal)

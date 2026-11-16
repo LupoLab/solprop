@@ -206,6 +206,19 @@ void bind_setup(nb::class_<native::Problem>& problem, const char* name,
       nb::for_setter(nb::arg("value").none()));
 }
 
+/** Keep an array's shape on a group that holds its layouts (`shapes`), for
+    `Problem::validate`; a group without one keeps none. Overloads rather than an
+    `if constexpr` inside the setter, which nvcc's front end does not discard. */
+template <class Group>
+auto keep_shape(Group& group, const char* label, std::vector<std::size_t>& shape,
+                int /*preferred*/) -> decltype(group.shapes, void()) {
+  group.shapes[label] = std::move(shape);
+}
+
+template <class Group>
+void keep_shape(Group& /*group*/, const char* /*label*/,
+                std::vector<std::size_t>& /*shape*/, long /*fallback*/) {}
+
 /** One group of the problem's fields, bound as a nested class from its field table
     (solprop SEP 52 section 5.3): scalars read and written as they are, arrays as exact
     arrays (`exact_vector`) of the table's rank, or of any rank where it gives none. A
@@ -234,14 +247,9 @@ void bind_group(const nb::handle scope, const char* name, const std::string& pat
           label, [member](const Group& self) { return array_of(self.*member); },
           [member, label, where = path + "." + label](Group& self,
                                                       const nb::handle value) {
-            if constexpr (requires { self.shapes; }) {
-              std::vector<std::size_t> shape;
-              self.*member = exact_vector<Element>(value, where, rank, &shape);
-              self.shapes[label] = std::move(shape);
-            } else {
-              static_cast<void>(label);
-              self.*member = exact_vector<Element>(value, where, rank);
-            }
+            std::vector<std::size_t> shape;
+            self.*member = exact_vector<Element>(value, where, rank, &shape);
+            keep_shape(self, label, shape, 0);
           },
           nb::for_getter(nb::rv_policy::automatic),
           nb::for_setter(nb::sig(setter.c_str())));

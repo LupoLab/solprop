@@ -55,6 +55,13 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           lanes=full
+          # A pull request's checkout is GitHub's merge of its head into the base branch's
+          # current tip, its first parent. The event's base.sha can be older than that tip
+          # (it does not follow later pushes to main), and a diff against it would count
+          # whatever main merged since as the pull request's own change.
+          if [ "$EVENT" = pull_request ] && git rev-parse -q --verify HEAD^2 > /dev/null; then
+            BASE=$(git rev-parse HEAD^1)
+          fi
           if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             git diff --name-only "$BASE" HEAD > changed.txt
             cat changed.txt

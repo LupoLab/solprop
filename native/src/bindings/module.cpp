@@ -199,6 +199,8 @@ using Ticket = std::pair<std::uint64_t, std::uint64_t>;
 
 namespace solprop_native {
 
+namespace {
+
 // An export's conversion (`solprop.backends.export.ExportRecipe`) with the route's
 // power weight at the ticket's position, none unless `power`.
 struct ExportRecipe {
@@ -213,6 +215,8 @@ struct ExportRecipe {
                           fields::value("optics", &R::optics),
                           fields::array("weight", &R::weight, fields::Extent::any()));
 }
+
+} // namespace
 
 } // namespace solprop_native
 
@@ -233,7 +237,7 @@ public:
   BoundSession(BoundSession&&) = delete;
   BoundSession& operator=(BoundSession&&) = delete;
 
-  native::session::Session& session() const { return run_->session(); }
+  [[nodiscard]] native::session::Session& session() const { return run_->session(); }
 
   // The advance runs without the interpreter lock; its batch becomes a record with it.
   BatchRecord advance(const std::size_t work_limit, const double deadline) {
