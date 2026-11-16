@@ -28,6 +28,10 @@
 #
 # SLEEF 3.9.0 is fetched like Kokkos (FETCHCONTENT_SOURCE_DIR_SLEEF names a local copy
 # for an offline build) and linked static.
+#
+# Included by cmake/Dependencies.cmake; expects cmake/HostLibraries.cmake's
+# _device_build and _x86_processor. Defines SOLPROP_NATIVE_VECTOR_MATH (resolved),
+# SOLPROP_NATIVE_SLEEF_VERSION, sleef_SOURCE_DIR and solprop_native_link_vector_math().
 set(SOLPROP_NATIVE_SLEEF_VERSION "3.9.0")
 set(SOLPROP_NATIVE_VECTOR_MATH "AUTO" CACHE STRING
     "Host vector maths for the transcendental passes: AUTO, SLEEF or SCALAR")
