@@ -619,7 +619,6 @@ BUILD_REFUSALS = [
         DriverError,
         "needs kerr=True",
     ),
-    (build, {"polarisation": "circular"}, DriverError, "this path is scalar"),
     (
         build,
         {"envelope": True, "plasma": True, "thg": True},

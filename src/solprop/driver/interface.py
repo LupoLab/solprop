@@ -447,7 +447,6 @@ def prop_capillary(  # numpydoc ignore=PR01
     polarisation_taper: bool = False,
     node_budget: int | None = None,
     backend: str = "auto",
-    polarisation: str | float | None = None,
     materials: MaterialSelection | None = None,
     tdse: TDSEGasResponse | None = None,
     tdse_execution: TDSEExecution | None = None,
@@ -476,7 +475,8 @@ def prop_capillary(  # numpydoc ignore=PR01
 
     The step control is reached through `rtol`, `atol`, `dz_max` and `dz_init`, and
     the default step caps are relative to the capillary length rather than absolute.
-    The path is scalar: `polarisation` and the vector route are refused by name.
+    The path is scalar: a mode row carries one transverse component, and the
+    polarisation is declared in the modes.
 
     Its keywords are :meth:`~solprop.driver.simulation.Simulation.from_capillary`'s,
     then the run controls of :meth:`~solprop.driver.simulation.Simulation.run`.
@@ -589,7 +589,6 @@ def prop_waveguide(  # numpydoc ignore=PR01
     polarisation_taper: bool = False,
     node_budget: int | None = None,
     backend: str = "auto",
-    polarisation: str | float | None = None,
     taper_coupling: bool = True,
     materials: MaterialSelection | None = None,
     output: Output | Path | str | None = None,

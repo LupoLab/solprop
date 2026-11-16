@@ -1140,14 +1140,6 @@ def _capillary() -> tuple[Parameter, ...]:
             "guide/performance/resources.md",
         ),
         Parameter(
-            "polarisation",
-            (Form("string"), Form("number")),
-            "input",
-            "advanced",
-            "Refused: the capillary route is scalar.",
-            "guide/setup/polarisation.md",
-        ),
-        Parameter(
             "tdse",
             (Form("object", types=("TDSEGasResponse",), recipe=False),),
             "nonlinear",
@@ -1269,14 +1261,6 @@ def _waveguide() -> tuple[Parameter, ...]:
             "advanced",
             "Azimuthal nodes, or the y-axis nodes of a Cartesian rule.",
             rule,
-        ),
-        Parameter(
-            "polarisation",
-            (Form("string"), Form("number")),
-            "input",
-            "advanced",
-            "Refused: the waveguide route is scalar.",
-            "guide/setup/polarisation.md",
         ),
         Parameter(
             "step_planes",

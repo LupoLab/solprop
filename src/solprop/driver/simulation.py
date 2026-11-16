@@ -2844,7 +2844,6 @@ class Simulation(Displayed):
         polarisation_taper: bool = False,
         node_budget: int | None = None,
         backend: str = "auto",
-        polarisation: str | float | None = None,
         materials: MaterialSelection | None = None,
         tdse: TDSEGasResponse | None = None,
         tdse_execution: TDSEExecution | None = None,
@@ -3150,8 +3149,6 @@ class Simulation(Displayed):
             Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
             it isn't installed or this processor is below its baseline. There is no
             fallback, and import or construction errors stay visible.
-        polarisation : str, float or None, optional
-            Refused; this path is scalar.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
             Take the run's built-in materials from optmat under this selection: a gas or
             fraction mapping of built-in gases, ``"air"`` and ``Gas.Air`` resolve
@@ -3280,7 +3277,6 @@ class Simulation(Displayed):
         polarisation_taper: bool = False,
         node_budget: int | None = None,
         backend: str = "auto",
-        polarisation: str | float | None = None,
         taper_coupling: bool = True,
         materials: MaterialSelection | None = None,
     ) -> "Simulation":
@@ -3627,8 +3623,6 @@ class Simulation(Displayed):
             Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
             it isn't installed or this processor is below its baseline. There is no
             fallback, and import or construction errors stay visible.
-        polarisation : str, float or None, optional
-            Refused; this path is scalar.
         taper_coupling : bool, optional
             Carry the taper coupling of a supplied capillary set on a varying radius, as
             :meth:`~solprop.driver.simulation.Simulation.from_capillary` does; ``False``
