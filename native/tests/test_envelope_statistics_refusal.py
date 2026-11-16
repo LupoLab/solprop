@@ -22,7 +22,7 @@ from test_envelope_plasma import envelope_case, envelope_options, terms
 
 import solprop_native.backend as adapter
 from solprop_native import NativeBackend, _core
-from solprop_native.backend import (
+from solprop_native._lowering import (
     _lower,  # pyright: ignore[reportPrivateUsage]
     _LowerPlan,  # pyright: ignore[reportPrivateUsage]
 )
@@ -56,6 +56,7 @@ def test_the_statistics_refuse_and_a_quiet_field_recovers(
         built.plasma.envelope_rule_nodes = nodes
         return built
 
+    # Patched where the backend looks it up: backend.py imports it from _lowering.
     monkeypatch.setattr(adapter, "_lower", corrupt_payload)
     # The launch plane's statistics meet the bad rule before any step.
     run_request = run_request.for_run(stats=SPEC)

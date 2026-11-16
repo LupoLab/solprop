@@ -8,9 +8,9 @@ A march owns its controller, landing, history and call ledger; an engine does ev
 state-sized operation a march asks of the workspace that holds the state. The two
 protocols here mirror the native marches' C++ interfaces one-to-one, every argument
 included: :class:`RungeKuttaEngine` is ``rk::Engine``
-(``native/include/solprop_native/rk_march.hpp``), which the low-storage step implements
-too, and :class:`AdamsEngine` is ``march::Engine``
-(``native/include/solprop_native/adams_march.hpp``). The reference's engines are
+(``native/include/solprop_native/march/rk_march.hpp``), which the low-storage step
+implements too, and :class:`AdamsEngine` is ``march::Engine``
+(``native/include/solprop_native/march/adams_march.hpp``). The reference's engines are
 :class:`~solprop.backends.numpy_ref.engines.NumpyRungeKutta`, the low-storage step
 :class:`~solprop.backends.numpy_ref.engines.NumpyLowStorage` and the Adams history
 :class:`~solprop.backends.numpy_ref.multistep.HostHistory`.

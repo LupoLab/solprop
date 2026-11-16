@@ -33,7 +33,8 @@ RUNGE_KUTTA_ENGINE = {
     "reading": "(self) -> solprop.backends.engines.BoundaryReading",
     "in_flight": "(self) -> bool",
 }
-"""``rk::Engine`` (``native/include/solprop_native/rk_march.hpp``), member by member."""
+"""``rk::Engine`` (``native/include/solprop_native/march/rk_march.hpp``), member by
+member."""
 
 ADAMS_ENGINE = {
     "start": "(self, z: float) -> None",
@@ -52,7 +53,7 @@ ADAMS_ENGINE = {
     "end_attempt": "(self, outcome: solprop.backends.engines.AttemptOutcome) -> None",
     "reading": "(self) -> solprop.backends.engines.BoundaryReading",
 }
-"""``march::Engine`` (``native/include/solprop_native/adams_march.hpp``)."""
+"""``march::Engine`` (``native/include/solprop_native/march/adams_march.hpp``)."""
 
 RECORDS = {
     AcceptRecord: ("stiffness", "removed", "found"),
@@ -62,7 +63,8 @@ RECORDS = {
 """The records the protocols pass, field by field."""
 
 OUTCOMES = {"REJECTED": 0, "ACCEPTED": 1, "ABANDONED": 2}
-"""``HostOutcome`` (``native/include/solprop_native/host_source.hpp``), by value."""
+"""``HostOutcome`` (``native/include/solprop_native/runtime/host_source.hpp``), by
+value."""
 
 
 @pytest.mark.parametrize(

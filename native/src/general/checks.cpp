@@ -3,8 +3,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // What the general workspace refuses before it allocates, and a trial's scalars.
+// require_general_problem checks a Problem in groups, each refusing by name: the
+// extents and their size arithmetic (require_extents), the spatial measure and the
+// separable and planar geometries (require_spatial), the windows, transforms,
+// operator, tableau and absorbers (require_operator), the plasma and Raman component
+// tables (require_components), the plasma column (require_plasma) and the Raman terms
+// and kernel (require_raman). GeneralWorkspace::require_trial_scalars checks a
+// trial's TrialScalars against the bound problem.
 
-#include "workspace.hpp"
+#include "general_workspace.hpp"
 
 #include <tuple>
 

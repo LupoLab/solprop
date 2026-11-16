@@ -15,6 +15,12 @@
 # SOLPROP_NATIVE_ENABLE_TPL_BLAS=OFF keeps the native-order GEMM in a LOCAL build. An
 # automatic search that finds nothing falls back to that GEMM with a warning; an
 # explicit request that finds nothing fails. FFT choices are unaffected.
+#
+# Expects the profile, architecture and BLAS options from CMakeLists.txt, and resolves
+# their AUTO values. Defines SOLPROP_NATIVE_BUILD_PROFILE, SOLPROP_NATIVE_CPU_BASELINE
+# and its flag, the BLAS choice (SOLPROP_NATIVE_BLAS_SELECTION, its symbol prefix and the
+# vendored library and licence), the host FFT (SOLPROP_NATIVE_HOST_FFT_BACKEND and
+# planner) and _device_build and _x86_processor, which cmake/VectorMath.cmake reads.
 set(SOLPROP_NATIVE_BLAS_VENDOR "AUTO" CACHE STRING
     "Host BLAS selection: AUTO, OPENBLAS, MKL, or ACCELERATE")
 set_property(CACHE SOLPROP_NATIVE_BLAS_VENDOR PROPERTY STRINGS

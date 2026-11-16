@@ -19,6 +19,9 @@
 # SOLPROP_NATIVE_OPENBLAS_ROOT names a prefix that already holds such a build (lanes
 # and CI cache it); otherwise the pinned source is downloaded, checked and built once
 # into the build tree.
+#
+# Included by cmake/HostLibraries.cmake, which calls one of its two functions; each sets
+# SOLPROP_NATIVE_BLAS_LIBRARIES and the vendored library and licence in its caller.
 set(SOLPROP_NATIVE_OPENBLAS_VERSION "0.3.34")
 set(SOLPROP_NATIVE_OPENBLAS_SHA256
     "cd7e129868320cc2d033afa920e31202dfe0b8066a5b66661900ccc0f197dfed")

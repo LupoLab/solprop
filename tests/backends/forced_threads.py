@@ -5,12 +5,13 @@
 """Run a case on ``native`` with every thread pool forced, in a fresh process.
 
 Native sizes each operation by the work it holds (``operation_threads`` in
-``native/src/core.cpp``), so a small case at ``SOLPROP_NATIVE_THREADS=4`` runs most of
-its kernels on one thread and compares one thread with one thread. An explicit pool
-bypasses that rule, which is what ``numba_cpu``'s ``regime="large"`` was for. So
-:func:`forced_run` names every pool, and a test reads the widths actually taken from the
-run's ``execution_sizing`` through :func:`widest` and asserts them. A comparison whose
-threads never ran would otherwise pass.
+``native/src/runtime/cpu_execution.cpp``), so a small case at
+``SOLPROP_NATIVE_THREADS=4`` runs most of its kernels on one thread and compares one
+thread with one thread. An explicit pool bypasses that rule, which is what
+``numba_cpu``'s ``regime="large"`` was for. So :func:`forced_run` names every pool, and
+a test reads the widths actually taken from the run's ``execution_sizing`` through
+:func:`widest` and asserts them. A comparison whose threads never ran would otherwise
+pass.
 
 The Kokkos runtime reads its pools once per process (``matched.py``), so each width is a
 fresh process running ``native_forced_thread_probe.py``; :func:`forced_run` returns the

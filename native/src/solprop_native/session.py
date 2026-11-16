@@ -6,10 +6,10 @@
 
 :class:`NativeSession` implements solprop's
 :class:`~solprop.backends.session.RunSession` over ``_core.Session``, the native
-session (``native/include/solprop_native/session.hpp``). The native session is the one
-mutable owner of the trajectory: the march's policy, state and history, the plane
-schedule, the periodic statistics rows (taken natively after each commit and kept in a
-resident buffer until the next observation), the stop flag, the snapshot latch, the
+session (``native/include/solprop_native/session/session.hpp``). The native session is
+the one mutable owner of the trajectory: the march's policy, state and history, the
+plane schedule, the periodic statistics rows (taken natively after each commit and kept
+in a resident buffer until the next observation), the stop flag, the snapshot latch, the
 committed-state generation and the pending batch. This adapter only translates: it
 prepares the session once from a :class:`~solprop_native.backend.NativeBackend`'s
 lowering (the native problem, the stage tables and the CPU execution record), turns
@@ -49,7 +49,8 @@ following and refuses every other feature by name before allocating anything
   and a stop a terminal failure, the edge's readings and a collar's current are taken
   from the resident state with no return to Python, and a monitored resume continues
   both records natively from solprop's run records
-  (:mod:`solprop.backends.records`, converted by :mod:`solprop_native._records`);
+  (:mod:`solprop.backends.records`, read by the extension's record converter,
+  ``native/src/bindings/records.hpp``);
 - dense output (``interpolate_planes``), for Adams and the embedded Runge-Kutta
   tableau alike: a plane the march steps across is interpolated natively inside the
   step that crossed it, the committed state held aside, and observed in order before
@@ -142,6 +143,15 @@ from solprop.translate.modal import QUADRATURE_ALARM, warn_quadrature
 
 from . import _core, _counters, _transverse, _watch
 from ._load import Loaded
+from ._march import (
+    _BUDGET,
+    _DIVERGED,
+    _ERROR,
+    _FLOOR,
+    FRESH_WATCH,
+    _envelope_errors,
+    _raise_native,
+)
 from ._statistics import (
     ADMITTED_GENERAL_STATISTICS,
     ADMITTED_SPATIAL_STATISTICS,
@@ -151,16 +161,7 @@ from ._statistics import (
     metric_refusal,
     translated,
 )
-from .backend import (
-    _BUDGET,  # pyright: ignore[reportPrivateUsage]
-    _DIVERGED,  # pyright: ignore[reportPrivateUsage]
-    _ERROR,  # pyright: ignore[reportPrivateUsage]
-    _FLOOR,  # pyright: ignore[reportPrivateUsage]
-    FRESH_WATCH,
-    NativeBackend,
-    _envelope_errors,  # pyright: ignore[reportPrivateUsage]
-    _raise_native,  # pyright: ignore[reportPrivateUsage]
-)
+from .backend import NativeBackend
 
 _LOG = logging.getLogger(__name__)
 # A march failure a host source raised (`march::Category::host`, solprop SEP 49).

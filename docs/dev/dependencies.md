@@ -75,7 +75,7 @@ solprop-native has no runtime dependency on solprop.
 **SLEEF 3.9.0** ([sleef.org](https://sleef.org), Boost Software License 1.0) is the
 native CPU build's host vector maths on x86-64 (ADR-059): vector `exp`, `log` and
 `sincos`, its u10 functions (1.0 ulp over each function's domain), called over blocks
-by `native/include/solprop_native/vmath.hpp`. It is fetched at its release tag like
+by `native/include/solprop_native/runtime/vmath.hpp`. It is fetched at its release tag like
 Kokkos (`FETCHCONTENT_SOURCE_DIR_SLEEF` names a local copy for an offline build), built
 static as its own CMake project with only `libsleef` and the variants the layer calls
 (SSE2, AVX2, AVX-512F on request; AdvSIMD on aarch64), and compiled into the extension, whose wheel

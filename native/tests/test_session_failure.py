@@ -22,7 +22,7 @@ from test_envelope_plasma import envelope_case, envelope_options, terms
 
 import solprop_native.backend as adapter
 from solprop_native import NativeBackend, _core
-from solprop_native.backend import (
+from solprop_native._lowering import (
     _lower,  # pyright: ignore[reportPrivateUsage]
     _LowerPlan,  # pyright: ignore[reportPrivateUsage]
 )
@@ -51,6 +51,7 @@ def test_an_unresolved_launch_statistic_ends_the_run_as_a_convergence_error(
         built.plasma.envelope_rule_nodes = nodes
         return built
 
+    # Patched where the backend looks it up: backend.py imports it from _lowering.
     monkeypatch.setattr(adapter, "_lower", corrupt_payload)
     owner = NativeBackend(
         problem, run_request, grid=grid, options=envelope_options(geometry)

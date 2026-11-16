@@ -18,11 +18,12 @@ source "$repo_root/scripts/compiler.sh"
 raman_provider=${SOLPROP_NATIVE_CHECK_RAMAN_FFT_PROVIDER:-$(native_raman_provider)}
 export CMAKE_ARGS="${CMAKE_ARGS:-} -DSOLPROP_NATIVE_RAMAN_FFT_PROVIDER=$raman_provider"
 cxx_compiler=$(native_cxx_compiler)
-# Every tracked C++ file, so that none can drop out of the format check.
+# Every tracked C++ file, the fragments a unit includes (.inc) among them, so that none
+# can drop out of the format check.
 cpp_sources=()
 while IFS= read -r -d '' cpp_source; do
   cpp_sources+=("$cpp_source")
-done < <(git ls-files -z -- '*.cpp' '*.hpp' '*.h')
+done < <(git ls-files -z -- '*.cpp' '*.hpp' '*.h' '*.inc')
 
 # The stages to run, all of them by default; CI runs them as parallel jobs. "lint" is
 # ruff, pyright and clang-format; "tidy" and "sanitize" build and run the native tests
