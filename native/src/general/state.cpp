@@ -128,10 +128,6 @@ std::vector<double> GeneralState::trial_step(const double dz,
 void GeneralState::prepare_trial(const double dz, const TrialScalars& scalars) {
   with_team(&GeneralWorkspace::prepare_trial, dz, scalars);
 }
-std::vector<Complex> GeneralState::adams_source(const std::vector<Complex>& input,
-                                                const TrialScalars& scalars) {
-  return with_team(&GeneralWorkspace::adams_source, input, scalars);
-}
 void GeneralState::adopt(const std::vector<Complex>& field, const double dz) {
   with_team(&GeneralWorkspace::adopt, field, dz);
 }
@@ -149,9 +145,6 @@ void GeneralState::adams_compensation_start(const std::size_t slot,
 }
 void GeneralState::adams_start(const std::size_t slot, const TrialScalars& scalars) {
   with_team(&GeneralWorkspace::adams_start, slot, scalars);
-}
-double GeneralState::adams_magnitude() {
-  return with_team(&GeneralWorkspace::adams_magnitude);
 }
 void GeneralState::adams_scale(const double rtol, const double atol,
                                const std::vector<double>& weights) {

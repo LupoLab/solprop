@@ -35,8 +35,6 @@ public:
   void set_initial(std::span<const Complex> field, std::span<const Complex> noise);
   std::vector<double> trial_step(double dz, const TrialScalars& scalars);
   void prepare_trial(double dz, const TrialScalars& scalars);
-  std::vector<Complex> adams_source(const std::vector<Complex>& input,
-                                    const TrialScalars& scalars);
   void adopt(const std::vector<Complex>& field, double dz);
   double low_storage_step(double dz, const TrialScalars& scalars, bool rebuild_table);
   void low_storage_flows_formed(bool rebuild_table);
@@ -48,7 +46,6 @@ public:
   void adams_allocate(std::size_t slots, bool compensated, bool interpolate);
   void adams_compensation_start(std::size_t slot, const std::vector<double>& rate);
   void adams_start(std::size_t slot, const TrialScalars& scalars);
-  double adams_magnitude();
   // The controller's norm scale on the device: rtol * w_i * |u| + atol over the
   // in-band magnitude, formed each trial without the magnitude crossing to the host.
   void adams_scale(double rtol, double atol, const std::vector<double>& weights);

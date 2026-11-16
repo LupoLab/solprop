@@ -517,31 +517,4 @@ std::vector<double> reference_stream_copies(const std::size_t elements,
   return seconds;
 }
 
-void fft(const ExecutionSpace& execution_space, const ComplexView input,
-         const ComplexView output) {
-  const std::size_t size = input.extent(0);
-  if (size == 0)
-    throw std::invalid_argument("fft input must not be empty");
-  if (output.extent(0) != size) {
-    throw std::invalid_argument("fft input and output must have the same length");
-  }
-  KokkosFFT::fft(execution_space, input, output, KokkosFFT::Normalization::none);
-}
-
-void multiply_phase(const ExecutionSpace& execution_space,
-                    const ConstComplexView values, const ConstRealView phase,
-                    const ComplexView output) {
-  const std::size_t size = values.extent(0);
-  if (phase.extent(0) != size || output.extent(0) != size) {
-    throw std::invalid_argument("values, phase, and output must have the same length");
-  }
-  launch::parallel_for(
-      "solprop_native.multiply_phase",
-      Kokkos::RangePolicy<ExecutionSpace>(execution_space, 0, size),
-      KOKKOS_LAMBDA(const std::size_t index) {
-        output(index) = values(index) *
-                        Complex(Kokkos::cos(phase(index)), Kokkos::sin(phase(index)));
-      });
-}
-
 } // namespace solprop_native

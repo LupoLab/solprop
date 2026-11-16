@@ -720,54 +720,6 @@ std::vector<double> GeneralWorkspace::trial_step(const double dz,
   return collect_trial();
 }
 
-// solprop's low-call Adams march (SEP 13, SEP 14 phase 2): one source evaluation at a
-// field given in the step's anchor frame, `U(anchor, position) N(U(position, anchor)
-// v)`. It is stage zero of a trial whose stage-zero scalars are the evaluation
-// position's: the combination with no earlier stage carries the input to the position
-// and the finish brings the source back, so the shared stage pipeline, its responses
-// and its in-stage absorber are the march's too. The accepted state is held in
-// `advanced_`, which only the Runge-Kutta accept writes, while the input takes its
-// place.
-std::vector<Complex> GeneralWorkspace::adams_source(const std::vector<Complex>& input,
-                                                    const TrialScalars& scalars) {
-  if (!initialized_)
-    throw std::logic_error("no initial field has been loaded");
-  // Every route's stage source serves the Adams march (solprop SEP 16 phase 3): the
-  // separable stage takes its flow from the stage's own Phi increment, as the modal one
-  // does. Beside a coupled flow the sample is the material source alone (solprop SEP
-  // 16 phase 5): the exponential formulation carries the residual in its compensation
-  // and the flow in its moments, so the stage runs without the flow's pipeline.
-  require_extent(input.size(), problem_.n_columns() * problem_.dims.n_omega,
-                 "Adams input");
-  // The flow is set aside for the evaluation and put back whatever happens.
-  auto held_flow = std::exchange(flow_, nullptr);
-  // An aggregate, so it declares no copy or move; it is never copied or moved.
-  // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions): a local scope guard
-  struct RestoreFlow {
-    std::unique_ptr<CoupledFlowAction>& slot;
-    std::unique_ptr<CoupledFlowAction>& held;
-    // NOLINTNEXTLINE(modernize-use-equals-default): restores the slot (see FlowAside).
-    ~RestoreFlow() { slot = std::move(held); }
-  } restore{.slot = flow_, .held = held_flow};
-  require_trial_scalars(scalars);
-  upload_trial(scalars);
-  if (general_)
-    general_->set_weights(scalars.transform_weights);
-  graph::deep_copy(execution_space_, advanced_, current_);
-  copy_vector(execution_space_, current_, input);
-  if (problem_.raman.enabled)
-    prepare_raman_stage(0, scalars.raman_rates.data(),
-                        problem_.raman.n_components > 1 ? scalars.raman_densities.data()
-                                                        : nullptr);
-  evaluate_stage_source(0, 0.0);
-  graph::deep_copy(execution_space_, current_, advanced_);
-  stages_ready_ = true;
-  // No Runge-Kutta stage of this state exists to recycle.
-  pending_fsal_ = false;
-  has_recycled_ = false;
-  return stage_to_host(0);
-}
-
 // Adopt an Adams step's end state, given on the host before its boundary treatments:
 // the shared finish masks it, or applies the split-step absorber, and makes it current.
 void GeneralWorkspace::adopt(const std::vector<Complex>& field, const double dz) {
@@ -1682,8 +1634,9 @@ void GeneralWorkspace::adams_phase() {
           });
 }
 
-// The stage-zero source at an anchor-frame field held in current_, as adams_source
-// evaluates it, into stages_(0).
+// The Adams march's source at an anchor-frame field held in current_, into stages_(0):
+// stage zero of a trial whose stage-zero scalars are the evaluation position's, so the
+// shared stage pipeline, its responses and its in-stage absorber are the march's too.
 void GeneralWorkspace::adams_evaluate_source(const TrialScalars& scalars) {
   if (source_fault_)
     std::exchange(source_fault_, {})();
@@ -1795,25 +1748,6 @@ void GeneralWorkspace::adams_upload_divisor(const std::vector<double>& divisor) 
         scale(index) = weighted ? rtol * weights(index) * magnitude + atol
                                 : rtol * magnitude + atol;
       });
-}
-
-double GeneralWorkspace::adams_magnitude() {
-  require_adams();
-  const auto current = current_;
-  const auto in_norm = norm_mask_;
-  const auto n = problem_.dims.n_omega;
-  double total = 0.0;
-  launch::parallel_reduce(
-      "solprop_native.adams.magnitude",
-      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0,
-                                          problem_.n_columns() * n),
-      KOKKOS_LAMBDA(const std::size_t item, double& update) {
-        const auto index = item % n;
-        if (in_norm(index) != 0)
-          update += squared_abs(current(item / n, index));
-      },
-      total);
-  return Kokkos::sqrt(total);
 }
 
 namespace {

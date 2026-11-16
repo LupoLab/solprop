@@ -1148,9 +1148,6 @@ public:
   void set_initial(std::span<const Complex> field, std::span<const Complex> noise);
   [[nodiscard]] std::vector<double> trial_step(double dz, const TrialScalars& scalars);
   void prepare_trial(double dz, const TrialScalars& scalars);
-  /** solprop's Adams source at an anchor-frame field (SEP 14 phase 2). */
-  [[nodiscard]] std::vector<Complex> adams_source(const std::vector<Complex>& input,
-                                                  const TrialScalars& scalars);
   /** Adopt an Adams step's end state through the shared finish. */
   void adopt(const std::vector<Complex>& field, double dz);
   /**
@@ -1167,7 +1164,6 @@ public:
   void adams_allocate(std::size_t slots, bool compensated, bool interpolate = true);
   void adams_compensation_start(std::size_t slot, const std::vector<double>& rate);
   void adams_start(std::size_t slot, const TrialScalars& scalars);
-  [[nodiscard]] double adams_magnitude();
   void adams_scale(double rtol, double atol, const std::vector<double>& weights);
   [[nodiscard]] std::vector<double>
   adams_fused_trial(double dz, const AdamsWeights& weights,
@@ -1440,10 +1436,6 @@ private:
 
   std::unique_ptr<GeneralWorkspace> workspace_;
 };
-
-void fft(const ExecutionSpace& execution_space, ComplexView input, ComplexView output);
-void multiply_phase(const ExecutionSpace& execution_space, ConstComplexView values,
-                    ConstRealView phase, ComplexView output);
 
 } // namespace solprop_native
 

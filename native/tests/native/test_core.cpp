@@ -360,55 +360,6 @@ void expect_complex_near(const Complex actual, const Complex expected,
   EXPECT_NEAR(actual.imag(), expected.imag(), tolerance);
 }
 
-TEST(Fft, ImpulseProducesConstantSpectrum) {
-  constexpr std::size_t size = 32;
-  native::ComplexView input("native_test.fft.input", size);
-  native::ComplexView output("native_test.fft.output", size);
-  Kokkos::deep_copy(input, native::Complex{});
-  const auto host_input = Kokkos::create_mirror_view(input);
-  host_input(0) = native::Complex(2.0, -3.0);
-  Kokkos::deep_copy(input, host_input);
-
-  const native::ExecutionSpace execution_space;
-  native::fft(execution_space, input, output);
-  execution_space.fence("native FFT test boundary");
-  const auto host_output =
-      Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, output);
-
-  const double tolerance = 64.0 * kEpsilon * std::log2(size) * std::hypot(2.0, 3.0);
-  for (std::size_t index = 0; index < size; ++index) {
-    expect_complex_near(host_output(index), {2.0, -3.0}, tolerance);
-  }
-}
-
-TEST(Fft, RejectsInvalidExtents) {
-  const native::ExecutionSpace execution_space;
-  const native::ComplexView empty("native_test.fft.empty", 0);
-  EXPECT_THROW(native::fft(execution_space, empty, empty), std::invalid_argument);
-  const native::ComplexView input("native_test.fft.input", 4);
-  const native::ComplexView output("native_test.fft.output", 3);
-  EXPECT_THROW(native::fft(execution_space, input, output), std::invalid_argument);
-}
-
-TEST(MultiplyPhase, AppliesQuarterTurnAndPreservesMagnitude) {
-  constexpr std::size_t size = 4;
-  native::ComplexView values("native_test.phase.values", size);
-  native::RealView phase("native_test.phase.angles", size);
-  native::ComplexView output("native_test.phase.output", size);
-  Kokkos::deep_copy(values, native::Complex(3.0, 4.0));
-  Kokkos::deep_copy(phase, std::numbers::pi_v<double> / 2.0);
-  const native::ExecutionSpace execution_space;
-  native::multiply_phase(execution_space, values, phase, output);
-  execution_space.fence("native phase test boundary");
-  const auto host_output =
-      Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, output);
-  const double tolerance = 32.0 * kEpsilon;
-  for (std::size_t index = 0; index < size; ++index) {
-    expect_complex_near(host_output(index), {-4.0, 3.0}, tolerance);
-    EXPECT_NEAR(Kokkos::abs(host_output(index)), 5.0, tolerance);
-  }
-}
-
 TEST(GeneralState, MasksAndAppliesCombinedWholeStepPropagator) {
   auto problem = general_problem(native::FieldFamily::envelope);
   problem.linear.n_phi_terms = 2;
