@@ -447,7 +447,7 @@ _ABSORBER: Final = Form("object", types=("absorber",))
 _CHECK: Final = Form("object", types=("BoundaryCheck",))
 _MATERIALS: Final = Form("object", types=("MaterialSelection",))
 _SCHEMES: Final = Form("choice", choices=("nonlinear", "split_step"))
-_SAVE_PLANES: Final = Form("array", unit="m", minimum=0.0, exclusive=True)
+_SAVE_PLANES: Final = Form("array", unit="m", minimum=0.0)
 _PHASES: Final = Form("array", elements="phases")
 _SHAPES: Final = Form("choice", choices=("gauss", "sech"))
 _BACKENDS: Final = Form("string")
@@ -473,7 +473,7 @@ def _shared(route: str) -> tuple[Parameter, ...]:
             (_POSITIVE_LENGTH,),
             "geometry",
             "basic",
-            "Propagation length.",
+            "Propagation length, the run's end; optional beside a grid.",
             "guide/setup/running.md#one-call",
             display="m",
         ),
@@ -670,7 +670,7 @@ def _shared(route: str) -> tuple[Parameter, ...]:
             (_SAVE_PLANES,),
             "output",
             "basic",
-            "Positions to save the field at, after the entrance.",
+            "Positions to record the run at; the entrance and the end are added.",
             _OUTPUT_PAGE,
             display="mm",
             resolvable=True,
@@ -680,7 +680,7 @@ def _shared(route: str) -> tuple[Parameter, ...]:
             (Form("integer", minimum=2),),
             "output",
             "basic",
-            "Number of evenly spaced planes to save, counting the entrance.",
+            "Evenly spaced observations over the run, both ends included.",
             _OUTPUT_PAGE,
         ),
         Parameter(
@@ -2200,6 +2200,14 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
             "The budget of a free-space run's transverse edge; the default is the "
             "budget.",
         ),
+        _keyword(
+            "interval",
+            _LENGTH,
+            "advanced",
+            "The longest distance a quiet window goes unchecked; the default is the "
+            "length over 256.",
+            display="mm",
+        ),
     ),
     "FixedSchedule.uniform": _type(
         "numerics",
@@ -2861,10 +2869,16 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
         ),
         _keyword(
             "save_planes",
-            (Form("array", unit="m", minimum=0.0, exclusive=True), _integer(1)),
+            Form("array", unit="m", minimum=0.0),
             "basic",
-            "Positions to save at, or how many equally spaced planes.",
+            "Positions to record the run at; the entrance and the end are added.",
             display="m",
+        ),
+        _keyword(
+            "n_save",
+            _integer(2),
+            "basic",
+            "Evenly spaced observations over the run, both ends included.",
         ),
         _keyword("dz_max", _LENGTH, "advanced", "Largest step.", display="mm"),
         _keyword("dz_init", _LENGTH, "advanced", "First step.", display="mm"),

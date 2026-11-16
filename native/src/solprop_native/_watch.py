@@ -16,7 +16,6 @@ as solprop's warning or exception. It decides nothing.
 
 from __future__ import annotations
 
-import dataclasses
 import math
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, cast
@@ -62,9 +61,13 @@ def notice_of(native: Mapping[str, object]) -> Notice:
     )
 
 
-def record_of(check: BoundaryCheck, native: Mapping[str, object]) -> dict[str, object]:
+def record_of(
+    check: Mapping[str, object], native: Mapping[str, object]
+) -> dict[str, object]:
     """Format the native monitor's record as :meth:`BoundaryMonitor.summary` does.
 
+    - ``check``: the monitor's :meth:`~solprop.monitor.BoundaryMonitor.check_record`,
+      the check with the spacing its quiet checks used.
     - ``native``: ``_core``'s record: every number, NaN where nothing was measured.
     - Returns: the record, with ``None`` for what was never measured.
     """
@@ -74,7 +77,7 @@ def record_of(check: BoundaryCheck, native: Mapping[str, object]) -> dict[str, o
         number = float(cast("float", value))
         return number if math.isfinite(number) else None
 
-    record: dict[str, object] = dict(dataclasses.asdict(check))
+    record: dict[str, object] = dict(check)
     for name in (
         "launch_energy",
         "resumed_at",

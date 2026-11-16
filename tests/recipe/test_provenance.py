@@ -164,7 +164,7 @@ def test_the_keywords_left_to_the_build_would_move_the_record():
     # An explicit first step turns the start-up rule off (SEP 41 section 5.2).
     recipe = Recipe.example("soliton")
     simulation = recipe.build()
-    length = simulation.settings.save_planes[-1]
+    length = np.asarray(simulation.settings.save_planes)[-1]
     with_step = recipe.to_dict()
     with_step["build"]["dz_init"] = float(length * 1e-4)
     assert _hash(Recipe.from_dict(with_step).build()) != _hash(simulation)

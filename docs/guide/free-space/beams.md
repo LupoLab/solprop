@@ -105,7 +105,7 @@ beam = SpatialPulse(
 )
 settings = SimulationSettings(
     controller=PIController(rtol=1e-6, atol=1e-12),
-    save_planes=np.linspace(0, length, planes + 1)[1:],
+    n_save=planes + 1,  # the entrance and `planes` more, to the end
     dz_init=1e-4,
     dz_max=length / planes,
     stats=StatsSpec(names=("energy", "beam_radius", "peak_intensity")),
@@ -373,3 +373,5 @@ through lenses, apertures and free space or coupled into a capillary or fibre
 
 A beam's displacement and tilt were proposed and carried out by
 [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+The saved planes follow
+[SEP 51](../../dev/seps/archive/sep-0051-save-planes.md).

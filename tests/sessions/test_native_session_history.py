@@ -26,6 +26,7 @@ from typing import Any, Literal
 import numpy as np
 import pytest
 
+from builders import grid_at, held_collar
 from sessions.executors import (
     IDENTITY,
     PLANES,
@@ -553,10 +554,16 @@ def _noisy(noise: Any, *, check: bool, march: str = "adams") -> Any:
     from solprop.pulses import SechPulse  # noqa: PLC0415 - beside its one use
     from solprop.stepper import LowStorageRungeKutta  # noqa: PLC0415
 
-    grid = window()
-    method: dict[str, Any] = {"integrator": Multistep()}
+    # A run ends at its grid's length (SEP 51): the metre window cut at the run's
+    # length, with the collar the metre gave.
+    grid = grid_at(window(), LENGTH)
+    method: dict[str, Any] = {
+        "integrator": Multistep(),
+        "absorber": held_collar(grid, window().length),
+    }
     if march == "low-storage":
         method = {
+            "absorber": method["absorber"],
             "integrator": LowStorageRungeKutta(),
             "schedule": FixedSchedule.uniform(
                 0.0, LENGTH, LENGTH / 80, save_planes=list(PLANES)

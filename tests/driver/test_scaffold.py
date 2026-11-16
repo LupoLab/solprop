@@ -70,7 +70,7 @@ def test_the_fundamental_soliton_is_stationary_with_its_phase(grid, problem):
 def test_saving_planes_does_not_change_the_steps(grid, problem):
     initial = soliton(grid, 1)
     z, spectra = propagate_fixed_rk4(
-        problem, grid, initial, DISPERSION_LENGTH, 40, n_save=4
+        problem, grid, initial, DISPERSION_LENGTH, 40, n_save=5
     )
     _, direct = propagate_fixed_rk4(problem, grid, initial, DISPERSION_LENGTH, 40)
     np.testing.assert_allclose(z, np.linspace(0.0, DISPERSION_LENGTH, 5))
@@ -148,11 +148,11 @@ def test_the_scaffold_rejects_a_spectrum_of_the_wrong_shape(grid, problem):
         ({"z_end": 0.0}, "z_end must be positive"),
         ({"z_end": math.inf}, "z_end must be positive"),
         ({"n_steps": 0}, "n_steps must be at least 1"),
-        ({"n_save": 0}, "n_save must be at least 1"),
-        ({"n_steps": 10, "n_save": 3}, "must be a multiple of n_save"),
+        ({"n_save": 1}, "must be at least 2"),
+        ({"n_steps": 10, "n_save": 4}, r"must be a multiple of n_save - 1 \(3\)"),
     ],
 )
 def test_the_scaffold_rejects_a_bad_request(grid, problem, overrides, message):
-    request = {"z_end": 1.0, "n_steps": 10, "n_save": 1} | overrides
+    request = {"z_end": 1.0, "n_steps": 10, "n_save": 2} | overrides
     with pytest.raises(ValueError, match=message):
         propagate_fixed_rk4(problem, grid, soliton(grid, 1), **request)

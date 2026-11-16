@@ -99,8 +99,14 @@ def test_progress_is_kept_on_a_period_and_the_summary_has_the_latest(
 def test_a_quiet_run_still_beats(tmp_path, monkeypatch):
     monkeypatch.setattr(record, "HEARTBEAT", 0.05)
     log = EventLog(tmp_path, "r1")
-    time.sleep(0.3)
+    # Poll to a generous deadline rather than read once after a fixed sleep: a loaded
+    # runner can delay the writer thread, and on Windows a read that meets the summary's
+    # atomic replace fails and reads as no summary (issue #664).
+    deadline = time.monotonic() + 10.0
     status = read_status(tmp_path)
+    while status is None and time.monotonic() < deadline:
+        time.sleep(0.05)
+        status = read_status(tmp_path)
     log.close()
     assert status is not None and status["run_id"] == "r1"
 

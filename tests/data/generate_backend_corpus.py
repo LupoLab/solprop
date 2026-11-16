@@ -18,6 +18,11 @@ computation's SEP 25 budget, and whether native follows -- and that is accepted 
 evidence. So the script refuses to overwrite the file unless given ``--force``, and the
 commit that uses it names the change. It needs the native package installed.
 
+One change was made in place rather than by regenerating: when SEP 52 was final, SEP 51
+(PR #851) added the boundary monitor's check spacing to its records (``interval``,
+:meth:`solprop.monitor.BoundaryMonitor.check_record`), and each stored monitor record
+gained that case's spacing, every recorded number untouched. This script writes it too.
+
 Every thread pool is pinned to one thread, the default lane's setting, so that the
 record's bits are those a one-thread run repeats; the comparison reports bitwise
 agreement as a diagnostic only on the same build and thread setting

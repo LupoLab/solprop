@@ -20,6 +20,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from builders import held_collar
 from driver.test_resume import read_file, run_until
 from march_bounds import FIXED_ORDER, assert_stored_matched, simulation_bound
 from modal_provider_cases import (
@@ -71,10 +72,16 @@ MODAL_ROWS = {
 """Every row `RunMetadata._describe` adds for a general modal identity."""
 
 PULSE = {"wavelength": 835e-9, "fwhm": 20e-15, "energy": 1e-12, "shape": "gauss"}
+SHORT_Z = GENERAL_Z_END / 10
+"""Length these runs propagate, m: a tenth of the cap."""
+
 RUN = {
     # Two steps over a tenth of a millimetre. A resume is an identity statement
-    # and needs no more; the route's arithmetic is qualified elsewhere.
-    "save_planes": [GENERAL_Z_END / 20, GENERAL_Z_END / 10],
+    # and needs no more; the route's arithmetic is qualified elsewhere. A run ends at
+    # its grid's length (SEP 51), so the grid is that tenth, with the collar the
+    # millimetre gave.
+    "save_planes": [GENERAL_Z_END / 20, SHORT_Z],
+    "absorber": held_collar(general_grid(SHORT_Z), GENERAL_Z_END),
     "backend": "numpy_ref",
     "dz_max": GENERAL_Z_END / 40,
     "dz_init": GENERAL_Z_END / 40,
@@ -101,8 +108,8 @@ def at(record, *keys) -> Any:
 
 @pytest.fixture(scope="module")
 def grid():
-    """The field grid these runs are on."""
-    return general_grid()
+    """The field grid these runs are on: the tenth of a millimetre they run."""
+    return general_grid(SHORT_Z)
 
 
 @pytest.fixture(scope="module")
@@ -115,7 +122,7 @@ def build(guide, grid, **overrides):
     """Return a general modal simulation on this guide and grid."""
     return Simulation.from_waveguide(
         (),
-        GENERAL_Z_END,
+        SHORT_Z,
         provider=guide,
         grid=grid,
         **({"noise": None, **PULSE | RUN | overrides}),
@@ -449,7 +456,7 @@ def scheduled(guide, grid):
     planes = [length / 2, length]
     simulation = Simulation.from_waveguide(
         (),
-        GENERAL_Z_END,
+        SHORT_Z,
         provider=guide,
         grid=grid,
         **(

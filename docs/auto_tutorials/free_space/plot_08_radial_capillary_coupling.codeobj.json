@@ -54,6 +54,22 @@
    "name": "CouplingModel"
   }
  ],
+ "DEFAULT_BOUNDARY_N": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "int"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.boundaries",
+   "module_short": "solprop.boundaries",
+   "name": "DEFAULT_BOUNDARY_N"
+  }
+ ],
  "EPS0": [
   {
    "is_class": false,
@@ -665,6 +681,22 @@
    "name": "Simulation"
   }
  ],
+ "absorber": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.boundaries",
+   "module_short": "solprop.boundaries",
+   "name": "absorber"
+  }
+ ],
  "admittance": [
   {
    "is_class": false,
@@ -839,6 +871,22 @@
    "module": "solprop",
    "module_short": "solprop",
    "name": "Displayed.with_input"
+  }
+ ],
+ "capillary_grid": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "EnvelopeGrid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "EnvelopeGrid"
   }
  ],
  "carrier": [

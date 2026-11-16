@@ -66,7 +66,7 @@ _WINDOW = Section(
     (
         Field("wavelength_limits", "Wavelengths"),
         Field("trange", "Time window"),
-        Field("n_save", "Saved planes"),
+        Field("n_save", "Saved planes", positions="save_planes"),
     ),
     folded=True,
 )
@@ -187,7 +187,7 @@ FILAMENT: Final = ProblemClass(
                     ),
                 ),
                 Field("medium.pressure", "Pressure"),
-                Field("grid.length", "Propagate", moves_planes="settings.save_planes"),
+                Field("grid.length", "Propagate"),
             ),
         ),
         Section(
@@ -233,7 +233,7 @@ FILAMENT: Final = ProblemClass(
                 Field("grid.wavelength_limits", "Wavelengths"),
                 Field("grid.trange", "Time window"),
                 Field(
-                    "settings.save_planes", "Saved planes", planes_over="grid.length"
+                    "settings.n_save", "Saved planes", positions="settings.save_planes"
                 ),
             ),
             folded=True,
@@ -300,7 +300,7 @@ GNLSE: Final = ProblemClass(
             (
                 Field("grid.wavelength_limits", "Wavelengths"),
                 Field("grid.trange", "Time window"),
-                Field("n_save", "Saved planes"),
+                Field("n_save", "Saved planes", positions="save_planes"),
             ),
             folded=True,
         ),
@@ -359,7 +359,7 @@ STEP_INDEX: Final = ProblemClass(
             (
                 Field("wavelength_limits", "Wavelengths"),
                 Field("trange", "Time window"),
-                Field("n_save", "Saved planes"),
+                Field("n_save", "Saved planes", positions="save_planes"),
             ),
             folded=True,
         ),
@@ -411,7 +411,7 @@ GRIN: Final = ProblemClass(
             (
                 Field("grid.wavelength_limits", "Wavelengths"),
                 Field("grid.trange", "Time window"),
-                Field("n_save", "Saved planes"),
+                Field("n_save", "Saved planes", positions="save_planes"),
             ),
             folded=True,
         ),
@@ -447,7 +447,7 @@ CARTESIAN: Final = ProblemClass(
                     also=("responses[*].chi3.gas",),
                 ),
                 Field("medium.pressure", "Pressure"),
-                Field("grid.length", "Propagate", moves_planes="settings.save_planes"),
+                Field("grid.length", "Propagate"),
             ),
         ),
         Section(
@@ -501,7 +501,7 @@ CARTESIAN: Final = ProblemClass(
                 Field("grid.wavelength_limits", "Wavelengths"),
                 Field("grid.trange", "Time window"),
                 Field(
-                    "settings.save_planes", "Saved planes", planes_over="grid.length"
+                    "settings.n_save", "Saved planes", positions="settings.save_planes"
                 ),
             ),
             folded=True,
@@ -545,7 +545,7 @@ CARTESIAN_BEAM: Final = ProblemClass(
                     also=("responses[*].chi3.gas",),
                 ),
                 Field("medium.pressure", "Pressure"),
-                Field("grid.length", "Propagate", moves_planes="settings.save_planes"),
+                Field("grid.length", "Propagate"),
             ),
         ),
         Section(
@@ -581,7 +581,7 @@ CARTESIAN_BEAM: Final = ProblemClass(
                 Field("grid.wavelength_limits", "Wavelengths"),
                 Field("grid.trange", "Time window"),
                 Field(
-                    "settings.save_planes", "Saved planes", planes_over="grid.length"
+                    "settings.n_save", "Saved planes", positions="settings.save_planes"
                 ),
             ),
             folded=True,
@@ -635,7 +635,7 @@ LINE: Final = ProblemClass(
                 Field("grid.wavelength_limits", "Wavelengths"),
                 Field("grid.trange", "Time window"),
                 Field(
-                    "settings.save_planes", "Saved planes", planes_over="grid.length"
+                    "settings.n_save", "Saved planes", positions="settings.save_planes"
                 ),
             ),
             folded=True,

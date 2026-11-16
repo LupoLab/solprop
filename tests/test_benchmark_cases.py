@@ -67,11 +67,19 @@ def test_runs_save_evenly_to_their_stop_and_a_fraction_stops_early():
     case = CASES["argon_blueshift"]
     full = build(configuration("argon_blueshift"))
     np.testing.assert_allclose(
-        full.settings.save_planes, np.linspace(0, case.length, case.planes + 1)[1:]
+        np.asarray(full.settings.save_planes),
+        np.linspace(0, case.length, case.planes + 1)[1:],
     )
     short = build(configuration("argon_blueshift", fraction=0.25))
-    assert short.settings.save_planes[-1] == pytest.approx(case.length / 4)
-    assert short.grid.length == case.length
+    assert np.asarray(short.settings.save_planes)[-1] == pytest.approx(case.length / 4)
+    # A run ends at its grid's length (SEP 51): the shortened case is the whole one on
+    # its grid cut at the stop, its collar and steps those of the whole length.
+    assert short.grid.length == np.asarray(short.settings.save_planes)[-1]
+    assert full.settings.absorber is not None and short.settings.absorber is not None
+    assert short.settings.absorber.reference_length == (
+        full.settings.absorber.reference_length
+    )
+    assert short.settings.dz_max == full.settings.dz_max
 
 
 def test_fixed_step_cases_run_their_schedule_and_refuse_overrides():

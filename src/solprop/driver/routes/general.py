@@ -29,7 +29,6 @@ from solprop.driver.routes.materials import _selected_guide
 from solprop.driver.settings import (
     NoiseSetting,
     _boundary,
-    _save_planes,
     keyword_settings,
 )
 from solprop.exceptions import DriverError, TranslationError
@@ -182,7 +181,6 @@ def _from_general(cls: type["Simulation"], request: _GeneralRequest) -> "Simulat
             "provider.mode_collection.modes"
         )
         raise DriverError(msg)
-    planes = _save_planes(request.length, request.save_planes, request.n_save)
     refuse_beside(
         request.launch,
         channel=request.channel,
@@ -208,7 +206,8 @@ def _from_general(cls: type["Simulation"], request: _GeneralRequest) -> "Simulat
         route = general_modal_route(
             provider,
             working,
-            z_max=float(np.max(planes)),
+            # The run ends at its length (SEP 51), so the tables cover the grid's.
+            z_max=float(working.length),
             omega_reference=float(working.omega0),
             kerr_form=request.kerr_form,
             selection=MaterialSelection()
@@ -266,7 +265,8 @@ def _from_general(cls: type["Simulation"], request: _GeneralRequest) -> "Simulat
         atol=request.atol,
         dz_max=request.dz_max,
         dz_init=request.dz_init,
-        save_planes=planes,
+        save_planes=request.save_planes,
+        n_save=request.n_save,
         schedule=request.schedule,
         integrator=request.integrator,
         interpolate_planes=request.interpolate_planes,

@@ -213,7 +213,7 @@ class Pair:
         """Require the same record: exactly, or within the floor's bound (above)."""
         expected: dict[str, Any] = self.python.summary()
         got: dict[str, Any] = self.watch.record_of(
-            self.python.check, self.native.record()
+            self.python.check_record(), self.native.record()
         )
         assert list(got) == list(expected)
         loose = (

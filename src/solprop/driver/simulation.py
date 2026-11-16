@@ -129,10 +129,11 @@ from solprop.driver.settings import (
     _RECIPE_EXECUTION,
     NoiseSetting,
     SimulationSettings,
+    _adopted,
     _boundary,
     _quiet_collar,
+    _run_length,
     _same_setting,
-    _save_planes,
     _scheme,
     _spatial_default,
     _spatial_settings,
@@ -297,8 +298,9 @@ class Simulation(Displayed):
     settings : SimulationSettings
         How to step it, what to record and which backend to use.
     initial_z : float, optional
-        Absolute position of an array input, m, default zero. Every requested save
-        plane must follow it. An interior launch keeps the original profiles and
+        Absolute position of an array input, m, default zero, before
+        ``grid.length``: the run records ``[initial_z, grid.length]`` (SEP 51), a count
+        spread over that interval. An interior launch keeps the original profiles and
         propagation frame; it requires a modal array input, no noise and no fixed
         step schedule.
     noise : solprop.noise.NoiseRealisation or None, optional
@@ -445,6 +447,7 @@ class Simulation(Displayed):
         # every run repeated (``_transverse_edge``).
         self._edge_k_min: dict[float, float] = {}
         self.settings = settings
+        settings = self.settings
         if settings.controller is None:
             msg = (
                 "settings.controller is None: Simulation.from_free and "
@@ -543,6 +546,12 @@ class Simulation(Displayed):
     def settings(self, settings: SimulationSettings) -> None:
         """Replace settings; after translation, execution resources alone.
 
+        The replacement is adopted as the constructor adopts its settings (SEP 51):
+        validated against this run's interval ``[initial_z, grid.length]`` and
+        resolved into the positions after the entrance, ending exactly at the length,
+        before anything is compared, so a count and the positions it resolves to are
+        the same setting.
+
         Parameters
         ----------
         settings : SimulationSettings
@@ -551,10 +560,15 @@ class Simulation(Displayed):
         Raises
         ------
         DriverError
-            If the simulation has already been translated and the replacement changes
-            a setting other than ``backend``, ``resume_history``, ``fields``,
-            ``field_planes``, ``tdse_execution`` or ``boundary_check``, naming them.
+            If the planes do not fit this run's interval, a replayed schedule does not
+            cover it, or the simulation has already been translated and the
+            replacement changes a setting other than ``backend``, ``resume_history``,
+            ``fields``, ``field_planes``, ``tdse_execution`` or ``boundary_check``,
+            naming them.
         """
+        settings = _adopted(
+            settings, entrance=float(self.initial_z), length=float(self.grid.length)
+        )
         if self._problem is not None:
             changed = [
                 one.name
@@ -710,7 +724,7 @@ class Simulation(Displayed):
                     initial_z=self.initial_z,
                     # Simulation.__init__ refuses a missing controller.
                     controller=cast("PIController", settings.controller),
-                    save_planes=settings.save_planes,
+                    save_planes=np.asarray(settings.save_planes),
                     dz_max=settings.dz_max,
                     dz_init=settings.dz_init,
                     dz_min=settings.dz_min,
@@ -815,7 +829,8 @@ class Simulation(Displayed):
             )
             raise DriverError(msg)
         if z is not None and not (
-            math.isfinite(z) and 0.0 <= z < float(np.max(self.settings.save_planes))
+            math.isfinite(z)
+            and 0.0 <= z < float(np.max(np.asarray(self.settings.save_planes)))
         ):
             msg = f"an interior entrance lies inside the run, got z = {z!r} m"
             raise DriverError(msg)
@@ -890,8 +905,10 @@ class Simulation(Displayed):
             the seed a resume's file or a scan point supplies.
         initial_z : float or None, optional
             Absolute launch position in metres. None retains this simulation's
-            launch. An explicit position keeps only existing save planes beyond
-            it, preserving all absolute profiles, propagation tables and the frame.
+            launch. An explicit position keeps the already resolved observations
+            beyond it, which always include the end, and records the new entrance
+            there (SEP 51): it requests no new count. All absolute profiles,
+            propagation tables and the frame are kept.
         configuration : collections.abc.Mapping or None, optional
             Caller keys merged into the derived run's configuration record, and so
             into its configuration hash: the delay of a scan, the label of an input.
@@ -1017,7 +1034,9 @@ class Simulation(Displayed):
         )
         request = self._run_request()
         updated._request = request.with_stepper(
-            dataclasses.replace(request.stepper, save_planes=settings.save_planes)
+            dataclasses.replace(
+                request.stepper, save_planes=updated.settings.save_planes
+            )
         )
         route = updated._problem.route
         if isinstance(route, SpatialRoute):
@@ -2046,7 +2065,9 @@ class Simulation(Displayed):
             columns, on a radial grid; a Cartesian DFT spectrum in V/m, ``n_x*n_y``
             columns, otherwise.
         settings : SimulationSettings
-            Step tolerances, positive save positions in m, statistics and backend.
+            Step tolerances, the saved planes (``n_save`` or positions in m over
+            ``[0, grid.length]``; the run ends at ``grid.length``), statistics and
+            backend.
             Absolute tolerance has the input spectrum's units.
         frame : solprop.linear.Frame or None, optional
             Moving frame. None uses the declared responses' THG choice.
@@ -2173,7 +2194,9 @@ class Simulation(Displayed):
             amplitudes in sqrt(W/m), shape ``(n_p*n_y, 1, n_omega)``, the mode
             index fastest. Any other pulse is refused by name.
         settings : SimulationSettings
-            Step tolerances, positive save positions in m, statistics and backend.
+            Step tolerances, the saved planes (``n_save`` or positions in m over
+            ``[0, grid.length]``; the run ends at ``grid.length``), statistics and
+            backend.
             Absolute tolerance has the input spectrum's units, sqrt(W/m).
         frame : solprop.linear.Frame or None, optional
             Moving frame. None uses the declared responses' THG choice, following
@@ -2267,7 +2290,7 @@ class Simulation(Displayed):
     def from_gnlse(
         cls,
         gamma: float | None,
-        length: float,
+        length: float | None = None,
         betas: Sequence[float] | np.ndarray | None = None,
         *,
         wavelength: float,
@@ -2322,8 +2345,12 @@ class Simulation(Displayed):
         ----------
         gamma : float or None
             Nonlinear coefficient in 1/(W m), positive for a self-focusing medium.
-        length : float
-            Fibre length, m, positive.
+        length : float or None, optional
+            Fibre length, which is the run's length and its end, m, positive
+            (SEP 51): the grid is built with it, and the default steps
+            derive from it. Optional beside `grid`, whose ``grid.length`` it must
+            then agree with to within :data:`~solprop.stepper.schedule.LANDING_ULPS`
+            ulps; one of the two is required.
         betas : array_like, optional
             Taylor coefficients of ``beta`` about `wavelength`, ``beta_0, beta_1, ...``,
             in s^n/m. ``beta_0`` and ``beta_1`` only fix the frame and change no
@@ -2341,7 +2368,8 @@ class Simulation(Displayed):
             An envelope grid to propagate on instead of building one from `length`,
             `wavelength`, `wavelength_limits` and `trange`. This is the way to choose
             the sample spacing, the oversampling factor or the transform size. A field
-            grid is refused: the GNLSE mapping is the envelope Kerr response.
+            grid is refused: the GNLSE mapping is the envelope Kerr response. Its
+            length is the run's (`length`).
         beta : tuple or callable, optional
             The propagation constant as data instead of a series: a pair of arrays
             ``(omega, beta)`` in rad/s and 1/m with strictly increasing frequencies, or
@@ -2439,7 +2467,8 @@ class Simulation(Displayed):
             A fixed schedule to replay instead of stepping adaptively, which makes a run
             bit-identical on re-running (``docs/dev/stepper.md`` section 8). Its edges
             must contain every save plane, which
-            :meth:`solprop.stepper.schedule.FixedSchedule.uniform` guarantees.
+            :meth:`solprop.stepper.schedule.FixedSchedule.uniform` guarantees, and it
+            must cover the run, from the entrance to the length (SEP 51).
         integrator : Multistep, RungeKutta or LowStorageRungeKutta, optional
             The method that steps the run
             (``docs/guide/numerics/choosing-a-stepper.md``). ``None``, the default,
@@ -2456,12 +2485,13 @@ class Simulation(Displayed):
             Also save the end of every `step_planes`-th accepted step, the
             march's own positions, beside the requested planes (SEP 14);
             ``None``, the default, and ``0`` save the requested planes only.
-        save_planes : array_like, optional
-            Positions along the fibre to save at, m, increasing and positive; the plane
-            at ``z = 0`` is saved as well. Give this or `n_save`.
-        n_save : int, optional
-            Number of planes to store, counting the one at ``z = 0``, spread evenly over
-            the fibre. Default 201.
+        save_planes : sequence of float or None, optional
+            Positions to record the run at, m, finite, strictly increasing and inside
+            ``[0, length]``; the entrance and the end are added when absent, and an
+            empty list records them alone (SEP 51). Give this or `n_save`.
+        n_save : int or None, optional
+            How many evenly spaced observations to record over the run, both ends
+            included: an integer of at least 2. Default 201.
         stats : solprop.stats.StatsSpec, optional
             Which statistics to record at every plane; ``None`` records
             :func:`solprop.stats.default_spec` of a mode-averaged run. A ``periodic``
@@ -2520,6 +2550,7 @@ class Simulation(Displayed):
         >>> simulation.settings.save_planes.tolist()
         [0.005, 0.01]
         """
+        length = _run_length(length, grid)
         materials = MaterialSelection() if materials is None else materials
         _refuse_dispersive_policy(materials, "a GNLSE run's fitted gamma")
         working = _gnlse_grid(
@@ -2562,7 +2593,8 @@ class Simulation(Displayed):
             atol=atol,
             dz_max=dz_max,
             dz_init=dz_init,
-            save_planes=_save_planes(length, save_planes, n_save),
+            save_planes=save_planes,
+            n_save=n_save,
             schedule=schedule,
             integrator=integrator,
             interpolate_planes=interpolate_planes,
@@ -2600,8 +2632,8 @@ class Simulation(Displayed):
     def from_capillary(
         cls,
         radius: float | ZProfile,
-        length: float,
-        gas: Gas | str | Mapping[str, float] | Mixture,
+        length: float | None = None,
+        gas: Gas | str | Mapping[str, float] | Mixture | None = None,
         pressure: Pressure | None = None,
         *,
         pressure_floor: float | None = None,
@@ -2685,11 +2717,16 @@ class Simulation(Displayed):
         ----------
         radius : float or solprop.profiles.ZProfile
             Core radius, m, constant or along z.
-        length : float
-            Capillary length, m.
+        length : float or None, optional
+            Capillary length, which is the run's length and its end, m, positive
+            (SEP 51): the grid is built with it, and the default steps and profiles
+            derive from it. Optional beside `grid`, whose ``grid.length`` it must
+            then agree with to within :data:`~solprop.stepper.schedule.LANDING_ULPS`
+            ulps; one of the two is required.
         gas : Gas, str, Mapping or Mixture
-            Built-in gas, mole fractions keyed by species name, or ordered populations
-            carrying their own density paths. A mapping uses total pressure.
+            Required. Built-in gas, mole fractions keyed by species name, or
+            ordered populations carrying their own density paths. A mapping uses
+            total pressure.
         pressure : float, sequence, ZProfile or None, optional
             None uses one bar for a gas or fractions. Omit pressure beside a Mixture;
             every explicit pressure is refused because it already carries its paths.
@@ -2729,7 +2766,8 @@ class Simulation(Displayed):
             Requested width of the time window, s. Required unless `grid` is given.
         grid : solprop.grid.TimeGrid or None, optional
             A grid of one's own, instead of the three keywords above; the only way to
-            reach ``dt``, ``ffac`` or the transform size.
+            reach ``dt``, ``ffac`` or the transform size. Its length is the run's
+            (`length`).
         envelope : bool, optional
             Propagate an envelope. Plasma is off by default; explicit ``plasma=True``
             selects cycle averaging of instantaneous rates. Plasma forbids THG.
@@ -2939,9 +2977,12 @@ class Simulation(Displayed):
             ``1`` with a `tdse` response, which saves every accepted step without
             imposing a landing (SEP 20 section 5.8).
         save_planes : sequence of float or None, optional
-            Positions to save at, m. Give this or `n_save`.
+            Positions to record the run at, m, finite, strictly increasing and inside
+            ``[0, length]``; the entrance and the end are added when absent, and an
+            empty list records them alone (SEP 51). Give this or `n_save`.
         n_save : int or None, optional
-            How many planes to save, counting ``z = 0``.
+            How many evenly spaced observations to record over the run, both ends
+            included: an integer of at least 2.
         stats : solprop.stats.StatsSpec or None, optional
             Which statistics to record; ``None`` takes
             :func:`solprop.stats.default_spec` with the profiles, for a multimode run
@@ -3011,6 +3052,10 @@ class Simulation(Displayed):
         >>> sorted(simulation.profiles)
         ['core_radius', 'density', 'pressure']
         """
+        length = _run_length(length, grid)
+        if gas is None:
+            msg = "a capillary run needs its fill: pass gas="
+            raise DriverError(msg, parameter="gas")
         return _from_hollow(
             cls,
             keyword_request(
@@ -3025,7 +3070,7 @@ class Simulation(Displayed):
     def from_waveguide(
         cls,
         modes: Sequence[Mode],
-        length: float,
+        length: float | None = None,
         gas: Gas | str | Mapping[str, float] | Mixture | None = None,
         pressure: Pressure | None = None,
         *,
@@ -3126,8 +3171,12 @@ class Simulation(Displayed):
             `provider` it must be empty or exactly the guide's own ordered channels:
             a guide supplies its channels itself, and the provider has already
             validated their order against its fields.
-        length : float
-            Waveguide length, m.
+        length : float or None, optional
+            Waveguide length, which is the run's length and its end, m, positive
+            (SEP 51): the grid is built with it, and the default steps and profiles
+            derive from it. Optional beside `grid`, whose ``grid.length`` it must
+            then agree with to within :data:`~solprop.stepper.schedule.LANDING_ULPS`
+            ulps; one of the two is required.
         gas : Gas, str, Mapping, Mixture or None
             Built-in gas, mole fractions keyed by species name, or ordered populations
             carrying their own density paths. A mapping uses total pressure. Required
@@ -3232,7 +3281,8 @@ class Simulation(Displayed):
             Requested width of the time window, s. Required unless `grid` is given.
         grid : solprop.grid.TimeGrid or None, optional
             A grid of one's own, instead of the three keywords above; the only way to
-            reach ``dt``, ``ffac`` or the transform size.
+            reach ``dt``, ``ffac`` or the transform size. Its length is the run's
+            (`length`).
         envelope : bool, optional
             Propagate an envelope. Plasma is off by default; explicit ``plasma=True``
             selects cycle averaging of instantaneous rates. Plasma forbids THG.
@@ -3406,9 +3456,12 @@ class Simulation(Displayed):
             march's own positions, beside the requested planes (SEP 14); ``None``,
             the default, and ``0`` save the requested planes only.
         save_planes : sequence of float or None, optional
-            Positions to save at, m. Give this or `n_save`.
+            Positions to record the run at, m, finite, strictly increasing and inside
+            ``[0, length]``; the entrance and the end are added when absent, and an
+            empty list records them alone (SEP 51). Give this or `n_save`.
         n_save : int or None, optional
-            How many planes to save, counting ``z = 0``.
+            How many evenly spaced observations to record over the run, both ends
+            included: an integer of at least 2.
         stats : solprop.stats.StatsSpec or None, optional
             Which statistics to record; ``None`` takes
             :func:`solprop.stats.default_spec` with the profiles, for a multimode run
@@ -3456,6 +3509,7 @@ class Simulation(Displayed):
             provider, a general-guide keyword is given without one, or any supplied
             setting is invalid.
         """
+        length = _run_length(length, grid)
         if provider is not None:
             # The gas-filled keywords are carried to be refused by name if set.
             scope = locals()

@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
+from builders import grid_at, held_collar
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop.driver import (
     Simulation,
@@ -75,13 +76,16 @@ def guide(grid):
 
 
 def general(guide, grid, **overrides):
+    # A run ends at its grid's length (SEP 51): the grid is cut at the tenth it runs,
+    # with the collar the millimetre gave.
+    short = grid_at(grid, GENERAL_Z_END / 10)
     return Simulation.from_waveguide(
         (),
-        GENERAL_Z_END,
+        GENERAL_Z_END / 10,
         provider=guide,
-        grid=grid,
+        grid=short,
+        absorber=held_collar(short, grid.length),
         noise=None,
-        save_planes=[GENERAL_Z_END / 10],
         backend="numpy_ref",
         dz_max=GENERAL_Z_END / 40,
         **PULSE | overrides,

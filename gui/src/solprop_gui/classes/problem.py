@@ -25,7 +25,6 @@ __all__ = [
     "Target",
     "derived_text",
     "derived_value",
-    "even_planes",
     "field_changes",
     "field_meta",
     "field_value",
@@ -58,10 +57,9 @@ class Field:
     negated : bool
         Whether the row shows the value with its sign changed, as a distance to a focus
         is the launch's distance from it.
-    planes_over : str or None
-        Makes this a count of evenly spaced saved planes, over the length at this path.
-    moves_planes : str or None
-        The saved planes at this path, which this length respaces.
+    positions : str or None
+        Makes this the saved planes' row (SEP 51): it holds either the count of evenly
+        spaced planes at its path or the explicit positions at this path, never both.
     member : str or None
         Makes this a switch: whether a list at the path holds an entry of this type.
     goes_with : tuple of str
@@ -76,8 +74,7 @@ class Field:
     choices: str | None = None
     also: tuple[str, ...] = ()
     negated: bool = False
-    planes_over: str | None = None
-    moves_planes: str | None = None
+    positions: str | None = None
     member: str | None = None
     goes_with: tuple[str, ...] = ()
     blank: str | None = None
@@ -460,10 +457,18 @@ def sheet_paths(problem: ProblemClass) -> Iterator[str]:
     ... )
     >>> list(sheet_paths(problem))
     ['radius', 'length']
+    >>> planes = (Field("n_save", positions="save_planes"),)
+    >>> problem = ProblemClass(
+    ...     "c", "C", "", "gnlse", "soliton", (Section("S", planes),), (), ""
+    ... )
+    >>> list(sheet_paths(problem))
+    ['n_save', 'save_planes']
     """
     for section in problem.sections:
         for row in section.fields:
             yield row.path
+            if row.positions is not None:
+                yield row.positions
 
 
 def field_meta(
@@ -641,35 +646,6 @@ def negated_value(value: object) -> object:
     return f"{flipped} {unit}".strip()
 
 
-def even_planes(count: int, length: object) -> list[object]:
-    """Return evenly spaced saved planes along a length, ending at it.
-
-    Parameters
-    ----------
-    count : int
-        How many, the entrance not counted.
-    length : object
-        The length, a quantity string or a number.
-
-    Returns
-    -------
-    list
-        The positions, in the length's own unit.
-
-    Examples
-    --------
-    >>> even_planes(2, "25 cm")
-    ['12.5 cm', '25 cm']
-    >>> even_planes(2, 1.0)
-    [0.5, 1.0]
-    """
-    if isinstance(length, int | float):
-        return [float(length) * index / count for index in range(1, count + 1)]
-    number, unit = split(str(length))
-    total = float(number)
-    return [f"{total * index / count:.8g} {unit}" for index in range(1, count + 1)]
-
-
 def field_value(row: Field, build: Mapping[str, object]) -> object:
     """Return what a sheet's row shows of a recipe.
 
@@ -683,13 +659,16 @@ def field_value(row: Field, build: Mapping[str, object]) -> object:
     Returns
     -------
     object
-        The value as the row shows it; a switch's is whether its entry is there.
+        The value as the row shows it; a switch's is whether its entry is there, and
+        the saved planes' row shows the positions the recipe lists or else its count.
 
     Examples
     --------
     >>> build = {"planes": ["1 m", "2 m"], "launch": "-5 cm", "list": [{"type": "A"}]}
-    >>> field_value(Field("planes", planes_over="length"), build)
-    2
+    >>> field_value(Field("count", positions="planes"), build)
+    ['1 m', '2 m']
+    >>> field_value(Field("count", positions="planes"), {"count": 81})
+    81
     >>> field_value(Field("launch", negated=True), build)
     '5 cm'
     >>> field_value(Field("list", member="A"), build)
@@ -704,8 +683,9 @@ def field_value(row: Field, build: Mapping[str, object]) -> object:
             isinstance(entry, Mapping) and entry.get("type") == row.member
             for entry in entries
         )
-    if row.planes_over is not None:
-        return len(held) if isinstance(held, Sequence) else MISSING
+    if row.positions is not None:
+        listed = _held(build, row.positions)
+        return held if listed is MISSING else listed
     return negated_value(held) if row.negated else held
 
 
@@ -775,8 +755,9 @@ def field_changes(
 ) -> list[tuple[str, object]]:
     """Return what a sheet's row changes in a recipe.
 
-    The object routes write some values several times, and a run's length as its last
-    saved plane (#533), so one row can move several paths.
+    The object routes write some values several times, so one row can move several
+    paths. The saved planes' row writes a list as the positions and anything else as
+    the count, and unsets the other in the same change, so a recipe never holds both.
 
     Parameters
     ----------
@@ -802,28 +783,24 @@ def field_changes(
     >>> build = {"gas": "Ar", "list": [{"gas": "Ar"}], "planes": ["1 m", "2 m"]}
     >>> field_changes(problem, Field("gas", also=("list[*].gas",)), "He", build)
     [('gas', 'He'), ('list[0].gas', 'He')]
-    >>> field_changes(problem, Field("length", moves_planes="planes"), "4 m", build)
-    [('length', '4 m'), ('planes', ['2 m', '4 m'])]
-    >>> build["length"] = "6 m"
-    >>> field_changes(problem, Field("planes", planes_over="length"), 3, build)
-    [('planes', ['2 m', '4 m', '6 m'])]
+    >>> planes = Field("count", positions="planes")
+    >>> field_changes(problem, planes, 81, build)
+    [('count', 81), ('planes', MISSING)]
+    >>> field_changes(problem, planes, ["5 cm"], build)
+    [('planes', ['5 cm']), ('count', MISSING)]
     >>> field_changes(problem, Field("x", negated=True), "5 cm", build)
     [('x', '-5 cm')]
     """
     if row.member is not None:
         return _switched(problem, row, bool(value), build, example or {})
-    if row.planes_over is not None:
-        length = _held(build, row.planes_over)
-        return [(row.path, even_planes(int(value), length))]  # pyright: ignore[reportArgumentType]
+    if row.positions is not None:
+        if isinstance(value, list):
+            return [(row.positions, value), (row.path, MISSING)]
+        return [(row.path, value), (row.positions, MISSING)]
     written = negated_value(value) if row.negated else value
     changes: list[tuple[str, object]] = [(row.path, written)]
     for pattern in row.also:
         changes += [(path, written) for path in linked_paths(build, pattern)]
-    if row.moves_planes is not None and value is not MISSING:
-        held = _held(build, row.moves_planes)
-        count = len(held) if isinstance(held, Sequence) else 0
-        if count:
-            changes.append((row.moves_planes, even_planes(count, value)))
     return changes
 
 
@@ -859,10 +836,12 @@ def other_keywords(
     """
     # A switch shows one entry of a list: the rest of the list is reachable only there.
     shown = {
-        row.path
+        path
         for section in problem.sections
         for row in section.fields
         if row.member is None
+        for path in (row.path, row.positions)
+        if path is not None
     }
     entries: Sequence[Mapping[str, object]] = description["parameters"]  # pyright: ignore[reportAssignmentType]
     return [entry for entry in entries if entry.get("name") not in shown]

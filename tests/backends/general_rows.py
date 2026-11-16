@@ -82,6 +82,7 @@ import numpy as np
 
 from backends.flow_rows import driver_case
 from backends.session_rows import without_collar, without_modal_flow
+from builders import grid_at, held_collar
 from general_parity import (
     LENGTH,
     STEPS,
@@ -207,7 +208,11 @@ def entry_simulation(noise: str | None = "input", **keywords: Any) -> Simulation
     ``numba_cpu``'s retired entry-point test, on its input: a 20 fs, 20 pJ Gaussian with
     an input shot-noise draw (seed 5) by default; `keywords` go to the constructor.
     """
-    grid, guide, _, _ = _scaled("pair")
+    window, guide, _, _ = _scaled("pair")
+    # A run ends at its grid's length (SEP 51): the grid is cut at the entry point's
+    # run, with the collar the millimetre gave.
+    grid = grid_at(window, ENTRY_LENGTH)
+    keywords = {"absorber": held_collar(grid, window.length), **keywords}
     return Simulation.from_waveguide(
         (),
         ENTRY_LENGTH,

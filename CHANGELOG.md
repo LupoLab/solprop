@@ -23,6 +23,10 @@ All notable changes to solprop are recorded here. The format follows
 ### Changed
 
 - The native backend's CPU transforms are faster on many threads ([#598](https://github.com/LupoLab/solprop/pull/598); [ADR-075](docs/dev/decisions.md)): a batch of transforms now threads by its shape, about one thread per row and the whole team only for many rows, instead of by its element count, and a multi-mode stage transforms its forward rows (projection, absorber, plasma currents) as one batch, as on a GPU (`SOLPROP_NATIVE_FORWARD_PACK=0` turns that off). The tracking cases ran 0.98 of their time on geometric mean on 18–36 cores of an Intel Xeon Gold 6240 and 16 of an AMD EPYC 7763, the few-mode capillaries and the one-dimensional free-space beam 0.80–0.95. `solprop calibrate` now also tunes the transforms' threading, reaches a decision on FFT plan efforts (it no longer tries `patient` plans, and skips efforts whose plans are slower alone), and takes about 30 s, two minutes or seven minutes (from 20 s, 90 s and five minutes). Existing calibration profiles no longer apply: the next native run on each machine calibrates quickly again by itself, or run `solprop calibrate`.
+- `solprop.driver.scaffold.propagate_fixed_rk4`'s `n_save` now means what it means on every
+  `Simulation` route: the number of evenly spaced saved planes over `[0, z_end]`, both ends
+  included, at least 2 (default 2). `n_steps` must be a multiple of `n_save - 1`. A call
+  that passed `n_save=4` now passes `n_save=5` for the same planes (#856).
 - On a Mac whose chip has cores of more than one kind, the thread budget is now the cores of the fastest kind (`hw.perflevel0.physicalcpu`, 6 on an Apple M5 Max rather than all 18), unless `SOLPROP_THREADS` is set: every thread of a parallel pass waits for the slowest, and five of six benchmark cases ran 1.17 to 1.49 times faster on the 6 top-tier cores (#333, ADR-070). Set `SOLPROP_THREADS` to use every core; the run's `thread_budget_source` records `"top-tier cores"`.
 - On Arm and other non-x86-64 hosts, the native plasma column's band filter sums each sample's taps in one unrolled pass over blocks of samples, with the same values: on an Apple M5 Max the plasma cases' windows ran 1-6 % faster (#560).
 - `python -m benchmarks ab` now calibrates each build at the `standard` level by default instead of `thorough`, so a development A/B no longer spends several minutes per arm calibrating; pass `--calibrate thorough` for release benchmarks. `track` keeps `thorough`.
@@ -59,6 +63,32 @@ All notable changes to solprop are recorded here. The format follows
 - A progress reporter now hears a run's attempted steps in batches, as the run's session delivers them: once per save plane, and at least every 256 attempts or 0.1 s in between. It no longer hears each step as it is taken ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md) section 5.3). Each attempt is still reported once and in order. As a result, a stop flag that a reporter sets lands up to one batch later, at most 256 attempts or 0.1 s, on every backend, the NumPy reference included. A flag set from outside the run is still polled between batches, as before.
 - Each execution record now states what a restart keeps and restores, under `outcome.execution["restart"]`: whether a plane's or checkpoint's method history was `retained`, `omitted` or is `not_applicable`, with a reason (`explicit_policy`, `automatic_policy`, `automatic_size_limit`, `snapshot_required`, `unavailable_history`, `output_cannot_store`, `write_failed`, `incompatible_representation`, `unsupported_method`, `no_method_history`), and in a resumed execution what it `restored`, `reset` (a Runge–Kutta resume's proposal and norm memory, an Adams history set aside) or found `not_applicable` (low-storage), and that the boundary monitor was reconstructed from its persisted records. A resume now warns once (`SolpropWarning`) when an Adams history it expected was omitted by the automatic 256 MiB limit, was not exportable, or cannot be read back (including a write cut short); `resume_history=False` is recorded without a warning. Files written before the record read as unknown, and resume as before ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md)).
 - Snapshots no longer require `step_planes=1`: a requested snapshot is taken at the next accepted endpoint, and where no plane is saved there the run writes a running checkpoint, in the existing terminal-checkpoint record with a matching `running` outcome, from which the snapshot and `resume=True` continue. The attempts and periodic rows since the last plane stay with that plane, once, and a later saved plane supersedes the checkpoint. A low-storage step abandoned in flight now falls back to the latest running checkpoint, or to the checkpoint the run resumed from, rather than to the last saved plane ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md)).
+- Every route now follows one rule for the saved planes and the end of a run
+  ([SEP 51](docs/dev/seps/archive/sep-0051-save-planes.md)). A run marches from `initial_z` to its
+  length, `length` or `grid.length`, and always records both ends. `n_save=N` gives `N`
+  evenly spaced observations over that interval, both ends included, and
+  `save_planes=[...]` lists positions inside it. `SimulationSettings` gains `n_save`, its
+  `save_planes` becomes optional (given neither, a run records 201), and a recipe's
+  object-route `[build.settings]` takes `n_save` too. Migration:
+  `save_planes=80` is refused with "pass `n_save=80`" in Python and "write `n_save = 80`"
+  in a recipe; `save_planes=0.25` must be `[0.25]`; `n_save` and `save_planes` together,
+  `n_save` below 2, and positions before the entrance or beyond the end are refused; a
+  position within eight ulps of an endpoint is that endpoint. Positions short of the length
+  no longer end the run: it continues to the length and records it, so indices counted
+  from the end (`field_planes=[-1, …]`) may name other planes, and a short window of a
+  longer setup is now a shorter grid, with `boundary_length` pinned to keep the absorber.
+  `length` is optional on the keyword routes; given beside `grid=`, the two must agree, and
+  a call with neither is refused (`prop_capillary` and `from_capillary` therefore refuse a
+  missing `gas` themselves). `n_save` beside an interior launch counts over
+  `[initial_z, length]`. A replayed `FixedSchedule` must start at the entrance and end at
+  the length, within the rounding its step sum accumulates, or it is refused before the
+  run. The resolved recipe writes the run's positions in `[build.settings]` on an object
+  route and drops `n_save`.
+  In the front end, every sheet's *Saved planes* row offers *Evenly spaced* (`n_save`) and
+  *Explicit positions* (`save_planes`), and typing into one form removes the other in the
+  same undoable edit. A setup opens on the form it holds; the object sheets no longer turn
+  a count into a list of positions, nor rewrite the positions when the length changes. An
+  object-sheet count of 80 planes, which left out the entrance, is `n_save = 81`.
 - solprop-native's source build pins nanobind 3.1.0 (it took any release from 2.9 on), and the private extension's test-only entry points moved to its `_testing` submodule, which the wheel ships for solprop's own tests (SEP 52).
 - solprop-native's private extension takes one workspace per backend, built from one problem record that carries every set-once table, and starts each run from one run record and each timing probe from the run's start (SEP 52): the per-call configuration of the old native state is gone, records cross by field table and are refused by field path, and both stubs of the extension are generated. A backend whose low-storage timing probe advanced its registers now refuses a further run or probe by name instead of running from the discarded registers.
 - Both backends read each run's records -- the method's policy, the low-storage settings, the schedule, the plane plan and the boundary monitor's configuration and continuation -- formed once by the new `solprop.backends.records` (SEP 52). `RungeKuttaPolicy` moves there from `solprop.backends.rk_core` and carries the march's landings; `rk_policy` becomes `records.runge_kutta_policy`. The engine protocols the marches are to call are declared in the new `solprop.backends.engines`.
@@ -315,6 +345,9 @@ All notable changes to solprop are recorded here. The format follows
   `components` as a tuple copied from the sequence given. The record and hash of an unchanged
   input are the same as before
   ([#471](https://github.com/LupoLab/solprop/issues/471)).
+- A recipe's `save_planes = 80` in an object route's `[build.settings]` is no longer read
+  as one plane at 80 m, with the run marching until something unrelated stopped it: it is
+  refused with "write `n_save = 80`", and every run now ends at its grid's length (#533).
 - Preserved the original error and retained a retry owner when acquiring host BLAS
   limits and rolling them back both fail. The next acquisition retries the rollback
   before applying new limits, so a failed request no longer leaves a BLAS pool at its
