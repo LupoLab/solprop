@@ -495,7 +495,7 @@ def linear_flow_problem(name: str):
     """
     linear = flow_parity.build(name)
     # The entry point refuses a capillary with no nonlinearity.
-    object.__setattr__(linear, "responses", ())
+    linear._responses = ()  # what it is built from is read-only, by design
     problem = linear.translate()
     run_request = linear._run_request()
     schedule = run_request.stepper.schedule
