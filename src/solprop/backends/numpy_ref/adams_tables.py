@@ -4,17 +4,17 @@
 
 """The coefficient tables of an Adams trial (SEP 13, SEP 16, ADR-042).
 
-Every weight an Adams trial applies depends only on the history's normalised nodes
-and the orders it scores, never on the state. The interaction formulation integrates
-its interpolants: :func:`defect_rows` (each scored order's corrector less predictor,
-and the step's own corrector) and :func:`fused_tables`. The exponential formulation
-works in the monomial basis of its moments: :func:`exponential_corrector` and
+Every weight an Adams trial applies depends only on the history's normalised nodes and
+the orders it scores, never on the state. The interaction formulation integrates its
+interpolants: :func:`defect_rows` (each scored order's corrector less predictor, and the
+step's own corrector) and :func:`fused_tables`. The exponential formulation works in the
+monomial basis of its moments: :func:`exponential_corrector` and
 :func:`exponential_rows`, and for native's factored defects
 :func:`factored_defect_rows`; :func:`compensation_tables` are a varying operator's
-transported compensation, and :func:`exponential_tables` and :func:`trial_tables`
-gather them as native's march forms them in C++. The reference's engines
-(:mod:`.multistep`) read these with the plain basis; native's parity tests read them
-with its own (``helpers``).
+transported compensation, and :func:`exponential_tables` and :func:`trial_tables` gather
+them as native's march forms them in C++. The reference's engines
+(:mod:`~solprop.backends.numpy_ref.multistep`) read these with the plain basis; native's
+parity tests read them with its own (``helpers``).
 """
 
 import numpy as np

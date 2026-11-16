@@ -8,13 +8,14 @@
 engine or the session asks of it: loading it with its noise and band mask; the stage
 scalars, propagators and exponents of a step; the source, which its
 :class:`~solprop.backends.numpy_ref.source.StageSource` evaluates; the coupled flow's
-actions and residual (:mod:`.coupled_flow`); the accepted step's finish; the boundary
-monitor's and the transverse edge's readings; the statistics, which its
+actions and residual (:mod:`~solprop.backends.numpy_ref.coupled_flow`); the accepted
+step's finish; the boundary monitor's and the transverse edge's readings; the
+statistics, which its
 :class:`~solprop.backends.numpy_ref.statistics.ReferenceStatistics` forms; the host
 source's reservation; and the memory ledger. It holds no march state -- no position,
 proposal, history or ledger -- and is reused across a scan's points, a load replacing
-its state. The engines (:mod:`.engines`, :mod:`.multistep`) are what the marches ask
-of it.
+its state. The engines (:mod:`~solprop.backends.numpy_ref.engines`,
+:mod:`~solprop.backends.numpy_ref.multistep`) are what the marches ask of it.
 
 The contract is consumed only through its evaluation functions --
 :func:`solprop.translate.linop.delta_phi`,

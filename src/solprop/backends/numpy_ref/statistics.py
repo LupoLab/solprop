@@ -469,7 +469,7 @@ class ReferenceStatistics:
         """Yield the physical field at the nodes the responses see, chunk by chunk.
 
         The fields the stage's response pass evaluates, on the fine time grid: the
-        modal quadrature's nodes at once (:meth:`_nodes_at`), or a separable
+        modal quadrature's nodes at once (``_nodes_at``), or a separable
         geometry's physical nodes by the node chunk -- the slab synthesis in x, which
         carries the pad scale, or the inverse transverse DFT followed by the pad scale.
 
@@ -573,7 +573,7 @@ class ReferenceStatistics:
         ``P / A_eff`` for a top-hat profile and the true on-axis value for a real one
         -- 1.77 times the average for HE_11, so ``P / A_eff`` would under-report it by
         that factor. The on-axis matrix is built once and rescaled with the taper
-        (:meth:`_on_axis_synthesis`), which is what makes this statistic cheap enough
+        (``_on_axis_synthesis``), which is what makes this statistic cheap enough
         for the between-planes channel.
         """
         if self._modes is None:
@@ -618,7 +618,7 @@ class ReferenceStatistics:
 
         A rule with a node on the axis hands over that node's row from this
         observation's node scan; otherwise the axis row is scanned once
-        (:meth:`_axis_populations`).
+        (``_axis_populations``).
 
         - ``field``: the state at this plane, shape (n_modes, n_pol, n_omega).
         - ``scan``: this observation's channel fractions and peak rates at every node,
@@ -669,7 +669,7 @@ class ReferenceStatistics:
         preionisation and running-integral rule are the node scan's.
 
         - ``axis``: the mode set's synthesis on the axis at `z`, taper included, rows x
-          and y (:meth:`_on_axis_synthesis`).
+          and y (``_on_axis_synthesis``).
         - Returns: the final ionised fraction and the largest rate (cycle-averaged on
           an envelope grid) on the axis, one per channel.
         """

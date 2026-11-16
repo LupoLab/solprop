@@ -251,17 +251,17 @@ class NumpyLowStorage:
     that position; only :meth:`reset`, at a load, clears the flag.
 
     **The flows.** ``"tabulate"`` on a constant operator holds one volume,
-    ``exp(h_t D / 2)``, built at the first step after a load and reused while the
-    steps keep the same key ``h_t``, their run's mean step (:func:`table_steps`, SEP 24
-    Q10): a uniform schedule's steps are differences of rounded positions and differ in
-    their last bits. The table is built from the key alone, from the operator's origin
-    to ``h_t / 2`` -- a constant operator's increment is the distance itself -- so its
-    exponent carries one rounding of ``D h_t / 2`` and none of the step's position
-    (``fl(z + h/2) - z`` would be off by up to half an ulp of ``z``, an error that
-    accumulates). Each reused flow's exponent is then off by ``|D| |h - h_t| / 2``, a
-    few ulps of the position times ``|D|``, which does not accumulate over the run. A
-    varying operator's
-    ``P`` and ``Q`` change every step, and ``"tabulate"`` forms the pair once per step;
+    ``exp(h_t D / 2)``, built at the first step after a load and reused while the steps
+    keep the same key ``h_t``, their run's mean step
+    (:func:`~solprop.backends.low_storage.table_steps`, SEP 24 Q10): a uniform
+    schedule's steps are differences of rounded positions and differ in their last bits.
+    The table is built from the key alone, from the operator's origin to ``h_t / 2`` --
+    a constant operator's increment is the distance itself -- so its exponent carries
+    one rounding of ``D h_t / 2`` and none of the step's position (``fl(z + h/2) - z``
+    would be off by up to half an ulp of ``z``, an error that accumulates). Each reused
+    flow's exponent is then off by ``|D| |h - h_t| / 2``, a few ulps of the position
+    times ``|D|``, which does not accumulate over the run. A varying operator's ``P``
+    and ``Q`` change every step, and ``"tabulate"`` forms the pair once per step;
     ``"recompute"`` forms each flow in the finish that applies it, from the positions,
     whose differences telescope. The treatments agree to rounding, not bit for bit.
 

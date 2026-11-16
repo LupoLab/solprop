@@ -5,7 +5,7 @@
 """The field arithmetic of the reference's Adams steps (SEP 13, SEP 14, SEP 16).
 
 The state-sized passes an Adams trial and its acceptance take, given the history's
-rows and the trial's coefficients (:mod:`.adams_tables`).
+rows and the trial's coefficients (:mod:`~solprop.backends.numpy_ref.adams_tables`).
 :class:`AdamsKernels` is the interaction formulation's: the predictor, the corrector
 with every scored defect, and the history's transport to the new anchor.
 :class:`ExponentialKernels` is the exponential formulation's: the moments

@@ -6,14 +6,14 @@
 
 :class:`StageSource` is what :meth:`NumpyWorkspace.nonlinear
 <solprop.backends.numpy_ref.workspace.NumpyWorkspace.nonlinear>` asks. Its
-:meth:`~StageSource.evaluate` runs the passes of ``docs/dev/architecture.md`` section
-8 (:mod:`solprop.backends.numpy_ref.passes`) on the route the problem takes: the
-modal quadrature in node chunks, with the embedded coarse rule projected beside it and
-the held plasma current assembled in frequency; the radial route's plasma, projected
-once in frequency; the free and planar geometries, through transverse transforms or
-the slab synthesis; the general modal guide (:mod:`.general_modal`); and the bound
-TDSE response (:mod:`solprop.backends.tdse_source`). It adds ADR-025's in-stage
-absorbers and returns the derivative in the frame its caller names.
+:meth:`~StageSource.evaluate` runs the passes of ``docs/dev/architecture.md`` section 8
+(:mod:`solprop.backends.numpy_ref.passes`) on the route the problem takes: the modal
+quadrature in node chunks, with the embedded coarse rule projected beside it and the
+held plasma current assembled in frequency; the radial route's plasma, projected once in
+frequency; the free and planar geometries, through transverse transforms or the slab
+synthesis; the general modal guide (:mod:`~solprop.backends.numpy_ref.general_modal`);
+and the bound TDSE response (:mod:`solprop.backends.tdse_source`). It adds ADR-025's
+in-stage absorbers and returns the derivative in the frame its caller names.
 :meth:`~StageSource.score_quadrature` turns the last accepted stage's two projections
 into the quadrature alarm. :class:`SourceTables` gathers the arrays the passes read.
 """
@@ -220,7 +220,7 @@ class StageSource:
 
         The pipeline of ``architecture.md`` section 8 for any node count: one batched
         inverse transform of every modal column, then, per chunk of
-        :attr:`node_chunk` nodes, the synthesis GEMM, the fused response pass and
+        the node chunk's nodes, the synthesis GEMM, the fused response pass and
         the projection GEMM accumulated over the chunks, then one batched forward
         transform, the crop and the prefactor. Mode-averaged propagation is the
         one-node, one-column case of exactly this code.
@@ -614,7 +614,7 @@ class StageSource:
         """Run the response pass over the quadrature in chunks and project it back.
 
         The chunk loop of ``architecture.md`` section 13: the space-domain buffers are
-        sized by :attr:`node_chunk` and not by the node count, so a chunk of one
+        sized by the node chunk's and not by the node count, so a chunk of one
         and a chunk of every node differ only in round-off. The embedded coarse rule is
         projected in the same loop, from the same node polarisation, because that is
         what makes the quadrature alarm free: the two rules share every node the coarse

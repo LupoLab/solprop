@@ -7,16 +7,17 @@
 One accepted step of the PEC method costs one expensive source evaluation, against
 DOPRI5's seven (six with first-same-as-last, which the reference does not take). The
 engine keeps a short history of source samples and decides each step on a local-defect
-estimate formed from that history without another evaluation (SEP 13 sections
-4.1--4.3); a trial touches no row, so a rejection leaves the history as it was.
+estimate formed from that history without another evaluation (SEP 13 sections 4.1--4.3);
+a trial touches no row, so a rejection leaves the history as it was.
 :class:`HostHistory` is the engine the march
-(:class:`solprop.backends.host.adams.HostAdamsMarch`) drives, with its two
-formulations: :class:`InteractionHistory` keeps **transported** sources, re-anchored at
-every accepted step by the step's propagator, and :class:`ExponentialHistory` keeps
-untransported ones and integrates them exactly against the step's flow, with a coupled
-flow's frozen block, a varying operator's compensation and the carrier frame (SEP 35).
-:class:`AdamsRows` is where the rows live, which the session exports and installs.
-The field arithmetic is :mod:`.adams_kernels`', the coefficients :mod:`.adams_tables`'.
+(:class:`solprop.backends.host.adams.HostAdamsMarch`) drives, with its two formulations:
+:class:`InteractionHistory` keeps **transported** sources, re-anchored at every accepted
+step by the step's propagator, and :class:`ExponentialHistory` keeps untransported ones
+and integrates them exactly against the step's flow, with a coupled flow's frozen block,
+a varying operator's compensation and the carrier frame (SEP 35). :class:`AdamsRows` is
+where the rows live, which the session exports and installs. The field arithmetic is
+:mod:`~solprop.backends.numpy_ref.adams_kernels`', the coefficients
+:mod:`~solprop.backends.numpy_ref.adams_tables`'.
 """
 
 import logging
@@ -393,7 +394,7 @@ class HostHistory:
     accepted step. The engine writes the history's rows into :class:`AdamsRows`, which
     the session exports and installs; between a trial and its acceptance it holds the
     trial, and an interpolated run's accepted step keeps what its dense observation
-    reads (:attr:`dense`; :mod:`solprop.backends.numpy_ref.dense`).
+    reads (``dense``; :mod:`solprop.backends.numpy_ref.dense`).
 
     This base holds the lifecycle the two formulations share; each formulation is a
     subclass, :class:`InteractionHistory` or :class:`ExponentialHistory`, which forms
@@ -456,7 +457,7 @@ class HostHistory:
     def start(self, z: float) -> None:
         """Evaluate the source at the accepted state, the history's first sample.
 
-        The sample goes to the store's row zero (:meth:`_startup`).
+        The sample goes to the store's row zero (the subclass's ``_startup``).
 
         Parameters
         ----------
@@ -492,7 +493,8 @@ class HostHistory:
     ) -> Float[np.ndarray, " n_orders"]:
         """Form a trial from `z` over `dz`; return its scored orders' norms.
 
-        The formulation's own trial (:meth:`_trial`), held for :meth:`accept`.
+        The formulation's own trial (the subclass's ``_trial``), held for
+        :meth:`accept`.
 
         Parameters
         ----------
@@ -691,7 +693,7 @@ class InteractionHistory(HostHistory):
         The predictor's lab-frame field, the source there (one call, labelled a
         predictor), and in one pass the corrected field and each scored order's
         defect: its ``k + 1``-node corrector through the new source less its
-        ``k``-node predictor. The trial is held for :meth:`_accept`.
+        ``k``-node predictor. The trial is held for ``_accept``.
 
         Parameters
         ----------
@@ -897,7 +899,7 @@ class ExponentialHistory(HostHistory):
         neighbouring orders are scored from the same moments. A varying operator adds
         the compensation of its samples (SEP 16 section 4.2). Under a carrier frame the
         samples read are rotated and the moments shifted (SEP 35 section 4.1); the flow
-        is unchanged. The trial is held for :meth:`_accept`.
+        is unchanged. The trial is held for ``_accept``.
 
         Parameters
         ----------
