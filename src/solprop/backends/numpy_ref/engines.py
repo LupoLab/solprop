@@ -2,16 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The reference's Runge-Kutta engine over its workspace (SEP 52 section 5.2).
+"""The reference's Runge-Kutta engines over its workspace (SEP 52 section 5.2).
 
-:class:`NumpyRungeKutta` is the reference's
-:class:`~solprop.backends.engines.RungeKuttaEngine`, the counterpart of native's
-``engines::ResidentRungeKutta``: it forms an interaction-picture embedded Runge-Kutta
-trial from the workspace's committed state and keeps the trial's stages and end state
-until :meth:`~NumpyRungeKutta.accept` finishes and commits it. A rejected trial leaves
-the committed state as it was. The reference's other engines are the low-storage step
-(:class:`solprop.backends.numpy_ref.engines.NumpyLowStorage`) and the Adams history
-(:class:`solprop.backends.numpy_ref.multistep.HostHistory`).
+Two :class:`~solprop.backends.engines.RungeKuttaEngine` implementations, the
+counterparts of native's resident engines. :class:`NumpyRungeKutta` forms an
+interaction-picture embedded Runge-Kutta trial from the workspace's committed state
+and keeps its stages and end state until :meth:`~NumpyRungeKutta.accept` finishes and
+commits it; a rejected trial leaves the committed state as it was.
+:class:`NumpyLowStorage` is the low-storage RK4 step of SEP 24
+(:mod:`solprop.backends.low_storage`), whose trial overwrites the state in place and
+is in flight until it is accepted. The Adams engine is
+:class:`solprop.backends.numpy_ref.multistep.HostHistory`.
 """
 
 import math

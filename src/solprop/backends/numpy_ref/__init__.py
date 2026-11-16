@@ -7,14 +7,16 @@
 Plain NumPy and ``scipy.fft`` through :mod:`solprop.fourier`, one named function per
 pass, no fusion, no in-place tricks and no compiled code. It exists to be read and to be
 right: every other backend is validated against the numbers it produces
-(``docs/dev/backends.md`` section 2). It propagates a mode-averaged or multimode problem
-on either grid with the Kerr, Raman and plasma terms, using interaction-picture DOPRI5
-with the cumulative operator, the lagged PI controller, landing on save planes and hard
-kinks, the shot-noise field and the hard band mask.
+(``docs/dev/backends.md`` section 2). It runs every route and every march.
 
-:mod:`solprop.backends.numpy_ref.passes` holds the passes;
-:mod:`solprop.backends.numpy_ref.backend` holds the step loop and the seam;
-``construct`` is the registry's constructor (:mod:`solprop.backends.registry`).
+Reading order: :mod:`.passes` holds the formulas, one function per pass of a stage;
+:mod:`.backend` the seam (:class:`NumpyRefBackend`), which builds the workspace
+(:mod:`.workspace`) and the engines the marches of :mod:`solprop.backends.host` drive
+(:mod:`.engines`, :mod:`.multistep`). The workspace owns the stage source
+(:mod:`.source`), the statistics (:mod:`.statistics`) and the coupled flow
+(:mod:`.coupled_flow`); the Adams arithmetic and coefficients are :mod:`.adams_kernels`
+and :mod:`.adams_tables`, the general modal guide :mod:`.general_modal`, the dense
+output :mod:`.dense`. ``construct`` is the registry's constructor.
 """
 
 from collections.abc import Mapping, Sequence

@@ -4,15 +4,16 @@
 
 """The reference's workspace: its state and every state-sized operation (SEP 52).
 
-:class:`NumpyWorkspace` holds one run's state and the problem's tables, and does every
-operation a march, an engine or the session asks of the state: loading it, the stage
-scalars and the source, the accepted step's finish, the band mask, the statistics, the
-boundary monitor's and the transverse edge's readings, the quadrature alarm and the
-host source's reservation. It holds no march state -- no position, proposal, history
-or ledger -- and is reused across a scan's points, a load replacing its state. The
-engines (:mod:`solprop.backends.numpy_ref.engines`,
-:class:`~solprop.backends.numpy_ref.multistep.HostHistory`,
-:class:`~solprop.backends.numpy_ref.engines.NumpyLowStorage`) are what the marches ask
+:class:`NumpyWorkspace` holds one run's state and does every operation a march, an
+engine or the session asks of it: loading it with its noise and band mask; the stage
+scalars, propagators and exponents of a step; the source, which its
+:class:`~solprop.backends.numpy_ref.source.StageSource` evaluates; the coupled flow's
+actions and residual (:mod:`.coupled_flow`); the accepted step's finish; the boundary
+monitor's and the transverse edge's readings; the statistics, which its
+:class:`~solprop.backends.numpy_ref.statistics.ReferenceStatistics` forms; the host
+source's reservation; and the memory ledger. It holds no march state -- no position,
+proposal, history or ledger -- and is reused across a scan's points, a load replacing
+its state. The engines (:mod:`.engines`, :mod:`.multistep`) are what the marches ask
 of it.
 
 The contract is consumed only through its evaluation functions --
@@ -223,7 +224,8 @@ class NumpyWorkspace:
         return self.stage_source.collar_quiet
 
     @collar_quiet.setter
-    def collar_quiet(self, quiet: bool) -> None:
+    def collar_quiet(self, quiet: bool) -> None:  # numpydoc ignore=PR01
+        """Set whether the in-stage temporal collar is left out while quiet."""
         self.stage_source.collar_quiet = quiet
 
     # --- the state ---------------------------------------------------------------

@@ -288,7 +288,17 @@ class MatrixMoments:
     def apply(self, k: int, values: _State) -> _State:
         """Return ``M_k`` applied to a state-shaped array.
 
-        - ``values``: the array, in the state's layout.
+        Parameters
+        ----------
+        k : int
+            The moment.
+        values : numpy.ndarray
+            The array, in the state's layout.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``M_k values``.
         """
         columns = self._columns
         return self._product(columns[k], self.scalar[k], values)
@@ -296,7 +306,15 @@ class MatrixMoments:
     def flow(self, values: _State) -> _State:
         """Return the step's flow ``exp(h B)`` applied to a state-shaped array.
 
-        - ``values``: the array, in the state's layout.
+        Parameters
+        ----------
+        values : numpy.ndarray
+            The array, in the state's layout.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``exp(h B) values``.
         """
         columns = self._flow_columns
         return self._product(columns, self.flow_scalar, values)

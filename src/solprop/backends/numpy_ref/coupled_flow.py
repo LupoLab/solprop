@@ -81,8 +81,16 @@ class HeldFlow(CoupledFlowFactors):
 def held_flow(problem: PropagationProblem) -> HeldFlow | None:
     """Decompose the coupled flow this backend will execute, once.
 
-    - Returns: the Schur factors and the certificate, or ``None`` for a problem carrying
-      no coupled flow.
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The validated problem.
+
+    Returns
+    -------
+    HeldFlow or None
+        The Schur factors and the certificate, or ``None`` for a problem carrying no
+        coupled flow.
     """
     flow = problem.linear.coupled_flow
     if flow is None:
@@ -191,7 +199,21 @@ def flow_action(
     not inherit the conditioning of a solve (``docs/dev/stepper.md`` section 4: no
     unbounded inverse propagation).
 
-    - ``length``: distance in m, positive for the forward action.
+    Parameters
+    ----------
+    flow : HeldFlow
+        The held flow.
+    section : int
+        The section whose frozen block acts.
+    length : float
+        The distance, m, positive for the forward action.
+
+    Returns
+    -------
+    forward : numpy.ndarray
+        ``U`` on the active bins, shape ``(n_active, n_modes, n_modes)``.
+    inverse : numpy.ndarray
+        ``U^-1``, likewise.
     """
     vectors = flow.vectors[section]
     exponent = float(length) * flow.triangular[section]
@@ -225,8 +247,21 @@ def check_flow_conditioning(
     bounded at all: the picture is re-anchored at every accepted step, so no inverse
     action is ever taken over more than one of them.
 
-    - ``pair``: the forward and inverse actions over the whole step.
-    - ``dz``: length of the step, m, used in the refusal.
+    Parameters
+    ----------
+    flow : HeldFlow
+        The held flow, carrying the certificate.
+    section : int
+        The step's section.
+    pair : tuple of numpy.ndarray
+        The forward and inverse actions over the whole step.
+    dz : float
+        The length of the step, m, used in the refusal.
+
+    Raises
+    ------
+    BackendError
+        If the measured product exceeds the certificate by more than rounding.
     """
     forward, inverse = pair
     if not forward.size:
@@ -268,9 +303,20 @@ def apply_flow(
     The identity case is the caller's: a problem with no coupled flow, or the zero
     stage fraction, never reaches here.
 
-    - ``state``: the state, or any array of its layout.
-    - Returns: the state with its channel axis mixed on the active bins and untouched
-      off them, where the block is zero and the action is the identity.
+    Parameters
+    ----------
+    state : numpy.ndarray
+        The state, or any array of its layout.
+    action : numpy.ndarray
+        The action on the active bins, shape ``(n_active, n_modes, n_modes)``.
+    active : numpy.ndarray
+        Which bins carry the block, Boolean, shape ``(n_omega,)``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The state with its channel axis mixed on the active bins and untouched off
+        them, where the block is zero and the action is the identity.
     """
     carried = state.copy()
     carried[:, :, active] = np.einsum("wij,jpw->ipw", action, state[:, :, active])
@@ -289,7 +335,19 @@ def residual_action(
     is the step's, because the exponential the interaction picture is built on is, and
     freezing is a rearrangement of the same equation whichever block it names.
 
-    - Returns: the residual in 1/m, shape ``(n_active, n_modes, n_modes)``.
+    Parameters
+    ----------
+    flow : HeldFlow
+        The held flow, with its residual terms.
+    section : int
+        The step's section.
+    weights : numpy.ndarray
+        The flow's term weights at the stage's position.
+
+    Returns
+    -------
+    numpy.ndarray
+        The residual in 1/m, shape ``(n_active, n_modes, n_modes)``.
     """
     assert flow.residual_terms is not None
     return combine(weights, flow.residual_terms) - flow.frozen[section]
@@ -375,8 +433,21 @@ def residual_drive(
     it; only the nonlinear source couples them in, at the size of the collar's
     content.
 
-    - ``action``: ``R_s(z_1)`` on the active bins, 1/m.
-    - Returns: ``R_s(z_1) u`` in the state's layout, zero off the scored active bins.
+    Parameters
+    ----------
+    lab : numpy.ndarray
+        The stage's lab-frame field ``u``.
+    action : numpy.ndarray
+        ``R_s(z_1)`` on the active bins, 1/m.
+    active : numpy.ndarray
+        Which bins carry the block, Boolean, shape ``(n_omega,)``.
+    scored : numpy.ndarray
+        The active bins the error norm scores, Boolean, shape ``(n_omega,)``.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``R_s(z_1) u`` in the state's layout, zero off the scored active bins.
     """
     drive = np.zeros_like(lab)
     drive[:, :, scored] = np.einsum(

@@ -46,8 +46,9 @@ every step, so no exponent grows with the run.
 
 **Where.** {py:func}`solprop.linear.dispersion_operator` and
 {py:class}`solprop.linear.Frame` assemble $D$; {py:func}`solprop.translate.linop.delta_phi`
-returns the exponent; {py:func}`solprop.backends.numpy_ref.passes.stage_input` and
-{py:func}`solprop.backends.numpy_ref.passes.stage_output` are the two applications.
+returns the exponent; {py:func}`solprop.backends.numpy_ref.passes.stepping.stage_input`
+and {py:func}`solprop.backends.numpy_ref.passes.stepping.stage_output` are the two
+applications.
 
 **Why this one.** The alternative is an operator splitting, which is what Luna uses.
 An earlier prototype study measured both at matched error
