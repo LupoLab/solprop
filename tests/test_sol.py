@@ -26,10 +26,7 @@ EXCLUDED = {
         # Constants and the styling helpers the plots are built from: for someone
         # writing a plot, who imports them from their home.
         "CORNERS",
-        "DEFAULT_SLICE_WAVELENGTH_RANGE",
-        "DEFAULT_TIME_RANGE",
-        "DEFAULT_WAVELENGTH_RANGE",
-        "OTHER_STATISTICS",
+                    "OTHER_STATISTICS",
         "POWER_UNITS",
         "PULSE_STATISTICS",
         "SLICE_QUANTITIES",

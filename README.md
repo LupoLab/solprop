@@ -56,7 +56,7 @@ run = prop_capillary(
     trange=400e-15,
     wavelength_limits=(90e-9, 4e-6),
 )
-prop_2d(run, "wavelength")
+prop_2d(run)
 plt.show()  # a script shows the figure only when asked
 ```
 
