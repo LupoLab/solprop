@@ -97,6 +97,7 @@ from solprop.translate.general import (
     node_kerr_tensor,
 )
 from solprop.translate.linop import (
+    delta_phi,
     power_weight_at,
     unitary_phase,
 )
@@ -810,6 +811,18 @@ class NativeBackend:
         if bundle.phi_at is None or self._terms.phi is None:
             return unitary_phase(self._problem.linear, bundle.z1)
         return np.imag(combine(bundle.phi_at, self._terms.phi))
+
+    def _delta_phi(self, bundle: StageScalars) -> ComplexArray:
+        """Return the stage's exponent formed on the host from the native terms.
+
+        The bundle's weights over the fixed terms, or the operator's own increment where
+        it has none (a z table's, which the workspace holds in its slots).
+        """
+        if bundle.phi_delta is None or self._terms.phi is None:
+            return delta_phi(
+                self._problem.linear, bundle.z0, bundle.z1, helpers=self.helpers
+            )
+        return combine(bundle.phi_delta, self._terms.phi)
 
     def _stage_scalars(self, z0: float, z1: float) -> StageScalars:
         """Return one stage's scalars (`StageCache.scalars`)."""

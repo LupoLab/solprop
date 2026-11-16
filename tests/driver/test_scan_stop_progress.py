@@ -262,8 +262,10 @@ def test_local_stop_mid_point_is_not_committed_and_a_rerun_computes_it(tmp_path)
 
 @pytest.mark.skipif("native" not in available(), reason="native is not installed")
 def test_local_stop_reaches_a_one_plane_native_adams_point(tmp_path):
-    native = pytest.importorskip("solprop_native.session")
-    most = native.CALL_ATTEMPTS
+    pytest.importorskip("solprop_native.session")
+    from solprop.backends import records  # noqa: PLC0415
+
+    most = records.CALL_ATTEMPTS
 
     def build(point):
         # More steps than a native call's bound, and no plane until the last of them.

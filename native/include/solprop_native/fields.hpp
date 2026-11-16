@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -76,15 +77,24 @@ template <class T> [[nodiscard]] constexpr Dtype element_dtype() noexcept {
 }
 
 /** The element an array field stores: a vector's, or an optional vector's (an array
-    that may be `None`). */
+    that may be `None`), or a borrowed span's: a view of the Python array itself, valid
+    only while the call that read it runs, for a large array the call consumes at once
+    (a run's initial field), so that it is not copied twice. */
 template <class Member> struct ArrayElement;
 template <class T> struct ArrayElement<std::vector<T>> {
   using type = T;
   static constexpr bool optional = false;
+  static constexpr bool borrowed = false;
 };
 template <class T> struct ArrayElement<std::optional<std::vector<T>>> {
   using type = T;
   static constexpr bool optional = true;
+  static constexpr bool borrowed = false;
+};
+template <class T> struct ArrayElement<std::span<const T>> {
+  using type = T;
+  static constexpr bool optional = false;
+  static constexpr bool borrowed = true;
 };
 
 /** One axis of an array field: free (`any`), a literal (`fixed`), or a symbol with an

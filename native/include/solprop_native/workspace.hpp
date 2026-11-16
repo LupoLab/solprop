@@ -487,15 +487,16 @@ struct HistoryRow {
 }
 
 /** What one run starts from (`Workspace::start`): its records, the initial field and
-    noise as the state takes them (`set_initial`), the march's state at the start (the
-    Adams march's or the Runge-Kutta march's, none for a fresh state of its own), a
-    resumed history's rows, the statistics plans, the monitor's launch readings of the
-    input noise (its floor: energy, then four regions' shares; and the edge's), and the
-    run's monitor weights and edge tables where the state lives. */
+    noise as the state takes them (`set_initial`), borrowed from the caller for the
+   call, the march's state at the start (the Adams march's or the Runge-Kutta march's,
+   none for a fresh state of its own), a resumed history's rows, the statistics plans,
+   the monitor's launch readings of the input noise (its floor: energy, then four
+   regions' shares; and the edge's), and the run's monitor weights and edge tables where
+   the state lives. */
 struct RunStart {
   RunRecordsRecord records;
-  std::vector<Complex> field;
-  std::vector<Complex> noise;
+  std::span<const Complex> field;
+  std::span<const Complex> noise;
   std::optional<march::State> adams;
   std::optional<rk::State> runge_kutta;
   std::vector<HistoryRow> rows;

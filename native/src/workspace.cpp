@@ -923,7 +923,10 @@ std::unique_ptr<Probe> Workspace::probe(RunStart start) {
   // Adams workspace's probe takes Runge-Kutta trials, which read none of them.
   if (kind() != MethodKind::adams)
     configure_march(start.records);
-  return probe(std::move(start.field), std::move(start.noise), start.records.planes.z);
+  // The probe keeps the start to load again after a read-back: its own copy.
+  return probe(std::vector<Complex>(start.field.begin(), start.field.end()),
+               std::vector<Complex>(start.noise.begin(), start.noise.end()),
+               start.records.planes.z);
 }
 
 stage::Trial Workspace::stage_trial(const double z0, const double z1) {

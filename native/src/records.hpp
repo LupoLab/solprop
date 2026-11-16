@@ -361,6 +361,12 @@ void read_array(const fields::Array<R, M, N>& field, nb::handle value, R* out,
     relate(borrowed.shape, field.extents.data(), N, symbols, path);
   if (out == nullptr)
     return;
+  if constexpr (Traits::borrowed) {
+    // A view of the caller's array, which it keeps alive for the call.
+    out->*field.member = std::span<const Element>(
+        static_cast<const Element*>(borrowed.data), borrowed.count);
+    return;
+  }
   std::vector<Element> held(borrowed.count);
   static_assert(std::is_trivially_copyable_v<Element>);
   if (borrowed.count != 0)
@@ -595,14 +601,15 @@ template <class R, class M, std::size_t N>
 nb::object write_array(const fields::Array<R, M, N>& field, const R& record,
                        const Symbols& symbols) {
   using Traits = fields::ArrayElement<M>;
-  const std::vector<typename Traits::type>* values = nullptr;
+  std::span<const typename Traits::type> held;
   if constexpr (Traits::optional) {
     if (!(record.*field.member))
       return nb::none();
-    values = &*(record.*field.member);
+    held = *(record.*field.member);
   } else {
-    values = &(record.*field.member);
+    held = record.*field.member;
   }
+  const auto* values = &held;
   std::vector<std::size_t> shape{values->size()};
   if constexpr (N == 0 && HasShapes<R>) {
     const auto found = record.shapes.find(field.name);
