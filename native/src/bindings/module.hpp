@@ -17,8 +17,8 @@
 #include "bind.hpp"
 #include "records.hpp"
 #include "solprop_native/problem/problem.hpp"
-#include "solprop_native/problem/workspace.hpp"
 #include "solprop_native/session/statistics_plan.hpp"
+#include "solprop_native/workspace/workspace.hpp"
 
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/map.h>

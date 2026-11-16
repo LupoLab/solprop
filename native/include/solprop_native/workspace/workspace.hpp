@@ -22,9 +22,9 @@
 #include "solprop_native/march/rk_march.hpp"
 #include "solprop_native/march/stage_tables.hpp"
 #include "solprop_native/problem/problem.hpp"
-#include "solprop_native/problem/run_records.hpp"
 #include "solprop_native/runtime/execution.hpp"
 #include "solprop_native/session/session.hpp"
+#include "solprop_native/workspace/run_records.hpp"
 
 #include <array>
 #include <complex>

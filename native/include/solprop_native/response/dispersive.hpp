@@ -67,7 +67,8 @@ namespace solprop_native {
 // (`GeneralDispersive`). Every route weighs its channels at a stage by one rule
 // (`DispersiveWeights`).
 
-/** The product form of a grid and a sector: solprop `dispersive_form`. */
+/** The product form of a grid and a sector, as solprop's `dispersive_cubic` takes it
+    from its `kind` and `sector` (`solprop.nonlinear.responses`). */
 enum class DispersiveForm : int {
   /** A field grid's full cubic: the real product of real fields. */
   real = 0,
@@ -86,9 +87,11 @@ void require_dispersive(const Problem& problem);
 
 // --- the sample bodies --------------------------------------------------------------
 //
-// solprop `backends/bodies.py`'s dispersive bodies, operation for operation: the
-// isotropic Kleinman contraction `T_ijkl x_j y_k z_l` of two-component fields, its
-// number-conserving and harmonic groups, and the closed forms of the products
+// The products of solprop's reference, `_isotropic` and `_product_spectrum` in
+// `solprop.nonlinear.responses` (which numpy_ref's dispersive Kerr passes reach through
+// `dispersive_cubic`): the isotropic Kleinman contraction `T_ijkl x_j y_k z_l` of
+// two-component fields, its number-conserving and harmonic groups, and the closed forms
+// of the products
 // `(u, u, u)`, `(u, u, f)` and `(u, f, f)` of one component.
 
 /** `[(x . y) z + (x . z) y + (y . z) x] / 3`, without conjugation. */
@@ -208,9 +211,9 @@ KOKKOS_INLINE_FUNCTION Complex dispersive_harmonic_cross(const Complex u,
  * The isotropic contraction of three `Components`-component fields, componentwise.
  *
  * `[(x . y) z + (x . z) y + (y . z) x] / 3` without conjugation, each dot product
- * summed over the components in order from the first: solprop `dispersive_isotropic3`
- * for the general modal route's three Cartesian components, whose fewer components are
- * the three with the rest zero.
+ * summed over the components in order from the first, as solprop's `_isotropic`
+ * contracts the general modal route's three Cartesian components, whose fewer
+ * components are the three with the rest zero.
  */
 template <class T, std::size_t Components>
 KOKKOS_INLINE_FUNCTION void

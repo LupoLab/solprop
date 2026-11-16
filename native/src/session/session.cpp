@@ -252,7 +252,7 @@ double Session::position() const noexcept {
 
 double Session::here() const noexcept {
   // The observed position: a dense plane's while the state holds it, the committed
-  // endpoint's otherwise (`DriverSession._z`).
+  // endpoint's otherwise (`HostSession._here`).
   return observed_ ? observed_z_ : position();
 }
 
@@ -477,7 +477,7 @@ void Session::terminal(Batch& batch, const Outcome outcome, Failure failure) {
   event.outcome = outcome;
   event.failure = std::move(failure);
   // A stop or a failure names the committed state, eligible, unless a step left in
-  // flight poisoned it (`DriverSession._terminal`).
+  // flight poisoned it (`HostSession._terminal`).
   event.ticket = outcome != Outcome::completed && !poisoned();
   event.generation = generation_;
   drain(batch);
@@ -586,7 +586,7 @@ bool Session::refused_crossing(Batch& batch) {
 }
 
 bool Session::attach(Batch& batch) {
-  // `DriverSession._attach_monitor` after the launch plane's commit: restore a resumed
+  // `HostSession._attach` after the launch plane's commit: restore a resumed
   // record, then record and judge the launch (`attach_monitor`).
   attached_ = true;
   const auto& plan = plan_.monitor.value();
@@ -713,7 +713,7 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
     return issue(std::move(batch), outcome);
   };
   try {
-    // `DriverSession.advance`'s order: the owed launch plane, a latched snapshot at
+    // `HostSession._advance`'s order: the owed launch plane, a latched snapshot at
     // an endpoint, completion, then the march to the next plane.
     if (launch_pending_) {
       launch_pending_ = false;

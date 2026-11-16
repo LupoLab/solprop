@@ -12,7 +12,7 @@ production helper, or if a build's flags change. Three checks close that:
   its body with the strict block, read from the source. The list is written out here
   and not derived from the source, so that removing a block fails.
 * **The flags.** No build carries a flag SEP 25 refuses, from the build's own record
-  and from ``CMakeLists.txt``.
+  and from ``CMakeLists.txt`` and its ``cmake/*.cmake`` modules.
 * **The behaviour.** One production helper reachable from Python on chosen operands:
   the phi-functions' series. A strict series rounds every product and sum on its own,
   which Python's floats do too, so its moments are the bits of the same operations
@@ -42,9 +42,9 @@ STRICT_BLOCK = "SOLPROP_NATIVE_STRICT_BLOCK"
 
 PROTECTED = [
     # The ionised fraction (Numba's fraction_at, envelope_population).
-    ("src/general/kernels.hpp", "decayed_fraction"),
-    ("src/general/kernels.hpp", "decayed_fractions"),
-    ("src/general/kernels.hpp", "envelope_fraction"),
+    ("src/general/ionisation.hpp", "decayed_fraction"),
+    ("src/general/ionisation.hpp", "decayed_fractions"),
+    ("src/general/ionisation.hpp", "envelope_fraction"),
     # The small-argument phi-functions (multistep._phi, _weights).
     ("include/solprop_native/march/adams_phi.hpp", "adams_phi_fixed"),
     ("include/solprop_native/march/adams_phi.hpp", "adams_lanes_classify"),
@@ -53,22 +53,22 @@ PROTECTED = [
     ("include/solprop_native/march/lagrange_basis.hpp", "basis_rows"),
     ("include/solprop_native/march/lagrange_basis.hpp", "trial_tables"),
     # The stable phase increments.
-    ("src/general/kernels.hpp", "phase_sum"),
-    ("src/general/kernels.hpp", "phase_block"),
-    ("src/general/trial.cpp", "adams_phase_sum"),
-    ("src/general/trial.cpp", "adams_phase_block"),
-    ("src/general/trial.cpp", "adams_lanes_phase"),
+    ("src/general/stage_terms.hpp", "phase_sum"),
+    ("src/general/stage_terms.hpp", "phase_block"),
+    ("src/general/trial_adams.inc", "adams_phase_sum"),
+    ("src/general/trial_adams.inc", "adams_phase_block"),
+    ("src/general/trial_adams.inc", "adams_lanes_phase"),
     # The multistep defects and compensation (correct, exponential_correct, carry,
     # _coupled_correct, _carry_flows).
-    ("src/general/kernels.hpp", "compensation_residual"),
-    ("src/general/trial.cpp", "adams_predicted_compensation"),
-    ("src/general/trial.cpp", "adams_corrected_compensation"),
-    ("src/general/trial.cpp", "adams_observed_compensation"),
-    ("src/general/trial.cpp", "adams_lanes_predicted_compensation"),
-    ("src/general/trial.cpp", "adams_lanes_corrected_compensation"),
-    ("src/general/trial.cpp", "adams_lanes_defects"),
-    ("src/general/trial.cpp", "adams_lanes_rate"),
-    ("src/general/trial.cpp", "adams_defect_block"),
+    ("src/general/ionisation.hpp", "compensation_residual"),
+    ("src/general/trial_adams.inc", "adams_predicted_compensation"),
+    ("src/general/trial_adams.inc", "adams_corrected_compensation"),
+    ("src/general/trial_adams.inc", "adams_observed_compensation"),
+    ("src/general/trial_adams.inc", "adams_lanes_predicted_compensation"),
+    ("src/general/trial_adams.inc", "adams_lanes_corrected_compensation"),
+    ("src/general/trial_adams.inc", "adams_lanes_defects"),
+    ("src/general/trial_adams.inc", "adams_lanes_rate"),
+    ("src/general/trial_adams.inc", "adams_defect_block"),
     # The far field's plane radius (mask_plane_radius).
     ("include/solprop_native/response/far_field.hpp", "far_field_radius"),
     ("include/solprop_native/response/far_field.hpp", "far_field_offset"),
@@ -164,15 +164,51 @@ dense-output weights. Written out, as the helper list is, so that dropping a fil
 """
 
 
-def test_the_build_system_asks_for_none_of_the_refused_flags():
+BUILD_FILES = (
+    "CMakeLists.txt",
+    *sorted(path.name for path in (NATIVE / "cmake").glob("*.cmake")),
+)
+"""The build files a refused flag could appear in: the top level and its modules."""
+
+
+def _uncommented(text):
+    """Return CMake source without its comments, which may name a flag to say why."""
+    return "\n".join(line.split("#", 1)[0] for line in text.splitlines())
+
+
+def _refused_in(text):
+    """Return the refused flags a CMake source asks for outside its comments."""
+    code = _uncommented(text)
+    return [flag for flag in REFUSED if flag in code]
+
+
+def test_the_refused_flag_scan_sees_a_flag_and_not_a_comment():
+    """The scan is not vacuous: a flag in code is found, one in a comment is not."""
+    assert _refused_in('target_compile_options(t PRIVATE "-ffast-math")') == [
+        "-ffast-math"
+    ]
+    assert _refused_in("# -ffast-math is refused (SEP 25)") == []
+
+
+def test_the_scan_covers_the_cmake_modules():
+    if not (NATIVE / "CMakeLists.txt").exists():
+        pytest.skip("the native sources are not in this tree")
+    assert len(BUILD_FILES) > 1, "no cmake/*.cmake module was found to scan"
+
+
+@pytest.mark.parametrize("name", BUILD_FILES)
+def test_no_build_file_asks_for_a_refused_flag(name):
+    source = NATIVE / name if name == "CMakeLists.txt" else NATIVE / "cmake" / name
+    if not source.exists():
+        pytest.skip("the native sources are not in this tree")
+    assert _refused_in(source.read_text(encoding="utf-8")) == []
+
+
+def test_the_build_system_asks_for_contraction_and_no_fast_math():
     source = NATIVE / "CMakeLists.txt"
     if not source.exists():
         pytest.skip("the native sources are not in this tree")
-    # Comments may name a flag to say why it is absent.
-    lines = source.read_text(encoding="utf-8").splitlines()
-    text = "\n".join(line.split("#", 1)[0] for line in lines)
-    for flag in REFUSED:
-        assert flag not in text, flag
+    text = _uncommented(source.read_text(encoding="utf-8"))
     assert "-fno-fast-math" in text
     assert "-ffp-contract=fast" in text
     # The strict translation units round as Python's do, on every compiler, and refuse

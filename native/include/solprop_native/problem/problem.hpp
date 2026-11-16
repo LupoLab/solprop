@@ -11,10 +11,11 @@
 // Types: `Problem` and its groups (`Dims`, `Grid`, `Spatial`, `Flux`, `Stepper`,
 // `Linear`, `Absorber`, `Transform`, `Kerr`, `Plasma`, `Raman`, `General`, `Flow`,
 // `Dispersive`), with its CPU execution record, FFT planning and shared set-once
-// `Setup` (run_records.hpp); `FieldFamily`; the statistics and spatial-statistics
-// flags; the plasma column's bounds (`plasma_max_taps`, `plasma_diagnostic_parts`).
-// Functions: each group's `describe` (its field table, solprop SEP 52 section 5.3) and
-// `compact_problem` (whether a problem runs on a compact CPU team).
+// `Setup` (workspace/run_records.hpp); `FieldFamily`; the statistics and
+// spatial-statistics flags; the plasma column's bounds (`plasma_max_taps`,
+// `plasma_diagnostic_parts`). Functions: each group's `describe` (its field table,
+// solprop SEP 52 section 5.3) and `compact_problem` (whether a problem runs on a
+// compact CPU team).
 
 #include "solprop_native/runtime/cpu_execution.hpp"
 #include "solprop_native/runtime/execution.hpp"
@@ -368,9 +369,10 @@ struct Problem {
   // How the workspace plans its host transforms (solprop SEP 46 phase 3).
   FftPlanning fft_planning{};
   /** The set-once data a workspace applies once it has built its state (solprop SEP
-      52 section 5.3): the stage, z and flux tables, the flow guard, the controllers,
-      the low-storage settings, the monitor's weights and the edge's geometry
-      (`run_records.hpp`). Shared, so that a copy of the problem copies none of it. */
+      52 section 5.3): the stage tables, the z slots and tables, the flow guard, the
+      controllers, the low-storage settings and the split collar's occupancy
+      (`workspace/run_records.hpp`). Shared, so that a copy of the problem copies none
+      of it. */
   std::shared_ptr<const Setup> setup;
 
   /** Refuse, naming the field, data whose presence or extents disagree with the

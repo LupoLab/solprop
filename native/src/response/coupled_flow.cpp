@@ -13,6 +13,7 @@
 
 #include "solprop_native/response/coupled_flow.hpp"
 
+#include "solprop_native/response/flow_functions.hpp"
 #include "solprop_native/runtime/launch.hpp"
 #include "solprop_native/runtime/refuse.hpp"
 #include "solprop_native/runtime/setup_data.hpp"
@@ -55,11 +56,6 @@ std::size_t block_size(const std::size_t count, const Problem& problem,
 using ComplexView3 = CoupledFlowAction::ComplexView3;
 using ComplexView4 = CoupledFlowAction::ComplexView4;
 
-// solprop's reference `_TAYLOR_ORDER` and `_TAYLOR_SCALE`
-// (`numpy_ref/workspace.py`): the series degree and the row-sum norm the exponent is
-// scaled below; the host refuses a length needing more than 30 squarings first.
-constexpr int kTaylorOrder = 16;
-constexpr double kTaylorScale = 0.5;
 // Cyclic Jacobi sweeps a Gram matrix is given; a few channels settle in four to six,
 // and whatever is left is added to the bound (Weyl), so it never under-measures.
 constexpr int kJacobiSweeps = 30;
@@ -103,6 +99,10 @@ eigenbasis_actions(const double length, const std::size_t section,
 
 // `Z exp(l T) Z^H` of one bin by solprop's reference scaling, series and squaring
 // (`_triangular_exponential` and `_flow_action`), with the bin's own squaring count.
+// The series degree and the row-sum norm the exponent is scaled below are
+// flow_functions.hpp's `taylor_order` and `taylor_scale`, solprop's reference
+// `_TAYLOR_ORDER` and `_TAYLOR_SCALE` (`numpy_ref/workspace.py`); the host refuses a
+// length needing more than 30 squarings first.
 KOKKOS_INLINE_FUNCTION void
 squared_series_action(const double length, const std::size_t fallback,
                       const std::size_t modes, const ComplexView3& vectors,
@@ -117,8 +117,9 @@ squared_series_action(const double length, const std::size_t fallback,
     largest = total > largest ? total : largest;
   }
   int squarings = 0;
-  if (largest > kTaylorScale)
-    squarings = static_cast<int>(Kokkos::ceil(Kokkos::log2(largest / kTaylorScale)));
+  if (largest > flow_functions::taylor_scale)
+    squarings = static_cast<int>(
+        Kokkos::ceil(Kokkos::log2(largest / flow_functions::taylor_scale)));
   double divisor = 1.0;
   for (int index = 0; index < squarings; ++index)
     divisor *= 2.0;
@@ -128,7 +129,7 @@ squared_series_action(const double length, const std::size_t fallback,
           (length * triangular(fallback, row, column)) / divisor;
       work(fallback, 1, row, column) = row == column ? Complex(1.0, 0.0) : Complex{};
     }
-  for (int term = kTaylorOrder; term > 0; --term) {
+  for (int term = flow_functions::taylor_order; term > 0; --term) {
     for (std::size_t row = 0; row < modes; ++row)
       for (std::size_t column = 0; column < modes; ++column) {
         Complex total{};

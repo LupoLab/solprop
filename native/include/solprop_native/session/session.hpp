@@ -54,11 +54,11 @@
  *
  * The scheduler's decisions -- which plane is next, when a step plane, a statistics
  * row, a bounded yield or a snapshot falls due, and the reached and replay tolerances
- * -- are solprop's `DriverSession` and `solprop.backends.host.session`
- * functions, transcribed. Like the marches they are compiled strict (no contraction, no
- * fast-math) in their own translation unit, so they round as solprop's Python does;
- * that unit also holds the export, whose recipe is `solprop.backends.export`'s
- * `apply_recipe` operation for operation.
+ * -- are solprop's host session's (`solprop.backends.host.session`: `HostSession` and
+ * its functions), transcribed. Like the marches they are compiled strict (no
+ * contraction, no fast-math) in their own translation unit, so they round as solprop's
+ * Python does; that unit also holds the export, whose recipe is
+ * `solprop.backends.export`'s `apply_recipe` operation for operation.
  *
  * The boundary monitor is the session's own (SEP 47 section 6.4): `watch::Monitor`
  * holds every decision and record, the marches take its checks at each committed
@@ -342,7 +342,7 @@ public:
   [[nodiscard]] std::optional<std::pair<transverse::Record, transverse::Finish>>
   edge_record() const;
   /** Continue a resumed run's monitor record before the monitor watches the run
-      (`DriverSession.continue_monitor`): a continuation the plan already holds is
+      (`HostSession.continue_monitor`): a continuation the plan already holds is
       kept, and a session without a monitor has nothing to continue. Takes the
       session's lock; refused once the monitor watches. */
   void continue_monitor(const watch::Resumption& record, bool plane,
@@ -356,7 +356,7 @@ public:
             const std::function<void(const Method&, Resident&)>& reader);
   /** Issue a failed terminal batch at the committed state when none is pending, so
       that a failure outside the session can still checkpoint that state
-      (`DriverSession.pending_ticket`), and return it. It carries whatever the chunk
+      (`HostSession.pending_ticket`), and return it. It carries whatever the chunk
       buffers still hold (empty after any issued batch; attempts an advance made
       before an escaped exception otherwise), delivered there exactly once. None when
       a batch is already pending, or once the session has ended or closed. Takes the
@@ -512,7 +512,7 @@ private:
 // The scheduler's decisions, strict (session.cpp).
 
 /** `numpy.isclose(position, target, rtol=1e-12, atol=0.0)`: whether a march that
-    returned at `position` reached the plane it was sent to (`DriverSession.advance`).
+    returned at `position` reached the plane it was sent to (`HostSession._classify`).
  */
 [[nodiscard]] bool plane_reached(double position, double target);
 /** `solprop.stepper.schedule.replay_tolerance`: a replayed edge's slack at `position`,

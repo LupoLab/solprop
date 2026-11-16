@@ -24,8 +24,6 @@
 #include "march.hpp"
 #include "records.hpp"
 #include "solprop_native/problem/problem.hpp"
-#include "solprop_native/problem/run_records.hpp"
-#include "solprop_native/problem/workspace.hpp"
 #include "solprop_native/runtime/crossing.hpp"
 #include "solprop_native/runtime/execution.hpp"
 #include "solprop_native/runtime/fields.hpp"
@@ -37,6 +35,8 @@
 #include "solprop_native/session/watch.hpp"
 #include "solprop_native/transforms/fftw_wisdom.hpp"
 #include "solprop_native/transforms/reference_timing.hpp"
+#include "solprop_native/workspace/run_records.hpp"
+#include "solprop_native/workspace/workspace.hpp"
 #include "transverse.hpp"
 
 #include <Kokkos_Core.hpp>

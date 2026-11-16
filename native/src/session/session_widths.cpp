@@ -2,22 +2,19 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A spatial route's fluence widths, finished natively: namespace `statistics::widths`
-// of statistics_plan.hpp. `radial`, `line`, `of_block` and `of_plane` return the
-// second-moment, 1/e^2 and FWHM widths, m, over NumPy's pairwise sum (`pairwise_sum`),
-// and refuse as solprop's host finishing does, with its messages. The reference
-// functions and the strictness rationale are the note before the pragma below.
-
-// solprop SEP 47 section 6.4: a spatial route's fluence widths, finished natively from
-// the reductions the native passes leave, as solprop's host finishing reads them
+// A spatial route's fluence widths, finished natively (solprop SEP 47 section 6.4):
+// namespace `statistics::widths` of statistics_plan.hpp, from the reductions the native
+// passes leave, as solprop's host finishing reads them
 // (`solprop.backends.spatial.signed_fluence_widths`, `plane_fluence_widths`;
 // `solprop.spatial.radial_fluence_widths`, `cartesian_fluence_widths`,
-// `_line_fluence_widths`, `_fluence_rings`, `_ring_fluence_widths`). Each NumPy sum is
-// taken in NumPy's pairwise order, so on a radial, line or slab profile the widths are
-// the host's bit for bit; a plane's extent is `std::hypot`, which may differ from
-// Python's `math.hypot` in its last bit. The arithmetic rounds as NumPy's does, so this
-// file takes no contraction (CMake), and the optimize attribute keeps GCC from inlining
-// it into a contracting caller.
+// `_line_fluence_widths`, `_fluence_rings`, `_ring_fluence_widths`). `radial`, `line`,
+// `of_block` and `of_plane` return the second-moment, 1/e^2 and FWHM widths, m, and
+// refuse as the host finishing does, with its messages. Each NumPy sum is taken in
+// NumPy's pairwise order (`pairwise_sum`), so on a radial, line or slab profile the
+// widths are the host's bit for bit; a plane's extent is `std::hypot`, which may differ
+// from Python's `math.hypot` in its last bit. The arithmetic rounds as NumPy's does, so
+// this file takes no contraction (CMake), and the optimize attribute below keeps GCC
+// from inlining it into a contracting caller.
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC optimize("fp-contract=off")
 #endif

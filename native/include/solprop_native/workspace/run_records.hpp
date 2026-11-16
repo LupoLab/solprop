@@ -13,12 +13,11 @@
 // where the native tests reach it.
 //
 // Types: the set-once `Setup` and its parts (`ZTable`, `ZSlotsConfig`, `FlowGuard`,
-// `RungeKuttaConfig`, `AdamsConfig`, `Occupancy`); a run's state-side tables
-// (`MonitorBinding`, `EdgeBinding`); the run records mirroring
-// `solprop.backends.records` (`RunRecordsRecord` and its parts, `HistoryRow`); and
-// `RunStart`, what a run starts from. Functions: the `to_native` conversions,
-// `fault_from` (a test's injected failure) and `validate` (the stage tables), defined
-// in src/problem/workspace.cpp.
+// `RungeKuttaConfig`, `AdamsConfig`, `Occupancy`); the run records mirroring
+// `solprop.backends.records` (`RunRecordsRecord` and its parts); `HistoryRow`; a run's
+// state-side tables (`MonitorBinding`, `EdgeBinding`); and `RunStart`, what a run
+// starts from. Functions: the `to_native` conversions, `fault_from` (a test's injected
+// failure) and `validate` (the stage tables), defined in src/workspace/run_records.cpp.
 
 #include "solprop_native/general/general_state.hpp"
 #include "solprop_native/march/adams_march.hpp"
@@ -159,24 +158,6 @@ struct AdamsConfig {
       fields::array("weights", &A::weights, E::any()));
 }
 
-/** The boundary monitor's weights where the state lives (solprop SEP 21), a run's: each
-    run's monitor is its own (`RunRequest.for_run`). `split` says the monitor reads the
-    split collar's crossing, whose walk-off buckets are the problem's (`Occupancy`). */
-struct MonitorBinding {
-  std::vector<double> weights;
-  std::vector<double> column_weights;
-  bool split = false;
-};
-
-[[nodiscard]] constexpr auto describe(const MonitorBinding* /*unused*/) {
-  using M = MonitorBinding;
-  using E = fields::Extent;
-  return fields::table<M>("MonitorBinding",
-                          fields::array("weights", &M::weights, E::any()),
-                          fields::array("column_weights", &M::column_weights, E::any()),
-                          fields::value("split", &M::split));
-}
-
 /** The split collar's walk-off bucket of each bin (solprop #440), the problem's: set
     once, and bound to the state by the first run whose monitor reads it. */
 struct Occupancy {
@@ -191,29 +172,6 @@ struct Occupancy {
       "Occupancy",
       fields::array("buckets", &O::buckets, fields::Dtype::uint8, E::any()),
       fields::value("count", &O::count));
-}
-
-/** The transverse edge's tables where the state lives (solprop SEP 44), a run's: the
-    faces', the clip's and the totals' weights, a reduction's synthesis (empty for
-   none), the first row, and a requested collar's lines. */
-struct EdgeBinding {
-  std::vector<double> faces;
-  std::vector<double> clip;
-  std::vector<double> totals;
-  std::vector<double> synthesis;
-  std::size_t first_row = 0;
-  std::optional<EdgeLines> lines;
-};
-
-[[nodiscard]] constexpr auto describe(const EdgeBinding* /*unused*/) {
-  using B = EdgeBinding;
-  using E = fields::Extent;
-  return fields::table<B>("EdgeBinding", fields::array("faces", &B::faces, E::any()),
-                          fields::array("clip", &B::clip, E::any()),
-                          fields::array("totals", &B::totals, E::any()),
-                          fields::array("synthesis", &B::synthesis, E::any()),
-                          fields::value("first_row", &B::first_row),
-                          fields::value("lines", &B::lines));
 }
 
 /** Everything fixed for a workspace beside the problem's groups (SEP 52 section 5.3).
@@ -244,9 +202,10 @@ struct Setup {
 }
 
 // -------------------------------------------------------------------- the run records
-// The structs below mirror `solprop.backends.records`, field for field, so that one
-// table holds each to its Python dataclass; `to_native` forms what the marches and the
-// session read from them.
+// The structs below up to `RunRecordsRecord` mirror `solprop.backends.records`, field
+// for field, so that one table holds each to its Python dataclass; `to_native` forms
+// what the marches and the session read from them. Then the rest of what a run starts
+// from: a resumed history's rows, the run's state-side tables and `RunStart` itself.
 
 /** `solprop.stepper.controller.PIController`. */
 struct ControllerRecord {
@@ -467,6 +426,47 @@ struct HistoryRow {
                           fields::count("n_slots", &H::n_slots),
                           fields::count("n_rows", &H::n_rows),
                           fields::count("n_omega", &H::n_omega));
+}
+
+/** The boundary monitor's weights where the state lives (solprop SEP 21), a run's: each
+    run's monitor is its own (`RunRequest.for_run`). `split` says the monitor reads the
+    split collar's crossing, whose walk-off buckets are the problem's (`Occupancy`). */
+struct MonitorBinding {
+  std::vector<double> weights;
+  std::vector<double> column_weights;
+  bool split = false;
+};
+
+[[nodiscard]] constexpr auto describe(const MonitorBinding* /*unused*/) {
+  using M = MonitorBinding;
+  using E = fields::Extent;
+  return fields::table<M>("MonitorBinding",
+                          fields::array("weights", &M::weights, E::any()),
+                          fields::array("column_weights", &M::column_weights, E::any()),
+                          fields::value("split", &M::split));
+}
+
+/** The transverse edge's tables where the state lives (solprop SEP 44), a run's: the
+    faces', the clip's and the totals' weights, a reduction's synthesis (empty for
+   none), the first row, and a requested collar's lines. */
+struct EdgeBinding {
+  std::vector<double> faces;
+  std::vector<double> clip;
+  std::vector<double> totals;
+  std::vector<double> synthesis;
+  std::size_t first_row = 0;
+  std::optional<EdgeLines> lines;
+};
+
+[[nodiscard]] constexpr auto describe(const EdgeBinding* /*unused*/) {
+  using B = EdgeBinding;
+  using E = fields::Extent;
+  return fields::table<B>("EdgeBinding", fields::array("faces", &B::faces, E::any()),
+                          fields::array("clip", &B::clip, E::any()),
+                          fields::array("totals", &B::totals, E::any()),
+                          fields::array("synthesis", &B::synthesis, E::any()),
+                          fields::value("first_row", &B::first_row),
+                          fields::value("lines", &B::lines));
 }
 
 /** What one run starts from (`Workspace::start`): its records, the initial field and
