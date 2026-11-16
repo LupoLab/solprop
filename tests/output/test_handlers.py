@@ -570,6 +570,30 @@ def test_the_memory_store_names_what_it_holds_when_a_key_is_missing(grid, metada
         memory["step_history/banana"]
 
 
+@pytest.mark.parametrize(
+    "key",
+    ["field", "z", "noise_phase", "stats/energy", "step_history/h", "step_stats/z"],
+)
+def test_the_memory_store_hands_out_read_only_views(grid, metadata, key):
+    memory = MemoryOutput()
+    run_into(memory, grid, metadata, 2, with_noise=True)
+    stored = memory[key]
+    # A view of the buffer, not a copy, and one that cannot write the run.
+    assert not stored.flags.writeable
+    before = stored.copy()
+    with pytest.raises(ValueError, match="read-only"):
+        stored[...] = 0
+    assert np.array_equal(memory[key], before)
+
+
+def test_the_memory_store_views_share_its_buffers(grid, metadata):
+    memory = MemoryOutput()
+    run_into(memory, grid, metadata, 2)
+    assert np.shares_memory(memory["field"], memory["field"])
+    assert np.shares_memory(memory.plane_field(-1), memory["field"])
+    assert not memory.plane_field(-1).flags.writeable
+
+
 def test_the_memory_store_refuses_a_field_before_the_first_plane(metadata):
     memory = MemoryOutput()
     memory.open(metadata)
