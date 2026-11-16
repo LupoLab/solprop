@@ -25,7 +25,7 @@ from solprop.driver.interface import (
 from solprop.driver.settings import SimulationSettings
 from solprop.exceptions import DriverError
 from solprop.modes.slab import SlabMode
-from solprop.recipe import metadata
+from solprop.recipe import metadata, type_metadata
 from solprop.recipe.document import EXECUTION_KEYS, REFUSED_BUILD_KEYS
 from solprop.recipe.quantity import Unit
 from solprop.recipe.registry import REGISTRY
@@ -239,8 +239,9 @@ def test_a_type_s_table_names_every_keyword_its_target_takes(name):
         if parameter.kind not in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD)
         and parameter.name not in factory.omitted
     ][len(factory.context) :]
-    assert [entry.name for entry in metadata._TYPES[name]] != [] or not keywords
-    assert sorted(entry.name for entry in metadata._TYPES[name]) == sorted(keywords)
+    entries = type_metadata._TYPES[name]
+    assert [entry.name for entry in entries] != [] or not keywords
+    assert sorted(entry.name for entry in entries) == sorted(keywords)
     assert list(metadata.parameters(name)) == keywords
 
 
