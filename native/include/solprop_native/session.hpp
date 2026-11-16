@@ -5,8 +5,8 @@
 #pragma once
 
 #include "solprop_native/adams_march.hpp"
-#include "solprop_native/dense.hpp"
 #include "solprop_native/rk_march.hpp"
+#include "solprop_native/session_dense.hpp"
 #include "solprop_native/session_resident.hpp"
 #include "solprop_native/statistics_plan.hpp"
 #include "solprop_native/transverse.hpp"
