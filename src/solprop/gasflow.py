@@ -526,7 +526,8 @@ def choked_pressure(
     -------
     float
         The exit pressure in bar below which the exit throughput would exceed the
-        sonic limit; the module docstring gives the relation.
+        sonic limit; ``docs/guide/waveguides/profiles.md``, "A vacuum end is
+        choked", gives the relation.
 
     Raises
     ------
