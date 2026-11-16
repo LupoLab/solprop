@@ -656,3 +656,67 @@ def test_the_low_storage_probe_steps_in_place_and_closes_its_workspace(
         probe.field()
     probe.close()
     assert workspace.closed
+
+
+# -- the engines and the test hooks ---------------------------------------------------
+
+
+def test_the_engines_take_the_probe_s_trial_through_solprop_s_protocol(
+    phase_a_case: PhaseACase,
+) -> None:
+    problem, request, grid = phase_a_case
+    dz = float(request.stepper.dz_init)
+    backend = NativeBackend(problem, request, grid=grid, fft_planning=_PLANNING)
+    try:
+        workspace = _workspace(backend, problem, request)
+        start = _run_start(backend, problem, request)
+    finally:
+        backend.close()
+    try:
+        probe = workspace.probe(start)
+        expected = probe.trial(0.0, dz)
+        probe.close()
+        engines = _testing.engines(workspace)
+        # The engines hold the workspace as a session does.
+        with pytest.raises(RuntimeError, match="leased"):
+            workspace.start(start)
+        loaded = engines.field()
+        assert loaded.shape == (1, problem.shape[-1])
+        assert engines.rk_trial(0.0, dz) == pytest.approx(expected, rel=64 * EPS)
+        assert not engines.rk_in_flight
+        stage = engines.stage(0)
+        assert stage.shape == loaded.shape
+        record = engines.rk_accept(dz)
+        assert isinstance(record, protocol.AcceptRecord)
+        assert math.isnan(record.stiffness)
+        # The committed state moved; its reading is the protocol's record.
+        assert not np.array_equal(engines.field(), loaded)
+        with pytest.raises(RuntimeError, match="no boundary readings|monitor"):
+            engines.rk_reading()
+        engines.close()
+        session = workspace.start(start)
+        session.close()
+    finally:
+        workspace.close()
+
+
+def test_an_injected_fault_fails_the_run_at_its_stage(phase_a_case: PhaseACase) -> None:
+    problem, request, grid = _case(phase_a_case, "low_storage")
+    backend = NativeBackend(problem, request, grid=grid, fft_planning=_PLANNING)
+    try:
+        workspace = _workspace(backend, problem, request)
+        start = _run_start(backend, problem, request)
+    finally:
+        backend.close()
+    try:
+        with pytest.raises(ValueError, match="a march fault's stage"):
+            _testing.inject_fault(workspace, "finish", 0, "value")
+        # The second step's trial fails, after the first committed.
+        _testing.inject_fault(workspace, "trial", 1, "value")
+        session = workspace.start(start)
+        _, terminal = _drive(session, int(np.prod(problem.shape)))
+        session.close()
+        assert terminal.outcome == 3  # failed
+        assert "injected" in terminal.message
+    finally:
+        workspace.close()
