@@ -58,6 +58,36 @@ install does not rebuild itself: after changing C++ sources or CMake options, ru
 contributor rules for this directory are in [`AGENTS.md`](https://github.com/LupoLab/solprop/blob/main/native/AGENTS.md), beside the
 repository's [`AGENTS.md`](https://github.com/LupoLab/solprop/blob/main/AGENTS.md).
 
+### Source layout
+
+| Directory | What lives there |
+|---|---|
+| `include/solprop_native/runtime/` | Execution spaces and launches, the floating-point policy (`fp.hpp`), vector maths, the CPU thread policy, crossings, field tables, refusals, the host source hook |
+| `include/solprop_native/transforms/` | FFT plans and FFTW wisdom, the Raman FFT, the GEMM kernels, the slab transform (header-only) |
+| `include/solprop_native/problem/` | `Problem`, the tables fixed for a workspace; the run records; `Workspace`, with its lease, marches, session and probe |
+| `include/solprop_native/response/` | The material responses: the plasma band scans, envelope plasma, dispersive Kerr, the general modal source, the far field, the coupled flow |
+| `include/solprop_native/march/` | The steppers: the Adams and Runge-Kutta marches, low-storage RK4IP, dense output, the engines, stage and z tables |
+| `include/solprop_native/session/` | The native execution session (solprop SEP 47) and what it consults: the boundary watch, the transverse edge, the statistics plan |
+| `include/solprop_native/general/` | `GeneralState`, the general route's state; its implementation is private to `src/general/` |
+| `src/{runtime,problem,response,march,session}/` | The definitions behind the headers of the same name |
+| `src/general/` | The general workspace: refusals, setup, statistics, and the hot set, one translation unit (`trial.cpp`) in topic fragments (`trial_*.inc`) |
+| `src/bindings/` | The nanobind seam: the `_core` module and its `_testing` submodule, one file a bound concept |
+| `src/solprop_native/` | The Python adapter: `backend.py`, `_lowering.py`, `_load.py`, `_march.py`, `_probe.py`, `_device.py`, `_build.py`, `session.py`, … |
+| `tests/native/` | The GoogleTest unit tests of the C++ library (`ctest`) |
+| `tests/` | The Python tests, through the built extension |
+
+Each layer of `runtime` ← `transforms`, `problem` ← `response`, `march` ← `session`,
+`general` ← `bindings` ← the Python adapter includes only those to its left, with three
+exceptions among the headers. `general/general_state.hpp` sits low, beside
+`problem.hpp`: the marches, the flow functions and the session's statistics include it,
+and only `src/general/` sits high. The session's helper headers (`watch.hpp`,
+`transverse.hpp`, `session_resident.hpp`, `session_dense.hpp`, …) sit among the
+marches, which include them; only `session.hpp` is above `march/`.
+`problem/workspace.hpp` and `run_records.hpp` sit at the top, under `bindings/`, since
+the workspace owns the marches and the session. The strict floating-point files
+(`-ffp-contract=off`, see `AGENTS.md`) are those of `src/march/` but `engines.cpp`, and
+every file of `src/session/`.
+
 ### Tests
 
 From `native/`, in that environment:

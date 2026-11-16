@@ -3,6 +3,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // GeneralState over its workspace: host transfers, closing and the forwarders.
+// GeneralWorkspace's part: field_to_host, cross_to_host, stage_to_host and
+// projected_to_host (each one copy from the memory space into the caller's buffer),
+// dispersive_path, and the destructor, which fences before the members are released.
+// GeneralState's part (include/solprop_native/general/general_state.hpp): the
+// constructor, one forwarder per workspace call through with_team (refused once the
+// state is closed, run inside the problem's CpuTeamScope), the counters' readers,
+// and close and closed.
 
 #include "general_workspace.hpp"
 

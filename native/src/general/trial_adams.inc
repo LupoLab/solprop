@@ -5,8 +5,9 @@
 // The Adams march's engine passes (solprop SEP 16): the resident history (allocation,
 // phase, start, scale, divisor, defect norms, fused trial and accept, hold and
 // restore, row transfers, z-tables, observation), the exponential and elementwise
-// trials with their accept and observation, then the Runge-Kutta dense output,
-// collect_trial and reuse_fsal, which share the strict adams_phase_sum.
+// trials with their accept and observation, then the Runge-Kutta dense output
+// (solprop SEP 47), which shares the strict adams_phase_sum, and collect_trial and
+// reuse_fsal, which follow it in the unit's order.
 //
 // Part of trial.cpp's translation unit (included there, in order; never
 // compiled alone).
@@ -19,7 +20,8 @@
 // adoption and transport of an accepted step and dense observation all stay in device
 // memory; only the trial's scalars, its coefficient tables (by value, in AdamsWeights)
 // and the norms cross. Each pass is the host engine's arithmetic (solprop's
-// backends/multistep.py, HostHistory and AdamsKernels), checked against it in parity.
+// backends/numpy_ref/multistep.py, HostHistory and AdamsKernels), checked against it
+// in parity.
 
 void GeneralWorkspace::adams_allocate(const std::size_t slots, const bool compensated,
                                       const bool interpolate) {

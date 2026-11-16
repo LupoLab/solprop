@@ -2,6 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The platform queries behind memory.hpp: heap_bytes reads the allocator's bytes in
+// use (malloc_zone_statistics on macOS, glibc's mallinfo2 found at run time, zero
+// elsewhere), device_free_bytes the CUDA or HIP runtime's free memory (zero on a host
+// build).
+
 #include "memory.hpp"
 
 #include <Kokkos_Core.hpp>

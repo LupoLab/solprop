@@ -2,6 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// Tests of the dispersive response (`response/dispersive.hpp`, solprop SEP 6): the
+// isotropic contractions and leg groups against their tensor sums, the mixture rows and
+// polynomial weights against the reference arithmetic, and through the general state a
+// unit filter's cubic, a trial's stage densities, refusals and a problem without it.
+
 #include "execution.hpp"
 #include "solprop_native/general/general_state.hpp"
 #include "solprop_native/problem/problem.hpp"

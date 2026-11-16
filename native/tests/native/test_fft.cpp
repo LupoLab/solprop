@@ -2,6 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// Tests of the FFT providers (`transforms/fft_plan.hpp`, `transforms/fftw_wisdom.hpp`,
+// `transforms/raman_fft.hpp`): the sign and raw normalisation of real and complex
+// batches, padding and partial rows left untouched, the plan policy's effort by shape
+// and width, scoped team loops, and the wisdom text's round trip and refusals.
+
 #include "solprop_native/runtime/cpu_execution.hpp"
 #include "solprop_native/runtime/execution.hpp"
 #include "solprop_native/transforms/fft_plan.hpp"

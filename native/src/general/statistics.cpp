@@ -3,7 +3,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // The general workspace's statistics and, in statistics_monitor.inc (included at the
-// end), its boundary monitor's readings.
+// end), its boundary monitor's readings, each formed on the state where it lives.
+// Functions: statistics, a plane's packed record over the analytic time rows
+// (fill_statistics_time, form_statistics_power; pack_energy, statistics_window_energy,
+// statistics_intensity, statistics_plasma); whitened_statistics, a general modal
+// basis's; the magnetic closure (require_flux_closure, fill_statistics_closure,
+// solprop SEP 34); the separable geometries' time statistics and fluence
+// (separable_time_statistics, separable_fluence, plane_fluence_moments,
+// plane_fluence_trace); the on-axis spectrum and populations (axis_spectrum,
+// statistics_modal_time, axis_populations, solprop SEP 19); spatial_statistics, the
+// transverse plane's; and aperture_statistics, the far-field pass's (solprop SEP 23).
 
 #include "general_workspace.hpp"
 #include "memory.hpp"
