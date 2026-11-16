@@ -30,7 +30,7 @@ from solprop.recipe.document import (
     encode_integer,
     read_data_file,
 )
-from solprop.recipe.metadata import REQUIRED, parameters
+from solprop.recipe.metadata import OBJECT_ROUTES, REQUIRED, parameters
 
 if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
@@ -150,8 +150,18 @@ def resolved_document(
         entry = table.get(name)
         if entry is not None and entry.resolvable and name not in build:
             build[name] = value
-    # save_planes is resolvable on every route, so the planes n_save stood for are now
-    # written out.
+    # The run's resolved positions, ending at its length, replace whatever selector
+    # was authored or defaulted (SEP 51 section 5.9), at the level the route reads
+    # them: a later change of a default count cannot change the rebuilt run.
+    planes = np.asarray(simulation.settings.save_planes, dtype=float).tolist()
+    nested = build.get("settings")
+    if recipe.route in OBJECT_ROUTES and isinstance(nested, Mapping):
+        settings_table = dict(nested)
+        settings_table.pop("n_save", None)
+        settings_table["save_planes"] = planes
+        build["settings"] = settings_table
+    else:
+        build["save_planes"] = planes
     build.pop("n_save", None)
     noise = simulation.noise
     if noise is not None and noise.seed is not None and "seed" not in build:
