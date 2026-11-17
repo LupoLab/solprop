@@ -242,8 +242,8 @@ class NumpyRefBackend:
         ----------
         host : object
             The run's session, the march's
-            :class:`~solprop.backends.numpy_ref.marches.MarchHost`; ``None`` for a march
-            that never steps.
+            :class:`~solprop.backends.numpy_ref.marches.host.MarchHost`; ``None`` for a
+            march that never steps.
 
         Returns
         -------

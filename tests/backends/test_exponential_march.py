@@ -34,8 +34,8 @@ from solprop.backends.numpy_ref.adams_tables import (
     fused_tables,
     trial_tables,
 )
-from solprop.backends.numpy_ref.marches import MarchState
 from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
+from solprop.backends.numpy_ref.marches.host import MarchState
 from solprop.exceptions import (
     BackendError,
     ConvergenceError,

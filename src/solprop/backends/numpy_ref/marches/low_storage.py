@@ -9,7 +9,7 @@
 trial: the reference's is :class:`solprop.backends.numpy_ref.engines.NumpyLowStorage`,
 which holds the registers and makes the step's four passes. The engine owns the
 in-flight flag and the finish; the march owns the committed position, in its own
-:class:`~solprop.backends.numpy_ref.marches.MarchState`, and the count of committed
+:class:`~solprop.backends.numpy_ref.marches.host.MarchState`, and the count of committed
 source evaluations. The method, the register form and the in-flight contract are those
 of :mod:`solprop.backends.low_storage`'s module documentation.
 """
@@ -21,7 +21,11 @@ from typing import cast
 
 from solprop._interrupts import committing
 from solprop.backends.engines import RungeKuttaEngine
-from solprop.backends.numpy_ref.marches import MarchHost, MarchState, in_flight_refusal
+from solprop.backends.numpy_ref.marches.host import (
+    MarchHost,
+    MarchState,
+    in_flight_refusal,
+)
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import FixedSchedule, replay_tolerance
@@ -45,7 +49,7 @@ class HostLowStorageMarch:
         The engine.
     method : solprop.stepper.low_storage.LowStorageRungeKutta
         The march.
-    host : solprop.backends.numpy_ref.marches.MarchHost
+    host : solprop.backends.numpy_ref.marches.host.MarchHost
         The session the march reports to.
     schedule : solprop.stepper.schedule.FixedSchedule
         The schedule it replays.
@@ -58,7 +62,7 @@ class HostLowStorageMarch:
 
     Attributes
     ----------
-    state : solprop.backends.numpy_ref.marches.MarchState
+    state : solprop.backends.numpy_ref.marches.host.MarchState
         The march's position, proposal, cursor and accepted norms.
     source_evaluations : int
         Source evaluations of the committed steps since the state was last loaded,

@@ -5,8 +5,8 @@
 """The reference's Runge-Kutta march, adaptive and replayed (SEP 45, SEP 52).
 
 :class:`RungeKuttaMarch` holds the march's state
-(:class:`~solprop.backends.numpy_ref.marches.MarchState`) and makes its decisions with
-:mod:`solprop.backends.rk_core`'s functions of one policy record; every state-sized
+(:class:`~solprop.backends.numpy_ref.marches.host.MarchState`) and makes its decisions
+with :mod:`solprop.backends.rk_core`'s functions of one policy record; every state-sized
 operation is its engine's (:class:`~solprop.backends.engines.RungeKuttaEngine`). It is
 the counterpart of native's ``rk_march.cpp``, whose decisions on identical inputs are
 its own (the decision traces of ``tests/backends``).
@@ -26,7 +26,7 @@ import numpy as np
 from solprop._interrupts import committing
 from solprop.backends import rk_core
 from solprop.backends.engines import RungeKuttaEngine
-from solprop.backends.numpy_ref.marches import MarchHost, MarchState
+from solprop.backends.numpy_ref.marches.host import MarchHost, MarchState
 from solprop.backends.records import RungeKuttaPolicy
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper.schedule import (
@@ -49,7 +49,7 @@ class RungeKuttaMarch:
         The engine.
     policy : solprop.backends.records.RungeKuttaPolicy
         The controller and the landings.
-    host : solprop.backends.numpy_ref.marches.MarchHost
+    host : solprop.backends.numpy_ref.marches.host.MarchHost
         The session the march reports to.
     schedule : solprop.stepper.schedule.FixedSchedule or None
         The schedule to replay, or ``None`` to step adaptively.
@@ -60,7 +60,7 @@ class RungeKuttaMarch:
 
     Attributes
     ----------
-    state : solprop.backends.numpy_ref.marches.MarchState
+    state : solprop.backends.numpy_ref.marches.host.MarchState
         The march's position, proposal, cursor and accepted norms.
     """
 

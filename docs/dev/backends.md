@@ -199,7 +199,7 @@ forbidden.
 native run is its native session's (`solprop_native.session`, over `session.cpp`), whose
 compiled marches advance to an event from one policy record and hand back the events
 (SEP 47). Each reference march keeps its position, proposal, replay cursor and accepted
-norms in its own `MarchState` (`backends/numpy_ref/marches/__init__.py`), asks the session only through
+norms in its own `MarchState` (`backends/numpy_ref/marches/host.py`), asks the session only through
 the narrow `MarchHost`, and hands every state-sized operation to an engine of
 `solprop.backends.engines` over the reference's workspace, `NumpyWorkspace`
 (`backends/numpy_ref/workspace.py`), which holds the state and does every state-sized

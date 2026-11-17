@@ -38,7 +38,7 @@ import numpy as np
 
 from solprop.backends import rk_core
 from solprop.backends.engines import AcceptRecord
-from solprop.backends.numpy_ref.marches import MarchState
+from solprop.backends.numpy_ref.marches.host import MarchState
 from solprop.backends.numpy_ref.marches.runge_kutta import RungeKuttaMarch
 from solprop.backends.numpy_ref.session import natural_stop, step_cap
 from solprop.backends.records import runge_kutta_policy
@@ -186,10 +186,11 @@ class _Scripted:
     """A stub session: what the Runge-Kutta marches ask of it, recording it.
 
     The reference's march asks through
-    :class:`~solprop.backends.numpy_ref.marches.MarchHost` (:class:`_HostHarness`); the
-    native march's call-by-call adapter (``native_trace_marches.TraceRungeKuttaMarch``)
-    reads the members set here, in the names the reference's step driver had, so that
-    both marches decide on the same scripted readings.
+    :class:`~solprop.backends.numpy_ref.marches.host.MarchHost` (:class:`_HostHarness`);
+    the native march's call-by-call adapter
+    (``native_trace_marches.TraceRungeKuttaMarch``) reads the members set here, in the
+    names the reference's step driver had, so that both marches decide on the same
+    scripted readings.
     """
 
     name = "scripted"
