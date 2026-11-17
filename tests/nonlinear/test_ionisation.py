@@ -238,7 +238,7 @@ def test_no_field_ionises_nothing():
 
 @pytest.mark.parametrize("bad", [0.0, -1.0, math.inf, math.nan])
 def test_a_non_positive_wavelength_is_rejected(bad):
-    with pytest.raises(MaterialError, match="wavelength must be positive"):
+    with pytest.raises(MaterialError, match="wavelength must be finite and positive"):
         keldysh(Gas.He, bad, 1e10)
 
 
@@ -261,7 +261,7 @@ def test_a_non_finite_field_is_rejected(bad):
 
 @pytest.mark.parametrize("bad", [0.0, -1.0, math.inf, math.nan])
 def test_a_non_positive_time_step_is_rejected(bad):
-    with pytest.raises(MaterialError, match="dt must be positive"):
+    with pytest.raises(MaterialError, match="dt must be finite and positive"):
         ionisation_fraction(adk_oracle("He"), np.zeros(4), bad)
 
 

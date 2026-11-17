@@ -130,7 +130,7 @@ def test_optmats_tracker_ids_are_dropped_from_a_rate_range_warning():
     text = "below 350 nm (the carrier) the rate is extrapolated"
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        warnings.warn(f"{text} (TC-831)", ModelRangeWarning, stacklevel=1)
+        warnings.warn(f"{text} (TC-1)", ModelRangeWarning, stacklevel=1)
     with (
         _optmat.material_context() as log,
         pytest.warns(MaterialRangeWarning) as raised,
@@ -535,7 +535,7 @@ def test_construction_refuses_what_optmat_does_not_serve():
     ):
         with pytest.raises(MaterialError, match=keyword):
             OptmatRate("Ar", WAVELENGTH, **cast("Any", {keyword: value}))
-    with pytest.raises(MaterialError, match="wavelength must be positive"):
+    with pytest.raises(MaterialError, match="wavelength must be finite and positive"):
         OptmatRate("Ar", True)
     for span in ((1e9, 1e8), (0.0, 1e9), (1e9, math.inf)):
         with pytest.raises(MaterialError, match="field_range"):

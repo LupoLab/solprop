@@ -4,9 +4,13 @@
 
 """Bridge solprop's physics layer to optmat: units, identities, warnings and errors.
 
-Every call into optmat goes through this module, which imports optmat only inside its
-functions: optmat's registries take more than a second to import, and ``import solprop``
-must not pay for them.
+The units, identities, warning and error translation and caching that every optmat
+adapter shares live here; each adapter (``species``, ``sellmeier``, ``glasses``,
+``nonlinear_data``, ``transport``, ``solprop.nonlinear.optmat_rates`` and
+``optmat_raman``, ``solprop.capabilities``) imports the optmat modules it needs
+directly. All of them, this module included, import optmat only inside functions:
+optmat's registries take more than a second to import, and ``import solprop`` must not
+pay for them.
 
 - **Units**: :func:`bar_to_pa` and :func:`pa_to_bar` (exactly ``1e5``),
   :func:`omega_to_wavelength` and :func:`wavelength_to_omega` (``omega = 0`` is optmat's
@@ -195,15 +199,20 @@ def material_context(log: MaterialLog | None = None) -> Iterator[MaterialLog]:
         _LOGS.reset(token)
 
 
-_TRACKER_IDS: Final = re.compile(r"\s*\(TC-\d+(?:,\s*TC-\d+)*\)")
-"""A parenthesis holding only optmat's internal tracker ids, ``(TC-527, TC-688)``."""
+_TRACKER_IDS: Final = re.compile(
+    r"\s*\(TC-\d+(?:,\s*TC-\d+)*\)"  # a parenthesis of ids only: (TC-1, TC-2)
+    r"|[;,]\s*TC-\d+(?:,\s*TC-\d+)*(?=\))"  # ids closing one: (a stopgap, TC-1)
+    r"|(?<=\()TC-\d+(?:,\s*TC-\d+)*[;,]\s*"  # ids opening one: (TC-1; a source)
+)
+"""optmat's internal tracker ids, with the parenthesis or separator that holds them."""
 
 
 def optmat_text(message: Warning | str) -> str:
-    """Return the text of an optmat warning without its internal tracker ids.
+    """Return the text of an optmat warning or status reason without its tracker ids.
 
-    optmat cites its development tracker in some warnings, a reference a solprop
-    user cannot look up (issue #166); the rest of the text is kept as it is.
+    optmat cites its development tracker in some warnings and status reasons, a
+    reference a solprop user cannot look up (issue #166); the rest of the text is kept
+    as it is.
     """
     return _TRACKER_IDS.sub("", str(message))
 
@@ -256,10 +265,11 @@ def check_status(model: object, material: str) -> MaterialRecord:
     """
     entry = record(model)
     if entry.status in _FLAGGED:
+        reason = entry.status_reason.rstrip(".")
         warn_once(
             ("status", entry.digest),
             f"{material}: optmat's {entry.kind} model {entry.name} is {entry.status}"
-            f" ({entry.status_reason}); it is used as selected, and recorded",
+            f" ({reason}); it is used as selected, and recorded",
             MaterialStatusWarning,
         )
     return entry

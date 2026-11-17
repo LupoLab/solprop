@@ -226,8 +226,8 @@ _GRID_UNITS: Final[Mapping[str, UnitSpec]] = {
 }
 _GRADIENT_UNITS: Final[Mapping[str, UnitSpec]] = {
     "length": "m",
-    "start_bar": "bar",
-    "end_bar": "bar",
+    "start_pressure": "bar",
+    "end_pressure": "bar",
     "floor": "bar",
     "radius": "m",
     "positions": "m",

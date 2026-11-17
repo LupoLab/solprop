@@ -35,6 +35,7 @@ from jaxtyping import Float
 from numpy.typing import ArrayLike
 from scipy import integrate
 
+from solprop._validation import positive
 from solprop.constants import AU_EFIELD, AU_ENERGY, AU_TIME, C
 from solprop.exceptions import GridError, MaterialError
 from solprop.physdata.gases import Gas, as_gas
@@ -232,8 +233,7 @@ def rate_energy(rate: EvaluableRate) -> tuple[str, float] | None:
     A rate that carries its own energy per event (SEP 3, D8: the loss uses the energy
     the rate's exponent uses, :class:`solprop.nonlinear.optmat_rates.OptmatRate`)
     declares it as ``plasma_energy`` beside its ``species_identity``. Every other rate
-    declares none, and its response takes the species' ionisation potential, as
-    before.
+    declares none, and its response takes the species' ionisation potential.
 
     Parameters
     ----------
@@ -386,7 +386,7 @@ def keldysh(
     >>> f"{keldysh('Ar', 800e-9, 5e10):.3f}"
     '0.630'
     """
-    _validate_positive("wavelength", wavelength)
+    positive(wavelength, "wavelength", MaterialError, reject_bool=True)
     ip_au = ionisation_potential(gas) / AU_ENERGY
     omega0_au = 2.0 * math.pi * C / wavelength * AU_TIME
     field = _finite_field(field_amplitude)
@@ -736,20 +736,13 @@ def ionisation_fraction(
     >>> f"{fraction[-1]:.4f}"
     '0.2148'
     """
-    _validate_positive("dt", dt)
+    positive(dt, "dt", MaterialError, reject_bool=True)
     if not 0.0 <= preionisation <= 1.0:
         msg = f"preionisation must be in [0, 1], got {preionisation!r}"
         raise MaterialError(msg)
     rule = RunningIntegral.trapezoid() if integral is None else integral
     exposure = rule.floor(rule.integrate(rate(field), dt))
     return 1.0 - (1.0 - preionisation) * np.exp(-exposure)
-
-
-def _validate_positive(name: str, value: float) -> None:
-    """Raise unless ``value`` is a positive, finite number."""
-    if not math.isfinite(value) or value <= 0.0:
-        msg = f"{name} must be positive and finite, got {value!r}"
-        raise MaterialError(msg)
 
 
 def _finite_field(field_amplitude: ArrayLike | float) -> Float[np.ndarray, " *shape"]:

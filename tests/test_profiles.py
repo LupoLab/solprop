@@ -527,11 +527,13 @@ def test_a_fill_into_the_vacuum_floor_never_drops_below_it():
 @settings(max_examples=200, deadline=None)
 @given(
     length=st.floats(min_value=1e-3, max_value=10.0),
-    start_bar=st.floats(min_value=0.0, max_value=50.0),
-    end_bar=st.floats(min_value=0.0, max_value=50.0),
+    start_pressure=st.floats(min_value=0.0, max_value=50.0),
+    end_pressure=st.floats(min_value=0.0, max_value=50.0),
     fraction=st.floats(min_value=0.0, max_value=1.0),
 )
-def test_a_fill_is_monotone_bounded_and_finite(length, start_bar, end_bar, fraction):
+def test_a_fill_is_monotone_bounded_and_finite(
+    length, start_pressure, end_pressure, fraction
+):
     """No fill in the supported range produces a non-physical pressure or slope.
 
     A pressure below about 1e-154 bar squares to zero, which would collapse the
@@ -540,12 +542,12 @@ def test_a_fill_is_monotone_bounded_and_finite(length, start_bar, end_bar, fract
     highest pressure squares to a subnormal but whose floored end squares to zero, so
     the slope at the entrance was infinite; the guard is now ``MIN_STAGE_PRESSURE``.
     """
-    highest = max(start_bar, end_bar)
+    highest = max(start_pressure, end_pressure)
     if highest < MIN_STAGE_PRESSURE:
         with pytest.raises(TranslationError):
-            PressureGradient.two_point(length, start_bar, end_bar)
+            PressureGradient.two_point(length, start_pressure, end_pressure)
         return
-    fill = PressureGradient.two_point(length, start_bar, end_bar)
+    fill = PressureGradient.two_point(length, start_pressure, end_pressure)
     z = np.array([fraction * length])
     value = float(fill(z)[0])
     lower, upper = float(np.min(fill.pressures)), float(np.max(fill.pressures))

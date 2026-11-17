@@ -31,7 +31,7 @@ from solprop._display import Displayed, line
 from solprop.constants import BAR, K_B, ROOM_TEMPERATURE, C
 from solprop.exceptions import MaterialError
 from solprop.physdata import _optmat
-from solprop.physdata.equation_of_state import ideal_gas_density
+from solprop.physdata.equation_of_state import _check_state, ideal_gas_density
 from solprop.physdata.gases import Gas, as_gas
 from solprop.physdata.nonlinear_data import OptmatKerr
 from solprop.physdata.raman_types import MolecularRaman
@@ -113,10 +113,6 @@ class IdealGas:
         MaterialError
             If pressure or temperature is non-finite or outside its domain.
         """
-        if not math.isfinite(pressure) or pressure < 0:
-            raise MaterialError("partial pressure must be finite and non-negative")
-        if not math.isfinite(temperature) or temperature <= 0:
-            raise MaterialError("temperature must be finite and positive")
         return ideal_gas_density(pressure, temperature)
 
     def pressure(
@@ -141,9 +137,7 @@ class IdealGas:
         MaterialError
             If density or temperature is outside its domain.
         """
-        self.density(0.0, temperature)
-        if not math.isfinite(number_density) or number_density < 0:
-            raise MaterialError("number density must be finite and non-negative")
+        _check_state("number density", number_density, " m^-3", temperature)
         return number_density * K_B * temperature / BAR
 
 

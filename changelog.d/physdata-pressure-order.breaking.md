@@ -1,6 +1,7 @@
 The gas-property functions take one argument order, `(gas, pressure, temperature)`,
 with the pressure in bar named `pressure` and the temperature defaulting to 293.15 K
-everywhere. `density`, `ideal_gas_density`, the equations of state's `density`,
+in every function; `ReferenceState`, where a source states its own state, and the
+`EquationOfState` protocol keep it required. `density`, `ideal_gas_density`, the equations of state's `density`,
 `ReferenceState`, `gasflow.mass_flow` and `gasflow.knudsen_number` rename `pressure_bar`
 to `pressure` (write `ReferenceState(pressure=1.0, temperature=273.15)`).
 `physdata.transport.sound_speed(gas, temperature, pressure_bar=None)` becomes

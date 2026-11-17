@@ -407,15 +407,19 @@ class MaterialRecord:
         Returns
         -------
         MaterialRecord
-            Its name, kind, material, digest, status and override fields.
+            Its name, kind, material, digest, status and override fields; the
+            status reason without optmat's internal tracker ids.
         """
+        # _optmat imports this module: the import waits for the call.
+        from solprop.physdata._optmat import optmat_text  # noqa: PLC0415
+
         return cls(
             name=identity.name,
             kind=identity.kind,
             material=identity.material,
             digest=identity.digest,
             status=identity.status,
-            status_reason=identity.status_reason,
+            status_reason=optmat_text(identity.status_reason),
             optmat_version=identity.optmat_version,
             modified=identity.modified,
             base=identity.base,
