@@ -100,10 +100,11 @@ output = prop_waveguide(
 ```
 
 The guide supplies the ordered channels, so `modes` is empty; `channel=` names the
-one the pulse enters, by index or by display label. Every gas keyword above --
+one the pulse enters, by index or by display label. Every gas-filled keyword --
 `gas`, `pressure`, `temperature`, `kerr`, `thg`, `plasma`, `raman`, `n_r`,
-`n_theta`, `kronrod`, `envelope`, `node_budget` -- is refused **by name** beside a
-provider, because the guide owns what each of them would set.
+`n_theta`, `radial_rule`, `envelope`, `node_budget` and the rest -- is refused
+**by name** beside a provider when it departs from its default, because the guide owns
+what each of them would set.
 `observable_rtol` and `observable_atol` are accepted as `None`, meaning the
 solver's own `rtol` and `atol`; a number is refused by name. **`kerr_form`**
 chooses the instantaneous cubic the regions respond with: `"real"`, the default,
@@ -129,12 +130,14 @@ field that moved ([output](../results/resuming.md#what-a-general-modal-runs-key-
 A scan point writes one too ([scans](../workflows/scans.md)).
 
 A reconstruction of E and H needs the **guide beside the file**: the reference
-arrays are not stored in it, so rebuild the tables from the guide and pass the
-guide as well -- `guide=` is a **required** keyword of all six reconstruction
-accessors, with no default, so the sampling and the regions are always checked too
+arrays are not stored in it, so `guide=` is a **required** keyword of all six
+reconstruction accessors, with no default. Each rebuilds the run's tables from the
+guide, and checks the sampling and the regions; `tables=reference_tables(run,
+guide=guide)` passed to each call reuses one rebuild
 ([reading E and H back](../results/resuming.md#reading-e-and-h-back)).
 
-Its statistics are `physical_energy` and `analytic_flux`, the route's own scalar
+Its default statistics are `omega0`, `physical_energy`, `analytic_flux`, `fwhm_t` and
+`fwhm_t_outer`; `physical_energy` and `analytic_flux` are the route's own scalar
 names, with `spectral_flux` -- the same physical energy as a density in frequency,
 in J/(rad/s) -- admitted by name where it is asked for; `energy`, `peak_power`,
 `peak_power_total`, their windowed forms and `peak_intensity` are refused by name
@@ -146,8 +149,11 @@ node rule carries no embedded coarse rule to difference, so there is no
 transverse-resolution alarm to offer instead
 ([statistics](../results/statistics.md#which-names-a-basis-admits)).
 
-Like every field-grid route it applies the grid's default temporal absorber inside every
-stage (`SimulationSettings.absorber_scheme="nonlinear"`, see [boundaries](../numerics/boundaries.md)),
-which can set the step. `prop_gnlse` builds no absorber at all, so a comparison with it
-needs either `absorber_scheme="split_step"` or `absorber=None` here. Read
-[the general modal page](general-modal.md) before planning a run.
+Like every field-grid route it builds the grid's default collar and applies its
+temporal rate inside every stage (the default scheme, `"nonlinear"`; see
+[boundaries](../numerics/boundaries.md)), which can set the step.
+`absorber_scheme="split_step"` applies the same rates once per step instead, and
+`absorber=False` switches the temporal and spectral collars off. `prop_gnlse` builds its
+own grid's default collar too, so a like-for-like comparison with it passes
+`absorber=False` to both. Read [the general modal page](general-modal.md) before
+planning a run.
