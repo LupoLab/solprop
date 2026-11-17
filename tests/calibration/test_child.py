@@ -66,19 +66,35 @@ def test_a_child_prepares_times_and_probes_regions() -> None:
     assert len(replies) == 7
 
 
-def test_a_child_times_under_a_given_record() -> None:
-    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        BUILTIN_EXECUTION,
-    )
+def test_a_child_times_each_candidate_under_the_record_it_is_given() -> None:
+    import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
 
-    serial = BUILTIN_EXECUTION.updated(
+    serial = solprop_native.BUILTIN_EXECUTION.updated(
         {"stage_threshold": 1 << 40, "stage_full": 1 << 40}
-    )
-    replies = _serve(
-        {"op": "prepare", "problems": {"gnlse": 0.5}},
-        {"op": "time", "problem": "gnlse", "repeats": 1, "record": serial.native()},
-    )
-    assert isinstance(replies[1]["ok"], float)
+    ).native()
+    own = solprop_native.EXECUTION.native()
+    # The candidate differs from the process's own record, so its application shows.
+    assert own["stage_threshold"] != serial["stage_threshold"]
+    session = child._Session()  # pyright: ignore[reportPrivateUsage]
+    try:
+        session.prepare({"gnlse": 0.5})
+        assert session.time("gnlse", 1, serial) > 0
+        for record, expected, source in (
+            (serial, serial, "given"),
+            (None, own, solprop_native.EXECUTION_SOURCE),
+        ):
+            key = session._key("gnlse", record)  # pyright: ignore[reportPrivateUsage]
+            backend, _ = session.backends[key]
+            # What the workspace applied, as it reads its record back.
+            calibration = backend.metadata()["calibration"]
+            assert calibration["workspace_source"] == source
+            applied = {
+                name: entry["applied"]
+                for name, entry in calibration["workspace"].items()
+            }
+            assert applied == expected
+    finally:
+        session.close()
 
 
 def test_every_calibration_problem_builds() -> None:
