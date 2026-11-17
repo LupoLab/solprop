@@ -115,7 +115,8 @@ and its breakpoints, so a run never resumes under another gate or window
 Four things are deliberately outside it: the wall-clock start time, the package
 versions, the git provenance and the backend record. An unrelated commit or a change of
 backend does not refuse to resume a run that is otherwise the same run, and nor does a
-library upgrade, as long as it moves no number the record holds. So is the boundary
+library upgrade other than optmat's, whose version the material manifest records, as long
+as it moves no number the record holds. So is the boundary
 check's budget and guard width: a run stopped at the time window's
 edge may be resumed under a relaxed check, and its monitor's record continues across the
 resume ([watching the window's edges](../numerics/boundaries.md#watching-the-windows-edges)).
