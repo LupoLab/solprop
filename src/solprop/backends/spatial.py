@@ -975,8 +975,10 @@ def _axis_statistics(
     - Returns: requested on-axis statistics and axial fluence in J/m^2.
     """
     conversion = 0.5 * EPS0 * C
-    factor = fourier.spectral_density(
-        np.ones(grid.n_omega, complex), grid.dt, kind=grid.kind
+    # The energy weight of each bin per unit frequency: on a field grid the end bins
+    # take the analytic signal's weight, a quarter of an interior bin's.
+    factor = (
+        fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind) / grid.d_omega
     )
     density = conversion * factor * np.sum(np.real(axis * np.conj(closure)), axis=0)
     values: dict[str, np.ndarray] = {}
