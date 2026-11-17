@@ -255,9 +255,6 @@ def metadata_for(
         record["mixture_processing"] = processing_record(
             problem, request.observation.save_planes, grid, material, modes
         )
-    if problem.linear.separable is not None:
-        # A Cartesian checkpoint must not resume with changed cutoff bins.
-        record["spatial_arithmetic"] = "split-square-v1"
     geometry = problem.transform.geometry
     spatial_record: dict[str, object] | None = None
     if geometry is not None:
