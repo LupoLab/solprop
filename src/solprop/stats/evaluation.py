@@ -81,8 +81,8 @@ def _zdw_or_nan(
     """Return each mode's zero-dispersion wavelength in a grid's band, or ``nan``.
 
     A run asked for this statistic is not stopped because its band holds no zero: the
-    plane records ``nan`` with a warning, as :func:`fwhm_t` does for a missing crossing.
-    A direct call to :func:`zdw` still raises.
+    plane records ``nan`` with a warning, as :func:`fwhm_t` records ``nan`` for a
+    missing crossing (logged at debug level). A direct call to :func:`zdw` still raises.
 
     - ``z``: position along the waveguide, m.
     - Returns: Zero-dispersion wavelength or ``nan``, shape ``(n_modes,)``, m.

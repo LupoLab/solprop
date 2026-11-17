@@ -512,7 +512,7 @@ def _catalogue() -> dict[str, StatDefinition]:
         ),
         StatDefinition(
             name="absorbed_power",
-            summary="Power each absorbing channel of the linear operator removes.",
+            summary="Energy per metre each absorbing channel of the operator removes.",
             shape="(5,)",
             units="J/m",
             requires=("spatial_geometry", "separable_operator"),
@@ -524,7 +524,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             name="quadrature_error",
             summary="Relative error of the transverse quadrature on the polarisation.",
             shape="()",
-            units="dimensionless",
+            units="1",
             backend=True,
             between_planes=True,
             general="diagnostic",
@@ -572,7 +572,7 @@ each channel's constant is the block's mean; the route then withholds it
 ``spectral_flux`` is the one array of the family -- the same flux as a density in
 frequency rather than integrated. It
 is **admitted but not a default** of the route: it is ``n_omega`` wide per plane where
-the other five are scalars, so a run asks for it by name.
+the other five are scalars (``omega0`` one per channel), so a run asks for it by name.
 
 Two names of :mod:`solprop.processing.modal` are deliberately absent.
 ``quadrature_error`` is refused separately, by the driver, because what disqualifies
