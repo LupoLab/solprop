@@ -47,6 +47,7 @@ __all__ = [
     "FOLLOW_PERIOD",
     "LIVENESS_PERIOD",
     "REQUESTS",
+    "SLURM_LIVENESS_PERIOD",
     "Agent",
     "hello",
     "main",
@@ -57,6 +58,11 @@ FOLLOW_PERIOD: Final = 0.5
 
 LIVENESS_PERIOD: Final = 2.0
 """How often a followed run with a quiet record is checked for having gone, s."""
+
+SLURM_LIVENESS_PERIOD: Final = 60.0
+"""How often a followed Slurm run with a quiet record is checked for having gone, s:
+each check asks the scheduler (``squeue``), which sites ask not to be polled often, and
+a queued job is quiet for as long as it waits."""
 
 FOLLOW_LIMITS: Final = (0.02, 5.0)
 """The shortest and longest period a window may ask a record to be read at, s."""
@@ -261,13 +267,17 @@ class Agent:
         A run that has gone without recording an ending (its process killed, out of
         memory, its job cancelled) is said ``lost``, from its state
         (:func:`~solprop.service.runs.summarise`) checked every
-        :data:`LIVENESS_PERIOD` seconds while its record stays quiet.
+        :data:`LIVENESS_PERIOD` seconds while its record stays quiet, or every
+        :data:`SLURM_LIVENESS_PERIOD` seconds for a Slurm run.
 
         The terminal event is sent only once the run's summary records its ending
         (:mod:`solprop.service.record`), so a window that hears a run has ended finds
         it ended in a list of runs and can continue it at once; a run that goes
         between the two has its terminal event sent as it wrote it.
         """
+        from solprop.service.runs import slurm_jobs  # noqa: PLC0415 - light
+
+        liveness = SLURM_LIVENESS_PERIOD if slurm_jobs([folder]) else LIVENESS_PERIOD
         checked = time.monotonic()
         while not done.is_set():
             try:
@@ -282,7 +292,7 @@ class Agent:
                 )
                 return
             held = any(e.terminal for e in events) and not _ending_recorded(folder)
-            if held and time.monotonic() - checked >= LIVENESS_PERIOD:
+            if held and time.monotonic() - checked >= liveness:
                 checked = time.monotonic()
                 held = _lost(folder) is None
             if held:
@@ -304,7 +314,7 @@ class Agent:
                 )
                 if any(event.terminal for event in events):
                     return
-            elif time.monotonic() - checked >= LIVENESS_PERIOD:
+            elif time.monotonic() - checked >= liveness:
                 checked = time.monotonic()
                 lost = _lost(folder)
                 if lost is not None:

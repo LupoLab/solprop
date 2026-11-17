@@ -755,6 +755,48 @@ def test_a_continued_run_still_starting_is_followed_and_cancelled(
         sleeper.wait()
 
 
+def test_a_followed_queued_slurm_run_asks_the_scheduler_seldom(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from solprop.service.launch import SUBMITTED  # noqa: PLC0415 - only here
+    from solprop.service.record import write_json  # noqa: PLC0415 - only here
+
+    if sys.platform == "win32":
+        pytest.skip("Slurm is faked with POSIX shell scripts")
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    calls = tmp_path / "calls"
+    (bin_ / "squeue").write_text(
+        f'#!/bin/sh\necho x >> "{calls}"\necho "77|PENDING|Priority"\n',
+        encoding="utf-8",
+    )
+    (bin_ / "squeue").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setattr(agent, "LIVENESS_PERIOD", 0.0)
+    folder = tmp_path / "s1"
+    folder.mkdir()
+    write_json(
+        folder / SUBMITTED,
+        {"launcher": "slurm", "slurm_job": "77", "submitted": time.time()},
+    )
+
+    def asked(period: float) -> int:
+        """Return how often following the queued job for 0.5 s asked squeue."""
+        monkeypatch.setattr(agent, "SLURM_LIVENESS_PERIOD", period)
+        calls.unlink(missing_ok=True)
+        output = io.BytesIO()
+        helper = Agent(output)
+        helper.follow({"folder": str(folder), "offset": 0, "period": 0.02})
+        time.sleep(0.5)
+        helper.close()
+        time.sleep(0.1)  # the follow's last check ends
+        assert b"lost" not in output.getvalue()
+        return len(calls.read_text().splitlines()) if calls.exists() else 0
+
+    assert asked(agent.SLURM_LIVENESS_PERIOD) == 0
+    assert asked(0.0) >= 3  # asked on every quiet read: what a short period costs
+
+
 def test_a_folder_held_open_is_removed_once_let_go(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
