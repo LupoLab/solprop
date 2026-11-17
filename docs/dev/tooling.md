@@ -48,7 +48,9 @@ Other tasks: `poe test-medium` (the medium tier alone, timed against its budget)
 `poe test-slow`, `poe cov` (the default lane with coverage), `poe test-gpu` (the GPU
 lane, on a CUDA or HIP build with a device), `poe bench`
 (the benchmark plan in `benchmarks/`; `track` runs it on a quiet machine;
-[manual](benchmarking.md)), `poe docs`, `poe docs-clean`, `poe figures` (redraw the
+[manual](benchmarking.md)), `poe docs`, `poe docs-clean` (remove the untracked build
+output, `docs/_build` and `docs/api/generated`; the committed gallery pages stay),
+`poe figures` (redraw the
 committed structure and geometry SVGs) and `poe docs-examples` (execute the stale
 gallery scripts and refresh their committed output).
 

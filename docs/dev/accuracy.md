@@ -573,9 +573,9 @@ SOLPROP_WRITE_RECORDS=1 SOLPROP_NATIVE_THREADS=1 OMP_PROC_BIND=false \
 **A write run is not a green run**: it says at the end which files it wrote, and those
 are what is committed. And because a stored number is a regression witness, a genuine
 *improvement* fails its comparison — the order is to commit the code with the records
-red, regenerate, and commit the records. `uv run poe docs-clean` before `poe docs` if a
-figure looks stale: the plot directive decides from the page's own timestamp, not the
-record's.
+red, regenerate, and commit the records. `uv run poe docs-clean`, which removes the build
+output under `docs/_build`, before `poe docs` if a figure looks stale: the plot directive
+decides from the page's own timestamp, not the record's.
 
 ## 10. Free space, tabulated, step-index and rectangular modes
 
