@@ -72,10 +72,12 @@ adaptive integral in the first coordinate, and of the change on doubling the rul
 the second. Far below the driver's acceptance of a set (1e-6)."""
 
 _FIRST_NODES = 16
-"""Nodes of the second coordinate's rule before the first doubling."""
+"""Fewest nodes of the second coordinate's rule before the first doubling; a polar set
+starts above its products' highest harmonic (:func:`_first_nodes`)."""
 
 _MAX_NODES = 1024
-"""Most nodes of the second coordinate's rule: a set that needs more is refused."""
+"""Most nodes of the second coordinate's rule, or four times a polar set's first rule
+where that is already above it: a set that needs more is refused."""
 
 
 def _normalisation(mode: Mode, z: float) -> float:
@@ -204,13 +206,15 @@ def orthonormality(
 
     Notes
     -----
-    Every entry is integrated in one pass: adaptively in the first coordinate
-    (``r`` or ``x``) with :func:`scipy.integrate.quad_vec`, whose error control covers
-    the whole matrix, and in the second on an offset periodic trapezoid (polar) or a
-    Gauss--Legendre rule (Cartesian), doubled from 16 nodes until no entry changes by
-    more than ``1e-12``. Each mode's field is evaluated once per node, not once per
-    pair, so a set of 48 modes takes seconds rather than the minutes of
-    :func:`overlap` pair by pair. A slab set integrates over x alone, per metre of y.
+    Every entry is integrated in one pass: adaptively in the first coordinate (``r`` or
+    ``x``) with :func:`scipy.integrate.quad_vec`, whose error control covers the whole
+    matrix, and in the second on an offset periodic trapezoid (polar) or a
+    Gauss--Legendre rule (Cartesian), doubled until no entry changes by more than
+    ``1e-12``: from 16 nodes, or for a polar set from above twice its highest azimuthal
+    order, so that no product's harmonic aliases alike in two rules. Each mode's field
+    is evaluated once per node, not once per pair, so a set of 48 modes takes seconds
+    rather than the minutes of :func:`overlap` pair by pair. A slab set integrates over
+    x alone, per metre of y.
 
     Examples
     --------
@@ -238,9 +242,11 @@ def orthonormality(
     if kind == "slab":
         # Uniform in y: one node at y = 0 of unit weight, per metre of y as N is.
         return _gram(modes, scale, first, (np.zeros(1), np.ones(1)), z=z, polar=False)
-    nodes = _FIRST_NODES
+    nodes = _first_nodes(modes) if kind == "polar" else _FIRST_NODES
+    # A set whose first rule already exceeds the cap is still allowed two doublings.
+    most = _MAX_NODES if nodes <= _MAX_NODES else 4 * nodes
     previous = None
-    while nodes <= _MAX_NODES:
+    while nodes <= most:
         rule = _second_rule(kind, (lower[1], upper[1]), nodes)
         matrix = _gram(modes, scale, first, rule, z=z, polar=kind == "polar")
         if (
@@ -252,8 +258,25 @@ def orthonormality(
         nodes *= 2
     raise ModeError(
         f"the overlaps of this {kind} mode set did not converge in the second "
-        f"coordinate with {_MAX_NODES} nodes"
+        f"coordinate with {most} nodes"
     )
+
+
+def _first_nodes(modes: Sequence[Mode]) -> int:
+    """Return the polar rule's first node count, above every product's harmonics.
+
+    A pair's product reaches azimuthal degree ``h_a + h_b``, and the offset periodic
+    trapezoid of N nodes integrates degree k exactly unless N divides k. Started at
+    or below the degree, two consecutive rules can alias a harmonic alike -- 16 and 32
+    nodes both read ``cos(64 theta)`` as +1 at every node -- and agree on a wrong
+    value. The first rule is therefore the smallest power of two above twice the
+    set's highest order, and at least :data:`_FIRST_NODES`.
+    """
+    degree = 2 * max(mode.azimuthal_order for mode in modes)
+    nodes = _FIRST_NODES
+    while nodes <= degree:
+        nodes *= 2
+    return nodes
 
 
 def _second_rule(
