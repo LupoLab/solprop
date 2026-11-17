@@ -110,12 +110,12 @@ The group delay is $T_g(\omega) = \mathrm{d}\phi/\mathrm{d}\omega$, so
 - a positive `t0` makes the pulse **arrive later** (it must lie strictly inside the
   window: a delay is a spectral phase, and one past the half-window would wrap the pulse
   round to the other end, so it is refused);
-- `phase[1]`, the first-order coefficient, is a group delay and does exactly what `t0`
+- `phases[1]`, the first-order coefficient, is a group delay and does exactly what `t0`
   does;
-- a positive `phase[2]` (GDD) gives $T_g = \phi_2(\omega-\omega_p)$, so the blue arrives
+- a positive `phases[2]` (GDD) gives $T_g = \phi_2(\omega-\omega_p)$, so the blue arrives
   after the red: an **upchirp**, the sign of propagation through normally dispersive
   glass;
-- `phase[0]` is the carrier-envelope phase at the pulse's own peak, on either grid and
+- `phases[0]` is the carrier-envelope phase at the pulse's own peak, on either grid and
   independent of the window length.
 
 **The stored array is the FFT convention.** The conversion happens once per build, where

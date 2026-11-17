@@ -479,7 +479,9 @@ planes and the statistics a fresh run takes.
 once just as `translate()` does. Those two are what the run-layer functions take when you
 drive the loop over save planes yourself, for example
 `solprop.backends.registry.select(name, problem, request)` to construct a backend for
-{py:func}`~solprop.driver.run.run_problem`.
+{py:func}`~solprop.driver.run.run_problem`, which also takes the run's start
+(`solprop.backends.session.Start.entrance(problem)` for a fresh run) and its
+{py:class}`~solprop.output.metadata.RunMetadata` as the keywords `start` and `metadata`.
 
 {py:class}`~solprop.driver.settings.SimulationSettings` holds everything numerical:
 the controller and its tolerances, the save planes, the step limits, a fixed schedule,

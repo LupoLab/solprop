@@ -115,7 +115,8 @@ and its breakpoints, so a run never resumes under another gate or window
 Four things are deliberately outside it: the wall-clock start time, the package
 versions, the git provenance and the backend record. An unrelated commit or a change of
 backend does not refuse to resume a run that is otherwise the same run, and nor does a
-library upgrade, as long as it moves no number the record holds. So is the boundary
+library upgrade other than optmat's, whose version the material manifest records, as long
+as it moves no number the record holds. So is the boundary
 check's budget and guard width: a run stopped at the time window's
 edge may be resumed under a relaxed check, and its monitor's record continues across the
 resume ([watching the window's edges](../numerics/boundaries.md#watching-the-windows-edges)).
@@ -187,27 +188,29 @@ is tried.
 ### Stopping a run
 
 `Simulation.run(..., stop=flag)` takes any object with an `is_set()` method, such as a
-{py:class}`threading.Event`. The run polls it before its first step, then before every
-trial step, so it answers within one step. When it is set, the run writes its state as
-SIGTERM would, tells the reporter through `interrupted`, and **returns** the handler: a
-requested stop is not an error, and the outcome's message says the caller's flag stopped
-it. `resume=True` continues the file. A front end sets the flag from any thread, on any
-platform, with no signals; each run polls its own. `solprop run` and `solprop resume` set
+{py:class}`threading.Event`. On `numpy_ref` the run polls it before its first step, then
+before every trial step, so it answers within one step. When it is set, the run writes its
+state as SIGTERM would, tells the reporter through `interrupted`, and **returns** the
+handler: a requested stop is not an error, and the outcome's message says the caller's
+flag stopped it. `resume=True` continues the file. A front end sets the flag from any
+thread, on any platform, with no signals; each run polls its own. `solprop run` and `solprop resume` set
 it on Ctrl-C, SIGTERM and, on Windows, Ctrl-Break, and exit with the usual status; a
 second Ctrl-C interrupts at once. A signal that comes too late to stop anything, with the file
 already complete, exits with status zero and says so. One that comes while a recipe is
 building waits for the build to finish, since the flag is only polled once a march is running,
 so a large grid's build can take most of a batch system's grace period.
 
-The exception is the native backend's `Multistep()` march, which runs many attempts in
-one native call, where the flag cannot be read. The run polls before each call instead,
-and a call returns after at most 256 attempts or 0.1 s of wall time, read after each
-attempt, whichever comes first. So a stop waits for that bound and the attempt in flight:
+The exception is the native backend, which runs many attempts in one native call, where
+the flag cannot be read. The run polls before each call instead, and a call returns
+after at most 256 attempts or 0.1 s of wall time, read after each attempt, whichever
+comes first. So a stop waits for that bound and the attempt in flight:
 256 attempts on a small problem, about 0.1 s on a larger one, one attempt where an attempt
 takes longer than 0.1 s. A call also returns at a save plane, a statistics row or a
 boundary check. Where a call returns changes nothing the run computes. SIGTERM and Ctrl-C
 in a script's `Simulation.run` wait for the same return, since Python runs a signal's
-handler only then.
+handler only then. A flag that the run's own progress reporter sets lands up to one such
+batch later on either backend, since the reporter hears the attempts a batch at a time
+([progress](../performance/progress.md#writing-your-own)).
 
 ## Completion status and terminal checkpoints
 

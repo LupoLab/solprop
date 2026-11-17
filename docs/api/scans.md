@@ -11,7 +11,8 @@ modules involved are:
   `Pool`, a durable `Queue` and `Slurm`;
 - {mod}`solprop.processing.scans`: the reductions a worker evaluates for each point
   (energy in a band, a spectrum, mode energies, a custom reduction) and the reader of a
-  collected scan (`open`, `ScanOutput`);
+  collected scan ({func}`~solprop.processing.scans.open_scan`,
+  {class}`~solprop.processing.scans.ScanOutput`);
 - {mod}`solprop.output.scan`: the scan file, into which the controller commits each
   completed point;
 

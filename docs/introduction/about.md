@@ -79,7 +79,7 @@ it means for anyone relying on the code.
 - **Correctness is controlled by design.** Every change passes through a carefully
   designed development harness. Each model is derived and documented before it is
   implemented, tested against analytic results and independent references, and checked
-  for convergence. Every compiled backend is tested against the NumPy reference within
+  for convergence. The native backend is tested against the NumPy reference within
   rounding bounds derived before any measurement. The lead developer's two decades of
   experience with propagation codes decide what is checked, and how.
 - **Fewer bugs, better documentation, less line-by-line reading.** Compared with
@@ -130,5 +130,5 @@ licence (`CC-BY-4.0`). The chirped-mirror data taken from Luna.jl keep Luna's MI
 Every file in the repository states its copyright and licence, in an SPDX header or in
 `REUSE.toml`, following the [REUSE specification](https://reuse.software/).
 
-The optional compiled backend, solprop-native, is built from the repository's `native/`
+The compiled backend, solprop-native, is built from the repository's `native/`
 directory and distributed as a separate package under the same licence.

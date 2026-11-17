@@ -20,6 +20,10 @@ steps = output["step_history/counts"]    # attempts belonging to each plane
 rows = output["step_stats/energy"]       # (n_rows, n_modes, n_pol), with a periodic spec
 ```
 
+From a {py:class}`~solprop.output.memory.MemoryOutput` these arrays are read-only views of
+the stored run: writing through one raises `ValueError`, so take `.copy()` of an array to
+change it.
+
 Stored spectra are in the **optics convention** and the file says so
 (`spectral_convention = "optics"`): a spectral phase read out of one is referenced to
 `t = 0` and has the sign a textbook gives it ([conventions.md](../../dev/conventions.md)

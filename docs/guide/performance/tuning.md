@@ -192,6 +192,13 @@ one and starts them again for the next wide one, which cost a four-thread kernel
 full-width ones about half a millisecond each time. FFT plans keep their four threads,
 since FFTW's threaded loops run on the runtime's whole team.
 
+On Apple silicon, while the team spins within native calls (the default; see
+[OpenMP placement and waiting](#openmp-placement-and-waiting)) and is at most eight
+threads wide, as on a chip's top tier, every threading start and full-pool start in the
+table below is divided by sixteen, and so are the FFT samples per thread and the
+long-row length: a parallel region there costs about a microsecond, not the 100–200 µs
+the thresholds were measured with.
+
 Modal and spatial FFT plans thread by their shape instead: from the start below, a
 thread per 4,096 samples (32,768 on macOS, a sixteenth of that on a spinning top tier)
 and at most one per row, since FFTW divides a batch's rows among its threads; rows of at
