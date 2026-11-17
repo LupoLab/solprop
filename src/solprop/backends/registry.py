@@ -7,7 +7,8 @@
 ``docs/dev/backends.md`` section 1: there are exactly two backends (ADR-077),
 ``native`` and ``numpy_ref``. Selection is by name; availability is detected with
 :func:`importlib.util.find_spec` and **never cached**. A name that is neither is a
-:class:`~solprop.exceptions.BackendError` naming the two; ``native`` without its package is an :class:`ImportError` saying what to install.
+:class:`~solprop.exceptions.BackendError` naming the two; ``native`` without its
+package is an :class:`ImportError` saying what to install.
 
 The native backend is a second distribution, ``solprop-native``, built from ``native/``
 in this repository and a required dependency; probing availability does not import it.

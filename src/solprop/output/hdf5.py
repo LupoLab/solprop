@@ -223,7 +223,7 @@ def _read_march(file: h5py.File, z: float) -> MarchSnapshot | None:
 def _trajectory_state(
     stored: Complex[np.ndarray, "*shape"],
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
-    """Return a stored march state, ``(n_modes, n_pol, n_omega)``, refusing any other."""
+    """Return a stored march state, ``(n_modes, n_pol, n_omega)``, or refuse it."""
     if stored.ndim == 3:
         return stored
     msg = (
