@@ -677,6 +677,11 @@ def dispersive_terms(
             "dispersive Kerr responses must agree on their evaluator; one run takes "
             "one electronic law"
         )
+    if len({one.thg for one in responses}) != 1:
+        raise TranslationError(
+            "dispersive Kerr responses must agree on thg; one leaf carries one cubic "
+            "sector"
+        )
     envelope = grid.kind == "envelope"
     if envelope and first.thg and grid.ffac < THG_OVERSAMPLING:
         msg = (
@@ -2797,10 +2802,11 @@ def compile_responses(
 ) -> CompiledResponses:
     """Compile a set of responses into the nonlinear term a kernel executes.
 
-    The instantaneous Kerr response, the delayed Raman response and the plasma response
-    are compiled. A response of any other kind raises rather than being silently
-    dropped, because a problem that reaches a backend missing a term it declared would
-    run, converge and be wrong.
+    The instantaneous and the dispersive Kerr responses, the delayed Raman response and
+    the field and envelope plasma responses are compiled, one of each kind per
+    population (species label). A response of any other kind raises rather than being
+    silently dropped, because a problem that reaches a backend missing a term it
+    declared would run, converge and be wrong.
 
     A plasma response carries its own ionisation rate, so it supplies the run's
     `ionisation_table`; without one there is no rate table.
@@ -2808,8 +2814,8 @@ def compile_responses(
     A Raman response fills the three rows of section 5 from
     :func:`solprop.translate.raman.build_raman_kernels` and
     :func:`solprop.translate.raman.decay_rate_profiles`, and adds ``raman_drive`` to
-    `response_order` after ``kerr``. It is refused on a two-component problem, which
-    would need a tensor kernel no backend can consume, and on a
+    `response_order` after ``kerr``. On a two-component problem it is refused unless
+    every term declares a tensor contraction (``tensor_capable``), and on a
     field grid it is refused without a Kerr response beside it, or beside one that
     disagrees about ``thg``: the drive form is a property of the problem and reaches a
     backend through the Kerr row.
@@ -2817,10 +2823,12 @@ def compile_responses(
     Parameters
     ----------
     responses : sequence
-        The declared responses: at most one
-        :class:`solprop.nonlinear.responses.KerrResponse`, at most one
+        The declared responses, each defined on this grid: per population, at most one
+        electronic response (a :class:`solprop.nonlinear.responses.KerrResponse` or a
+        :class:`solprop.nonlinear.responses.DispersiveKerrResponse`), at most one
         :class:`solprop.nonlinear.raman.RamanResponse` and at most one
-        :class:`solprop.nonlinear.responses.PlasmaResponse`, each defined on this grid.
+        :class:`solprop.nonlinear.responses.PlasmaResponse` or
+        :class:`solprop.nonlinear.envelope_plasma.EnvelopePlasmaResponse`.
     grid : solprop.grid.TimeGrid
         The grid; decides the cubic form and supplies the crop scale.
     mode : Mode or sequence of Mode
