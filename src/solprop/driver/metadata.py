@@ -26,7 +26,7 @@ from solprop.coupling import (
 from solprop.driver.material_output import material_record, processing_record
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame, frame_origin
-from solprop.modes.capillary import _shared_sampling
+from solprop.modes.capillary import shared_sampling
 from solprop.modes.collection import transverse_measure
 from solprop.modes.material import JsonValue
 from solprop.modes.protocol import Mode
@@ -449,6 +449,6 @@ def _plane_bases(  # noqa: PLR0917 - called positionally
     else:
         route = "modal"
         # A capillary's frequency-only terms are sampled once for every plane.
-        with _shared_sampling():
+        with shared_sampling():
             identities = [modal_basis_identity(modes, grid, z) for z in planes]
     return {"route": route, "z": planes, "identity": identities}
