@@ -197,8 +197,10 @@ def test_oversampling_refines_the_axis_and_keeps_the_energy(output, grid):
     t_one, power_one = fields.get_power(output, plane=0)
     t_four, power_four = fields.get_power(output, plane=0, oversampling=4)
     assert t_four.size == 4 * t_one.size
+    # Differences of axis values about a thousand spacings from zero keep their
+    # rounding, |t| / dt eps ~ 2e-13 of the spacing (measured 1.1e-13).
     assert np.isclose(
-        t_four[1] - t_four[0], (t_one[1] - t_one[0]) / 4, rtol=1e-14, atol=0.0
+        t_four[1] - t_four[0], (t_one[1] - t_one[0]) / 4, rtol=1e-12, atol=0.0
     )
     energy_one = float(np.sum(power_one)) * float(t_one[1] - t_one[0])
     energy_four = float(np.sum(power_four)) * float(t_four[1] - t_four[0])

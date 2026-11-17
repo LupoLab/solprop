@@ -273,7 +273,13 @@ def test_the_partials_read_a_mask_with_a_hard_zero_and_the_old_norm_before_the_a
     scales = flow_parity.flow_scales(problem, run_request, grid, expected)
     bound = 2.0 * flow_parity.ten_step_bound(scales)
     assert new == pytest.approx(captured["partials"][1], rel=bound)
-    assert error == pytest.approx(captured["partials"][2], rel=bound)
+    # The error is a difference of two solutions, so its rounding is the state's: a
+    # departure of bound |y| in e moves |e|^2 by 2 bound |e| |y|.
+    assert error == pytest.approx(
+        captured["partials"][2],
+        rel=bound,
+        abs=2.0 * bound * np.sqrt(captured["partials"][2] * captured["partials"][1]),
+    )
 
 
 def test_a_flow_on_a_wrapped_crop_is_refused_at_translation():

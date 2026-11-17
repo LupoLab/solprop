@@ -220,8 +220,11 @@ def test_pre_ionisation_sits_inside_the_exponential():
     preionised = ionisation_fraction(rate, field, dt, preionisation=0.4)
     assert preionised[0] == pytest.approx(0.4)
     assert np.all(preionised <= 1.0)
-    # Every atom already ionised is one the pulse cannot ionise again.
-    assert np.allclose(1.0 - preionised, 0.6 * (1.0 - plain), atol=0.0)
+    # Every atom already ionised is one the pulse cannot ionise again. Where the
+    # fractions reach one, 1 - f keeps the absolute rounding of f, a few eps.
+    assert np.allclose(
+        1.0 - preionised, 0.6 * (1.0 - plain), atol=4 * np.finfo(float).eps
+    )
     assert np.all(ionisation_fraction(rate, field, dt, preionisation=1.0) == 1.0)
 
 

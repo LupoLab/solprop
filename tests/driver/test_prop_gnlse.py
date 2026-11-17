@@ -348,10 +348,13 @@ def test_the_shock_term_can_be_switched_on():
     """`shock=True` is the prefactor's omega dependence, and it changes the answer."""
     without = cheap(shock=False)
     with_shock = cheap(shock=True)
+    # Over this short run the shock moves the field by about 1e-6 of its peak, far
+    # above the 1e-9 of it held here and the rounding below that.
     assert not np.allclose(
         with_shock["field"][-1],
         without["field"][-1],
-        atol=1e-5 * np.max(np.abs(without["field"][-1])),
+        rtol=0.0,
+        atol=1e-9 * np.max(np.abs(without["field"][-1])),
     )
 
 

@@ -104,7 +104,8 @@ def test_air_mass_is_the_pseudo_pure_equations_own():
     throughput, pressure = 1e-6, 2.0
     density = air.density(pressure, 294.0)
     expected = throughput * density * air.molar_mass / N_A / (pressure * 1e5)
-    assert mass_flow(chosen, throughput, pressure) == pytest.approx(expected, rel=1e-14)
+    flow = mass_flow(chosen, throughput, pressure, temperature=294.0)
+    assert flow == pytest.approx(expected, rel=1e-14)
 
 
 def test_temperature_range_is_optmats_and_refused_outside():

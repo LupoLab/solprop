@@ -240,10 +240,13 @@ def test_the_absorber_reproduces_the_collars_over_one_reference_length(
     # is deliberately zeroed rather than capped. The temporal rates are not the
     # logarithm; the tests below say what they are.
     unclamped = (window > math.exp(-MAX_ALPHA_LENGTH / 2.0)) & (rate > 0.0)
+    # exp(log(W)) carries the logarithm's rounding times |log W|, its condition
+    # number: 24 eps at W = 2e-13, deep in the collar.
+    kept = window[unclamped]
     assert np.allclose(
         np.exp(-rate[unclamped] * length / 2.0),
-        window[unclamped],
-        rtol=8 * EPS,
+        kept,
+        rtol=(8 + np.abs(np.log(kept))) * EPS,
         atol=0.0,
     )
 
