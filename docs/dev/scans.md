@@ -9,8 +9,7 @@ preserve the selected backend and reject unsupported contracts explicitly.
 The executors (`solprop.driver.executors`) are `Local` (sequentially, in the calling
 process, reusing one backend where it can), `Pool` (spawned worker processes), and the
 durable file `Queue` with its `Slurm` emitter, which runs queue or chunk modes as array
-tasks. A fixed-schedule `Batch` executor ran compatible points as one group until
-SEP 52 removed it: on native it built a backend per member for no gain in speed.
+tasks.
 
 ## Why the standard library
 

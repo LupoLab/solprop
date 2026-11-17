@@ -49,11 +49,6 @@ Four executors, all in `solprop.driver.executors`, run the points:
 | `Queue(path)` | a durable queue on a shared filesystem, drained by one or more controllers |
 | `Slurm(script, ...)` | prepares a queue and submits a Slurm array job that drains it |
 
-The `Batch` executor of earlier releases, which ran groups of compatible points in
-lockstep, is removed ([SEP 52](../../dev/seps/archive/sep-0052-backend-shape.md)): it
-held a complete run per member and was no faster. Use `Local()` in its place, or `Pool()`
-with as many workers as the group had members.
-
 A builder's omitted `backend` resolves to the native backend, as described in
 [running a simulation](../performance/resources.md#backend-choice-and-scan-workers), and
 every executor keeps that concrete choice.
@@ -216,10 +211,10 @@ can watch them.
 bar and the per-point lines. `scan_started(n_points)` is called once with the number of
 selected points, `point_started(index, point)` and `point_finished(index, status, wall)`
 once for each point dispatched or collected, and `scan_finished()` once when the scan
-returns. The status is `"done"`, `"failed"`, `"skipped"` (complete in the file),
-`"conflict"` (complete, with a stored record that agrees but for rounding, and kept) or
-`"stopped"` (below); `wall` is the point's build and run time in seconds as its worker
-measured it. `point_reporter(index)` is asked, before each point runs, for a
+returns. The status is `"done"`, `"failed"`, `"skipped"` (complete in the file) or
+`"stopped"` (below); a completed point whose rebuilt record differs from the stored one
+aborts the scan with an `OutputError` naming the differing fields. `wall` is the point's
+build and run time in seconds as its worker measured it. `point_reporter(index)` is asked, before each point runs, for a
 {py:class}`~solprop.log.ProgressReporter` that receives that point's own run
 ([writing your own](../performance/progress.md#writing-your-own)), or `None` for none.
 Subclass {py:class}`~solprop.log.NullScanReporter` and override what you need; the rest
@@ -408,9 +403,8 @@ scan.
 
 For several controllers sharing a filesystem, choose `Queue("pressure_energy.queue")`.
 A queue keeps exact identities: its manifest hashes the builder's code and refuses a
-change, and each point and collected artifact is checked by its configuration hash, so
-the tolerance of a local rerun does not apply to it; `Slurm` drains a queue and
-behaves alike.
+change, and each point and collected artifact is checked by its configuration hash, as a
+local rerun is; `Slurm` drains a queue and behaves alike.
 Each controller runs a memory-sized spawned `Pool`. Point artifacts are fsynced before
 publication; the collected file is written under one exclusive controller lock.
 Readers take the corresponding shared lock. The filesystem must support coherent
