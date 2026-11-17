@@ -74,13 +74,10 @@ from solprop.profiles import ZProfile
 from solprop.stats import (
     StatsSpec,
 )
+from solprop.stepper.settings import PropagatorMode, StepperSettings
 from solprop.translate.linop import delta_phi, unitary_phase
 from solprop.translate.masks import noise_spectrum
-from solprop.translate.problem import (
-    PropagationProblem,
-    PropagatorMode,
-    StepperSettings,
-)
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.responses import prefactor_at
 from solprop.translate.routes import (
     transverse_of,

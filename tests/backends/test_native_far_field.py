@@ -107,7 +107,7 @@ def problem_of(
         ),
         noise=None,
     )
-    return Translation(simulation.translate(), simulation._run_request())
+    return Translation(simulation.translate(), simulation.run_request())
 
 
 def native_stats(problem, run_request, grid, field, names):

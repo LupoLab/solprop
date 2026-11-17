@@ -78,7 +78,7 @@ def run(simulation, problem, run_request):
 @pytest.mark.parametrize("scheme", ["nonlinear", "split_step"])
 def test_a_spectral_only_collar_runs_as_today_without_the_pass(backend, scheme):
     simulation = spectral_only(backend, scheme)
-    problem, run_request = simulation.translate(), simulation._run_request()
+    problem, run_request = simulation.translate(), simulation.run_request()
     assert problem.responses.temporal_absorber is None
     assert problem.responses.temporal_absorber_fine is None
     bound = replay_bound(simulation)

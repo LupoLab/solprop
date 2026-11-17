@@ -147,7 +147,7 @@ def opened(simulation, backend, planes=None):
     replaces its save planes, a run that ends at the last of them.
     """
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     if planes is not None:
         run_request = to_planes(run_request, planes)
     built: Any = select(
@@ -290,7 +290,7 @@ def test_a_resume_without_the_snapshot_restarts_the_history(build_simulation, ca
     # The witness above is a real one: the same run without the snapshot does
     # evaluate the startup sample, once, on its way to the first plane.
     simulation = CASES[case](build_simulation, "native")()
-    first = float(simulation._run_request().stepper.save_planes[0])
+    first = float(simulation.run_request().stepper.save_planes[0])
     problem, request, backend = opened(simulation, "native", planes=[first])
     session = started(backend, problem, request, Start.entrance(problem))
     try:
@@ -422,7 +422,7 @@ def snapshot_at_first_plane(simulation):
 
     Its session runs to that plane alone, which it lands on as the whole run does.
     """
-    first = float(simulation._run_request().stepper.save_planes[0])
+    first = float(simulation.run_request().stepper.save_planes[0])
     problem, request, backend = opened(
         simulation, simulation.settings.backend, planes=[first]
     )

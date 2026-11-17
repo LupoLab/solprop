@@ -105,7 +105,7 @@ def test_a_large_state_crosses_both_ways_through_the_ring_bit_for_bit(
     del accelerator_backend
     simulation = _simulation(192, 2, 1, None)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     engine = cast(
         "Any",
         select(
@@ -146,7 +146,7 @@ def test_the_plans_of_the_scratch_hold_one_work_area(accelerator_backend):
     del accelerator_backend
     simulation = _simulation(512, 2, 1, None)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     engine = cast(
         "Any",
         select(
@@ -173,7 +173,7 @@ def test_a_small_state_holds_no_pinned_ring(accelerator_backend):
     del accelerator_backend
     simulation = _simulation(32, 2, 1, None)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     engine = cast(
         "Any",
         select(

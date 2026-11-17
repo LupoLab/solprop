@@ -145,7 +145,7 @@ def test_a_radial_pulse_that_walked_out_leaves_the_window(backend: str) -> None:
 def test_the_launch_s_limit_holds_dz_max() -> None:
     simulation = _gnlse("numpy_ref", Multistep())
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     crossing = problem.split_crossing
     assert crossing is not None
     width = min(GRID.t_collar.width_low, GRID.t_collar.width_high)
@@ -164,7 +164,7 @@ def test_the_launch_s_limit_holds_dz_max() -> None:
 def test_the_in_stage_scheme_keeps_its_step_bounds() -> None:
     simulation = _gnlse("numpy_ref", Multistep(), scheme="nonlinear", dz_max=1.0)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     assert problem.split_crossing is None
     assert run_request.stepper.dz_max == 1.0
 
@@ -179,7 +179,7 @@ def test_a_fixed_schedule_past_the_launch_s_limit_is_refused() -> None:
 def test_a_fixed_schedule_within_the_launch_s_limit_runs() -> None:
     schedule = FixedSchedule.uniform(0.0, 1.0, 1 / 100, save_planes=[1.0])
     simulation = _gnlse("numpy_ref", RungeKutta(), schedule=schedule)
-    assert simulation._run_request().stepper.schedule is not None
+    assert simulation.run_request().stepper.schedule is not None
 
 
 def _spreading(backend: str) -> Simulation:
@@ -302,7 +302,7 @@ def test_the_cap_tightens_as_the_beam_self_focuses() -> None:
     # widen, and the cap read at the checks falls to about half the launch's.
     simulation = _beam("numpy_ref", 256, 500e-15, 0.5)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     crossing = problem.split_crossing
     assert crossing is not None
     planes = [float(z) for z in np.linspace(0.005, 0.05, 10)]
@@ -347,7 +347,7 @@ def test_a_dz_max_within_the_limit_is_kept_and_not_logged(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     with caplog.at_level(logging.INFO, logger="solprop.translate.assembly"):
-        run_request = _gnlse("numpy_ref", Multistep(), dz_max=5e-3)._run_request()
+        run_request = _gnlse("numpy_ref", Multistep(), dz_max=5e-3).run_request()
     assert run_request.stepper.dz_max == 5e-3
     assert not any("crossing limit" in one.message for one in caplog.records)
 
@@ -441,7 +441,7 @@ def test_a_longer_step_before_the_next_check_is_refused() -> None:
     # schedule's third, 5 cm, is held to it too, and refused.
     simulation = _scheduled("numpy_ref", np.array([0.01, 0.01, 0.05, 0.05]))
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
     try:
         monitor = simulation._boundary_monitor()
@@ -478,7 +478,7 @@ def test_a_state_that_walks_past_the_schedule_is_refused_when_watched() -> None:
     # energy to the band's blue edge, whose limit is below its 5 cm steps.
     simulation = _scheduled("numpy_ref", np.full(4, 0.05))
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     grid = simulation.grid
     edge = int(np.argmax(np.where(grid.active_mask, grid.omega, -np.inf)))
     state = np.array(problem.initial.field0)

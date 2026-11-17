@@ -808,7 +808,7 @@ def foreign_request(own: RunRequest, request: RunRequest) -> str | None:
     Examples
     --------
     >>> from solprop.stepper import DOPRI5, PIController
-    >>> from solprop.translate.problem import StepperSettings
+    >>> from solprop.stepper.settings import StepperSettings
     >>> from solprop.translate.run_request import describe_run
     >>> settings = StepperSettings(DOPRI5, PIController(rtol=1e-8, atol=1e-14),
     ...                            1e-9, 0.1, 1e-3, 1.1, None, [0.5, 1.0], "auto")

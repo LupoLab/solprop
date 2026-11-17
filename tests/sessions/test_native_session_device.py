@@ -296,7 +296,7 @@ def test_a_noisy_run_repeats_and_meets_the_reference_on_the_device(noise, march)
         pytest.skip("the translation refuses dense output beside the modified noise")
     simulation = _noisy(noise, check=True, march=march)
     problem = simulation.translate()
-    request = simulation._run_request().for_run(  # pyright: ignore[reportPrivateUsage]
+    request = simulation.run_request().for_run(
         monitor=simulation._boundary_monitor()  # pyright: ignore[reportPrivateUsage]
     )
     assert problem.initial.noise_model == noise

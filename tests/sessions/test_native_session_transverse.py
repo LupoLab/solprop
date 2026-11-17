@@ -62,7 +62,7 @@ MARCHES = {"rk": RungeKutta, "adams": Multistep}
 
 def _prepared(simulation: Simulation) -> tuple[Any, Any]:
     """Return a simulation's problem, without statistics, and its monitored request."""
-    return simulation.translate(), simulation._run_request().for_run(
+    return simulation.translate(), simulation.run_request().for_run(
         stats=StatsSpec(), monitor=simulation._boundary_monitor()
     )
 

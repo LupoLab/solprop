@@ -396,7 +396,7 @@ def test_an_interior_kink_restarts_the_history():
         noise=None,
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     assert 0.1 in problem.linear.hard_kinks
     backend = NumpyRefBackend(
         problem, run_request, grid=simulation.grid, modes=simulation.modes

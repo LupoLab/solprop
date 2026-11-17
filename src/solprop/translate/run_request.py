@@ -22,8 +22,9 @@ scaling and acceptance:
   kept for a resume.
 
 :func:`describe_run` builds one from the resolved
-:class:`~solprop.translate.problem.StepperSettings` and the run's settings;
-:func:`solprop.translate.assembly.assemble` returns it beside its problem, and
+:class:`~solprop.stepper.settings.StepperSettings` and the run's settings;
+:func:`solprop.translate.assembly.assemble` returns it beside its problem, which
+:meth:`solprop.driver.simulation.Simulation.run_request` gives out, and
 :meth:`RunRequest.for_run` adapts it to one run's start, retention, monitor and history.
 """
 
@@ -46,8 +47,8 @@ from solprop.stepper.controller import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
+from solprop.stepper.settings import PropagatorMode, StepperSettings
 from solprop.stepper.tableau import Tableau
-from solprop.translate.problem import PropagatorMode, StepperSettings
 
 __all__ = [
     "MARCH_SNAPSHOT_AUTO_BYTES",
@@ -253,6 +254,11 @@ class HistoryPolicy:
 class RunRequest:
     """Every policy of one run, resolved before preparation.
 
+    A :class:`~solprop.driver.simulation.Simulation` gives the request its translation
+    built beside the problem through
+    :meth:`~solprop.driver.simulation.Simulation.run_request`;
+    :func:`describe_run` builds one from a stepper section of your own.
+
     Attributes
     ----------
     integration : IntegrationSpec
@@ -284,7 +290,7 @@ class RunRequest:
         """Stepping policy as the one record translation resolved.
 
         The method, the error control, the itinerary and the planes, gathered back
-        into :class:`~solprop.translate.problem.StepperSettings` for the code that
+        into :class:`~solprop.stepper.settings.StepperSettings` for the code that
         reads them together: the march drivers, the request-aware checks
         (:func:`solprop.translate.problem.validate_run`) and the run's configuration
         record, whose hash they enter exactly as before.
@@ -294,7 +300,7 @@ class RunRequest:
         Examples
         --------
         >>> from solprop.stepper import DOPRI5, PIController
-        >>> from solprop.translate.problem import StepperSettings
+        >>> from solprop.stepper.settings import StepperSettings
         >>> from solprop.translate.run_request import describe_run
         >>> settings = StepperSettings(DOPRI5, PIController(rtol=1e-8, atol=1e-14),
         ...                            1e-9, 0.1, 1e-3, 1.1, None, [0.5, 1.0], "auto")
@@ -323,14 +329,17 @@ class RunRequest:
     def with_stepper(self, stepper: StepperSettings) -> RunRequest:
         """Return this request with another stepper section, its other policies kept.
 
-        The statistics, retention, start, monitor, history and snapshot policy stay;
-        the method, the error control, the itinerary and the planes are `stepper`'s.
+        The statistics, monitor, history and snapshot policy stay; the method, the
+        error control, the itinerary and the planes are `stepper`'s.
         :meth:`solprop.driver.simulation.Simulation.with_input` uses it for the planes
-        left beyond an interior launch.
+        left beyond an interior launch. It takes a fresh request only: a field
+        retention or a start plane is resolved against the planes, which the new
+        section replaces, so a request that keeps every field from the entrance is
+        the only one it accepts. Adapt the result to a run with :meth:`for_run`.
 
         Parameters
         ----------
-        stepper : solprop.translate.problem.StepperSettings
+        stepper : solprop.stepper.settings.StepperSettings
             The new stepper section.
 
         Returns
@@ -341,13 +350,14 @@ class RunRequest:
         Raises
         ------
         TranslationError
-            If this request's start plane is not a plane of the new section.
+            If this request keeps other than every field, or starts beyond the
+            entrance (:meth:`for_run` has adapted it to a run).
 
         Examples
         --------
         >>> import dataclasses
         >>> from solprop.stepper import DOPRI5, PIController
-        >>> from solprop.translate.problem import StepperSettings
+        >>> from solprop.stepper.settings import StepperSettings
         >>> from solprop.translate.run_request import describe_run
         >>> settings = StepperSettings(DOPRI5, PIController(rtol=1e-8, atol=1e-14),
         ...                            1e-9, 0.1, 1e-3, 1.1, None, [0.5, 1.0], "auto")
@@ -356,13 +366,24 @@ class RunRequest:
         >>> later = request.with_stepper(shorter)
         >>> later.observation.save_planes.tolist()
         [1.0]
+        >>> request.for_run(start_plane=1).with_stepper(shorter)  # doctest: +ELLIPSIS
+        Traceback (most recent call last):
+            ...
+        solprop.exceptions.TranslationError: with_stepper takes a fresh request, ...
         """
         observation = self.observation
+        if observation.retention != FieldRetention() or observation.start_plane != 0:
+            msg = (
+                "with_stepper takes a fresh request, which keeps every field from the "
+                f"entrance; this one keeps {observation.retention} from save plane "
+                f"{observation.start_plane}, resolved against the planes the new "
+                "stepper section replaces. Call with_stepper on the request before "
+                "for_run adapts it to a run"
+            )
+            raise TranslationError(msg)
         return describe_run(
             stepper,
             stats=observation.stats,
-            retention=observation.retention,
-            start_plane=observation.start_plane,
             monitor=self.boundary.monitor,
             history=self.history,
             snapshots=self.snapshots,
@@ -412,7 +433,7 @@ class RunRequest:
         Examples
         --------
         >>> from solprop.stepper import DOPRI5, PIController
-        >>> from solprop.translate.problem import StepperSettings
+        >>> from solprop.stepper.settings import StepperSettings
         >>> from solprop.translate.run_request import describe_run
         >>> settings = StepperSettings(DOPRI5, PIController(rtol=1e-8, atol=1e-14),
         ...                            1e-9, 0.1, 1e-3, 1.1, None, [0.5, 1.0], "auto")
@@ -452,7 +473,7 @@ def describe_run(
 
     Parameters
     ----------
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The stepper section translation resolved; it supplies the method, error
         control, itinerary and planes.
     stats : solprop.stats.StatsSpec or None, optional

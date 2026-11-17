@@ -190,7 +190,7 @@ def failing_backend(simulation, error):
     backend = select(
         "numpy_ref",
         simulation.translate(),
-        simulation._run_request(),
+        simulation.run_request(),
         grid=simulation.grid,
         modes=simulation.modes,
     )
@@ -289,7 +289,7 @@ def test_the_stored_field_is_the_optics_spectrum_of_the_observation(build_simula
     simulation = matched(build_simulation, n_save=2)
     handler = simulation.run()
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     # The backend the run itself used: the claim is that storing a plane is a
     # conjugation and a sign flip and nothing else, both exact, so the stored plane is
     # the observation's within the rounding of running the march a second time.
@@ -435,7 +435,7 @@ def test_a_statistics_spec_that_disagrees_about_the_channel_is_refused(
     """
     spec = StatsSpec(names=("energy",), periodic=("energy",), period=10)
     simulation = build_simulation(n_save=2, stats=spec)
-    problem, run_request = simulation.translate(), simulation._run_request()
+    problem, run_request = simulation.translate(), simulation.run_request()
     with pytest.raises(DriverError, match="the between-planes channel is armed"):
         run_problem(
             problem,
@@ -453,7 +453,7 @@ def test_a_start_plane_outside_the_run_is_refused(build_simulation, narrow_grid)
     with pytest.raises(DriverError, match="between 0 and 2"):
         run_problem(
             problem,
-            NullBackend(request=simulation._run_request()),
+            NullBackend(request=simulation.run_request()),
             MemoryOutput(),
             start=Start(
                 field=problem.initial.field0, z=problem.initial.z, plane_index=3

@@ -60,7 +60,8 @@ if TYPE_CHECKING:
     from solprop.backends.session import Start
     from solprop.boundaries import SplitCrossing
     from solprop.monitor import BoundaryMonitor
-    from solprop.translate.problem import PropagationProblem, StepperSettings
+    from solprop.stepper.settings import StepperSettings
+    from solprop.translate.problem import PropagationProblem
     from solprop.translate.run_request import RunRequest
     from solprop.transverse_monitor import TransverseEdge, TransverseStatus
 
@@ -233,7 +234,7 @@ def runge_kutta_policy(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem, whose operator's breakpoints and hard kinks the landings read.
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper settings.
 
     Returns
@@ -282,7 +283,7 @@ def adams_policy(
         The problem: the operator's breakpoints and kinks, and the in-stage temporal
         collar, whose largest rate bounds each order's stable step in the exponential
         formulation.
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper settings.
     method : solprop.stepper.multistep.Multistep
         The method.
@@ -352,7 +353,7 @@ def low_storage_settings(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper settings.
 
     Returns
@@ -381,7 +382,7 @@ def collar_rests(problem: "PropagationProblem", stepper: "StepperSettings") -> b
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper settings.
 
     Returns

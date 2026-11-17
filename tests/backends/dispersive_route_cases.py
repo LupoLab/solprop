@@ -167,7 +167,7 @@ def planar_problem(
             settings=settings,
             materials=MaterialSelection(),
         )
-        return simulation.translate(), simulation._run_request(), simulation.grid
+        return simulation.translate(), simulation.run_request(), simulation.grid
 
 
 def raman(thg: bool) -> object:

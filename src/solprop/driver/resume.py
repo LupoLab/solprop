@@ -103,7 +103,7 @@ def _start(
     """
     if state is None:
         return Start.entrance(problem, noise=_realisation(problem) if kept else None)
-    request = simulation._run_request()
+    request = simulation.run_request()
     next_plane = _validate_resume(
         problem, request, state, simulation.settings.tdse_execution
     )

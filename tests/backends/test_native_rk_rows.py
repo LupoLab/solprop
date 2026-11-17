@@ -84,7 +84,7 @@ def launched(simulation, controller: PIController | None = None):
             settings = dataclasses.replace(settings, controller=controller)
         simulation.settings = settings
         problem = simulation.translate()
-        run_request = simulation._run_request()
+        run_request = simulation.run_request()
     backend = native.NativeBackend(
         problem,
         run_request,

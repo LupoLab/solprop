@@ -20,13 +20,13 @@ In scripts and library code, import from the home modules listed below.
 
 | module | what it holds |
 |---|---|
-| {mod}`solprop.driver` | the entry points `prop_gnlse`, `prop_capillary`, `prop_waveguide`, `prop_free` and `prop_planar`, the `Simulation` object behind them, and `run_problem`, the loop over save planes that takes a translated problem, a constructed backend, an output handler and a `Start` (`solprop.backends.session.Start.entrance(problem)` for a fresh run), which the run loads into the backend, for a batch runner of your own |
+| {mod}`solprop.driver` | the entry points `prop_gnlse`, `prop_capillary`, `prop_waveguide`, `prop_free` and `prop_planar`, the `Simulation` object behind them (`Simulation.translate()` and `Simulation.run_request()` give the problem and the run request a backend is selected with), and `run_problem`, the loop over save planes that takes a translated problem, a constructed backend, an output handler and a `Start` (`solprop.backends.session.Start.entrance(problem)` for a fresh run), which the run loads into the backend, for a batch runner of your own |
 | {mod}`solprop.grid` | time and frequency grids (`FieldGrid`, `EnvelopeGrid`) and the free-space transverse grids (`RadialGrid`, `FreeGrid`, `LineGrid`) |
 | {mod}`solprop.pulses` | initial pulses: `GaussianPulse`, `SechPulse`, `CustomPulse`, `DataPulse`, `TimeDataPulse`, `load_spectrum` (a measured spectrum and phase from a text file), and spatial and planar pulses |
 | {mod}`solprop.profiles` | quantities that vary along z: radius, pressure and temperature profiles such as `PiecewiseLinear` and `PressureGradient` |
 | {mod}`solprop.gasflow` | the steady gas flow of a pressure gradient: `steady_fill`, choked ends, `flow_report` |
 | {mod}`solprop.boundaries` | absorbing boundaries in time and frequency |
-| {mod}`solprop.stepper` | the Runge–Kutta tableaux, the low-call Adams methods (`multistep`), the step-size controller and fixed step schedules (`FixedSchedule`) |
+| {mod}`solprop.stepper` | the Runge–Kutta tableaux, the low-call Adams methods (`multistep`), the step-size controller, fixed step schedules (`FixedSchedule`) and the stepper section a run request carries (`StepperSettings`) |
 | {mod}`solprop.noise` | shot-noise realisations |
 | {mod}`solprop.recipe` | recipes: a run written as TOML (`Recipe`, with `check`, `build`, `run`, `save` and `to_python`), values pinned to a design target (`solprop.recipe.pins`, `Recipe.resolve`, `Recipe.pin_roots`), the parameter metadata a front end reads (`parameters`), and the quantity parser and formatter (`solprop.recipe.quantity`) ([recipes and the command line](../guide/setup/recipes.md)) |
 | {mod}`solprop.driver.defaults` | the route defaults in one table (`ROUTE_DEFAULTS`): integrators, tolerances, noise and collar schemes, and the functions that resolve them |

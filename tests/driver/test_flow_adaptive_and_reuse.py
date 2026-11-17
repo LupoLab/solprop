@@ -274,7 +274,7 @@ def test_a_flow_refused_mid_run_leaves_nothing_that_breaks_the_next_backend(back
     cls = backend_class(backend)
     simulation_ = build("scalar", integrator=FIXED_ORDER)
     problem, grid = simulation_.translate(), simulation_.grid
-    run_request = simulation_._run_request()
+    run_request = simulation_.run_request()
     before = run(cls, problem, run_request, grid)
     refused, refused_request = mid_run_refusal(problem, run_request)
     # Through the backend's session, which ends failed and closes it (SEP 47 phase 5).
@@ -330,7 +330,7 @@ def test_a_moving_guide_that_fails_to_converge_leaves_the_next_backend_intact(
     """
     built, _ = moving
     problem, grid = built.translate(), built.grid
-    run_request = built._run_request()
+    run_request = built.run_request()
     cls = backend_class(backend)
 
     def final(one, one_request):

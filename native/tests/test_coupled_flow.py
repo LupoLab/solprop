@@ -266,7 +266,7 @@ def _parity_bound(
 def test_ten_steps_of_the_flow_are_the_reference_within_the_bound(name: str) -> None:
     case = CASES[name]()
     problem = case.translate()
-    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
+    run_request = case.run_request()
     grid = cast(FieldGrid, case.grid)
     expected = run(NumpyRefBackend, problem, run_request, grid)
     actual = run(NativeBackend, problem, run_request, grid)
@@ -283,7 +283,7 @@ def test_a_step_beyond_the_certificate_is_refused_by_name() -> None:
     # default exponential formulation acts forward only and does not measure it.
     case = CASES["scalar_wall"]()
     problem = case.translate()
-    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
+    run_request = case.run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     shrunk = dataclasses.replace(
@@ -304,7 +304,7 @@ def test_a_step_beyond_the_certificate_is_refused_by_name() -> None:
 def test_the_flow_ledger_counts_its_views() -> None:
     case = CASES["taper_gradient"]()
     problem = case.translate()
-    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
+    run_request = case.run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert flow.generator is not None
@@ -332,7 +332,7 @@ def test_the_engine_forms_the_reference_s_actions_within_the_formation_bound() -
     """
     case = CASES["taper_gradient"]()
     problem = case.translate()
-    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
+    run_request = case.run_request()
     reference = held_flow(problem)
     assert reference is not None
     dz = LENGTH / STEPS

@@ -1136,7 +1136,7 @@ def test_the_backend_refuses_an_inadmissible_name_on_its_own(guide, grid):
     """Asked directly, without the driver's loop (defence in depth)."""
     simulation = build(guide, grid)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = select("numpy_ref", problem, run_request, grid=grid)
     try:
         load_reference(backend)
@@ -1169,12 +1169,12 @@ def test_a_record_that_misnames_the_basis_is_refused_at_the_run_loop(
     simulation = build(guide, grid)
     general = simulation.metadata()
     if direction == "record_is_silent":
-        problem, run_request = simulation.translate(), simulation._run_request()
+        problem, run_request = simulation.translate(), simulation.run_request()
         metadata = dataclasses.replace(general, modal=None)
         expected = "carries transform.modal_tables and its run record carries"
     else:
         ordinary = ordinary_simulation(("energy",))
-        problem, run_request = ordinary.translate(), ordinary._run_request()
+        problem, run_request = ordinary.translate(), ordinary.run_request()
         metadata = general
         expected = "carries a general modal identity and the problem"
     with pytest.raises(DriverError, match=expected):

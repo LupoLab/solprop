@@ -58,6 +58,7 @@ from solprop.stepper.controller import PIController, default_dz_min
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
+from solprop.stepper.settings import PropagatorMode, StepperSettings
 from solprop.stepper.tableau import DOPRI5, Tableau
 from solprop.translate.chebyshev import (
     DEFAULT_TOL,
@@ -99,8 +100,6 @@ from solprop.translate.problem import (
     Flags,
     Initial,
     PropagationProblem,
-    PropagatorMode,
-    StepperSettings,
     Translation,
     TranslationReuse,
     _state,

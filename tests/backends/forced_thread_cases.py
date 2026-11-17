@@ -86,7 +86,7 @@ def route_adams_problem(route: str, formulation: str):
             "integrator": Multistep(formulation=formulation),  # pyright: ignore[reportArgumentType]
         }
     )
-    return simulation, simulation.translate(), simulation._run_request()
+    return simulation, simulation.translate(), simulation.run_request()
 
 
 def ten_steps(run_request: RunRequest) -> RunRequest:
@@ -220,7 +220,7 @@ def dispersive(option: str):
         evaluator, gas="N2" if raman else "Ar", raman=raman, stepped=True
     )
     problem = simulation.translate()
-    run_request = fixed_order(simulation._run_request())
+    run_request = fixed_order(simulation.run_request())
     assert problem.transform.n_nodes == 33
     fields = []
     for _ in range(2):
@@ -389,7 +389,7 @@ def accept_problem():
     """
     simulation = ROUTES["cartesian"](None)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     return (
         simulation,
         dataclasses.replace(
@@ -497,7 +497,7 @@ def linear_flow_problem(name: str):
     # The entry point refuses a capillary with no nonlinearity.
     linear._responses = ()  # what it is built from is read-only, by design
     problem = linear.translate()
-    run_request = linear._run_request()
+    run_request = linear.run_request()
     schedule = run_request.stepper.schedule
     return (
         dataclasses.replace(

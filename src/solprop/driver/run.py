@@ -649,7 +649,7 @@ def field_retention(
     ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
     ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
     ... )
-    >>> field_retention(simulation._run_request(), "planes", [-1]).field_planes
+    >>> field_retention(simulation.run_request(), "planes", [-1]).field_planes
     (2,)
     """
     refusal = field_retention_refusal(fields, field_planes)

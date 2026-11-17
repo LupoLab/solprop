@@ -148,7 +148,7 @@ def march_problem(request):
         profiles=parent.profiles,
         frame=parent.frame,
     )
-    return simulation.translate(), simulation._run_request(), simulation.grid
+    return simulation.translate(), simulation.run_request(), simulation.grid
 
 
 def opened_backend(case, limit, *, fail_at=None, binding_type=None):

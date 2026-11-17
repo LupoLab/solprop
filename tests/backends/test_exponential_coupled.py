@@ -131,7 +131,7 @@ def run(name, integrator, rtol, backend_class=NumpyRefBackend, **overrides):
             simulation.settings, integrator=integrator
         )
         problem = simulation.translate()
-        run_request = simulation._run_request()
+        run_request = simulation.run_request()
     backend = backend_class(
         problem,
         run_request,
@@ -199,7 +199,7 @@ def test_the_untransported_witness_is_for_diagonal_operators_only():
             simulation.settings, integrator=EXPONENTIAL
         )
         problem = simulation.translate()
-        run_request = simulation._run_request()
+        run_request = simulation.run_request()
     backend = NumpyRefBackend(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )

@@ -56,10 +56,11 @@ from solprop.stepper.multistep import (
     Multistep,
     lagrange_coefficients,
 )
+from solprop.stepper.settings import StepperSettings
 from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.expansion import ParameterExpansion
 from solprop.translate.linop import LinearOperator
-from solprop.translate.problem import PropagationProblem, StepperSettings
+from solprop.translate.problem import PropagationProblem
 
 __all__ = [
     "MAX_PHI_ORDER",
@@ -557,7 +558,7 @@ def refuse_carrier_frame(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper section, whose method is checked.
     backend : str
         The backend's name, for the message.
@@ -611,7 +612,7 @@ def refuse_adams(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper section; any method but
         :class:`~solprop.stepper.multistep.Multistep` passes untouched.
     backend : str
@@ -633,7 +634,7 @@ def refuse_adams(
     ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
     ...     width=100e-15, peak_power=9.8, shape="sech",
     ... )
-    >>> request = simulation._run_request()
+    >>> request = simulation.run_request()
     >>> refuse_adams(simulation.translate(), request.stepper, "numpy_ref") is None
     True
     """

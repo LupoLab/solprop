@@ -205,7 +205,7 @@ BACKENDS = [
 
 def _backend(simulation):
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     return problem, select(
         simulation.settings.backend,
         problem,
@@ -260,7 +260,7 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
             probed.timing_probe(start)
         with pytest.raises(BackendError, match="take a trial"):
             probe.field()
-        dz = float(simulation._run_request().stepper.dz_init)
+        dz = float(simulation.run_request().stepper.dz_init)
         probe.trial()
         probe.trial(float(problem.initial.z), 0.5 * dz)
         half = probe.field()

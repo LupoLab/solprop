@@ -242,7 +242,7 @@ def test_selecting_native_and_admitting_a_scan_ask_for_a_calibration(
     monkeypatch.setattr(registry, "_check_required_device", stop)
     with pytest.raises(StopError):
         simulation = problems.build("gnlse")
-        registry.select("native", simulation.translate(), simulation._run_request())
+        registry.select("native", simulation.translate(), simulation.run_request())
     assert asked == ["ensure"]
     monkeypatch.setattr(first_use, "for_workers", lambda cpus: asked.append("workers"))
     monkeypatch.setattr(pool, "_spawn", stop)

@@ -827,7 +827,7 @@ def _beam(route):
         settings=settings,
         noise=None,
     )
-    return grid, simulation.translate(), simulation._run_request()
+    return grid, simulation.translate(), simulation.run_request()
 
 
 def _host_widths(problem, run_request, grid, record, monkeypatch):

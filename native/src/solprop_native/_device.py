@@ -22,7 +22,8 @@ from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.session import ExecutionOptions
 from solprop.exceptions import BackendError
 from solprop.stepper.low_storage import LowStorageRungeKutta
-from solprop.translate.problem import PropagationProblem, StepperSettings
+from solprop.stepper.settings import StepperSettings
+from solprop.translate.problem import PropagationProblem
 
 from . import _core, build_info
 

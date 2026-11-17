@@ -177,7 +177,7 @@ def measured_scales(simulation) -> tuple[float, float]:
     from solprop.backends.numpy_ref.source import _general_maps  # noqa: PLC0415
 
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
         state = problem.initial.field0
@@ -203,7 +203,7 @@ def simulation_bound(simulation, *, margin: float = MARGIN, backend="numpy_ref")
     phi, kappa = measured_scales(simulation)
     return march_bound(
         simulation.translate(),
-        simulation._run_request(),
+        simulation.run_request(),
         phi=max(phi, 0.1),
         kappa=kappa,
         margin=margin,

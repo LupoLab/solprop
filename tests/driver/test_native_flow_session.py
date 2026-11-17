@@ -121,7 +121,7 @@ def cases():
             simulation = wide_simulation(modes)
             built[modes] = Case(
                 simulation.translate(),
-                simulation._run_request(),
+                simulation.run_request(),
                 simulation.grid,
                 WIDE_LENGTH,
             )
@@ -261,7 +261,7 @@ def test_bins_off_the_route_are_the_eigenbasis_route_s(
     case catalogue (``tests/backends/flow_rows.py``, ``flow off route ...``).
     """
     simulation, problem = parity_cases(name)
-    request, grid = on_adams(simulation._run_request()), simulation.grid
+    request, grid = on_adams(simulation.run_request()), simulation.grid
     on = run(NativeBackend, problem, request, grid)
     expected = run(NumpyRefBackend, problem, request, grid)
     off_route(monkeypatch, route)
@@ -295,7 +295,7 @@ def test_the_session_runs_bins_off_the_route_within_the_bound(
     catalogue, and the same run twice to the bit on one thread.
     """
     simulation, problem = parity_cases("taper")
-    request, grid = simulation._run_request(), simulation.grid
+    request, grid = simulation.run_request(), simulation.grid
     expected = run(NumpyRefBackend, problem, request, grid)
     off_route(monkeypatch, route)
     _assert_routed(problem, route)
@@ -331,7 +331,7 @@ def test_a_bin_off_the_route_past_thirty_squarings_is_refused_by_name(
         linear=dataclasses.replace(linear, phi_constant=linear.phi_constant + 1e15j),
     )
     with pytest.raises(BackendError, match="would need more than 30 squarings"):
-        run(NativeBackend, fast, simulation._run_request(), simulation.grid)
+        run(NativeBackend, fast, simulation.run_request(), simulation.grid)
 
 
 # --- The assembled block functions, one trial at a time -----------------------------
@@ -449,7 +449,7 @@ def test_the_off_route_block_functions_are_the_reference_s(
         dz_init=step,
     )
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     # A fixed sixth order, so that the trials reach seven moments.
     method = Multistep(
         order=6, variable_order=False, carrier_frame="scalar" if carrier else "off"
@@ -516,7 +516,7 @@ def test_a_carry_past_thirty_squarings_is_refused_and_keeps_the_state(
     moves: the session ends failed at the committed state, and the resident engine's
     refused trial leaves the state and its history untouched."""
     simulation, problem = parity_cases("taper")
-    request, grid = simulation._run_request(), simulation.grid
+    request, grid = simulation.run_request(), simulation.grid
     off_route(monkeypatch, "off")
     monkeypatch.setattr(
         backend_module,
@@ -609,7 +609,7 @@ def _held_to_the_bound(setup, runs, carrier=0.0):
 def test_sections_on_and_off_the_route_in_one_run(parity_cases, name, monkeypatch):
     """A flow whose sections alternate: every bin off the route, then every bin on."""
     simulation, problem = parity_cases(name)
-    request, grid = on_adams(simulation._run_request()), simulation.grid
+    request, grid = on_adams(simulation.run_request()), simulation.grid
     on = run(NativeBackend, problem, request, grid)
     expected = run(NumpyRefBackend, problem, request, grid)
     monkeypatch.setattr(
@@ -636,7 +636,7 @@ def test_a_carrier_frame_off_the_route(parity_cases, monkeypatch):
     simulation, problem = parity_cases("te_tm")
     grid = simulation.grid
     method = Multistep(carrier_frame="scalar")
-    request = simulation._run_request()
+    request = simulation.run_request()
     request = request.with_stepper(
         dataclasses.replace(request.stepper, integrator=method)
     )
@@ -689,7 +689,7 @@ def _round_trip(simulation, problem, middle, end):
     Each run is a native session over a fixed schedule with planes at `middle` and
     `end`, both edges of it, so the planes take no step of their own.
     """
-    request = to_planes(simulation._run_request(), [middle, end])
+    request = to_planes(simulation.run_request(), [middle, end])
     context = {
         "grid": simulation.grid,
         "modes": simulation.modes,
@@ -759,7 +759,7 @@ def test_a_snapshot_off_the_route_or_wide_resumes_to_the_bit(
         simulation, problem = parity_cases("gradient")
         off_route(monkeypatch, "off")
         _assert_routed(problem, "off")
-        steps = simulation._run_request().stepper.schedule.steps
+        steps = simulation.run_request().stepper.schedule.steps
         middle, end = float(np.sum(steps[:5])), float(np.sum(steps))
     uninterrupted, resumed = _round_trip(simulation, problem, middle, end)
     np.testing.assert_array_equal(resumed, uninterrupted)

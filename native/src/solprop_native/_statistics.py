@@ -549,7 +549,7 @@ def _profile_table(
     """Return a profile statistic's table and its record, lowered once per problem.
 
     - ``z_end``: the run's last plane, m
-      (:attr:`solprop.translate.problem.StepperSettings. z_end`).
+      (:attr:`solprop.stepper.settings.StepperSettings. z_end`).
     - Returns: the table, and its record for ``statistics_tables`` (a copy).
     """
     held = _PROFILE_TABLES.setdefault(problem, {})

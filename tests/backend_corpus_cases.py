@@ -651,7 +651,7 @@ def _probed(simulation: Simulation, arrays: dict[str, np.ndarray]) -> dict[str, 
     low-storage march's probe refuses the read-back, and that refusal is recorded.
     """
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = select(
         simulation.settings.backend,
         problem,

@@ -473,6 +473,14 @@ memory = simulation.run()             # into memory
 simulation.run("run.h5")              # and again, into a file, without translating twice
 ```
 
+Translation builds a run request beside the problem: the method, the error control, the
+planes and the statistics a fresh run takes.
+{py:meth}`~solprop.driver.simulation.Simulation.run_request` returns it, translating
+once just as `translate()` does. Those two are what the run-layer functions take when you
+drive the loop over save planes yourself, for example
+`solprop.backends.registry.select(name, problem, request)` to construct a backend for
+{py:func}`~solprop.driver.run.run_problem`.
+
 {py:class}`~solprop.driver.settings.SimulationSettings` holds everything numerical:
 the controller and its tolerances, the save planes, the step limits, a fixed schedule,
 the tableau, the absorber and how it is applied, the transverse quadrature, the

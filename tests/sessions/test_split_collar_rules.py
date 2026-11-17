@@ -85,7 +85,7 @@ DETECTION = 100.0
 def _backend(simulation: Simulation) -> tuple[Any, Any, Any]:
     """Return a simulation's problem, its request with its monitor, and a backend."""
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     backend = select(
         simulation.settings.backend,
         problem,

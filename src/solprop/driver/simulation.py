@@ -913,13 +913,42 @@ class Simulation(Displayed):
                 )
         return self._problem
 
-    def _run_request(self) -> RunRequest:
-        """Return the request translation returned with the problem, translating once.
+    def run_request(self) -> RunRequest:
+        """Return the run request built beside the problem, translating once.
 
         Every policy of a fresh run of :meth:`translate`'s problem: the method, the
         error control, the itinerary, the planes and the statistics (SEP 47 section
-        5.2). A run adapts it to its start, retention, monitor and history
-        (:meth:`~solprop.translate.run_request.RunRequest.for_run`).
+        5.2). Translation builds the problem and the request together and caches
+        both, so this translates only when :meth:`translate` has not run yet, and
+        returns the same object on every call. The problem and this request are what
+        the run-layer functions take when the outer loop is run by hand
+        (``docs/dev/architecture.md`` section 5):
+        :func:`~solprop.backends.registry.select`,
+        :func:`~solprop.translate.problem.validate_run`,
+        :meth:`~solprop.translate.problem.PropagationProblem.validate_launch` and
+        :func:`~solprop.driver.run.field_retention`. A run adapts it to its start,
+        retention, monitor and history
+        (:meth:`~solprop.translate.run_request.RunRequest.for_run`), which returns a
+        new request and leaves this one as it is.
+
+        Returns
+        -------
+        solprop.translate.run_request.RunRequest
+            The request of a fresh run from the simulation's launch.
+
+        Examples
+        --------
+        >>> from solprop.driver import Simulation
+        >>> simulation = Simulation.from_gnlse(
+        ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
+        ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
+        ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
+        ... )
+        >>> request = simulation.run_request()
+        >>> request.integration.kind.value, request.observation.save_planes.tolist()
+        ('runge_kutta', [0.005, 0.01])
+        >>> simulation.run_request() is request
+        True
         """
         self.translate()
         assert self._request is not None  # set with the problem
@@ -1165,7 +1194,7 @@ class Simulation(Displayed):
         updated._problem = _with_noise(
             dataclasses.replace(original, initial=record), replacement_noise
         )
-        request = self._run_request()
+        request = self.run_request()
         updated._request = request.with_stepper(
             dataclasses.replace(
                 request.stepper, save_planes=updated.settings.save_planes
@@ -1545,7 +1574,7 @@ class Simulation(Displayed):
         with _optmat.material_context(self._material_log):
             return metadata_for(
                 self.translate(),
-                self._run_request(),
+                self.run_request(),
                 self.grid,
                 modes=self.modes,
                 configuration=configuration,
@@ -1744,7 +1773,7 @@ class Simulation(Displayed):
     ) -> TransverseEdge:
         """Return the transverse edge a free-space run's monitor reads (SEP 40 5.3)."""
         problem = self.translate()
-        planes = self._run_request().observation.save_planes
+        planes = self.run_request().observation.save_planes
         length = float(np.max(planes)) - float(problem.initial.z)
         k_min = self._edge_k_min.get(length)
         if k_min is None:
@@ -1898,7 +1927,7 @@ class Simulation(Displayed):
             if resume:
                 _adopt_recorded_seed(self, output)
             problem = self.translate()
-            request = self._run_request()
+            request = self.run_request()
             _refuse_pending_check(problem)
             metadata = self.metadata()
             handler, state = _open_output(output, metadata, resume=resume)

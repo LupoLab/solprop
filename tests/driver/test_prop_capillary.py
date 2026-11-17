@@ -795,7 +795,7 @@ def test_the_default_field_range_brackets_the_input_peak():
 def _peak_intensity(simulation):
     """Return the peak on-axis intensity of a simulation's input, in W/m^2."""
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NumpyRefBackend(
         problem,
         run_request,
@@ -2930,7 +2930,7 @@ def reduced_m2_channel():
         # case accepts; the warning is the subject of its own test elsewhere.
         warnings.simplefilter("ignore", MaterialRangeWarning)
         problem = simulation.translate()
-    plain = simulation._run_request()
+    plain = simulation.run_request()
     spec = StatsSpec(names=PERIODIC_SUBSET, periodic=PERIODIC_SUBSET, period=1)
     return simulation, problem, plain, plain.for_run(stats=spec)
 

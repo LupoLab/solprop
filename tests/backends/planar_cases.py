@@ -144,7 +144,7 @@ def planar_case(name, *, steps=None):
         problem = dataclasses.replace(
             problem, initial=dataclasses.replace(problem.initial, field0=field0)
         )
-    return grid, space, problem, planar._run_request()
+    return grid, space, problem, planar.run_request()
 
 
 def linear_responses(responses):

@@ -98,7 +98,7 @@ def _prepare(name: str, fraction: float, *, admitted: bool) -> tuple[Any, Any, A
     )
     simulation = build(configuration)
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     retention = field_retention(
         request, simulation.settings.fields, simulation.settings.field_planes
     )
