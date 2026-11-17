@@ -19,7 +19,8 @@ channel has no parity partner, so its `parity` is `None`. `handedness` is `None`
 on every real basis, and is **filled** where a guide declares a complex one: the
 circular partners of {py:func}`solprop.modes.guide.circular_pair` carry `left` and
 `right` in place of `even` and `odd`, by the convention
-{doc}`general-modal` derives and {doc}`../setup/polarisation` fixes the sign of.
+[a circular basis declares](modal-bases.md#declaring-a-circular-basis) and
+{doc}`../setup/polarisation` fixes the sign of.
 
 **Parity means one thing across every family**, and `ChannelLabel`'s docstring is
 where it is defined: `"even"` is the member whose transverse pattern is the
@@ -41,7 +42,8 @@ adding a second TE/TM parity is refused. A common physical step-index guide may
 have different mode-specific cladding tail radii; its collection uses a common
 enclosing domain.
 
-`sample_index_table(mode, omega, z=..., include_area=True)` is the dense dispersion
+{py:func}`~solprop.modes.tabulated.sample_index_table`, called as
+`sample_index_table(mode, omega, z=..., include_area=True)`, is the dense dispersion
 bridge beside `IndexTable`. It retains the source's frequency derivative in a
 Hermite interpolant and records the snapshot position and source identity.
 Step-index areas are sampled at each frequency. Other modes retain their declared
@@ -88,7 +90,8 @@ by the overlap of the fields, so two channels whose propagation constants exchan
 order across the band keep their identities, where sorting by eigenvalue would
 swap them.
 
-`modal_transform_tables(table, omega, profile_error=...)` builds
+{py:func}`~solprop.translate.modal_tables.modal_transform_tables`, called as
+`modal_transform_tables(table, omega, profile_error=...)`, builds
 `ModalTransformTables`, the flat record a run's kernel problem carries as its
 `transform.modal_tables` leaf. It evaluates the table on the frequency grid a run will
 use -- which need not be the table's own knots, and in general is not -- and stores the
@@ -98,8 +101,8 @@ propagation](modal-projection.md#the-synthesis-and-projection-maps))
 and the node geometry as arrays, with frequency last and contiguous. Outside the
 table's band the record is explicitly zero rather than extrapolated, and a run whose
 active band leaves the guide's support is refused when the problem is assembled. The
-execution maps are built for a snapshot table only; a moving guide's maps come from the
-path sampling described above.
+execution maps are built for a snapshot table only; a moving guide's maps come from
+[its path sampling](moving-modal.md#a-guide-whose-geometry-moves-along-z).
 
 `coordinate_dual` recovers amplitudes from a physical field: contracted against
 the six components `(E, H)` at every node it returns the amplitude vector that
@@ -115,7 +118,7 @@ nothing in the constructor infers the accuracy of its own representation.
 A snapshot declares one interval; a path declares one per pair of stored
 positions.
 
-`validate_modal_table` compares held-out solves
+{py:func}`~solprop.modes.tables.validate_modal_table` compares held-out solves
 against budgets supplied before the comparison; frequency derivatives can be
 checked through `generator_derivative`. Physical kinks require separate sections.
 Besides the weighted field and generator defects it reports the flux defect
@@ -136,9 +139,9 @@ inspect: `Simulation.from_waveguide(..., provider=guide)` and
 `numpy_ref` and `native` (on the CPU and on the qualified GPU builds), and
 [the general modal page](general-modal.md) is the whole description. The guide carries
 its own {class}`~solprop.modes.guide.ModalSampling`
--- the knots, the position, the node rule, the declared degenerate blocks and the
-measured profile interpolation error -- and a run rebuilds its dense reference
-from that; a guide built by `from_step_index` carries none, because nothing there
+-- the knots, the position, the node rule, the declared degenerate blocks, any declared
+basis, the measured profile interpolation error and, for a moving guide, its path -- and
+a run rebuilds its dense reference from that; a guide built by `from_step_index` carries none, because nothing there
 declares a transverse resolution, and a run refuses it by name. A region's
 nonlinear response is declared on the region, with
 {class}`~solprop.modes.material.MaterialKerr`, by `chi3` or by `n2`. A

@@ -61,7 +61,7 @@ wavelength, and its amplitudes already carry each constituent's mole fraction, s
 mixture's response is driven by its **total** density.
 
 Lines that share a width law and a shift form a **damping group**. Each group $g$ and
-tensor family $\kappa$ becomes one existing Raman term,
+tensor family $\kappa$ becomes one Raman term,
 
 $$
 u_{g\kappa}(t) = w(t) \sum_{k\in g} A_{k\kappa} \sin(\Omega_k t),
@@ -71,7 +71,7 @@ $$
 
 with $w$ the grid's causal taper ([sampling the kernel](raman-numerics.md#sampling-the-kernel-and-the-density-it-depends-on)):
 an undamped row and a decay-rate path, exactly the two arrays the kernel contract
-already carries. The mapping is **exact** for every gas whose lines do not shift, at
+carries. The mapping is **exact** for every gas whose lines do not shift, at
 any density path: the rows do not depend on the density, and the decay rate is optmat's
 own group law, evaluated by optmat. An all-zero row is dropped and groups are never
 merged. The counts at 293.15 K and 800 nm:
@@ -85,7 +85,7 @@ merged. The counts at 293.15 K and 800 nm:
 | CH₄, SF₆ | 1 each | 1 | 1 |
 | dry air (N₂, O₂, Ar) | 170 | 82 | 126 |
 
-against two terms for solprop's own N₂ model.
+against two terms for a supplied two-term N₂ model.
 
 **Tensor form.** optmat gives each line an isotropic and an anisotropic amplitude, in
 Hellwarth's decomposition
@@ -105,8 +105,8 @@ it is given. The response always takes the run's carrier: the selection's
 `carrier_wavelength` when it names one, otherwise the grid reference `wavelength`.
 
 **Temperature.** A response fixes its temperature, which sets both the populations and
-the widths' temperature laws. A temperature path along z takes the existing
-[reference-temperature rule](raman-models.md#the-rotational-ladder), weighted now by the
+the widths' temperature laws. A temperature path along z takes the
+[reference-temperature rule](raman-models.md#the-rotational-ladder), weighted by the
 composition's summed density, or an explicit `MolecularOptions(temperature=...)`, and
 warns that the populations *and* the width laws are held there.
 
@@ -155,7 +155,7 @@ depends on the density.
   $\sum_k |A_k| e^{-\Gamma_k t}$ times the frequency error times $t$, which the tests
   check against optmat's direct evaluation along the path.
 
-[SEP 10](../../dev/seps/sep-0010-low-rank-raman.md) removes this restriction.
+[SEP 10](../../dev/seps/sep-0010-low-rank-raman.md), a draft, proposes removing this restriction.
 
 ## Validated ranges, and vacuum
 
@@ -189,9 +189,9 @@ The kernel rebuilds $\sum_g e^{-\gamma_g t} u_g$ and transforms it whenever a de
 changes: once per run at constant density, and at every stage on a density gradient.
 The rebuild scales with the number of rows: on this page's reference measurement, at
 $2^{14}$ fine samples, 6 ms for N₂'s 72 rows and 10 ms for dry air's 126, against
-0.3 ms for solprop's own two-term N₂ model and 0.25 ms for one convolution
-([benchmarks](../../dev/benchmarks.md#raman-kernel-rebuild)). SEP 10's low-rank
-representation removes this cost.
+0.3 ms for a supplied two-term N₂ model and 0.25 ms for one convolution
+([benchmarks](../../dev/benchmarks.md#raman-kernel-rebuild)). SEP 10, a draft, proposes
+a low-rank representation that would remove this cost.
 
 The run's manifest records the response's identity, the reference temperature
 (`raman_reference_temperature`) and, for each response, its labels, damping groups,

@@ -192,7 +192,7 @@ frequency and projects it back, so it costs roughly the node count times the cha
 count times the frequency count, about a hundred times a capillary step of the same
 grid. The dense maps and the stored E/H reference are held for the whole run
 (`16 × nodes × components × channels × n_omega` bytes each): the
-[backends chapter](../performance/resources.md#memory) says how that is estimated and budgeted before
+[execution resources](../performance/resources.md#memory) says how that is estimated and budgeted before
 anything is allocated.
 
 ## A graded-index multimode fibre
@@ -387,5 +387,5 @@ The ones a user meets first:
 * on a moving guide, the `modified` noise model or a fixed schedule that straddles a
   kink (above).
 
-The incident-beam launch into a fibre and its coupling budget were proposed and carried
-out by [SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md).
+The design of the incident-beam launch into a fibre and its coupling budget is
+[SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md).

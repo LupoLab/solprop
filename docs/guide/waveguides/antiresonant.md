@@ -37,7 +37,7 @@ propagation_area = mode.aeff()  # Marcatili field integral, m^2
 To propagate, pass `lattice=` beside an integer `modes=` to `prop_capillary` or
 `Simulation.from_capillary`, or build a numbered set with `ModeCollection.vincetti`.
 Supplied mode objects carry their own geometry, so combining them with `lattice=` is
-refused. The [antiresonant tutorial](../../auto_tutorials/waveguides/plot_01_antiresonant_fibre)
+refused. The [antiresonant tutorial](../../auto_tutorials/waveguides/plot_01_antiresonant_fibre.rst)
 shows argon pressure tuning and a short Kerr propagation.
 
 The model combines the confinement-loss fits of
@@ -45,8 +45,8 @@ The model combines the confinement-loss fits of
 [Vincetti and Rosa (2019)](https://doi.org/10.1364/OE.27.005230) with the dispersion
 fit of [Rosa, Melli and Vincetti (2021)](https://doi.org/10.3390/fib9100058).
 These are empirical fits, not an exact solution of Maxwell's equations for the tube
-geometry. Every coefficient was transcribed from the papers and checked term by term
-against the published text. The minimum-loss prefactor is the 2019 paper's
+geometry. Every coefficient is the papers' own, checked term by term against the
+published text. The minimum-loss prefactor is the 2019 paper's
 $3\times10^{-4}$, the minimum, rather than the 2016 paper's average $5\times10^{-4}$.
 The 2016 equation (its Eq. 3) has been checked against the typeset page and matches term for
 term, apart from the prefactor; the paper's normalised-loss definition carries an extra
@@ -168,7 +168,7 @@ The model is compared with converged finite-element (FEM) solutions of one fibre
 $t/r=0.017$ fibre outside the fits' validated 0.05–0.2. The FEM data cover 79
 wavelengths from 200 to 1500 nm evacuated and 20 from 355 to 946 nm at 10 bar of argon
 and 293 K. The comparison uses the FEM's own silica index (without absorption) and the
-same three-pole argon Sellmeier fit (solprop's `kingston` source, whose gas indices
+same three-pole argon Sellmeier fit (Kingston's, as Luna uses it, whose gas indices
 match the FEM's exactly). No parameter was refitted.
 
 With the conventions above, the index residual has RMSE $7.5\times10^{-6}$ over

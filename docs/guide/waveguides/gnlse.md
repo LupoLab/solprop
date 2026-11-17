@@ -41,7 +41,7 @@ output = prop_gnlse(
 {class}`~solprop.nonlinear.gnlse.SpecifiedMode`, any other `Mode` or a measured
 `IndexTable`; `loss_db_per_m` sets a constant loss, `shock` (default `True`) the shock
 term, and `noise` the shot noise ([noise](../media/noise.md)). The
-[soliton recurrence tutorial](../../introduction/lessons/plot_02_soliton)
+[soliton recurrence tutorial](../../introduction/lessons/plot_02_soliton.rst)
 runs an N-soliton through it.
 
 ## The fibre is a mode
@@ -109,7 +109,7 @@ $$
 with the supplied $\gamma$ as the **entrance coefficient**: only the area's shape
 is used, and a constant area cancels exactly. With `n2` instead, the same holds
 through $\gamma = n_2\omega_0/(cA_\text{eff}(0))$. There is no second, absolute
-division by an area anywhere, and no `VaryingAreaGnlse`: it is the same route.
+division by an area anywhere.
 
 $A_\text{eff}(\omega, z)$ is *not* represented by one path. A frequency-dependent
 area is the declared reference-frequency slice $A_\text{eff}(\omega_0, z)$ on this
@@ -381,7 +381,8 @@ material manifest records the fraction held back and where it came from — `"bu
 A lossless fibre with the shock term on conserves **photon number**,
 $\sum_k|\tilde A(\omega_k)|^2/\omega_k$, and not energy: the Raman response moves photons
 down in frequency and each one carries away less energy than it brought. Measured over a
-hundredth of a soliton period with a given $f_R = 0.18$, the photon number is conserved exactly and
+hundredth of a soliton period with `raman_fraction=0.18` given, the photon number is
+conserved exactly and
 the energy falls by $7.2\times10^{-6}$. With `shock=False` the prefactor is frozen at the
 carrier and the equation conserves energy instead, which is the wrong invariant for a
 delayed response; with Raman off both hold to $5.6\times10^{-16}$.

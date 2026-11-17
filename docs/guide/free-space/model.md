@@ -190,8 +190,8 @@ ceiling on the step: a low-source run, which would otherwise take long steps, ta
 more. The backstop `B` covers a spectrum that broadens after a read: it starts at `L/16`
 and doubles at each read whose spread has not grown by a tenth since it started, up to
 `L/4`, and starts again when it has. A beam whose spectrum holds, far from the edge, then
-reads at `4g/v` and its steps are left alone; on the suite's `line` case the reads no
-longer add a step. A fixed schedule cannot be held to it, and reports itself as `coarse`. A read covers
+reads at `4g/v` and its steps are left alone; on the suite's `line` case the reads add
+no step. A fixed schedule cannot be held to it, and reports itself as `coarse`. A read covers
 every frequency, and `native` takes it where the state lives, with only numbers crossing
 ([SEP 44](../../dev/seps/archive/sep-0044-native-edge-read.md)).
 
@@ -384,9 +384,11 @@ output = simulation.run()
 The empty response sequence gives exact linear diffraction in the selected temporal
 frame; add response objects — a `KerrResponse`, a plasma response — to the sequence for
 nonlinear propagation ([nonlinear responses](../media/nonlinear.md)). The absolute tolerance is
-in the stored Hankel spectrum's units, V m. The settings carry no absorber, so the collar
-here absorbs nothing ([above](#spatial-collar-and-statistics)). Translation is cached, so
-a second `run()` reuses it.
+in the stored Hankel spectrum's units, V m. The settings declare no absorber, so the run
+takes the grid's default temporal and spectral collar, applied once per accepted step
+(`absorber=False` switches it off); with no `spatial_absorber=` the transverse boundary
+is the safety ramp alone ([above](#spatial-collar-and-statistics)). Translation is
+cached, so a second `run()` reuses it.
 
 A spatial run's output metadata stores the spatial axes, frequency ordering,
 integration weights, collar, units and transform scalings. The state-layout names are

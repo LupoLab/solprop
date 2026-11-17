@@ -58,11 +58,11 @@ Choosing is done in one of three ways, from the most to the least common:
    its own citation ([quick experiments](material-selection.md#quick-experiments)).
 
 A supplied object is never rebuilt or matched to a built-in by its name. The
-[material-choices tutorial](../../auto_tutorials/basics/plot_06_material_choices) shows
+[material-choices tutorial](../../auto_tutorials/basics/plot_06_material_choices.rst) shows
 all three on a short run, and reads from the runs' manifests which part of the physics
 each change touched.
 
-**What is supported.** The recommended models of the built-in gases, at optmat 0.8.0 (unchanged since 0.4.0)
+**What is supported.** The recommended models of the built-in gases, at optmat 0.10
 (the shortest qualified wavelength of the index, rounded where shown; the
 rate's stated uncertainty factor at 800 nm). Inspect the record for your own
 carrier, and retain gaps in the qualified intervals:
@@ -75,7 +75,7 @@ carrier, and retain gaps in the qualified intervals:
 | CH₄ | `fit/CH4` | 240 nm, five windows to 12.1 µm | `eos/`; transport provisional | `hyperpolarizability/` | validated | molecular; ×2 |
 | SF₆ | `fit/SF6` | 230 nm to 5 µm | `eos/`, `transport/` | `hyperpolarizability/` | validated | molecular, untested; ×10 |
 | N₂O | `fit/N2O` | 320 nm, four windows to 7.05 µm | `eos/`, `transport/` | `hyperpolarizability/` | provisional, opt-in | molecular; ×3 |
-| air (`Gas.Air`) | `air/dry air (N2, O2, Ar)` | — | `eos/dry air (Lemmon 2000)` | none | none | none |
+| air (`Gas.Air`) | `air/dry air (N2, O2, Ar)` | 195 nm | `eos/dry air (Lemmon 2000)` | none | none | none |
 
 Every index model reaches the static limit except where a window ends. The solids are
 in [solids](material-selection.md#solids): fused silica (`fit/SiO2`, absorbing, with its nonlinear bundle),

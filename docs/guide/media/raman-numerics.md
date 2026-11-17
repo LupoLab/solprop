@@ -102,9 +102,11 @@ it differs by 12 % at its peak.
 
 **The dephasing is applied per term, per density.** The compiled response keeps
 separate undamped rows because the dephasing depends on the density, which varies along
-a pressure gradient, and a molecular gas has *two* dephasing times: at one bar hydrogen's rotational and vibrational coherences decay
-3.5 times apart, and nitrogen's 17 times apart. Summing the models first and damping the
-sum once is wrong for every gas with both a rotation and a vibration. The undamped rows,
+a pressure gradient, and a molecular gas's lines do not share one dephasing time: at one
+bar and 293.15 K hydrogen's strongest rotational line, S(1), decays in 2.9 ns and its
+Q(1) vibration in 0.84 ns, 3.4 times faster, and nitrogen's lines each have their own
+width, between about 80 and 240 ps. Summing the models first and damping the sum once is
+wrong for every gas whose lines have more than one width. The undamped rows,
 the expensive part, are sampled once per grid; the cheap part is one exponential per
 term at a decay rate that is a scalar path along z
 ({func}`solprop.translate.raman.decay_rate_profiles`), and the damped spectrum is

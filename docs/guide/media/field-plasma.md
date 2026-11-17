@@ -86,9 +86,8 @@ sampling when those effects matter.
 The source needs no option: `plasma=True` on the capillary interface, for example,
 selects it. A direct
 {meth}`~solprop.nonlinear.responses.PlasmaResponse.evaluate` call still returns the
-physical, ungated $P=\int J\,dt$, including any residual drift. The gated source
-of the original equation is not available: the held current is the only form either
-backend runs.
+physical, ungated $P=\int J\,dt$, including any residual drift. Neither backend runs
+a gated source: the held current is the only form either runs.
 
 ## How the current integrals are formed
 
@@ -303,7 +302,7 @@ complex data, the same arithmetic would return a quantity nobody has derived. Th
 separate
 {py:class}`~solprop.nonlinear.envelope_plasma.EnvelopePlasmaResponse` implements the
 derived cycle moments, depletion and frequency-domain current assembly described in
-[the ionisation manual](ionisation.md#envelope-plasma-sources).
+[envelope plasma](envelope-plasma.md).
 
 ```{eval-rst}
 .. plot::

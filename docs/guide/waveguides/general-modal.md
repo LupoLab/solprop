@@ -93,8 +93,8 @@ output = prop_waveguide(
 ```
 
 The run warns once, with a {py:class}`~solprop.exceptions.GeneralModalBasisWarning`:
-thirteen knots leave the interpolated basis $1.1\times10^{-4}$ from orthonormal near
-1.73 µm, at the long-wavelength edge of the active band where the launched pulse puts no
+thirteen knots leave the interpolated basis $1.0\times10^{-4}$ from orthonormal near
+1.72 µm, at the long-wavelength edge of the active band where the launched pulse puts no
 light. The warning, and why it is a warning rather than a refusal, are explained under
 [normalisation](modal-projection.md#normalisation-and-why-the-power-weight-is-one); more knots remove it.
 
@@ -217,7 +217,7 @@ multimode fibre at full size.
 **A guide must be solved over at least twice the band a run declares.**
 `Grid.active_mask` runs from half the lowest declared frequency to the window's highest,
 so the `FieldGrid` above, declared over 790–890 nm, has an active band of
-724.9–1774.0 nm — a factor 2.45 in frequency — and the guide's table must cover all of
+722.3–1763.7 nm — a factor 2.44 in frequency — and the guide's table must cover all of
 it, at the low end of which a weakly bound mode reaches furthest into the cladding and a
 truncating node rule discards most of it. Outside the table's own knots the stored
 reference is an explicit zero, and a run that reaches there is refused with both bands
@@ -233,27 +233,28 @@ not the nonlinearity, is what the step controller reacts to. On the millimetre a
 general route takes 42 accepted steps with the collar and exactly 10 without, and
 `prop_capillary` on the same grid does the same thing: this is not the general route's
 doing, it only matters more here because a general modal step costs about a hundred
-fused ones. Two settings change it: `absorber_scheme="split_step"` applies the same rates
+fused ones. Two keywords change it: `absorber_scheme="split_step"` applies the same rates
 once per step, outside the stage, and reaches the same answer in the collar-free step
-count; `absorber=None` in the settings removes the absorber, for a lossless check.
-`absorber=None` passed to `from_waveguide` itself means "build the default collar", so
-replace the settings before the first `translate()` or `run()` instead:
+count; `absorber=False` switches the temporal and spectral collars off and keeps the hard
+band mask, for a lossless check. `absorber=None`, the default, builds the default collar.
 
 ```{code-block} python
-import dataclasses
-
 from solprop.driver import Simulation
 
 simulation = Simulation.from_waveguide(
-    (), length, provider=guide, grid=grid, wavelength=835e-9, fwhm=40e-15, energy=4e-11
-)
-simulation.settings = dataclasses.replace(
-    simulation.settings, absorber_scheme="split_step"
+    (),
+    length,
+    provider=guide,
+    grid=grid,
+    wavelength=835e-9,
+    fwhm=40e-15,
+    energy=4e-11,
+    absorber_scheme="split_step",
 )
 ```
 
-`prop_gnlse` builds no absorber at all, so a like-for-like comparison with it needs one
-of the two.
+`prop_gnlse` builds its own grid's default collar too, so a like-for-like comparison with
+it passes `absorber=False` to both.
 
 ## Noise, statistics and what comes back
 
@@ -269,10 +270,10 @@ under unitary mixing, so drawing again in the declared basis would be a differen
 stochastic model. A basis with unequal channel norms is neither of those and is refused
 by name.
 
-The route's statistics are **`physical_energy`** and **`analytic_flux`**, and they are
-its defaults. Both are scalars: a coordinate energy and a coordinate power are not
-additive on a basis that is not orthonormal, so the names that promise one are refused
-here rather than redefined. `physical_energy` is the same-frequency product of the state
+The route's default statistics are `omega0`, **`physical_energy`**, **`analytic_flux`**,
+`fwhm_t` and `fwhm_t_outer`. The two in bold are its own names, and both are scalars: a
+coordinate energy and a coordinate power are not additive on a basis that is not
+orthonormal, so the names that promise one are refused here rather than redefined. `physical_energy` is the same-frequency product of the state
 with the basis's flux metric, integrated over frequency; `analytic_flux` is the peak over
 time of that same **same-frequency flux**, $\max_t \mathbf a^{\mathsf H}W\mathbf a$. On
 an identity metric — every guide in the provider's own coordinates — that is
@@ -499,5 +500,5 @@ the entrance geometry (a moving solid guide's rule moves with its interfaces, se
 section): the rule's certified tail bound and its sampled Gram belong to that geometry
 and to no other.
 
-The incident-beam launch (`incident=` under `coupling=`) and its coupling budget were
-proposed and carried out by [SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md).
+The design of the incident-beam launch (`incident=` under `coupling=`) and its coupling
+budget is [SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md).
