@@ -216,7 +216,7 @@ def test_absolute_frequency_source_factors(grid):
 
 def test_compilation_keeps_currents_separate_from_ordinary_polarisation(grid):
     response = EnvelopePlasmaResponse("Ar", adk_oracle("Ar"), preionisation=0.2)
-    mode = MarcatiliMode(125e-6, "Ar", 1.0, loss=False)
+    mode = MarcatiliMode(125e-6, "Ar", 1.0, loss_scale=0.0)
     # No range warning: optmat's models are qualified here (SEP 3, Phase 4a).
     with nullcontext():
         compiled = compile_responses(
@@ -278,7 +278,7 @@ def test_thg_combined_with_envelope_plasma_is_refused(grid):
                 EnvelopePlasmaResponse("Ar", adk_oracle("Ar")),
             ],
             grid,
-            MarcatiliMode(125e-6, "Ar", 1.0, loss=False),
+            MarcatiliMode(125e-6, "Ar", 1.0, loss_scale=0.0),
             density=2.5e25,
             z_max=0.01,
             ionisation_field_range=(1e9, 1e11),
@@ -319,7 +319,7 @@ def test_analytic_rate_needs_a_valid_tabulation_domain():
 
 
 def test_compiled_envelope_channel_and_spectral_consistency(grid, cycle):
-    mode = MarcatiliMode(125e-6, "Ar", 1.0, loss=False)
+    mode = MarcatiliMode(125e-6, "Ar", 1.0, loss_scale=0.0)
     # No range warning: optmat's models are qualified here (SEP 3, Phase 4a).
     with nullcontext():
         compiled = compile_responses(
@@ -351,7 +351,7 @@ def test_mismatched_envelope_material_is_refused(grid, cycle):
         compile_responses(
             [EnvelopePlasmaResponse("Ar", cycle.rate)],
             grid,
-            MarcatiliMode(125e-6, "He", 1.0, loss=False),
+            MarcatiliMode(125e-6, "He", 1.0, loss_scale=0.0),
             density=2.5e25,
             z_max=0.01,
         )

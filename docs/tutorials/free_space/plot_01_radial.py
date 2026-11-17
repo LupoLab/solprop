@@ -69,7 +69,7 @@ settings = SimulationSettings(
 weak_launch = weak_pulse.build(grid, space, medium=SpatialMedium())
 entrance = SpatialFlux.resolve(grid, space, medium)
 weak_launch *= np.sqrt(2e-9 / spatial_energy(weak_launch, entrance))
-weak = Simulation.from_radial(
+weak = Simulation.from_free(
     grid, space, medium, responses, weak_launch, settings=settings, noise=None
 ).run()
 
@@ -111,7 +111,7 @@ diagnostic_settings = SimulationSettings(
     dz_max=diagnostic_length / 12,
     stats=spec,
 )
-diagnostic = Simulation.from_radial(
+diagnostic = Simulation.from_free(
     diagnostic_grid,
     space,
     medium,

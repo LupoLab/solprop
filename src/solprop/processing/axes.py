@@ -4,18 +4,19 @@
 
 """Rebuild the axes and the layout of a saved run from its grid record.
 
-A saved run carries a :class:`solprop.output.schema.GridRecord` -- scalars only, so that
-the metadata stays small and its digest cheap -- and not the
-:class:`solprop.grid.TimeGrid` it was computed on. Everything else in
-:mod:`solprop.processing` needs the axes back, and :mod:`solprop.stats` needs a grid
-object, so this module is the one place that rebuilds them.
+A saved run carries a :class:`solprop.output.records.GridRecord` -- scalars only -- and
+not the grid it was computed on, so this module is the one place that rebuilds it:
+:func:`grid_from_record` and :func:`grid_of` (the time grid), :func:`spatial_grid_of`
+(the transverse grid), :func:`layout` (the stored shape) and
+:func:`transverse_units` with :class:`TransverseUnits` (what a spatial integral is in).
+The spectral helpers fix two things the rest of the package relies on: the stored
+frequency axis is in the kernels' layout (FFT order about ``omega0`` on an envelope
+grid; ``conventions.md`` §3) and processing shows it **ascending**
+(:func:`spectral_order`); and accessors keep the grid's **active band** by default
+(:func:`band_mask`, :data:`BANDS`). :func:`spectral_axis` gives an abscissa
+(:data:`SPECTRAL_AXES`) with the Jacobian that maps a density onto it.
 
-Two things the rest of the package can then rely on. First, the frequency axis is stored
-in the layout the kernels use: non-negative and increasing on a field grid, in FFT order
-about ``omega0`` on an envelope grid (``conventions.md`` section 3). Processing shows an
-**ascending** axis, and :func:`spectral_order` is the permutation that gets there.
-Second, the accessors work on the grid's **active band** by default, which is what keeps
-the wavelength axis finite and the selection contiguous.
+The manual page is ``docs/guide/results/processing.md`` ("Rebuilding the axes").
 """
 
 from collections.abc import Mapping, Sequence
@@ -26,6 +27,7 @@ import numpy as np
 from jaxtyping import Bool, Complex, Float, Inexact, Int
 
 from solprop import fourier
+from solprop._validation import choice
 from solprop.constants import C
 from solprop.exceptions import ModeError, OutputError, ProcessingError
 from solprop.grid import (
@@ -40,7 +42,8 @@ from solprop.grid import (
 from solprop.modes.protocol import TransverseMeasure
 from solprop.modes.slab import PlanarGrid
 from solprop.output.capability import reading_refusal
-from solprop.output.schema import Convention, GridRecord, Output, PlaneStore
+from solprop.output.records import Convention, GridRecord
+from solprop.output.store import Output, PlaneStore
 
 __all__ = [
     "BANDS",
@@ -85,7 +88,7 @@ def grid_from_record(record: GridRecord) -> TimeGrid:
 
     Parameters
     ----------
-    record : solprop.output.schema.GridRecord
+    record : solprop.output.records.GridRecord
         The grid record of the run.
 
     Returns
@@ -102,7 +105,7 @@ def grid_from_record(record: GridRecord) -> TimeGrid:
     Examples
     --------
     >>> from solprop.grid import EnvelopeGrid
-    >>> from solprop.output.schema import GridRecord
+    >>> from solprop.output.records import GridRecord
     >>> from solprop.processing.axes import grid_from_record
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (400e-9, 2e-6), 2e-12)
     >>> rebuilt = grid_from_record(GridRecord.from_grid(grid))
@@ -151,7 +154,7 @@ def grid_of(output: Output) -> TimeGrid:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         A memory or HDF5 output handler that has been opened.
 
     Returns
@@ -198,7 +201,7 @@ def spatial_grid_of(output: Output) -> RadialGrid | FreeGrid | PlanarGrid:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         A memory or HDF5 output handler that has been opened.
 
     Returns
@@ -305,7 +308,7 @@ class TransverseUnits:
         -------
         TransverseUnits
             The labels. The measure is already validated where it is read
-            (:attr:`solprop.output.schema.RunMetadata.transverse_measure`).
+            (:attr:`solprop.output.metadata.RunMetadata.transverse_measure`).
         """
         if measure == "area":
             return cls(measure, "W", "J")
@@ -317,14 +320,14 @@ def transverse_units(output: Output) -> TransverseUnits:
 
     A run on modes uniform in y -- the hollow planar guide of
     :class:`solprop.modes.slab.SlabMode` -- records that its transverse integrals are
-    per metre of y (:attr:`solprop.output.schema.RunMetadata.transverse_measure`): its
+    per metre of y (:attr:`solprop.output.metadata.RunMetadata.transverse_measure`): its
     powers, energies and the processing functions that integrate them are then in
     W/m and J/m, from the same formulas. A handler without metadata is taken to
     measure an area, as every run did before the key existed.
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
 
     Returns
@@ -413,7 +416,7 @@ def band_mask(grid: TimeGrid, band: Band = "active") -> Bool[np.ndarray, " n_ome
     >>> int(band_mask(grid, "all").sum()) == grid.n_omega
     True
     """
-    _check_choice(band, BANDS, "band")
+    choice(band, "band", BANDS, ProcessingError)
     if band == "active":
         return grid.active_mask
     return np.ones(grid.n_omega, dtype=bool)
@@ -462,7 +465,7 @@ def spectral_axis(
     >>> float(x[0]) / 1e14, float(jacobian[0])
     (3.183098861837907, 6.283185307179586)
     """
-    _check_choice(axis, SPECTRAL_AXES, "axis")
+    choice(axis, "axis", SPECTRAL_AXES, ProcessingError)
     if axis == "omega":
         return omega, np.ones_like(omega)
     if axis == "f":
@@ -480,19 +483,19 @@ def layout(output: Output) -> tuple[int, int, int, int]:
     """Return the shape of a saved run as ``(n_z, n_modes, n_pol, n_omega)``.
 
     The mode and polarisation counts are not in the metadata -- a mode-averaged run
-    records no modes at all -- so they are read off the stored field, which on an HDF5
-    handler means reading it.
+    records no modes at all -- so they come from the store's ``field_shape``, which
+    reads no field; a handler that is not a plane store is asked for its fields.
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         A memory or HDF5 output handler that has been opened and holds at least one
         plane.
 
     Returns
     -------
     tuple of int
-        ``(n_z, n_modes, n_pol, n_omega)``.
+        ``(n_z, n_modes, n_pol, n_omega)``, ``n_z`` counting every saved plane.
 
     Examples
     --------
@@ -501,6 +504,9 @@ def layout(output: Output) -> tuple[int, int, int, int]:
     >>> layout(example_output())[1:3]
     (1, 1)
     """
+    if isinstance(output, PlaneStore) and output.field_shape:
+        n_modes, n_pol, n_omega = output.field_shape
+        return int(output.n_saved), int(n_modes), int(n_pol), int(n_omega)
     n_z, n_modes, n_pol, n_omega = output["field"].shape
     return int(n_z), int(n_modes), int(n_pol), int(n_omega)
 
@@ -515,6 +521,26 @@ def _nearest_plane(output: Output, z: float) -> int:
         msg = "the output holds no saved plane, so no position can be selected"
         raise OutputError(msg)
     return int(np.argmin(np.abs(positions - z)))
+
+
+def _check_plane_or_z(plane: int | None, z: float | None) -> None:
+    """Refuse a selection that names a plane both by index and by position."""
+    if plane is not None and z is not None:
+        msg = f"give a plane index or a position, not both: plane={plane}, z={z}"
+        raise ProcessingError(msg)
+
+
+def _plane_index(output: Output, plane: int | None, z: float | None) -> int:
+    """Return the index of the one saved plane a reader of one plane is asked for.
+
+    - ``plane``: plane index, negative from the end; ``None``, the last.
+    - ``z``: plane position, m: the nearest saved plane; refused beside a `plane`.
+    - Returns: the index as given, the last plane's (-1), or the nearest to `z`.
+    """
+    _check_plane_or_z(plane, z)
+    if z is not None:
+        return _nearest_plane(output, z)
+    return -1 if plane is None else plane
 
 
 def _refuse_by_basis(output: Output, name: str) -> None:
@@ -549,34 +575,21 @@ def _plane_field(
 ) -> Complex[np.ndarray, "*planes n_modes n_pol n_omega"]:
     """Return the stored spectrum of the selected plane, or of every plane.
 
+    One plane is read alone (``Output.plane_field``), so a run that kept its field
+    on some planes only answers for those and refuses the others by name.
+
     - ``plane``: plane index, negative from the end, or ``None``.
-    - ``z``: plane position, m, or ``None``.
+    - ``z``: plane position, m, or ``None``: the nearest saved plane.
     - ``convention``: sign convention wanted.
     - Returns: shape ``(n_z, n_modes, n_pol, n_omega)`` when no plane was selected, and
       ``(n_modes, n_pol, n_omega)`` when one was.
     """
-    if plane is not None and z is not None:
-        msg = f"give a plane index or a position, not both: plane={plane}, z={z}"
-        raise OutputError(msg)
-    if isinstance(output, PlaneStore) and (plane is not None or z is not None):
-        # One plane is read alone, so a run that kept its field on some planes only
-        # answers for those, and refuses the others by name.
-        index = _nearest_plane(output, z) if z is not None else cast("int", plane)
-        return output.plane_field(index, convention)
-    values = output.fields(convention)
-    n_z = values.shape[0]
-    if n_z == 0:  # pragma: no cover - the handlers refuse to read an empty run
-        msg = "the output holds no saved plane"
-        raise OutputError(msg)
+    _check_plane_or_z(plane, z)
     if z is not None:
-        return values[_nearest_plane(output, z)]
-    if plane is None:
-        return values
-    index = plane + n_z if plane < 0 else plane
-    if not 0 <= index < n_z:
-        msg = f"plane {plane} is out of range for a run of {n_z} saved planes"
-        raise OutputError(msg)
-    return values[index]
+        return output.plane_field(_nearest_plane(output, z), convention)
+    if plane is not None:
+        return output.plane_field(plane, convention)
+    return output.fields(convention)
 
 
 def _keep_index(grid: TimeGrid, band: Band) -> Int[np.ndarray, " n_x"]:
@@ -649,18 +662,6 @@ def _squeeze(
     elif mode_axis and values.shape[-3] == 1:
         values = values[..., 0, :, :]
     return values
-
-
-def _check_choice(value: str, allowed: tuple[str, ...], what: str) -> None:
-    """Reject a keyword that is not one of a fixed set of names.
-
-    The parameter is a plain string rather than the enumeration itself, exactly as
-    :func:`solprop.fourier._check_kind` is, so that the refusal stays reachable in
-    production, where no runtime type checker stands in front of it.
-    """
-    if value not in allowed:
-        msg = f"{what} must be one of {allowed}, got {value!r}"
-        raise ProcessingError(msg)
 
 
 def _check_mode_selection(modes: object) -> None:

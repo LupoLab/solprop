@@ -8,6 +8,8 @@ import logging
 
 import numpy as np
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from numpy.testing import assert_allclose
 from scipy import stats
 
@@ -299,3 +301,88 @@ def test_a_transform_of_the_wrong_width_is_refused_by_name():
     drawn = input_noise(grid, np.random.default_rng(5), n_modes=2)
     with pytest.raises(NoiseError, match="square transform of that width"):
         transformed_noise(drawn, np.eye(3, dtype=complex))
+
+
+# ----------------------------------------- the photon number, as a property
+
+
+FALSE_ALARM = 1e-9
+"""The chance a correct draw is allowed to fail one statistical check below."""
+
+
+def bernstein_halfwidth(samples: int, variance: float, bound: float) -> float:
+    """Return ``t`` with ``P(|mean - E| >= t) <= FALSE_ALARM`` for bounded samples.
+
+    Bernstein's inequality for the mean of ``samples`` independent variables with zero
+    mean, variance at most `variance` and modulus at most `bound`:
+    ``P(|mean| >= t) <= 2 exp(-n t**2 / (2 variance + 2 bound t / 3))``, solved for
+    ``t``.
+    """
+    log_term = np.log(2.0 / FALSE_ALARM)
+    linear = bound * log_term / 3.0
+    return float(
+        (linear + np.sqrt(linear**2 + 2.0 * samples * variance * log_term)) / samples
+    )
+
+
+def random_unitary(size: int, seed: int) -> np.ndarray:
+    """Return a unitary from the QR factors of a complex Gaussian matrix."""
+    rng = np.random.default_rng(seed)
+    gaussian = rng.standard_normal((size, size)) + 1j * rng.standard_normal(
+        (size, size)
+    )
+    q, r = np.linalg.qr(gaussian)
+    return q * (np.diag(r) / np.abs(np.diag(r)))
+
+
+# Derandomised: the examples are a fixed function of the strategy, so a statistical
+# bound below, however unlikely to be crossed, cannot flake from one run to the next.
+@settings(max_examples=40, deadline=None, derandomize=True)
+@given(
+    kind=st.sampled_from(("field", "envelope")),
+    shortest=st.floats(min_value=200e-9, max_value=600e-9),
+    longest=st.floats(min_value=1.2e-6, max_value=3e-6),
+    trange=st.floats(min_value=0.3e-12, max_value=2e-12),
+    n_modes=st.integers(min_value=1, max_value=4),
+    n_pol=st.integers(min_value=1, max_value=2),
+    seed=st.integers(min_value=0, max_value=2**63 - 1),
+)
+def test_every_mode_holds_one_photon_per_bin_on_average_in_any_unitary_basis(
+    kind, shortest, longest, trange, n_modes, n_pol, seed
+):
+    grid_class = FieldGrid if kind == "field" else EnvelopeGrid
+    grid = grid_class.from_limits(1.0, 800e-9, (shortest, longest), trange)
+    active = grid.active_mask
+    drawn = input_noise(grid, np.random.default_rng(seed), n_modes=n_modes, n_pol=n_pol)
+    photons = photons_per_bin(grid, drawn.spectrum)[..., active]
+    # The drawn basis: exactly one photon in every active bin of every mode, to the
+    # rounding of a square root, a square and a division (10 eps, as above).
+    assert_allclose(photons, 1.0, rtol=10 * EPS, atol=0.0)
+
+    # The phases are uniform on [0, 2 pi): the mean phasor of n independent draws has
+    # zero mean, and each part has variance 1/2 and modulus at most 1.
+    phasors = drawn.spectrum[..., active] / np.abs(drawn.spectrum[..., active])
+    halfwidth = bernstein_halfwidth(phasors.size, 0.5, 1.0)
+    assert abs(float(np.mean(phasors.real))) <= halfwidth
+    assert abs(float(np.mean(phasors.imag))) <= halfwidth
+
+    # Carried into a random unitary basis, a channel's photon number in one bin is
+    # |sum_n conj(U_nm) c_n|**2 = 1 + X with X a sum of cross terms of independent
+    # phases: E[X] = 0, Var X = 1 - sum_n |U_nm|**4 and |X| <= max(1, n_modes - 1).
+    # So each channel still averages one photon per bin over its n_pol * n_active
+    # independent samples, within Bernstein's half-width; the drawn basis is the case
+    # n_modes = 1, where X = 0 and only rounding remains.
+    unitary = random_unitary(n_modes, seed % 2**32)
+    turned = photons_per_bin(grid, transformed_noise(drawn, unitary).spectrum)
+    turned = turned[..., active]
+    # Each carried amplitude is a sum of n_modes products of unit-modulus terms, whose
+    # rounding grows its square by at most a few n_modes**2 eps.
+    rounding = 4 * n_modes**2 * EPS + 10 * EPS
+    assert_allclose(turned.sum(axis=0), n_modes, rtol=rounding, atol=0.0)
+    variance = 1.0 - np.sum(np.abs(unitary) ** 4, axis=0)
+    for channel in range(n_modes):
+        samples = turned[channel].size
+        bound = bernstein_halfwidth(
+            samples, float(variance[channel]), max(1.0, n_modes - 1.0)
+        )
+        assert abs(float(np.mean(turned[channel])) - 1.0) <= bound + rounding

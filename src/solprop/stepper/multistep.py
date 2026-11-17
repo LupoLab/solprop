@@ -7,9 +7,11 @@
 SEP 13 (``docs/dev/seps/archive/sep-0013-expensive-response-steppers.md``) proposes
 interaction-picture Adams methods for propagation whose nonlinear evaluation dominates
 the cost. This module holds the backend-agnostic half: the frozen
-:class:`Multistep` specification a run carries in place of a Runge-Kutta tableau, and
-the scalar algebra every backend shares -- the integrated Lagrange weights of a
-variable-step Adams formula on the **actual** history positions (SEP 13 section 4).
+:class:`Multistep` specification a run carries in place of a Runge-Kutta tableau,
+:class:`MarchPolicy` (built by :func:`march_policy`), every number the march reads and
+never changes, and the scalar algebra every backend shares -- the integrated Lagrange
+weights of a variable-step Adams formula on the **actual** history positions
+(:func:`integrated_weights`, :func:`lagrange_coefficients`; SEP 13 section 4).
 
 Positions enter in normalised form, ``theta = (z - z_n) / h`` with ``z_n`` the anchor
 and ``h`` the step being taken, so a history point behind the anchor has a negative
@@ -358,7 +360,7 @@ class MarchPolicy:
     quiet_interval : float or None
         The boundary monitor's interval, m, which caps a step while the collar rests;
         ``None`` without a monitor. The Python march reads the same number from the
-        monitor through the driver (``HostDriver._quiet_capped``).
+        monitor through its session (``HostSession.cap``).
 
     Raises
     ------

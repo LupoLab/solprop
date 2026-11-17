@@ -2,42 +2,27 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Scalar paths along the propagation axis, with breakpoints and derivatives.
+"""Scalar paths along the propagation axis, with breakpoints and derivatives.
 
-A ``ZProfile`` is a scalar function of ``z``: the gas density in a pressure
-gradient, the core radius of a taper, a pre-ionisation fraction. The cumulative
-linear operator is built by resolving these paths first and taking the union of the
-edges they produce as the mandatory split of the expensive array-valued operator
-(:func:`solprop.translate.chebyshev.build_from_paths`, ``docs/dev/stepper.md`` section
-4), so a profile has to offer three things:
+A path (:class:`ZProfile`) is a scalar function of ``z`` -- a gas density, a core
+radius, a pre-ionisation fraction -- offering vectorised evaluation, declared
+breakpoints and an analytic derivative or an honest declaration that there is none,
+which is what the cumulative linear operator's builder needs
+(:func:`solprop.translate.chebyshev.build_from_paths`).
 
-* **vectorised evaluation**, because the builder samples at Chebyshev points in blocks;
-* **declared breakpoints**, because a stage boundary is a hard kink that the adaptive
-  split must never straddle and the stepper must land on;
-* an **analytic derivative** where one exists, and an honest declaration where it does
-  not, so that a caller can tell a converged quantity from a differenced one.
+- **Shapes**: :class:`Constant`, :class:`Linear`, :class:`PiecewiseLinear` and
+  :class:`FromCallable`; :func:`as_profile` turns a number into a path.
+- **Fills**: :class:`PressureGradient`, the steady-flow fill with every stage boundary a
+  breakpoint and a taper's pressure drop following :func:`hydraulic_integral`;
+  :class:`DensityPath`, the number density of a gas along a pressure path.
+- **Composition**: :class:`Sum`, :class:`Scaled` and :class:`SeriesOfPath` (a smooth
+  function of another path); :class:`PathVariation` describes a path's monotone pieces.
+- **Identity**: :func:`profile_identity`, a path's exact structural identity.
 
-A profile is directly usable as a path: ``build_from_paths([profile], ...)`` works
-through ``__call__``, and the caller passes the union of the profiles' ``breakpoints``
-as ``mandatory_breakpoints``.
-
-**Pressures are in bar** at this interface, the one documented departure from SI
-(``docs/dev/conventions.md`` section 1); positions are in metres and densities in m^-3.
-
-Vacuum ends. The steady-flow fill :math:`p(z) = \sqrt{p_0^2 + (z/L)(p_1^2 - p_0^2)}` has
-:math:`\mathrm{d}p/\mathrm{d}z = (p_1^2 - p_0^2)/(2Lp)`, which diverges where
-:math:`p \to 0`. A fill that reaches exactly zero therefore caps every integration
-scheme at about third order however small the step (``docs/dev/stepper.md`` section 10,
-trap 5), silently. :class:`PressureGradient` refuses such a stage end and substitutes a
-small floor, logging what it did; the floor is relative to the highest pressure of the
-fill, so it behaves the same for a 0.8 bar gradient and a 40 bar one. A fill built by
-:func:`solprop.gasflow.steady_fill` from the gas and the bore replaces a vacuum end by
-its choked pressure instead, which is physical rather than numerical.
-
-Tapers. Given the core radius, :class:`PressureGradient` makes :math:`p^2` linear in the
-hydraulic resistance :math:`\int a^{-4}\,\mathrm{d}z` rather than in ``z`` (Pennetta et
-al., APL Photonics 4, 056105 (2019), eq. 6), so a narrow waist carries most of the
-pressure drop; :func:`hydraulic_integral` evaluates that resistance.
+Pressures are in **bar**, the one documented departure from SI
+(``docs/dev/conventions.md`` §1); positions are in metres and densities in m^-3. The
+manual page ``docs/guide/waveguides/profiles.md`` explains the interface, the vacuum-end
+floor and the taper law.
 """
 
 import hashlib
@@ -52,10 +37,11 @@ from typing import Final, Protocol, cast, runtime_checkable
 import numpy as np
 from jaxtyping import Bool, Float, Int
 from numpy.polynomial import Chebyshev
+from scipy.integrate import quad
 from scipy.interpolate import CubicSpline
 
 from solprop._display import Displayed, engineering, line, summarise
-from solprop._ownership import frozen_copy
+from solprop._ownership import frozen_copy, hold
 from solprop.constants import BAR, K_B, ROOM_TEMPERATURE
 from solprop.exceptions import MaterialError, TranslationError
 from solprop.physdata.equation_of_state import density
@@ -335,6 +321,11 @@ class ZProfile(Protocol):
     Implementations are frozen dataclasses. Every one is callable on an array of
     positions and returns an array of the same shape, so that it can be handed
     straight to :func:`solprop.translate.chebyshev.build_from_paths` as a path.
+
+    A class that subclasses it explicitly takes the defaults of a continuous path
+    with an exact derivative, monotone between its breakpoints: no :attr:`jumps`,
+    :attr:`derivative_is_analytic` ``True`` and the :meth:`variation` of those
+    monotone pieces. A path that is not one overrides them.
     """
 
     @property
@@ -347,7 +338,7 @@ class ZProfile(Protocol):
     @property
     def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
         """Declared discontinuities in m, a subset of the breakpoints."""
-        ...
+        return np.empty(0, dtype=float)
 
     @property
     def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
@@ -367,12 +358,12 @@ class ZProfile(Protocol):
         PathVariation
             Pieces on which the path's values and variation are enclosed.
         """
-        ...
+        return _continuous_monotone(self, _interval_knots(start, end, self.breakpoints))
 
     @property
     def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
         """Whether :meth:`derivative` is exact rather than a finite difference."""
-        ...
+        return True
 
     @property
     def is_constant(self) -> bool:  # numpydoc ignore=RT01
@@ -599,7 +590,7 @@ def _mapped_variation(
 
 
 @dataclass(frozen=True, eq=False)
-class Constant:
+class Constant(ZProfile):
     """A path that does not vary along z.
 
     Attributes
@@ -640,37 +631,9 @@ class Constant:
         return self.span
 
     @property
-    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the derivative is exact.
-
-        Always ``True``: the derivative is identically zero.
-        """
-        return True
-
-    @property
     def is_constant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the path is the same everywhere."""
         return True
-
-    @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
-        """Declared discontinuities, m, which for a constant are none."""
-        return np.empty(0, dtype=float)
-
-    def variation(self, start: float, end: float) -> PathVariation:
-        """Return the exact variation, which is zero.
-
-        Parameters
-        ----------
-        start, end : float
-            The closed interval in m, finite with ``start < end``.
-
-        Returns
-        -------
-        PathVariation
-            One flat piece.
-        """
-        return _continuous_monotone(self, _interval_knots(start, end, np.empty(0)))
 
     def __call__(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Return the constant value at each position.
@@ -704,7 +667,7 @@ class Constant:
 
 
 @dataclass(frozen=True, eq=False)
-class PiecewiseLinear(Displayed):
+class PiecewiseLinear(Displayed, ZProfile):
     """A path linear between given positions and constant outside them.
 
     Every position is a breakpoint, because the slope jumps there. Clamping outside the
@@ -795,14 +758,17 @@ class PiecewiseLinear(Displayed):
         return cls(np.asarray(positions, dtype=float), np.asarray(values, dtype=float))
 
     def __post_init__(self) -> None:
-        """Validate and normalise the stage table.
+        """Validate the stage table and keep a read-only copy of it.
+
+        The table is copied, so that changing the caller's arrays afterwards changes
+        neither the path nor a run that holds it.
 
         Raises
         ------
         TranslationError
             If the positions are not strictly increasing or the lengths disagree.
         """
-        edges = _checked_edges(self.positions, "PiecewiseLinear")
+        edges = frozen_copy(_checked_edges(self.positions, "PiecewiseLinear"))
         heights = np.asarray(self.values, dtype=float)
         if heights.shape != edges.shape:
             raise TranslationError(
@@ -812,7 +778,7 @@ class PiecewiseLinear(Displayed):
         if not np.all(np.isfinite(heights)):
             raise TranslationError("PiecewiseLinear values must be finite")
         object.__setattr__(self, "positions", edges)
-        object.__setattr__(self, "values", heights)
+        object.__setattr__(self, "values", frozen_copy(heights))
 
     @property
     def breakpoints(
@@ -827,35 +793,9 @@ class PiecewiseLinear(Displayed):
         return float(self.positions[0]), float(self.positions[-1])
 
     @property
-    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the derivative is exact."""
-        return True
-
-    @property
     def is_constant(self) -> bool:  # numpydoc ignore=RT01
         """Whether every stage carries the same value."""
         return bool(np.all(self.values == self.values[0]))
-
-    @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
-        """Declared discontinuities, m, none for a continuous interpolant."""
-        return np.empty(0, dtype=float)
-
-    def variation(self, start: float, end: float) -> PathVariation:
-        """Return the exact variation: the path is monotone between its stages.
-
-        Parameters
-        ----------
-        start, end : float
-            The closed interval in m, finite with ``start < end``.
-
-        Returns
-        -------
-        PathVariation
-            One monotone piece per stage inside the interval, and flat pieces outside
-            the declared range.
-        """
-        return _continuous_monotone(self, _interval_knots(start, end, self.positions))
 
     def __call__(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Return the interpolated value at each position.
@@ -901,7 +841,7 @@ class PiecewiseLinear(Displayed):
 
 
 @dataclass(frozen=True, eq=False)
-class Linear(Displayed):
+class Linear(Displayed, ZProfile):
     """A path varying linearly between two ends and constant outside them.
 
     A two-stage :class:`PiecewiseLinear`, named for the common case of a taper.
@@ -972,22 +912,12 @@ class Linear(Displayed):
         return self._stages.z_span
 
     @property
-    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the derivative is exact."""
-        return True
-
-    @property
     def is_constant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the two ends carry the same value.
 
         ``True`` when ``start == end``.
         """
         return self._stages.is_constant
-
-    @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
-        """Declared discontinuities, m, which for a linear path are none."""
-        return np.empty(0, dtype=float)
 
     def variation(self, start: float, end: float) -> PathVariation:
         """Return the exact variation of the two-stage table.
@@ -1356,7 +1286,7 @@ def hydraulic_integral(
 
 
 @dataclass(frozen=True, eq=False)
-class PressureGradient(Displayed):
+class PressureGradient(Displayed, ZProfile):
     r"""A steady-flow pressure fill, in bar, with every stage boundary a breakpoint.
 
     Laminar flow of a compressible gas through a narrow tube of constant bore makes
@@ -1489,6 +1419,9 @@ class PressureGradient(Displayed):
     def __post_init__(self) -> None:
         """Validate the stage table and integrate the bore of a varying radius.
 
+        The stage table is kept as a read-only copy, so that changing the caller's
+        arrays afterwards changes neither the fill nor a run that holds it.
+
         Raises
         ------
         TranslationError
@@ -1496,9 +1429,11 @@ class PressureGradient(Displayed):
             pressure is negative, no stage pressure is usable, or the radius is not
             positive or cannot be integrated.
         """
-        edges = _checked_edges(self.positions, "PressureGradient")
+        edges = frozen_copy(_checked_edges(self.positions, "PressureGradient"))
         object.__setattr__(self, "positions", edges)
-        object.__setattr__(self, "pressures", _checked_pressures(edges, self.pressures))
+        object.__setattr__(
+            self, "pressures", frozen_copy(_checked_pressures(edges, self.pressures))
+        )
         chokes = tuple(bool(flag) for flag in self.choked_ends)
         if len(chokes) != 2:
             raise TranslationError("choked_ends needs one flag for each outer end")
@@ -1684,19 +1619,9 @@ class PressureGradient(Displayed):
         return float(self.positions[0]), float(self.positions[-1])
 
     @property
-    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the derivative is exact."""
-        return True
-
-    @property
     def is_constant(self) -> bool:  # numpydoc ignore=RT01
         """Whether every stage carries the same pressure."""
         return bool(np.all(self.pressures == self.pressures[0]))
-
-    @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
-        """Declared discontinuities, m, which for a steady-flow fill are none."""
-        return np.empty(0, dtype=float)
 
     def variation(self, start: float, end: float) -> PathVariation:
         """Return the exact variation: the fill is monotone on every stage.
@@ -2476,6 +2401,17 @@ class SeriesOfPath(Displayed):
     path: ZProfile
     series: Chebyshev
 
+    def __post_init__(self) -> None:
+        """Keep a copy of the series that cannot be changed in place.
+
+        A series keeps its coefficients in writeable arrays, which its owner can change
+        after passing it; the copy's are read-only.
+        """
+        series = self.series.copy()
+        for values in (series.coef, series.domain, series.window):
+            hold(values)
+        object.__setattr__(self, "series", series)
+
     def __repr__(self) -> str:
         """Return a one-line description: the degree and the inner path.
 
@@ -2632,6 +2568,51 @@ def _probe_positions(path: ZProfile) -> Float[np.ndarray, " n_probes"]:
     return np.unique(
         np.concatenate([np.asarray(path.breakpoints, dtype=float), interior])
     )
+
+
+def _weighted_mean(
+    value: ZProfile,
+    weight: ZProfile,
+    start: float,
+    end: float,
+    kinks: Float[np.ndarray, " n_kinks"],
+) -> float | None:
+    """Return the mean of one path weighted by another over a finite span.
+
+    The integrals are taken by adaptive quadrature between the span's ends and the
+    kinks, so that each piece is smooth.
+
+    - ``start``, ``end``: the finite span in m.
+    - ``kinks``: positions in m inside the span where the value or the weight kinks.
+    - Returns: ``int w v dz / int w dz``, or ``None`` when ``int w dz`` is not positive.
+    """
+    edges = np.unique(np.concatenate([[start, end], kinks]))
+
+    def weighted(z: float, power: int) -> float:
+        """Return ``w(z) v(z)^power`` at one position.
+
+        - ``z``: position in m.
+        """
+        position = np.array([z])
+        scale = float(weight(position)[0])
+        return scale * float(value(position)[0]) ** power
+
+    totals = [0.0, 0.0]
+    for left, right in itertools.pairwise(edges):
+        for power in (0, 1):
+            part, _ = quad(
+                weighted,
+                left,
+                right,
+                args=(power,),
+                epsabs=0.0,
+                epsrel=1e-10,
+                limit=200,
+            )
+            totals[power] += part
+    if not totals[0] > 0.0:
+        return None
+    return totals[1] / totals[0]
 
 
 def _checked_temperature(value: object, owner: str = "") -> float | ZProfile:
@@ -3046,7 +3027,8 @@ class FromCallable:
                 f"FromCallable {what} must be strictly increasing and inside the "
                 f"span {self.span}, got {edges.tolist()}"
             )
-        return edges
+        # A copy, so that changing the caller's list afterwards changes nothing.
+        return frozen_copy(edges)
 
     @property
     def breakpoints(

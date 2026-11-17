@@ -33,6 +33,7 @@ from tests.hacc_cases import (
 )
 from tests.tdse_archive_cases import Info, SaeMonitors, Shadow, writer
 
+import source_channel
 from solprop.driver import tdse
 from solprop.driver.tdse_consistency import check_consistency, protocol_field
 from solprop.exceptions import (
@@ -164,9 +165,7 @@ class _RichProvider(SaeProvider):
 
 @pytest.fixture
 def sae(monkeypatch):
-    fake = _RichProvider()
-    monkeypatch.setattr(tdse, "_load_provider", lambda: fake)
-    return fake
+    return source_channel.install(monkeypatch, _RichProvider())
 
 
 @pytest.fixture

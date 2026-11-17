@@ -4,9 +4,15 @@
 
 """The exception and warning hierarchies.
 
-Every error raised by solprop is a :class:`SolpropError` and every warning it emits is a
-:class:`SolpropWarning`, so callers can catch or filter the whole family with one clause
-and still tell the cases apart. Raise the most specific subclass; never raise a bare
+Every error solprop raises is a :class:`SolpropError`, one subclass per layer or concern
+(:class:`GridError`, :class:`MaterialError`, :class:`TranslationError`,
+:class:`BackendError`, :class:`OutputError`, ...), and every warning it emits is a
+:class:`SolpropWarning`, likewise subclassed (:class:`MaterialRangeWarning`,
+:class:`GasFlowWarning`, :class:`BoundaryWarning`, ...), so callers can catch or filter
+the whole family with one clause and still tell the cases apart. The two signals that
+end a run from outside are not errors: :class:`RunTerminated` (SIGTERM) is a
+:class:`SystemExit` and :class:`StopRequested` (the run's stop flag) a
+:class:`BaseException`. Raise the most specific subclass; never raise a bare
 :class:`Exception`, and never return a sentinel where raising is correct.
 """
 
@@ -22,6 +28,7 @@ __all__ = [
     "CouplingError",
     "DiluteScalingWarning",
     "DriverError",
+    "ExecutorError",
     "ExponentBudgetWarning",
     "GasFlowWarning",
     "GeneralModalBasisWarning",
@@ -190,8 +197,21 @@ class StopRequested(BaseException):
         self.flag = flag
 
 
-class DriverError(SolpropError, RuntimeError):
-    """A run was asked for something the driver cannot execute."""
+class DriverError(SolpropError, ValueError):
+    """A run was asked for something the driver cannot execute.
+
+    Almost always a refused argument or combination of arguments, so it is a
+    ``ValueError``, as the grid, pulse and noise errors are.
+    """
+
+
+class ExecutorError(SolpropError, RuntimeError):
+    """A scan executor, or the machine it runs on, failed while running points.
+
+    The few failures of the environment rather than of the request: a refused memory
+    query, a failed batch submission or lease refresh, a scan point interrupted in its
+    worker. A refused argument is a :class:`DriverError`.
+    """
 
 
 class BoundaryError(SolpropError, RuntimeError):
@@ -272,7 +292,11 @@ class TDSEConsistencyError(MaterialError):
 
 
 class ProcessingError(SolpropError, ValueError):
-    """A post-processing or plotting request is invalid."""
+    """A post-processing, plotting or statistics request is invalid.
+
+    Raised for a malformed :class:`~solprop.stats.StatsSpec` too, and for a plane
+    selected both by index and by position.
+    """
 
 
 class ConvergenceError(SolpropError, RuntimeError):

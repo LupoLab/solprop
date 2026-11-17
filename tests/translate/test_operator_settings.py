@@ -16,6 +16,7 @@ import warnings
 import numpy as np
 import pytest
 
+from builders import load_reference, reference_trial
 from legacy_geometry import bare_absorber
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import SpatialAbsorber, absorber
@@ -25,9 +26,10 @@ from solprop.exceptions import (
     TranslationError,
 )
 from solprop.grid import EnvelopeGrid, LineGrid, RadialGrid
-from solprop.linear import Frame
+from solprop.linear import MAX_ATTENUATION_EXPONENT, Frame
+from solprop.nonlinear.gnlse import SpecifiedMode
 from solprop.nonlinear.responses import KerrResponse
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse
 from solprop.spatial import (
@@ -328,17 +330,17 @@ def test_a_backend_handed_the_refused_step_forms_a_non_finite_stage():
     past = 1.1 * LOG_DBL_MAX / RATE
     simulation = line(evanescent_rate=RATE, step=allowed, length=4 * allowed)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
+        load_reference(backend)
         # A trial of the refused length, as only a direct caller can take one: the
         # inverse factor exp(lambda h) is infinite and so is the stage it scales.
-        backend._hoist(0.0)
+        backend.workspace.hoist(0.0)
         with np.errstate(over="ignore", invalid="ignore"):
-            norm, state = backend._trial_step(0.0, past)
+            norm, state = reference_trial(backend, 0.0, past)
         assert not (np.isfinite(norm) and np.all(np.isfinite(state)))
-        norm, state = backend._trial_step(0.0, allowed)
+        norm, state = reference_trial(backend, 0.0, allowed)
         assert np.isfinite(norm) and np.all(np.isfinite(state))
     finally:
         backend.close()
@@ -389,7 +391,7 @@ def radial(
     space = RadialGrid(4e-6, 16)
     pulse = evanescent_beam(grid, space, SpatialMedium())
     planes = [length]
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         space,
         SpatialMedium(),
@@ -455,14 +457,14 @@ def test_a_radial_backend_handed_the_refused_step_forms_a_non_finite_stage():
     allowed = 0.85 * LOG_DBL_MAX / RATE
     simulation = radial(step=allowed, length=4 * allowed)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend._hoist(0.0)
+        load_reference(backend)
+        backend.workspace.hoist(0.0)
         # The radial inverse factor exp(-dPhi) overflows as the separable one does.
         with np.errstate(over="ignore", invalid="ignore"):
-            norm, state = backend._trial_step(0.0, 1.1 * LOG_DBL_MAX / RATE)
+            norm, state = reference_trial(backend, 0.0, 1.1 * LOG_DBL_MAX / RATE)
         assert not (np.isfinite(norm) and np.all(np.isfinite(state)))
     finally:
         backend.close()
@@ -504,3 +506,61 @@ def test_the_radial_bounds_cover_a_varying_medium():
         # And close: the series converge fast on a smooth density, so the bound
         # sits within a hundredth of the sampled extreme.
         assert bounds.loss <= 1.01 * float(np.max(-sampled))
+
+
+# ------------------------------------------------------------ the modal kinds
+
+
+def lossy_fibre(alpha: float, integrator) -> Simulation:
+    """A 4 cm fibre of power loss ``alpha``, replayed in four steps of 1 cm."""
+    length = 0.04
+    grid = EnvelopeGrid.from_limits(length, WAVELENGTH, (600e-9, 1.2e-6), 2e-12)
+    mode = SpecifiedMode.from_taylor(
+        [0.0, 0.0, -2e-26], omega_ref=grid.omega0, alpha=alpha, aeff=8e-11
+    )
+    pulse = GaussianPulse(wavelength=WAVELENGTH, fwhm=100e-15, energy=1e-9)
+    step = length / 4
+    return Simulation(
+        grid,
+        mode,
+        [],
+        pulse,
+        settings=SimulationSettings(
+            controller=PIController(rtol=1e-6, atol=1e-14),
+            save_planes=[length],
+            dz_max=step,
+            dz_init=step,
+            schedule=FixedSchedule.uniform(0.0, length, step, save_planes=[length]),
+            integrator=integrator,
+            backend="numpy_ref",
+            absorber=bare_absorber(grid),
+            boundary_check=None,
+            prefactor_index=1.0,
+        ),
+        noise=None,
+    )
+
+
+@pytest.mark.parametrize(
+    "integrator", [RungeKutta(), Multistep()], ids=["runge_kutta", "multistep"]
+)
+def test_the_loss_clamp_keeps_a_modal_replay_inside_the_budget(integrator):
+    """The modal kinds go unchecked because ``LossPolicy`` bounds their exponent.
+
+    The loss asks for ``alpha h / 2 = 5000`` nepers a step, past ``log(DBL_MAX)``;
+    the clamp holds the rate to ``2 * 708 / L``, a quarter of 708 a step of
+    ``L / 4``, so translation neither refuses nor warns and the field stays finite.
+    """
+    alpha = 1e6
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ExponentBudgetWarning)
+        simulation = lossy_fibre(alpha, integrator)
+        problem = simulation.translate()
+    step = simulation.grid.length / 4
+    assert alpha * step / 2 > LOG_DBL_MAX
+    rate = problem.linear.phi_constant
+    assert rate is not None
+    exponent = float(np.max(-np.real(rate))) * step
+    assert exponent == pytest.approx(MAX_ATTENUATION_EXPONENT / 4, rel=1e-12)
+    output = simulation.run(progress="none")
+    assert np.all(np.isfinite(output["field"]))

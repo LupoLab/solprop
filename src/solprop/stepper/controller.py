@@ -8,9 +8,14 @@ The backend reduces the embedded pair's error estimate to a scalar; everything h
 scalar logic on that number (``docs/dev/stepper.md`` section 3). Two pieces make up the
 control loop:
 
-* a **norm scale**, the denominator the backend divides the error by, so that a scaled
-  norm of 1 means the step sat exactly at the requested tolerance;
-* the **controller**, which turns a history of scaled norms into a step-size factor.
+* a **norm scale** (:func:`weak_norm_scale`, :func:`weighted_norm_scale`), the
+  denominator the backend divides the error by, so that a scaled norm of 1 means the
+  step sat exactly at the requested tolerance;
+* the **controller** (:class:`PIController`), which turns a history of scaled norms into
+  a step-size factor, clamped by :func:`limit_step` above the floor of
+  :func:`default_dz_min`.
+
+:class:`ControlRecord` reports what a completed run achieved against what it asked for.
 
 The controller is the proportional-integral rule of Soederlind and Wang [1]_ rather
 than the elementary rule of [2]_, because the integral term damps the response to
@@ -115,8 +120,9 @@ def weighted_norm_scale(
 
     .. note::
        Provisional. Which weighting actually serves weak observables best -- fixed
-       per-band weights, per-mode weights or a rolling per-bin scale -- is the first
-       experiment of ``docs/dev/stepper.md`` section 9 and is not yet settled.
+       per-band weights, per-mode weights or a rolling per-bin scale -- has not been
+       measured: it is the open question "Error norms for observables far below the
+       pump" in ``docs/dev/open-questions.md`` (solprop issue #259).
 
     Parameters
     ----------
@@ -262,7 +268,7 @@ class PIController:  # numpydoc ignore=PR02
     ``factor = clip(safety * (1/e_n)**beta1 * (1/e_{n-1})**beta2,
     min_factor, max_factor)``,
 
-    the Lund (PI.4.2) rule of [1]_. A pure proportional controller reacts to every
+    the PI.4.2 rule of [1]_. A pure proportional controller reacts to every
     fluctuation of the estimate; the integral term damps that, which is what keeps the
     step size smooth enough for the step history to be worth replaying.
 
@@ -407,7 +413,7 @@ class PIController:  # numpydoc ignore=PR02
     ) -> "PIController":
         """Build a controller whose PI gains match an error estimate of order ``q``.
 
-        The Lund gains are ``beta1 = 0.6 / k`` and ``beta2 = -0.2 / k`` with
+        The gains are ``beta1 = 0.6 / k`` and ``beta2 = -0.2 / k`` with
         ``k = q + 1``. Using the scheme's order in place of the estimator's is a
         standing mistake: it makes the controller oscillate rather than converge.
 

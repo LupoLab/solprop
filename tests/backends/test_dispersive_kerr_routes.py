@@ -19,7 +19,7 @@ nodes of that region. Per route:
   constant cubic itself (below), and the dispersive response adds no work to that.
 
 The compiled backends run the leaf on these routes against this one
-(``test_native_dispersive_routes.py``).
+(the dispersive rows of ``tests/capability_routes.py``).
 
 The general modal route also takes a guide with a constant solid region beside a gas
 one, the carrier policy's constant cubic for a gas region, and the record of both.
@@ -37,12 +37,13 @@ import pytest
 
 from backends.matched import dispersive_response_bound
 from bounds import assert_within
+from builders import numpy_ref_launch_derivative as stage_derivative
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from modal_provider_cases import GENERAL_Z_END, WAVELENGTH, general_grid
 from solprop.backends import node_chunk
 from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
-from solprop.backends.numpy_ref import NumpyRefBackend, general_modal, passes
-from solprop.backends.numpy_ref.backend import _general_maps
+from solprop.backends.numpy_ref import general_modal, source
+from solprop.backends.numpy_ref.source import _general_maps
 from solprop.boundaries import Absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import (
@@ -77,12 +78,13 @@ from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec, default_spec
 from solprop.stepper import FixedSchedule, PIController, RungeKutta
+from solprop.translate.assembly import assemble
 from solprop.translate.general import (
     _log_gas_regions,
     general_modal_route,
     modal_identity,
 )
-from solprop.translate.problem import Translation, assemble
+from solprop.translate.problem import Translation
 from solprop.translate.responses import KerrForm, dispersive_terms
 
 pytestmark = [
@@ -142,21 +144,6 @@ def unit_collar(translation):
         ),
         run_request,
     )
-
-
-def stage_derivative(problem, run_request, grid):
-    """Return ``numpy_ref``'s stage derivative at the launch."""
-    backend = NumpyRefBackend(problem, run_request, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend._hoist(0.0)
-        return backend._nonlinear(
-            backend._require_state(),
-            backend._stage_scalars(0.0, 0.0),
-            np.ones((1, *problem.shape), complex),
-        )
-    finally:
-        backend.close()
 
 
 def assert_same_derivative(got, expected):
@@ -289,7 +276,7 @@ def test_the_free_route_evaluates_the_reference_at_a_node(monkeypatch, case, eva
     grid = free_grid(kind)
     response = DispersiveKerrResponse(ARGON, evaluator, thg=thg)
     problem, run_request = free_problem(response, grid)
-    calls = caught(monkeypatch, passes, "nonlinear_sources")
+    calls = caught(monkeypatch, source, "nonlinear_sources")
     stage_derivative(problem, run_request, grid)
     args, kwargs, result = calls[0]
     field_t = args[0]
@@ -418,7 +405,7 @@ def planar_simulation(
     grid = FieldGrid.from_limits(
         PLANAR_LENGTH, 800e-9, (200e-9, 3e-6), 100e-15, **LEGACY_GRID
     )
-    modes = [SlabMode(HALF_GAP, "Ar", 2.0, order=p, loss=False) for p in (1, 3)]
+    modes = [SlabMode(HALF_GAP, "Ar", 2.0, order=p, loss_scale=0.0) for p in (1, 3)]
     pulse = PlanarPulse(
         GaussianPulse(wavelength=800e-9, fwhm=15e-15, energy=2e-4),
         3e-4,
@@ -457,8 +444,8 @@ def test_the_planar_route_evaluates_the_reference_at_a_node(
     response = DispersiveKerrResponse(ARGON, evaluator, thg=thg)
     simulation = planar_simulation(response)
     problem = simulation.translate()
-    run_request = simulation._run_request()
-    calls = caught(monkeypatch, passes, "nonlinear_sources")
+    run_request = simulation.run_request()
+    calls = caught(monkeypatch, source, "nonlinear_sources")
     stage_derivative(problem, run_request, simulation.grid)
     args, kwargs, result = calls[0]
     field_t = args[0]
@@ -490,7 +477,7 @@ def test_without_dispersion_the_planar_derivative_is_the_constant_one(thg):
         simulation = planar_simulation(response)
         launch = simulation._field0 * sub_octave(simulation.grid)
         problem = simulation.with_input(launch).translate()
-        run_request = simulation.with_input(launch)._run_request()
+        run_request = simulation.with_input(launch).run_request()
         derivatives.append(stage_derivative(problem, run_request, simulation.grid))
     assert_same_derivative(*derivatives)
 

@@ -137,7 +137,6 @@ intersphinx_timeout = 10
 nitpicky = True
 nitpick_ignore = [
     ("py:class", "logging.Logger"),
-    ("py:mod", "pyfluids"),  # no published inventory
     # Removed with numba_cpu (SEP 43); the Final SEP 18 keeps its reference as history.
     ("py:mod", "solprop.backends.bodies"),
     # The private base of the two tabulated hollow modes. `show-inheritance`
@@ -148,13 +147,16 @@ nitpick_ignore = [
     # The private wall-pair base RectMode and SlabMode share, for
     # the same reason.
     ("py:class", "solprop.modes.rectangular._WallPairFill"),
+    # The private base of the two pulses from measured data, DataPulse and
+    # TimeDataPulse, for the same reason.
+    ("py:class", "solprop.pulses._MeasuredPulse"),
     # The private mixin that gives a class its printed block. It is a base
     # of every class that prints specially, so `show-inheritance` names it; it is not
     # part of the API reference for the same reason as above.
     ("py:class", "solprop._display.Displayed"),
     # The private record of a backend's per-stage and per-step helpers (SEP 29),
-    # which the shared stage and Adams functions take as a keyword and StepDriver
-    # carries as a class attribute; private for the same reason.
+    # which the shared stage, operator and Adams-table functions take as a keyword and
+    # the native backend carries as a class attribute; private for the same reason.
     ("py:class", "solprop._helpers.Helpers"),
     # Private to solprop and solprop-native, released together, and named in the public
     # `TransverseEdge`'s signatures.
@@ -163,6 +165,9 @@ nitpick_ignore = [
     ("py:class", "solprop.transverse_monitor._EdgeTables"),
     ("py:class", "solprop.transverse_monitor._HostEdgeReduction"),
     ("py:class", "Helpers"),
+    # The transverse edge's verdict literal, named in a signature as the run records
+    # import it for type checking only (solprop.backends.records).
+    ("py:class", "TransverseStatus"),
 ]
 # Array annotations are written with jaxtyping on numpy arrays (ADR-018). Neither
 # jaxtyping nor numpy's private typing aliases publish an inventory Sphinx can resolve,
@@ -184,8 +189,10 @@ nitpick_ignore_regex = [
 # each. A normal build executes none of them: their generated pages, figures and
 # sphinx-gallery checksums are committed, and sphinx-gallery reuses a script's stored
 # output unchanged whenever the source's checksum matches the stored one. The build
-# that publishes the manual therefore runs no propagation (Read the Docs' builders
-# stalled on the lessons and tutorials from 2026-10-29).
+# that publishes the manual therefore runs no gallery (Read the Docs' builders stalled
+# on the lessons and tutorials from 2026-10-29); its only propagations are three short
+# `.. plot::` blocks on `numpy_ref` in `guide/waveguides/` (`vector-wall.md`, and
+# `coherent-wall.md` twice).
 #
 # `SOLPROP_RUN_EXAMPLES` executes them. "stale" (`poe docs-examples`) runs every
 # script, in any gallery, whose source no longer matches its stored output; a script

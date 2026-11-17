@@ -15,7 +15,7 @@ import dataclasses
 import importlib
 import importlib.util
 from collections.abc import Callable
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -25,10 +25,8 @@ from driver.test_runner import capillary
 from solprop import fourier
 from solprop.backends.events import ObservationReady
 from solprop.backends.export import ExportRecipe
-from solprop.backends.host.driver import HostDriver
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.protocol import BackendHistory, Observation
-from solprop.backends.protocol import stepping as host_stepping
 from solprop.backends.registry import available, select
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -37,7 +35,8 @@ from solprop.driver.run import plane_from_observation
 from solprop.exceptions import OutputError
 from solprop.fourier import power_amplitude
 from solprop.output import HDF5Output, MemoryOutput, open_file
-from solprop.output.schema import PlaneStore, SavedPlane, _adopted
+from solprop.output.records import SavedPlane, _adopted
+from solprop.output.store import PlaneStore
 from solprop.stepper import Multistep, RungeKutta
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.translate.linop import power_weight_at
@@ -223,16 +222,16 @@ STORED: dict[str, Callable[[str], Simulation]] = {
 def _copied_observations(monkeypatch: pytest.MonkeyPatch) -> list[np.ndarray]:
     """Copy each observed field as its backend returned it, before any conversion."""
     copies: list[np.ndarray] = []
-    # The reference's driver observes for its session.
-    observe: Callable[..., Observation] = HostDriver.observe
+    # The reference's session observes its own state.
+    observe: Callable[..., Observation] = HostSession._observe
 
-    def copying(self: HostDriver, *, field: bool = True) -> Observation:
+    def copying(self: HostSession, *, field: bool) -> Observation:
         observation = observe(self, field=field)
         if observation.field is not None:
             copies.append(np.array(observation.field))
         return observation
 
-    monkeypatch.setattr(HostDriver, "observe", copying)
+    monkeypatch.setattr(HostSession, "_observe", copying)
     # The native session observes its resident state: the identity export is that
     # state, copied, at each observation it reports.
     if importlib.util.find_spec("solprop_native") is not None:
@@ -285,16 +284,16 @@ def test_a_stored_field_has_the_bits_of_the_conversion_in_two_steps(
 
 @pytest.mark.parametrize("case", ["modal", "single-mode"])
 def test_a_borrowed_observed_field_is_detached(case):
-    """The session's export of its driver's own state is a new array, detached from it.
+    """The session's export of its own state is a new array, detached from it.
 
-    The reference session's own conversion of its driver's observation, the driver's
-    own state. The native session exports from its resident state instead
+    The reference session's own conversion of its observation, the workspace's state.
+    The native session exports from its resident state instead
     (``tests/sessions/test_destination_export.py``).
     """
     backend = "numpy_ref"
     simulation = STORED[case](backend)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     stepping = select(
         backend,
         problem,
@@ -305,22 +304,23 @@ def test_a_borrowed_observed_field_is_detached(case):
     )
     raws: list[np.ndarray] = []
     seen: list[Observation] = []
-    observe = host_stepping(stepping).observe
-
-    def recorded(*, field: bool = True) -> Observation:
-        observation = observe(field=field)
-        if observation.field is not None:
-            raws.append(observation.field.copy())
-            seen.append(observation)
-        return observation
-
-    stepping.observe = recorded  # pyright: ignore[reportAttributeAccessIssue]
     session = start_session(
         stepping,
         problem,
         run_request,
         Start(field=problem.initial.field0, z=float(problem.initial.z)),
     )
+    assert isinstance(session, HostSession)
+    observe = session._observe
+
+    def recorded(*, field: bool) -> Observation:
+        observation = observe(field=field)
+        if observation.field is not None:
+            raws.append(observation.field.copy())
+            seen.append(observation)
+        return observation
+
+    session._observe = recorded  # pyright: ignore[reportAttributeAccessIssue]
     try:
         session.acknowledge(session.advance().receipt)  # the launch plane
         while True:  # past any bounded yield's progress batch
@@ -335,7 +335,7 @@ def test_a_borrowed_observed_field_is_detached(case):
         # The observation's own array stays frozen; a fresh export is the caller's.
         assert held.flags.writeable
         assert not np.shares_memory(held, seen[-1].field)
-        state = cast("HostDriver[np.ndarray]", stepping)._state
+        state = cast("Any", stepping).workspace.state
         assert not np.shares_memory(held, state)
     finally:
         session.close()

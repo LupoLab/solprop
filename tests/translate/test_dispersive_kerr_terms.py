@@ -32,7 +32,7 @@ from solprop.profiles import Constant
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from solprop.translate.responses import ResponseStage, compile_responses
 from solprop.translate.stage import scalars
 

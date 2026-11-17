@@ -4,33 +4,20 @@
 
 """Pulse metrics: energy, peak power, durations, arrival time and autocorrelations.
 
-The metrics follow two rules. Where :mod:`solprop.stats`
-already owns a definition -- the energy, the peak power, the two temporal widths -- this
-module
-**calls it**, so a metric read off a saved run and the same metric recorded during the
-run are the same number to the bit. Where it does not -- a spectral width, an arrival
-time, an autocorrelation -- the definition lives here, on the general
-half-maximum and moment helpers below.
+- Per-plane metrics: :func:`energy`, :func:`peak_power`, :func:`fwhm_t`, :func:`fwhm_f`,
+  :func:`time_bandwidth`, :func:`arrival_time`, :func:`field_autocorrelation`,
+  :func:`intensity_autocorrelation` and :func:`coherence_time`.
+- Trace helpers: :func:`moment`, :func:`half_max_range` and :func:`fwhm`.
 
-Polarisation components are summed wherever the quantity is quadratic in the field, as
-they are in :mod:`solprop.stats`: they are two components of one field and their powers
-add at each instant. Modes are not summed unless asked: ``modes=None`` gives one number
-per mode, ``modes='sum'`` the number of the total.
+Where :mod:`solprop.stats` owns a definition (energy, peak power, the temporal widths)
+this module **calls it**, so a metric read off a saved run and the one recorded during
+the run agree to the bit. Polarisation components are summed wherever the quantity is
+quadratic in the field; modes are summed only with ``modes='sum'``. :func:`energy` and
+:func:`peak_power` are refused by name on a general modal file, and every metric here on
+a spatial file, whose columns are not modal amplitudes
+(:data:`solprop.output.capability.COLUMN_READINGS`).
 
-**What the stored basis admits is checked here too.** :func:`energy` and
-:func:`peak_power` are the two metrics of this module whose meaning depends on the mode
-axis being an orthogonal basis whose coordinate powers add, so on a general modal file
-they are refused by name, with the same text the run loop and
-:mod:`solprop.processing.modal` use (:mod:`solprop.output.capability`). The widths, the
-spectral metrics and the autocorrelations are shape functionals of the same trace and
-are admitted on every modal basis.
-
-**Every metric here refuses a spatial file by name.** Each one reads a column of the
-mode axis as a modal amplitude in sqrt(W), and a radial, Cartesian, line or planar
-column is a field sample or a slab amplitude instead, so the energies and powers would
-be wrong in joules and watts, and the widths would be those of single columns rather
-than of the beam. The refusal names the functional of :mod:`solprop.spatial` that
-measures the quantity (:data:`solprop.output.capability.COLUMN_READINGS`).
+The manual page is ``docs/guide/results/processing.md`` ("The metrics").
 """
 
 from collections.abc import Callable
@@ -40,13 +27,14 @@ import numpy as np
 from jaxtyping import Float, Inexact
 
 from solprop import stats
+from solprop._validation import choice
+from solprop.exceptions import ProcessingError
 from solprop.grid import TimeGrid
-from solprop.output.schema import Output
+from solprop.output.store import Output
 from solprop.processing import spectra
 from solprop.processing.axes import (
     ModeSelection,
     _apply_modes,
-    _check_choice,
     _check_mode_index,
     _check_mode_selection,
     _plane_field,
@@ -219,7 +207,7 @@ def energy(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end; with neither ``plane`` nor
@@ -268,6 +256,9 @@ def peak_power(
 ) -> Float[np.ndarray, "*shape"]:
     """Return the peak power of a plane, or of every plane, in watts.
 
+    It measures the squared amplitude, and differs from the run's ``stats/peak_power``,
+    the analytic Poynting flux (``docs/dev/conventions.md`` section 7).
+
     :func:`solprop.stats.peak_power` per mode and
     :func:`solprop.stats.peak_power_total` for ``modes='sum'``, so that a modal sum is
     the peak of the total power and not the largest of the per-mode peaks: modes that
@@ -297,7 +288,7 @@ def peak_power(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -360,6 +351,9 @@ def fwhm_t(
 ) -> Float[np.ndarray, "*shape"]:
     """Return the temporal width at half maximum of a plane, or of every plane.
 
+    It measures the squared amplitude, and differs from the run's ``stats/fwhm_t``, of
+    the analytic Poynting flux (``docs/dev/conventions.md`` section 7).
+
     :func:`solprop.stats.fwhm_t`, the width of the central feature of the total power,
     or :func:`solprop.stats.fwhm_t_outer` with ``outer=True``, the total extent above
     half maximum. A trace that never falls to half its maximum has no width and gives
@@ -376,7 +370,7 @@ def fwhm_t(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -431,7 +425,7 @@ def fwhm_f(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -481,7 +475,7 @@ def time_bandwidth(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -537,7 +531,7 @@ def arrival_time(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -573,7 +567,7 @@ def arrival_time(
     True
     """
     _refuse_by_basis(output, "arrival_time")
-    _check_choice(method, ARRIVAL_METHODS, "method")
+    choice(method, "method", ARRIVAL_METHODS, ProcessingError)
     t, power = _power(output, plane=plane, z=z, modes=modes, bandpass=bandpass)
     if method == "peak":
         return _along_last(power, lambda trace: float(t[np.argmax(trace)]))
@@ -597,7 +591,7 @@ def field_autocorrelation(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -654,7 +648,7 @@ def intensity_autocorrelation(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -709,7 +703,7 @@ def coherence_time(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.

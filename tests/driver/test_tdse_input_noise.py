@@ -20,7 +20,10 @@ import numpy as np
 import pytest
 from tests.driver.test_sep12_sep14_integration import _Binding
 
+from sessions.runs import bare, to_planes
+from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import Start
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation
 from solprop.exceptions import DriverError, TranslationError
@@ -108,7 +111,8 @@ def _atomic(noise: str | None) -> Simulation:
 def _first_drive(simulation: Simulation, *, pulse: bool = True) -> np.ndarray:
     """Return the real field the atom is driven by at its first evaluation."""
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    # One plane at the first step's end: the first evaluation is the session's startup.
+    run_request = to_planes(bare(simulation.run_request()), [_STEP])
     assert tdse_descriptor(problem.route) is not None
     binding = _Binding(tdse_descriptor(problem.route), 20)
     backend = NumpyRefBackend(
@@ -116,8 +120,7 @@ def _first_drive(simulation: Simulation, *, pulse: bool = True) -> np.ndarray:
     )
     try:
         launch = problem.initial.field0 if pulse else np.zeros(problem.shape, complex)
-        backend.set_initial(launch, None, z=0.0)
-        backend.propagate_to(_STEP)
+        session_run(backend, problem, start=Start(field=launch, z=0.0))
     finally:
         backend.close()
         binding.close()

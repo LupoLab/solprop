@@ -6,9 +6,16 @@ from dataclasses import FrozenInstanceError
 
 import numpy as np
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from numpy.testing import assert_allclose
 
-from hankel_oracles import construction_error, gamma, gaussian_bound, gram_bound
+from hankel_oracles import (
+    construction_error,
+    gaussian_bound,
+    gram_bound,
+    round_trip_bounds,
+)
 from solprop import hankel
 from solprop.exceptions import GridError
 from solprop.hankel import QDHT
@@ -49,25 +56,14 @@ def test_hankel_gaussian_matches_continuous_transform(size, request):
 @pytest.mark.parametrize("size", [16, 64])
 def test_hankel_roundtrip_and_weighted_parseval_for_vector_complex_data(size, request):
     transform = QDHT(7e-4, size)
-    truncation, floating = gram_bound(transform)
-    gram = truncation + floating
     rng = np.random.default_rng(310)
     values = rng.normal(size=(2, 3, size)) + 1j * rng.normal(size=(2, 3, size))
-    scaled = np.abs(values) / transform.j1
-    # Two real GEMMs for complex input, with one division and two scalings;
-    # gamma(N+8) covers application roundoff independently of construction.
-    absolute = np.abs(transform.matrix)
-    product = absolute @ absolute
-    application = gamma(size + 8) * (2 + gamma(size + 8)) * product
-    bound = (scaled @ (gram + application)) * transform.j1
     spectrum = transform.forward(values)
+    bound, energy_bound = round_trip_bounds(transform, values, spectrum)
     actual = transform.inverse(spectrum)
     assert np.all(np.abs(actual - values) <= bound)
     radial = np.sum(np.abs(values) ** 2 * transform.radial_weights, axis=-1)
     spectral = np.sum(np.abs(spectrum) ** 2 * transform.spectral_weights, axis=-1)
-    energy_bound = 4 * np.pi * transform.forward_scale / transform.zeros[-1] * np.sum(
-        scaled * (scaled @ (gram + application)), axis=-1
-    ) + gamma(size + 12) * (radial + spectral)
     assert np.all(np.abs(radial - spectral) <= energy_bound)
     record_metric(
         request,
@@ -83,6 +79,40 @@ def test_hankel_roundtrip_and_weighted_parseval_for_vector_complex_data(size, re
         np.max(np.abs(radial - spectral)),
         np.max(energy_bound),
     )
+
+
+@settings(max_examples=60, deadline=None)
+@given(
+    size=st.integers(min_value=2, max_value=160),
+    radius=st.floats(min_value=1e-6, max_value=1e-1),
+    complex_values=st.booleans(),
+    batch=st.lists(st.integers(min_value=1, max_value=3), max_size=2).map(tuple),
+    exponent=st.integers(min_value=-60, max_value=60),
+    seed=st.integers(min_value=0, max_value=2**32 - 1),
+)
+def test_hankel_round_trip_and_parseval_hold_for_any_size_radius_and_scale(
+    size, radius, complex_values, batch, exponent, seed
+):
+    transform = QDHT(radius, size)
+    rng = np.random.default_rng(seed)
+    values = rng.normal(size=(*batch, size))
+    if complex_values:
+        values = values + 1j * rng.normal(size=(*batch, size))
+    values *= 10.0**exponent
+    spectrum = transform.forward(values)
+    # The derived bounds of the guide's "Finite-transform error": the contour
+    # truncation b_N, construction and GEMM rounding, all fixed from |values| before
+    # the transform is measured. They are linear (field) and quadratic (energy) in the
+    # samples, so the scale 10**exponent, kept inside the normal range with the radius
+    # weights, does not loosen them; the radius sets the units only.
+    bound, energy_bound = round_trip_bounds(transform, values, spectrum)
+    actual = transform.inverse(spectrum)
+    assert actual.dtype == values.dtype  # real stays real, complex complex
+    assert np.all(np.abs(actual - values) <= bound)
+    radial = np.sum(np.abs(values) ** 2 * transform.radial_weights, axis=-1)
+    spectral = np.sum(np.abs(spectrum) ** 2 * transform.spectral_weights, axis=-1)
+    assert np.all(np.abs(radial - spectral) <= energy_bound)
+    assert np.all(radial > 0.0)
 
 
 def test_hankel_arrays_are_immutable_and_scalings_have_physical_units():

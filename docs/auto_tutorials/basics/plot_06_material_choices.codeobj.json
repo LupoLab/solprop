@@ -139,6 +139,71 @@
    "name": "float"
   }
  ],
+ "MaterialRangeWarning": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.exceptions",
+   "module_short": "solprop.exceptions",
+   "name": "MaterialRangeWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "MaterialRangeWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.exceptions",
+   "module_short": "solprop.exceptions",
+   "name": "SolpropWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SolpropWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "UserWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "Warning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "Exception"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "BaseException"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.exceptions",
+   "module_short": "solprop.exceptions",
+   "name": "MaterialRangeWarning"
+  }
+ ],
  "MaterialSelection": [
   {
    "is_class": true,
@@ -1302,7 +1367,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.store",
    "module_short": "solprop.output",
    "name": "PlaneStore.metadata"
   },
@@ -1367,8 +1432,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output.schema",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.planes"
   },
   {

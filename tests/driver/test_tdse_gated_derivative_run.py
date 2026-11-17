@@ -14,6 +14,7 @@ matched recomputation (class R) within its own recorded floors.
 import dataclasses
 import json
 import warnings
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -22,6 +23,9 @@ from scipy.special import erf
 from tests.edge_source_cases import ManufacturedBinding, case_from_problem, evaluate
 from tests.hacc_cases import alpha_law, hacc_response, install, plain, preset_basis
 
+from sessions.runs import bare, to_planes
+from sessions.runs import run as session_run
+from solprop.backends.events import ObservationReady
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.driver import tdse as runtime_module
@@ -45,7 +49,11 @@ from solprop.output import open_file, resume
 from solprop.stats import StatsSpec
 from solprop.stepper.multistep import Multistep
 from solprop.translate.routes import tdse_descriptor
-from solprop.translate.tdse_source import STEADY_CURRENT_CERTIFICATE_LIMIT
+from solprop.translate.tdse import TDSEDescriptor, refine_response_grid
+from solprop.translate.tdse_source import (
+    STEADY_CURRENT_CERTIFICATE_LIMIT,
+    steady_current_certificate,
+)
 
 pytestmark = [
     pytest.mark.medium,
@@ -222,21 +230,26 @@ def test_the_fake_drift_keeps_its_rise_and_reports_its_edge_ratio(bindings):
 def test_the_edge_entry_is_the_last_evaluation_and_keeps_no_history(bindings):
     simulation = _sae(TDSEAtomicWindow(40e-15, 5e-15))
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    # Two planes, each a session's observation, read between the session's batches.
+    run_request = to_planes(bare(simulation.run_request()), [2 * _STEP, 4 * _STEP])
     assert tdse_descriptor(problem.route) is not None
     binding = ManufacturedBinding(tdse_descriptor(problem.route), 1000, _drift)
     backend = NumpyRefBackend(
         problem, run_request, grid=simulation.grid, tdse_binding=binding
     )
+    records = []
+
+    def between(_, batch):
+        for event in batch.events:
+            if isinstance(event, ObservationReady) and event.plane_index >= 0:
+                records.append(plain(backend.metadata()["tdse_last_evaluation"]))
+                binding.law = lambda times: 3 * _drift(times)
+
     try:
-        backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
-        backend.propagate_to(2 * _STEP)
-        first = plain(backend.metadata()["tdse_last_evaluation"])
-        binding.law = lambda times: 3 * _drift(times)
-        backend.propagate_to(4 * _STEP)
-        second = plain(backend.metadata()["tdse_last_evaluation"])
+        session_run(backend, problem, between=between)
     finally:
         backend.close()
+    first, second = records
     before = first["projection"]["edge"]["bands"]["active"]
     after = second["projection"]["edge"]["bands"]["active"]
     # A linear map of a remainder three times larger: three times the norms, to the
@@ -327,3 +340,52 @@ def test_hacc_run_round_trips_and_resumes(fake, tmp_path, window):
     assert record["steady_current_certificate"] <= STEADY_CURRENT_CERTIFICATE_LIMIT
     with pytest.raises(OutputError):
         _quiet(_hacc(None if window == "auto" else "auto"), path, resume=True)
+
+
+_RESEARCH_RECORD = (
+    Path(__file__).resolve().parents[1]
+    / "data"
+    / "tdse"
+    / "sep26-selected-gated-derivative.response.json"
+)
+"""SEP 26's SAE research record (section 7.5): SEP 12's record under
+``gated_derivative``."""
+
+
+def _research_response() -> TDSEGasResponse:
+    """Rebuild the research record with the public configuration classes.
+
+    The record keeps the ``source_filter`` it was saved with; ``"gated_derivative"`` is
+    what the native closure always does, so the reconstruction drops it.
+    """
+    record = json.loads(_RESEARCH_RECORD.read_text(encoding="utf-8"))
+    assert record.pop("source_filter") == "gated_derivative"
+    basis_record = record.pop("basis")
+    for key in ("radial_edges", "radial_orders", "cuts"):
+        basis_record[key] = tuple(basis_record[key])
+    calibration_record = record.pop("calibration")
+    for key in ("wavelength_range", "limitations"):
+        calibration_record[key] = tuple(calibration_record[key])
+    sampling_record = record.pop("sampling")
+    return TDSEGasResponse(
+        basis=TDSEBasis(**basis_record),
+        calibration=TDSECalibration(**calibration_record),
+        sampling=TDSESampling(**sampling_record),
+        **record,
+    )
+
+
+def test_the_research_record_is_admitted_and_certified_on_its_parent():
+    # SEP 12's requested 60 fs, 120 nm-1.6 um parent; its collar taper spans 62
+    # samples unrefined, about 2000 at q = 32.
+    parent = FieldGrid.from_limits(0.01, 800e-9, (120e-9, 1.6e-6), 60e-15)
+    response = _research_response()
+    assert response.kerr_model == "tdse_native"
+    assert response.calibration.identity == (
+        "sep26-native1537-cut400-q32-gated-derivative-research-v1"
+    )
+    grid = refine_response_grid(parent, response.sampling)
+    descriptor = TDSEDescriptor.from_response(response, grid)
+    assert '"schema":"solprop.tdse-descriptor.v5"' in descriptor.configuration_json
+    kappa = steady_current_certificate(descriptor, grid.omega, grid.active_mask)
+    assert kappa is not None and kappa <= STEADY_CURRENT_CERTIFICATE_LIMIT

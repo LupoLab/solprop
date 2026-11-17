@@ -22,8 +22,8 @@ from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.chebyshev import DEFAULT_TOL
-from solprop.translate.problem import assemble
 from spatial_records import record_metric
 
 

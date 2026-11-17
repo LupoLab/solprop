@@ -18,7 +18,7 @@ it is qualified, [backends.md](backends.md); for the current seam,
 
 ## ADR-001 — Three-layer design: physics, translation, backends
 
-- **Status:** accepted
+- **Status:** accepted; the layers and their import rule amended by ADR-080
 - **Context:** Luna mixes physics, buffers, FFT plans and threading in the same structs
   (`NonlinearRHS.jl`). That made every optimisation touch the physics and every physics change
   touch the hot loop.
@@ -72,7 +72,10 @@ it is qualified, [backends.md](backends.md); for the current seam,
 
 - **Status:** accepted; amended by [SEP 47](seps/archive/sep-0047-run-ownership.md) §6.2, which
   removes the nominal `n_batch` from the single-trajectory seam: the state is
-  `(n_modes, n_pol, n_omega)` and a group is a sequence of member problems
+  `(n_modes, n_pol, n_omega)` and a group is a sequence of member problems; and by
+  [SEP 52](seps/archive/sep-0052-backend-shape.md) §5.4, which removes the remaining leading axis
+  of one everywhere: the backends' state, the operator's value tables, the memory ledgers
+  and a march snapshot's stored state
 - **Context:** Luna has different array shapes per geometry and special code paths for scalar
   vs vector polarisation and for mode-averaged vs modal propagation. Polarisation support must
   not slow single-polarisation runs; batch mode must be a first-class leading axis.
@@ -317,8 +320,9 @@ it is qualified, [backends.md](backends.md); for the current seam,
   identical, deterministic steps.
 - **Decision:** One adaptive run discovers `h(z)`; a three-level convergence check with an
   order gate calibrates it; production runs (every ensemble member, every scan point where
-  the schedule transfers) replay the scaled schedule. Dithered schedules are an option to
-  decorrelate round-off.
+  the schedule transfers) replay the scaled schedule. Dithering a schedule to decorrelate
+  round-off is an unimplemented idea, and whether it would help at all is an open question
+  ([open questions](open-questions.md), "Round-off growth with varying operators").
 - **Consequences:** Step schedules are first-class, saved with the output and re-loadable.
 
 ## ADR-020 — Priorities: accuracy and reliability, then CPU performance, then GPU
@@ -450,9 +454,11 @@ Withdrawn (development-process record, not a design decision).
   own density paths (`physdata.mixtures.Mixture`). The linear operator forms
   `χ = Σ_s ρ_s γ_s` and `n` through the cancellation-free form; a fill (one shared
   pressure path) keeps the two-axis parameter expansion with the total pressure as the
-  parameter; independent profiles use the z table on the CPU backends and a total-degree
-  expansion where measured worth it. In the kernel contract each ionising species is a
-  **channel** (its rate table, potential, pre-ionisation, density and electrons per event),
+  parameter; independent profiles use the z table on the CPU backends. A total-degree
+  expansion for them was measured and is not part of the contract: it failed the joint
+  memory and build-cost criterion ([kernel contract](kernel-contract.md)). In the
+  kernel contract each ionising species is a **channel** (its rate table, potential,
+  pre-ionisation, density and electrons per event),
   each Raman-active species a **term** with its own amplitude path and its linewidth at the
   total density, and the Kerr coefficient one composite path; the fused column runs one
   exposure scan per channel and shares the current and loss integrals. The single-gas
@@ -632,7 +638,9 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-035 — Enhancement proposals for major changes
 
-- **Status:** accepted; amends ADR-033
+- **Status:** accepted; amends ADR-033. Its implementation order is amended by ADR-061,
+  [SEP 43](seps/archive/sep-0043-retire-numba-cpu.md) (which retired `numba_cpu`),
+  ADR-068 and ADR-077: a feature now lands on `native` and `numpy_ref`, in either order
 - **Context:** Under ADR-033 every change is an ordinary branch and pull request. That
   suits fixes and small additions, but not a new model, route or numerical scheme: such
   work needs its theory, its implementation options and its verification agreed before
@@ -891,7 +899,9 @@ Withdrawn (development-process record, not a design decision).
 - **Consequences:** two more state-sized rows per history slot (states and rates). In
   a driven bin whose state follows a smooth laboratory-frame drive the transported
   compensation is the less smooth one. The exponential-free form of the transport
-  (SEP 16 §4.2) remains a cost target.
+  (SEP 16 §4.2) was built opt-in, measured slower on `numba_cpu` (4 % on the canonical
+  run, 13 to 15 % on the M2/RDW run, with the same calls and fields) and removed at
+  review (SEP 16, phase 3b report and D26); the exponential form stays the transport.
 
 ## ADR-043 — The Adams march hands its state-sized work to an engine
 - **Status:** accepted ([SEP 16](seps/archive/sep-0016-unified-multistep.md)); amended by
@@ -948,7 +958,7 @@ Withdrawn (development-process record, not a design decision).
   *Amended 2026-11-10 (SEP 47 phase 4):* `native` keeps them resident at any width and
   whichever route each bin takes, on a CPU and a device build alike.
 
-## ADR-045 — `Multistep()` is the default integrator; `RungeKutta()` names the march
+## ADR-045 — `Multistep()` is a default integrator, chosen per interface by ADR-055; `RungeKutta()` names the march
 - **Status:** accepted ([SEP 16](seps/archive/sep-0016-unified-multistep.md)); amended by
   ADR-055, which chooses each interface's default: `RungeKutta()` on `prop_gnlse`,
   `prop_waveguide` and `prop_free`, `Multistep()` on `prop_capillary` (an override of
@@ -1106,7 +1116,7 @@ Withdrawn (development-process record, not a design decision).
   qualified to their rounding budget and to SEP 16's work–precision cases.
 - **Amendment, device builds:** the protected helpers are strict on CPU builds only.
   CUDA and HIP builds leave the strict blocks empty (`SOLPROP_NATIVE_STRICT_FUNCTION`
-  and `SOLPROP_NATIVE_STRICT_BLOCK` in `native/include/solprop_native/fp.hpp`, under
+  and `SOLPROP_NATIVE_STRICT_BLOCK` in `native/include/solprop_native/runtime/fp.hpp`, under
   `__CUDACC__` or `__HIPCC__`, which includes nvcc's host pass) and follow their
   compilers' contraction defaults; `build_info().optimization_policy` records
   "compiler-default contraction". On a device the φ series, the phase sums, the
@@ -1198,7 +1208,7 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-052 — One thread budget per process, which every pool stays within
 
-- **Status:** accepted
+- **Status:** accepted; amended by ADR-056 (one thread per core)
 - **Context:** each piece sized its threads its own way. `numba_cpu` read the affinity
   mask and the root control group's `cpu.max`, rounded to nearest, but not
   `NUMBA_NUM_THREADS`, so a large problem failed at construction when that was below the
@@ -1228,7 +1238,13 @@ Withdrawn (development-process record, not a design decision).
   limit that only narrows cannot oversubscribe a machine from a shell profile. The
   oversubscription opt-in exists because thread-count invariance tests need more
   threads than a CI runner has CPUs; production never does.
-- **Consequences:** the native backend cannot import solprop and sizes Kokkos at import,
+- **Consequences:** the mask is read when `solprop` is imported because Linux reports
+  affinity per thread: an OpenMP runtime started with `OMP_PROC_BIND` or `OMP_PLACES` set
+  (GNU libgomp, which Kokkos's builds load) binds the **main** thread to its first place,
+  after which `os.sched_getaffinity(0)` names one CPU, and a pool sized from that answer
+  runs on one core (measured: an 18-core allocation gave such a pool one thread);
+  `solprop._process.allowed_cpus` believes a later answer only when it is not that
+  collapse. The native backend cannot import solprop and sizes Kokkos at import,
   so it carries a copy of the reader (`solprop_native._budget`); `tests/test_process.py`
   runs both copies on the same control groups and environment. A process reads its own
   quota once. A test that compares thread counts lifts its budget explicitly.
@@ -1524,7 +1540,9 @@ Withdrawn (development-process record, not a design decision).
 - **Context:** ADR-021 promised nothing about stability until a first release, and
   nothing said what the first release promises. The exported surface is large
   (`solprop.translate` alone exports 61 names), and some internal seams are known to be
-  provisional: the state's vestigial batch axis, the two step loops that one march
+  provisional: the state's vestigial batch axis, the step loops (seven then, counting
+  the Runge-Kutta and Adams marches with their replays, the low-storage replay,
+  lockstep and the compiled march; `backends.md` §3 lists today's) that one march
   protocol would replace, and the integrator's tie to `PIController`. Development output
   files carry schemas up to 28, and solprop keeps readers for them.
 - **Decision:**
@@ -1563,7 +1581,7 @@ Withdrawn (development-process record, not a design decision).
   - Apple M5 Max: the system libm 3.25 ns; SLEEF's AdvSIMD functions gain nothing, and
     Accelerate's vForce 1.3 times at 1.7 ulp.
 - **Decision:**
-  - One private layer, `native/include/solprop_native/vmath.hpp`, gives the host kernels
+  - One private layer, `native/include/solprop_native/runtime/vmath.hpp`, gives the host kernels
     batch `exp`, `log`, `sincos` and the complex exponential over contiguous arrays. A
     kernel forms a block's arguments into a buffer, calls the layer once over it, and
     finishes each element from the results. Converted: the Runge–Kutta stage entry, the
@@ -1627,7 +1645,7 @@ Withdrawn (development-process record, not a design decision).
     contract's section 11 specifies them in full.
   - `native` executes `Multistep()` in either formulation, the one-order-higher PEC
     comparisons and replayed schedules on its resident engine for a run of attempts
-    per call (`native/src/adams_march.cpp`, compiled without contraction
+    per call (`native/src/march/adams_march.cpp`, compiled without contraction
     or fast-math), returning only at a host event: a reached target, an accepted step
     on which the driver has work, the monitor, the call's bound (256 attempts or
     0.1 s), the budget, the floor or a native error. solprop books the call's attempts
@@ -1923,8 +1941,7 @@ Withdrawn (development-process record, not a design decision).
 
 - **Status:** accepted (maintainer), 2026-11-04. Amends ADR-061 and
   [SEP 0](seps/sep-0000-process.md)'s implementation rules. Those records, and the SEPs
-  implemented under them, stay as written. ADR-077 amends its clause that `numpy_ref`
-  stays comprehensive: its end state is a slim test and development reference.
+  implemented under them, stay as written.
 - **Context:** production runs on `native`, and the costs of the split between Python and
   native decide what those runs can do. The written rules still steered work as if the
   reference came first: a SEP was implemented on `numpy_ref` and then on native, the kernel
@@ -2237,9 +2254,10 @@ Withdrawn (development-process record, not a design decision).
 ## ADR-077 — Two backends, binary64 only
 
 - **Status:** accepted (maintainer), 2026-11-11. Supersedes ADR-054 and ADR-061; amends
-  ADR-064 (single precision under `backend="auto"`) and ADR-068 (`numpy_ref` "stays
-  comprehensive"); withdraws [SEP 48](seps/archive/sep-0048-julia-backend.md). Those
-  records, and the SEPs implemented under them, stay as written.
+  ADR-064 (single precision under `backend="auto"`); withdraws
+  [SEP 48](seps/archive/sep-0048-julia-backend.md). Those records, and the SEPs
+  implemented under them, stay as written. Amended by ADR-078: native runs the TDSE
+  response too.
 - **Context:** single precision runs on `numpy_ref` alone since `mlx` was retired
   (SEP 47): no installed backend runs it quickly, and `backend="auto"` refuses it.
   [SEP 36](seps/archive/sep-0036-native-reduced-precision.md) measured single and mixed
@@ -2257,10 +2275,11 @@ Withdrawn (development-process record, not a design decision).
     response, for now. `numpy_ref` is the numerical reference. There is no tier system,
     and no other backend will be implemented, in this repository or as a plugin.
   - The Julia backend (SEP 48) is withdrawn.
-  - `numpy_ref`'s end state is a slim test and development reference: the contract
-    arithmetic native is checked against, not a second complete executor. A later SEP
-    specifies it, with the TDSE response on native. Until then ADR-068's rules stand:
-    a new feature lands on both backends, in either order, and a SEP is `Final` with
+  - `numpy_ref` stays a complete, selectable backend: independent runs of the same
+    problem are kept for development, debugging and numerical verification. Slimming it
+    to a test library was proposed with the TDSE response on native and not taken
+    (maintainer decision, 2026-11-12, in the review of SEP 49). ADR-068's rules stand: a
+    new feature lands on both backends, in either order, and a SEP is `Final` with
     parity on `numpy_ref` and native CPU, or an exception written into it.
 - **Why:** development and qualification time goes where the runs are. A precision that
   no production run uses, a ranking of a fixed pair and a second engine language each
@@ -2275,3 +2294,141 @@ Withdrawn (development-process record, not a design decision).
   - The backend registry becomes a fixed table of the two backends, with no plugin rows.
   - The precision field and CF4's settings leave the hashed configuration in one release,
     so resume identity changes once: a run started on an earlier release finishes on it.
+
+## ADR-078 — The TDSE response runs on native through a host source; its provider in a worker
+
+- **Status:** accepted (maintainer), 2026-11-12, with
+  [SEP 49](seps/archive/sep-0049-tdse-on-native.md) (PR #771). Amends ADR-077's "every feature
+  except the TDSE response, for now": native implements every feature.
+- **Context:** the TDSE response ran on `numpy_ref` alone, and native refused it by name.
+  Its source is a complete atomic calculation at every radial node, from 93 s to over
+  1,300 s a call, so a native rewrite of the provider buys nothing; what native lacked
+  was a way to hand the provider a stage's field and take its source. The provider,
+  Pyroraptor, ran in solprop's process, beside the native wheel's Kokkos and OpenMP
+  runtimes, which rules out a GPU provider beside a CPU wheel, and a call of minutes
+  could not be stopped.
+- **Decision:**
+  - *The host source hook.* The native resident Adams march takes one optional, generic
+    host source, `begin(cost)`, `evaluate(field, z, purpose, source)` and
+    `end(outcome)`, that knows nothing of the TDSE. When it is bound, each source
+    evaluation hands it the stage's lab-frame field, unscaled and with any noise
+    added, and takes the projected source in place of the engine's own response pass;
+    the stage finish applies the collar, the in-stage absorber and the propagator as on
+    every route. It is called from the thread that called `advance`, outside every
+    parallel region, with the interpreter lock taken for the call: the one Python call
+    in a native trial. A Python exception is caught at the binding layer, never inside
+    a Kokkos kernel. Its scope: the native CPU build, the adaptive Adams march, and one
+    real column of a modal route (the TDSE response's own scope). The source assembly,
+    `solprop.backends.tdse_source`, is shared by both backends.
+  - *Device builds refuse.* A native CUDA or HIP build refuses a TDSE problem by name:
+    a TDSE run gives the provider the GPU or every CPU thread, and solprop's optical
+    side is negligible beside an atomic call.
+  - *The provider worker.* The provider runs only in a worker process of its own (the
+    same interpreter, `subprocess`, length-prefixed frames, no pickle), for presets,
+    bases, diagnostics and runs alike, so solprop's process never imports it. A worker
+    is replaced after any provider failure. Its handshake refuses another protocol
+    version or an execution space other than `TDSEExecution.device`. No provider
+    revision is pinned: until Pyroraptor has a release, solprop uses whatever provider
+    is installed, by default the latest `main`, and records the revision, build and
+    execution space the worker reports as the run's build record. Ctrl-C, SIGTERM and a stop flag end it
+    during a call; the call stays charged.
+  - *The failure boundary.* An attempt reserves its atomic calls before it evaluates.
+    A failure before the step commits abandons the attempt (its reservation released,
+    nothing recorded, the state the last accepted one); a failure after the commit, in
+    the archive's record, leaves the committed step standing and is the run's error;
+    a release that fails after another error is a note on it. Both backends keep this
+    boundary.
+  - `backend="auto"` runs a TDSE problem on native; `backend="numpy_ref"` still runs it,
+    as the reference.
+- **Why:** the response is the provider's arithmetic either way; what native adds is
+  every optical feature it already runs, at its speed, and one backend for production.
+  A generic hook keeps the engine free of the TDSE and of Python, except at that one
+  call. A process boundary is the simplest isolation of two native runtimes, and the
+  only one that lets a GPU provider sit beside a CPU wheel; a few milliseconds a call
+  are nothing against minutes.
+- **Consequences:** per evaluation the hook adds a Python call, the worker a copy each
+  way, and the shared assembly 0.13–1.9 ms (SEP 49, phase 0), below 1e-4 of the
+  fastest recorded atomic call. Native runs without a host source are unchanged bit for
+  bit. The hook's two rows are listed as `host_source` in the memory ledger. CI tests
+  the hook and the worker with manufactured providers; compatibility with an installed
+  Pyroraptor is checked by hand ([SEP 49](seps/archive/sep-0049-tdse-on-native.md), section 7.4),
+  and the worker's handshake refuses a mismatched protocol or execution space.
+
+## ADR-079 — One backend shape; no groups or unit axis; a native seam that only marshals
+
+- **Status:** accepted (maintainer), 2026-11-16, with
+  [SEP 52](seps/archive/sep-0052-backend-shape.md) (accepted 2026-11-15 in PR #850,
+  implemented in PRs #853, #854, #858 and #859). Amends ADR-003 (the state has no
+  leading axis of one).
+- **Context:** after SEP 47 both backends kept one external contract, but behind it they
+  were built differently. Native composed a workspace, engines, marches and a session in
+  C++; the reference was an inheritance stack (`NumpyRefBackend` on `HostDriver`, steered
+  by halt hooks). The fixed-schedule `Batch` executor and its groups built a complete
+  native backend per member and fused nothing, yet kept a group protocol, a group service
+  loop, a native group session and a leading axis of one on every trajectory array. The
+  native binding had grown to about 220 bound names, about 400 configuration names in 15
+  to 20 calls, about 21 hand-written record converters and a hand-written stub.
+- **Decision:**
+  - *One shape, two implementations.* Each backend has a lowering, a workspace that holds
+    the state and does every state-sized operation, engines that mirror the C++ interfaces
+    (`solprop.backends.engines`: `RungeKuttaEngine`, which the low-storage step implements
+    with a destructive trial, and `AdamsEngine`), marches that own their state, and a
+    session that owns the schedule, the monitor and the events. Both read the same run
+    records, built once per run by shared code (`solprop.backends.records`).
+    `HostDriver` is deleted; `HostSession` is the Python counterpart of `session.cpp`.
+    An accepted step's finish returns the split collar's sums in its `AcceptRecord`, and
+    the session accumulates them.
+  - *No groups, no unit axis.* `Batch`, every group path and the group protocols are
+    removed; `Local`, `Pool`, `Queue` and `Slurm` run scans. A trajectory's arrays have
+    no leading axis of one anywhere: translation's value tables, the boundary functions,
+    the memory ledgers and the stored `MarchSnapshot` (output schema 3).
+  - *The native seam.* A workspace is built from one `_core.Problem` with every set-once
+    table, and a run starts from one run record (`Workspace.start(run)`; the probe is
+    `Workspace.probe(start)`); nothing configures a workspace after it is built. Records
+    cross **by field table**: each C++ record declares its fields once beside its
+    definition and one converter reads and writes them, refusing a malformed field by its
+    path before allocating, with enumerations by name only; `_core.schemas()` exports the
+    tables and a test holds the Python records to them. **Bindings only marshal**:
+    convert, release the interpreter lock and forward; logic lives in the C++ library,
+    where ctest reaches it. **`_core._testing` promises nothing**: it ships in the wheel
+    for solprop's own tests, and exposes the workspace's engines, which the tests run
+    through the same protocols as the reference's. **The stub is generated** whole by
+    nanobind's `stubgen` and checked by the native gate.
+- **Why:** one structure for one design lets the reference serve line by line as the
+  source for native's session, lets an engine-level parity case be written once and run
+  on both backends, and removes the group paths that cost memory for no speed. Field
+  tables keep the Python dataclass as the one definition of a record, needed without
+  native installed, while the C++ side only describes it; a schema test removes the
+  drift that hand-written converters allowed.
+- **Consequences:** a script that imports `Batch` fails at import. A snapshot written
+  before output schema 3 is refused by name. The reference's numbers did not move (SEP 52
+  milestone 3: bitwise on its corpus). Native's step time moved within its scatter, and
+  a run's start costs one converted record (SEP 52 milestone 4). The `_testing` module is
+  free to change with the tests.
+
+## ADR-080 — A run-specification layer, and every import checked against the layers
+
+- **Status:** accepted (maintainer), 2026-11-16, with the core review that followed the
+  public API review (PR #872). Amends ADR-001 (the layers and their import rule).
+- **Context:** ADR-001 named five layers, and `architecture.md` placed the stepper, the
+  statistics and the output record types in the driver layer D. Yet translation and both
+  backends import them: `StepperSettings`, `StatsSpec` and `FieldRetention` are fields of
+  the `RunRequest` that crosses the seam, a backend's statistics read the catalogue, and
+  its session writes the record types. Nothing checked the rule, and function-level
+  imports hid two cycles that ran against it (a guide's sampling in translation importing
+  the guide; the statistics importing translation's far-field tables).
+- **Decision:** a sixth layer, **S, the run specification**, sits between P and T:
+  `stepper/`, `stats/` and the run-record modules of `output/` (`records`,
+  `serialisation`, `provenance`, `metadata`, `store`, `capability`). It imports P only.
+  `exceptions`, `log` and the private root modules are package-wide, beneath every layer.
+  Imports flow P → S → T → B → D → X; X reaches T only through the edges `architecture.md`
+  §3 names, and never B. `tests/test_layers.py` checks every import of the package --
+  module level, function level and typing -- against the layer the structure figure draws
+  each module in, with each deliberate exception named in an allowlist with its reason;
+  a new upward edge or an unused allowance fails the fast lane.
+- **Consequences:** the guide's provider and path sampling moved from translation to
+  `modes/tables.py` and `modes/path.py`, with the Chebyshev–Lobatto primitives in
+  `modes/quadrature.py`; the far-field tables' spec-dependent core moved into the
+  statistics; `solprop.output` imports its handlers on first use, so the record modules
+  load without h5py. A move that would climb a layer is visible in review as an allowlist
+  entry.

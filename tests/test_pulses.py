@@ -19,7 +19,7 @@ from solprop import _process, fourier
 from solprop.constants import C
 from solprop.exceptions import PulseError
 from solprop.grid import EnvelopeGrid, FieldGrid, TimeGrid
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.pulses import (
     CustomPulse,
     CWPulse,
@@ -120,7 +120,7 @@ def test_the_requested_peak_power_is_realised_exactly(grid_name, request):
 def test_the_peak_power_is_taken_after_the_spectral_phase(grid_name, request):
     grid = request.getfixturevalue(grid_name)
     chirped = GaussianPulse(
-        wavelength=WAVELENGTH, fwhm=FWHM, peak_power=3e9, phase=(0.0, 0.0, 2e-27)
+        wavelength=WAVELENGTH, fwhm=FWHM, peak_power=3e9, phases=(0.0, 0.0, 2e-27)
     )
     flat = GaussianPulse(wavelength=WAVELENGTH, fwhm=FWHM, peak_power=3e9)
     chirped_energy = fourier.energy_omega(
@@ -140,7 +140,7 @@ def test_a_spectral_phase_does_not_change_the_energy(grid_name, request):
         wavelength=WAVELENGTH,
         fwhm=FWHM,
         energy=ENERGY,
-        phase=(1.1, 5e-15, 3e-27, 1e-41),
+        phases=(1.1, 5e-15, 3e-27, 1e-41),
         t0=100e-15,
     )
     for pulse in (plain, phased):
@@ -313,7 +313,7 @@ def test_a_positive_delay_moves_the_pulse_later(t0, grid_name, request):
 def test_a_group_delay_coefficient_moves_the_pulse_later(grid_name, request):
     grid = request.getfixturevalue(grid_name)
     spectrum = GaussianPulse(
-        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phase=(0.0, 120e-15)
+        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phases=(0.0, 120e-15)
     ).build(grid)[0, 0]
     # The first-order Taylor coefficient is the group delay, so it must act exactly as
     # t0 does; that is what makes the two ways of writing a delay interchangeable.
@@ -325,7 +325,7 @@ def test_a_positive_gdd_chirps_the_pulse_positively(grid_name, request):
     grid = request.getfixturevalue(grid_name)
     gdd = 2e-27
     spectrum = GaussianPulse(
-        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phase=(0.0, 0.0, gdd)
+        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phases=(0.0, 0.0, gdd)
     ).build(grid)[0, 0]
     signal = analytic(spectrum, grid)
     power = np.abs(signal) ** 2
@@ -334,7 +334,7 @@ def test_a_positive_gdd_chirps_the_pulse_positively(grid_name, request):
     slope = np.polyfit(grid.t[keep], instantaneous[keep], 1, w=np.sqrt(power[keep]))[0]
     assert slope > 0.0
     with_negative = GaussianPulse(
-        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phase=(0.0, 0.0, -gdd)
+        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phases=(0.0, 0.0, -gdd)
     ).build(grid)[0, 0]
     mirror = analytic(with_negative, grid)
     mirror_power = np.abs(mirror) ** 2
@@ -355,7 +355,7 @@ def test_a_taylor_phase_gives_the_group_delay_it_asks_for(grid_name, request):
     grid = request.getfixturevalue(grid_name)
     gdd = 2e-27
     spectrum = GaussianPulse(
-        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phase=(0.0, 0.0, gdd)
+        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phases=(0.0, 0.0, gdd)
     ).build(grid)[0, 0]
     optics = fourier.spectrum_to_optics(spectrum, kind=grid.kind)
     band = np.abs(spectrum) > 0.05 * np.abs(spectrum).max()
@@ -373,7 +373,7 @@ def test_a_taylor_phase_gives_the_group_delay_it_asks_for(grid_name, request):
 def test_the_spectrum_helpers_round_trip_a_built_pulse(grid_name, request):
     grid = request.getfixturevalue(grid_name)
     spectrum = GaussianPulse(
-        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phase=(0.3, 0.0, 1e-27)
+        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phases=(0.3, 0.0, 1e-27)
     ).build(grid)[0, 0]
     optics = fourier.spectrum_to_optics(spectrum, kind=grid.kind)
     # Conjugation and a multiplication by +-1 are exact: a structural contract.
@@ -387,7 +387,7 @@ def test_the_carrier_envelope_phase_is_the_zeroth_taylor_coefficient(field_grid)
         field_grid
     )[0, 0]
     shifted = GaussianPulse(
-        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phase=(0.5 * np.pi,)
+        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phases=(0.5 * np.pi,)
     ).build(field_grid)[0, 0]
     band = np.abs(plain) > 0.05 * np.abs(plain).max()
     difference = np.angle(
@@ -717,24 +717,6 @@ def test_a_time_record_that_is_not_centred_still_lands_where_it_sat(field_grid):
     assert_allclose(arrival, 100e-15, rtol=0.0, atol=1e-3 * 100e-15)
 
 
-@pytest.mark.parametrize("arrival", [100e-15, 500e-15, 700e-15])
-def test_a_time_record_lands_anywhere_in_the_record(arrival, chirped_grid):
-    t = np.linspace(0.0, 800e-15, 8192)
-    omega_p = 2.0 * np.pi * C / WAVELENGTH
-    width = 20e-15
-    record = np.exp(-(((t - arrival) / width) ** 2)) * np.cos(omega_p * t)
-    built = TimeDataPulse(t=t, field=record, energy=ENERGY).build(chirped_grid)[0, 0]
-    # The record's transform, analytically: a Gaussian about the carrier, whose phase
-    # is the arrival time alone.
-    omega = np.linspace(0.8 * omega_p, 1.2 * omega_p, 4001)
-    offset = omega - omega_p
-    reference = DataPulse.from_spectral_density(
-        omega, np.exp(-0.5 * (offset * width) ** 2), offset * arrival, energy=ENERGY
-    ).build(chirped_grid)[0, 0]
-    # Measured as 6.6e-11 at every arrival.
-    assert relative_l2(built, reference) < 5e-10
-
-
 def test_a_chirped_time_record_lands_past_the_middle(chirped_grid):
     t = np.linspace(0.0, 2000e-15, 16384)
     omega_p = 2.0 * np.pi * C / WAVELENGTH
@@ -806,6 +788,12 @@ def test_a_time_record_matches_the_analytic_transform_of_what_it_holds(
 @pytest.mark.parametrize(
     ("arrival", "disturbance", "tolerance"),
     [
+        # A clean record lands anywhere in the record: 6.6e-11 measured at every
+        # arrival. Its reference is the record's transform, analytically: a Gaussian
+        # about the carrier, whose phase is the arrival time alone.
+        (100e-15, 0.0, 5e-10),
+        (500e-15, 0.0, 5e-10),
+        (700e-15, 0.0, 5e-10),
         # A baseline is taken out: 6.6e-11 measured, the same as with none.
         (500e-15, 0.01 * np.ones(8192), 5e-10),
         (100e-15, 0.1 * np.ones(8192), 5e-10),
@@ -815,7 +803,15 @@ def test_a_time_record_matches_the_analytic_transform_of_what_it_holds(
         # White noise of 1 % of the peak, which the spectrum then holds: 1.9 % measured.
         (500e-15, 0.01 * np.random.default_rng(1).standard_normal(8192), 3e-2),
     ],
-    ids=["baseline_late", "baseline_early", "periodic_background", "noise"],
+    ids=[
+        "clean_early",
+        "clean_middle",
+        "clean_late",
+        "baseline_late",
+        "baseline_early",
+        "periodic_background",
+        "noise",
+    ],
 )
 def test_a_measured_time_record_stays_where_it_sat(
     arrival, disturbance, tolerance, chirped_grid
@@ -871,7 +867,7 @@ def test_a_time_record_expands_its_further_phase_about_the_wavelength_given(
     t = np.linspace(-100e-15, 100e-15, 2048)
     record = gaussians_on_a_carrier(t, ((0.0, 1.0),))
     pulse = TimeDataPulse(
-        t=t, field=record, energy=ENERGY, phase=(0.0, 30e-15), wavelength=900e-9
+        t=t, field=record, energy=ENERGY, phases=(0.0, 30e-15), wavelength=900e-9
     )
     assert_allclose(pulse.reference_wavelength, 900e-9, rtol=1e-15, atol=0.0)
     # A pure first-order phase is a delay, wherever it is expanded.
@@ -1032,14 +1028,14 @@ def test_a_broadband_cw_field_is_wider_than_a_monochromatic_one(envelope_grid):
     [
         ({"energy": None}, "one of energy or peak_power must be given"),
         ({"peak_power": 1e9}, "only one of energy or peak_power"),
-        ({"energy": -1e-6}, "energy must be a finite positive number"),
-        ({"energy": 0.0}, "energy must be a finite positive number"),
-        ({"energy": math.nan}, "energy must be a finite positive number"),
-        ({"wavelength": 0.0}, "wavelength must be a finite positive number"),
-        ({"wavelength": -800e-9}, "wavelength must be a finite positive number"),
-        ({"fwhm": -30e-15}, "fwhm must be a finite positive number"),
+        ({"energy": -1e-6}, "energy must be finite and positive"),
+        ({"energy": 0.0}, "energy must be finite and positive"),
+        ({"energy": math.nan}, "energy must be finite and positive"),
+        ({"wavelength": 0.0}, "wavelength must be finite and positive"),
+        ({"wavelength": -800e-9}, "wavelength must be finite and positive"),
+        ({"fwhm": -30e-15}, "fwhm must be finite and positive"),
         ({"m": 0}, "m must be a super-Gaussian order"),
-        ({"phase": (1.0, math.inf)}, "phase coefficient must be finite"),
+        ({"phases": (1.0, math.inf)}, "phase coefficient must be finite"),
     ],
 )
 def test_gaussian_pulse_validation_rejects_bad_settings(overrides, message):
@@ -1053,8 +1049,8 @@ def test_gaussian_pulse_validation_rejects_bad_settings(overrides, message):
     [
         ({}, "one of fwhm or width must be given"),
         ({"fwhm": FWHM, "width": FWHM}, "only one of fwhm or width"),
-        ({"width": -1e-15}, "width must be a finite positive number"),
-        ({"fwhm": math.inf}, "fwhm must be a finite positive number"),
+        ({"width": -1e-15}, "width must be finite and positive"),
+        ({"fwhm": math.inf}, "fwhm must be finite and positive"),
     ],
 )
 def test_sech_pulse_validation_rejects_bad_durations(overrides, message):
@@ -1129,7 +1125,7 @@ def test_an_envelope_too_small_to_scale_is_rejected(field_grid):
                 "spectrum": np.ones(8, complex),
                 "energy": -1.0,
             },
-            "energy must be a finite positive number",
+            "energy must be finite and positive",
         ),
         (
             {
@@ -1137,7 +1133,7 @@ def test_an_envelope_too_small_to_scale_is_rejected(field_grid):
                 "spectrum": np.ones(8, complex),
                 "wavelength": -1.0,
             },
-            "wavelength must be a finite positive number",
+            "wavelength must be finite and positive",
         ),
     ],
 )
@@ -1217,8 +1213,8 @@ def test_a_time_data_pulse_rejects_bad_parameters(kwargs, message):
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"wavelength": 0.0}, "wavelength must be a finite positive number"),
-        ({"average_power": -1.0}, "average_power must be a finite positive number"),
+        ({"wavelength": 0.0}, "wavelength must be finite and positive"),
+        ({"average_power": -1.0}, "average_power must be finite and positive"),
         ({"bandwidth": -1e-9}, "bandwidth must be a finite non-negative"),
         ({"bandwidth": math.inf}, "bandwidth must be a finite non-negative"),
     ],
@@ -1283,7 +1279,7 @@ def test_energy_and_arrival_hold_for_any_pulse(fwhm, energy, gdd, t0, kind):
         else EnvelopeGrid.from_limits(1.0, WAVELENGTH, LIMITS, TRANGE)
     )
     spectrum = GaussianPulse(
-        wavelength=WAVELENGTH, fwhm=fwhm, energy=energy, phase=(0.0, 0.0, gdd), t0=t0
+        wavelength=WAVELENGTH, fwhm=fwhm, energy=energy, phases=(0.0, 0.0, gdd), t0=t0
     ).build(grid)[0, 0]
     realised = fourier.energy_omega(spectrum, grid.dt, kind=grid.kind)
     assert_allclose(realised, energy, rtol=1e-12, atol=0.0)

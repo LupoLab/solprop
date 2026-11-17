@@ -25,7 +25,7 @@ from flow_parity import (
     ten_step_bound,
 )
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.backend import _coupled_flow_maps
+from solprop.backends.numpy_ref.coupled_flow import held_flow
 from solprop.exceptions import BackendError, TranslationError
 from solprop.translate.coupled import constant_schur_flow, orthonormal_metric
 
@@ -95,7 +95,7 @@ def test_a_varying_carrier_beside_a_constant_section_is_refused_in_the_same_word
     implementation = NumpyRefBackend if backend == "numpy_ref" else native_class()
     simulation = build("scalar", pressure=(1.0, 0.9), wall=None)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     spoiled_problem = replace(
         problem,
         linear=replace(
@@ -125,11 +125,11 @@ def test_a_constant_flow_s_factors_are_the_reference_s(cases, name):
     ``frozen_generator``), so exact, as the retired test held every case.
     """
     simulation, problem = cases(name)
-    backend = native_class()(problem, simulation._run_request(), grid=simulation.grid)
+    backend = native_class()(problem, simulation.run_request(), grid=simulation.grid)
     try:
         flow = backend._flow
         assert flow is not None
-        reference = _coupled_flow_maps(problem)
+        reference = held_flow(problem)
         assert reference is not None
         for field in ("vectors", "triangular", "frozen", "condition_bound"):
             assert np.array_equal(getattr(flow, field), getattr(reference, field)), (
@@ -155,11 +155,11 @@ def test_a_varying_flow_s_factors_are_the_reference_s_to_their_rounding(cases, n
     decomposition's backward error, ``10 n^2 u`` of its norm.
     """
     simulation, problem = cases(name)
-    backend = native_class()(problem, simulation._run_request(), grid=simulation.grid)
+    backend = native_class()(problem, simulation.run_request(), grid=simulation.grid)
     try:
         flow = backend._flow
         assert flow is not None
-        reference = _coupled_flow_maps(problem)
+        reference = held_flow(problem)
         assert reference is not None
         tables = problem.linear.coupled_flow
         active = flow.active
@@ -189,14 +189,14 @@ def test_every_flow_the_reference_refuses_native_refuses_in_the_same_words(
     by the integrator; the Runge-Kutta march reaches the problem's own validation.
     """
     simulation, problem = cases("scalar")
-    run_request = on_march(simulation._run_request(), march)
+    run_request = on_march(simulation.run_request(), march)
     grid = simulation.grid
     flow = problem.linear.coupled_flow
     assert flow is not None and flow.generator is not None
     constant = problem.linear.phi_constant
     assert constant is not None
     varied = constant.copy()
-    varied[0, 1] *= 1.0000001
+    varied[1] *= 1.0000001
     metric = orthonormal_metric(
         problem.grids.omega,
         problem.linear.phi_breakpoints[[0, -1]],
@@ -261,19 +261,19 @@ def test_the_kerr_half_is_exercised_beside_the_flow(name, march):
     """
     simulation = build(name)
     problem = simulation.translate()
-    run_request = on_march(simulation._run_request(), march)
+    run_request = on_march(simulation.run_request(), march)
     grid = simulation.grid
     nonlinear = run(NumpyRefBackend, problem, run_request, grid)
     # A fresh one: a simulation holds the problem it translated.
     linear = build(name)
-    object.__setattr__(linear, "responses", ())
+    linear._responses = ()  # what it is built from is read-only, by design
     linear_problem = linear.translate()
     assert len(linear_problem.responses.response_order) == 1
     linear_problem = replace(
         linear_problem,
         responses=replace(linear_problem.responses, absorber_scheme="split_step"),
     )
-    linear_request = on_march(linear._run_request(), march)
+    linear_request = on_march(linear.run_request(), march)
     compiled = run(native_class(), linear_problem, linear_request, grid)
     reference = run(NumpyRefBackend, linear_problem, linear_request, grid)
     scales = replace(

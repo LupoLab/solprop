@@ -682,6 +682,13 @@
   {
    "is_class": false,
    "is_explicit": false,
+   "module": "solprop.tools.capillary",
+   "module_short": "solprop.tools",
+   "name": "SolitonParams"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
    "module": "solprop.tools",
    "module_short": "solprop.tools",
    "name": "SolitonParams"
@@ -838,7 +845,7 @@
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.modes.fill",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.fill",
    "name": "GasFillMixin"
   },
   {
@@ -968,7 +975,7 @@
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.modes.fill",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.fill",
    "name": "GasFillMixin"
   },
   {

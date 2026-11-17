@@ -22,8 +22,8 @@ contract and its conventions; where both apply, follow the stricter rule.
   C++ API are private.
 - solprop has two backends, this one and its NumPy reference, and computes in IEEE
   binary64 only (solprop's ADR-077): every field, stage and statistic here is double
-  precision, with no single or mixed mode. This backend runs every feature except the
-  TDSE response, on CPUs and GPUs.
+  precision, with no single or mixed mode. This backend runs every feature on CPUs and
+  GPUs, the TDSE response on CPU builds only (solprop SEP 49).
 - The layers are solprop -> Python backend adapter -> nanobind seam -> a Python-free
   C++20 core. Native code never imports Python or solprop concepts and never owns
   user-facing policy: it may execute an algorithm the kernel contract specifies in
@@ -124,36 +124,39 @@ the gate.
 - Use RAII, Kokkos views, `Kokkos::complex`, device-callable math, named kernels and
   allocations (`solprop_native.*` labels), explicit `LayoutRight` and explicit
   execution-space instances. Dispatch top-level kernels through `launch::parallel_for`,
-  `parallel_reduce` and `parallel_scan` (`include/solprop_native/launch.hpp`), which pass
+  `parallel_reduce` and `parallel_scan` (`include/solprop_native/runtime/launch.hpp`), which pass
   a device kernel's functor as its launch argument; team-level loops stay `Kokkos::`.
-- Allocate field-sized views, scratch and FFT plans once, when a state is constructed.
+- Allocate field-sized views, scratch and FFT plans once, when a workspace is built.
   A trial step performs no allocation, planning, logging, Python call or unplanned
-  fence.
+  fence. The one exception is the host source hook (solprop SEP 49,
+  `include/solprop_native/runtime/host_source.hpp`): on a CPU build, a bound host source is
+  called from the thread that called `advance`, outside every parallel region, and the
+  binding layer takes the interpreter lock for each call; device builds refuse it.
 - Keep data resident in the execution space until it is observed; `field_to_host` is
   the explicit synchronous boundary. Every persistent allocation appears in
-  `memory_ledger()` with its real size in bytes.
+  the memory ledger (`Workspace.diagnostics()`) with its real size in bytes.
 - Use `KokkosFFT::Normalization::none` and keep solprop's explicit scaling. Do not
   hand-roll transforms, reductions, scans, sorts, random number
   generators or other facilities that Kokkos, Kokkos Kernels or Kokkos-FFT supply.
 - **Reproducibility to the error bound** (solprop SEP 25). Independent floating-point
   computations are compared by numerical error, not bits: no bitwise agreement is
-  required across backends, builds, machines, thread counts, batch membership, scans or
-  repeated runs. Matched discrete computations use rounding budgets derived before the
-  comparison; adaptive runs and replay use accuracy envelopes. Exact structural
-  contracts (lossless copies, integer accounting, identity metadata, hard-mask zeros,
-  explicit no-ops) stay exact.
+  required across backends, builds, machines, thread counts, scans or repeated runs.
+  Matched discrete computations use rounding budgets derived before the comparison;
+  adaptive runs and replay use accuracy envelopes. Exact structural contracts (lossless
+  copies, integer accounting, identity metadata, hard-mask zeros, explicit no-ops) stay
+  exact.
 - Kernels may reorder, vectorise, thread and contract. Contraction is on by default
   (`-ffp-contract=fast` for GCC, `-ffp-contract=fast-honor-pragmas` for Clang: plain
   `fast` makes Clang ignore the pragmas). A protected block (a stable
   increment, a small-argument function, a defect or a compensated sum) stays strict
   with `SOLPROP_NATIVE_STRICT_FUNCTION` and `SOLPROP_NATIVE_STRICT_BLOCK`
-  (`include/solprop_native/fp.hpp`; GCC ignores `#pragma STDC FP_CONTRACT`) and spells
+  (`include/solprop_native/runtime/fp.hpp`; GCC ignores `#pragma STDC FP_CONTRACT`) and spells
   its complex arithmetic with the `strict_*` helpers, since `Kokkos::complex`'s
   operators keep their header's contraction when inlined. Reassociation is scoped to
   the loops that need it. No umbrella fast-math, `nnan`/`ninf`, `nsz`, approximate
   functions or reciprocals, or flush-to-zero; the `__FAST_MATH__` refusal stays.
   The marches' and the session's strict files (`adams_march.cpp`, `watch.cpp`,
-  `rk_march.cpp`, `session.cpp`, `session_statistics.cpp`, `session_widths.cpp`,
+  `rk_march.cpp`, `session.cpp`, `statistics_plan.cpp`, `session_widths.cpp`,
   `low_storage.cpp`, `transverse.cpp`, `session_edge.cpp`, `dense.cpp`) are compiled with
   `-ffp-contract=off` and carry `#pragma GCC optimize("fp-contract=off")`, so that GCC
   never inlines them into a contracting caller. Their probes are checked in the
@@ -164,7 +167,7 @@ the gate.
   CUDA and HIP builds leave the strict blocks empty and follow their compilers'
   contraction defaults, held to the measured device envelopes (solprop's ADR-049,
   amended) until device round-to-nearest helpers land.
-- A host kernel's hot transcendentals go through `include/solprop_native/vmath.hpp`
+- A host kernel's hot transcendentals go through `include/solprop_native/runtime/vmath.hpp`
   (solprop's ADR-059): form a block's arguments into a buffer, call the batch function
   once over it, and finish each element from the results, behind
   `if constexpr (vmath::vectorised)` where the per-element form is faster with the
@@ -182,11 +185,22 @@ the gate.
 - The contract with solprop is its kernel contract, whose fields solprop's frozen
   tables hold. The backend inherits no solprop driver: a run is its native session
   (`session.py`), and the load, the Adams record and the timing probe are its own
-  (`_load.py`, `backend.py`, `_probe.py`). `check_build()` refuses, in an editable
+  (`_load.py`, `_march.py`, `_probe.py`). A backend holds one `_core.Workspace`,
+  built from one `_core.Problem` with every set-once table; a run starts from one run
+  record and the probe from the run's start (solprop SEP 52 section 5.3), and nothing
+  configures the workspace after it is built. `check_build()` refuses, in an editable
   checkout, an extension built from other sources than `native/`
-  (`build_info().source_digest`; `cmake/SourceDigest.cmake` and `_source_digest`
+  (`build_info().source_digest`; `cmake/SourceDigest.cmake` and `_build._source_digest`
   compute it, and stay in step). It records solprop's version without comparing it;
   never pin solprop's version.
+- A record that crosses declares its fields once, in a field table beside its C++
+  definition (`include/solprop_native/runtime/fields.hpp`), and is read by the one converter
+  (`src/bindings/records.hpp`), never by a hand-written dictionary reader; `_core.schemas()`
+  exports the tables, which a test holds to the Python records. A binding only
+  converts, releases the GIL and forwards: logic goes in the C++ library, where ctest
+  reaches it. The bindings live in `src/bindings/`, one file a bound concept;
+  `module.cpp` holds `NB_MODULE` and calls each file's entry point in the order
+  `bind.hpp` records, which later signatures and the stubs depend on.
 - Accept the documented NumPy dtype, rank, shape and C-contiguity exactly and refuse
   hidden O(n) conversions. Read-only input is valid. Returned host arrays own their
   memory.
@@ -195,7 +209,13 @@ the gate.
 - Release the GIL around long native work and hold it while touching Python objects.
   Never call Python from a Kokkos or OpenMP worker, or during teardown.
 - Public Python has complete annotations, NumPy-style docstrings, `__all__`, `py.typed`
-  and a complete stub for the private extension. Install a `NullHandler`; never
+  and a complete stub for the private extension, generated whole with its `_testing`
+  stub by nanobind's stubgen (`scripts/problem_stub.py`, checked in the lint stage):
+  a binding that takes or returns a record names its Python type with `nb::sig`, and a
+  stub is regenerated, never edited. An entry point only solprop's tests reach goes in
+  the extension's private `_testing` submodule (solprop SEP 52), which ships in the
+  wheel and promises nothing; one that touches the state takes the workspace first.
+  Install a `NullHandler`; never
   configure the root logger or print diagnostics from library code.
 - Thread settings are read once, at import. Never change process thread settings (or
   a BLAS thread pool) after import.
@@ -244,4 +264,5 @@ in a repository-root `changelog.d/` fragment
 Code is `GPL-3.0-or-later` and documentation `CC-BY-4.0`. Every code file starts with
 the SPDX header that `uv run reuse annotate --copyright "John C. Travers and
 contributors" --year 2026 --license GPL-3.0-or-later <file>` writes (above
-`#pragma once` and any shebang); the repository's `REUSE.toml` covers the rest.
+`#pragma once` and any shebang; a fragment a unit includes, `*.inc`, needs
+`--style cpp`); the repository's `REUSE.toml` covers the rest.

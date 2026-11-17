@@ -33,7 +33,7 @@ on; pass `integrator=`, `rtol=` or `atol=` to choose another.
 | `prop_capillary` | `Multistep()` | 1e-6 | 1e-10 √W | `"input"` |
 | `prop_capillary` with the TDSE response | `Multistep()` | 1e-6 | 1e-10 √W | none |
 | `prop_waveguide` | `RungeKutta()` | 1e-5 | 1e-10 √W | `"input"`; none for slab modes |
-| `prop_radial` | `Multistep()` | 1e-5 | 0 | `"input"` |
+| `prop_free` (radial) | `Multistep()` | 1e-5 | 0 | `"input"` |
 | `prop_free` (Cartesian, line) | `RungeKutta()` | 1e-4 | 0 | none |
 | `prop_planar` | `Multistep()` | 1e-5 | 0 | none (not carried) |
 
@@ -145,7 +145,12 @@ There:
 
 - for a dense, multimode, Raman-active run such as a comb-to-continuum capillary, use
   `Multistep(carrier_frame="scalar")`: the fastest method measured, about half the
-  default's and IP-DOPRI5's time;
+  default's and IP-DOPRI5's time, when the observable is the populated band or the
+  developed spectrum. It loses a weak driven band that is still forming: near the
+  launch, a comb-to-continuum's blue side and a Raman self-frequency shift's red band
+  came out a few hundred times less accurate than with the default at matched
+  total-field error, and the step-size norm does not see it. Where such a band is the
+  observable, keep the default or check the band against a tighter run;
 - for a single-mode dense-gas run (an argon blue shift, a soliton self-frequency
   shift), use `Multistep(formulation="interaction")`;
 - at a loose tolerance, `RungeKutta()` or `rtol <= 1e-4` with the default.
@@ -183,14 +188,19 @@ more, shorter steps than the Runge–Kutta march at the same tolerance, each one
 Smooth propagation at tight tolerance raises its order and lengthens its steps; abrupt
 events — a fission, a kink in a profile — lower the order for a while. `rtol` means
 something different to each integrator, so compare their errors, not their
-tolerances. At `rtol` of 5e-2 or more the Adams method is unreliable and warned on.
+tolerances. On a short run the Runge–Kutta march's cost need not follow `rtol` at all:
+its steps can be held by the controller's growth limit of 1.1 per step and, with the
+in-stage collar, by a limit that does not move with `rtol`, so it ends far tighter than
+asked. On one 10 cm helium capillary on `numpy_ref`, `RungeKutta()` took 294 to 301 calls
+at every `rtol` from 1e-3 to 1e-8, with errors of 2.3e-6 or less, while `Multistep()`
+went from 87 to 384 calls between 1e-3 and 1e-7; compare short runs at matched error,
+not matched `rtol`. At `rtol` of 5e-2 or more the Adams method is unreliable and warned on.
 
 **How long the run is, and how many.** A run's first few steps rebuild the history from
 order one, a fixed cost that a short run feels most. A single short run hardly matters;
 in a scan of thousands, measure one point with each integrator before choosing, and
-spread the points over a `Pool` of one-thread workers, which scales with the cores:
-batching in lockstep buys nothing on the CPU and about 1.1 times on a GPU
-([scans](../workflows/scans.md#fixed-schedule-batches)).
+spread the points over a `Pool` of one-thread workers, which scales with the cores
+([scans](../workflows/scans.md#processes-and-resource-limits)).
 
 **Planes.** Both integrators interpolate save planes inside their steps
 (`interpolate_planes=True`) at the step's own order and no call; landing on them stays

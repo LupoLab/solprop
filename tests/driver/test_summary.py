@@ -13,11 +13,12 @@ from typing import Any
 
 import numpy as np
 import pytest
+from jaxtyping import TypeCheckError
 
 from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings
+from solprop.driver.metadata import metadata_for
 from solprop.driver.run import run_problem
-from solprop.driver.simulation import metadata_for
 from solprop.driver.summary import (
     RunSummary,
     _code,
@@ -34,12 +35,13 @@ from solprop.driver.summary import (
     resources,
     run_summary,
 )
+from solprop.exceptions import DriverError
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.log import (
     BarReporter,
     LogReporter,
     NullReporter,
-    SummarisingReporter,
+    ProgressReporter,
 )
 from solprop.modes import PlanarGrid, SlabMode
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
@@ -47,7 +49,8 @@ from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.output import HDF5Output, MemoryOutput, open_file
-from solprop.output.schema import RUN_SUMMARY_ANNOTATION, GitProvenance
+from solprop.output.metadata import RUN_SUMMARY_ANNOTATION
+from solprop.output.provenance import GitProvenance
 from solprop.physdata import Mixture
 from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
@@ -104,7 +107,7 @@ def summary_of(simulation, *, backend="numpy_ref", execution=None, **keywords):
     """Return the summary of a simulation that has not run."""
     return run_summary(
         simulation.translate(),
-        simulation._run_request(),
+        simulation.run_request(),
         simulation.metadata(),
         backend=backend,
         execution={} if execution is None else execution,
@@ -232,7 +235,7 @@ def spatial_case(grid_kind="field"):
 
 def test_radial_cartesian_and_line_routes():
     grid, pulse, settings = spatial_case()
-    radial = Simulation.from_radial(
+    radial = Simulation.from_free(
         grid,
         RadialGrid(6e-4, 32),
         SpatialMedium(),
@@ -307,7 +310,7 @@ def test_the_integrator_row_names_each_march():
 def test_the_planes_row_names_per_step_and_interpolated_saving():
     simulation = gnlse()
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     stepper = dataclasses.replace(
         run_request.stepper, step_planes=3, interpolate_planes=True
     )
@@ -420,7 +423,7 @@ def test_a_grid_reaching_zero_frequency_has_no_longest_wavelength():
     )
     summary = run_summary(
         simulation.translate(),
-        simulation._run_request(),
+        simulation.run_request(),
         zero,
         backend="numpy_ref",
         execution={},
@@ -484,7 +487,7 @@ def test_representation_of_a_general_guide_and_of_two_polarisations():
     assert _representation(problem, general) == "general guide, 1 channels, scalar"
     grid, pulse, settings = spatial_case()
     circular = dataclasses.replace(pulse, jones=(1.0 + 0.0j, 1.0j))
-    radial = Simulation.from_radial(
+    radial = Simulation.from_free(
         grid,
         RadialGrid(6e-4, 16),
         SpatialMedium(),
@@ -532,7 +535,7 @@ def test_the_closing_line_of_a_bar_run_is_shown_on_its_stream():
     assert "\nresources: " in text
 
 
-def test_a_reporter_without_the_call_is_not_shown_the_summary():
+def test_a_reporter_without_every_call_is_refused_before_the_run():
     class Planes:
         def started(self, z_start, z_end, n_planes):
             pass
@@ -546,11 +549,9 @@ def test_a_reporter_without_the_call_is_not_shown_the_summary():
         def finished(self, total):
             pass
 
-    assert not isinstance(Planes(), SummarisingReporter)
-    output = gnlse().run(progress=Planes())
-    assert isinstance(output, MemoryOutput)
-    records: Any = output.annotations[RUN_SUMMARY_ANNOTATION]
-    assert len(records) == 1
+    assert not isinstance(Planes(), ProgressReporter)
+    with pytest.raises((DriverError, TypeCheckError), match="ProgressReporter"):
+        gnlse().run(progress=Planes())  # pyright: ignore[reportArgumentType]
 
 
 def test_progress_none_shows_nothing(capsys, caplog):
@@ -573,7 +574,7 @@ def test_progress_log_logs_the_summary_at_info(caplog):
 def test_a_direct_run_of_a_problem_reports_what_was_compiled():
     simulation = gnlse()
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     from solprop.backends.registry import select  # noqa: PLC0415 - only this test
 
     backend = select(
@@ -634,7 +635,7 @@ def test_the_line_reporter_summary_is_one_record():
     finally:
         logger.handlers.clear()
     assert stream.getvalue() == "Starting\n  noise: off\n"
-    assert isinstance(LogReporter(), SummarisingReporter)
+    assert isinstance(LogReporter(), ProgressReporter)
     assert NullReporter().summary("ignored") is None
 
 

@@ -52,7 +52,7 @@ with `loss_interpolation="linear"` rather than the table default `"log"`: a
 lossless source has an imaginary index of exactly zero, which has no logarithm
 and which the logarithmic policy refuses outright.
 
-`solprop.translate.modal_tables.sample_modal_table` retains full E/H samples on
+`solprop.modes.tables.sample_modal_table` retains full E/H samples on
 common physical nodes. It assigns channels by physical overlap, aligns their
 phases and optionally rotates declared degenerate subspaces. It rotates the
 complete generator and metric with the fields, including a near-degenerate block.

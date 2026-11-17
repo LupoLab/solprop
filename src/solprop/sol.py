@@ -14,44 +14,31 @@ For a terminal or a notebook, **not** for library code::
     sol.prop_2d(run)
     sol.compress_taylor(run)
 
-This is the one module of the package whose import has side effects, which is its whole
-purpose. Importing it calls :func:`start_session`, which
-
-1. configures logging at ``INFO`` through :func:`solprop.log.configure_logging`, so
-   that a run reports its set-up and draws its progress bar; and
-2. silences :class:`~solprop.exceptions.MaterialRangeWarning`. Every capillary run asks
-   its gas and its cladding for an index over a band wider than any published fit
-   covers, so at a prompt the notice is noise. A script that imports from the home
-   modules keeps it: the library's default is unchanged, and
-   :func:`material_warnings` turns it back on here.
-
-Both are idempotent, and :func:`end_session` undoes them. Nothing is printed, and
-matplotlib's backend and interactive mode are left alone.
-
-The names are flat and explicit. Where two home modules use one name, the processing
-function keeps it and the plot takes a ``plot_`` prefix: ``energy`` measures,
-``plot_energy`` draws; likewise ``plot_stats``. The names are this package's snake
-case, such as ``prop_2d``; ``docs/guide/workflows/interactive.md`` has the table.
-``numpy`` and
-``matplotlib.pyplot`` are deliberately not re-exported, so a star import never shadows
-your own ``np`` and ``plt``.
+The one module whose import has side effects: :func:`start_session` (called on import,
+idempotent) configures logging at ``INFO`` and silences
+:class:`~solprop.exceptions.MaterialRangeWarning`; :func:`end_session` undoes both,
+:func:`material_warnings` turns the warning back on and :func:`set_log_level` changes
+the level. The names are flat, a plot taking a ``plot_`` prefix where it shares a name
+with a processing function (``energy`` measures, ``plot_energy`` draws), and ``numpy``
+and ``matplotlib.pyplot`` are deliberately not re-exported. The manual page, with the
+table of names, is ``docs/guide/workflows/interactive.md``.
 """
 
 import logging
 import warnings
 from typing import cast
 
-from solprop.driver.executors import Batch, Local, Pool, Queue, Slurm
+from solprop.driver.executors import Local, Pool, Queue, Slurm
 from solprop.driver.interface import (
     prop_capillary,
     prop_free,
     prop_gnlse,
     prop_planar,
-    prop_radial,
     prop_waveguide,
 )
 from solprop.driver.scan import Scan, ScanPoint, run_scan
-from solprop.driver.simulation import Simulation, SimulationSettings
+from solprop.driver.settings import SimulationSettings
+from solprop.driver.simulation import Simulation
 from solprop.driver.tdse import HaccPreset, hacc_basis, hacc_preset
 from solprop.driver.tdse_consistency import ConsistencyResult, check_consistency
 from solprop.exceptions import MaterialRangeWarning
@@ -126,7 +113,7 @@ from solprop.output import (
     TDSEArchive,
     open_tdse_archive,
 )
-from solprop.output.hdf5 import open_file, resume
+from solprop.output.hdf5 import open_file
 from solprop.physdata import (
     Gas,
     MaterialSelection,
@@ -214,8 +201,7 @@ from solprop.processing import (
     time_bandwidth,
     transform_limit,
 )
-from solprop.processing.scans import ScanOutput
-from solprop.processing.scans import open as open_scan
+from solprop.processing.scans import ScanOutput, open_scan
 from solprop.profiles import (
     Constant,
     DensityPath,
@@ -234,6 +220,7 @@ from solprop.pulses import (
     SpatialPulse,
     TimeDataPulse,
 )
+from solprop.stats import StatsSpec
 from solprop.stepper import Multistep, RungeKutta
 from solprop.tools import (
     RDW,
@@ -276,7 +263,6 @@ from solprop.tools import (
 __all__ = [
     "RDW",
     "ZDW",
-    "Batch",
     "BeamParams",
     "CWPulse",
     "CallbackOutput",
@@ -348,6 +334,7 @@ __all__ = [
     "SolitonParams",
     "SpatialPulse",
     "SpecifiedMode",
+    "StatsSpec",
     "StepIndexMode",
     "TDSEArchive",
     "TDSEAtomicWindow",
@@ -465,7 +452,6 @@ __all__ = [
     "prop_free",
     "prop_gnlse",
     "prop_planar",
-    "prop_radial",
     "prop_waveguide",
     "pulse_energy",
     "pulse_peak_power",
@@ -476,7 +462,6 @@ __all__ = [
     "real_field_oversampling",
     "reconstructed_flux",
     "refractive_index",
-    "resume",
     "run_scan",
     "sapphire",
     "self_focusing_power",

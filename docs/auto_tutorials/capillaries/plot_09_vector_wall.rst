@@ -49,7 +49,7 @@ against the exact vector Maxwell roots family by family (to the size of this pac
 own Marcatili error) and through the coupled eigenvalue; it has not yet been checked
 against a resolved-cladding Maxwell solve excited in a mixed-family state.
 
-.. GENERATED FROM PYTHON SOURCE LINES 37-50
+.. GENERATED FROM PYTHON SOURCE LINES 37-51
 
 .. code-block:: Python
 
@@ -62,6 +62,7 @@ against a resolved-cladding Maxwell solve excited in a mixed-family state.
     from solprop.boundaries import absorber
     from solprop.constants import C
     from solprop.driver import prop_capillary
+    from solprop.exceptions import GrazingIncidenceWarning, SolpropWarning
     from solprop.grid import FieldGrid
     from solprop.modes import CoherentWall, MarcatiliMode, vector_wall_operator
     from solprop.stepper import FixedSchedule
@@ -73,7 +74,7 @@ against a resolved-cladding Maxwell solve excited in a mixed-family state.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 51-60
+.. GENERATED FROM PYTHON SOURCE LINES 52-61
 
 Each family's own loss, without a run
 -------------------------------------
@@ -85,7 +86,7 @@ own Marcatili rate for the same channel, and beside what an impedance-averaged
 block would give the two transverse families: the same channel with the hybrid
 cladding term ``v_HE = (v_TE + v_TM)/2`` in place of its own.
 
-.. GENERATED FROM PYTHON SOURCE LINES 60-111
+.. GENERATED FROM PYTHON SOURCE LINES 61-112
 
 .. code-block:: Python
 
@@ -162,7 +163,7 @@ cladding term ``v_HE = (v_TE + v_TM)/2`` in place of its own.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 112-122
+.. GENERATED FROM PYTHON SOURCE LINES 113-123
 
 The conversion, through the entry point
 ---------------------------------------
@@ -175,7 +176,7 @@ Ten fixed steps of 20 um, launched into ``HE_11``, with the vector wall and with
 the ordinary incoherent loss. The scalar block cannot carry this set at all -- it
 spans two families -- and is refused by name.
 
-.. GENERATED FROM PYTHON SOURCE LINES 122-182
+.. GENERATED FROM PYTHON SOURCE LINES 123-189
 
 .. code-block:: Python
 
@@ -186,9 +187,15 @@ spans two families -- and is refused by name.
 
     def run(wall, modes):
         """Propagate `modes` ten fixed steps of the 50 um bore, with or without a wall."""
-        # A marginal geometry on purpose, and a band past the fitted ranges: both warn.
+        # A marginal geometry on purpose (GrazingIncidenceWarning), and a collar weakened
+        # for the steps' stability, which the walk-off check reports although the modes
+        # walk apart by a fraction of a femtosecond in a 300 fs window: both are silenced
+        # by name.
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+            warnings.simplefilter("ignore", GrazingIncidenceWarning)
+            warnings.filterwarnings(
+                "ignore", "the temporal absorber attenuates", SolpropWarning
+            )
             return prop_capillary(
                 bore,
                 length,
@@ -253,13 +260,13 @@ spans two families -- and is refused by name.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 183-186
+.. GENERATED FROM PYTHON SOURCE LINES 190-193
 
 The conversion is the anisotropy's. Moving the cladding index from 1.45 to 1.2099
 shrinks ``delta``, the half-difference of the two impedances, by a factor 1.54;
 a coupling through ``delta`` must shrink the ``EH_11`` share by that squared.
 
-.. GENERATED FROM PYTHON SOURCE LINES 186-227
+.. GENERATED FROM PYTHON SOURCE LINES 193-234
 
 .. code-block:: Python
 
@@ -324,7 +331,7 @@ a coupling through ``delta`` must shrink the ``EH_11`` share by that squared.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 228-234
+.. GENERATED FROM PYTHON SOURCE LINES 235-241
 
 Related reading
 ---------------
@@ -336,7 +343,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 4.825 seconds)
+   **Total running time of the script:** (0 minutes 8.775 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_capillaries_plot_09_vector_wall.py:

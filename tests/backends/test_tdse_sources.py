@@ -16,7 +16,7 @@ import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 from tests.hacc_cases import hacc_response
 
-from solprop.backends.numpy_ref.tdse import atomic_sources
+from solprop.backends.tdse_source import atomic_sources
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError
 from solprop.grid import FieldGrid
@@ -32,7 +32,7 @@ from solprop.nonlinear.tdse import (
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from solprop.translate.routes import TDSESource, tdse_descriptor
 from solprop.translate.stage import scalars
 from solprop.translate.tdse import TDSEDescriptor, TDSEResult, waveform_identity
@@ -47,7 +47,7 @@ CHI3 = 2.0**-100
 @pytest.fixture
 def source_case():
     grid = FieldGrid.from_limits(0.001, 800e-9, (500e-9, 1e-6), 8e-15)
-    mode = MarcatiliMode(125e-6, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, cladding=1.45, loss_scale=0.0)
     problem = assemble(
         grid,
         mode,

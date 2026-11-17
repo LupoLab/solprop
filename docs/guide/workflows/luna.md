@@ -23,6 +23,7 @@ keywords in Python spelling and every quantity in SI units (pressures stay in ba
 |---|---|
 | `λ0`, `τfwhm`, `τw`, `ϕ`, `λlims`, `saveN`, `shotnoise` | `wavelength`, `fwhm`, `width`, `phases`, `wavelength_limits`, `n_save`, the default `noise="input"`, with a `seed` |
 | `pulses=[Pulses.GaussPulse(...), ...]` | `pulses=[GaussianPulse(...), ...]` ({class}`~solprop.pulses.PulseSum`) |
+| `loss=true`, `loss=false`, `loss=0.5` of a capillary mode | the default, `loss_scale=0.0`, `loss_scale=0.5`; an absolute attenuation in 1/m is `alpha=` (a number or a callable) |
 | `modes=:HE11` (mode-averaged), `modes=1`, `modes=4` | `mode_average=True`, `modes=1`, `modes=4`, or a list of mode objects; solprop's default is the resolved `modes=1` |
 | `Plotting.prop_2D`, `time_1D`, `spec_1D` | `prop_2d`, `time_1d`, `spec_1d` |
 | `trange`, `λrange`, `dBmin` of a plot | `time_range`, `spec_range`, `db_min`; `spec_range` is in the units of the plot's axis, and `wavelength_to_axis` converts a wavelength range. `trange` stays the time window's length on `prop_*`, as it is in Luna |
@@ -129,9 +130,14 @@ comparison with Luna states among its frozen inputs.
 solprop's field-grid plasma holds the post-pulse current through
 `DFT[gJ]/(i omega) - DFT[g'J]/(i omega)**2`
 ([SEP 27](../../dev/seps/archive/sep-0027-held-plasma-current.md)); Luna's gated polarisation
-switches off both the residual current and polarisation at the temporal collar. The
-propagation comparisons with Luna therefore run Luna's gated source through a test-only
-hook, on either backend, under a separate identity that cannot be resumed.
+switches off both the residual current and polarisation at the temporal collar. No
+stored Luna run computes the held current, so the propagation comparisons whose exit
+spectra carry a plasma were dropped with the private gated source they ran: the reduced
+and full M2 dispersive-wave cases, milestone M4's comb-to-continuum bounds under Luna's
+vibrational Raman amplitude, and the mixture witness with a plasma column. What stays
+compared with Luna on those cases is the plasma-free part and the inputs: the grids, the
+media, the launch and the electron density
+([accuracy.md](../../dev/accuracy.md) §5 and §6).
 
 
 **The modal nonlinear prefactor.** solprop's modal prefactor is

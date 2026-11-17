@@ -58,7 +58,7 @@ from solprop.constants import C
 from solprop.driver import SimulationSettings, prop_free
 from solprop.grid import EnvelopeGrid, FreeGrid
 from solprop.nonlinear.responses import KerrResponse
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.physdata.nonlinear_data import chi3_from_n2
 from solprop.pulses import GaussianPulse
 from solprop.spatial import (

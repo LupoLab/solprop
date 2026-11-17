@@ -5,6 +5,7 @@
 #SBATCH --time=00:30:00
 #SBATCH --partition='cpu queue'
 #SBATCH --gres=gpu:h200:2
+export OPENBLAS_THREAD_TIMEOUT=${OPENBLAS_THREAD_TIMEOUT:-20}
 set -euo pipefail
 cd -- /shared/scan
 : "${SLURM_ARRAY_TASK_ID:?set the Slurm array task ID}"

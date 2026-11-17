@@ -12,6 +12,7 @@ import pytest
 from numpy.testing import assert_allclose
 from scipy.integrate import quad_vec
 
+from bounds import assert_within
 from hankel_oracles import gamma
 from solprop.constants import C
 from solprop.exceptions import TranslationError
@@ -21,10 +22,10 @@ from solprop.profiles import FromCallable, Linear
 from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.stepper import PIController
 from solprop.translate import radial
+from solprop.translate.assembly import assemble
 from solprop.translate.chebyshev import DEFAULT_TOL
 from solprop.translate.expansion import ParameterExpansion
 from solprop.translate.linop import delta_phi, phi_rate
-from solprop.translate.problem import assemble
 from solprop.translate.radial import (
     radial_operators,
     radial_rate_bounds,
@@ -107,6 +108,10 @@ def test_varying_radial_medium_uses_cumulative_expansion(case, comoving):
         assert isinstance(prefactor, ParameterExpansion)
         assert operator.phi_expansion.parameters == ("density",)
         assert prefactor.parameters == ("density",)
+        # Structural: one material sample serves both polarisations, so the stored
+        # terms are the same numbers; only their contraction below may round apart.
+        terms = operator.phi_expansion.terms
+        np.testing.assert_array_equal(terms[..., 0, :], terms[..., 1, :])
         for left, right in (
             (0.0, grid.length),
             (0.21 * grid.length, 0.79 * grid.length),
@@ -133,9 +138,24 @@ def test_varying_radial_medium_uses_cumulative_expansion(case, comoving):
             bound = (
                 rate_bound * (right - left) + quad_budget + endpoint_budget(amplitude)
             )
-            actual = delta_phi(operator, left, right)[0]
+            actual = delta_phi(operator, left, right)
             assert_allclose(actual[:, 0], expected, rtol=0, atol=bound)
-            np.testing.assert_array_equal(actual[:, 0], actual[:, 1])
+            # The polarisation columns hold identical terms, but the increment is one
+            # BLAS product (np.tensordot) whose kernel may round each output column
+            # differently (seen with OpenBLAS on AVX-512). Each column is a length-n
+            # sum of real weight times term: within gamma_n(u) sum |w| |t| of exact per
+            # component, so two columns differ by at most twice that per component and
+            # sqrt(2) times more in modulus; gamma(2 n) = 4 gamma_n(u) covers it.
+            expansion = operator.phi_expansion
+            weights = expansion.weights(right) - expansion.weights(left)
+            magnitude = np.tensordot(np.abs(weights), np.abs(expansion.terms), axes=1)
+            assert_within(
+                actual[:, 1],
+                actual[:, 0],
+                gamma(2 * weights.size) * magnitude[:, 0],
+                elementwise=True,
+                what="polarisation columns",
+            )
         for z in (0.0, 0.37 * grid.length, grid.length):
             expected = model.prefactor(space.k_r**2, z) * grid.crop_scale
             assert_allclose(
@@ -235,7 +255,7 @@ def test_a_constant_radial_medium_carries_no_adiabatic_term(case):
     # The uniform medium's rate is the material operator itself, element by element:
     # no real endpoint term enters, so the exactly integrated D z is unchanged.
     np.testing.assert_array_equal(
-        operator.phi_constant[0, :, 0], model.operator(space.k_r**2)
+        operator.phi_constant[:, 0], model.operator(space.k_r**2)
     )
 
 
@@ -275,7 +295,7 @@ def test_the_radial_adiabatic_term_matches_an_independent_oracle(
         assert error <= quad_budget
         expected = amplitude.copy()
         expected[:, grid.active_mask] -= loss
-        actual = np.real(delta_phi(operator, left, right)[0, :, 0])
+        actual = np.real(delta_phi(operator, left, right)[:, 0])
         # Propagating bins: Re Phi is the endpoint term less the material loss
         # integral, which is zero for argon; the integral contributes no real part.
         assert_allclose(
@@ -368,7 +388,7 @@ def test_a_varying_medium_with_no_propagating_column_carries_no_amplitude(case):
     assert operator.phi_expansion.endpoint_degrees is None
     # Every active bin is the capped attenuation alone, to the integral's
     # representation bound (relative 8 DEFAULT_TOL on the cap).
-    actual = np.real(delta_phi(operator, 0.0, grid.length)[0, :, 0])
+    actual = np.real(delta_phi(operator, 0.0, grid.length)[:, 0])
     cap = model.evanescent_rate * grid.length
     assert_allclose(
         actual[:, grid.active_mask], -cap, rtol=0, atol=8 * DEFAULT_TOL * cap
@@ -402,7 +422,7 @@ def test_reused_radial_expansion_carries_the_adiabatic_term(case):
         amplitude, _ = adiabatic_oracle(medium, grid, space, left, right)
         budget = endpoint_budget(amplitude)
         for operator in (reused, fresh):
-            actual = np.real(delta_phi(operator, left, right)[0, :, 0])
+            actual = np.real(delta_phi(operator, left, right)[:, 0])
             assert_allclose(actual, amplitude, rtol=0, atol=budget)
 
 

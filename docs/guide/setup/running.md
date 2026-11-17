@@ -29,8 +29,7 @@ There are three ways in, and they are the same machinery underneath:
   physics objects directly.
 
 Free-space and planar propagation have entry points of their own,
-{py:func}`~solprop.driver.interface.prop_radial`,
-{py:func}`~solprop.driver.interface.prop_free` and
+{py:func}`~solprop.driver.interface.prop_free` (radial or Cartesian) and
 {py:func}`~solprop.driver.interface.prop_planar`, described on
 [the free-space chapter](../free-space/model.md). They use the same output,
 continuation, progress and resource controls linked above.
@@ -89,7 +88,7 @@ output = prop_gnlse(
 That builds an envelope grid, maps `gamma` onto a third-order susceptibility, wraps the
 Taylor coefficients in a dispersion-specified mode
 ({py:class}`~solprop.nonlinear.gnlse.SpecifiedMode`), builds the input pulse, selects the backend, propagates the pulse and stores 201 planes. It
-returns the {py:class}`~solprop.output.schema.Output` it wrote — here a
+returns the {py:class}`~solprop.output.store.Output` it wrote — here a
 {py:class}`~solprop.output.memory.MemoryOutput`, because no `output` was given.
 
 Units are SI throughout ([conventions.md §1](../../dev/conventions.md)), with one exception
@@ -97,8 +96,11 @@ at the interface: `loss_db_per_m` is in decibels per metre, as a data sheet quot
 and is converted by {py:func}`~solprop.nonlinear.gnlse.attenuation_from_db`. (Pressures,
 on the gas-filled routes below, are in bar.)
 
-The step control is reached through `rtol`, `atol`, `dz_init` and `dz_max` on every
-entry point. Unless told otherwise, `prop_gnlse` steps with `RungeKutta()` at `rtol=1e-7`
+The step control is reached through `rtol`, `atol`, `dz_init` and `dz_max` on the
+keyword entry points, `prop_gnlse`, `prop_capillary` and `prop_waveguide`; `prop_free`
+and `prop_planar` take the same controls in their
+{py:class}`~solprop.driver.settings.SimulationSettings` (its `controller`, `dz_init` and
+`dz_max`). Unless told otherwise, `prop_gnlse` steps with `RungeKutta()` at `rtol=1e-7`
 and `atol=1e-14` (in √W), `prop_capillary` with `Multistep()` at `1e-6` and `1e-10`, and
 `prop_waveguide` with `RungeKutta()` at `1e-5` and `1e-10`. Each interface takes the
 integrator SEP 37 measured fastest at matched accuracy on its benchmark cases, except
@@ -106,7 +108,8 @@ the capillary, which keeps the Adams method by the maintainer's decision, and th
 loosest tolerance that passed SEP 37's convergence test with it
 ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)). The first trial step is
 `length * 1e-4` and the longest allowed is half the fibre unless `dz_init` and `dz_max`
-say otherwise. These are starting points: the error a local tolerance buys at the output
+say otherwise; settings that leave `dz_init` or `dz_max` as `None` take the same
+fractions of `grid.length` on every route. These are starting points: the error a local tolerance buys at the output
 depends on the problem, so calibrate it ([the solver](../numerics/solver.md#achieved-versus-requested)).
 A `schedule=` replaces the adaptive stepping by a fixed schedule
 ([fixed schedules](../numerics/fixed-schedules.md#fixed-schedules-discover-calibrate-replay)).
@@ -132,6 +135,64 @@ field's content in the collar.
 `pulses=[...]` launches several pulses together in place of the single-pulse keywords,
 for two-colour and multi-colour inputs, on every keyword entry point of this page
 ([several pulses at once](pulses.md#several-pulses-at-once)).
+
+### The length and the saved planes
+
+Every run marches from its entrance, `initial_z` (zero unless an interior launch sets
+it), to its length, and always records both. The length is stated once. On a keyword
+route it is `length`, or the length of a `grid=` passed instead. `length` is the
+positional argument after the fibre or guide and is always passed, as `None` when a grid
+supplies it: `prop_capillary(radius, None, "Ar", 1.0, grid=grid, ...)`, as
+`prop_gnlse(None, ...)` passes `None` for `gamma` beside `n2`. Given both, they must
+agree to within the marches' landing slack of eight ulps
+({py:data}`~solprop.stepper.schedule.LANDING_ULPS`), and the grid's is then used, while
+a disagreement is refused naming both values, as is a call with neither. On
+{py:class}`~solprop.driver.simulation.Simulation` and the free-space and planar
+constructors the length is `grid.length`. Everything that depends on the length uses
+that one value: the run's end, the default steps and profiles, and the default
+absorber's strength ([boundaries](../numerics/boundaries.md)).
+
+What is recorded in between is chosen by one of two selectors, on every route and in
+{py:class}`~solprop.driver.settings.SimulationSettings` alike:
+
+- `n_save=N`, an integer of at least 2: `N` evenly spaced observations over
+  `[initial_z, length]`, both ends included;
+- `save_planes=[...]`, positions in metres, finite and strictly increasing, inside that
+  interval. The entrance and the end are added when absent, and either may be listed;
+  `save_planes=[]` records the two endpoints alone.
+
+Given neither, a run records 201 (the TDSE capillary, its entrance and end with every
+natural step). Giving both is refused, as are a bare number (`save_planes=80` says
+"pass `n_save=80`"), a count below two and a position outside the interval:
+
+```{code-block} python
+from solprop.driver import SimulationSettings
+
+SimulationSettings(n_save=81, dz_max=1e-3, dz_init=1e-6)    # 81 over [0, grid.length]
+SimulationSettings(save_planes=[0.05], dz_max=1e-3, dz_init=1e-6)  # 0, 0.05 m, the end
+SimulationSettings(save_planes=[], dz_max=1e-3, dz_init=1e-6)      # the entrance and end
+```
+
+A position within eight ulps of an endpoint is that endpoint: `0.1 + 0.2` and the float
+just below `0.3` both end a run of length `0.3`, and each endpoint is recorded once.
+Settings are resolved when a simulation adopts them — at construction, on assigning
+{py:attr}`~solprop.driver.simulation.Simulation.settings`, and in
+{py:meth}`~solprop.driver.simulation.Simulation.with_input` — into the positions after
+the entrance, the last exactly the length, so a count and the positions it stands for
+are one run with one configuration hash. Resolved settings reused on a run of another
+length are checked again: a position beyond the new end is refused and a shorter list
+gains the new end. To carry a count instead, pass
+`dataclasses.replace(settings, n_save=N, save_planes=None)`. An interior launch counts
+over its own interval, and `with_input(..., initial_z=z)` keeps the observations
+already resolved beyond `z`. A replayed `schedule=` must cover the run: its start at the
+entrance, its end at the length to within the rounding its step sum accumulates
+({py:func}`~solprop.stepper.schedule.replay_tolerance`).
+
+Every observation obeys `fields` and `field_planes`, so `fields="none"` still records
+statistics at both ends without storing a field
+([output](../results/output.md#statistics-only-planes-which-planes-keep-their-field)).
+A short window of a long setup is therefore a shorter grid: shorten it and pin what the
+longer length set, such as the absorber's `boundary_length`.
 
 ### A table or mode as the GNLSE fibre
 
@@ -166,7 +227,8 @@ second entry point; the [GNLSE page](../waveguides/gnlse.md) has the model under
 dispersion, declared with the area".
 
 The fibre carries its loss, so any explicit `loss_db_per_m` beside it,
-including zero, is refused. Scale or replace loss on the supplied mode.
+including zero, is refused. Scale the loss (`loss_scale`) or replace it (`alpha`) on
+the supplied mode.
 Tables must cover every active-band frequency, including collars, and any
 derivative probes; extrapolation is refused. The
 [tabulated-mode guide](../waveguides/tabulated-modes.md#modes-from-tabulated-data) explains the area,
@@ -250,7 +312,7 @@ Gauss or Gauss–Kronrod rule integrates Kerr and Raman overlaps accurately when
 its order resolves the mode profiles, converges spectrally for a smooth ionisation rate, and costs the same on every
 step, where an adaptive cubature's cost depends on the field and its error estimate can be
 far too optimistic with a kinked rate. Its radial order `n_r` defaults to
-{py:func}`~solprop.driver.simulation.default_radial_order` of the mode count -- 32 up to
+{py:func}`~solprop.driver.routes.hollow.default_radial_order` of the mode count -- 32 up to
 four modes, eight nodes per mode above that. `radial_rule="gauss_kronrod"`, the default, makes the rule
 the Kronrod extension of the half-order Gauss rule, whose embedded Gauss subset costs
 nothing and gives the run an error estimate (the quadrature alarm, below). `n_theta` is
@@ -258,8 +320,8 @@ refused for a set of HE₁ₘ modes: `|J₀(u r/a)|` does not depend on the angl
 azimuthal node would be a copy of the same integrand.
 
 A **supplied** mode set is the run's geometry: the positional radius must agree with its
-modes' core radius along the run, and a `model`, `loss` or `cladding` declared away from
-its default must be theirs, or the call is refused by name. It may contain
+modes' core radius along the run, and a `model`, `alpha`, `loss_scale` or `cladding`
+declared away from its default must be theirs, or the call is refused by name. It may contain
 `TabulatedHollowMode` (an evacuated table plus the declared gas) or `TabulatedMode` (one
 filled table's whole index); the driver keeps their type and table while binding the
 declared mixture. Hollow tables support pressure gradients; filled tables require
@@ -286,8 +348,8 @@ $\mathrm{HE}_{1m}$ channel to every other with a definite phase and so converts 
 between them. On a taper or a pressure gradient it also carries the connection the moving
 basis costs. `CoherentWall(impedance="te_tm")` condenses the wall's two impedances
 instead of their average, coupling the two radial families of one azimuthal order, on a
-straight bore or a taper alike. The block is the run's loss model, so `loss=` must stay
-`True`; it needs the contiguous set `modes=N` builds (or one azimuthal order, for the
+straight bore or a taper alike. The block is the run's loss model, so `alpha` and
+`loss_scale` must keep their defaults; it needs the contiguous set `modes=N` builds (or one azimuthal order, for the
 `te_tm` block) and a scalar state, and it is refused beside `lattice=` and
 `model="reduced"`, each by name. It carries the default input noise; the modified noise
 model is refused beside it. It runs on `numpy_ref` and the native
@@ -340,7 +402,7 @@ runs default to no plasma. The span of the table comes from the input's own peak
 field, over the axis and the run's transverse nodes (the axis for an `HE_1m` launch, the
 nodes for a `TE_0m` or `TM_0m` one, whose field vanishes on the axis), unless
 `ionisation_field_range` gives one --
-{py:func}`~solprop.driver.simulation.default_field_range` explains the two factors. Above
+{py:func}`~solprop.driver.inputs.default_field_range` explains the two factors. Above
 the upper limit the table holds its last value, so one set too low is a silent clip of
 the rate exactly where ionisation matters; below the lower one the rate is zero, which is
 where every rate in this package already is.
@@ -398,7 +460,7 @@ simulation = Simulation(
     pulse,
     settings=SimulationSettings(
         controller=PIController(rtol=1e-9, atol=1e-18),
-        save_planes=[0.25, 0.5, 0.75, 1.0],
+        n_save=5,                     # the entrance, 0.25, 0.5, 0.75 and grid.length
         dz_max=0.1,
         dz_init=1e-4,
     ),
@@ -411,10 +473,39 @@ memory = simulation.run()             # into memory
 simulation.run("run.h5")              # and again, into a file, without translating twice
 ```
 
-{py:class}`~solprop.driver.simulation.SimulationSettings` holds everything numerical:
+Translation builds a run request beside the problem: the method, the error control, the
+planes and the statistics a fresh run takes.
+{py:meth}`~solprop.driver.simulation.Simulation.run_request` returns it, translating
+once just as `translate()` does. Those two are what the run-layer functions take when you
+drive the loop over save planes yourself, for example
+`solprop.backends.registry.select(name, problem, request)` to construct a backend for
+{py:func}`~solprop.driver.run.run_problem`.
+
+{py:class}`~solprop.driver.settings.SimulationSettings` holds everything numerical:
 the controller and its tolerances, the save planes, the step limits, a fixed schedule,
 the tableau, the absorber and how it is applied, the transverse quadrature, the
 statistics and the backend.
+
+**Statistics on a simulation built directly.** Every `Simulation.from_*` constructor, and
+so every `prop_*` interface, resolves `stats=None` to its route's default. A
+`Simulation` built from objects records **no** statistics with `stats=None`: it is given
+the grid, the modes and the responses, not the route they would have come from, and the
+route's default depends on that (mode-averaged or multimode, plasma or none, a mixture).
+Ask for them explicitly:
+
+```{code-block} python
+from solprop.stats import default_spec
+
+settings = SimulationSettings(..., stats=default_spec("multimode", with_profiles=True))
+```
+
+{py:func}`~solprop.stats.default_spec` gives the basic set of each kind
+(`"mode_averaged"`, `"multimode"`, `"radial"`, `"free"`), which is all a GNLSE or
+free-space route records in a single gas. A capillary or waveguide route adds the
+statistics only a backend can compute (`peak_intensity`, `quadrature_error`), the plasma
+statistics when the run has a plasma, and the species statistics of a mixture; to record
+exactly what such a route would, read its resolved spec,
+`Simulation.from_capillary(...).settings.stats`, and pass that.
 {py:meth}`~solprop.driver.simulation.Simulation.translate` does everything expensive that
 does not depend on the state — the cumulative linear operator, the masks, the modal
 transform, the compiled responses — and caches it, so a second run of the same simulation
@@ -424,7 +515,12 @@ simulation are the same run and must digest alike.
 {py:meth}`~solprop.driver.simulation.Simulation.with_input` and
 {py:meth}`~solprop.driver.simulation.Simulation.with_mixture` derive a new simulation
 with another input pulse or another fill while sharing what translation built
-([scans](../workflows/scans.md#reuse-a-translated-simulation)).
+([scans](../workflows/scans.md#reuse-a-translated-simulation)). They are the way to
+change what a simulation is built from: its `grid`, `modes`, `responses`, `initial`,
+`initial_z`, `noise`, `profiles`, `configuration`, `frame` and the rest are read-only,
+because the input was built, and the record is derived, from them when it was
+constructed. Assigning one raises `AttributeError`, naming these methods; only
+`settings` may be replaced, before the first translation.
 
 `SimulationSettings.fields` and `field_planes` choose which saved planes keep their
 field — every one by default, the named ones, or none for a run wanted as statistics
@@ -449,7 +545,7 @@ state are allocated and first touched, and the transforms are planned. A delay s
 sweep of the input runs the same translated problem for hundreds of inputs, and need pay
 that once. {py:meth}`~solprop.driver.simulation.Simulation.runner` translates (or reuses
 the cached translation) and constructs one backend; each
-{py:meth}`~solprop.driver.simulation.SimulationRunner.run` then loads one input into it
+{py:meth}`~solprop.driver.runner.SimulationRunner.run` then loads one input into it
 and runs the save-plane loop
 ([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §5.2):
 
@@ -474,8 +570,8 @@ Each run derives its input with
 configuration hash and handler: `output=` takes a handler or a path, and `None` gives a
 new {py:class}`~solprop.output.memory.MemoryOutput`. Loading an input restores everything
 a march reads — the state, the controller, a dense observation's look-ahead, the
-quadrature alarm, an Adams march's history and call ledger
-(`StepDriver.set_initial`) — so a run on the reused
+quadrature alarm, an Adams march's history and call ledger, as the run's session loads
+its start — so a run on the reused
 backend repeats a fresh backend's run, to the rounding that separates any two runs.
 
 The runner checks that each input's problem is the one its backend was built for, but
@@ -516,13 +612,15 @@ problem shared rather than scanned again; a new `initial_z` keeps the stepper's 
 Its `configuration=` merges caller keys into the derived run's record (a key the run
 records itself is refused). An array input, here and in the constructor, is copied when
 the simulation is built, so changing it afterwards changes neither the run nor its
-record; an array input of more than 2²⁰ elements is recorded by
+record. So are the constructor's `configuration=` and these caller keys (their
+dictionaries, lists and arrays) and the tables of the `solprop.profiles` paths a run's
+`profiles=` holds; a path of your own, or a callable, is kept as it is. An array input of more than 2²⁰ elements is recorded by
 the SHA-256 of its bytes rather than inline, so a gigabyte launch costs seconds of
 hashing per input rather than gigabytes of JSON.
 
 A caller that already knows what its input is need not pay even that. Both `with_input`
 and `SimulationRunner.run` take `input_identity=`, a string the record then holds with the
-array's dtype and shape ({py:class}`~solprop.output.schema.StatedInput`) in place of the
+array's dtype and shape ({py:class}`~solprop.output.serialisation.StatedInput`) in place of the
 array's own record, without reading its bytes, so the run's hash follows the string:
 
 ```{code-block} python
@@ -560,7 +658,7 @@ no setting keeps one without the other, so settle the window on one input with t
 
 A scan whose result is a few numbers per input has no use for a store.
 {py:class}`~solprop.output.callback.CallbackOutput` is a handler built from a callable: it
-gives each {py:class}`~solprop.output.schema.SavedPlane` to the callable, the entrance
+gives each {py:class}`~solprop.output.records.SavedPlane` to the callable, the entrance
 first, and keeps nothing, so the body of a hand loop over the backend moves into a few
 lines. Most reductions want statistics and no field, which is a run with `fields="none"`
 and the statistics it names:
@@ -636,3 +734,6 @@ handler with no state written, and a run with an optmat ionisation rate, which r
 peak rates back from its output, neither reports its peak field nor warns past the rate's
 range ({py:class}`~solprop.exceptions.MaterialRangeWarning`). Read `peak_ionisation_rate`
 in the callable where that matters.
+
+The length and the saved planes were proposed and implemented by
+[SEP 51](../../dev/seps/archive/sep-0051-save-planes.md).

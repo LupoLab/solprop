@@ -28,9 +28,10 @@ from solprop.profiles import (
 from solprop.pulses import GaussianPulse, SechPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.linop import build_phi, constant_phi, delta_phi
-from solprop.translate.problem import _walk_arrays, assemble
+from solprop.translate.problem import _walk_arrays
 from solprop.translate.responses import response_kinks, unlanded_kinks
 
 OPERATOR = np.array([0.0, -1.5j, 0.3 - 2.0j])
@@ -63,7 +64,7 @@ def test_constant_phi_split_at_kinks_stays_exact_and_keeps_its_constant():
     z = np.array([0.0, 0.1, 0.25, 0.4, 0.61, 0.9, 1.05])
     values = np.stack([split.polynomial(float(one)) for one in z])
     assert whole.phi_constant is not None
-    expected = z[:, None, None, None, None] * whole.phi_constant[None]
+    expected = z[:, None, None, None] * whole.phi_constant[None]
     np.testing.assert_allclose(values, expected, rtol=0, atol=8 * np.finfo(float).eps)
 
 
@@ -71,7 +72,7 @@ def test_constant_phi_split_at_kinks_stays_exact_and_keeps_its_constant():
 def test_an_expansion_takes_the_further_kinks_beside_the_modes():
     grid = EnvelopeGrid.from_limits(0.05, 800e-9, (400e-9, 2e-6), 200e-15)
     fill = PressureGradient.two_point(0.05, 2.0, 1.0)
-    mode = MarcatiliMode(125e-6, "He", fill, loss=False)
+    mode = MarcatiliMode(125e-6, "He", fill, loss_scale=0.0)
     frame = Frame.comoving(grid)
     plain = build_phi(mode, grid, frame, z_max=0.05)
     kinked = build_phi(mode, grid, frame, z_max=0.05, kinks=[0.0123, 0.05, 7.0])

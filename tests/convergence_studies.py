@@ -23,12 +23,10 @@ from convergence_records import Column, Study
 # deviation is exactly zero is not here: a log axis cannot draw a zero.
 BACKEND_EQUIVALENCE = Study(
     name="backend_equivalence",
-    title=(
-        "compiled backends against the numpy_ref oracle, bound and measurement per rung"
-    ),
+    title="native builds against the numpy_ref oracle, bound and measurement per rung",
     case={
         "backends": (
-            "numba_cpu and installed plugins against numpy_ref, the reference oracle"
+            "the native backend's builds against numpy_ref, the reference oracle"
         ),
         "metric": "peak-normalised deviation of the final spectrum",
         "why_not_bitwise": "compiled arithmetic and FFT plans may associate operations "

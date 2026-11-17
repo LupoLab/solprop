@@ -31,6 +31,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from bounds import assert_within, fft_bound, higham_gamma
+from builders import load_reference
 from legacy_geometry import LEGACY_GRID
 from modal_provider_cases import (
     GENERAL_CHI3 as CHI3,
@@ -39,14 +40,13 @@ from modal_provider_cases import (
     GENERAL_Z_END as Z_END,
 )
 from modal_provider_cases import general_case as strand_case
-from sessions.runs import launch_statistics
+from sessions.runs import bare, final_field, launch_statistics, summary
 from sessions.runs import run as session_run
 from solprop import fourier
 from solprop import stats as stats_module
 from solprop.backends import select
 from solprop.backends.node_chunk import general_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.backend import _GENERAL_LEDGER_ROWS, _general_maps
 from solprop.backends.numpy_ref.general_modal import (
     GeneralMaps,
     delayed_polarisation,
@@ -57,6 +57,8 @@ from solprop.backends.numpy_ref.general_modal import (
     symmetric_kerr_coefficients,
     symmetric_monomials,
 )
+from solprop.backends.numpy_ref.source import _general_maps
+from solprop.backends.numpy_ref.workspace import _GENERAL_LEDGER_ROWS
 from solprop.boundaries import absorber
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError, TranslationError
@@ -68,6 +70,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec, default_spec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.admission import check_general_route
+from solprop.translate.assembly import assemble
 from solprop.translate.coupled import CoupledFlowTables, ModalMetricTables, metric_at
 from solprop.translate.general import (
     metric_departure,
@@ -76,7 +79,7 @@ from solprop.translate.general import (
     node_kerr_tensor,
 )
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import Translation, _walk_arrays, assemble
+from solprop.translate.problem import Translation, _walk_arrays
 from solprop.translate.responses import (
     RegionalResponseTables,
     isotropic_kerr_tensor,
@@ -574,11 +577,11 @@ def test_a_millimetre_of_one_channel_accumulates_the_self_phase(
     index, state = continuous_wave(case, [9.5e3])
     problem, run_request = general_problem(case, state)
     backend = NumpyRefBackend(problem, run_request, grid=case.grid)
-    backend.set_initial(problem.initial.field0, None)
-    summary = backend.propagate_to(length)
-    final = backend.observe().require_field()[0, 0, index]
+    result = session_run(backend, problem, bare(run_request))
+    assert result.observations[-1].z == length
+    final = result.fields[-1][0, 0, index]
     backend.close()
-    assert summary.met_tolerance
+    assert summary(result).met_tolerance
 
     omega = float(case.grid.omega[index])
     sample = case.table.evaluate(omega, 0.0)
@@ -591,7 +594,7 @@ def test_a_millimetre_of_one_channel_accumulates_the_self_phase(
     )
     amplitude = fourier.analytic_signal(fourier.inverse(state[0], kind="field"))
     power = float(np.abs(amplitude[0, 0]) ** 2)
-    linear = np.exp(delta_phi(problem.linear, 0.0, length))[0, 0, 0, index]
+    linear = np.exp(delta_phi(problem.linear, 0.0, length))[0, 0, index]
     turned = final / (state[0, 0, index] * linear)
     expected = -gamma * power * length
     assert abs(expected) > 1.0
@@ -664,8 +667,10 @@ def test_the_reference_executes_a_dense_metric_of_a_declared_basis(circular_stra
     assert problem.linear.modal_metric is not None
     assert problem.linear.modal_metric.kind == "dense"
     backend = NumpyRefBackend(problem, run_request, grid=circular_strand.grid)
-    backend.set_initial(problem.initial.field0, None)
-    values = backend.stats(StatsSpec(names=("physical_energy", "analytic_flux")))
+    load_reference(backend)
+    values = backend.workspace.stats(
+        StatsSpec(names=("physical_energy", "analytic_flux")), problem.initial.z
+    )
     assert set(values) == {"physical_energy", "analytic_flux"}
     # The metric is handed over, so the numbers are the weighted ones. What sets
     # the difference is the **stored block's** departure from the identity at the
@@ -686,7 +691,9 @@ def test_the_reference_executes_a_dense_metric_of_a_declared_basis(circular_stra
         assert_allclose(float(value), plain[name], rtol=2 * departure, atol=0.0)
     # The unlaunched partner carries only the whitening's rounding, so it has no
     # centroid to report: the guard is relative to the plane, not to zero.
-    centroid = backend.stats(StatsSpec(names=("omega0",)))["omega0"]
+    centroid = backend.workspace.stats(StatsSpec(names=("omega0",)), problem.initial.z)[
+        "omega0"
+    ]
     assert np.isfinite(centroid[0, 0])
     assert np.isnan(centroid[1, 0])
     backend.close()
@@ -1249,95 +1256,6 @@ def test_the_static_profile_agrees_with_the_full_one_at_matched_accuracy(
     assert departure > 1e3 * ROUNDING
 
 
-def test_a_coarse_synthesis_is_the_fine_one_with_the_unread_columns_dropped(strand):
-    """S on the coarse grid gives what S on the fine grid gave, to rounding.
-
-    The map used to be tabulated on `omega_fine` (A2 API section 4 as accepted),
-    while the padded state it multiplies is zero everywhere but `grids.crop_index`:
-    every other column multiplied a zero and could not reach the source. Slice C2b's
-    review moved S to the coarse grid and made the pass place the synthesised
-    spectrum into the fine one instead.
-
-    Measured on this case **before** the change, and unchanged by it: S was
-    1 783 296 bytes on the fine grid and is 898 560 on the coarse one (129 bins
-    against 65, a factor 1.985 at this `ffac`); the source's largest modulus is
-    8.880915318652263e-4 and its value at the excited bin
-    2.808392011402124e-4 - 8.425176034206358e-4j.
-
-    The assertion here is stronger than a recorded number, and does not depend on
-    this machine's transforms: the pre-change arithmetic is run beside the new pass
-    over a fine map whose unread columns are filled with **junk** of unit modulus,
-    and the two agree within one evaluation's rounding -- two transform round trips,
-    the synthesis and the projection (:func:`bounds.fft_bound`) -- which any junk
-    that was read would exceed by orders of magnitude.
-    """
-    case = strand
-    index, state = continuous_wave(case, [3.0 + 1.0j])
-    problem = general_problem(case, state).problem
-    maps = _general_maps(problem)
-    assert maps is not None
-    grid = case.grid
-    n_fine = fourier.n_omega_for(grid.n_to, "field")
-    assert maps.synthesis.shape[-1] == grid.n_omega < n_fine
-
-    # S as it was built before the change, with every column the coarse grid cannot
-    # reach filled with something that would show up at once if it were read.
-    rng = np.random.default_rng(20260919)
-    fine_maps = np.exp(2j * rng.uniform(0.0, 1.0, (*maps.synthesis.shape[:3], n_fine)))
-    fine_maps[..., grid.crop_index] = maps.synthesis
-    expected = pre_c2b_review_source(
-        state,
-        fine_maps,
-        maps,
-        grid.crop_index,
-        n_to=grid.n_to,
-        pad_scale=grid.pad_scale,
-    )
-    source = general_source(
-        state, maps, grid.crop_index, n_to=grid.n_to, pad_scale=grid.pad_scale
-    )
-    assert np.max(np.abs(source)) > 0.0 and np.any(state[:, 0, index])
-    bound = 2 * fft_bound(grid.n_to)
-    assert_within(source, expected, bound, what="coarse synthesis")
-
-
-def pre_c2b_review_source(state, synthesis, maps, crop_index, *, n_to, pad_scale):
-    """Evaluate the source as the pass did with S tabulated on the fine grid.
-
-    Kept here, and nowhere else, so that the claim above is checked against
-    arithmetic and not against a number pasted from a run.
-    """
-    n_fine = fourier.n_omega_for(n_to, "field")
-    padded = np.zeros((maps.n_modes, n_fine), dtype=np.complex128)
-    padded[:, crop_index] = state[:, 0, :]
-    doubling = np.full(n_fine, 2.0)
-    doubling[0] = 1.0
-    doubling[-1] = 1.0
-    padded *= pad_scale * doubling
-    source = np.zeros((maps.n_modes, len(crop_index)), dtype=np.complex128)
-    for first in range(0, maps.n_nodes, maps.node_chunk):
-        rows = slice(first, first + maps.node_chunk)
-        spectrum = np.einsum("qcmw,mw->qcw", synthesis[rows], padded)
-        field = np.zeros((*spectrum.shape[:2], n_to), dtype=np.complex128)
-        field[..., :n_fine] = spectrum
-        field = np.fft.ifft(field, axis=-1)
-        if maps.form == "real":
-            # The cubic as the pass now forms it: this helper replicates
-            # the synthesis before the change, and the contraction after it.
-            polarisation = EPS0 * symmetric_cubic(
-                symmetric_kerr_coefficients(maps.tensor[rows]), np.real(field)
-            )
-        else:
-            pair = np.einsum("qkt,qlt->qklt", field, field.conj())
-            weighted = np.einsum("qijkl,qklt->qijt", maps.tensor[rows], pair)
-            polarisation = EPS0 * np.einsum("qijt,qjt->qit", weighted, field)
-        projected = fourier.forward(np.real(polarisation), kind="field")[
-            ..., crop_index
-        ]
-        source += np.einsum("mqcw,qcw->mw", maps.projection[:, rows], projected)
-    return (source * maps.frequency_factor)[:, None, :]
-
-
 def test_the_reference_refuses_a_general_route_on_an_envelope_grid(strand):
     """A leaf is tabulated on a field grid's increasing coarse axis: refused by name."""
     _, state = continuous_wave(strand, [1.0])
@@ -1360,8 +1278,8 @@ def test_a_linear_guide_does_not_run_the_source_pass(strand, monkeypatch):
     position, and the synthesis, the `3 x n_nodes` transforms, the contraction and
     the projection would spend 108 ms per step producing it (measured on this case,
     single-threaded; the short-circuit is 0.1 ms and the whole run of ten steps drops
-    from 1.08 s to 0.001 s). The legacy path short-circuits the same way when nothing
-    but the accumulation was compiled.
+    from 1.08 s to 0.001 s). The channel node pipeline short-circuits the same way when
+    nothing but the accumulation was compiled.
 
     Not asserted as a ratio, which would be a clock on a shared machine: the pass is
     replaced by something that raises, so the assertion is that it was not called.
@@ -1384,23 +1302,21 @@ def test_a_linear_guide_does_not_run_the_source_pass(strand, monkeypatch):
     )
 
     def step(backend):
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(plane)
-        field = backend.observe().require_field().copy()
+        field = final_field(backend, problem, bare(run_request), z=plane).copy()
         backend.close()
         return field
 
     forced = NumpyRefBackend(problem, run_request, grid=case.grid)
-    assert not forced._general_responds
-    forced._general_responds = True
+    assert not forced.workspace.stage_source._general_responds
+    forced.workspace.stage_source._general_responds = True
     expected = step(forced)
 
     def refuse(*arguments, **keywords):
         raise AssertionError("the general source pass ran for a linear guide")
 
-    monkeypatch.setattr("solprop.backends.numpy_ref.backend.general_source", refuse)
+    monkeypatch.setattr("solprop.backends.numpy_ref.source.general_source", refuse)
     short = NumpyRefBackend(problem, run_request, grid=case.grid)
-    assert not short._general_responds
+    assert not short.workspace.stage_source._general_responds
     field = step(short)
     assert np.any(field)
     np.testing.assert_array_equal(field.view(np.uint8), expected.view(np.uint8))
@@ -1448,9 +1364,7 @@ def test_the_route_carries_the_in_stage_absorber(strand):
             scheme is not None
         )
         backend = NumpyRefBackend(problem, run_request, grid=case.grid)
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(plane)
-        field = backend.observe().require_field()[0, 0]
+        field = final_field(backend, problem, bare(run_request), z=plane)[0, 0]
         backend.close()
         traces[scheme] = np.abs(fourier.inverse(field[None], kind="field")[0])
     middle = len(traces[None]) // 2

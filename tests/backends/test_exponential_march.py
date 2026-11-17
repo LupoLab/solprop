@@ -7,9 +7,10 @@
 The formulation shares the Adams march's lifecycle
 (``solprop.backends.numpy_ref.multistep``): these tests check what is its own -- the
 record, exactness on the linear flow, order, agreement with the Runge-Kutta march and
-the transported formulation, dense observation, the call ledger and budget -- and the
-two capabilities SEP 16 phase 2 adds to both formulations: the ``modified`` noise and
-prescribed schedules.
+the transported formulation, dense observation, the call ledger and budget -- and
+prescribed schedules, which SEP 16 phase 2 adds to both formulations. The other
+capability it adds, the ``modified`` noise, is checked along a gradient in
+``test_exponential_varying.py``.
 """
 
 import dataclasses
@@ -23,18 +24,18 @@ import pytest
 
 from bounds import assert_within, gamma, step_evaluations
 from legacy_geometry import LEGACY_GRID
+from sessions.runs import bare
+from sessions.runs import run as session_run
 from solprop._helpers import PLAIN
-from solprop.backends.exponential import refuse_formulation
-from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.host.driver import HostDriver
-from solprop.backends.host.group import HostGroup
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.multistep import (
+from solprop.backends.numpy_ref.adams_tables import (
     compensation_tables,
     exponential_tables,
     fused_tables,
     trial_tables,
 )
+from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
+from solprop.backends.numpy_ref.marches.host import MarchState
 from solprop.exceptions import (
     BackendError,
     ConvergenceError,
@@ -43,14 +44,12 @@ from solprop.exceptions import (
     TranslationError,
 )
 from solprop.grid import EnvelopeGrid
-from solprop.noise import modified_noise
 from solprop.stepper import FixedSchedule, PIController, RungeKutta
 from solprop.stepper.multistep import (
     PEC_REAL_INTERVAL,
     Multistep,
     march_policy,
 )
-from solprop.translate.coupled import constant_schur_flow
 from solprop.translate.linop import delta_phi
 
 # The soliton fixture's period (tests/backends/conftest.py).
@@ -90,19 +89,15 @@ def replay_bound(run_request, steps: int) -> float:
     return steps * step_evaluations(run_request) * 16 * np.finfo(float).eps
 
 
-def run(problem, run_request, grid, noise=None):
+def run(problem, run_request, grid):
     """Propagate to the last plane; return the final field, the march and its steps."""
     backend = NumpyRefBackend(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, noise)
-    steps, field = [], None
-    for plane in run_request.stepper.save_planes:
-        backend.propagate_to(float(plane))
-        observed = backend.observe()
-        steps += list(observed.step_history.dz)
-        field = observed.require_field()[0, 0]
-    march = backend._adams
+    result = session_run(backend, problem, bare(run_request))
+    # Every attempt's step, rejected ones included, and the last plane's field.
+    steps = list(result.joined[0].dz)
+    field = result.fields[-1][0, 0]
+    march = backend.march
     backend.close()
-    assert field is not None
     return field, march, np.array(steps)
 
 
@@ -141,16 +136,30 @@ def test_exponential_is_the_exact_linear_flow_without_a_source(
     )
     field, march, _ = run(problem, run_request, narrow_grid)
     start = problem.initial.field0[0, 0] * problem.grids.active_mask
-    exact = np.exp(delta_phi(problem.linear, 0.0, length))[0, 0, 0] * start
+    exact = np.exp(delta_phi(problem.linear, 0.0, length))[0, 0] * start
     # A zero source leaves the flows' products: round-off per step.
     np.testing.assert_allclose(field, exact, rtol=0, atol=1e-12 * np.abs(start).max())
     assert ledger_of(march).rejected_steps == 0
 
 
+@pytest.fixture(scope="module")
+def order_reference(narrow_grid, soliton_problem):
+    """Return the order study's tight Runge-Kutta reference, shared by both orders."""
+    return run(
+        *soliton_problem(
+            narrow_grid,
+            2,
+            save_planes=[SOLITON_PERIOD / 2],
+            controller=PIController(rtol=1e-12, atol=1e-18),
+        ),
+        grid=narrow_grid,
+    )[0]
+
+
 @pytest.mark.medium
 @pytest.mark.parametrize("order", [2, 4])
 def test_exponential_converges_at_its_order_on_a_schedule(
-    narrow_grid, soliton_problem, order
+    narrow_grid, soliton_problem, order_reference, order
 ):
     # A second-order soliton over half a period on uniform prescribed steps: three
     # levels against a tight Runge-Kutta reference.
@@ -176,15 +185,7 @@ def test_exponential_converges_at_its_order_on_a_schedule(
         )
         return run(problem, run_request, narrow_grid)[0]
 
-    reference = run(
-        *soliton_problem(
-            narrow_grid,
-            2,
-            save_planes=[length],
-            controller=PIController(rtol=1e-12, atol=1e-18),
-        ),
-        grid=narrow_grid,
-    )[0]
+    reference = order_reference
     # The populated bins, above 1e-8 of the peak power. The weak wings below hold
     # free radiation under the soliton's cross-phase modulation, a source linear in
     # each bin's own field that rotates with its free phase: there the exponential
@@ -250,24 +251,34 @@ def test_the_default_leaves_its_excess_error_in_the_dark_wings(
     assert ledger_of(march).total < 500
 
 
-@pytest.mark.medium
-@pytest.mark.parametrize("method", FORMULATIONS, ids=["interaction", "exponential"])
-def test_both_formulations_agree_with_runge_kutta(narrow_grid, soliton_problem, method):
-    planes = [SOLITON_PERIOD / 4, SOLITON_PERIOD / 2]
-    reference = run(
+AGREEMENT_PLANES = [SOLITON_PERIOD / 4, SOLITON_PERIOD / 2]
+
+
+@pytest.fixture(scope="module")
+def agreement_reference(narrow_grid, soliton_problem):
+    """Return the N = 3 Runge-Kutta reference, shared by both formulations."""
+    return run(
         *soliton_problem(
             narrow_grid,
             3,
-            save_planes=planes,
+            save_planes=AGREEMENT_PLANES,
             controller=PIController(rtol=1e-11, atol=1e-18),
         ),
         grid=narrow_grid,
     )[0]
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("method", FORMULATIONS, ids=["interaction", "exponential"])
+def test_both_formulations_agree_with_runge_kutta(
+    narrow_grid, soliton_problem, agreement_reference, method
+):
+    reference = agreement_reference
     field, march, _ = run(
         *soliton_problem(
             narrow_grid,
             3,
-            save_planes=planes,
+            save_planes=AGREEMENT_PLANES,
             controller=PIController(rtol=1e-8, atol=1e-18),
             integrator=method,
         ),
@@ -322,12 +333,10 @@ def test_exponential_dense_observation_matches_landing(narrow_grid, soliton_prob
             interpolate_planes=interpolate,
         )
         backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-        backend.set_initial(problem.initial.field0, None)
-        fields = []
-        for plane in planes:
-            backend.propagate_to(float(plane))
-            fields.append(backend.observe().require_field()[0, 0])
-        ledger = ledger_of(backend._adams)
+        result = session_run(backend, problem, bare(run_request))
+        assert [event.z for event in result.observations[1:]] == planes
+        fields = [field[0, 0] for field in result.fields[1:]]
+        ledger = ledger_of(backend.march)
         backend.close()
         return np.array(fields), ledger
 
@@ -352,58 +361,15 @@ def test_exponential_dense_observation_is_the_linear_flow_without_a_source(
         dz_max=0.3,
     )
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(planes[0])
-    observed = backend.observe().require_field()[0, 0]
+    result = session_run(backend, problem, bare(run_request), observations=2)
+    assert result.observations[-1].z == planes[0]
+    observed = result.fields[-1][0, 0]
     backend.close()
     start = problem.initial.field0[0, 0] * problem.grids.active_mask
-    exact = np.exp(delta_phi(problem.linear, 0.0, planes[0]))[0, 0, 0] * start
+    exact = np.exp(delta_phi(problem.linear, 0.0, planes[0]))[0, 0] * start
     np.testing.assert_allclose(
         observed, exact, rtol=0, atol=1e-12 * np.abs(start).max()
     )
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("method", FORMULATIONS, ids=["interaction", "exponential"])
-def test_modified_noise_with_the_same_draw_as_runge_kutta(
-    narrow_grid, soliton_problem, method
-):
-    # One draw for the run, conditional on which the source is deterministic in z:
-    # both Adams formulations converge to the Runge-Kutta solution with the same draw.
-    planes = [SOLITON_PERIOD / 8, SOLITON_PERIOD / 4]
-    noise = modified_noise(narrow_grid, np.random.default_rng(7))
-
-    def solve(integrator, rtol):
-        problem, run_request = soliton_problem(
-            narrow_grid,
-            2,
-            save_planes=planes,
-            noise=noise,
-            controller=PIController(rtol=rtol, atol=1e-18),
-            integrator=integrator,
-        )
-        return run(problem, run_request, narrow_grid, noise=noise)
-
-    reference, _, _ = solve(None, 1e-11)
-    field, march, _ = solve(method, 1e-8)
-    error = np.linalg.norm(field - reference) / np.linalg.norm(reference)
-    # As without noise (test_both_formulations_agree_with_runge_kutta): the draw is
-    # part of the deterministic source, so the same accuracy holds.
-    assert error < 1e-5
-    # A different draw moves the weak bins far more than the tolerance: the noise is
-    # really in the source.
-    other = modified_noise(narrow_grid, np.random.default_rng(8))
-    problem, run_request = soliton_problem(
-        narrow_grid,
-        2,
-        save_planes=planes,
-        noise=other,
-        controller=PIController(rtol=1e-8, atol=1e-18),
-        integrator=method,
-    )
-    moved, _, _ = run(problem, run_request, narrow_grid, noise=other)
-    assert np.linalg.norm(moved - field) > 10 * np.linalg.norm(field - reference)
-    assert ledger_of(march).rejected_steps < ledger_of(march).accepted_steps
 
 
 @pytest.mark.parametrize("method", FORMULATIONS, ids=["interaction", "exponential"])
@@ -438,41 +404,6 @@ def test_a_schedule_is_replayed_exactly_and_reports_its_norms(
     first, _, _ = run(*matched, grid=narrow_grid)
     second, _, _ = run(*matched, grid=narrow_grid)
     assert_within(second, first, replay_bound(matched.request, schedule.n_steps))
-
-
-@pytest.mark.parametrize("method", FORMULATIONS, ids=["interaction", "exponential"])
-def test_a_lockstep_batch_steps_each_member_with_its_own_history(
-    narrow_grid, soliton_problem, method
-):
-    length = SOLITON_PERIOD / 8
-    schedule = FixedSchedule.uniform(0.0, length, length / 11, save_planes=[length])
-
-    def problem_of(order):
-        return soliton_problem(
-            narrow_grid,
-            order,
-            save_planes=[length],
-            schedule=schedule,
-            dz_max=length / 11,
-            dz_init=length / 11,
-            integrator=fixed(method),
-        )
-
-    singles = [run(*problem_of(order), grid=narrow_grid)[0] for order in (1, 2)]
-    members = []
-    for order in (1, 2):
-        problem, run_request = problem_of(order)
-        member = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-        member.set_initial(problem.initial.field0, None)
-        members.append(member)
-    runner = HostGroup(members)
-    runner.propagate_to(length)
-    observed = runner.observe_members()
-    runner.close()
-    # A member and its single run: one fixed-order method on one schedule.
-    bound = replay_bound(problem_of(1).request, 11)
-    for observation, single in zip(observed, singles, strict=True):
-        assert_within(observation.require_field()[0, 0], single, bound)
 
 
 @pytest.mark.parametrize("method", FORMULATIONS, ids=["interaction", "exponential"])
@@ -571,23 +502,9 @@ def scheduled(soliton_problem, grid, method, schedule, length, **overrides):
     )
 
 
-def lockstep_of(problems, grid):
-    """Return a lockstep runner over fresh reference members of `problems`.
-
-    Each is a translation: a problem and its run's request.
-    """
-    members = []
-    for problem, run_request in problems:
-        member = NumpyRefBackend(problem, run_request, grid=grid)
-        member.set_initial(problem.initial.field0, None)
-        members.append(member)
-    return HostGroup(members)
-
-
 @pytest.mark.parametrize("method", FORMULATIONS, ids=["interaction", "exponential"])
-@pytest.mark.parametrize("batch", [False, True], ids=["single", "lockstep"])
 def test_a_replayed_schedule_stops_to_save_and_refuses_to_run_out(
-    narrow_grid, soliton_problem, method, batch
+    narrow_grid, soliton_problem, method
 ):
     length = SOLITON_PERIOD / 8
     schedule = FixedSchedule.uniform(0.0, length, length / 9)
@@ -596,31 +513,23 @@ def test_a_replayed_schedule_stops_to_save_and_refuses_to_run_out(
         problem, run_request = scheduled(
             soliton_problem, narrow_grid, fixed(method), schedule, length, **overrides
         )
-        if batch:
-            return lockstep_of([(problem, run_request)], narrow_grid)
         backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-        backend.set_initial(problem.initial.field0, None)
-        return backend
+        return backend, session_run(backend, problem, bare(run_request))
 
-    def field_of(runner):
-        observed = runner.observe_members()[0] if batch else runner.observe()
-        return observed.field[0, 0, 0]
-
-    # Every third step's end is saved: each call stops there, and the steps, so the
+    # Every third step's end is saved: the march stops there, and the steps, so the
     # field, are those of the uninterrupted replay.
-    whole = start()
-    whole.propagate_to(length)
-    stopping = start(step_planes=3)
-    calls = 0
-    while stopping._z < length * (1 - 1e-12):
-        stopping.propagate_to(length)
-        calls += 1
-    assert calls == 3
+    whole, uninterrupted = start()
+    stopping, stopped = start(step_planes=3)
+    assert len(stopped.observations) - 1 == 3
     matched = scheduled(soliton_problem, narrow_grid, fixed(method), schedule, length)
-    assert_within(field_of(stopping), field_of(whole), replay_bound(matched.request, 9))
+    assert_within(
+        stopped.fields[-1][0, 0, 0],
+        uninterrupted.fields[-1][0, 0, 0],
+        replay_bound(matched.request, 9),
+    )
     # Past its last edge the schedule cannot take the march.
     with pytest.raises(BackendError, match="cannot reach"):
-        whole.propagate_to(1.01 * length)
+        cast("Any", whole.march).advance(1.01 * length)
     whole.close()
     stopping.close()
 
@@ -635,85 +544,21 @@ def test_a_replayed_step_with_a_non_finite_norm_is_refused(
         soliton_problem, narrow_grid, method, schedule, length
     )
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
     # A diverged field: a replay cannot reject the step, so it stops and says why.
     monkeypatch.setattr(
-        backend._adams, "_attempt", lambda dz, *, fixed, landing: (None, math.nan)
+        HostAdamsMarch,
+        "_attempt",
+        lambda self, dz, *, fixed, landing: (None, math.nan),
     )
     with pytest.raises(ConvergenceError, match="non-finite error norm"):
-        backend.propagate_to(length)
+        session_run(backend, problem, bare(run_request))
     backend.close()
 
 
-def test_lockstep_members_must_share_the_integrator(narrow_grid, soliton_problem):
-    length = SOLITON_PERIOD / 8
-    schedule = FixedSchedule.uniform(0.0, length, length / 9)
-    problems = [
-        scheduled(soliton_problem, narrow_grid, method, schedule, length)
-        for method in FORMULATIONS
-    ]
-    with pytest.raises(BackendError, match="same integrator"):
-        lockstep_of(problems, narrow_grid)
-
-
-DRIVERS = pytest.mark.parametrize("driver", [HostDriver], ids=["host"])
-"""The reference's driver, whose default hooks refuse what it lacks."""
-
-
-@DRIVERS
-def test_a_backend_without_the_lab_frame_source_refuses_the_formulation(driver):
-    # Every shipped backend implements the hook; an external one that does not is
-    # told which formulation to use instead.
-    stub = SimpleNamespace(name="external")
-    lab = np.zeros((1, 1, 1, 4), dtype=complex)
-    with pytest.raises(BackendError, match="external does not execute"):
-        driver._adams_lab_source(stub, lab, 0.0, purpose="startup")
-
-
-@DRIVERS
-def test_a_backend_without_a_coupled_flow_hands_the_march_no_block(driver):
-    # The default hook: every shipped backend that steps a coupled flow returns its
-    # block; an external one that holds none gives the march nothing to step.
-    stub = SimpleNamespace(name="external")
-    assert driver._adams_block(stub, 0.0, 1e-3) is None
-
-
-def test_the_formulation_refuses_a_section_it_does_not_step(
-    narrow_grid, soliton_problem
-):
-    # SEP 16 Q3: the exponential formulation steps constant-Schur and frozen-residual
-    # sections (phase 5); any other section method is refused by name.
-    problem, run_request = soliton_problem(
-        narrow_grid, 1, save_planes=[0.1], integrator=EXPONENTIAL
-    )
-    flow = constant_schur_flow(
-        np.sort(problem.grids.omega),
-        problem.linear.phi_breakpoints[[0, -1]],
-        np.zeros((1, 1, problem.grids.omega.size), dtype=complex),
-        dz_max=run_request.stepper.dz_max,
-        condition_limit=1e6,
-        gauge_id="test",
-        certificate_id="constant-schur",
-    )
-    coupled = dataclasses.replace(
-        problem, linear=dataclasses.replace(problem.linear, coupled_flow=flow)
-    )
-    refuse_formulation(
-        coupled, run_request.stepper, "probe"
-    )  # a constant-Schur section is stepped
-    flow = object.__new__(type(flow))
-    object.__setattr__(flow, "section_methods", ("diagonal",))
-    coupled = dataclasses.replace(
-        problem, linear=dataclasses.replace(problem.linear, coupled_flow=flow)
-    )
-    with pytest.raises(BackendError, match="'diagonal' sections"):
-        refuse_formulation(coupled, run_request.stepper, "probe")
-
-
-@pytest.fixture(params=[HostAdamsMarch], ids=["host"])
-def march_class(request):
+@pytest.fixture
+def march_class():
     """The reference's Adams march, whose decisions the native march's are held to."""
-    return request.param
+    return HostAdamsMarch
 
 
 def _chooser(march_class, method, collar_rate, *, quiet=False):
@@ -737,9 +582,11 @@ def _chooser(march_class, method, collar_rate, *, quiet=False):
         collar_rate=collar_rate,
     )
     march._order = 5
-    # A stand-in, not a driver: the order choice reads one flag from it.
-    march._backend = cast("Any", SimpleNamespace(_collar_quiet=quiet))
+    # A stand-in, not a session: the order choice reads one flag from it.
+    march._host = cast("Any", SimpleNamespace(collar_quiet=quiet))
     march._collar_was_quiet = False
+    march.state = MarchState(z=0.0, proposal=1.0)
+    march._engine = cast("Any", SimpleNamespace(reset=lambda: None))
     return march
 
 
@@ -783,7 +630,7 @@ def test_the_step_after_a_collar_returns_is_held_to_its_stable_step(march_class)
     stable = PEC_REAL_INTERVAL[4] / rate
     march = _chooser(march_class, EXPONENTIAL, rate, quiet=True)
     assert march._collar_reentry(1.0) == 1.0
-    march._backend._collar_quiet = False
+    march._host.collar_quiet = False
     assert march._collar_reentry(1.0) == pytest.approx(stable)
     assert march._collar_reentry(1.0) == 1.0
     assert _chooser(march_class, EXPONENTIAL, 0.0)._collar_reentry(1.0) == 1.0
@@ -797,7 +644,7 @@ def test_a_new_run_clears_the_collar_flag_and_a_pending_floor(march_class):
     march._collar_was_quiet = True
     march._last_rejected = True
     march._floor = ConvergenceError("pending")
-    march.begin_run()
+    march.load(0.0, 1.0, 0)
     assert march._collar_was_quiet is False
     assert march._last_rejected is False
     assert march._floor is None
@@ -832,13 +679,13 @@ def test_only_the_exponential_formulation_reads_the_collar(integrator):
             simulation.settings, integrator=integrator
         )
         problem = simulation.translate()
-        run_request = simulation._run_request()
+        run_request = simulation.run_request()
     backend = NumpyRefBackend(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        march = backend._adams
-        assert march is not None
+        march = cast("Any", backend.march)
+        assert isinstance(march, HostAdamsMarch)
         collar = problem.responses.temporal_absorber
         assert collar is not None
         expected = 0.5 * float(np.max(collar))

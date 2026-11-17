@@ -37,8 +37,8 @@ from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec, analytic_field
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import assemble
 
 LENGTH = (
     0.02  # m: long enough for a measurable nonlinear phase, short enough to be fast
@@ -67,7 +67,7 @@ def grid():
 @pytest.fixture(scope="module")
 def capillary():
     """A lossless helium-filled capillary, so a Kerr run conserves energy exactly."""
-    return MarcatiliMode(125e-6, "He", 1.0, cladding=1.45, loss=False)
+    return MarcatiliMode(125e-6, "He", 1.0, cladding=1.45, loss_scale=0.0)
 
 
 def modes_of(capillary, count):
@@ -79,7 +79,7 @@ def modes_of(capillary, count):
             capillary.pressure,
             m=m,
             cladding=capillary.cladding,
-            loss=False,
+            loss_scale=0.0,
         )
         for m in range(1, count + 1)
     ]
@@ -128,12 +128,16 @@ def scored_alarm(backend):
     """Read the last step's quadrature score from the backend's own owner.
 
     The reference keeps it on the backend; the native backend's state keeps the last
-    step's score its session's march left (``_core.State.quadrature_error``), which
+    step's score its session's march left (``_testing.quadrature_error``), which
     is what the warning of the retired step driver quoted.
     """
     if backend.name == "numpy_ref":
-        return backend._alarm
-    return backend._native_state.quadrature_error
+        return backend.workspace.stage_source._alarm
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
+    return _testing.quadrature_error(backend._workspace)
 
 
 ALARM = ("quadrature_error",)
@@ -149,38 +153,31 @@ def pulse(grid, count=1, energy=ENERGY):
 # --------------------------------------------------- one node is the mode-averaged case
 
 
-def test_a_one_mode_multimode_run_reproduces_the_mode_averaged_one(
-    backend_class, grid, capillary
+@pytest.mark.parametrize(
+    ("n_r", "bound"),
+    [
+        # Measured 1.1e-11 and 2.9e-18 at n_r = 8 and 16: the rule converges
+        # spectrally and is already at round-off by 16. The bound is the coarsest of
+        # them with a decade in hand.
+        (8, 1e-10),
+        (16, 1e-10),
+        # Measured 1.3e-16 at n_r = 24: by this order the rule is exact on the quartic
+        # and what is left is the round-off of two different orderings of the same sum
+        # -- the machine epsilon times a 257-bin reduction -- and not the quadrature.
+        (CONVERGED_N_R, 1e-14),
+    ],
+)
+def test_the_quadrature_converges_towards_the_mode_averaged_answer(
+    backend_class, grid, capillary, n_r, bound
 ):
     """The mode-averaged path is the n_nodes = 1 case of this pipeline.
 
     The mode-averaged run converts with ``1/sqrt(eps0 c A_eff/2)`` and projects with 1;
     the multimode run synthesises the Bessel profile at the nodes and integrates the
     quartic on the rule. They are the same number by the definition of ``A_eff``, so
-    what is left is the quadrature's own error.
+    what is left is the quadrature's own error: coarse rules are wrong by the rule's
+    error and by nothing systematic.
     """
-    start = pulse(grid)
-    averaged, _ = propagate(backend_class, *build(grid, capillary, start), grid)
-    rule = transverse_quadrature(
-        [capillary], n_r=CONVERGED_N_R, radial_rule="gauss_kronrod"
-    )
-    multimode, _ = propagate(
-        backend_class,
-        *build(grid, [capillary], start, quadrature=rule),
-        grid,
-    )
-    # Measured 1.3e-16 at n_r = 24, against 1.1e-11 at n_r = 8: by this order the rule
-    # is exact on the quartic and what is left is the round-off of two different
-    # orderings of the same sum -- the machine epsilon times a 257-bin reduction -- and
-    # not the quadrature at all.
-    assert peak_gap(multimode.field, averaged.field) < 1e-14
-
-
-@pytest.mark.parametrize("n_r", [8, 16, CONVERGED_N_R])
-def test_the_quadrature_converges_towards_the_mode_averaged_answer(
-    backend_class, grid, capillary, n_r
-):
-    """Coarse rules are wrong by the rule's error and by nothing systematic."""
     start = pulse(grid)
     averaged, _ = propagate(backend_class, *build(grid, capillary, start), grid)
     rule = transverse_quadrature([capillary], n_r=n_r, radial_rule="gauss_kronrod")
@@ -189,10 +186,7 @@ def test_the_quadrature_converges_towards_the_mode_averaged_answer(
         *build(grid, [capillary], start, quadrature=rule),
         grid,
     )
-    # Measured 1.1e-11, 2.9e-18 and 1.3e-16 at n_r = 8, 16 and 24: the rule converges
-    # spectrally and is already at round-off by 16. The bound is the coarsest of them
-    # with a decade in hand.
-    assert peak_gap(multimode.field, averaged.field) < 1e-10
+    assert peak_gap(multimode.field, averaged.field) < bound
 
 
 # ------------------------------------------------------------------- the linear flow
@@ -257,7 +251,7 @@ def test_modes_with_a_zero_coefficient_propagate_independently_and_exactly(
 
 
 def total_energy(grid, field):
-    """Return the energy summed over the modes of one batch member, in joules."""
+    """Return the energy of a state summed over its modes, in joules."""
     return float(fourier.energy_omega(field, grid.dt, kind=grid.kind).sum())
 
 
@@ -476,7 +470,7 @@ def test_the_alarm_falls_with_the_radial_order_on_a_three_mode_set(
         rule = transverse_quadrature(modes, n_r=n_r, radial_rule="gauss_kronrod")
         problem, run_request = build(grid, modes, pulse(grid, 3), quadrature=rule)
         _, backend = propagate(DEFAULT_BACKEND, problem, run_request, grid)
-        alarms[n_r] = float(backend._alarm)
+        alarms[n_r] = float(backend.workspace.stage_source._alarm)
     # The ladder is monotone and spans more than ten orders, and the threshold lands
     # where the two constants at the top of this file say it does.
     assert sorted(alarms, key=lambda order: alarms[order], reverse=True) == list(orders)
@@ -515,11 +509,15 @@ def test_the_alarm_is_not_a_number_where_the_polarisation_vanishes(grid, capilla
     )
     problem, run_request = build(grid, modes, pulse(grid, 2), quadrature=rule)
     _, backend = propagate(NumpyRefBackend, problem, run_request, grid)
-    assert backend._alarm > 0.0
-    backend._last_projected = np.zeros_like(backend._last_projected)
-    backend._last_coarse = np.zeros_like(backend._last_coarse)
-    backend._update_alarm()
-    assert math.isnan(backend._alarm)
+    assert backend.workspace.stage_source._alarm > 0.0
+    backend.workspace.stage_source._last_projected = np.zeros_like(
+        backend.workspace.stage_source._last_projected
+    )
+    backend.workspace.stage_source._last_coarse = np.zeros_like(
+        backend.workspace.stage_source._last_coarse
+    )
+    backend.workspace.score_quadrature()
+    assert math.isnan(backend.workspace.stage_source._alarm)
 
 
 # ------------------------------------------------------------- vector polarisation

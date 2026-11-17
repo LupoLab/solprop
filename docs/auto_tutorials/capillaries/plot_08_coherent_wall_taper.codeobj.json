@@ -124,6 +124,71 @@
    "name": "FixedSchedule"
   }
  ],
+ "GrazingIncidenceWarning": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.exceptions",
+   "module_short": "solprop.exceptions",
+   "name": "GrazingIncidenceWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "GrazingIncidenceWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.exceptions",
+   "module_short": "solprop.exceptions",
+   "name": "SolpropWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SolpropWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "UserWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "Warning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "Exception"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "BaseException"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.exceptions",
+   "module_short": "solprop.exceptions",
+   "name": "GrazingIncidenceWarning"
+  }
+ ],
  "PiecewiseLinear.from_stages": [
   {
    "is_class": true,
@@ -154,11 +219,90 @@
    "name": "Displayed.from_stages"
   },
   {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.profiles",
+   "module_short": "solprop.profiles",
+   "name": "ZProfile.from_stages"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ZProfile.from_stages"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "typing",
+   "module_short": "typing",
+   "name": "Protocol.from_stages"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "typing",
+   "module_short": "typing",
+   "name": "Generic.from_stages"
+  },
+  {
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.profiles.PiecewiseLinear",
    "module_short": "solprop.profiles.PiecewiseLinear",
    "name": "from_stages"
+  }
+ ],
+ "SolpropWarning": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.exceptions",
+   "module_short": "solprop.exceptions",
+   "name": "SolpropWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SolpropWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "UserWarning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "Warning"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "Exception"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "BaseException"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.exceptions",
+   "module_short": "solprop.exceptions",
+   "name": "SolpropWarning"
   }
  ],
  "_": [
@@ -591,8 +735,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output.schema",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.planes"
   },
   {
@@ -852,8 +996,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output.schema",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.planes"
   },
   {
@@ -1072,7 +1216,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.store",
    "module_short": "solprop.output",
    "name": "PlaneStore.metadata"
   },
@@ -1137,8 +1281,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output.schema",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.planes"
   },
   {
@@ -1191,6 +1335,22 @@
    "module": "warnings",
    "module_short": "warnings",
    "name": "catch_warnings"
+  }
+ ],
+ "warnings.filterwarnings": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "warnings",
+   "module_short": "warnings",
+   "name": "filterwarnings"
   }
  ],
  "warnings.simplefilter": [

@@ -10,7 +10,8 @@ from functools import partial
 import numpy as np
 import pytest
 
-from backends.test_radial_nonlinear import derivative, make_problem
+from backends.spatial_cases import make_problem
+from backends.test_radial_nonlinear import derivative
 from bounds import gamma
 from cartesian_oracles import longitudinal_square
 from sessions.runs import final_field

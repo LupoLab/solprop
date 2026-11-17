@@ -43,7 +43,7 @@ from modal_provider_cases import (
     GRIN_RADIUS,
     make_provider,
 )
-from sessions.runs import final_field
+from sessions.runs import bare, final_field
 from solprop.backends import select
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import EPS0
@@ -51,13 +51,13 @@ from solprop.grid import FieldGrid
 from solprop.modes import GradedIndexProvider, PowerLawPermittivity
 from solprop.modes.guide import ModalGuide
 from solprop.modes.material import IndexMaterial, MaterialKerr
+from solprop.modes.tables import sample_modal_table
 from solprop.nonlinear.normalisation import modal_kerr_coefficient
 from solprop.pulses import GaussianPulse
 from solprop.stats import energy
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.general import general_modal_route
-from solprop.translate.modal_tables import sample_modal_table
-from solprop.translate.problem import assemble
 
 FWM_LENGTH = 1e-4
 """Length of every few-mode run, m: a tenth of a millimetre in ten fixed steps.
@@ -621,9 +621,7 @@ def grin_exit_energies(elements, trange, steps):
     )
     owner = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        owner.set_initial(problem.initial.field0, None)
-        owner.propagate_to(GRIN_LENGTH)
-        final = owner.observe().require_field()
+        final = final_field(owner, problem, bare(run_request), ended=True)
     finally:
         owner.close()
     return energy(grid, final)[:, 0]

@@ -18,7 +18,7 @@ from solprop.modes import PlanarGrid, SlabMode
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController
-from solprop.translate.problem import _route
+from solprop.translate.assembly import _route
 from solprop.translate.routes import (
     SPATIAL_KINDS,
     GeneralRoute,
@@ -79,7 +79,7 @@ def spatial(kind):
         )
     pulse = SpatialPulse(temporal, 40e-6)
     if kind == "radial":
-        return Simulation.from_radial(
+        return Simulation.from_free(
             grid,
             RadialGrid(300e-6, 16),
             SpatialMedium(1.0),
@@ -96,10 +96,11 @@ def spatial(kind):
 
 def general():
     """A general modal guide: the general route."""
-    grid = general_grid()
+    # Translated, not run: the grid is the tenth it would run (SEP 51).
+    grid = general_grid(GENERAL_Z_END / 10)
     return Simulation.from_waveguide(
         (),
-        GENERAL_Z_END,
+        GENERAL_Z_END / 10,
         provider=general_guide(grid=grid),
         grid=grid,
         noise=None,
@@ -198,7 +199,7 @@ class _Unknown:
 def test_validation_and_each_backend_refuse_an_unknown_route_by_name(modal_problem):
     spoiled = dataclasses.replace(modal_problem)
     object.__setattr__(spoiled, "route", _Unknown(modal_problem.transform))
-    run_request = gnlse()._run_request()
+    run_request = gnlse().run_request()
     with pytest.raises(BackendError, match="numpy_ref does not execute the"):
         NumpyRefBackend(spoiled, run_request)
     native = pytest.importorskip("solprop_native")

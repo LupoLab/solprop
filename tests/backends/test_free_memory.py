@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from backends import test_free_ladders
+from backends.free_rows import recorded_family
 from sessions.runs import launched
 from solprop.backends.session import ExecutionOptions
 from solprop.stats import StatsSpec
@@ -101,7 +102,7 @@ def test_cartesian_column_buffers_stay_within_the_shared_budget(
         record_metric(
             request,
             "Cartesian retained column buffers (bytes)",
-            f"{test_free_ladders.recorded_family(family)}, {scheme}",
+            f"{recorded_family(family)}, {scheme}",
             measured,
             budget,
             spatial_backend_class.name,

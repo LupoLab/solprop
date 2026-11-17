@@ -27,6 +27,7 @@ from typing import cast
 import h5py
 import numpy as np
 
+from solprop.adiabatic import admission_from_record, admission_record
 from solprop.coupling import (
     FieldPlane,
     NodalField,
@@ -40,9 +41,8 @@ from solprop.coupling import (
 )
 from solprop.coupling.plane import AnalyticRecord
 from solprop.exceptions import OutputError, ProcessingError
-from solprop.output.schema import GridRecord
+from solprop.output.records import GridRecord
 from solprop.processing.axes import _space_from_record, grid_from_record
-from solprop.translate.flux import _admission, admission_record
 
 __all__ = ["PLANE_FILE_SCHEMA", "load_field_plane", "save_field_plane"]
 
@@ -169,7 +169,7 @@ def _plane(record: Mapping[str, object]) -> FieldPlane:
         cast("str", record["units"]),
         PlaneBasis(
             cast("str", basis["kind"]),  # pyright: ignore[reportArgumentType] - checked
-            cast("str", basis["identity"]),
+            cast("str | None", basis["identity"]),
             tuple(cast("Sequence[str]", basis["labels"])),
             None if space is None else _space_from_record(space),
         ),
@@ -192,7 +192,9 @@ def _plane(record: Mapping[str, object]) -> FieldPlane:
         ),
         record["exterior"],  # pyright: ignore[reportArgumentType] - checked
         None,
-        None if certificate is None else _admission(cast("Mapping", certificate)),
+        None
+        if certificate is None
+        else admission_from_record(cast("Mapping", certificate)),
         None if nodal is None else NodalField(**cast("Mapping", nodal)),
         PlaneProvenance(
             cast("str", provenance["source"]),

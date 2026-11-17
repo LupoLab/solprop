@@ -29,6 +29,7 @@ EXPECTED: tuple[str, ...] = (
     r"the Slurm \(and its Queue\) executor is POSIX only and refuses Windows",
     r"the Queue and Slurm executors are POSIX only",
     r"POSIX process signal delivery",
+    r"POSIX signals and groups",
     r"POSIX SIGKILL",
     r"POSIX shared locks",
     r"Windows has no SIGKILL",
@@ -36,11 +37,12 @@ EXPECTED: tuple[str, ...] = (
     r"Slurm is faked with POSIX shell scripts",
     r"a machine's setup script runs in a POSIX shell",
     r"a machine's helper hosts its kernel on Linux and macOS, not Windows",
+    r"the CI change filter runs in Linux Bash",
     # A platform's own branch, on the other platforms.
     r"the real Windows query",
     r"NumPy's interp may fuse off x86-64",
     # Other backends and packages a lane doesn't install.
-    r"Pyroraptor at the pinned revision is not installed",
+    r"Pyroraptor is not installed",
     # A lane on native has its wheel; these are the no-native lane's.
     r"solprop-native is installed",
     # Parametrized cases that apply to one backend's route only.

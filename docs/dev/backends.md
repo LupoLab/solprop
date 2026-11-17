@@ -17,8 +17,8 @@ processor is at or above a build's baseline, and otherwise raises `BackendError`
 to do; it stores that name before execution or worker transfer. `auto` has no fallback.
 Native being installed is a packaging policy ([SEP 43](seps/archive/sep-0043-retire-numba-cpu.md) §5),
 so a run does not have to prove that native could execute here, and nothing loads a runtime to
-enforce it. A TDSE response's `auto` resolves before the registry, to `numpy_ref`, and
-never consults native. Explicit names are preserved, so `backend="numpy_ref"` runs where
+enforce it. A TDSE response's `auto` resolves to `native` like every other run (SEP 49, ADR-078).
+Explicit names are preserved, so `backend="numpy_ref"` runs where
 native is absent and `backend="native"` on a processor below the baseline raises the package's refusal.
 `select` also accepts `"auto"`, checks `SOLPROP_REQUIRE_DEVICE` against the actual build before
 anything is allocated, and logs the actual backend at INFO after
@@ -35,15 +35,11 @@ statistic), and that structure is precisely what a fast backend exists to change
 ```python
 class Backend(Protocol):
     name: str
-    max_batch: int  # 1 for backends that step one problem
-    reads_transverse_edge: bool  # whether a requested real-space collar can run on it
 
     @property
     def request(self) -> RunRequest: ...  # the run request it was built for
     def prepare(self, problem, request) -> PreparedExecution: ...  # a run's session
-    def prepare_group(self, members, problems, requests) -> PreparedGroup: ...
     def timing_probe(self, start: Start) -> TimingProbe: ...  # commits nothing
-    def march_export_refusal(self) -> str | None: ...
     def edge_memory(self, space: object) -> int: ...
     def metadata(self) -> dict[str, object]: ...  # what the execution was
     def memory_ledger(self) -> dict[str, int]: ...
@@ -51,37 +47,27 @@ class Backend(Protocol):
     def close(self) -> None: ...  # idempotent
     @property
     def closed(self) -> bool: ...  # a failure can close a backend
-
-
-class HostStepping(Backend, Protocol):  # the reference's seam; `stepping(backend)`
-    def set_initial(
-        self,
-        field: Field,
-        noise: NoiseRealisation | None,
-        *,
-        z: float = 0.0,
-        resume: bool = False,
-    ) -> None: ...
-    def set_progress(self, reporter: ProgressReporter) -> None: ...  # observer only
-    def set_stop(self, flag: StopFlag | None) -> None: ...  # polled between trials
-    def attach_monitor(self, monitor: BoundaryMonitor) -> None: ...
-    def propagate_to(self, z: float) -> StepSummary: ...
-    def observe(
-        self, *, field: bool = True
-    ) -> Observation: ...  # host arrays: field at z, step history
-    @property
-    def in_flight(self) -> tuple[float, float] | None: ...  # a step abandoned there
-    def stats(self, spec: StatsSpec) -> dict[str, NDArray]: ...
-    def restore_call_ledgers(self, logical, atomic=None) -> None: ...
-    def march_snapshot(self) -> MarchSnapshot | None: ...  # the Adams history
-    def march_snapshot_nbytes(self, z: float) -> int | None: ...  # copying nothing
-    def restore_march(self, snapshot: MarchSnapshot) -> str | None: ...
 ```
 
-A run goes through the backend's session (`prepare(...).start(...)`, SEP 47 §5.2). The
-NumPy reference's session drives the host stepping seam, `HostStepping`, which the
-reference's `HostDriver` implements; the native backend implements `Backend` alone, and
-its session marches natively (SEP 47 §6.8).
+That is the whole protocol ([SEP 52](seps/archive/sep-0052-backend-shape.md) §5.1): a run goes through the backend's session
+(`prepare(...).start(...)`, SEP 47 §5.2), which loads the start, schedules the run,
+reports its events and exports its fields, on both backends. Each backend has the same
+five parts behind it: a lowering, a workspace that holds the state and does every
+state-sized operation, the engines a march asks of it, the marches, and the session
+(§1, point 3). The NumPy reference's are `NumpyRefBackend`'s constructor tables,
+`NumpyWorkspace`, the engines of `solprop.backends.engines`, the marches of
+`backends/numpy_ref/marches/` and `HostSession` (`backends/numpy_ref/session.py`): all
+five live in `backends/numpy_ref/`, beside the reference's passes. The native backend's are its lowering into
+`_core.Problem`, `_core.Workspace` over its resident state, `rk::Engine` and
+`march::Engine`, its compiled marches and `session.cpp`, of which `HostSession` is the
+Python counterpart. The reference's session and marches are the Python statement of
+what `session.cpp` and the compiled marches do, and the decision traces hold the two to
+the same decisions, but native imports none of them: they live in `numpy_ref` because
+only the reference runs them. What stays in `solprop.backends` is shared and stateless:
+the controller cores (`adams_core`, `rk_core`), the engine protocols (`engines`) and the
+low-storage method (`backends/low_storage.py`), the interface native's compiled marches
+are traced against, and the exponential coefficients and the preparation refusals. Both read the same run records (`solprop.backends.records`), built
+once per run by shared code; native's cross the seam by field table (§4).
 
 The listing is abbreviated; `solprop/backends/protocol.py` holds the exact signatures and
 docstrings, in the order of [architecture.md §9](architecture.md#9-backends-in-one-page).
@@ -90,71 +76,52 @@ Rules: a backend is constructed from a validated `PropagationProblem`
 ([kernel-contract.md](kernel-contract.md)), the `RunRequest` that carries the run's
 policy ([SEP 47](seps/archive/sep-0047-run-ownership.md) §5.2; it checks the two with
 `validate_run` before it allocates) and host arrays, and returns host arrays; its
-buffers, layout and plans are private; the state is never a parameter of `propagate_to` or
-`observe`; the numbers are the contract — a backend is correct when it reproduces the
+buffers, layout and plans are private; the state is never a parameter of anything a
+session is asked; the numbers are the contract — a backend is correct when it reproduces the
 reference to the stated bound. Selection is by name (`backends.select(name, problem, request)`);
 availability is detected with `importlib.util.find_spec` (importing an accelerator package
-can initialise a device runtime), never cached; a name that is neither backend, a retired
-one's such as `numba_cpu` or `mlx` included, raises `BackendError` naming `native` and
-`numpy_ref` wherever a requested name is resolved, and `native` without its package raises
-`ImportError` saying what to install. A recorded name is not a request, so old output and
-snapshots that record a retired backend still load. `metadata()` says what the execution *was* — the name, the
+can initialise a device runtime), never cached; a name that is neither backend raises
+`BackendError` naming `native` and `numpy_ref` wherever a requested name is resolved, and
+`native` without its package raises `ImportError` saying what to install. `metadata()` says what the execution *was* — the name, the
 resolved propagator mode, and whatever pools, plans and digests the backend has — and the
 driver writes it into the run's `RunMetadata.backend`, outside the resume key.
 
 **The two backends.** There are exactly two (ADR-077), `registry.BACKEND_NAMES`:
 `numpy_ref` and `native`, with no plugin rows and no other backend. `select` constructs
-the reference through `solprop.backends.numpy_ref.construct` and the native backend
-through `solprop_native.NativeBackend`, each called as
-`factory(problem, request, *, grid, modes, profiles, options)`, importing each only when
+the reference as `solprop.backends.numpy_ref.NumpyRefBackend` and the native backend
+as `solprop_native.NativeBackend`, each called as
+`factory(problem, request, *, grid, modes, profiles, tdse_binding, options)`, importing
+each only when
 it is selected. Before a native construction it runs SEP 46's first-use calibration;
 `SOLPROP_REQUIRE_DEVICE` reads the installed native build's `build_info()` (the
 reference is refused a required device by name); and `statistics_refusal` reads the
-far-field statistics `NativeBackend.far_field_statistics` declares. `select_batch` is the
-reference group's lockstep runner; the native group runs one native session per member
-through its own `prepare_group` (**Selection** below). `auto` is `registry.AUTO`,
-`native`, with no fallback.
+far-field statistics `NativeBackend.far_field_statistics` declares. `auto` is
+`registry.AUTO`, `native`, with no fallback.
 
-**Periodic-statistics storage hooks.** The seam carries three storage hooks for the
-periodic statistics — `_reset_step_stats`, `_record_step_stats`, `_drain_step_stats` — so
-that a device backend can keep its rows resident and copy them once per plane; the shared
-march still decides which accepted steps produce rows and passes their history indices.
-The CPU backends inherit the host defaults. The hooks are part of the frozen surface
-([kernel-contract.md §8](kernel-contract.md)).
+**Periodic statistics are the session's.** Each session decides which accepted steps
+produce rows and keeps them between events: the reference's in a host buffer it drains at
+each event, the native session in its bounded resident chunk buffers. The storage hooks
+the step driver once carried for a device backend are gone with it (SEP 52 §5.1).
 
-**Batches.** `BatchBackend` adds independent member observations and metadata through
-`select_batch(owners)`, the reference group's lockstep runner: `numpy_ref` alone
-implements this fixed-schedule interface, and `select_batch` refuses a `native` member by
-name, since a native group runs one native session per member through `start_group`
-(`NativeBackend.prepare_group`, `solprop_native.group.NativeGroupSession`, SEP 47 §6.7)
-and fuses nothing. Singleton constructors keep their single-member shape; the reference's
-batch owns a sequence of independently loaded workspaces, evaluates the stage sums, the
-stage input and the accepted update over the member axis and leaves response and
-FFT work member-owned. A batch or group member agrees
-with the same member run singly under the same schedule within a matched-discrete rounding
-bound, on every backend
-([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)).
-`available_device_memory()` returns free device bytes or `None` on hosts, enabling common
-admission without importing backend-specific array libraries in the driver. On a device
-the per-member launch cost is not amortised, so a batch's gain over independent runs is
-small and a batch ratio for any shape needs its own measurement
-([benchmarks.md](benchmarks.md#indicative-results)).
+**Boundary warnings are barriers on both backends.** The boundary monitor's and the
+transverse edge's warnings arrive as `ServiceRequired` events of kind `WARNING` at the
+committed endpoint they arose at, one barrier each, in order (SEP 52 §5.1): the caller
+emits each with `emit_warning`, so its filters may raise it and fail the run there with
+that endpoint's field checkpointed, and once allowed the next advance does the rest of
+that point's work, once. The reference's monitor and edge put their warnings into a sink
+the session drains (`BoundaryMonitor.sink`); used on its own, a monitor issues them
+through `warnings.warn` as before. Both sessions report their execution facts through
+`execution_record`, which the service loop reads (`driver.run.SessionFacts`).
 
-A general modal guide is a batchable member under a **narrower** admission rule than the
-fibre one: the members of a general-guide group share the guide, the table, the gauge, the
-materials and one explicit fixed schedule, and differ in their launch and their noise seed
-alone. `modal_tables.identity`, the metric's kind and gauge and the compiled responses'
-model and policy enter `driver.batch._signature`, because every other entry there
-describes an execution *layout* and two different guides share all of it; and a group
-assembled outside that grouping is refused by name, at `driver.batch`'s
-`refuse_mixed_guides` and again by each backend's group: the reference's `_validate_members`
-(`backends/host/group.py`) and the native `solprop_native.group.refusal`. A group hands each member its own problem, so a batched general run is what its members
-are alone, to the same rounding bound; a problem is one trajectory and carries no batch
-axis. A member carrying a coupled flow is refused by name by the reference's
-lockstep batch (`NumpyBatchBackend`), whose stage arithmetic over the member axis applies
-no flow action; the native group admits one, each member's own session carrying its flow.
+**No groups.** A backend runs one trajectory per session; there is no group or batch
+interface. A fixed-schedule `Batch` executor and its groups (`GroupSession`,
+`prepare_group`, the reference's lockstep `HostGroup` and `NumpyBatchBackend`, and the
+native group session) were removed by SEP 52: on native a group built a complete backend
+per member and fused nothing. `available_device_memory()` returns free device bytes or
+`None` on hosts, so that a scan's admission needs no backend-specific array library in
+the driver.
 
-**Three things every backend owes, beyond the ten methods.**
+**Three things every backend owes, beyond the protocol's members.**
 
 **1. Reductions to the error bound.** The error norm and every statistic a backend reduces
 are compared by numerical error, not bits
@@ -170,7 +137,10 @@ stages** — the partials of each column, `partials_(3, slots)`, in a team kerne
 host's sum over each row in index order (`collect_trial`) — and the device form is a
 fixed-order tree reduction (a fixed block count, each block reducing its own contiguous
 range, then one serial pass over the block results). Any other order (`parallel_reduce`, a
-threaded tree) is admissible with the bound of its own tree. The native tests
+threaded tree) is admissible with the bound of its own tree, and the resident Adams march
+takes one: its trial norms and its scale's magnitude (`adams_norms` and the
+`adams.magnitude` reduction in `native/src/general/`) are a `parallel_reduce` on every
+build, CPU and device (ADR-049). The native tests
 (`native/tests/test_api_contract.py`, driving `thread_invariance_probe.py`) compare one
 thread against many on a fixed schedule within the step's rounding bound.
 
@@ -181,11 +151,12 @@ the bundle's floats and nothing about the representation reaches the backend
 ([kernel-contract.md §3](kernel-contract.md)). The contract's z-table fallback has no such
 split, so `PropagationProblem.device_ready` is false for it. NumPy evaluates the general
 representation directly. The native CPU build gives the table the split itself (SEP 29 section 6.6): its coefficients
-are uploaded once (`table_upload`, `include/solprop_native/z_table.hpp`), and before each
-native call the adapter (`_ZTables`) has the table evaluated at that call's distinct
-positions into term slots of the state's size (`table_evaluate`, a strict Clenshaw pass
-per position), least recently used first so that a step's end is not evaluated again as
-the next step's anchor. The stage weights select the slots: `ΔΦ` is `e_1 - e_0`, a value
+cross once, in the workspace's `Problem` (its `z_tables`, uploaded where the workspace is
+built; `include/solprop_native/march/z_table.hpp`), and each trial has the table evaluated at
+its distinct positions into term slots of the state's size (`stage::ZSlots` in
+`stage_tables.hpp`, a strict Clenshaw pass per position), least recently used first so
+that a step's end is not evaluated again as the next step's anchor; no position crosses
+the seam. The stage weights select the slots: `ΔΦ` is `e_1 - e_0`, a value
 `e_1`, so every consumer of the terms -- the Runge-Kutta stages, the low-storage flows,
 the resident Adams phase and the noise -- runs unchanged, and an increment is one
 rounded subtraction of two values, as on the host. The phase sums skip a zero weight,
@@ -201,21 +172,18 @@ positions (`translate.stage.anchor`, `scalars` and `scalars_at`, through
 and `rate_weights`) and the Lagrange basis of an Adams formula on its actual nodes
 (`stepper.multistep.integrated_weights` and `lagrange_coefficients`). The shared code
 takes the implementation from the backend that runs the stage, never from a
-process-wide switch or from what is installed (SEP 29 section 6.6, R16): each
-backend sets the class attribute `helpers` (kernel schema 34), a
-`solprop._helpers.Helpers` record of the two operations, and the reference's driver, its
-Adams march, its engines and the native backend's own load and resident engine pass it
-down. `numpy_ref` takes
-`PLAIN`, the uncompiled Python forms, so the oracle never runs the compiled code it
-checks; `native` takes its own
-`NATIVE`, C++ transcriptions (`native/include/solprop_native/chebyshev.hpp` and
-`lagrange_basis.hpp`). Both perform the same operations in the same order under
+process-wide switch or from what is installed (SEP 29 section 6.6, R16): a
+`solprop._helpers.Helpers` record of the two operations. `numpy_ref`'s Adams engine
+and tables pass `PLAIN`, the uncompiled Python forms, so the oracle never runs the
+compiled code it checks; `native` sets the class attribute `helpers` (kernel schema 34)
+to its own `NATIVE`, the C++ transcription of the Chebyshev rows
+(`native/include/solprop_native/march/chebyshev.hpp`), which its adapter still evaluates for
+the stage scalars at a plane. Both perform the same operations in the same order under
 strict arithmetic, so the rows a table keeps for its last positions are shared whichever
-filled them. A record may add a third operation, an exponential Adams trial's
-coefficient tables in one call (`Helpers.tables`, the composition of
-`backends.numpy_ref.multistep.trial_tables` over its own basis): `NATIVE` has it, in C++ beside
-the basis (`trial_tables` in `lagrange_basis.hpp`), so its resident engine forms every
-table of a trial in one call rather than a dozen; `PLAIN` composes them. Translation runs
+filled them. `NATIVE` names no Adams basis: the compiled Adams march forms its basis and
+a trial's coefficient tables in C++ (`basis_rows` and `trial_tables` in
+`lagrange_basis.hpp`), and their bindings are private test entry points in
+`_core._testing`, which `tests/test_helpers.py` holds to the plain forms. Translation runs
 before any backend exists and needs nothing compiled:
 `clenshaw` and `PiecewiseChebyshev.__call__` without a record are NumPy's, and the shared
 functions' defaults are `PLAIN`. A z table's state-sized evaluation
@@ -226,42 +194,58 @@ both backends in one process, with every other implementation made to raise afte
 translation, and a native z-table run of each march with the plain forms
 forbidden.
 
-**3. Two owners, eight marches.** The reference steps through its own driver,
-`HostDriver.propagate_to`, which hands the steps to one of its loops; every native run is
-its native session's (`solprop_native.session`), whose compiled marches advance to an
-event from one policy record and hand back the events (SEP 47):
+**3. One shape, two implementations: the marches.** Every reference run is its session's,
+`HostSession` (`backends/numpy_ref/session.py`), which drives the run's march directly; every
+native run is its native session's (`solprop_native.session`, over `session.cpp`), whose
+compiled marches advance to an event from one policy record and hand back the events
+(SEP 47). Each reference march keeps its position, proposal, replay cursor and accepted
+norms in its own `MarchState` (`backends/numpy_ref/marches/host.py`), asks the session only through
+the narrow `MarchHost`, and hands every state-sized operation to an engine of
+`solprop.backends.engines` over the reference's workspace, `NumpyWorkspace`
+(`backends/numpy_ref/workspace.py`), which holds the state and does every state-sized
+operation (SEP 52 §5.1). The backend builds a fresh march and engines for each run
+(`NumpyRefBackend.method`), so a reused backend repeats a fresh backend's run:
 
 | Loop | Steps | Where its state-sized work runs |
 |---|---|---|
-| `HostDriver._march_to`, in `backends/host/driver.py` | adaptive Runge-Kutta | the backend's `_trial_step` |
-| `HostDriver._replay_to` | Runge-Kutta on a fixed schedule | the backend's `_trial_step` |
-| `HostAdamsMarch.march_to`, in `backends/host/adams.py` | adaptive Adams | an `AdamsEngine`: `HostHistory` |
+| `RungeKuttaMarch.march_to`, in `backends/numpy_ref/marches/runge_kutta.py` | adaptive Runge-Kutta | a `RungeKuttaEngine`: `NumpyRungeKutta` (`backends/numpy_ref/engines.py`) |
+| `RungeKuttaMarch.replay_to` | Runge-Kutta on a fixed schedule | the same engine |
+| `HostAdamsMarch.march_to`, in `backends/numpy_ref/marches/adams.py` | adaptive Adams | an `AdamsEngine`: `HostHistory` |
 | `HostAdamsMarch._replay_to` | Adams on a fixed schedule | the same engine |
-| `HostLowStorageMarch.replay_to`, in `backends/host/low_storage.py` | low-storage, always on a schedule | a `LowStorageEngine`: `HostLowStorage` |
-| the native session's Adams march, `native/src/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine (`_ResidentAdams`), from the record `_NativeAdamsMarch` |
-| the native session's Runge-Kutta march, `native/src/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)) | the staged trial and native norm |
+| `HostLowStorageMarch.replay_to`, in `backends/numpy_ref/marches/low_storage.py` | low-storage, always on a schedule | a `RungeKuttaEngine` with a destructive trial: `NumpyLowStorage` |
+| the native session's Adams march, `native/src/march/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine (`engines::ResidentEngine`, a `march::Engine`), the march's state from the run record (`_NativeAdamsMarch.start_state`) |
+| the native session's Runge-Kutta march, `native/src/march/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)) | the staged trial and native norm |
 | the native session's low-storage replay | low-storage, always on a schedule | one in-place native step a schedule step |
 
 The reference's Runge-Kutta march is the reference for the compiled Runge-Kutta march,
 which holds to it through kernel contract §12 (ADR-069), and for the march's bookkeeping.
 `HostAdamsMarch` is the reference for the compiled Adams march, which holds to it through
-kernel contract §11 (ADR-060). The decision-trace tests drive each compiled march a call
-at a time over a scripted host backend (`tests/backends/native_trace_marches.py`) and
-hold it to the reference's decisions on the same readings. A new compiled loop needs a
+kernel contract §11 (ADR-060). The decision-trace tests drive each reference march over a
+scripted engine and a stub session that applies the session's rules
+(`numpy_ref.session.step_cap`, `numpy_ref.session.natural_stop`), and each compiled march a call at
+a time over the same stub (`tests/backends/native_trace_marches.py`), and hold the two to
+the same decisions on the same readings. A new compiled loop needs a
 contract that specifies it in full and a reference to compare it with.
 
-What the reference's loops share around a step, and the native session transcribes, is:
-`propagate_to` and `observe`, the history (`_record`, or `_record_attempt` and `_skip_step`
-for the attempts a compiled march books together), the committed step's work
-(`_take_step_stats`: **the statistics channel between planes** and the boundary monitor), the
-natural stops, the noise models and **the progress reporter**. A backend supplies
-`_trial_step`, `_apply_mask` and `stats`, overrides `_finish` if it has boundary treatments,
-and hooks `_begin_plane` and `_on_accepted_step` if it has something to score.
+What the reference's marches share around a step is the session's, transcribing
+`session.cpp`'s order: the planes, step planes and natural stops, the bounded yields and
+the snapshot latch's halts, the history (`record`), the committed step's work
+(`_account_step`: the boundary monitor's check, the transverse edge's read and **the
+statistics channel between planes**), the dense hold and observation of a plane a step
+crossed, the snapshot rows, the load with its noise, the events and **the progress
+listener**. A march reaches them through `MarchHost` (`collar_quiet`, `poll_stop`, `cap`,
+`record`, `absorb`, `stepped`, `natural_stop`), which `HostSession` implements. The dense
+observation is the backend's dense output (`numpy_ref/dense.py`: DOPRI5's continuous
+extension, or the Adams interpolant at the weights of the march's record of its last
+step, `AcceptedStep`, with its trial's carrier rotations applied to the samples, as
+native's `dense.cpp` does); the session holds the committed state aside while a plane is
+observed and restores it before the march goes on. The snapshot's rows are the Adams
+history's `AdamsRows`, which the session exports and installs. The session's `record`
+scores the workspace's quadrature alarm at each accepted step and reports it once per
+plane, as native reads `quadrature_peak`.
 
-`set_progress` attaches the observer the loop calls (the driver, not the backend, also
-tells an `InterruptibleReporter` when its loop raised). `HostDriver` calls
-`ProgressReporter.step` from `_record`, which every attempted step of every backend already
-passes through, so a host backend gets the per-step channel for nothing; a backend whose
+The session's attempt listener is the observer the loop calls. `HostSession` calls it from
+`record`, which every attempted step passes through, so a host backend gets the per-step channel for nothing; a backend whose
 loop runs on a **device** -- where a per-step host callback would mean a synchronisation per
 step -- is allowed to call `step` once per plane instead, with the plane's own totals. That
 is the only place a backend may differ in what it reports. What it may never do is let the
@@ -270,14 +254,15 @@ with a reporter is the run without one, to the rounding bound of any repeat of t
 (`tests/backends/test_driver.py`); the reporter's calls are exact no-ops on the state.
 
 **The statistics channel between planes** is the second thing the loop owns and a backend
-does not. After every `period`-th accepted step the march calls the backend's own `stats`
-with the periodic subset promoted to `names`, and appends one row — the position, the index
+does not. After every `period`-th accepted step the session evaluates the workspace's own
+`stats` with the periodic subset promoted to `names`, and appends one row — the position, the index
 of the accepted step in this plane's history, and one small array per statistic — to a
-buffer that `observe` drains into `Observation.step_stats`. Two rules make it sound:
+buffer that each event drains into its chunk's `step_stats`. Two rules make it sound:
 
-- **The call site is the loop body, after `_finish` and after `z` advances**, not
-  `_on_accepted_step`. The two marches are not symmetric there: `_march_to` records an
-  attempt *before* it finishes the state and advances `z`, `_replay_to` after both, so a
+- **The call site is the march's `MarchHost.stepped`, after the engine's accept and
+  after `z` advances**, not at the attempt's record. The two marches are not symmetric there:
+  an adaptive march records an attempt *before* it accepts and advances `z`, a replay
+  after both, so a
   hook would read the previous accepted step on an adaptive run and the current one on a
   replayed one — and a replayed schedule is exactly what a cost measurement uses, so the
   wrong version measures clean and records a curve shifted by one step.
@@ -291,10 +276,8 @@ repeat its last bit). Luna carries a
 **without releasing what it holds**, so the capacity a plane needed is the capacity the next
 plane starts with — a measured estimate of a plane's step count rather than a predicted one,
 and after the first plane a run allocates nothing per step. **On a device** the rows are the
-same host buffer: the reductions run on the device, in the fixed-order tree of rule 1 above, and
-each row returns one packed scalar transfer. The hooks (`_reset_step_stats`,
-`_record_step_stats`, `_drain_step_stats`) would let a backend keep rows on the device and copy
-them once per plane, but none does. A backend that
+same host buffer: the reductions run on the device, to the bound of rule 1 above, and
+each row returns one packed scalar transfer. A backend that
 cannot evaluate one of the subset's statistics between planes refuses the spec by name, as it
 refuses a plane statistic it cannot form.
 
@@ -304,19 +287,23 @@ the run adopted. `native` does this for the plasma pair: §3.1a has the measurem
 predicate.
 
 **The boundary monitor's reading** is the third thing the loop calls at the same point, and
-the backend reduces it (SEP 21, ADR-057). At a check the driver asks
-`_boundary_energies(state)` for five numbers, the state's energy and its four weighted
+the backend reduces it (SEP 21, ADR-057). At a check the session asks the workspace
+(`HostSession._energies`) for five numbers, the state's energy and its four weighted
 energies (`solprop.monitor.BoundaryEnergies`), and the backend forms them where its state
 lives: `native` in its memory space through its statistics buffers (CPU and device builds
 alike). Only the five cross to the host; `numpy_ref`'s host reduction
-(`BoundaryMonitor.energies`) is the reference. `_bind_monitor` hands a backend the run's
-monitor when it is attached, and `None` when a state is loaded. Under the `split_step`
-scheme the backend's `_finish` — and the native engine's own finish, on every march —
-adds what each accepted step's split takes of the power it finds, `P (1 − e^{−αh})`, to an
-accumulator the next reading drains, so the removal is exact on unchecked steps too, and
-keeps the energy and the guards' and collar's energies of that power halfway through the
-factor, `P e^{−αh/2}`, which the reading returns beside the five (`BoundaryEnergies.found`,
-kernel schema 43) and the monitor judges the occupancies on. The split collar's crossing limit
+(`NumpyWorkspace.reading`, over `BoundaryMonitor.energies`) is the reference.
+`_bind_monitor` binds the run's monitor to the workspace when it is attached, and `None`
+when a state is loaded, either emptying the split accumulator. Under the `split_step`
+scheme each accepted step's finish (`NumpyWorkspace.finish`, and the native engine's own
+finish, on every march) takes, from the masked field **before** the split, what the split
+takes of the power it finds, `P (1 − e^{−αh})`, and the energy and the guards' and
+collar's energies of that power halfway through the factor, `P e^{−αh/2}`, and returns
+them in the step's `AcceptRecord` (SEP 52 §5.2). The session adds the removal to an
+accumulator the next reading drains (`HostSession.absorb`), so the removal is exact on unchecked
+steps too, and keeps the latest step's energies, which the reading returns beside the
+five (`BoundaryEnergies.found`, kernel schema 43) and the monitor judges the occupancies
+on. The split collar's crossing limit
 reads the state's energy per walk-off bucket at each check, in the same reduction style: one
 histogram per thread and no atomics, which is why its bucket count has a compiled limit. The
 input-noise floor is read on the host, once, at the launch.
@@ -335,7 +322,7 @@ rows in threads, as `stored_spectrum` does. A destination is validated by one ru
 `destination_refusal`, which names what is wrong: the shape, the dtype, the layout (one whose
 elements overlap one another is not contiguous) or a read-only array.
 
-The service loop (`driver/service.py`, `_Exports`) asks for one export per pending ticket
+The session loop (`driver/session_loop.py`, `_Exports`) asks for one export per pending ticket
 and shares it among the plane's consumers. A plane store that `takes_exports` gives the
 export its own room with `field_destination`: `MemoryOutput` the block row the plane will
 occupy, allocated with the reserved planes, so a kept field is written once, where it is
@@ -345,7 +332,7 @@ its own (its noise phase rides beside the field in a `StoredField`; a session's
 `noise_phase(ticket)` forms it at the pending plane, from the problem's scalar tables on the
 host, or, when `Phi` took the z table, from the table's slot at the plane, which
 `NativeSession` reads through the native session under its lock, as the backend reads it
-from its state, and a group's member from its own session). A plane observer reads
+from its state). A plane observer reads
 the stored field with no fetch, and a terminal checkpoint at the same plane takes the
 internal convention from it by the exact inverse (`spectrum_to_internal`, the store's own
 reader), with no second export or amplitude conversion. An output that is not a plane
@@ -354,11 +341,9 @@ store, or a store subclass that overrides `save`, is handed the consumer field
 exports nothing. The room is never recycled: no other plane is given it and nothing writes
 to it once the plane is stored, and an array a consumer retains is never written again.
 
-A device session fills the same host destination: the recipe runs where the state is, into
-the device's scratch, and one copy crosses into `out`; whether the conversion runs before or
-after the crossing is the device's to measure. The CPU-only session prototype refuses device
-builds, so this is phase 4's; the interface needs no change for it, and no device array
-crosses it.
+A device session (SEP 47 phase 4) fills the same host destination: the field crosses into
+`out` once and the recipe converts it there. The interface is the CPU build's, and no device
+array crosses it.
 
 ## 2. `numpy_ref`: the oracle
 
@@ -367,26 +352,33 @@ threading beyond what `scipy.fft` does with `workers=1`. It exists to be read an
 every step of the anatomy in [architecture.md §8](architecture.md) is a named function with a
 docstring stating the formula. It is slow (tens of separate array operations per stage) and
 that is acceptable; it is the reference against which every other backend is validated, and
-the supported executor of the one feature `native` does not run yet: the TDSE
-response
-([the list](../guide/performance/backends.md#features-that-run-on-the-reference-backend)).
+the supported executor of any feature `native` does not run yet, of which there is none
+since the TDSE response joined the native CPU build (SEP 49, ADR-078;
+[the list](../guide/performance/backends.md#features-that-run-on-the-reference-backend)).
 A new feature joins the list only as an accepted exception (§10).
 
-**The fused-pass route.** `backends/numpy_ref/passes.py` holds one pure
+**The fused-pass route.** `backends/numpy_ref/passes/` holds one pure
 function per numbered line of [architecture.md §8](architecture.md) — `stage_input`,
 `to_time`, `synthesise`, `nonlinear_sources`, `project`, `to_frequency`,
-`stage_output`, `accumulate` — with the response stages `kerr_polarisation`,
-`raman_polarisation`, `ionisation_rate` and `plasma_scan` beneath the fourth,
-`raman_spectrum` beside them. Field plasma returns ungated current separately;
-`held_plasma_spectrum` assembles its two products with the analytic collar derivative
-([SEP 27](seps/archive/sep-0027-held-plasma-current.md)), while the physical-polarisation
-helpers retain their independent oracle role.
-The backend also owns the once-per-step `error_norm`, `accept_step`, `apply_hard_mask` and `apply_temporal_rate`;
-`backends/numpy_ref/backend.py` holds the step loop and the seam. It propagates a
-**single-member** problem on either grid — mode-averaged or multimode on the fixed
+`stage_output`, `accumulate` — in four modules: `transforms.py` (the transforms and the
+two GEMMs), `responses.py` (the response pass and its Kerr, dispersive Kerr and Raman
+stages, with `raman_spectrum` beside them), `plasma.py` (`ionisation_rate`,
+`plasma_scan` and the plasma currents, cycle-averaged on an envelope grid) and
+`stepping.py` (the step around the stage). Field plasma returns ungated current
+separately; `held_plasma_spectrum` assembles its two products with the analytic collar
+derivative ([SEP 27](seps/archive/sep-0027-held-plasma-current.md)), while the
+physical-polarisation helpers retain their independent oracle role. The transform and
+response passes serve every march, the interaction-picture trial and the Adams,
+exponential and low-storage engines alike. The backend also owns the once-per-step
+`error_norm`, `accept_step`, `apply_hard_mask` and `apply_temporal_rate`; the workspace
+(`workspace.py`) runs the passes on each route through its stage source (`source.py`)
+and forms the backend-owned statistics (`statistics.py`), and the engines are
+`engines.py`'s and `multistep.py`'s. It propagates a
+problem on either grid — mode-averaged or multimode on the fixed
 transverse quadrature, scalar or vector-isotropic, or a spatial geometry (radial,
 Cartesian, planar) — with the Kerr term, the delayed Raman term and the plasma,
-using IP-DOPRI5 with the cumulative operator, the lagged PI controller in both its weak
+using every march — IP-DOPRI5, the low-storage RK4 and both Adams formulations — with
+the cumulative operator, the lagged PI controller in both its weak
 and weighted norms, landing on save planes and hard kinks, the modified shot-noise field
 added in ω, the hard band mask and both of ADR-025's temporal-absorber schemes. Every stage
 is evaluated: the tableau's first-same-as-last property would save one evaluation in seven,
@@ -429,7 +421,7 @@ through this backend. Each section's method is one of two:
 - **`"constant_schur"`.** The leaf's frozen generator is decomposed once per section,
   in the backend's constructor, by the factors both backends read
   (`translate/coupled.py`, `coupled_flow_factors`), and the backend applies a Schur matrix-function action over the
-  channel axis inside `_trial_step`, taking the inverse the interaction picture needs as
+  channel axis inside the Runge-Kutta trial (`NumpyRungeKutta.trial`), taking the inverse the interaction picture needs as
   the matrix function of the negated exponent rather than as a solve and measuring
   `norm(U) norm(U^-1)` of the whole step against the leaf's declared bound. The Schur
   factors never cross the seam. The vector wall block is the same section with a
@@ -477,8 +469,8 @@ It consumes the contract only through `linop.delta_phi`, `linop.unitary_phase`,
 decay rates, so a change of the operator's representation cannot reach it. It refuses, by
 name and with `BackendError`: a spectral response other than
 the compiled envelope-plasma assembly; scalar-only Raman on a two-component
-problem; general z-dependent response data; a transform and a state that
-would both carry the transverse components; and a batch axis above one.
+problem; general z-dependent response data; and a transform and a state that
+would both carry the transverse components.
 
 Measured on the verification ladder: P0 exact to 4.8e-16 for a constant operator and
 6.4e-16 for a z-varying one and independent of the step count; P1 order 5.10 and 5.82 over
@@ -512,21 +504,22 @@ modes, profiles)` builds one, for the problem and the request it is run with: th
 request's method, error control, itinerary and planes are lowered once, here (the native
 session lowers its statistics as it starts, from profile tables cached per problem), and
 a run's session serves that request adapted to one run (`RunRequest.for_run`); a
-preparation refuses any other request by name (`session_core.foreign_request`). A run
+preparation refuses any other request by name (`session.foreign_request`). A run
 starts through the backend's own preparation shape (SEP 47 §5.2):
 `backend.prepare(problem, request)` returns a `PreparedExecution` whose
 `start(start, *, listener, started, stop, owns)` opens the backend's session, and
 `backends.sessions.start_session` does nothing else, so a backend chooses its session
-without the run layer naming it. The reference's (`backends.host.session.HostPrepared`)
-opens `HostSession`, which composes the parts the Python sessions share
-(`backends.session_core`: the attempt counter, yield check, snapshot latch, shared
-observation and preparation refusals) and imports nothing of the inherited driver; the
+without the run layer naming it. The reference's (`backends.numpy_ref.session.HostPrepared`)
+opens `HostSession`, which composes its own parts (`backends.numpy_ref.session_parts`:
+the lifecycle ledger, attempt counter, yield check, snapshot latch and shared
+observation) with the preparation refusals both backends make
+(`backends.session.check_preparation`), and imports nothing of the native backend's; the
 native backend's (`solprop_native.session.NativePrepared`) opens `NativeSession`, the only
 native executor since SEP 47 phase 5, which refuses by name what it does not run, and
 refuses a `NativeBackend` subclass, whose overrides it would not call. Statistics the problem does not
 carry are refused by name before any session starts, on every executor, rather than left to the
-first plane (`backends.session.statistics_unavailable`, read by every preparation, by
-`check_group` and by the run layer): a modal statistic of a spatial route, a spatial one of a modal
+first plane (`backends.session.statistics_unavailable`, read by every preparation and by the run
+layer): a modal statistic of a spatial route, a spatial one of a modal
 route, the plasma integration diagnostics without the field-grid plasma column and the electron
 density or peak ionisation rate without a compiled plasma response (a `BackendError` at every door).
 `zdw` is read natively from a table of each mode's root along z, lowered once at preparation
@@ -545,23 +538,14 @@ interval. The four on-axis plasma statistics are the plan's too: the axis row th
 synthesise on the axis (`populations.axis_row_matrix`, the taper and the pad scale in it) is formed
 from the modal state on the fine grid and scanned natively in the first node's buffer by the node
 scan's own pass, its tables, preionisation and running-integral rule, or a Radau rule's axis node is
-read when the evaluation scans the nodes anyway; the species reduction is finished natively. A
+read when the evaluation scans the nodes anyway (`populations.axis_node`; never on a transform that
+drops a component the modes have on the axis, whose node scan lacks that row); the species reduction is finished natively. A
 one-component scan of a field grid reads both rows' magnitude, `hypot(E_x, E_y)`; an envelope's scan
 reads the polarisation ellipse, so on a one-component transform whose modes have a y field on the
 axis the two rows go to a row of their own, which the envelope scan reads as a node of two components
-(`populations.envelope_populations` on the host's row). The native row
+(`numpy_ref.passes.plasma.envelope_populations` on the host's row). The native row
 agrees with the host's scan to the node scans' parity tolerance (`1e-10`), and is the same bits where
-both read a Radau rule's axis node. A group starts through the same shape (SEP 47 §6.7):
-`start_group` checks the group (`check_group`) and asks its first member,
-`members[0].prepare_group(members, problems, requests)`, for a `PreparedGroup` whose
-`start(starts, *, stop)` opens the backend's `GroupSession`, so it names no backend
-either. The native backend's (`solprop_native.group.NativePreparedGroup`) opens
-`NativeGroupSession`, which refuses by name what `solprop_native.group.refusal` names
-(an adaptive member, step planes, members that do not share the schedule) before any
-member session starts. The reference's (`backends.host.group_session.HostPreparedGroup`)
-opens its own `HostGroupSession` over the group runner `select_batch` builds. A backend
-that runs no group raises `BackendError` from `prepare_group`. The
-three keyword arguments are what `stats()` needs and the kernel contract does not carry.
+both read a Radau rule's axis node. The three keyword arguments of `select` (`grid`, `modes`, `profiles`) are what the statistics need and the kernel contract does not carry.
 
 **Spatial statistics measure the medium's flux** ([SEP 34](seps/archive/sep-0034-medium-flux.md)).
 The shared spatial statistics, `backends.spatial.collect_spatial`, read the plane's
@@ -575,8 +559,7 @@ as one; its end-of-plane log is retired, and the boundary monitor's transverse e
 (SEP 40) judges the boundary instead. A backend whose own statistics do not apply this measure refuses the problem.
 
 **The transverse edge is read where the state lives** ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md), [SEP 44](seps/archive/sep-0044-native-edge-read.md)).
-A backend whose `HostDriver.reads_transverse_edge` is set hands the monitor's
-`TransverseEdge` an `_EdgeReading` from `HostDriver._edge_reading` at the edge's reads, at saved planes, and with a
+Every backend reads the edge: it hands the monitor's `TransverseEdge` an `_EdgeReading` from `NumpyWorkspace.edge_reading` at the edge's reads, at saved planes, and with a
 requested collar at every committed step. The reading is numbers and never the field: region sums, each
 column's energy and any collar's strip and current. The default forms them with `_HostEdgeReduction` on a host copy,
 the reference, which `numpy_ref` uses. `native` forms them on its own state against
@@ -584,34 +567,33 @@ the edge's `_EdgeTables`, four regions' weights on the nodes, so it holds no fac
 field-free run crosses no state (`tests/backends/test_native_edge_reading.py`). A requested collar's lines are described
 once, as `_edge_lines`, for both reductions (`tests/backends/test_native_edge_collar.py`): native takes each strip's padded
 transform in batches of planes under `_STRIP_BATCH_BYTES`, on buffers listed in the `transverse_edge` ledger row, and the
-current from the onset's three nodes, rectified per row, all on one load of the transverse scratch. Under the driver
-the current is still accumulated in Python (under the native session, below, nothing is). Everything else, the weights, the spacing, the ledgers and the judgement, is one
+current from the onset's three nodes, rectified per row, all on one load of the transverse scratch. Under the reference's
+session the current is accumulated in Python (under the native session, below, nothing is). Everything else, the weights, the spacing, the ledgers and the judgement, is one
 code on every backend. The read spacing is a ceiling on the step, and
 a step is not made to land on a read: the edge is read at the last committed position
 from which the next step, a replay's scheduled one or else the controller's proposal, would
 carry past the next read (`TransverseEdge.due`), so
 reads stay at most a spacing apart without shortening the steps between them (landing on
-each read cost 10-35 % more steps on the suite's line and planar cases). Every solprop
-backend sets it; `numpy_ref` keeps its state on the host and steps from there, under the
-driver's ceiling. The native Adams march
+each read cost 10-35 % more steps on the suite's line and planar cases). `numpy_ref`
+keeps its state on the host and steps from there, under the session's ceiling. The native Adams march
 takes the next read and the spacing as the call's `read_at` and `read_spacing` bounds:
 an adaptive step is capped at the spacing, and the call returns at the committed
 position from which the next step would pass the read, so the host reads the state
 there. With a collar the host step is one, so the march returns at every committed step.
 A saved plane reads the edge unless the step that reached it already did (`TransverseEdge.wants_read`), as a second read at one position records nothing.
-A backend that does not set it reports `unwatched` and refuses a requested collar by name.
 
 **Under the native execution session the judgement is native too** ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.4).
 `NativeSession` hands no reading to a Python edge: `transverse::Edge`
-(`native/include/solprop_native/transverse.hpp`, a strict translation unit) owns the edge's every decision and record
+(`native/include/solprop_native/session/transverse.hpp`, a strict translation unit) owns the edge's every decision and record
 -- the launch's judgements, the spacing and its ceiling, each read's ledgers and verdict, a collar's current and return,
 the resume and the record -- and the session reads the resident state for it (`Resident::edge_reading`, the same
-reduction as `_edge_reading`). The march's `read_at`/`read_spacing` bounds return it to the session, not to Python, where
+reduction as `NumpyWorkspace.edge_reading`). The march's `read_at`/`read_spacing` bounds return it to the session, not to Python, where
 a read falls due, and with a collar at every committed step, so a collar's current costs no return to Python. The edge
 follows the temporal monitor at each point of SEP 47 §5.3: launched after the temporal launch, read after a committed
 step's check and before its statistics row, and at a plane before its row. A point's several warnings (a launch can
 raise five) are each a `ServiceRequired` barrier, the edge holding its place between them (`Edge::proceed`), so a
-warning the caller raises leaves the rest of that point undone, as solprop's inline warning does. The scalar decisions
+warning the caller raises leaves the rest of that point undone, as the reference's session does (a suspended point's
+work resumes after its barrier). The scalar decisions
 are solprop's exactly on the same readings, the worst face's ties broken on its name as `max` breaks a tuple's and the
 reach's tail summed in order over the columns as solprop sorted them; the launch's share in the ramp's band and the
 ramp's removal per interval are the native reading, summed in order with the C library's `expm1` where NumPy sums
@@ -653,7 +635,7 @@ two-stage reductions, and moving the whole inner loop into compiled code: one na
 executes a Runge–Kutta trial (§3.5). On a CPU build's trapezoid column the whole nonlinear
 term at one node — the rate lookup, the plasma's two running sums, the loss-current guard,
 the Kerr cubic and the Raman drive — is **one traversal of `t`**, the plasma's sums carried
-in scalars across the loop (`response_plasma`, `native/src/general.cpp`); the band column
+in scalars across the loop (`response_plasma`, `native/src/general/trial_response.inc`); the band column
 (§3.12) uses complete row passes instead. The solution and the embedded estimate are
 running accumulators (ADR-009), which is also why there is no dense output by default. An
 isolated step timing is not comparable with a whole-run average, which carries the
@@ -661,12 +643,14 @@ once-per-run FFTW planning and the output's planes.
 
 ### 3.1a What exists
 
-The adapter `native/src/solprop_native/backend.py`, its session
-`native/src/solprop_native/session.py` and the engine `native/src/general.cpp`. The public default is `"auto"`: the
+The adapter `native/src/solprop_native/backend.py` (with the lowering
+`_lowering.py`, the march protocol `_march.py` and the build's facts `_device.py`), its
+session `native/src/solprop_native/session.py` and the engine under
+`native/src/general/`. The public default is `"auto"`: the
 native backend, with no fallback (§1, ADR-029).
 `numpy_ref` stays selectable by name.
 
-**Three response families** (`FieldFamily`, `include/solprop_native/core.hpp`), which is
+**Three response families** (`FieldFamily`, `include/solprop_native/problem/problem.hpp`), which is
 all `kerr_coefficients` compiles to, each its own compiled column:
 
 | family | grid | `thg` | the column works on | plasma |
@@ -768,7 +752,7 @@ mask and the in-stage absorber preserve it, and the measured saving are
     `build_info().optimization_policy` records the flag.
   - **Strict blocks.** A protected function or lambda carries
     `SOLPROP_NATIVE_STRICT_FUNCTION` and starts its body with `SOLPROP_NATIVE_STRICT_BLOCK`
-    (`include/solprop_native/fp.hpp`): under Clang a `#pragma clang fp
+    (`include/solprop_native/runtime/fp.hpp`): under Clang a `#pragma clang fp
     contract(off)`, which survives inlining; under GCC, which ignores the pragma,
     `optimize("fp-contract=off")` on the function, so a protected helper is a call there.
     Both settings are lexical, and `Kokkos::complex`'s operators keep their header's
@@ -861,9 +845,8 @@ build (ADR-076, §4).
 |---|---|---|---|
 | compact problem | one column on one node, fewer than 65 536 fine samples | kernels on a team of at most eight threads, transforms on that team, products on one BLAS thread | independent scans: Local, or spawned processes through Pool |
 | sized problem | the rest | each operation's width chosen from its own element count at construction: stage, response, dense product, FFT, Raman, copy, flow, modal and Adams | one process per problem |
-| fixed-schedule batch | compatible independently loaded members | fused accept update over members; remaining work stays member-owned | one batch runner owns the group |
 
-The widths are constants of `include/solprop_native/core.hpp` (`operation_threads`, with
+The widths are constants of `include/solprop_native/runtime/cpu_execution.hpp` (`operation_threads`, with
 their calibration in
 [benchmarks.md](benchmarks.md#kokkos-cpu-operation-size-threading)), and `SOLPROP_NATIVE_*_THREADS`
 overrides a pool ([Performance tuning](../guide/performance/tuning.md)). The stage boundary
@@ -889,7 +872,7 @@ than the choice of backend:
 3. **The best thread count is not the machine's.** It differs by operation and by problem,
    which is why each width is sized separately. For the scan pattern, k independent
    single-thread runs beat one k-thread run by 8.5x (measured on the retired `numba_cpu`
-   backend), so a batch runner should prefer processes to threads; the scan executors do this
+   backend), so a scan should prefer processes to threads; the scan executors do this
    through `Pool` ([scans.md](scans.md)).
 
 The pools, the widths and the wait policy are stored in the output metadata
@@ -900,17 +883,118 @@ The pools, the widths and the wait policy are stored in the output metadata
 `SOLPROP_FFTW_PLAN` and `SOLPROP_FFTW_WISDOM` remain. Pass timings are the native engine's
 Kokkos regions.
 
-### 3.5 The step driver: Python first, compiled when measured
+### 3.4a Machine calibration
 
-**One driver for the reference, one session for native.** `backends/host/driver.py` is the
-reference's Runge-Kutta march and replay, the controller bookkeeping, the history and the
-noise models, which every NumPy reference backend inherits; the native backend inherits no
-driver, and its session marches natively (§1, point 3, lists the marches). Per stage a backend asks the translation layer for one bundle of host
-scalars and combines the terms it holds over them (§1); the driver applies the boundary
-treatments of `_finish` to a step it keeps, so a rejected step does not pay the temporal
+The widths, waits and team of §3.4 are fitted to a machine by `solprop.calibration`
+(SEP 46). What a user sees (the levels, the store, the first run, `--show`, refining one
+simulation) is the [calibration manual](../guide/performance/calibration.md); this is the
+design its modules implement.
+
+**Processes.** The controller (`calibration/controller.py`) never loads the native
+extension or a device runtime (SEP 46 §6.2), since importing `solprop_native` starts its
+OpenMP runtime. The native allocation, cpu, execution, fingerprint, profile, store and
+topology modules import nothing but the standard library and each other, so
+`calibration/_native.py` loads them by path into a private package of its own, as the backend registry loads its
+processor check (`backends/registry.py`), without running `solprop_native/__init__`. The
+controller starts one child (`calibration/child.py`) per candidate process setting, with
+the setting in its environment, plus one child on the built-in rules. A child pins itself
+to the allocation being calibrated before the native runtime starts, builds the
+calibration problems, and then times their windows as the controller asks, under the
+workspace record it is given or its process's own. It never calibrates and never reads a
+profile (`SOLPROP_CALIBRATION=off`). It runs as `python -m solprop.calibration.child CPUS`,
+`CPUS` a comma-separated list of logical CPUs (empty for no pinning), and is driven over
+JSON lines on its standard input and output, one reply line per request, `{"ok": ...}` or
+`{"error": "..."}`:
+
+```text
+{"op": "prepare", "problems": {"gnlse": 1.0, ...}}
+{"op": "time", "problem": "gnlse", "repeats": 40, "record": {...} | null,
+ "planning": {...} | null}
+{"op": "sizing", "record": {...} | null}
+{"op": "capture", "effort": "measure", "limit": 2.0, "budget": 30.0,
+ "record": {...} | null}
+{"op": "regions", "elements": 1000, "repeats": 200}
+{"op": "exit"}
+```
+
+**Rounds, deadline and publication.** The controller times the problems' windows in
+interleaved rounds: in each round every child once, in a fresh order, and the built-in
+child twice for the A/A noise. The selection rule below admits a candidate only if it
+wins every round by more than the noise; the winner is then validated against the
+built-in child on fresh rounds, window by window. Everything runs under one monotonic
+deadline per level (§6.9): a child that overruns is terminated, a stage that cannot
+finish its rounds is skipped and reported, and nothing partial is published. Publication
+writes one complete generation, keeping the other allocation classes' rows, and swaps
+`current` (§6.8).
+
+**The statistical rule** (`calibration/selection.py`, §6.5, the `ab` harness's rule;
+every function there is pure, reading timings and returning a verdict):
+
+- *Pairs.* Each candidate is timed interleaved with the built-in value, in rounds; a round
+  times each once in a fresh order. A candidate's score is the median of its per-round
+  ratios to the built-in.
+- *Noise.* Each session also times the built-in against itself (A/A). The noise is the
+  largest per-round deviation of that ratio from one, and at least `NOISE_FLOOR`.
+- *Admission.* A candidate replaces the built-in value only if its largest per-round ratio
+  is below one minus the noise: it wins in every round by more than the noise. And no
+  problem may be slower beyond the noise and `TOLERANCE`: its median ratio on each problem
+  timed must stay within `1 + noise + TOLERANCE`, so that a large win on some problems
+  cannot carry a real loss on another, while a loss within the bar does not veto a broad
+  win. Ties keep the built-in. A failed round is dropped; fewer than the level's minimum
+  rounds keeps the built-in.
+- *Combined validation.* The admitted settings are timed together against the table on
+  fresh rounds; the combination is published only if no window is slower than that same
+  bar and the geometric mean is below one. Otherwise groups are dropped in `DROP_ORDER`
+  and the remainder validated again.
+
+**Operation-grain candidates** (`calibration/grain.py`, pure functions). Each CPU
+operation class threads by its work: serially below its threshold, on the medium width
+below its full size, on its pool's capacity from there (`_execution.ExecutionRecord`). A
+workspace's `execution_sizing` records every operation it runs, with its class, work and
+width. A threshold or full size matters only where it falls between two work sizes the
+problems actually run, so the candidates of a class are its one-step moves past the
+nearest of them: thread one more size, serialise one more, widen one more to the full
+pool, narrow one more to the medium width. At most four a class (§6.5); a candidate that
+changes no operation's width is left out. The medium width and the compact team take a
+short ladder of their own. Each candidate is then timed on the problems it changes, and
+the rule above decides.
+
+**The problems** (`calibration/problems.py`, §6.3). The five problems the manual lists
+together exercise every CPU operation class: stage passes, responses with short and long
+columns, modal and dense products, Raman histories, plasma columns, radial and temporal
+transforms. Each is adapted from the benchmark tracking set's case of the same physics
+(`benchmarks/builders.py`), with no noise so that every candidate does the same work, and
+with a *scale* that sizes its grid: the time window for the one-dimensional problems and
+the transverse count for the spatial ones. A calibration times their trial steps
+(`Backend.timing_probe`), never a propagation. The four production-size problems
+(`*_large`) are as large as the tracking set's cases of their kind: on these alone a
+narrower team or a higher threshold that wins on the small problems shows what it costs a
+production run. On 16 cores of a Google Axion, a team of 8 won the small problems by 16 %
+and ran the tracking set's large cases up to 1.8 times slower (SEP 46 Part II).
+
+**Refinement** (`calibration/refine.py`, §6.6). `refine` builds fresh workspaces from the
+simulation's translated problem in the calling process, under the process's record and
+under each candidate's, and never touches the simulation's state, output or callbacks.
+The candidates are the operation-grain moves of the simulation's own work sizes, each
+timed by trial steps of the simulation's own operators at positions spread along its
+length, interleaved with the base record and admitted by the rule above; the winners are
+validated together. Speed alone never admits a candidate: every candidate's trial steps
+must end finite and within ten times the run's relative tolerance of the base's (SEP 46
+§12 item 4). The result is stored under the simulation's execution descriptor
+(`_profile.descriptor`).
+
+### 3.5 The session's march: Python first, compiled when measured
+
+**One session per backend, the same shape.** `backends/numpy_ref/session.py` is the
+reference's schedule -- the planes, halts, history, statistics rows, dense observation and
+boundary checks -- over its marches (`backends/numpy_ref/marches/runge_kutta.py`,
+`adams.py`, `low_storage.py`), which own their state; the native backend's session marches natively
+(§1, point 3, lists the marches). Per stage a backend asks the translation layer for one bundle of host
+scalars and combines the terms it holds over them (§1); an engine applies the boundary
+treatments of the workspace's `finish` only to a step it accepts, so a rejected step does not pay the temporal
 absorber's transform pair for a state that is thrown away.
 
-Under Runge–Kutta the driver's loop is the reference, and on `native` one call executes all
+Under Runge–Kutta the reference's march is the reference, and on `native` one call executes all
 seven stages of a trial (§4), its rows formed natively from the uploaded stage tables and its
 norm reduced natively ([SEP 45](seps/archive/sep-0045-native-rk-march.md) phase 2). An earlier
 measurement on the retired `numba_cpu` backend found the loop's Python cheap (about 50 calls a
@@ -934,7 +1018,7 @@ wash with the Raman convolution.
 The native backend's host kernels form these exponentials, the exponential Adams
 method's flows, phi-function exponentials and compensation factors, and the plasma's
 rates and fractions in passes over blocks of elements through one vector-maths layer
-(`native/include/solprop_native/vmath.hpp`): SLEEF's 1.0 ulp vector functions on x86-64
+(`native/include/solprop_native/runtime/vmath.hpp`): SLEEF's 1.0 ulp vector functions on x86-64
 builds, the system libm, with each element's own calls, on Arm and on devices
 ([ADR-059](decisions.md)).
 
@@ -942,7 +1026,7 @@ builds, the system libm, with each element's own calls, on Arm and on devices
 the stage that formed them — the forward in pass 1 and the inverse in pass 7 — so
 recomputing evaluates `ΔΦ` exactly as often as tabulating does and the table buys residency
 and nothing else (a step within 2 %, measured on the retired `numba_cpu` backend). The flag's
-default is therefore `"auto"` and the choice is the backend's (`HostDriver.propagator_default`):
+default is therefore `"auto"` and the choice is the backend's:
 `numpy_ref` resolves it to `tabulate`, because it forms two complex exponentials per stage and
 the table saves five of them, and implements both paths; `native` resolves it to `recompute`,
 because both signs come from one `exp` and a `sincos` in the stage that consumes them
@@ -978,7 +1062,7 @@ admits (`solprop.translate.admission.check_general_route`), which it runs where 
 built, so a refusal there is a refusal on both backends, raised once. It adds one limit of its own: a delayed response must be the
 six channels of the silica tensor Raman model on three components (§4,
 `_refuse_native_route`). `linear.coupled_flow` is §3.9. The route is a **second execution
-path** (`src/general_modal.cpp`, `GeneralModalSource`) beside the fused pipeline and not an
+path** (`src/response/general_modal.cpp`, `GeneralModalSource`) beside the fused pipeline and not an
 extension of it, for the reason §3.1a's three families make plain: those are one real
 transverse matrix in the time domain, and this route's synthesis is a complex
 frequency-dependent map of three Cartesian components.
@@ -1014,13 +1098,11 @@ frequency-dependent map of three Cartesian components.
   combination adds `2 u n_deg (3 kappa_S + kappa_Q)` to the source bound. A constant guide never
   combines and is the constant route exactly.
 - **Parity is a rounding statement** against `numpy_ref`, with the bound stated first
-  (`tests/general_parity.py`, `native/tests/test_general_modal.py`,
-  `tests/driver/test_native_moving_guide.py`). Not bitwise: FFTW is not pocketfft, and numpy's
+  (`tests/general_parity.py`, `native/tests/test_general_modal.py`, and the case catalogue's
+  `moving guide ...` rows in `tests/backends/flow_rows.py`). Not bitwise: FFTW is not pocketfft, and numpy's
   complex product is an FMA on some hosts (§3.1a).
 - **Statistics** are solprop's `collect` on the observed channel field with the basis metric, as
-  on the reference, so on one state the two agree to the statistic's rounding bound. The
-  **native group session** takes general members unchanged, each one its lone native
-  session's run.
+  on the reference, so on one state the two agree to the statistic's rounding bound.
 - **Ledger**: the `general_*` rows, named and zero on every other route; the maps and the
   record's resident E/H reference are counted as the reference counts them. Moving maps add the
   coefficients (`general_synthesis`, `general_projection`), the two maps a stage evaluates
@@ -1078,15 +1160,16 @@ name.
   and on either route (SEP 16 phase 6, SEP 47 phase 4): a bin on the eigenbasis route takes its
   flow and moments `k! phi_(k+1)` as `W f(Delta Phi + h lambda) Y`, and a bin off it reads them,
   as the reference does, off the first block row of the exponential of the augmented matrix of
-  `X = Delta Phi I + h T` (`include/solprop_native/flow_functions.hpp`): the reference's
+  `X = Delta Phi I + h T` (`include/solprop_native/response/flow_functions.hpp`): the reference's
   scaling, sixteen-term series and squaring, where the reference takes SciPy's Padé `expm`, a
   rounding-level difference (SEP 25), with the shift's exponential kept apart in the carry of a
   history sample. Every block row past the first is a scaled shift, so the passes form the first
   row and one scalar per diagonal of the rest, upper triangular, which is the full augmented
   algorithm's arithmetic to the sign of a zero, in one scratch row per active bin (a trial reads
   one section). A trial whose moments' exponent, or a history sample's carry, would need more
-  than 30 squarings, or whose exponent there is not finite, is refused by name before it moves
-  the state. Past 16 channels the per-bin host
+  than 30 squarings (`solprop.backends.exponential.FLOW_MAX_SQUARINGS`, compiled in and held
+  to solprop's by a test), or whose exponent there is not finite, is refused by name before it
+  moves the state. Past 16 channels the per-bin host
   passes hold a bin's channel vectors in a row of their own (`adams_channels_`) rather than on
   the stack; a device build's passes take a thread per (bin, channel), hold no channel
   vectors and step any width too. A device build takes a bin off the eigenbasis route by the
@@ -1097,10 +1180,9 @@ name.
   which also holds each trial's assembled flow and moments to `multistep.coupled_moments` at
   1e-12 (`adams_block_to_host`, a test observation).
 - **Parity** is a rounding statement with the bound stated first: `tests/flow_parity.py` for the
-  actions and the steps, and `parity_bound` in `tests/driver/test_native_coupled_flow.py` for ten
-  fixed steps on each case.
-- **FSAL** stays off beside a flow, as on the reference ([stepper.md §2](stepper.md));
-  the native group refuses a member carrying the leaf by name, as the reference's does.
+  actions and the steps, and `parity_bound` in `tests/coupled_flow_cases.py` for ten fixed steps
+  on each case (the case catalogue's rows, `tests/backends/flow_rows.py`).
+- **FSAL** stays off beside a flow, as on the reference ([stepper.md §2](stepper.md)).
 - **Ledger**: the `flow_*` rows, named and zero on every other route (§4).
 
 ### 3.10 The hybrid planar kind
@@ -1116,7 +1198,7 @@ modified noise draw, and every statistic.
   unnormalised in-place transform over the y axis. The rows go to time a **block of whole y rows**
   at a time, as many as the node chunk holds (the reference's block), so `n_p n_y` rows are
   transformed each way, never `n_x n_y` nodes. The x synthesis and projection are team kernels
-  (`slab_contract`, `include/solprop_native/slab.hpp`) with each sum in increasing order and the
+  (`slab_contract`, `include/solprop_native/transforms/slab.hpp`) with each sum in increasing order and the
   vector loop over contiguous samples, and SEP 6's dispersive response shares them.
 - **The operator** is evaluated per element and never tabulated under Runge–Kutta (the contract
   refuses `propagator_mode = "tabulate"` for the kind outside the low-storage march). It subtracts
@@ -1128,7 +1210,8 @@ modified noise draw, and every statistic.
   natively from the flux measure (§3.13). The plasma statistics take the stage's route and read
   the stash between planes. No quadrature alarm is scored, as on the reference.
 - **Parity** is a rounding statement with the bounds of `tests/backends/test_planar_native.py` and
-  `tests/backends/planar_cases.py` stated first. What the ladder adds to the Cartesian one is the
+  `tests/backends/planar_cases.py` stated first, held by the case catalogue's planar rows
+  (`tests/backends/planar_rows.py`). What the ladder adds to the Cartesian one is the
   operator: each library's complex square root is within one ulp of the principal root, so
   `Re k_z` differs by at most `2 eps k_max` and the phase of a run of length `L` by
   `2 eps k_max L`. Repeats, and one against four threads, agree within the same bounds. §4 has the
@@ -1143,11 +1226,11 @@ modified noise draw, and every statistic.
 (mode-averaged, multimode and radial), Cartesian free space and the line, the hybrid
 planar route and the general modal route -- on field and envelope grids, with both
 evaluators, both sectors, one, two or three components, mixtures, beside Raman, plasma
-and envelope plasma (`src/dispersive.cpp`). The operator is the reference's
+and envelope plasma (`src/response/dispersive.cpp`). The operator is the reference's
 `G[w (G E)^3]`: the temporal collar on the products, before `Π₊` and the output multipliers.
 Everywhere the multipliers move off the nodes, to wherever the route already holds a spectrum:
 
-- **The fused node path** (`DispersiveResponse`). The legacy transform synthesises and projects
+- **The fused node path** (`DispersiveResponse`). The channel transform synthesises and projects
   with real matrices that do not depend on frequency, and the collar is the same at every node,
   so a spectral multiplier and the collar commute with both: `P G[w (G E)^3] = G[w P (G E)^3]`.
   The input multipliers act on the padded modal spectrum the stage combination already formed (no
@@ -1210,12 +1293,15 @@ Everywhere the multipliers move off the nodes, to wherever the route already hol
   general modal route's chunk counts two buffers per node and component for each filtered field and
   each product of its workspace (`backends/node_chunk.py`, `general_dispersive_buffers`,
   `general_node_chunk`).
-- **Parity** (`tests/backends/test_native_dispersive_kerr.py`,
-  `tests/backends/test_native_dispersive_routes.py`): one evaluation, one step and ten replayed
-  steps against `numpy_ref`, under bounds derived in `tests/backends/dispersive_cases.py` from the
-  transforms and node reductions both backends perform. Beside the plasma column the bound adds
-  what the column already disagrees by. Repeats, and one against four threads, agree within the
-  same bounds.
+- **Parity** (the dispersive rows of the case catalogue, `tests/capability_routes.py` and
+  `tests/backends/dispersive_rows.py`): one evaluation, one step and ten replayed steps against
+  `numpy_ref`, under bounds derived in `tests/backends/dispersive_cases.py` and
+  `dispersive_route_cases.py` from the transforms and node reductions both backends perform.
+  Beside the plasma column the bound adds what the column already disagrees by. Each row's
+  response, its coefficients zeroed, moves every guarded rung by more than a thousand bounds
+  (or a lower guard, at least a hundred, that the row justifies).
+  Repeats, and one against four threads, agree within the same bounds
+  (`tests/backends/test_native_dispersive_kerr.py`).
 - **Ledger**: the `dispersive_*` rows, named at zero on every problem; borrowed buffers are the
   backend's own rows.
 - **Cost** against the constant cubic on the same problem, same-process medians:
@@ -1228,7 +1314,7 @@ column's population and free-current integrands with the problem's $2K+1$ taps b
 sum, reading $K$ samples ahead, so the fused one-sample traversal cannot carry it.
 
 - **The team column** (`GeneralWorkspace::team_band_plasma_column`, described in
-  `native/include/solprop_native/plasma.hpp`). The plasma runs in whole-row passes per node: the
+  `native/include/solprop_native/response/plasma.hpp`). The plasma runs in whole-row passes per node: the
   rate; the filtered rate (`team_band_filter`), then the exposure's scan (`team_trapezoid_window`),
   then pointwise the fraction, the loss guard and the weight $f\,q/m$; per component the
   free-current integrand, its filter, then its scan with the current formed from the prefix. The
@@ -1264,7 +1350,7 @@ sum, reading $K$ samples ahead, so the fused one-sample traversal cannot carry i
 - **Routes.** Mode-averaged, analytic, multimode, mixture, radial, Cartesian, line and planar runs
   compare one, eight and ten fixed steps under both rules. Their fields, plasma statistics and
   diagnostics use the equivalence ladder's bound with the sums widened by $2K+1$
-  (`tests/backends/test_band_plasma_parity.py`).
+  (the plasma rows of the case catalogue, `tests/backends/plasma_rows.py`).
 - **Threads.** One and many threads agree within the same bound
   (`native/tests/test_band_plasma.py`).
 
@@ -1272,7 +1358,7 @@ The band rule's cost against the trapezoid's is in
 [benchmarks.md](benchmarks.md#band-rule-plasma-integration).
 
 **native device builds** run a different column, written down in
-`native/include/solprop_native/plasma.hpp`: parallel filters and scans form the exposure and the free current, with the
+`native/include/solprop_native/response/plasma.hpp`: parallel filters and scans form the exposure and the free current, with the
 pointwise population and loss-current steps between, on both the team and the tiled
 device paths. The stencil keeps the reference's summation order, so it is deterministic
 and independent of the team size; the scan associates differently from the serial sum, so
@@ -1286,7 +1372,7 @@ build defaults to its own: direct reads on CUDA, staging on HIP
 
 [SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md)'s six far-field statistics and
 `on_axis_spectrum` are one native pass over the stored state on the Cartesian and line kinds
-(`GeneralState::aperture_statistics`, `native/include/solprop_native/far_field.hpp`,
+(`GeneralState::aperture_statistics`, `native/include/solprop_native/response/far_field.hpp`,
 `FarFieldPass`), in place of the shared host pass `spatial.aperture_statistics` that `numpy_ref`
 keeps as the oracle. The pass has its own flag mask beside `spatial_statistics` (values from 32:
 the six names and `on_axis_spectrum`, the `W = 1` slot, which on the Cartesian and line kinds
@@ -1413,9 +1499,34 @@ two packages are released together, and solprop's metadata pins this one to its 
 up by name. Since SEP 47 phase 5 the native backend is a resource holder: it lowers the problem,
 loads a start (`solprop_native._load`), keeps its Adams march's record and times its trials
 (`timing_probe`, `solprop_native._probe`) itself, inherits no step driver, and serves every run
-through its session. In an editable
-checkout it also recomputes the digest of `native/CMakeLists.txt` and the C++ under `native/src`
-and `native/include`, once per process, and refuses an extension built from anything else
+through its session.
+
+**The binding** (SEP 52 §5.3, ADR-079). A backend builds one `_core.Problem`, which carries
+every set-once table, guard and geometry (the stage, z and flux tables, the flow guard's
+certificate, the controller weights, the low-storage settings), and one `_core.Workspace`
+from it for its life. A run starts from one run record, `Workspace.start(run)`: the shared
+run records (`solprop.backends.records.RunRecords`), the initial field and noise, a
+resume's march state and history rows, the statistics plans, and the monitor's weights and
+the edge's tables. The timing probe is `Workspace.probe(start)`, and `diagnostics()` is the
+one record of metadata, memory, sizing, planning and crossed bytes, beside the live
+`counters()` a run reads at its start and close. Nothing configures a workspace after it is
+built. Each C++ record that crosses declares its fields once, beside its definition
+(`include/solprop_native/runtime/fields.hpp`), and one converter (`src/bindings/records.hpp`) reads a
+dataclass, mapping or tuple into it by that table, refusing a missing or unknown field, a
+wrong dtype, rank or extent relation, a strided array and an integer for an enumeration by
+the field's path before anything is allocated; `_core.schemas()` exports the tables and a
+test holds each Python record to its table. The binding unit only converts, releases the
+interpreter lock and forwards: the lease between workspace and session, the coupled-flow
+guard and the marches' entry points live in `native::Workspace` (`workspace.hpp`), where
+ctest reaches them. Test-only entry points are in the private `_core._testing` submodule,
+which promises nothing; `_testing.engines(workspace)` exposes the workspace's engines,
+which the tests wrap in solprop's engine protocols (`tests/engine_pairs.py`). The whole
+stub, `_core.pyi` with `_core_testing.pyi`, is generated by nanobind's `stubgen`
+(`native/scripts/problem_stub.py`, checked by the native gate).
+
+In an editable
+checkout it also recomputes the digest of `native/CMakeLists.txt`, its modules in `native/cmake`
+and the C++ under `native/src` and `native/include`, once per process, and refuses an extension built from anything else
 (`BuildInfo.source_digest`, ADR-068), which catches a C++-only change too. It records the repository
 version it was built at without comparing it, so an editable build stays valid across solprop
 commits that leave `native/` alone. Solprop knows only the registry
@@ -1446,7 +1557,7 @@ use separate FFT plans for the final partial chunk, aliased onto existing storag
 Kokkos-FFT plans at `FFTW_ESTIMATE` and consumes measured wisdom in the linked FFTW
 library, which the workspace seeds before it makes its first plan: a plan made before
 its wisdom stays at estimate for the run. One policy (`fftw_seed_effort`,
-`include/solprop_native/fft_plan.hpp`) decides every seed by the transform's shape and
+`include/solprop_native/transforms/fftw_wisdom.hpp`) decides every seed by the transform's shape and
 width. Unset, row transforms (temporal, modal, Raman and plasma) are measured on one
 thread and left at estimate when threaded, because measured wisdom can select slower
 threaded plans; free space's transverse planes are measured at any width. An explicit
@@ -1483,7 +1594,7 @@ atomic rename; writers serialise on `<file>.lock` (`flock` on POSIX), merge the 
 plans with their own and replace it only when that adds or changes one. A calibration's
 own workspaces (given `fft_planning`) and its children (`off`) neither read nor write
 the store. The C++ side only converts wisdom to and from text (`export_fftw_wisdom`,
-`import_fftw_wisdom` in `fft_plan.hpp`), registering FFTW's threaded solvers first,
+`import_fftw_wisdom` in `fftw_wisdom.hpp`), registering FFTW's threaded solvers first,
 since they are part of the planner signature an import must match. Metadata records
 `wisdom_loaded` (the file held plans) and `wisdom_digest` (of the plans the workspace
 built from wisdom or measured).
@@ -1582,21 +1693,30 @@ response column's `if constexpr` blocks carry a capture anchor, because CUDA 13'
 lambdas otherwise refuse the capture.
 
 Every top-level kernel dispatches through `launch::parallel_for`, `parallel_reduce` and
-`parallel_scan` (`native/include/solprop_native/launch.hpp`). On a device they hint a
+`parallel_scan` (`native/include/solprop_native/runtime/launch.hpp`). On a device they hint a
 functor of at most 3840 B light-weight, which Kokkos passes as the kernel's argument;
 Kokkos's HIP default copied any functor of 512 B or more into constant memory, a blit
 kernel behind a wait on the previous such launch, which kept the host from queuing a
 trial's kernels ahead. A plain range reduction on HIP takes launch bounds of 256
 threads with the hint, since Kokkos gives a light-weight HIP reduction its largest block.
 CUDA builds pass functors as grid constants and are unchanged; host builds dispatch as
-Kokkos does. The device Adams passes hold a trial's phi-functions and history in registers,
+Kokkos does. A kernel in a shared header that several source files instantiate with the
+same types is a named functor, not an extended `__host__ __device__` lambda: nvcc keeps
+such a lambda's copy and delete functions in per-file static variables, set where the
+lambda is constructed, while the link keeps one file's copy of the inline dispatch that
+copies it. `device_dense_gemm` was such a lambda, and on a Release CUDA build for
+compute capability 8.6 every radial run called a null copy function in its first step
+([#815](https://github.com/LupoLab/solprop/issues/815)).
+`native/ci/check_lambda_tags.py` fails a CUDA build's object files on an extended lambda
+that more than one of them holds.
+The device Adams passes hold a trial's phi-functions and history in registers,
 dispatched on its order and width (one to eight samples): indexed per-thread arrays live
 in scratch memory. An accepted Adams step ends without a fence on a device, whose
 execution instances are its one stream. A device holds the two held plasma currents'
 fine and coarse rows in one buffer that one plan transforms.
 
 On a device an elementwise Adams trial's source evaluation runs in a graph region
-(`graph::Region`, `native/include/solprop_native/graph.hpp`). The region's launches, its
+(`graph::Region`, `native/include/solprop_native/runtime/graph.hpp`). The region's launches, its
 device-to-device copies and its transforms go through `launch::parallel_for`,
 `graph::deep_copy` and `graph::execute`, which key each operation by its kind and the
 value bytes of its policy and functor, or of its views, plan and scalars. The first trial
@@ -1638,16 +1758,13 @@ that order for the stage too. The state crosses the seam once
 at a load and once at an observation, straight between the memory space and the NumPy
 buffer.
 
-The singleton constructor requires a one-member problem; fixed-schedule groups go
-through `start_group` (`NativeBackend.prepare_group`), the native group session over one
-native session per independently loaded member (§1). The backend
-refuses scalar-only declarations on vector Raman problems, spectral responses other than
+The backend refuses scalar-only declarations on vector Raman problems, spectral responses other than
 the compiled envelope-plasma assembly, and, on a device build, z-tabulated operators or
 prefactors, before field-sized allocation (the CPU build runs them, §1). Supported mixture density, pre-ionisation and Raman decay paths
 cross as stage scalars; z dependence alone is not a refusal.
 
 **The general modal route** is a second execution path beside the node pipeline
-(`src/general_modal.cpp`, `GeneralModalSource`), exactly as it is one in `numpy_ref`
+(`src/response/general_modal.cpp`, `GeneralModalSource`), exactly as it is one in `numpy_ref`
 (§2). Per node chunk: the coarse-grid synthesis of the three Cartesian components from
 the complex map `S`, placed into a zeroed fine spectrum; one complex inverse transform to
 the analytic signal; the rank-four contraction on the real field or on the analytic
@@ -1681,7 +1798,7 @@ terms summed in order from zero, `GeneralModalSource::combine`) into the two map
 synthesis and projection read; nothing is allocated in a trial, and the ledger adds the
 weights (`general_map_weights`).
 
-**The coupled flow** (`src/coupled_flow.cpp`, `CoupledFlowAction`) executes the
+**The coupled flow** (`src/response/coupled_flow.cpp`, `CoupledFlowAction`) executes the
 constant-Schur and frozen-residual sections, every section the translation builds. The
 adapter uploads each section's eigenbasis
 (`solprop.translate.coupled.schur_eigenbasis`: `W`, `Y`, the eigenvalues and the route per
@@ -1700,8 +1817,7 @@ the drive back by the inverse action and accumulates; the accepted update takes 
 the state, the solution and the error sum, the old norm on the unmixed state. A zero stage
 fraction is flagged and not applied; FSAL is off on a flow. The `flow_*` rows join
 `memory_ledger()`, zero on every other route. Admission is solprop's shared list under the
-name `native` plus one native limit (the delayed response's three components); the batch
-backend refuses a flow member by name.
+name `native` plus one native limit (the delayed response's three components).
 
 **The hybrid planar kind** runs on the same engine: columns `(p, k_y)` go to `(p, y)` rows
 by a one-axis y FFT, a node chunk holds whole y rows, and the slab rule synthesises and
@@ -1710,7 +1826,7 @@ subtracts its channel's `kappa_sq` last. Ten fixed steps agree with `numpy_ref` 
 1.2e-14 to 6.6e-14 against bounds of 2.5e-11 and more, and thread counts agree within
 those bounds.
 
-**The dispersive electronic response** (`src/dispersive.cpp`, `DispersiveResponse`;
+**The dispersive electronic response** (`src/response/dispersive.cpp`, `DispersiveResponse`;
 [SEP 6](seps/archive/sep-0006-dispersive-nonlinearity.md)) runs on every route
 `numpy_ref` runs it, with the structure of §3.11 route by route: the fused node
 path (one or two components), `SeparableDispersive` on the Cartesian free-space, line and
@@ -1768,7 +1884,7 @@ at most:
   three and four threads and radix 8 with 32-point leaves at others), which moves ten
   realistic steps by at most 8 u: within the transform's rounding bound, so it constrains
   nothing. This threshold and the stage threshold switch only on `__APPLE__`
-  (`include/solprop_native/core.hpp`): Windows and linux-aarch64 builds take the values
+  (`include/solprop_native/runtime/cpu_execution.hpp`): Windows and linux-aarch64 builds take the values
   measured on x86-64 Linux (Cascade Lake and Zen 3), which have not been measured on
   those platforms ([#328](https://github.com/LupoLab/solprop/issues/328)).
 - **One stage phase.** `sum_t dPhi_t Phi_t` is needed three times per stage (the
@@ -1826,8 +1942,7 @@ solprop's frozen tables (`tests/backends/test_driver.py`), which move with the s
 backend for Apple GPUs was retired, unused, by
 [SEP 47](seps/archive/sep-0047-run-ownership.md) §6.6, before the driver hierarchy it inherited
 was restructured. `backend="mlx"` raises `BackendError`, as any name that is neither
-backend does, and output that records it still opens. Single precision went with it (ADR-077): every
-backend computes in binary64. SEP 33 and the benchmark ledger keep what it measured.
+backend does. Single precision went with it (ADR-077): every backend computes in binary64. SEP 33 and the benchmark ledger keep what it measured.
 
 ## 5. JAX: evaluated, not adopted
 
@@ -1897,7 +2012,7 @@ distinguishes these allocations from process peak RSS, host copies and FFT works
 backend allocates ([ADR-065](decisions.md)). A backend allocates and first-touches its
 buffers at construction, so a run that doesn't fit fails there, with `MemoryError` or
 killed by the kernel or the scheduler; `Simulation.estimate` reports the constructed
-ledger's total. Scan workers and batch groups are still bounded, from measured RSS and
+ledger's total. Scan workers are still bounded, from measured RSS and
 the ledger ([scans](../guide/workflows/scans.md)), and so is TDSE's atomic storage, by
 `TDSEExecution.memory_limit`. On the general modal route memory is dominated by the dense
 maps and the resident E/H reference, `16 Q C M n_omega` bytes per map and up to 14 such
@@ -1948,7 +2063,7 @@ that execution space.
 | fibre: mode-averaged and multimode, field and envelope grids, Kerr, scalar and tensor Raman, field and envelope plasma, noise, both absorber schemes | yes | yes | qualified |
 | an operator or prefactor that took the z table (not `device_ready`) | yes | yes: the coefficients resident, evaluated natively into term slots | refused, naming the table's size |
 | radial and Cartesian free space (including a line, `n_y = 1`) | yes | yes | qualified (CUDA) |
-| the hybrid planar kind (`"slab"`) | yes | yes | held field-plasma source qualified on HIP; other combinations not qualified |
+| the hybrid planar kind (`"slab"`) | yes | yes | held field-plasma source qualified on HIP (under CUDA, below); one short planar Kerr case run on an NVIDIA H100 NVL and an AMD MI325X ([SEP 34](seps/archive/sep-0034-medium-flux.md#device-qualification-report--cuda-and-hip), 2026-10-23); other combinations not qualified |
 | general modal route (modal tables, metric, regional responses) | yes | yes; a delayed response only as the six silica tensor channels on three components | qualified |
 | coupled flow: constant-Schur and frozen-residual sections | yes | yes | qualified |
 | the dispersive electronic response (`responses.dispersive_kerr`) | every route | every route | qualified on one AMD Instinct device (HIP) and one NVIDIA Hopper device (CUDA) |
@@ -1956,11 +2071,10 @@ that execution space.
 | the Adams carrier frame (`Multistep(carrier_frame="scalar")`, SEP 35) | every guided route; free space refused | CPU builds, resident, on every representation of the operator (a z table's chord carried as its own scalar table, #255); device builds refused | refused by name |
 | the low-storage RK4IP march (`LowStorageRungeKutta`), replay-only | every diagonal-flow route | every diagonal-flow route, a resident engine whose step is one native call | flows recomputed per element; qualified under HIP, not under CUDA |
 | moving solid guide (moving maps beside a frozen-residual flow) | yes | yes | qualified |
-| fixed-schedule groups | fibre and general guides; a coupled flow member by member (the lockstep batch for the rest) | fibre and general guides, a coupled flow included (the native group session) | fibre and general guides, and a coupled flow where the session admits each member (the native group session) |
-| the native execution session and group session (SEP 47) | its own session (`HostSession`) | every native run and group (phase 5: no other native executor) | admitted on CUDA and HIP as on the CPU build (SEP 47 phase 4): beyond the modal route with planes, rows, the temporal monitor and the Adams history (phase 3), the spatial routes (radial, Cartesian, line, planar) with their fluence widths, a transverse edge and a collar's current, the noise models, dense output, the low-storage replay, a coupled flow wider than 16 channels or off its eigenbasis route, and the native group session; run on an NVIDIA A40 against the transitional bridge on the same device before phase 5 deleted it (bitwise, but for the bounded transverse sums and dense Runge-Kutta planes), not yet qualified on either vendor |
+| the native execution session (SEP 47) | its own session (`HostSession`) | every native run (phase 5: no other native executor) | admitted on CUDA and HIP as on the CPU build (SEP 47 phase 4): beyond the modal route with planes, rows, the temporal monitor and the Adams history (phase 3), the spatial routes (radial, Cartesian, line, planar) with their fluence widths, a transverse edge and a collar's current, the noise models, dense output, the low-storage replay, and a coupled flow wider than 16 channels or off its eigenbasis route; run on an NVIDIA A40 against the transitional bridge on the same device before phase 5 deleted it (bitwise, but for the bounded transverse sums and dense Runge-Kutta planes), not yet qualified on either vendor |
 | periodic statistics between planes | yes | yes | yes: the native session takes each row natively and keeps it in a resident buffer until the next observation, with no return to Python (SEP 47 §6.4) |
 | Adams snapshots and a resume that continues the history (`MarchSnapshot`) | yes | yes: the resident engine copies its rows (`store`, and `states`, `rates`, `applied` where kept) to the host at a kept save and back on a resume | compiles; not qualified |
-| field-free observation (`observe(field=False)`), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |
+| field-free observation (a plane without its field, SEP 22), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |
 | materials from optmat: gas Raman leaves of many rows on gradients, rate tables, optmat walls, the silica bundles | yes | yes | not qualified |
 | coupling between runs (`field_plane`, `regrid`, `couple`, `Outcouple`, `transport`, `with_input`; SEP 31) | host-side: any source and receiving backend | host-side | receiving runs not qualified |
 
@@ -1968,13 +2082,15 @@ that execution space.
 `MaterialSelection`) reach the backends as the arrays any other run carries: index and
 wall tables, carrier Kerr coefficients, rate tables, and Raman rows with their decay
 paths. No backend reads optmat. The native CPU build is qualified on them against
-`numpy_ref` (`tests/backends/test_optmat_*_parity.py`): argon and nitrogen plasma on
-field and envelope grids, the rate table's hold above a model's maximum field, a
-helium/argon Kerr mixture, silver and silica walls, the GNLSE with the silica bundle,
-and gas Raman leaves of 4, 72 and 126 rows — dry air's composition leaf, driven by the
-summed density of its labels — on gradients to vacuum, scalar and vector, field and
-envelope, and in lockstep batches. Each agrees with the reference to a few times
-`1e-16`, far inside its operation-count bound. `native` assumes no term
+`numpy_ref` (the `optmat` rows of the case catalogue, `tests/backends/optmat_rows.py`):
+argon and nitrogen plasma on field and envelope grids, the rate table's hold above a
+model's maximum field, a helium/argon Kerr mixture, silver and silica walls, the GNLSE
+with the silica bundle, and gas Raman leaves of 4, 72 and 126 rows — dry air's
+composition leaf, driven by the summed density of its labels — on gradients to vacuum,
+scalar and vector, field and envelope. Each agrees with the
+reference far inside its operation-count bound: fields to `5e-15` and statistics to
+`5e-14` or better, except the complete run that holds argon's rate (`6e-13` and
+`1.1e-13`). `native` assumes no term
 count: it holds a leaf's `n_terms × 2 n_to` rows and its per-stage decay rates as
 views sized from the problem. A fill whose populations follow independent density
 paths takes the z table, which `numpy_ref` and native's CPU build run;
@@ -1994,7 +2110,7 @@ to run when two backends disagree, and the one that needs nothing beyond the pac
 dependencies. The native backend's device builds
 are qualified on a data-centre NVIDIA GPU (CUDA 13) and an AMD Instinct GPU (a ROCm 7
 prerelease stack): the native tests, the native pytest suite, solprop's device lane and its
-slow lane on `native` pass, repeats and batch members agree within
+slow lane on `native` pass, repeats agree within
 [SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)'s rounding bounds, and the
 CUDA sanitizers (memcheck, racecheck, initcheck, synccheck) are clean. Thread-count probes
 are the only tests skipped on a device, which has no thread count to vary.
@@ -2002,9 +2118,20 @@ are the only tests skipped on a device, which has no thread count to vary.
 **Field plasma on a device.** The held field-plasma source
 ([SEP 27](seps/archive/sep-0027-held-plasma-current.md)) is qualified under HIP — native
 execution, the native and solprop GPU lanes, the held-current ladders and bounded timings on
-modal, radial, Cartesian, line and planar routes under both integration rules. Under CUDA
-it is built but not executed in qualification, so the table's CUDA entries for field
-plasma do not cover it. The far-field statistics' device pass is not qualified (§3.13).
+modal, radial, Cartesian, line and planar routes under both integration rules, on an AMD
+MI325X (2026-10-19). The committed records hold no `native_hip` rows for its Cartesian
+ladder and statistics, and a missing row is a `RecordError`, so the record-comparing
+tests of `tests/backends/test_free_ladders.py` under field plasma cannot pass on a HIP
+build until those rows are written. Under CUDA it
+has run without that pass: its Cartesian ladder on an NVIDIA H200 (2026-10-20), whose
+`native_cuda` rows are in the records
+([SEP 28](seps/archive/sep-0028-free-space-evaluation.md#phases-1-and-2-report--the-separable-core-on-both-cpu-backends));
+solprop's device lane on an NVIDIA A40 and an H200 (2026-10-29, 63 passed,
+[SEP 39](seps/archive/sep-0039-native-adams-march.md#phase-5--report-cuda-on-nvidia-a40s-hip-to-come)),
+which by reading holds a one-evaluation held-current parity test on every route under
+both rules; and the `argon_blueshift` capillary benchmark on both, timed only. The
+held-current ladders on the other routes and the bounded timings have not run under CUDA.
+The far-field statistics' device pass is not qualified (§3.13).
 
 ## 10. What each backend is for
 
@@ -2036,8 +2163,10 @@ Which backend and build to choose for a run is the user guide's
   every route; on a device it is qualified on one AMD Instinct generation (HIP) and one
   NVIDIA Hopper device (CUDA); a polynomial mixture costs one group per distinct leg
   bound (§3.11).
-- The held field-plasma source is qualified on a device under HIP only (§9). On the
-  hybrid planar kind other response combinations are unqualified on a device build.
+- The held field-plasma source has had a device qualification pass under HIP only; under
+  CUDA it has run on the Cartesian ladder and solprop's device lane, not on the other
+  routes' ladders or with bounded timings (§9). On the hybrid planar kind other response
+  combinations are unqualified on a device build.
 - `native`'s device builds refuse any problem whose operator or prefactor took the z
   table; its CPU build runs it.
 - The default periodic-statistics subset is cheap under Runge–Kutta at `period = 1`, because
@@ -2051,8 +2180,6 @@ Which backend and build to choose for a run is the user guide's
   projection's summation order), and the local and distribution native builds' answers agree
   with the reference build's to rounding: which is all any comparison requires
   ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)).
-- Batches are fixed-schedule only; adaptive and spatial batches, and batches carrying a
-  coupled flow, are refused.
 - No native build runs on Intel macOS, ppc64le, Arm below Neoverse N1 or Windows before 10
   version 2004, nor on x86-64 below x86-64-v2, and solprop doesn't support them. With no
   wheel the installer refuses; where a wheel installs, `auto` and `native` refuse on the

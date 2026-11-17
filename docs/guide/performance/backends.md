@@ -24,7 +24,6 @@ repeat the first:
 |---|---|---|---|---|
 | `auto` | `native` | refuses, naming the missing features or the failed check | the load's own error, unchanged | refuses, saying how to install it |
 | `native` by name | `native` | as above | as above | as above |
-| TDSE response, `auto` | `numpy_ref`; native isn't consulted | the same | the same | the same |
 | `numpy_ref` by name | runs; native isn't consulted | the same | the same | the same |
 
 `"auto"` has no fallback. These cases stay distinct, so an import failure is never reported
@@ -79,16 +78,10 @@ and what to use for scans are on [Performance tuning](tuning.md).
 
 ## Features that run on the reference backend
 
-`numpy_ref` is the numerical reference, and it is also the supported way to run these
-features, which native does not run yet. Each is a limit of native, and each stays
-supported on the supported platforms:
-
-| feature | reached by | tracked by |
-|---|---|---|
-| the [TDSE response](../media/tdse.md) | `auto` or by name | |
-
-The TDSE row's `auto` is that of the entry points; `SimulationSettings` built by hand with
-`tdse_execution` [names the backend](../results/interior-launch.md). Running `numpy_ref` by
+`numpy_ref` is the numerical reference, and it is also the supported way to run any
+feature native does not run yet. None is listed today: the
+[TDSE response](../media/tdse.md), the last, runs on the native CPU build too (a native
+GPU build refuses it by name). Running `numpy_ref` by
 name on an unsupported platform may keep working, without a support promise. The list is not
 a general waiver: a new feature still lands on both `numpy_ref` and `native`
 ([SEP 0](../../dev/seps/sep-0000-process.md)), and joins the list only as an accepted
@@ -101,9 +94,7 @@ had two more: `numba_cpu`, a third double-precision backend whose last release i
 and `mlx`, an experimental single-precision backend for Apple GPUs. Naming either now
 raises {py:class}`~solprop.exceptions.BackendError`, naming `native` and `numpy_ref`, as
 any name that is neither does, so a script or recipe that selects one needs
-`backend="native"`, or no `backend=` at all. Output, snapshots and a scan's execution
-metadata that record a retired backend still load, and keep saying so: a recorded name is
-not a request, and the record is not rewritten. A run started on a release that had the
+`backend="native"`, or no `backend=` at all. A run started on a release that had the
 backend finishes on that release.
 
 The settings of `numba_cpu` are gone too: `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`,
@@ -143,10 +134,8 @@ ten steps before committing a long campaign to one backend.
   GPU or an AMD Instinct GPU than on an 18-core CPU socket (about four and three times on
   a scaled graded-index guide); a small case is limited by kernel-launch latency
   ([The native backend](native.md#running-on-a-gpu)).
-- **Batches.** A fixed-schedule batch fuses the accepted updates of its members, while
-  the response and transform work stays per member, so it does not amortise a device's
-  launch sequence; measure a batch's gain for your own shape. On a CPU, a `Pool` of
-  one-thread workers is the better scan pattern.
+- **Scans.** On a CPU, a `Pool` of one-thread workers is the scan pattern that scales
+  with the cores ([scans](../workflows/scans.md#processes-and-resource-limits)).
 
 ## Memory and scans
 

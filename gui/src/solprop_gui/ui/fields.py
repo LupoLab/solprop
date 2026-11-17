@@ -16,11 +16,13 @@ Each form the keyword takes that a widget can hold gets one:
 - anything else (a mapping, an array) is a line of inline TOML.
 
 Where a keyword takes several forms (a constant pressure or a gradient), a small
-picker chooses the form. The launch is a table of modes; a keyword solprop can pin to
-a design target offers "pinned" too, whose entry goes in the recipe's ``[pins]``
-table in place of the value. Leaving a field empty, or picking the default, unsets the
-keyword so that solprop's default applies and follows solprop's improvements; the
-reset button does the same for any form.
+picker chooses the form. A sheet's row may name its forms instead (``mode_titles``),
+as the saved planes' "Evenly spaced" and "Explicit positions" are: each editor then
+shows only a value of its own kind. The launch is a table of modes; a keyword solprop
+can pin to a design target offers "pinned" too, whose entry goes in the recipe's
+``[pins]`` table in place of the value. Leaving a field empty, or picking the default,
+unsets the keyword so that solprop's default applies and follows solprop's
+improvements; the reset button does the same for any form.
 """
 
 from collections.abc import Mapping, Sequence
@@ -217,6 +219,8 @@ class ParameterRow(QWidget):
         self.issue.hide()
 
         self.choice_titles: Mapping[str, str] = meta.get("choice_titles") or {}  # pyright: ignore[reportAttributeAccessIssue]
+        self.mode_titles: Mapping[str, str] = meta.get("mode_titles") or {}  # pyright: ignore[reportAttributeAccessIssue]
+        self._text_shown = ""
         self.modes = modes_of(self.forms, self.catalog, self.name)
         self.stack = QStackedWidget()
         self.editors: dict[str, QWidget] = {}
@@ -310,7 +314,7 @@ class ParameterRow(QWidget):
         self.mode = QComboBox()
         self.mode.setObjectName(f"mode-{self.name}")
         for mode in self.modes:
-            self.mode.addItem(_MODE_TITLES[mode], mode)
+            self.mode.addItem(self.mode_titles.get(mode, _MODE_TITLES[mode]), mode)
         self._update_picker()
         self.mode.setToolTip("The form of the value.")
         self.mode.currentIndexChanged.connect(self._mode_changed)
@@ -474,6 +478,9 @@ class ParameterRow(QWidget):
             return any(c == value and type(c) is type(value) for c in self.choices)
         if mode == "pin":
             return False
+        if mode == "text" and self.mode_titles:
+            # Named forms are separate values: text holds what no other editor does.
+            return not any(self._fits(m, value) for m in self.modes if m != "text")
         if mode == "table":
             return launch_rows(value) is not None
         if mode == "object":
@@ -541,9 +548,14 @@ class ParameterRow(QWidget):
     def _update_picker(self) -> None:
         """Show the form picker where there is a real choice of form.
 
-        On a sheet, free text does not count as one, unless it is what holds the value.
+        On a sheet, free text does not count as one, unless it is what holds the value
+        or one of the row's named forms.
         """
-        offered = [m for m in self.modes if m != "text" or not self.on_sheet]
+        offered = [
+            m
+            for m in self.modes
+            if m != "text" or not self.on_sheet or self.mode_titles
+        ]
         shown = self.modes[self.mode.currentIndex()] if self.mode.count() else ""
         self.mode.setVisible(len(offered) > 1 or shown == "text")
 
@@ -617,6 +629,8 @@ class ParameterRow(QWidget):
         if self._updating:
             return
         text = self.text.text().strip()
+        if self.mode_titles and text == self._text_shown:
+            return  # left as shown, so nothing replaces the value another form holds
         if not text:
             value: object = MISSING
         else:
@@ -713,10 +727,23 @@ class ParameterRow(QWidget):
             elif mode == "pin":
                 pass  # the pin shows its own entry (set_pin)
             else:
-                self.text.setText("" if unset else inline(value))
+                blank = unset or not self._fits("text", value)
+                self._text_shown = "" if blank else inline(value)
+                self.text.setText(self._text_shown)
                 self.text.setPlaceholderText(self._placeholder())
         finally:
             self._updating = False
+
+    @property
+    def current_mode(self) -> str:
+        """Return the form whose editor shows, as :func:`modes_of` names it.
+
+        Returns
+        -------
+        str
+            The form.
+        """
+        return self.modes[self.mode.currentIndex()]
 
     @property
     def value(self) -> object:

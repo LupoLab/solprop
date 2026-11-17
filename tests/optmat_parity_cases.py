@@ -67,7 +67,8 @@ from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 SELECTION = MaterialSelection()
@@ -229,7 +230,7 @@ def _from_simulation(name: str, simulation: Simulation) -> Case:
         name,
         simulation,
         simulation.translate(),
-        simulation._run_request(),
+        simulation.run_request(),
         simulation.grid,
         simulation.modes,
     )
@@ -336,7 +337,7 @@ def _bundle_vector() -> Case:
         thg=True,
         tensor=True,
     )
-    mode = MarcatiliMode(10e-6, cladding=1.45, loss=False)
+    mode = MarcatiliMode(10e-6, cladding=1.45, loss_scale=0.0)
     modes = [mode, mode.rotated(math.pi / 2)]
     launch = _vector_launch(grid, 2e-9)
 
@@ -366,8 +367,8 @@ def build_case(name: str) -> Case:
 def variant(name: str, **changes: Any) -> Case:
     """Return a capillary case with some of its keywords changed, built afresh.
 
-    ``variant("ar_field", plasma=False)`` is the same run without its plasma, which
-    the tests use to show that a rung can see the term it qualifies.
+    ``variant("silver_wall", cladding=None)`` is the same capillary walled in optmat's
+    silica, its default, whose linear operator the silver wall's row switches to.
     """
     with warnings.catch_warnings():
         for category in QUIET:

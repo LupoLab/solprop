@@ -15,7 +15,7 @@ grids:
 
 | grid | columns | assumes | medium | entry point |
 |---|---|---|---|---|
-| {py:class}`~solprop.grid.RadialGrid` | Hankel frequencies $k_r$ of the order-zero [Hankel transform](hankel.md) | each Cartesian polarisation component cylindrically symmetric | constant, or a gas whose pressure varies along z within the [adiabatic certificate](flux.md#the-adiabatic-certificate) | `prop_radial`, `Simulation.from_radial` |
+| {py:class}`~solprop.grid.RadialGrid` | Hankel frequencies $k_r$ of the order-zero [Hankel transform](hankel.md) | each Cartesian polarisation component cylindrically symmetric | constant, or a gas whose pressure varies along z within the [adiabatic certificate](flux.md#the-adiabatic-certificate) | `prop_free`, `Simulation.from_free` |
 | {py:class}`~solprop.grid.FreeGrid` | 2-D Fourier frequencies $(k_x, k_y)$, x fastest ([Cartesian free space](cartesian.md)) | nothing: periodic box | constant | `prop_free`, `Simulation.from_free` |
 | {py:class}`~solprop.grid.LineGrid` | $k_x$ alone | uniform in y ([the line](#the-line-uniform-in-y)) | constant | `prop_free`, `Simulation.from_free` |
 
@@ -43,8 +43,8 @@ orthogonal at finite size. The Cartesian grid's stored spectrum is a raw DFT, al
 V/m ([Cartesian free space](cartesian.md#transform-and-energy)).
 
 {py:class}`~solprop.pulses.SpatialPulse` wraps any scalar temporal pulse in a transverse
-beam. Its transverse field is `exp(-(r/waist)**(2*order))`, so `waist` is the 1/e²
-intensity radius and `order=1` is a Gaussian. The wrapper normalises the beam in the
+beam. Its transverse field is `exp(-(r/waist)**(2*m))`, so `waist` is the 1/e²
+intensity radius and `m=1` is a Gaussian. The wrapper normalises the beam in the
 medium's flux measure at the launch plane, so the temporal pulse's `energy` or
 `peak_power` is the whole beam's physical energy or peak axial power there: what an energy
 meter in that medium reads. The inactive band and zero frequency are set to zero first,
@@ -197,9 +197,8 @@ every frequency, and `native` takes it where the state lives, with only numbers 
 
 Every run reports a `transverse_status` in its monitor record and says at the start what
 it will be able to report: `clear` (read at the spacing, below the warning), `warned`,
-`stopped`, `insensitive` (the input noise's allowance exceeds the warning), `coarse`,
-`unwatched` (a backend that does not read the edge; all of solprop's own do) or `off`
-(`boundary_check=None`). Only `clear` is a clean verdict. The tutorial
+`stopped`, `insensitive` (the input noise's allowance exceeds the warning), `coarse` or
+`off` (`boundary_check=None`). Only `clear` is a clean verdict. The tutorial
 [Is my transverse window big enough?](../../auto_tutorials/free_space/plot_09_transverse_window.rst)
 sizes a radial window with the monitor and checks it against a wider one.
 
@@ -222,7 +221,7 @@ products at an angle, conical emission -- asks for a real-space collar in the gr
 from solprop.boundaries import SpatialAbsorber
 
 space = RadialGrid(300e-6, 230, collar_fraction=2.6)
-prop_radial(
+prop_free(
     grid,
     space,
     medium,
@@ -248,6 +247,29 @@ or launched signal is protected only if its angle is declared: the launch-derive
 covers the launch, not what it will generate. The design check is rerun for a new launch
 given by `with_input`.
 
+**The design.** The potential follows Kosloff and Kosloff (1986) and Muga et al. (2004).
+For one frequency, with $k_z(\kappa) = \sqrt{k^2 - \kappa^2}$ and a collar of power rate
+$\alpha(x) = \alpha_0 P(x/w)$ over a width $w$, a component of transverse wavenumber
+$\kappa$ crossing the collar and coming back is attenuated in field by the local WKB
+integral with the exact symbol
+([SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md), section 4.2),
+
+$$
+\Gamma(\kappa; \alpha_0) = 2 w \int_0^1 \left|\operatorname{Im} q\right| ds,
+\qquad q^2 = \kappa^2 + i k_z \alpha_0 P(s) + \alpha_0^2 P(s)^2 / 4,
+$$
+
+which the phase-0 calibration on the discrete radial, Fourier and slab operators matched
+to between −1.3 % and +0.04 %. The strength $\alpha_0$
+({py:func}`~solprop.spatial_absorber.collar_strength`) is its root at the protected band's
+edge $\kappa_p$, $\Gamma = \Gamma_{\min}$, over every frequency of the requested band;
+the run length does not enter it. Below the reflection threshold $\kappa_{\rm lo}$
+({py:func}`~solprop.spatial_absorber.reflection_threshold`) the collar reflects rather
+than absorbs (section 4.3), with the measured law
+$\kappa_{\rm lo} w = 7.36\,(k_{\max} \alpha_0 w^2)^{0.182}$ for the Planck profile
+$P = 1 - W$. As for the temporal collars, $\alpha$ is a power coefficient and the
+attenuations are field nepers.
+
 The collar is an in-stage rate, `F diag(-alpha/2) B` in every stage, so the error
 controller sees it, under a step limit that stops a protected packet crossing it unseen
 within one step; a fixed schedule beyond that limit, or beyond the damping bound
@@ -263,7 +285,8 @@ strength, a collar's strength, band, threshold and step limit, and its check -- 
 run metadata's `transverse` record, outside the resume key.
 
 **Statistics.** The default set for a spatial run (`default_spec("radial")` or
-`default_spec("free")`) is `energy`, `on_axis_intensity`, `peak_intensity`,
+`default_spec("free")`, which `from_free` and `from_planar` take when the settings'
+`stats` is `None`) is `energy`, `on_axis_intensity`, `peak_intensity`,
 `beam_radius`, `fwhm_r` and `on_axis_spectrum`. The [statistics catalogue](../results/statistics.md)
 distinguishes `peak_intensity`, the largest axial flux over the physical samples, from
 `on_axis_intensity`, reconstructed separately on the axis. Both are signed local flux in
@@ -323,9 +346,9 @@ transmission and by the change of obliquity.
 
 ## Construct and run a beam
 
-The how-to builds and runs beams with `prop_radial` and `prop_free`
+The how-to builds and runs beams with `prop_free`
 ([beams in bulk media](beams.md#a-beam-in-argon)), which combine construction and
-execution. `Simulation.from_radial` and `Simulation.from_free` take the same arguments and
+execution, on whichever grid it is given. `Simulation.from_free` takes the same arguments and
 separate the two:
 
 ```{code-block} python
@@ -333,7 +356,6 @@ from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
-from solprop.stats import default_spec
 from solprop.stepper import PIController
 
 grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
@@ -347,9 +369,8 @@ settings = SimulationSettings(
     save_planes=[0.5e-3, 1e-3],
     dz_init=1e-4,
     dz_max=5e-4,
-    stats=default_spec("radial"),
 )
-simulation = Simulation.from_radial(
+simulation = Simulation.from_free(
     grid,
     space,
     SpatialMedium(),

@@ -265,13 +265,39 @@ returns an {py:class}`~solprop.adiabatic.AdiabaticAdmission`. The admission reco
 largest $\Lambda$, both bounds, the worst column, the support and whether every piece was
 certified monotone, in which case $\Lambda$ is attained rather than bounded. A run
 stores it in its plane measure, with the tolerance to which its operator tables resolve
-the represented path as a separate interpolation envelope. The
-enclosure does not sample. Every material solprop reads has a wave-number square affine
-in its number densities. On pieces where it is monotone, the variation is the endpoint
-log ratio. Elsewhere it is bounded from the densities' variation and the smallest $q^2$
-on the piece, with the arithmetic error included. The certificate is of the *represented*
-path, the function the profile evaluates. How well that represents a physical gas cell is
-a separate question.
+the represented path as a separate interpolation envelope.
+
+**The enclosure does not sample.** Every material solprop reads has a wave-number square
+affine in its number densities,
+
+$$
+s(z) = q^2 = (\omega/c)^2\Bigl(\varepsilon(\omega) + \sum_i \rho_i(z)\,\chi_i(\omega)\Bigr)
+- k_\perp^2,
+$$
+
+with $\varepsilon = 1$ for a gas or mixture (whose index is
+$\sqrt{1 + \sum_i\rho_i\chi_i}$) and $\varepsilon = n^2$ for a glass or constant index,
+which carries no path. Each density path supplies a
+{py:class}`~solprop.profiles.PathVariation`: pieces between knots on which its values and
+variation are enclosed, exactly where it is certified monotone. On the union of those
+pieces:
+
+- where every density is monotone and every term $\chi_i\,\Delta\rho_i$ moves one way,
+  $s$ is monotone, so $\ln q$ is too and its variation is the endpoint difference
+  $|\tfrac12\ln(s_1/s_0)|$, evaluated as `log1p` of the exactly formed difference over
+  $s$: exact, and attained;
+- otherwise $\operatorname{TV}\ln q \le \sum_i|b_i|\operatorname{TV}\rho_i/(2 s_{\min})$
+  with $b_i = (\omega/c)^2\operatorname{Re}\chi_i$ and $s_{\min}$ the minimum of the
+  affine $s$ over the box of density ranges, reached at a corner;
+- a declared jump adds its own one-sided $|\Delta\ln q|$.
+
+Positivity follows from the same quantities: $s$ is positive on a monotone piece when it
+is at both ends, and on a box when it is at the lowest corner. The arithmetic is bounded
+by a relative margin on each term: a few unit roundoffs for forming the difference and
+the ratio, plus the conditioning $4u\,S/s_{\min}$ of a square whose terms of magnitude
+$S$ cancel towards cutoff, amplified by the `log1p` condition number. The certificate is
+of the *represented* path, the function the profile evaluates. How well that represents a
+physical gas cell (an equation-of-state table, a measured profile) is a separate envelope.
 
 **Scope.** The bound certifies the forward part of the *linear background* scattering
 problem. The omitted backward amplitude can be as large as $\sqrt{R_*}$, so neither the
@@ -372,7 +398,7 @@ settings = SimulationSettings(
     dz_max=2.5e-4,
     stats=StatsSpec(names=("energy",)),
 )
-run = Simulation.from_radial(grid, space, cell, [], beam, settings=settings).run()
+run = Simulation.from_free(grid, space, cell, [], beam, settings=settings).run()
 for plane in run.planes():
     flux = SpatialFlux.resolve(grid, space, cell, z=plane.z)
     print(
@@ -395,7 +421,7 @@ A tighter budget than the path can meet refuses the run at translation:
 ```python
 strict = replace(settings, adiabatic_accuracy=AdiabaticAccuracy(reflected_energy=1e-7))
 try:
-    Simulation.from_radial(grid, space, cell, [], beam, settings=strict).translate()
+    Simulation.from_free(grid, space, cell, [], beam, settings=strict).translate()
 except MaterialError as error:
     print("refused:", str(error).split(":")[0])
 ```

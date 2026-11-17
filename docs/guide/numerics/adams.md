@@ -4,8 +4,8 @@
 from startup and rejected trials, it usually needs one new source evaluation per
 accepted step. This can save time when a response is expensive, while requiring more
 state history in memory. It is the default integrator of `prop_capillary`,
-`prop_radial` and `prop_planar` and their builders; `prop_gnlse`, `prop_waveguide` and
-`prop_free` default to `RungeKutta()` ([the defaults](choosing-a-stepper.md#the-defaults)).
+`prop_free` on a radial grid and `prop_planar`, and their builders; `prop_gnlse`,
+`prop_waveguide` and `prop_free` on a Cartesian or line grid default to `RungeKutta()` ([the defaults](choosing-a-stepper.md#the-defaults)).
 
 The default exponential formulation integrates an interpolating source polynomial
 against the represented linear flow. The alternative interaction formulation
@@ -20,7 +20,8 @@ and limitations. Its design record is
 
 ## Using it
 
-Every run steps with `Multistep()` unless told otherwise:
+Where it is the interface's default (above) a run steps with `Multistep()` unless told
+otherwise; elsewhere, pass `integrator=Multistep()`:
 
 ```{code-block} python
 from solprop.driver import prop_capillary
@@ -52,8 +53,7 @@ the general modal route and the radial, Cartesian, line and planar free-space ro
 with constant and varying operators and every noise model the route admits. Beside a
 coupled flow (a coherent capillary wall, a split block, a moving guide) only the
 exponential formulation runs, on its constant-Schur and frozen-residual sections; the
-interaction formulation is refused by name. Another backend refuses
-`Multistep()` by name and runs `RungeKutta()`. `Multistep(carrier_frame="scalar")`
+interaction formulation is refused by name. `Multistep(carrier_frame="scalar")`
 removes the carrier's rotation from the exponential history on field grids
 ([the carrier frame](#the-carrier-frame)); it is opt-in and runs on `numpy_ref`
 and native CPU builds.
@@ -292,13 +292,15 @@ a multiple of the identity in the channel axis, so a step's reference is
 $B = (\Delta\Phi/h)\,I + G_s$, with $G_s$ the frozen block of the section the step is
 anchored in, and the two commute. On the bins that carry a block the step's flow and
 moments are matrix functions of $hB$ in the channel axis
-(`backends.numpy_ref.multistep.coupled_moments`, from the exponential of an augmented matrix
+(`backends.numpy_ref.adams_kernels.coupled_moments`, from the exponential of an augmented matrix
 carried back by the block's Schur vectors), applied to each sample's channel vector; off
 them they are the diagonal ones. A frozen-residual section's residual $R_s(z)u$ is
 linear in the state and joins the transported compensation above: each sample keeps its
 flow weights, and a trial forms $(D(z_j)-\Delta\Phi/h)\,u_j + R_s(z_j)\,u_j$ against its
 own section's block -- rebuilding the history's residual when a step enters a new
-section -- and carries it by the reference's forward flow, never an inverse one. The
+section -- and carries it by the reference's forward flow, never an inverse one. A trial
+forms it whether or not the run has a nonlinear source, so a linear coupled run's
+residual is scored by the controller as a nonlinear one's is. The
 residual acts on the in-band bins, as the Runge-Kutta stage applies it. The lab-frame
 sample is the material source alone. The interaction formulation stays refused, since it
 would carry its history through inverse actions whose conditioning grows with loss. On
@@ -334,7 +336,7 @@ $$u_{n+1} = e^{hD}u_n + h\sum_k k!\,\varphi_{k+1}(hD-\sigma)\sum_j c_{jk}\,G_j,
 so the step interpolates the rotated samples $G_j$ and integrates them against the
 moments at $hD - \sigma$. The shift is the step's own carrier phase,
 $\sigma = \mathrm{i}\operatorname{Im}(hD)$ at the active bin nearest the reference
-frequency, on the frame's mode and first polarisation, one per batch member. The
+frequency, on the frame's mode and first polarisation. The
 state, the stored samples and the linear flow $e^{hD}$ are unchanged; only the function
 the polynomial follows is. Rotating the samples without shifting the moments would not
 be equivalent: it integrates $G$ against the wrong flow, an error of order
@@ -664,14 +666,6 @@ gives the measured ranking by regime, on the native backend's CPU build and on d
   native form on `native` and as per-sample weights on the host engines, so its snapshot
   continues only on a backend of the same kind; a resume elsewhere starts the history
   afresh and says why. Every other history crosses between backends.
-- **A coupled flow with no source.** Beside a frozen-residual coupled flow (a moving
-  guide, a coherent wall) the explicit residual is sampled with the source, where the
-  controller scores it. A run with no nonlinear source has no sample, so the step is
-  the frozen block's alone and its error is not seen: a linear taper is as accurate
-  as its `dz_max` allows, whatever `rtol` (second order in the step; 6e-4 on a
-  graded-index taper at ten steps). Set `dz_max` from a refinement, or step a linear
-  coupled run with `RungeKutta()`, whose embedded pair integrates the residual. A
-  diagonal operator is not affected: its chord is its exact flow.
 - **Memory.** The history holds from seven (`numpy_ref`, constant operator) to about
   sixty (`native`, a varying operator) further copies of the state. On a capillary the
   operator tables dominate and that is 8 to 55 % more; on a Cartesian free-space grid
@@ -717,8 +711,8 @@ gives the measured ranking by regime, on the native backend's CPU build and on d
   a hard kink restarts the history. A replay meets the run's accuracy target rather
   than reproducing it bit for bit: replaying an adaptive run's steps reproduces its
   positions, but the orders are chosen afresh and rejected trials are not replayed, so
-  where that run rejected a step the replay may choose a different order. Lockstep batches follow (each member keeps
-  its own history). The in-stage collar is a damping term integrated explicitly, so a
+  where that run rejected a step the replay may choose a different order. The in-stage
+  collar is a damping term integrated explicitly, so a
   replayed step must keep $h\alpha/2$ inside the method's real stability interval —
   0.0877 for PEC5/6 against DOPRI5's 3.3 (the table above, extended to all orders in
   `solprop.stepper.multistep.PEC_REAL_INTERVAL`); the translation refuses a

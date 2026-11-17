@@ -84,7 +84,6 @@ response is declared.
 # knots.
 
 import time
-import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -92,7 +91,6 @@ from scipy.interpolate import CubicSpline
 
 from solprop.constants import C
 from solprop.driver import Simulation, prop_gnlse, prop_waveguide
-from solprop.exceptions import GeneralModalBasisWarning
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import (
     GradedIndexProvider,
@@ -102,13 +100,12 @@ from solprop.modes import (
     PowerLawPermittivity,
 )
 from solprop.modes.connection import modal_connection
+from solprop.modes.path import path_rule
 from solprop.nonlinear.gnlse import SpecifiedMode
 from solprop.processing import get_spectral_density
 from solprop.processing.modal import coordinate_intensity, reconstructed_flux
 from solprop.profiles import Linear, PiecewiseLinear
 from solprop.translate.coupled import advisory_step
-from solprop.translate.general import general_modal_route
-from solprop.translate.modal_path import path_rule
 
 ENTRANCE = 25e-6
 """Core radius at the entrance, m."""
@@ -403,11 +400,6 @@ fig.tight_layout()
 # line is the core's edge; the fields have fallen by four decades well inside it.
 
 guide, grid, run = linear_runs[0.2e-3]
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore", GeneralModalBasisWarning)
-    tables = general_modal_route(
-        guide, grid, z_max=0.2e-3, omega_reference=float(grid.omega0)
-    ).tables
 fig, axes = plt.subplots(1, 2, figsize=(9.0, 3.6), sharey=True)
 peak = None
 for ax, plane, title in (
@@ -419,11 +411,10 @@ for ax, plane, title in (
     radius = np.hypot(nodes.xy[:, 0], nodes.xy[:, 1])
     order = np.argsort(radius)
     total = np.max(
-        reconstructed_flux(run, tables, plane=plane, density=True, guide=guide), axis=-1
+        reconstructed_flux(run, plane=plane, density=True, guide=guide),
+        axis=-1,
     )
-    channels = np.max(
-        coordinate_intensity(run, tables, plane=plane, guide=guide), axis=-1
-    )
+    channels = np.max(coordinate_intensity(run, plane=plane, guide=guide), axis=-1)
     if peak is None:
         peak = float(np.max(total))
     ax.semilogy(radius[order] * 1e6, total[order] / peak, color="k", label="total")

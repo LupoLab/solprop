@@ -35,6 +35,7 @@ from optmat.gas.ionisation_rates import ionisation_rate_model
 from solprop.boundaries import absorber
 from solprop.constants import C
 from solprop.driver import prop_capillary
+from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import FieldGrid
 from solprop.nonlinear.optmat_raman import raman_status
 from solprop.nonlinear.optmat_rates import OptmatRate
@@ -96,7 +97,7 @@ def run(**choices):
     with warnings.catch_warnings():
         # The padded grid reaches beyond every model's qualified range; each run says
         # so once (MaterialRangeWarning), which is not this tutorial's point.
-        warnings.simplefilter("ignore")
+        warnings.simplefilter("ignore", MaterialRangeWarning)
         return prop_capillary(
             50e-6,
             LENGTH,

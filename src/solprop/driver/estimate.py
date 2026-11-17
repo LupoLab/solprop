@@ -4,11 +4,14 @@
 
 """What a run will cost, before it runs (SEP 41, S11).
 
-:func:`estimate` reports a translated simulation's grid, the persistent memory its
-constructed backend holds, the size of its output, the cost of one right-hand-side
-evaluation on the chosen backend timed after an untimed warm-up, and its integrator's
-calls per step. It does not predict the number of adaptive steps, which depends on the
-physics.
+:func:`estimate` returns a :class:`RunEstimate`: a translated simulation's grid, the
+persistent memory its constructed backend holds, the size of its output, the cost of
+one right-hand-side evaluation on the chosen backend timed after an untimed warm-up,
+and its integrator's calls per step. It does not predict the number of adaptive steps,
+which depends on the physics. :func:`output_bytes` sizes the output from
+:func:`plane_bytes`, one saved plane in memory, and :func:`field_bytes`, the part of it
+a plane that keeps no field does not hold. The manual page is
+``docs/guide/setup/running.md`` ("What a run will cost").
 """
 
 import math
@@ -144,7 +147,7 @@ def estimate(
         The estimate.
     """
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     settings = simulation.settings
     n_planes = request.observation.save_planes.size + 1
     size = output_bytes(simulation)
@@ -224,7 +227,7 @@ def output_bytes(simulation: "Simulation") -> int:
         Bytes.
     """
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     settings = simulation.settings
     retention = field_retention(request, settings.fields, settings.field_planes)
     n_planes = request.observation.save_planes.size + 1
@@ -263,7 +266,7 @@ def plane_bytes(problem: PropagationProblem, stats: StatsSpec) -> int:
     ...     width=100e-15, peak_power=9.8, shape="sech",
     ... )
     >>> problem = simulation.translate()
-    >>> stats = simulation._run_request().observation.stats
+    >>> stats = simulation.run_request().observation.stats
     >>> plane_bytes(problem, stats) >= 16 * problem.shape[-1]
     True
     """

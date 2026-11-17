@@ -41,15 +41,14 @@ What this example checks:
   physical launch as a combination of two of its own runs; carried back through
   ``U^H`` it must be the rotated run. The two share no execution path below the guide
   -- one is a coupled matrix flow, the other two diagonal exponentials -- and agree
-  to ``8.4e-6`` in each channel's modulus and ``2.1e-5`` rad in the phase between
+  to ``2.8e-6`` in each channel's modulus and ``2.1e-6`` rad in the phase between
   them, inside the grid's declared window;
 * **the flow moves power.** Over a millimetre a launch into one rotated channel
-  arrives with ``3.8e-3`` of it in the other, which is ``sin^2(|G_01| z)`` of the
-  block's own off-diagonal to about one per cent -- the grid's temporal-window
-  absorber, a convolution in frequency, attenuates the two channels' different
-  spectra differently, and contributes to the difference. Agreement is assessed at
-  finite
-  frequency, interpolation and stepping resolution.
+  arrives with about ``3.6e-3`` of it in the other near 835 nm (from ``2.7e-3`` at
+  773 nm to ``4.7e-3`` at 900 nm, as ``|G_01|`` grows with wavelength), which is
+  ``sin^2(|G_01| z)`` of the block's own off-diagonal to ``5e-4`` in every bin of the
+  declared window. Agreement is assessed at finite frequency, interpolation and
+  stepping resolution.
 
 **The approximation, in one sentence:** none is added to the propagation -- the
 coupled flow is the same linear physics in other coordinates -- but a rotated
@@ -58,7 +57,7 @@ surrogate area and the labels need and is *not* what the channel propagates with
 because it beats. This per-channel index is a surrogate, and a known limitation of a
 coupled block; for the same reason the route withholds ``zdw`` on one.
 
-.. GENERATED FROM PYTHON SOURCE LINES 46-57
+.. GENERATED FROM PYTHON SOURCE LINES 45-56
 
 .. code-block:: Python
 
@@ -80,7 +79,7 @@ coupled block; for the same reason the route withholds ``zdw`` on one.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 58-68
+.. GENERATED FROM PYTHON SOURCE LINES 57-67
 
 The guide, twice
 ----------------
@@ -88,17 +87,17 @@ The guide, twice
 A 6 um silica-like core in a 1.40 cladding, and its two ``LP_11`` members of
 azimuthal order zero. Both regions are linear -- this example is about the linear
 flow, and a guide whose regions declare no response skips the source pass
-entirely. The knots cover the grid's whole *active* band, which is about twice the
-declared one; seventeen of them, because the splitting is a small difference of
+entirely. The knots cover the grid's whole *active* band, several times as wide as
+the declared one; seventeen of them, because the splitting is a small difference of
 two large propagation constants and reproducing it between the knots costs more
 of them than reproducing either.
 
-.. GENERATED FROM PYTHON SOURCE LINES 68-119
+.. GENERATED FROM PYTHON SOURCE LINES 67-118
 
 .. code-block:: Python
 
     length = 1e-3
-    grid = FieldGrid.from_limits(length, 835e-9, (815e-9, 860e-9), 60e-15)
+    grid = FieldGrid.from_limits(length, 835e-9, (770e-9, 910e-9), 150e-15)
     core, cladding = IndexMaterial(1.45), IndexMaterial(1.40)
     pair = tuple(
         StepIndexMode(
@@ -156,13 +155,13 @@ of them than reproducing either.
 
  .. code-block:: none
 
-    provider's own  channels' neff: 1.447784078695, 1.447768126580
-    rotated         channels' neff: 1.447776102638, 1.447776102638
+    provider's own  channels' neff: 1.447784078949, 1.447768126839
+    rotated         channels' neff: 1.447776102894, 1.447776102894
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 120-126
+.. GENERATED FROM PYTHON SOURCE LINES 119-125
 
 The rotated channels report one and the same ``neff``: the block's mean, which is
 not a propagation constant of either.
@@ -171,7 +170,7 @@ Three runs of a millimetre in ten steps on ``numpy_ref`` (the native backend exe
 the leaf too): the rotated guide launched into its first channel, and the plain guide
 launched into each of its two.
 
-.. GENERATED FROM PYTHON SOURCE LINES 126-158
+.. GENERATED FROM PYTHON SOURCE LINES 125-157
 
 .. code-block:: Python
 
@@ -215,28 +214,22 @@ launched into each of its two.
 
  .. code-block:: none
 
-    BoundaryWarning: at the launch the square root of the time window's guard occupancy is 1.05e-03, above the 1e-03 budget: the window clips the input, which can seed spurious radiation; widen trange or move the launch
-    BoundaryWarning: the temporal collar removed 1.12e-02 of the launch energy, whose square root is above the 1e-03 budget: what left the window may have mattered; widen trange to keep it
-    BoundaryWarning: at the launch the square root of the time window's guard occupancy is 1.05e-03, above the 1e-03 budget: the window clips the input, which can seed spurious radiation; widen trange or move the launch
-    BoundaryWarning: the temporal collar removed 1.12e-02 of the launch energy, whose square root is above the 1e-03 budget: what left the window may have mattered; widen trange to keep it
-    BoundaryWarning: at the launch the square root of the time window's guard occupancy is 1.05e-03, above the 1e-03 budget: the window clips the input, which can seed spurious radiation; widen trange or move the launch
-    BoundaryWarning: the temporal collar removed 1.12e-02 of the launch energy, whose square root is above the 1e-03 budget: what left the window may have mattered; widen trange to keep it
-    declared channel basis ['constant_schur'] largest coupling 179.692
+    declared channel basis ['constant_schur'] largest coupling 203.015
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 159-162
+.. GENERATED FROM PYTHON SOURCE LINES 158-161
 
-The comparison, plane by plane, inside the declared 815--860 nm window: outside it
+The comparison, plane by plane, inside the declared 770--910 nm window: outside it
 the grid carries the absorbing collar, which two guides with different index tables
-carry differently, and the same comparison reads 1e-3 there.
+carry differently, and the same comparison reads 2e-2 there.
 
-.. GENERATED FROM PYTHON SOURCE LINES 162-242
+.. GENERATED FROM PYTHON SOURCE LINES 161-244
 
 .. code-block:: Python
 
-    low, high = (2.0 * np.pi * C / one for one in (860e-9, 815e-9))
+    low, high = (2.0 * np.pi * C / one for one in (910e-9, 770e-9))
     window = (grid.omega >= low) & (grid.omega <= high)
     matrix = basis.transform
     block = problem.linear.coupled_flow.generator[0, 0]
@@ -289,25 +282,28 @@ carry differently, and the same comparison reads 1e-3 there.
 
     fig, ax = plt.subplots(figsize=(6.4, 3.6), constrained_layout=True)
     fine = np.linspace(0.0, length, 101)
-    for column in range(shares.shape[1]):
-        wavelength = 2.0 * np.pi * C / grid.omega[window][column] * 1e9
+    # One colour per in-band bin, from red to blue; the legend names the three kinds of
+    # mark and the colour bar the wavelengths.
+    wavelengths = 2.0 * np.pi * C / grid.omega[window] * 1e9
+    colours = plt.get_cmap("viridis")
+    scale = plt.Normalize(float(wavelengths.min()), float(wavelengths.max()))
+    for column, wavelength in enumerate(wavelengths):
+        colour = colours(scale(wavelength))
         ax.plot(
             fine * 1e3,
             np.sin(coupling[column] * fine) ** 2,
             "--",
-            color=f"C{column}",
+            color=colour,
             linewidth=0.8,
-            label=rf"$\sin^2(|G_{{01}}|z)$ at {wavelength:.0f} nm",
         )
-        ax.plot(
-            z * 1e3,
-            shares[:, column],
-            "o",
-            color=f"C{column}",
-            label=f"rotated basis, {wavelength:.0f} nm",
-        )
-        ax.plot(z * 1e3, carried_shares[:, column], "x", color="k", markersize=5)
+        ax.plot(z * 1e3, shares[:, column], "o", color=colour, markersize=4)
+        ax.plot(z * 1e3, carried_shares[:, column], "x", color="k", markersize=4)
+    ax.plot([], [], "--", color="0.4", linewidth=0.8, label=r"$\sin^2(|G_{01}|z)$")
+    ax.plot([], [], "o", color="0.4", markersize=4, label="rotated basis")
     ax.plot([], [], "x", color="k", label="provider's basis, carried through U^H")
+    fig.colorbar(
+        plt.cm.ScalarMappable(norm=scale, cmap=colours), ax=ax, label="Wavelength (nm)"
+    )
     ax.set(
         xlabel="z (mm)",
         ylabel="Share in the other rotated channel",
@@ -329,13 +325,13 @@ carry differently, and the same comparison reads 1e-3 there.
 
  .. code-block:: none
 
-    two bases at the exit: modulus 1.10e-06, relative phase 3.18e-05 rad
-    share in the other rotated channel at 1 mm: 3.6635e-03; sin^2(|G_01| L): 3.6944e-03
+    two bases at the exit: modulus 2.79e-06, relative phase 2.12e-06 rad
+    share in the other rotated channel at 1 mm: 4.6839e-03, 4.4649e-03, 4.2602e-03, 4.0671e-03, 3.8840e-03, 3.7116e-03, 3.5484e-03, 3.3937e-03, 3.2479e-03, 3.1091e-03, 2.9777e-03, 2.8544e-03, 2.7343e-03; sin^2(|G_01| L): 4.6825e-03, 4.4652e-03, 4.2603e-03, 4.0669e-03, 3.8842e-03, 3.7115e-03, 3.5483e-03, 3.3939e-03, 3.2477e-03, 3.1092e-03, 2.9780e-03, 2.8536e-03, 2.7355e-03
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 243-249
+.. GENERATED FROM PYTHON SOURCE LINES 245-251
 
 Related reading
 ---------------
@@ -347,7 +343,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 4.045 seconds)
+   **Total running time of the script:** (0 minutes 2.854 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_07_split_block.py:

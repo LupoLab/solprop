@@ -2,14 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
+from solprop._validation import choice
+from solprop.constants import C
 from solprop.exceptions import ModeError, ProcessingError
+from solprop.output import open_file
 from solprop.plotting import propagation, style
+from solprop.processing import get_power
 from solprop.processing._examples import example_output
-from solprop.processing.axes import _check_choice
+from solprop.processing.axes import grid_of
 
 
 def test_prop_2d_draws_one_figure_of_two_panels_for_one_mode(single):
@@ -18,7 +23,7 @@ def test_prop_2d_draws_one_figure_of_two_panels_for_one_mode(single):
     # Two maps and the colour bar of each.
     assert len(figures[0].axes) == 4
     spectral, temporal = figures[0].axes[0], figures[0].axes[1]
-    assert spectral.get_xlabel() == "Frequency (PHz)"
+    assert spectral.get_xlabel() == "Wavelength (nm)"
     assert spectral.get_ylabel() == "Distance (cm)"
     assert temporal.get_xlabel() == "Time (fs)"
     # The maps are raster images inside a vector figure: a PDF stays small.
@@ -70,21 +75,62 @@ def test_prop_2d_takes_a_frequency_range_in_hertz(single):
     assert figures[0].axes[0].get_xlim() == pytest.approx((0.0, 2.0))
 
 
-def test_a_wavelength_range_on_the_default_frequency_axis_is_refused(single):
-    """``prop_2d`` alone defaults to Hz: the refusal says so, not a NumPy error."""
+def test_a_wavelength_range_on_a_frequency_axis_is_refused(single):
+    """The refusal names the axis and its unit, not a NumPy error."""
     with pytest.raises(ProcessingError, match=r"on the 'f' axis.* Hz"):
-        propagation.prop_2d(single, spec_range=(600e-9, 1.1e-6))
+        propagation.prop_2d(single, "f", spec_range=(600e-9, 1.1e-6))
     with pytest.raises(ProcessingError, match=r"on the 'f' axis.* Hz"):
         propagation.spec_1d(single, 0.0, "f", spec_range=(600e-9, 1.1e-6))
     plt.close("all")
 
 
-def test_prop_2d_shows_the_default_wavelength_range_on_any_axis(single):
-    figures = propagation.prop_2d(single, "f")
-    expected = style.wavelength_to_axis("f", propagation.DEFAULT_WAVELENGTH_RANGE)
-    assert figures[0].axes[0].get_xlim() == pytest.approx(
-        (expected[0] * 1e-15, expected[1] * 1e-15)
+@pytest.mark.parametrize("axis", ["wavelength", "f", "omega"])
+def test_every_plot_shows_the_run_band_by_default(single, axis):
+    grid = grid_of(single)
+    band = (2 * np.pi * C / grid.omega_max, 2 * np.pi * C / grid.omega_min)
+    # The example grid is declared over 400 nm to 2 um.
+    assert band == pytest.approx((400e-9, 2e-6), rel=1e-12)
+    expected = style.wavelength_to_axis(axis, band)
+    factor, _ = style.spectral_display(axis)
+    shown = (expected[0] * factor, expected[1] * factor)
+    assert propagation.default_spec_range(single, axis) == expected
+    assert propagation.prop_2d(single, axis)[0].axes[0].get_xlim() == pytest.approx(
+        shown
     )
+    assert propagation.spec_1d(single, None, axis).axes[0].get_xlim() == pytest.approx(
+        shown
+    )
+    plt.close("all")
+
+
+def test_the_default_time_range_holds_the_light_of_every_trace():
+    t = np.linspace(-10e-12, 10e-12, 20001)
+    early = np.exp(-(((t + 3e-12) / 0.5e-12) ** 2))
+    late = np.exp(-(((t - 1e-12) / 0.1e-12) ** 2))
+    low, high = propagation.default_time_range(t, np.stack([early, late]))
+    # exp(-(t/tau)^2) leaves 5e-4 of its energy beyond 2.3268 tau on each side
+    # (erf(2.3268) = 0.999); the span is then widened by a quarter of itself.
+    first, last = -3e-12 - 2.3268 * 0.5e-12, 1e-12 + 2.3268 * 0.1e-12
+    margin = 0.25 * (last - first)
+    # Both edges land on a sample of the 1 fs axis: two samples of cover.
+    assert low == pytest.approx(first - margin, abs=2e-15)
+    assert high == pytest.approx(last + margin, abs=2e-15)
+    # A dark set of traces shows the whole window; an edge is not passed.
+    assert propagation.default_time_range(t, np.zeros((2, t.size))) == (t[0], t[-1])
+    edge = np.zeros_like(t)
+    edge[0] = 1.0
+    assert propagation.default_time_range(t, edge)[0] == t[0]
+
+
+def test_the_plots_follow_the_pulse_by_default(single):
+    """The time axis is where the drawn light is, not a fixed window."""
+    t, power = get_power(single, plane=-1, oversampling=4)
+    expected = propagation.default_time_range(t, power)
+    shown = propagation.time_1d(single).axes[0].get_xlim()
+    assert shown == pytest.approx((expected[0] * 1e15, expected[1] * 1e15), rel=1e-6)
+    temporal = propagation.prop_2d(single)[0].axes[1].get_xlim()
+    assert temporal[0] <= shown[0] and temporal[1] >= shown[1]
+    plt.close("all")
 
 
 def test_prop_2d_puts_the_peak_at_zero_decibels(single):
@@ -116,10 +162,31 @@ def test_prop_2d_reads_a_file_handler_the_same_way(single, on_file):
     assert np.array_equal(np.asarray(memory), np.asarray(from_file))
 
 
+def test_prop_2d_reads_a_finished_file_run_through_its_closed_handler(single, tmp_path):
+    """A run written to a file comes back closed and is plotted as it is."""
+    path = tmp_path / "run.h5"
+    single.to_file(path)
+    closed = open_file(path)
+    closed.close()
+    memory = propagation.prop_2d(single)[0].axes[0].collections[0].get_array()
+    from_file = propagation.prop_2d(closed)[0].axes[0].collections[0].get_array()
+    assert np.array_equal(np.asarray(memory), np.asarray(from_file))
+    assert np.array_equal(closed["field"], single["field"])
+    # Nothing is left open: the file can be written to again.
+    with h5py.File(path, "r+"):
+        pass
+    plt.close("all")
+
+
 def test_time_1d_draws_the_end_of_the_run_by_default(single):
     figure = propagation.time_1d(single)
     (line,) = figure.axes[0].lines
     assert "10.00 cm" in str(line.get_label())
+
+
+def test_time_1d_draws_the_time_range_it_is_given(single):
+    figure = propagation.time_1d(single, time_range=(-30e-15, 40e-15))
+    assert figure.axes[0].get_xlim() == pytest.approx((-30.0, 40.0))
 
 
 def test_time_1d_draws_one_line_per_position(single):
@@ -160,8 +227,11 @@ def test_time_1d_draws_into_a_given_axis(single):
 
 
 def test_time_1d_refuses_an_unknown_quantity():
-    with pytest.raises(ProcessingError, match="quantity must be one of"):
-        _check_choice("intensity", propagation.SLICE_QUANTITIES, "quantity")
+    with pytest.raises(
+        ProcessingError,
+        match="quantity must be 'power', 'field' or 'field_squared', got 'intensity'",
+    ):
+        choice("intensity", "quantity", propagation.SLICE_QUANTITIES, ProcessingError)
 
 
 def test_time_1d_sums_the_modes_when_asked(multimode):
@@ -181,6 +251,16 @@ def test_spec_1d_uses_a_logarithmic_ordinate_by_default(single):
     assert ax.get_xlabel() == "Wavelength (nm)"
     assert ax.get_ylabel() == "Spectral energy density (J/m)"
     assert len(ax.lines) == 2
+
+
+def test_spec_1d_floors_its_ordinate_in_decibels(single):
+    """Sixty decibels below the peak by default, as the maps' colour scale is."""
+    for db_min, ratio in ((-60.0, 1e-6), (-30.0, 1e-3)):
+        figure = propagation.spec_1d(single, 0.0, db_min=db_min)
+        bottom, top = figure.axes[0].get_ylim()
+        # The top is three times the peak, so the bottom is the peak times 10**(dB/10).
+        assert bottom / (top / 3.0) == pytest.approx(ratio, rel=1e-12)
+    plt.close("all")
 
 
 def test_spec_1d_can_use_a_linear_ordinate(single):

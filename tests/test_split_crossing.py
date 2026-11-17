@@ -18,14 +18,20 @@ from __future__ import annotations
 import dataclasses
 import logging
 import math
+from typing import Any, cast
 
 import numpy as np
 import pytest
 
-import solprop.translate.problem as problem_module
-from monitor_cases import as_driver
-from solprop.backends.protocol import stepping
+import solprop.translate.assembly as assembly_module
+from builders import load_reference
+from monitor_cases import as_reference, reading
+from sessions.runs import run as session_run
+from sessions.runs import to_planes
+from solprop.backends.events import ObservationReady
 from solprop.backends.registry import available, select
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.boundaries import (
     SPLIT_CROSSING,
     SPLIT_RATE_BUCKETS,
@@ -95,7 +101,7 @@ def _gnlse(
 def _radial(backend: str) -> Simulation:
     """Return a 1 pJ pulse at 1150 nm in 60 bar of argon on a 400 fs window."""
     grid = FieldGrid.from_limits(1.0, 800e-9, (500e-9, 1.3e-6), 400e-15)
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(1.2e-2, 16),
         SpatialMedium("Ar", 60.0),
@@ -139,7 +145,7 @@ def test_a_radial_pulse_that_walked_out_leaves_the_window(backend: str) -> None:
 def test_the_launch_s_limit_holds_dz_max() -> None:
     simulation = _gnlse("numpy_ref", Multistep())
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     crossing = problem.split_crossing
     assert crossing is not None
     width = min(GRID.t_collar.width_low, GRID.t_collar.width_high)
@@ -149,8 +155,7 @@ def test_the_launch_s_limit_holds_dz_max() -> None:
     # pulse's, within a bucket's 18 % and the pulse's spectral width.
     rate = SPLIT_CROSSING * width / crossing.launch_limit
     assert GRID.n_t * GRID.dt < rate < 2.0 * GRID.n_t * GRID.dt
-    # The occupancy reads the state behind its private leading axis of one.
-    limit = crossing.limit(crossing.occupancy(problem.initial.field0[np.newaxis]))
+    limit = crossing.limit(crossing.occupancy(problem.initial.field0))
     assert crossing.launch_limit == limit
     assert run_request.stepper.dz_max == limit
     assert run_request.stepper.dz_init <= limit
@@ -159,7 +164,7 @@ def test_the_launch_s_limit_holds_dz_max() -> None:
 def test_the_in_stage_scheme_keeps_its_step_bounds() -> None:
     simulation = _gnlse("numpy_ref", Multistep(), scheme="nonlinear", dz_max=1.0)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     assert problem.split_crossing is None
     assert run_request.stepper.dz_max == 1.0
 
@@ -174,7 +179,7 @@ def test_a_fixed_schedule_past_the_launch_s_limit_is_refused() -> None:
 def test_a_fixed_schedule_within_the_launch_s_limit_runs() -> None:
     schedule = FixedSchedule.uniform(0.0, 1.0, 1 / 100, save_planes=[1.0])
     simulation = _gnlse("numpy_ref", RungeKutta(), schedule=schedule)
-    assert simulation._run_request().stepper.schedule is not None
+    assert simulation.run_request().stepper.schedule is not None
 
 
 def _spreading(backend: str) -> Simulation:
@@ -221,7 +226,7 @@ def _beam(backend: str, nodes: int, trange: float, fraction: float) -> Simulatio
     index = float(np.real(medium.index(np.array([2 * math.pi * C / 800e-9]))[0]))
     power = fraction * critical_power(800e-9, chi3 * density, index=index)
     energy = power * 50e-15 * math.sqrt(math.pi / (4 * math.log(2)))
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(1e-3, nodes),
         medium,
@@ -251,12 +256,35 @@ def _accepted(simulation: Simulation) -> int:
     )
 
 
+BEAMS = {
+    "256-169fs": (256, 800e-15),
+    "256-70fs": (256, 500e-15),
+    "512-169fs": (512, 800e-15),
+    "512-70fs": (512, 500e-15),
+}
+"""The free-space beams by their test IDs: nodes and time window."""
+
+MEDIUM_BEAMS = {
+    ("numpy_ref", "256-169fs"),
+    ("numpy_ref", "512-70fs"),
+    ("native", "512-169fs"),
+}
+"""The beams whose two runs take more than ten seconds (CI, macOS arm64)."""
+
+
 @pytest.mark.parametrize(
-    ("nodes", "trange"),
-    [(256, 800e-15), (256, 500e-15), (512, 800e-15), (512, 500e-15)],
-    ids=["256-169fs", "256-70fs", "512-169fs", "512-70fs"],
+    ("backend", "nodes", "trange"),
+    [
+        pytest.param(
+            backend,
+            *BEAMS[beam],
+            id=f"{backend}-{beam}",
+            marks=[pytest.mark.medium] if (backend, beam) in MEDIUM_BEAMS else [],
+        )
+        for backend in ("numpy_ref", "native")
+        for beam in BEAMS
+    ],
 )
-@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_a_free_space_beam_keeps_its_steps(
     backend: str, nodes: int, trange: float, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -265,7 +293,7 @@ def test_a_free_space_beam_keeps_its_steps(
     # is, the limit stays above every step the runs take.
     _require(backend)
     clamped = _accepted(_beam(backend, nodes, trange, 0.01))
-    monkeypatch.setattr(problem_module, "_split_crossing", lambda *_: None)
+    monkeypatch.setattr(assembly_module, "_split_crossing", lambda *_: None)
     assert clamped == _accepted(_beam(backend, nodes, trange, 0.01))
 
 
@@ -274,22 +302,33 @@ def test_the_cap_tightens_as_the_beam_self_focuses() -> None:
     # widen, and the cap read at the checks falls to about half the launch's.
     simulation = _beam("numpy_ref", 256, 500e-15, 0.5)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     crossing = problem.split_crossing
     assert crossing is not None
-    backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
+    planes = [float(z) for z in np.linspace(0.005, 0.05, 10)]
+    request = to_planes(run_request, planes)
+    backend = select("numpy_ref", problem, request, grid=simulation.grid)
     try:
-        driver = as_driver(backend)
-        driver.set_initial(problem.initial.field0, None)
+        # The launch's reading gives the launch's limit, as an attached monitor reads.
+        load_reference(backend)
+        launched = simulation._boundary_monitor()
+        assert launched is not None
+        launched.crossing = crossing
+        as_reference(backend).workspace.bind_monitor(launched)
+        launched.launch(reading(backend), float(problem.initial.z))
+        assert launched.step_cap == crossing.launch_limit
         monitor = simulation._boundary_monitor()
         assert monitor is not None
-        driver.attach_monitor(monitor)
-        assert monitor.step_cap == crossing.launch_limit
-        tightest = monitor.step_cap
-        for z in np.linspace(0.005, 0.05, 10):
-            stepping(backend).propagate_to(float(z))
-            tightest = min(tightest, monitor.step_cap)
-        assert tightest < 0.7 * crossing.launch_limit
+        caps: list[float] = []
+
+        def keep(session: object, batch: object) -> None:
+            for event in batch.events:  # pyright: ignore[reportAttributeAccessIssue]
+                if isinstance(event, ObservationReady) and event.z > 0.0:
+                    caps.append(monitor.step_cap)
+
+        session_run(backend, problem, request.for_run(monitor=monitor), between=keep)
+        assert len(caps) == len(planes)
+        assert min(caps) < 0.7 * crossing.launch_limit
     finally:
         backend.close()
 
@@ -299,7 +338,7 @@ def test_nothing_walking_sets_no_limit() -> None:
 
 
 def test_lowering_dz_max_is_logged(caplog: pytest.LogCaptureFixture) -> None:
-    with caplog.at_level(logging.INFO, logger="solprop.translate.problem"):
+    with caplog.at_level(logging.INFO, logger="solprop.translate.assembly"):
         _gnlse("numpy_ref", Multistep(), dz_max=1.0).translate()
     assert any("crossing limit holds dz_max" in one.message for one in caplog.records)
 
@@ -307,8 +346,8 @@ def test_lowering_dz_max_is_logged(caplog: pytest.LogCaptureFixture) -> None:
 def test_a_dz_max_within_the_limit_is_kept_and_not_logged(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    with caplog.at_level(logging.INFO, logger="solprop.translate.problem"):
-        run_request = _gnlse("numpy_ref", Multistep(), dz_max=5e-3)._run_request()
+    with caplog.at_level(logging.INFO, logger="solprop.translate.assembly"):
+        run_request = _gnlse("numpy_ref", Multistep(), dz_max=5e-3).run_request()
     assert run_request.stepper.dz_max == 5e-3
     assert not any("crossing limit" in one.message for one in caplog.records)
 
@@ -318,7 +357,7 @@ def test_every_polarisation_is_read() -> None:
     # the second polarisation for one mode and in the first for the other.
     omega = np.linspace(1.0e15, 3.0e15, 201)
     quadratic = -1j * 0.5 * (omega - 2.0e15) ** 2
-    beta2 = np.array([[[1e-26, 2e-26], [4e-26, 1e-26]]])
+    beta2 = np.array([[1e-26, 2e-26], [4e-26, 1e-26]])
     table = constant_phi(beta2[..., None] * quadratic, 1.0)
     buckets, _ = walk_off_buckets(table, omega, np.ones(201, dtype=bool))
     rates = split_bucket_rates()[buckets[:, 150]]  # 5e14 rad/s from the reference
@@ -355,7 +394,7 @@ def test_a_rate_past_the_fastest_edge_is_counted_at_its_own() -> None:
     # first bucket takes that rate, so its limit is no longer than its own.
     buckets = split_rate_buckets(np.array([[1e-6, 1e-12]]))
     crossing = SplitCrossing(buckets, 1e-13, fastest=1e-6)
-    occupancy = crossing.occupancy(np.array([[[[1.0, 1.0]]]], dtype=complex))
+    occupancy = crossing.occupancy(np.array([[[1.0, 1.0]]], dtype=complex))
     assert crossing.limit(occupancy) == pytest.approx(split_crossing_step(1e-6, 1e-13))
 
 
@@ -402,22 +441,34 @@ def test_a_longer_step_before_the_next_check_is_refused() -> None:
     # schedule's third, 5 cm, is held to it too, and refused.
     simulation = _scheduled("numpy_ref", np.array([0.01, 0.01, 0.05, 0.05]))
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
     try:
-        driver = as_driver(backend)
-        driver.set_initial(problem.initial.field0, None)
         monitor = simulation._boundary_monitor()
         assert monitor is not None
-        driver.attach_monitor(monitor)
-        monitor._cap = 0.03
-        monitor._busy = True
-        assert monitor.steps_to_check() == 1
-        driver._refuse_scheduled_crossing(monitor)
-        monitor._busy = False
-        assert monitor.steps_to_check() >= 3
-        with pytest.raises(BoundaryError, match=r"schedule's step 5\.000e-02 m"):
-            driver._refuse_scheduled_crossing(monitor)
+        session = start_session(
+            backend,
+            problem,
+            run_request.for_run(monitor=monitor),
+            Start.entrance(problem),
+            owns=False,
+        )
+        try:
+            # The monitor launched on the loaded state, as the session attaches it.
+            monitor.crossing = problem.split_crossing
+            as_reference(backend).workspace.bind_monitor(monitor)
+            monitor.launch(reading(backend), float(problem.initial.z))
+            refuse = cast("Any", session)._refuse_scheduled_crossing
+            monitor._cap = 0.03
+            monitor._busy = True
+            assert monitor.steps_to_check() == 1
+            refuse(monitor)
+            monitor._busy = False
+            assert monitor.steps_to_check() >= 3
+            with pytest.raises(BoundaryError, match=r"schedule's step 5\.000e-02 m"):
+                refuse(monitor)
+        finally:
+            session.close()
     finally:
         backend.close()
 
@@ -427,7 +478,7 @@ def test_a_state_that_walks_past_the_schedule_is_refused_when_watched() -> None:
     # energy to the band's blue edge, whose limit is below its 5 cm steps.
     simulation = _scheduled("numpy_ref", np.full(4, 0.05))
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     grid = simulation.grid
     edge = int(np.argmax(np.where(grid.active_mask, grid.omega, -np.inf)))
     state = np.array(problem.initial.field0)
@@ -435,8 +486,6 @@ def test_a_state_that_walks_past_the_schedule_is_refused_when_watched() -> None:
     state[..., edge - 2 : edge] = math.sqrt(5e-4 * total)
     backend = select("numpy_ref", problem, run_request, grid=grid)
     try:
-        driver = as_driver(backend)
-        driver.set_initial(state, None)
         # Relaxed: the spread light fills the window, guards included.
         simulation.settings = dataclasses.replace(
             simulation.settings,
@@ -444,8 +493,14 @@ def test_a_state_that_walks_past_the_schedule_is_refused_when_watched() -> None:
         )
         monitor = simulation._boundary_monitor()
         assert monitor is not None
+        # The session attaches its monitor after the launch plane, and refuses there.
         with pytest.raises(BoundaryError, match="crossing limit fell to"):
-            driver.attach_monitor(monitor)
+            session_run(
+                backend,
+                problem,
+                run_request.for_run(monitor=monitor),
+                Start(field=state, z=float(problem.initial.z)),
+            )
     finally:
         backend.close()
 
@@ -464,7 +519,7 @@ def test_a_split_reading_without_the_occupancy_is_refused() -> None:
     monitor = simulation._boundary_monitor()
     assert monitor is not None
     monitor.crossing = problem.split_crossing
-    reading = monitor.energies(problem.initial.field0[np.newaxis])
+    reading = monitor.energies(problem.initial.field0)
     with pytest.raises(BackendError, match="occupancy"):
         monitor.launch(reading, 0.0)
 
@@ -498,11 +553,10 @@ def test_a_coupled_taper_s_channels_walk_at_their_own_rates() -> None:
     inband = coupled.grids.inband_mask
     assert np.min(crossing.buckets[2][inband]) < np.min(crossing.buckets[0][inband])
     # Light in the third mode alone bounds the cap below light in the first alone.
-    # The occupancy reads the state behind its private leading axis of one.
-    launch = np.asarray(coupled.initial.field0)[np.newaxis]
+    launch = np.asarray(coupled.initial.field0)
     alone = [np.zeros_like(launch) for _ in range(2)]
-    alone[0][:, 0] = launch[:, 0]
-    alone[1][:, 2] = launch[:, 0]
+    alone[0][0] = launch[0]
+    alone[1][2] = launch[0]
     first, third = (crossing.limit(crossing.occupancy(state)) for state in alone)
     assert third < 0.2 * first
 

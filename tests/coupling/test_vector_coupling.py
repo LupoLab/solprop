@@ -20,6 +20,7 @@ from typing import cast
 import numpy as np
 import pytest
 
+from builders import held_collar
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop.constants import C
 from solprop.coupling import (
@@ -75,8 +76,8 @@ def strand(grid, descriptors=PARITIES[:1], blocks=(), n_r=24, circular=None):
 
 @pytest.fixture(scope="module")
 def grid():
-    """The general modal tests' field grid."""
-    return general_grid()
+    """The general modal tests' field grid, at the tenth of a millimetre they run."""
+    return general_grid(GENERAL_Z_END / 10)
 
 
 def simulation(guide, grid):
@@ -94,6 +95,8 @@ def simulation(guide, grid):
         dz_max=GENERAL_Z_END / 20,
         dz_init=GENERAL_Z_END / 20,
         n_save=2,
+        # The collar of the millimetre grid these tests were written on (SEP 51).
+        absorber=held_collar(grid, GENERAL_Z_END),
         noise=None,
     )
 

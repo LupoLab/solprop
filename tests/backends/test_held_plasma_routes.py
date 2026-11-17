@@ -8,13 +8,19 @@ import dataclasses
 
 import numpy as np
 import pytest
-from tests.backends.test_band_plasma_parity import CASES, case, options_for
+from tests.backends.plasma_column_cases import CASES, case, options_for
 from tests.backends.test_radial_nonlinear import derivative
 from tests.bounds import gamma
-from tests.driver.test_prop_capillary import build
 
-from gated_source import _gated_source
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.plasma import plasma_channels_current
+from solprop.backends.numpy_ref.passes.responses import nonlinear_polarisation
+from solprop.backends.numpy_ref.passes.transforms import (
+    project,
+    synthesise,
+    to_frequency,
+    to_time,
+)
 from solprop.backends.session import ExecutionOptions
 from solprop.translate.plasma_integration import design_running_integral
 from solprop.translate.stage import scalars
@@ -53,15 +59,15 @@ def test_source_chunking_and_zero_after_a_nonzero_evaluation(name, rule):
         options=ExecutionOptions(node_chunk=problem.transform.n_nodes),
     )
     try:
-        bundle = backend._stage_scalars(0.0, 0.0)
-        state = problem.initial.field0[None]
+        bundle = backend.workspace.stage_scalars(0.0, 0.0)
+        state = problem.initial.field0
         ones = np.ones_like(state)
-        backend._hoist(0.0)
-        result = backend._nonlinear(state, bundle, ones)[0]
+        backend.workspace.hoist(0.0)
+        result = backend.workspace.nonlinear(state, bundle, ones)
         allowance = relative * np.max(abs(reference))
         assert allowance > 0
         assert np.max(abs(result - reference)) <= allowance
-        zero = backend._nonlinear(np.zeros_like(state), bundle, ones)
+        zero = backend.workspace.nonlinear(np.zeros_like(state), bundle, ones)
         assert np.array_equal(zero, np.zeros_like(zero))
         assert np.array_equal(
             result[..., ~grid.active_mask],
@@ -71,56 +77,24 @@ def test_source_chunking_and_zero_after_a_nonzero_evaluation(name, rule):
         backend.close()
 
 
-@pytest.mark.parametrize("name", ["mode_averaged", "analytic", "multimode", "mixture"])
-def test_removing_kerr_does_not_change_the_held_minus_gated_source(name):
-    grid, problem, run_request = case(name)
-    kerr = problem.responses.kerr_coefficients
-    assert kerr is not None
-    absent = dataclasses.replace(
-        problem,
-        responses=dataclasses.replace(
-            problem.responses,
-            kerr_coefficients=dataclasses.replace(kerr, coefficient=0.0),
-        ),
-    )
-
-    # Linear source separation: cancellation can hide the plasma difference, so
-    # scale by the four original operands, never by the difference under test.
-    relative = gamma(64 * grid.n_to + 32 * problem.transform.n_nodes)
-    results = []
-    for value in (problem, absent):
-        held = derivative(NumpyRefBackend, value, run_request, grid)
-        with _gated_source():
-            gated = derivative(NumpyRefBackend, value, run_request, grid)
-        results.append((held, gated))
-    allowance = relative * sum(np.max(abs(item)) for pair in results for item in pair)
-    assert allowance > 0
-    assert (
-        np.max(abs((results[0][0] - results[0][1]) - (results[1][0] - results[1][1])))
-        <= allowance
-    )
-
-
 def test_mixture_production_assembles_both_current_channels():
     grid, problem, run_request = case("mixture")
     bundle = scalars(problem, 0.0, 0.0)
     transform, grids = problem.transform, problem.grids
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        backend._hoist(0.0)
-        nodes = passes.synthesise(
-            passes.to_time(
-                problem.initial.field0, grids.crop_index, grids.n_to, kind="field"
-            ),
+        backend.workspace.hoist(0.0)
+        nodes = synthesise(
+            to_time(problem.initial.field0, grids.crop_index, grids.n_to, kind="field"),
             transform.synthesis,
             bundle.taper_scale,
             transform.n_pol,
         )
-        sources = backend._column_sources(nodes, bundle, None)
+        sources = backend.workspace.stage_source._column_sources(nodes, bundle, None)
         assert sources.current is not None
         # The compatibility polarisation entry point still integrates the physical
         # current; production consumes the separate streams instead.
-        physical = passes.nonlinear_polarisation(
+        physical = nonlinear_polarisation(
             nodes,
             problem.responses,
             grids.t_window_fine,
@@ -146,9 +120,7 @@ def test_mixture_production_assembles_both_current_channels():
             atol=float(relative * np.max(abs(expected_physical))),
         )
         projected = [
-            passes.project(
-                values, transform.projection, bundle.taper_scale, transform.n_pol
-            )
+            project(values, transform.projection, bundle.taper_scale, transform.n_pol)
             for values in (
                 sources.polarisation,
                 grids.t_window_fine * sources.current,
@@ -156,8 +128,7 @@ def test_mixture_production_assembles_both_current_channels():
             )
         ]
         spectra = [
-            passes.to_frequency(value, grids.crop_index, kind="field")
-            for value in projected
+            to_frequency(value, grids.crop_index, kind="field") for value in projected
         ]
         expected = spectra[0].copy()
         active = grids.active_mask
@@ -165,11 +136,11 @@ def test_mixture_production_assembles_both_current_channels():
         expected[..., active] += (
             spectra[1][..., active] / q - spectra[2][..., active] / q**2
         )
-        weight = backend._prefactor(bundle) * grids.omega_window
+        weight = backend.workspace.prefactor(bundle) * grids.omega_window
         expected *= weight
-        actual = backend._nonlinear(
-            problem.initial.field0[None], bundle, np.ones((1, *problem.shape), complex)
-        )[0]
+        actual = backend.workspace.nonlinear(
+            problem.initial.field0, bundle, np.ones(problem.shape, complex)
+        )
         # Projection chunk order, three FFTs and assembly of identical currents.
         allowance = gamma(64 * grids.n_to + 32 * transform.n_nodes) * np.linalg.norm(
             expected
@@ -205,7 +176,7 @@ def test_real_column_decomposition_in_assembled_units(
     nodes = np.broadcast_to(
         np.stack(values), (transform.n_nodes, components, grid.n_to)
     )
-    current = passes._plasma_channels_current(
+    current = plasma_channels_current(
         nodes,
         problem.responses.plasma_channels,
         bundle.plasma_densities,
@@ -227,9 +198,9 @@ def test_real_column_decomposition_in_assembled_units(
         slope * current,
     ):
         spectra.append(
-            np.fft.rfft(
-                passes.project(product, transform.projection, bundle.taper_scale, 1)
-            )[..., crop]
+            np.fft.rfft(project(product, transform.projection, bundle.taper_scale, 1))[
+                ..., crop
+            ]
         )
     v, x, y, z = spectra
     a_j = x / q - z / q**2
@@ -237,8 +208,11 @@ def test_real_column_decomposition_in_assembled_units(
     defect = q * v - x - y
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        backend._hoist(0.0)
-        weight = backend._prefactor(bundle)[..., active] * grids.omega_window[active]
+        backend.workspace.hoist(0.0)
+        weight = (
+            backend.workspace.prefactor(bundle)[..., active]
+            * grids.omega_window[active]
+        )
     finally:
         backend.close()
     allowance = (
@@ -252,48 +226,4 @@ def test_real_column_decomposition_in_assembled_units(
     record_property(
         "closure_over_held",
         float(np.linalg.norm(weight * defect / q) / np.linalg.norm(weight * a_j)),
-    )
-
-
-@pytest.mark.parametrize("kerr_present", [False, True])
-def test_raman_amplitude_does_not_change_the_held_minus_gated_source(kerr_present):
-    simulation = build(gas="H2", raman=True)
-    problem, grid = simulation.translate(), simulation.grid
-    run_request = simulation._run_request()
-    coefficients = problem.responses.kerr_coefficients
-    assert coefficients is not None and problem.responses.raman_terms
-    problem = dataclasses.replace(
-        problem,
-        responses=dataclasses.replace(
-            problem.responses,
-            kerr_coefficients=dataclasses.replace(
-                coefficients,
-                coefficient=coefficients.coefficient if kerr_present else 0.0,
-            ),
-        ),
-    )
-    without = dataclasses.replace(
-        problem,
-        responses=dataclasses.replace(
-            problem.responses,
-            raman_terms=tuple(
-                dataclasses.replace(term, undamped=np.zeros_like(term.undamped))
-                for term in problem.responses.raman_terms
-            ),
-        ),
-    )
-    results = []
-    for value in (problem, without):
-        held = derivative(NumpyRefBackend, value, run_request, grid)
-        with _gated_source():
-            gated = derivative(NumpyRefBackend, value, run_request, grid)
-        results.append((held, gated))
-    # Four assembled operands: cancellation in the plasma difference must not
-    # reduce the rounding budget for the unchanged Raman convolution and Kerr.
-    relative = gamma(64 * grid.n_to + 32 * problem.transform.n_nodes)
-    allowance = relative * sum(np.max(abs(item)) for pair in results for item in pair)
-    assert allowance > 0
-    assert (
-        np.max(abs((results[0][0] - results[0][1]) - (results[1][0] - results[1][1])))
-        <= allowance
     )

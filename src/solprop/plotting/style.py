@@ -4,15 +4,20 @@
 
 """Colours, grids, units and annotations shared by the standard figures.
 
-The small plotting helpers, and the display units every figure in
-this package uses: z in centimetres, time in femtoseconds, wavelength in nanometres,
-frequency in petahertz, angular frequency in radians per femtosecond, energy in
-microjoules and power auto-scaled between kilowatts and petawatts. Those are
-conventions of the *figure*, not of the package: everything
-:mod:`solprop.processing` returns is SI (``conventions.md`` section 1), and the
-conversion happens here, once. A run uniform in y (a hollow planar guide) reports its
-powers and energies per metre of y, and :func:`per_width` is the suffix its labels
-carry.
+The display units every figure uses -- z in centimetres (:data:`Z_TO_CM`), time in
+femtoseconds (:data:`T_TO_FS`), wavelength in nanometres, frequency in petahertz,
+angular frequency in radians per femtosecond, energy in microjoules
+(:data:`ENERGY_TO_UJ`) and power auto-scaled (:func:`power_unit`) -- are conventions
+of the *figure*: everything :mod:`solprop.processing` returns is SI (``conventions.md``
+§1), and the conversion happens here, once.
+
+- Units and axes: :func:`power_unit`, :func:`spectral_display`,
+  :func:`wavelength_to_axis` and :func:`per_width` (the label suffix of a run uniform
+  in y, which reports per metre of y).
+- Figures and colours: :func:`subplot_grid`, :func:`cmap_white` and
+  :func:`cmap_colours`.
+- Annotations: :func:`corner_text`, :func:`fwhm_arrows`, :func:`field_modes` and
+  :func:`mode_labels`.
 """
 
 import math
@@ -24,13 +29,13 @@ from matplotlib.axes import Axes
 from matplotlib.colors import Colormap, LinearSegmentedColormap
 from matplotlib.figure import Figure
 
+from solprop._validation import choice
 from solprop.constants import C
 from solprop.exceptions import ProcessingError
-from solprop.output.schema import Output, PlaneStore
+from solprop.output.store import Output, PlaneStore
 from solprop.processing.axes import (
     SPECTRAL_AXES,
     SpectralAxis,
-    _check_choice,
     transverse_units,
 )
 from solprop.processing.time import half_max_range
@@ -220,7 +225,7 @@ def per_width(output: Output) -> str:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
 
     Returns
@@ -301,7 +306,7 @@ def spectral_display(axis: SpectralAxis) -> tuple[float, str]:
     >>> spectral_display("wavelength")
     (1000000000.0, 'Wavelength (nm)')
     """
-    _check_choice(axis, SPECTRAL_AXES, "axis")
+    choice(axis, "axis", SPECTRAL_AXES, ProcessingError)
     if axis == "wavelength":
         return 1e9, "Wavelength (nm)"
     if axis == "f":
@@ -342,7 +347,7 @@ def wavelength_to_axis(
     >>> f"{low:.4g} Hz, {high:.4g} Hz"
     '1.499e+14 Hz, 7.495e+14 Hz'
     """
-    _check_choice(axis, SPECTRAL_AXES, "axis")
+    choice(axis, "axis", SPECTRAL_AXES, ProcessingError)
     low, high = min(wavelength_limits), max(wavelength_limits)
     if axis == "wavelength":
         return low, high
@@ -408,7 +413,7 @@ def corner_text(
     >>> corner_text(ax, "a)")
     >>> plt.close(figure)
     """
-    _check_choice(corner, CORNERS, "corner")
+    choice(corner, "corner", CORNERS, ProcessingError)
     upper, left = corner[0] == "u", corner[1] == "l"
     ax.text(
         pad if left else 1.0 - pad,
@@ -493,7 +498,7 @@ def field_modes(output: Output) -> int:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding at least one plane.
 
     Returns
@@ -524,7 +529,7 @@ def mode_labels(output: Output, n_modes: int) -> list[str]:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     n_modes : int
         How many modes the saved field carries.

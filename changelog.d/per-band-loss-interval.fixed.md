@@ -1,0 +1,1 @@
+The boundaries guide reads a band's absorbed energy from saved planes with an exact interval formula in place of the trapezoid, which overcounted a strongly absorbed band's loss by up to twice; the medium's own absorption is now its own share (#573).

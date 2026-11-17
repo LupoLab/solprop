@@ -7,14 +7,15 @@
 The package's printing rule, in one place: ``repr(x)`` is one line and never holds an
 array, so that it is safe in a log record or an error message; ``str(x)`` is a short
 aligned block in the units people quote (nm, fs, uJ, um, bar); and IPython and Jupyter
-show that block when the object is the last expression of a cell, through
-:meth:`Displayed._repr_pretty_`.
+show that block when the object is the last expression of a cell. A class gets all three
+by deriving from :class:`Displayed` and building them with :func:`line` and
+:func:`block`, from the number formatters :func:`engineering`, :func:`summarise` (an
+array, never its contents), :func:`phase_text` and :func:`tail`.
 
 Printing never evaluates physics, never warns and never touches a file it does not
-already own: a block is built from numbers the object already holds.
-
-This module imports nothing from the rest of the package, and NumPy only where an array
-is actually summarised, so that any module may use it.
+already own: a block is built from numbers the object already holds. This module imports
+nothing from the rest of the package, and NumPy only where an array is actually
+summarised, so that any module may use it.
 """
 
 import math

@@ -17,7 +17,7 @@ from scipy import integrate
 
 from envelope_oracle_angular import order_record
 from mixture_cases import AnalyticRate
-from solprop.backends.numpy_ref.envelope_plasma import (
+from solprop.backends.numpy_ref.passes.plasma import (
     _cycle_quantities,  # pyright: ignore[reportPrivateUsage]
     _population,  # pyright: ignore[reportPrivateUsage]
 )

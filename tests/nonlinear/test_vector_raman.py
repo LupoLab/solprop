@@ -29,7 +29,7 @@ from former_raman import (
     former_response,
 )
 from solprop import fourier
-from solprop.backends.numpy_ref.passes import raman_polarisation
+from solprop.backends.numpy_ref.passes.responses import raman_polarisation
 from solprop.constants import EPS0
 from solprop.exceptions import GridError, MaterialError
 from solprop.nonlinear.raman import (
@@ -42,7 +42,7 @@ from solprop.nonlinear.raman import (
     response_for,
     undamped_dephasing,
 )
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.physdata import MolecularRaman
 from vector_raman_declaration import Declaration
 from vector_raman_tensor_oracle import (
@@ -114,17 +114,17 @@ def test_material_tensor_matches_independent_causal_sum(
 
 @pytest.mark.parametrize("material", MOLECULES)
 @pytest.mark.parametrize("envelope", [False, True])
-def test_tensor_scalar_reduction_preserves_legacy_arithmetic(
+def test_tensor_scalar_reduction_preserves_the_scalar_only_arithmetic(
     material: MolecularRaman, envelope
 ):
     response = former_response(material)
-    legacy = RamanResponse(response.models)
+    scalar_only = RamanResponse(response.models)
     t = np.arange(97) * 1e-15
     scalar = 2e8 * np.sin(np.pi * t / t[-1]) ** 2
     if envelope:
         scalar = scalar * np.exp(0.6j * t / t[-1])
     kind = "envelope" if envelope else "field"
-    old = legacy.evaluate(scalar[None], 1e25, kind=kind, dt=1e-15)
+    old = scalar_only.evaluate(scalar[None], 1e25, kind=kind, dt=1e-15)
     same = response.evaluate(scalar[None], 1e25, kind=kind, dt=1e-15)
     # One convolution by two routes: a padded round trip and its products.
     assert_within(same, old, fft_bound(2 * t.size))
@@ -197,7 +197,7 @@ def test_fixed_circular_limit_for_explicit_custom_terms(helicity, channel, facto
     )
 
 
-def test_canonical_terms_replacement_reconstruction_and_legacy_records():
+def test_canonical_terms_replacement_reconstruction_and_scalar_only_records():
     response = former_response(FORMER_H2)
     assert {field.name for field in fields(response)} == {
         "tensor_terms",
@@ -210,8 +210,8 @@ def test_canonical_terms_replacement_reconstruction_and_legacy_records():
         **{field.name: getattr(response, field.name) for field in fields(response)}
     )
     assert copied == response
-    legacy = RamanResponse(models=response.models)
-    assert serialise(legacy) == Declaration(response.models).record()
+    scalar_only = RamanResponse(models=response.models)
+    assert serialise(scalar_only) == Declaration(response.models).record()
     record = serialise(response)
     assert isinstance(record, dict)
     assert "models" not in record and "tensor_terms" in record
@@ -227,7 +227,7 @@ def test_canonical_terms_replacement_reconstruction_and_legacy_records():
     with pytest.raises(FrozenInstanceError):
         response.__setattr__("species", "changed")
     assert response.traits.polarisation == "tensor"
-    assert legacy.traits.polarisation == "scalar"
+    assert scalar_only.traits.polarisation == "scalar"
 
 
 @pytest.mark.parametrize(

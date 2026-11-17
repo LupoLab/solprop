@@ -4,26 +4,26 @@
 
 """The metric and the coupled-flow representation of a general modal guide.
 
-Two leaves of section 3 of ``docs/dev/kernel-contract.md``, added at kernel schema
-12: :class:`ModalMetricTables`, the explicit physical flux metric the controller, the
-linear flow and the output layer all read, and :class:`CoupledFlowTables`, the frozen
-or ordered representation of a generator whose channels couple.
+Two leaves of section 3 of ``docs/dev/kernel-contract.md``. Units are SI throughout
+(``omega`` in rad/s, ``z_edges`` in m, generators in 1/m, metric entries, errors and
+bounds dimensionless) and every complex array is in the internal FFT convention.
 
-:class:`CoupledFlowTables` is the record, its validation and its printing, built by
-:func:`constant_schur_flow` and :func:`frozen_residual_flow` for the
-routes whose channels couple -- a capillary's coherent wall and taper coupling, and a
-general modal guide whose declared basis or motion couples its channels. Everywhere
-else it is ``None`` and a guide propagates through the diagonal cumulative flow.
-:class:`ModalMetricTables` admits all three kinds: ``"identity"``, ``"diagonal"`` and
-the ``"dense"`` kind a declared unitary change of basis produces
-(:func:`dense_metric`). Which of them
-a **backend** executes is its own admission, and ``numpy_ref`` refuses the diagonal
-one, which nothing here builds.
-
-Units are SI throughout (``docs/dev/conventions.md``): ``omega`` in rad/s, ``z_edges``
-in m, the generator and every term of it in 1/m, metric entries dimensionless, errors
-and bounds dimensionless. Every complex array is in the **internal FFT convention**,
-like the rest of the contract; there is no fourth conversion site.
+- :class:`ModalMetricTables`: the physical flux metric the controller, the linear flow
+  and the output read, of kind ``"identity"`` (:func:`orthonormal_metric`) or
+  ``"dense"`` (:func:`dense_metric`, a declared unitary change of basis);
+  ``"diagonal"`` is admitted by the record, built by nothing and refused at
+  :mod:`solprop.translate.admission`. :func:`metric_at` evaluates it at a plane.
+- :class:`CoupledFlowTables`: the frozen or ordered representation of a generator whose
+  channels couple -- a capillary's coherent wall and taper
+  (:mod:`solprop.translate.walls`), or a general guide's declared basis or motion. It
+  is built by :func:`constant_schur_flow` for a constant section and
+  :func:`frozen_residual_flow` for a varying guide; elsewhere it is ``None``.
+- Their pieces: the Schur factors and eigenbases (:func:`schur_blocks`,
+  :func:`schur_eigenbasis`), the per-section expansion (:func:`section_expansion`,
+  :func:`frozen_generator`, :func:`coupled_flow_factors`), and what a stage reads
+  (:func:`flow_section`, :func:`flow_weights`, :func:`advisory_step`,
+  :func:`residual_truncation`).
+- :func:`wall_identity` and :func:`taper_identity`: the modal identity a run records.
 """
 
 import logging
@@ -40,11 +40,11 @@ from scipy.linalg import schur
 from solprop._display import Displayed, engineering, line
 from solprop._ownership import frozen_copy
 from solprop.exceptions import TranslationError
-from solprop.modes.capillary import WallImpedance, WallLimits
 from solprop.modes.material import JsonValue, quantised_measurement
 from solprop.modes.protocol import ChannelLabel
+from solprop.modes.wall import WallImpedance, WallLimits
 from solprop.translate.chebyshev import (
-    _EDGE_SLACK_FRACTION,
+    EDGE_SLACK_FRACTION,
     INITIAL_DEGREE,
     PiecewiseChebyshev,
     lobatto_coefficients,
@@ -60,6 +60,7 @@ __all__ = [
     "ModalMetricTables",
     "SectionMethod",
     "advisory_step",
+    "coefficient_tail",
     "constant_schur_flow",
     "coupled_flow_factors",
     "dense_metric",
@@ -880,7 +881,7 @@ def orthonormal_metric(
     """Build the identity metric of a basis certified orthonormal in true power.
 
     A Poynting-normalised bound basis whose sampled Gram passed the construction
-    gate of :class:`solprop.translate.modal_tables.DenseModalTable` has ``W = I`` to
+    gate of :class:`solprop.modes.tables.DenseModalTable` has ``W = I`` to
     within that gate's budget, so the metric owns no coefficient array at all and the
     measured defect is what the error row carries. The extreme eigenvalues are one: a
     certified positive metric, which is what the noise draw and the controller norm
@@ -1634,7 +1635,7 @@ def section_expansion(
             values = np.asarray(sample(nodes))
             coefficients = lobatto_coefficients(values)
             blocks.append(coefficients)
-            worst = max(worst, _coefficient_tail(coefficients))
+            worst = max(worst, coefficient_tail(coefficients))
         if worst <= tol:
             return np.stack(blocks), worst
         if degree >= max_degree:
@@ -1649,10 +1650,29 @@ def section_expansion(
         degree *= 2
 
 
-def _coefficient_tail(coefficients: np.ndarray) -> float:
+def coefficient_tail(coefficients: np.ndarray) -> float:
     """Return the relative size of the last two coefficients of one section.
 
-    - ``coefficients``: one section's coefficients, shape ``(n_deg, *value_shape)``.
+    The largest magnitude among the two highest-degree Chebyshev coefficients over the
+    largest magnitude among all of them: how far the section's expansion is from
+    resolved.
+
+    Parameters
+    ----------
+    coefficients : numpy.ndarray
+        One section's coefficients, shape ``(n_deg, *value_shape)``.
+
+    Returns
+    -------
+    float
+        The dimensionless ratio, zero for an identically zero section.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.translate.coupled import coefficient_tail
+    >>> coefficient_tail(np.array([1.0, 0.5, 1e-3, 1e-4]))
+    0.001
     """
     scale = float(np.max(abs(coefficients), initial=0.0))
     if scale == 0.0:
@@ -1945,8 +1965,8 @@ def flow_edge_slack(flow: CoupledFlowTables) -> float:
 
     A step schedule lands on a declared kink by summing its steps, so it arrives
     within a few ulp of the total span rather than on it exactly;
-    ``chebyshev._EDGE_SLACK_FRACTION`` of the span -- the same fraction
-    :class:`solprop.translate.chebyshev.PiecewiseChebyshev` matches its own
+    :data:`solprop.translate.chebyshev.EDGE_SLACK_FRACTION` of the span -- the same
+    fraction :class:`solprop.translate.chebyshev.PiecewiseChebyshev` matches its own
     breakpoints to -- makes the section a stage is evaluated on depend on the
     schedule's intent rather than on its last bits.
 
@@ -1970,7 +1990,7 @@ def flow_edge_slack(flow: CoupledFlowTables) -> float:
     float
         The tolerance in m, positive.
     """
-    return _EDGE_SLACK_FRACTION * float(flow.z_edges[-1] - flow.z_edges[0])
+    return EDGE_SLACK_FRACTION * float(flow.z_edges[-1] - flow.z_edges[0])
 
 
 def advisory_step(
@@ -1992,7 +2012,7 @@ def advisory_step(
     growth relative to the frozen attenuating frame, and no positive step makes that
     residual alone contractive. In a lossy or nonnormal case this is advisory only and
     a growth certificate is still required
-    (:func:`solprop.translate.problem.validate_coupled_flow` says so in the warning).
+    (:func:`solprop.translate.validation.validate_coupled_flow` says so in the warning).
 
     A section with an exactly zero residual -- every constant one -- returns infinity,
     because there is no explicit term to resolve. So does a bin outside `scored`: the
@@ -2318,7 +2338,7 @@ def wall_identity(
     the two identity strings, the three validity ratios, the band they were taken over,
     the three certificate rows reduced to their extremes and the advisory step they
     imply (:func:`advisory_step`). The radius and the ratios are the **worst** section's
-    (:func:`solprop.modes.capillary.worst_wall_limits`), which for a constant guide is
+    (:func:`solprop.modes.wall.worst_wall_limits`), which for a constant guide is
     the only one there is, taken over the error norm's scored band as the run's
     admission takes them.
 
@@ -2331,7 +2351,7 @@ def wall_identity(
     ----------
     flow : CoupledFlowTables
         The leaf the run carries.
-    limits : solprop.modes.capillary.WallLimits
+    limits : solprop.modes.wall.WallLimits
         The validity ratios the block was admitted under.
     channels : sequence of solprop.modes.protocol.ChannelLabel
         The channel labels in state order.
@@ -2358,7 +2378,7 @@ def wall_identity(
     Returns
     -------
     collections.abc.Mapping
-        The ``modal`` record of :class:`solprop.output.schema.RunMetadata`.
+        The ``modal`` record of :class:`solprop.output.metadata.RunMetadata`.
 
     Examples
     --------
@@ -2444,7 +2464,7 @@ def taper_identity(
     with the wall's own entries -- its validity ratios, its radius and its impedance
     -- absent, because no wall block was built; ``flow.model`` is
     ``"taper coupling"`` and the certificate is
-    :data:`solprop.translate.problem.TAPER_FLOW_CERTIFICATE`. A new key entry and not
+    :data:`solprop.translate.validation.TAPER_FLOW_CERTIFICATE`. A new key entry and not
     a new schema, as for :func:`wall_identity`. The basis is still the orthogonal
     ``"capillary HE_1m"`` set, so the ordinary accessors stay admitted.
 
@@ -2468,7 +2488,7 @@ def taper_identity(
     Returns
     -------
     collections.abc.Mapping
-        The ``modal`` record of :class:`solprop.output.schema.RunMetadata`.
+        The ``modal`` record of :class:`solprop.output.metadata.RunMetadata`.
 
     Examples
     --------

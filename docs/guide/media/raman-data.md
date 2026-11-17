@@ -37,8 +37,8 @@ $(c, d, \beta, \Delta\nu_D)$ per band) are the one-line path for a modified widt
 strength; the response then has the status `user` and keeps the digest of the curated
 response it started from. A {class}`~solprop.physdata.mixtures.Component`'s
 `dephasing` is mapped onto `width_law` for every band of its species. A supplied law
-with a Dicke term is refused, because optmat caps that term at a Doppler width the
-legacy law does not state; pass the four numbers through `width_law` instead.
+with a Dicke term is refused, because optmat caps that term at a Doppler width a
+`Dephasing` law does not state; pass the four numbers through `width_law` instead.
 
 ## The same convention, mapped onto terms
 

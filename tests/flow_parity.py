@@ -108,13 +108,10 @@ from modal_provider_cases import (
     split_basis,
 )
 from sessions.runs import bare, final_field
+from solprop.backends.exponential import FLOW_TAYLOR_ORDER, FLOW_TAYLOR_SCALE
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.backend import (
-    _TAYLOR_ORDER,
-    _TAYLOR_SCALE,
-    _coupled_flow_maps,
-    _general_maps,
-)
+from solprop.backends.numpy_ref.coupled_flow import held_flow
+from solprop.backends.numpy_ref.source import _general_maps
 from solprop.boundaries import absorber
 from solprop.driver import Simulation
 from solprop.exceptions import GrazingIncidenceWarning, MaterialRangeWarning
@@ -289,7 +286,7 @@ def build(name, **overrides):
             "lossless": {
                 "wall": None,
                 "radius": taper(),
-                "loss": False,
+                "loss_scale": 0.0,
                 "cladding": 1.45,
             },
         }[name]
@@ -335,7 +332,7 @@ class FlowScales:
     formation: float = 0.0
 
 
-HARMONIC_16 = sum(1.0 / term for term in range(1, _TAYLOR_ORDER + 1))
+HARMONIC_16 = sum(1.0 / term for term in range(1, FLOW_TAYLOR_ORDER + 1))
 """``H_16``, the sum of the Horner steps' ``1 / k``."""
 
 
@@ -350,7 +347,7 @@ def horner_rounding(n_modes, scaled):
     ``scaled`` is the scaled matrix's norm ``a``; the module's docstring derives it.
     """
     gamma = product_rounding(n_modes)
-    tail = scaled ** (_TAYLOR_ORDER + 1) * math.exp(scaled) / math.factorial(17)
+    tail = scaled ** (FLOW_TAYLOR_ORDER + 1) * math.exp(scaled) / math.factorial(17)
     return (
         16.0 * UNIT
         + ((gamma + 2.0 * UNIT) * n_modes + UNIT)
@@ -389,9 +386,9 @@ def reference_formation_bound(n_modes, norm, squarings):
 
 def reference_squarings(row_sum):
     """Return the squarings solprop's reference takes at a row-sum norm."""
-    if row_sum <= _TAYLOR_SCALE:
+    if row_sum <= FLOW_TAYLOR_SCALE:
         return 0
-    return math.ceil(math.log2(row_sum / _TAYLOR_SCALE))
+    return math.ceil(math.log2(row_sum / FLOW_TAYLOR_SCALE))
 
 
 AUGMENTED_WEIGHTS = (0.125, 0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0)
@@ -405,8 +402,8 @@ def augmented_formation_bound(n_modes, count, size, spread, row_sum, real):
     ``M_k = k! phi_(k+1)(X)``, ``X = x I + h T`` with ``x`` the moments' argument
     (``Delta Phi``, less ``i sigma`` under a carrier frame), off the first block row
     of the exponential of the augmented matrix ``A`` of ``count + 1`` blocks
-    (``native/include/solprop_native/flow_functions.hpp``), whose block rows past the
-    first are a shift. The native passes are the full augmented scaling and
+    (``native/include/solprop_native/response/flow_functions.hpp``), whose block rows
+    past the first are a shift. The native passes are the full augmented scaling and
     squaring's to the sign of a zero, at ``N = n (count + 1)`` channels and the
     ``s`` squarings of ``A``'s row-sum norm `row_sum`.
 
@@ -512,8 +509,8 @@ def section_formation_bounds(vectors, triangular, lengths, certificate, route=No
         largest = length * rows
         squarings = (
             0
-            if largest <= _TAYLOR_SCALE
-            else math.ceil(math.log2(largest / _TAYLOR_SCALE))
+            if largest <= FLOW_TAYLOR_SCALE
+            else math.ceil(math.log2(largest / FLOW_TAYLOR_SCALE))
         )
         reference = np.array(
             [
@@ -541,7 +538,7 @@ def formation_bound(problem: PropagationProblem, run_request, dz: float) -> floa
     Every section, active bin, distinct stage fraction and direction
     (:func:`section_formation_bounds`, with the declared certificate's largest row).
     """
-    held = _coupled_flow_maps(problem)
+    held = held_flow(problem)
     assert held is not None
     certificate = float(np.max(held.condition_bound))
     fractions = {float(node) for node in run_request.stepper.tableau.nodes} | {1.0}
@@ -568,7 +565,7 @@ def adams_formation_bound(
     real part for the growth; `carrier` is a carrier frame's largest ``|sigma|`` per
     step, which the carry does not take.
     """
-    held = _coupled_flow_maps(problem)
+    held = held_flow(problem)
     assert held is not None
     schedule = run_request.stepper.schedule
     assert schedule is not None
@@ -579,7 +576,9 @@ def adams_formation_bound(
     try:
         anchors = np.concatenate(([0.0], np.cumsum(schedule.steps)[:-1]))
         exponents = [
-            backend._delta_phi(backend._stage_scalars(float(z), float(z + step)))
+            backend.workspace.delta_phi(
+                backend.workspace.stage_scalars(float(z), float(z + step))
+            )
             for z, step in zip(anchors, schedule.steps, strict=True)
         ]
     finally:
@@ -670,10 +669,9 @@ def flow_scales(
         generator = flow.n_deg * float(np.max(norms)) + float(np.max(norms[:, 0]))
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        # The backend's private state keeps its leading axis of one.
-        state = problem.initial.field0[np.newaxis]
-        bundle = backend._stage_scalars(0.0, 0.0)
-        source = backend._nonlinear(state, bundle, np.ones_like(state))
+        state = problem.initial.field0
+        bundle = backend.workspace.stage_scalars(0.0, 0.0)
+        source = backend.workspace.nonlinear(state, bundle, np.ones_like(state))
     finally:
         backend.close()
     schedule = run_request.stepper.schedule

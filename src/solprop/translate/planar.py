@@ -2,26 +2,23 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Translate the hybrid planar grid into the kernel schema 15 ``"slab"`` seam.
+"""Translate the hybrid planar grid into the separable ``"slab"`` spatial seam.
 
-The hybrid planar transform expands the field in the slab modes
-of one gap in x and a raw DFT in y,
+The hybrid planar transform expands the field in the slab modes of one gap in x and a
+raw DFT in y, ``E(x, y, t) = sum_p V_p(x) A_p(y, t)``, so the state's columns are
+``(p, k_y)`` with the mode index fastest. It is the Cartesian kind with its x FFT
+replaced by the slab rule's synthesis and projection, and ``k_x**2`` by each mode's
+complex, frequency-dependent ``kappa_p(omega)**2``. Constant media and a constant gap
+only: both are refused by name upstream, and the operator is frozen along z.
 
-``E(x, y, t) = sum_p V_p(x) A_p(y, t)``,
+- :func:`planar_transform` freezes the slab synthesis and projection and the y FFT
+  layout; :func:`planar_operators` keeps the separable operator and prefactor with
+  each channel's wall term, :func:`planar_kappa`;
+  :func:`square_residuals` gives the exact residuals of an axis's rounded squares.
 
-so the state's columns are ``(p, k_y)`` with the mode index fastest. It is the
-Cartesian ``"free"`` kind with its x FFT replaced by the slab rule's modal synthesis
-and projection, and ``k_x**2`` replaced by each mode's complex, frequency-dependent
-transverse square ``kappa_p(omega)**2``: the longitudinal wave number of a column is
-
-``k_z = sqrt(k**2 eps_co - kappa_p**2 - k_y**2)``,
-
-exact (non-paraxial) in y, with the free-space evanescent model and prefactor
-``-i omega**2 / (2 eps0 c**2 Re k_z)`` per column. Constant media and a constant gap
-only: both are refused by name upstream, and the operator here is frozen along z.
-
-The kernel formula, the ``kappa_sq`` leaf and the geometry are
-``docs/dev/kernel-contract.md`` sections 3 and 4; the physics is
+:func:`solprop.translate.assembly.assemble` calls them for a
+:class:`solprop.modes.slab.PlanarGrid`. The kernel formula, the ``kappa_sq`` leaf and
+the geometry are ``docs/dev/kernel-contract.md`` sections 3 and 4; the physics is
 ``docs/guide/waveguides/planar.md``, "Resolving y".
 """
 

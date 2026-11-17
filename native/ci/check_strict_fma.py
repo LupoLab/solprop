@@ -17,6 +17,13 @@ namespaces that holds a fused multiply-add instruction.
 It also fails when it finds none of the namespaces' functions, so that a change in
 symbol names or visibility cannot make it pass by finding nothing.
 
+A wheel's extension is stripped: its disassembly labels only the exported functions,
+and the code a link placed after one of them without a symbol of its own (another
+file's local functions, under link-time optimisation) would read as that function's.
+Each strict function is therefore bounded by its symbol's size from the dynamic and
+static symbol tables (``objdump -T`` and ``-t``); a label whose size is unknown keeps
+every line up to the next label.
+
 Standard library only; it needs GNU ``objdump`` and reads x86-64 and AArch64 code.
 """
 
@@ -29,7 +36,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-__all__ = ["STRICT", "fused_functions", "main"]
+__all__ = ["STRICT", "fused_functions", "main", "symbol_sizes"]
 
 STRICT = re.compile(
     r"^[0-9a-f]+ <solprop_native::"
@@ -37,7 +44,10 @@ STRICT = re.compile(
 )
 """A function label in ``objdump -C`` output from one of the strict files."""
 
-LABEL = re.compile(r"^[0-9a-f]+ <.*>:$")
+LABEL = re.compile(r"^([0-9a-f]+) <.*>:$")
+INSTRUCTION = re.compile(r"^\s*([0-9a-f]+):")
+SYMBOL = re.compile(r"^([0-9a-f]+)\s.*\s\.text\S*\s+([0-9a-f]+)\s")
+"""A code symbol in ``objdump -T`` or ``-t`` output: its address and its size."""
 FUSED = re.compile(
     # x86-64: the FMA3 and AVX-512 forms (vfmadd231sd, vfnmsub132pd, vfmaddsub213pd).
     r"\tv?fn?m(?:add|sub)(?:sub|add)?\d{3}[ps][sdh]\b"
@@ -46,22 +56,43 @@ FUSED = re.compile(
 )
 
 
+def _objdump(*arguments: str) -> str:
+    """Return GNU ``objdump``'s output for `arguments`."""
+    return subprocess.run(
+        ["objdump", *arguments], check=True, capture_output=True, text=True
+    ).stdout
+
+
+def symbol_sizes(library: Path) -> dict[int, int]:
+    """Return each code symbol's size, by address, from both symbol tables."""
+    sizes: dict[int, int] = {}
+    for table in ("-T", "-t"):
+        for line in _objdump(table, str(library)).splitlines():
+            if match := SYMBOL.match(line):
+                address, size = int(match[1], 16), int(match[2], 16)
+                sizes[address] = max(size, sizes.get(address, 0))
+    return sizes
+
+
 def fused_functions(library: Path) -> tuple[int, dict[str, int]]:
     """Return the strict functions' count and, for each that fuses, its FMA count."""
-    listing = subprocess.run(
-        ["objdump", "-d", "-C", "--no-show-raw-insn", str(library)],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
+    sizes = symbol_sizes(library)
+    listing = _objdump("-d", "-C", "--no-show-raw-insn", str(library))
     strict = 0
     fused: dict[str, int] = {}
     name: str | None = None
+    end: int | None = None
     for line in listing.splitlines():
-        if LABEL.match(line):
+        if label := LABEL.match(line):
             name = line if STRICT.match(line) else None
             strict += name is not None
+            start = int(label[1], 16)
+            end = start + sizes[start] if sizes.get(start) else None
         elif name is not None and FUSED.search(line):
+            instruction = INSTRUCTION.match(line)
+            if end is not None and instruction and int(instruction[1], 16) >= end:
+                # Past the symbol's end: unlabelled code the link placed after it.
+                continue
             fused[name] = fused.get(name, 0) + 1
     return strict, fused
 

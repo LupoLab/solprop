@@ -5,13 +5,14 @@
 """The parameter records of a supplied Raman response.
 
 The records a caller fills from their own data to build a Raman response with
-:mod:`solprop.nonlinear.raman`: a molecule's rotational and vibrational constants
-(:class:`MolecularRaman`) with their density-dependent linewidths, an amorphous
-solid's intermediate-broadening line set (:class:`IntermediateBroadeningRaman`) and
-the Lin--Agrawal two-part silica response (:class:`LinAgrawalRaman`), with the
-dephasing and option types the response builders take. They carry no material data:
-since SEP 3 every built-in gas's and fused silica's response is optmat's
-(:mod:`solprop.nonlinear.optmat_raman`,
+:mod:`solprop.nonlinear.raman`: a molecule's constants (:class:`MolecularRaman`, of
+:class:`RotationalRaman` and :class:`VibrationalRaman`) with their density-dependent
+:class:`Linewidth` (or :func:`linewidth_from_dephasing_time`), an amorphous solid's
+intermediate-broadening line set (:class:`IntermediateBroadeningRaman`), the
+Lin--Agrawal two-part silica response (:class:`LinAgrawalRaman`), and the
+:class:`Dephasing` and :class:`MolecularOptions` the response builders take. They carry
+no material data: since SEP 3 every built-in gas's and fused silica's response is
+optmat's (:mod:`solprop.nonlinear.optmat_raman`,
 :class:`~solprop.physdata.glasses.SilicaBundle`).
 """
 

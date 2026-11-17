@@ -24,6 +24,22 @@
    "name": "float"
   }
  ],
+ "DEFAULT_BOUNDARY_N": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "int"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.boundaries",
+   "module_short": "solprop.boundaries",
+   "name": "DEFAULT_BOUNDARY_N"
+  }
+ ],
  "EnvelopeGrid.from_limits": [
   {
    "is_class": true,
@@ -412,6 +428,22 @@
    "name": "ndarray"
   }
  ],
+ "absorber": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.boundaries",
+   "module_short": "solprop.boundaries",
+   "name": "absorber"
+  }
+ ],
  "area": [
   {
    "is_class": false,
@@ -652,8 +684,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.translate.modal_tables",
-   "module_short": "solprop.translate.modal_tables",
+   "module": "solprop.modes.tables",
+   "module_short": "solprop.modes.tables",
    "name": "channel_area"
   }
  ],
@@ -728,6 +760,15 @@
    "name": "IndexMaterial"
   }
  ],
+ "envelope": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "dict"
+  }
+ ],
  "envelope_grid": [
   {
    "is_class": false,
@@ -797,6 +838,15 @@
    "name": "ndarray"
   }
  ],
+ "field": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "dict"
+  }
+ ],
  "fig": [
   {
    "is_class": false,
@@ -846,6 +896,15 @@
   }
  ],
  "gamma": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "gentle": [
   {
    "is_class": false,
    "is_explicit": false,
@@ -1166,7 +1225,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.modes.vector",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.vector",
    "name": "ModalNodeRule"
   },
   {
@@ -1457,6 +1516,38 @@
    "name": "tuple"
   }
  ],
+ "run_envelope_grid": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "EnvelopeGrid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "EnvelopeGrid"
+  }
+ ],
+ "run_grid": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "FieldGrid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "FieldGrid"
+  }
+ ],
  "runs": [
   {
    "is_class": false,
@@ -1518,8 +1609,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.translate.modal_tables",
-   "module_short": "solprop.translate.modal_tables",
+   "module": "solprop.modes.tables",
+   "module_short": "solprop.modes.tables",
    "name": "sample_modal_table"
   }
  ],
@@ -1536,7 +1627,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.modes.guide",
+   "module": "solprop.modes.stepindex_vector",
    "module_short": "solprop.modes",
    "name": "StepIndexProvider"
   },
@@ -1559,7 +1650,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.modes.guide",
+   "module": "solprop.modes.stepindex_vector",
    "module_short": "solprop.modes",
    "name": "StepIndexProvider.node_rule"
   },
@@ -1605,15 +1696,15 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.translate.modal_tables",
-   "module_short": "solprop.translate.modal_tables",
+   "module": "solprop.modes.tables",
+   "module_short": "solprop.modes.tables",
    "name": "DenseModalTable"
   },
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.translate",
-   "module_short": "solprop.translate",
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
    "name": "DenseModalTable"
   },
   {
@@ -1628,15 +1719,15 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.translate.modal_tables",
-   "module_short": "solprop.translate.modal_tables",
+   "module": "solprop.modes.tables",
+   "module_short": "solprop.modes.tables",
    "name": "DenseModalTable.evaluate"
   },
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.translate",
-   "module_short": "solprop.translate",
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
    "name": "DenseModalTable.evaluate"
   },
   {

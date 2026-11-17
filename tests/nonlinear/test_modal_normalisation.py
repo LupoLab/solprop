@@ -16,8 +16,9 @@ from modal_provider_cases import OMEGA, make_provider
 from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError
 from solprop.modes import StepIndexMode
-from solprop.modes.guide import ModalGuide, StepIndexProvider
+from solprop.modes.guide import ModalGuide
 from solprop.modes.material import IndexMaterial
+from solprop.modes.stepindex_vector import StepIndexProvider
 from solprop.nonlinear.normalisation import modal_kerr_coefficient
 
 CORE_INDEX = 1.45

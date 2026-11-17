@@ -20,29 +20,17 @@ from solprop.exceptions import SolpropError
 from solprop.recipe import Recipe
 from solprop.recipe.pins import GUIDE_PINS, PULSE_PINS, TARGETS
 from solprop.recipe.quantity import Unit, parse_quantity
+from solprop.service._payload import Payload, base_of, read_recipe
 from solprop.tools import pressure_zdw
 
-__all__ = ["DESIGN_HANDLERS", "modes", "pin_roots", "pin_targets", "zdw_chart"]
-
-Payload = Mapping[str, object]
-
-
-def _base(payload: Payload) -> Path | None:
-    """Return the directory a payload's recipe reads its data files from.
-
-    - ``payload``: optionally ``base``.
-    - Returns: the directory, or ``None`` for none.
-    """
-    base = payload.get("base")
-    return Path(str(base)) if base else None
-
-
-def _recipe(payload: Payload) -> Recipe:
-    """Read the recipe a payload carries.
-
-    - ``payload``: ``text``, the recipe's TOML, and optionally ``base``.
-    """
-    return Recipe.loads(str(payload["text"]), base=_base(payload))
+__all__ = [
+    "DESIGN_HANDLERS",
+    "PRESSURE_ZDW_KEYWORDS",
+    "modes",
+    "pin_roots",
+    "pin_targets",
+    "zdw_chart",
+]
 
 
 def _with(recipe: Recipe, name: str, value: object, base: Path | None) -> Recipe:
@@ -125,7 +113,7 @@ def modes(payload: Payload) -> dict[str, object]:
         ``value`` (the swept value, or ``None``) with the mode set
         (:func:`_mode_set`) or the ``error`` that value met.
     """
-    recipe = _recipe(payload)
+    recipe = read_recipe(payload)
     z = payload.get("z")
     position = None if z is None else parse_quantity(z, Unit("m"), path="z")
     sweep = payload.get("sweep")
@@ -137,7 +125,7 @@ def modes(payload: Payload) -> dict[str, object]:
         variants = []
         for value in values:
             try:
-                variants.append((value, _with(recipe, name, value, _base(payload))))
+                variants.append((value, _with(recipe, name, value, base_of(payload))))
             except SolpropError as error:
                 variants.append((value, error))
     sets: list[dict[str, object]] = []
@@ -210,7 +198,7 @@ def pin_roots(payload: Payload) -> dict[str, object]:
         ``attainable`` measures) and ``attainable`` (the range of it reached when no
         root is found, or ``None``).
     """
-    found = _recipe(payload).pin_roots(str(payload["path"]))
+    found = read_recipe(payload).pin_roots(str(payload["path"]))
     return {
         "roots": [float(root) for root in found.roots],
         "search": [float(end) for end in found.search],
@@ -221,7 +209,7 @@ def pin_roots(payload: Payload) -> dict[str, object]:
     }
 
 
-_CHART_KEYWORDS = ("temperature", "model", "cladding", "materials")
+PRESSURE_ZDW_KEYWORDS = ("temperature", "model", "cladding", "materials")
 """The capillary's keywords that ``tools.pressure_zdw`` also takes, by name."""
 
 CHART_POINTS = 400
@@ -258,7 +246,7 @@ def zdw_chart(payload: Payload) -> dict[str, object]:
     ValueError
         If the chart asks for more than :data:`CHART_POINTS` pressures.
     """
-    keywords = _recipe(payload).resolve().keywords()
+    keywords = read_recipe(payload).resolve().keywords()
     length = Unit("m")
     radii = [parse_quantity(r, length, path="radii") for r in payload["radii"]]  # pyright: ignore[reportGeneralTypeIssues]
     wavelengths = [
@@ -270,7 +258,7 @@ def zdw_chart(payload: Payload) -> dict[str, object]:
         raise ValueError(msg)
     shared = {
         name: keywords[name]
-        for name in _CHART_KEYWORDS
+        for name in PRESSURE_ZDW_KEYWORDS
         if keywords.get(name) is not None
     }
     pressure_max = float(payload.get("pressure_max") or 100.0)  # pyright: ignore[reportArgumentType]

@@ -10,22 +10,26 @@ import pytest
 
 from solprop import capabilities
 from solprop.exceptions import OutputError, ProcessingError
-from solprop.output import MemoryOutput
+from solprop.output import MemoryOutput, capability
 from solprop.processing import compression, modal, time
 from solprop.processing._examples import example_general_output, example_output
 from solprop.recipe import Recipe
 
 
-def _spatial_output():
-    """The example run relabelled as a radial one, as the compression tests do."""
+def _spatial_output(kind="radial", *, per_width=False):
+    """The example run relabelled as a spatial one, as the compression tests do."""
     metadata = example_output().metadata
     assert metadata is not None
+    configuration = dict(metadata.configuration)
+    if per_width:
+        configuration["transverse_measure"] = "per_unit_width"
     spatial = MemoryOutput()
     spatial.open(
         replace(
             metadata,
-            simulation_kind="radial",
-            spatial={"geometry": "radial", "flux_model": "scalar-axial-admittance"},
+            simulation_kind=kind,
+            spatial={"geometry": kind, "flux_model": "scalar-axial-admittance"},
+            configuration=configuration,
         )
     )
     return spatial
@@ -78,13 +82,52 @@ def test_a_spatial_file_refuses_compression_and_the_column_readers():
     statement = capabilities.output(_spatial_output())
     assert statement.quantities["field"].kind == "coordinate"
     assert not statement.admits("compression")
-    # The energy statistic is the beam's flux and is admitted; the legacy readers of
-    # the columns are not, and their refusals are the readers' own.
+    # The energy statistic is the beam's flux and is admitted; the per-channel readers
+    # of the columns are not, and their refusals are the readers' own.
     assert statement.admits("energy") and statement.admits("peak_power")
     for name in ("energy", "peak_power"):
         with pytest.raises(OutputError) as caught:
             READERS[name](_spatial_output())
         assert str(caught.value) == statement.refused_readers[name]
+
+
+@pytest.mark.parametrize(
+    ("kind", "per_width", "unit"),
+    [
+        ("radial", False, "V m"),
+        ("free", False, "V/m"),
+        ("free", True, "V/m"),
+        ("slab", True, "sqrt(W/m)"),
+    ],
+)
+def test_a_spatial_file_states_its_stored_field_unit_and_no_modal_flux(
+    kind, per_width, unit
+):
+    statement = capabilities.output(_spatial_output(kind, per_width=per_width))
+    assert statement.basis == "spatial"
+    assert statement.quantities == {"field": capabilities.Quantity("coordinate", unit)}
+    # The readers of the power, energy and spectral density refuse the file.
+    for reader in ("get_power", "energy", "get_spectral_density"):
+        assert reader in statement.refused_readers
+
+
+def test_the_modal_statements_keep_their_units():
+    builds = ((example_output, "physical"), (example_general_output, "coordinate"))
+    for build, kind in builds:
+        quantities = capabilities.output(build()).quantities
+        assert {name: one.unit for name, one in quantities.items()} == {
+            "power": "W",
+            "energy": "J",
+            "spectral_density": "J s/rad",
+            "field": "sqrt(W)",
+        }
+        assert {one.kind for one in quantities.values()} == {kind}
+
+
+def test_the_quantity_records_are_the_output_layer_s_own():
+    # The statement re-exports them: one class, whichever path it is imported from.
+    assert capabilities.Quantity is capability.Quantity
+    assert capabilities.QuantityKind is capability.QuantityKind
 
 
 def test_a_file_says_its_planes_its_recipe_and_whether_it_continues(tmp_path):

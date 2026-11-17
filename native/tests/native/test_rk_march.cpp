@@ -6,7 +6,7 @@
 // solprop's by solprop's tests; these check what those cannot see: that the unit rounds
 // every product and sum separately, and the order of a stage's position and the norm.
 
-#include "solprop_native/rk_march.hpp"
+#include "solprop_native/march/rk_march.hpp"
 
 #include <gtest/gtest.h>
 

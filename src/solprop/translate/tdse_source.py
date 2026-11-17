@@ -4,10 +4,15 @@
 
 """Admit the scalar helium TDSE route and translate its macroscopic source.
 
-The microscopic provider supplies per-atom current and dipole histories. The
-ordinary Kerr compiler remains the authority for the optmat cubic. The current
-factor is constructed independently of the polarisation factor, including at
-zero frequency; no division by frequency is involved (SEP 12 section 4.6).
+The microscopic provider supplies per-atom current and dipole histories; the ordinary
+Kerr compiler remains the authority for the optmat cubic.
+:func:`solprop.translate.assembly.assemble` calls :func:`admit_tdse`, which replaces the
+TDSE declaration with its owned cubic coefficient, and :func:`current_numerator`, the
+current factor built independently of the polarisation factor, including at zero
+frequency, with no division by frequency (SEP 12 section 4.6). Problem validation
+checks a gated source's :func:`steady_current_certificate` against
+:data:`STEADY_CURRENT_CERTIFICATE_LIMIT`, and :data:`TDSE_UNAVAILABLE_STATISTICS` names
+the statistics the route cannot record.
 """
 
 import functools
@@ -69,7 +74,7 @@ TDSE_UNAVAILABLE_STATISTICS = frozenset(
         "on_axis_species_peak_ionisation_rate",
     }
 )
-"""Legacy rate/dipole-only statistics that do not identify a TDSE observable.
+"""The rate-model statistics, which identify no TDSE observable.
 
 The complete-source quadrature diagnostic is recorded with its actual stage
 identity; a PEC predictor is not the accepted field named by a saved-plane row.

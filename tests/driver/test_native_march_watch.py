@@ -69,7 +69,7 @@ def _run(build, monkeypatch, backend: str = "native") -> dict[str, Any]:
 
     simulation = build()
     simulation.settings = dataclasses.replace(simulation.settings, backend=backend)
-    rtol = simulation._run_request().stepper.controller.rtol
+    rtol = simulation.run_request().stepper.controller.rtol
     with monkeypatch.context() as patch:
         patch.setattr(NativeSession, "advance", counted)
         with warnings.catch_warnings(record=True) as caught:

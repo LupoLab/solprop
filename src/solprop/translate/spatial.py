@@ -4,11 +4,20 @@
 
 """Freeze spatial geometry and separable coefficients for the kernel contract.
 
-These records contain arrays and scalars only. Geometry is independent of the
-temporal grid. A separable operator keeps frequency-only material coefficients and
-one transverse-frequency square per column, avoiding a full coefficient volume.
-Kernel schema 15 adds the hybrid planar kind ``"slab"`` (slab modes in x, an FFT in
-y) and the one per-channel table it needs, ``kappa_sq``.
+These records hold arrays and scalars only, and the geometry is independent of the
+temporal grid.
+
+- :class:`SpatialGeometry`: the transverse axes, quadrature, reconstruction and
+  absorption of a ``"radial"``, ``"free"`` or ``"slab"`` (hybrid planar) grid.
+- :class:`SeparableOperator`: a constant operator and prefactor kept as frequency-only
+  material coefficients and one transverse square per column (``kappa_sq`` per slab
+  channel), never a full coefficient volume; :func:`separable_values` evaluates it on
+  the host and :func:`rate_bounds` (:class:`RateBounds`) bounds its real part.
+- The plane measure: :func:`longitudinal_root`, the one ``k_z`` every evaluation
+  reads, :func:`axial_admittance`, :func:`axial_factors` and :class:`FluxPlan`, the
+  coefficients at any position (SEP 34).
+- :func:`aperture_tables`: the far-field statistics' tables, formed once for every
+  backend (SEP 23).
 """
 
 import math
@@ -26,13 +35,11 @@ from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.spatial import (
     ABSORBED_CHANNELS,
     FAR_FIELD_STATISTICS,
-    ApertureOutline,
     ApertureTables,
-    aperture_outline,
-    aperture_scale,
     attenuation_extremes,
 )
-from solprop.stats import ApertureSet, StatsSpec
+from solprop.stats import StatsSpec
+from solprop.stats.spec import far_field_tables
 from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.masks import Grids
 
@@ -499,12 +506,12 @@ class SeparableOperator:
         return 1 if self.kappa_sq is None else int(self.kappa_sq.shape[0])
 
     @property
-    def value_shape(self) -> tuple[int, int, int, int]:  # numpydoc ignore=RT01
+    def value_shape(self) -> tuple[int, int, int]:  # numpydoc ignore=RT01
         """Full state shape represented by these shared coefficients.
 
-        ``(1, n_modes, n_pol, n_omega)`` without allocating that volume.
+        ``(n_modes, n_pol, n_omega)`` without allocating that volume.
         """
-        return (1, self.kperp_sq.size, self.n_pol, self.k_squared.size)
+        return (self.kperp_sq.size, self.n_pol, self.k_squared.size)
 
 
 @dataclass(frozen=True)
@@ -641,7 +648,7 @@ def separable_values(
     coefficients: SeparableOperator,
     columns: slice | None = None,
 ) -> tuple[
-    Complex[np.ndarray, "1 n_modes n_pol n_omega"],
+    Complex[np.ndarray, "n_modes n_pol n_omega"],
     Complex[np.ndarray, "n_modes n_pol n_omega"],
 ]:
     """Evaluate a separable operator and prefactor for the host reference.
@@ -659,7 +666,7 @@ def separable_values(
     Returns
     -------
     tuple of numpy.ndarray
-        Linear rate in m^-1, shape ``(1, n_modes, n_pol, n_omega)``, and nonlinear
+        Linear rate in m^-1, shape ``(n_modes, n_pol, n_omega)``, and nonlinear
         prefactor, shape ``(n_modes, n_pol, n_omega)``.
     """
     root, propagating, attenuation = longitudinal_root(coefficients, columns)
@@ -681,7 +688,7 @@ def separable_values(
     prefactor *= coefficients.active
     shape = (root.shape[0], coefficients.n_pol, len(coefficients.k_squared))
     return (
-        np.broadcast_to(operator[:, None, :], shape)[None],
+        np.broadcast_to(operator[:, None, :], shape),
         np.broadcast_to(prefactor[:, None, :], shape),
     )
 
@@ -946,17 +953,11 @@ def aperture_tables(
 ) -> ApertureTables | None:
     """Form the far-field statistics' tables once, for every backend (SEP 23 §6).
 
-    The per-aperture constants -- each row's outline of
-    :func:`solprop.spatial.aperture_outline`, whose half-width under quadrature
-    weighting is the corrected ``D_q/2`` of a circle or an ellipse (unchanged on a
-    line, whose edges are straight, and on the straight edges of a rectangle or a
-    half-plane) -- and the scale table of :func:`solprop.spatial.aperture_scale`, with
-    the geometry's column axes, weights and on-axis vector and the spec's regions. On
-    a line every column has ``kappa_y = 0`` and the light is uniform in y, so a
-    rectangle has no y edges to meet: it is a slit of its x width, the row a circle of
-    that diameter forms. Every backend calls this at construction and
-    :func:`solprop.stats.collect` calls it for a saved plane, so all of them use the
-    same scale to the bit.
+    The geometry's Cartesian columns -- its stored axes, weights and on-axis vector --
+    and the frequency axis go to :func:`solprop.stats.spec.far_field_tables`, which
+    forms the per-aperture outlines and scale table and the spec's regions. Every
+    backend calls this at construction and :func:`solprop.stats.collect` reaches the
+    same tables for a saved plane, so all of them use the same scale to the bit.
 
     Parameters
     ----------
@@ -983,101 +984,6 @@ def aperture_tables(
     if not set(spec.names) & set(FAR_FIELD_STATISTICS):
         return None
     k_x, k_y, weights, on_axis = _far_field_columns(geometry)
-    apertures = spec.apertures
-    regions = spec.spectral_regions
-    line = k_y.size == 1
-    if line:
-        if apertures is not None and np.any(np.asarray(apertures.centres)[:, 1] != 0):
-            msg = (
-                "on a line uniform in y an aperture is a slit along x, so its y centre "
-                "must be zero"
-            )
-            raise OutputError(msg)
-        if apertures is not None:
-            _refuse_off_line(apertures)
-        excluded = np.flatnonzero(~((regions[:, 2] <= 0) & (regions[:, 3] > 0)))
-        if excluded.size:
-            msg = (
-                "on a line every column has kappa_y = 0, so regions "
-                f"{excluded.tolist()}, whose kappa_y interval excludes zero, would "
-                "select nothing"
-            )
-            raise OutputError(msg)
-    if apertures is None:
-        empty = np.empty(0)
-        return ApertureTables(
-            k_x=k_x,
-            k_y=k_y,
-            weights=weights,
-            on_axis=on_axis,
-            regions=regions,
-            centres=np.empty((0, 2)),
-            half_widths=empty,
-            edges=empty,
-            distances=empty,
-            scale=np.empty((0, grids.omega.size)),
-        )
-    outlines = _outlines(apertures, line=line)
-    distances = np.asarray(apertures.distances)
-    return ApertureTables(
-        k_x=k_x,
-        k_y=k_y,
-        weights=weights,
-        on_axis=on_axis,
-        regions=regions,
-        centres=np.asarray(apertures.centres),
-        half_widths=np.array([one.half_width for one in outlines]),
-        edges=np.array([one.edge for one in outlines]),
-        distances=distances,
-        scale=aperture_scale(distances, grids.omega),
-        profiles=tuple(one.kind for one in outlines),
-        exponent=1 if apertures.weighting == "quadrature" else 2,
-        shapes=tuple(one.shape for one in outlines),
-        half_heights=np.array([one.half_height for one in outlines]),
-        stretches=np.array([one.stretch for one in outlines]),
+    return far_field_tables(
+        spec, grids.omega, k_x=k_x, k_y=k_y, weights=weights, on_axis=on_axis
     )
-
-
-def _refuse_off_line(apertures: ApertureSet) -> None:
-    """Refuse the outlines a line uniform in y gives no meaning."""
-    for row, shape in enumerate(apertures.row_shapes):
-        if shape == "ellipse" or shape.startswith("half_plane_y"):
-            msg = (
-                f"on a line every column has kappa_y = 0 and the light is uniform in "
-                f"y, so aperture {row}, a {shape}, has no meaning there; a line takes "
-                "a circle or a rectangle, each a slit along x, or a half-plane bounded "
-                "in x"
-            )
-            raise OutputError(msg)
-
-
-def _outlines(apertures: ApertureSet, *, line: bool) -> list[ApertureOutline]:
-    """Return each row's outline on a plane or a line."""
-    count = apertures.n_apertures
-    diameters = np.asarray(apertures.diameters)
-    edges = np.zeros(count) if apertures.edges is None else np.asarray(apertures.edges)
-    extents = (
-        np.zeros((count, 2))
-        if apertures.extents is None
-        else np.asarray(apertures.extents)
-    )
-    corrected = apertures.weighting == "quadrature" and not line
-    outlines = []
-    for row in range(count):
-        shape = apertures.row_shapes[row]
-        diameter, extent = float(diameters[row]), extents[row]
-        if line and shape == "rectangle":
-            # sqrt(x*x) is |x| in correctly rounded arithmetic, so the slit decides a
-            # hard edge as a circle of this diameter does (SEP 23 section 4.10).
-            shape, diameter = "circle", float(extent[0])
-        outlines.append(
-            aperture_outline(
-                shape,
-                diameter,
-                (float(extent[0]), float(extent[1])),
-                float(edges[row]),
-                apertures.row_profiles[row],
-                corrected=corrected,
-            )
-        )
-    return outlines

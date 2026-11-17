@@ -59,30 +59,39 @@ def test_python_counter_tracks_dispatch_through_rejection(
     )
     reference: Any = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     with closing(reference) as engine:
-        engine.set_initial(problem.initial.field0, None)
         calls = []
-        original_trial = engine._trial_step
+        build = engine._runge_kutta
 
-        def trial(z, dz):
-            before = engine.metadata()["source_evaluations"]
-            _, advanced = original_trial(z, dz)
-            calls.append(engine.metadata()["source_evaluations"] - before)
-            return (4.0 if len(calls) == 1 else 0.01), advanced
+        def scripted(workspace):
+            # The session's own Runge-Kutta engine, its trial's norms scripted.
+            stepper = build(workspace)
+            original_trial = stepper.trial
 
-        monkeypatch.setattr(engine, "_trial_step", trial)
+            def trial(z, dz):
+                before = engine.metadata()["source_evaluations"]
+                original_trial(z, dz)
+                calls.append(engine.metadata()["source_evaluations"] - before)
+                return 4.0 if len(calls) == 1 else 0.01
+
+            monkeypatch.setattr(stepper, "trial", trial)
+            return stepper
+
+        monkeypatch.setattr(engine, "_runge_kutta", scripted)
         dispatched = []
-        original_source = engine._nonlinear
+        original_source = engine.workspace.nonlinear
 
         def source(*args, **kwargs):
             dispatched.append(None)
             return original_source(*args, **kwargs)
 
-        monkeypatch.setattr(engine, "_nonlinear", source)
-        summary = engine.propagate_to(0.002)
-        assert summary.n_rejected == 1
+        monkeypatch.setattr(engine.workspace, "nonlinear", source)
+        record: dict[str, Any] = {}
+        result = session_run(engine, problem, run_request, record=record)
+        history, _ = result.joined
+        assert int(np.sum(~np.asarray(history.accepted))) == 1
         assert calls[0] == 7
-        count = engine.metadata()["source_evaluations"]
+        count = record["source_evaluations"]
         assert count == sum(calls)
         assert count > sum(calls[1:])
         assert count == len(dispatched)
-        assert np.isfinite(engine.observe().field).all()
+        assert np.isfinite(result.fields[-1]).all()

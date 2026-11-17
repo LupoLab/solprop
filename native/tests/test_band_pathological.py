@@ -22,7 +22,7 @@ translated table, and each test checks that they occur:
   first knot to zero.
 - **An index past either end of the table.** A table whose stored ``log_field_min`` is
   moved, so that every live sample's index is negative, or past the last interval, while
-  its fields stay within the table's range: ``general.cpp``'s two clamps.
+  its fields stay within the table's range: ``src/general/ionisation.hpp``'s two clamps.
 
 **Where this is weaker than the original.** A 1e-170 sample beside samples of order
 one is out of reach, because a transform would round it away: the tiny sample here
@@ -64,6 +64,7 @@ from test_band_plasma import (
     march_bound,
 )
 from test_band_stress import vector
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 
 type ComplexArray = npt.NDArray[np.complex128]
 
@@ -143,7 +144,7 @@ def capillary(
             simulation.settings, quadrature=None, components=None
         )
         problem = simulation.translate()
-    run_request = simulation._run_request()  # pyright: ignore[reportPrivateUsage]
+    run_request = simulation.run_request()
     grid = simulation.grid
     assert isinstance(grid, FieldGrid)
     field = np.zeros(problem.shape, complex)
@@ -167,12 +168,12 @@ def synthesised(
     """Return the reference's node fields of `field`, ``(nodes, n_pol, n_to)``."""
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        reference.set_initial(field, None)
-        state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
+        reference.workspace.load(
+            np.ascontiguousarray(field, dtype=complex), None, z=0.0, resume=False
+        )
+        state = reference.workspace.committed()  # pyright: ignore[reportPrivateUsage]
         return np.real(
-            np.concatenate(
-                list(reference._plasma_nodes(state[0]))  # pyright: ignore[reportPrivateUsage]
-            )
+            np.concatenate(list(reference.workspace.statistics.node_fields(state, 0.0)))
         )
     finally:
         reference.close()
@@ -184,13 +185,18 @@ def source_of_reference(
     """Return the reference's first stage on the launch, ``N(E, z = 0)``."""
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
-        return reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
-            reference._require_state(),  # pyright: ignore[reportPrivateUsage]
-            reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-            np.ones((1, *problem.shape), complex),
-        )[0]
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
+        reference.workspace.hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
+        return reference.workspace.nonlinear(  # pyright: ignore[reportPrivateUsage]
+            reference.workspace.committed(),  # pyright: ignore[reportPrivateUsage]
+            reference.workspace.stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
+            np.ones(problem.shape, complex),
+        )
     finally:
         reference.close()
 
@@ -201,9 +207,9 @@ def source_of_native(
     """Return native's first stage on the launch, from a zero-length trial."""
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         native_trial(backend, 0.0, 0.0)
-        return np.asarray(state.stage_to_host(0)).reshape(problem.shape)
+        return np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
     finally:
         backend.close()
 

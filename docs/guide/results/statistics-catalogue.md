@@ -35,7 +35,9 @@ Use this reference to find the saved statistic, shape and units for your geometr
      - ``(n_modes,)``
      - W
      - yes
-     - :math:`\max_t P_m(t)` for each mode.
+     - :math:`\max_t P_m(t)` for each mode, :math:`P_m` the analytic Poynting flux;
+       ``processing.peak_power`` of a saved plane measures the squared amplitude
+       instead (`conventions.md` §7).
    * - ``peak_power_window``
      - ``(n_windows, n_modes)``
      - W
@@ -78,7 +80,8 @@ Use this reference to find the saved statistic, shape and units for your geometr
      - ``()``
      - s
      - yes
-     - Width of the central feature of the total power at half its maximum.
+     - Width of the central feature of the total power at half its maximum, of the
+       analytic Poynting flux; ``processing.fwhm_t`` measures the squared amplitude.
    * - ``fwhm_t_outer``
      - ``()``
      - s

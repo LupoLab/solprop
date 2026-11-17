@@ -2,33 +2,31 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Refractive-index models for gases, with analytic frequency derivatives.
+"""Refractive-index models for gases, with analytic frequency derivatives.
 
-A gas is described by its **per-particle susceptibility** ``gamma(omega)``, in m^3, so
-that the linear susceptibility at a number density ``rho`` is simply
+A gas is described by its **per-particle susceptibility** ``gamma(omega)`` in m^3, so
+the linear susceptibility at number density ``rho`` is ``chi = gamma rho`` and the index
+``n = sqrt(1 + chi)``; keeping the density outside the model makes a pressure gradient a
+scalar multiplier and lets ``n - 1`` be formed without cancellation
+(``docs/dev/conventions.md`` §5).
 
-.. math:: \\chi^{(1)}(\\omega) = \\gamma(\\omega)\\,\\rho
+- **Laws**: :class:`GasSusceptibility` is the base class. Every built-in gas's law is
+  optmat's polarizability (:class:`OptmatSusceptibility`, SEP 3), which :func:`gamma`
+  returns; a model variant is chosen with a
+  :class:`~solprop.physdata.selection.MaterialSelection`, never a separate pseudo-gas.
+- **A caller's own expression**: :class:`PoleSumSusceptibility`, and the refractivity
+  forms (:class:`RefractivitySusceptibility`) :class:`InversePoleIndex` and
+  :class:`WavenumberPoleIndex`, each a rational function of ``1/lambda^2`` with a
+  closed-form derivative, a validity range, a citation and the :class:`ReferenceState`
+  its source reports.
+- **Accessors at a state**: :func:`chi1`, :func:`refractive_index`,
+  :func:`refractive_index_minus_one` and the derivatives :func:`dchi1_domega` and
+  :func:`drefractive_index_domega`, with optmat's equation of state.
 
-and the refractive index is ``n = sqrt(1 + chi)``. Keeping the density outside the model
-is what lets ``n - 1`` be formed directly rather than as ``(1 + x) - 1``
-(``docs/dev/conventions.md`` section 5), and it makes a pressure gradient a scalar
-multiplier on one fixed spectral profile.
-
-Every built-in gas's law is optmat's polarizability (:class:`OptmatSusceptibility`,
-SEP 3), with its exact frequency derivative and its qualified wavelength intervals;
-:func:`gamma` returns it and the accessors below evaluate it at a state, with optmat's
-equation of state. A model variant is chosen with a
-:class:`~solprop.physdata.selection.MaterialSelection`, never a separate pseudo-gas.
-
-The formula types (:class:`PoleSumSusceptibility`, :class:`InversePoleIndex`,
-:class:`WavenumberPoleIndex`) are for a caller's own published expression: each is a
-rational function of ``1 / lambda^2``, so its derivative with respect to angular
-frequency is available in closed form. That is a requirement, not a convenience: the
-co-moving frame needs ``beta_1`` to about 1e-10 and a finite-difference derivative of a
-Sellmeier expression has a roughness floor near 5e-8 (see ``docs/dev/decisions.md``).
-Each carries the wavelength range over which its source is valid, the state at which
-it reports its refractivity (:class:`ReferenceState`) and a citation. Evaluating outside
-that range emits :class:`~solprop.exceptions.MaterialRangeWarning` once per call.
+The derivatives are analytic because the co-moving frame needs ``beta_1`` to about
+1e-10, below the roughness floor of a differenced one. Evaluating outside a law's range
+emits :class:`~solprop.exceptions.MaterialRangeWarning`. The manual page is
+``docs/guide/media/materials.md``.
 """
 
 import functools
@@ -86,14 +84,14 @@ class ReferenceState:
 
     Attributes
     ----------
-    pressure_bar : float
+    pressure : float
         Absolute pressure of the reported measurement, in bar.
     temperature : float
         Temperature of the reported measurement, in K, or room temperature where the
         source declares none.
     """
 
-    pressure_bar: float
+    pressure: float
     temperature: float
 
 
@@ -103,31 +101,7 @@ def _reference_density(gas: Gas, state: ReferenceState) -> float:
 
     - Returns: number density in m^-3, from optmat's equation of state.
     """
-    return density(gas, state.pressure_bar, state.temperature)
-
-
-def _as_omega(omega: ArrayLike | float | int) -> Float[np.ndarray, "*shape"]:
-    """Validate an angular-frequency argument and return it as a float array.
-
-    - ``omega``: angular frequency in rad/s, >= 0 and finite. A scalar, a sequence or an
-      array.
-    """
-    # numpy casts a complex argument to float with a warning rather than an error, so
-    # it is rejected here before the conversion.
-    if np.iscomplexobj(omega):
-        raise MaterialError("angular frequency must be real, got a complex value")
-    try:
-        values = np.asarray(omega, dtype=float)
-    except (TypeError, ValueError) as exc:
-        raise MaterialError(f"angular frequency must be real: {exc}") from exc
-    if not np.all(np.isfinite(values)):
-        raise MaterialError("angular frequency must be finite")
-    if np.any(values < 0.0):
-        raise MaterialError(
-            "angular frequency must not be negative; a refractive index is not defined "
-            "there. Evaluate on the physical band of the grid."
-        )
-    return values
+    return density(gas, state.pressure, state.temperature)
 
 
 def _wavelength_extremes(omega: Float[np.ndarray, "*shape"]) -> tuple[float, float]:
@@ -253,7 +227,7 @@ class GasSusceptibility(ABC):
         >>> f"{float(model.susceptibility(2.356e15)):.6e}"
         '2.079791e-29'
         """
-        values = _as_omega(omega)
+        values = _optmat.checked_omega(omega)
         self._check_range(values)
         u = np.asarray((_INVERSE_MICRON_PER_OMEGA * values) ** 2)
         chi, _ = self._chi_and_derivative(u)
@@ -288,7 +262,7 @@ class GasSusceptibility(ABC):
         >>> float(gamma(Gas.Ar).dsusceptibility_domega(2.356e15)) > 0.0
         True
         """
-        values = _as_omega(omega)
+        values = _optmat.checked_omega(omega)
         self._check_range(values)
         scale = _INVERSE_MICRON_PER_OMEGA
         _, dchi_du = self._chi_and_derivative(np.asarray((scale * values) ** 2))
@@ -665,7 +639,7 @@ class OptmatSusceptibility(GasSusceptibility):
         - ``omega``: angular frequency in rad/s, >= 0; zero is the static limit.
         - ``method``: ``"complex_polarizability"`` or ``"dpolarizability_domega"``.
         """
-        values = _as_omega(omega)
+        values = _optmat.checked_omega(omega)
         wavelength = _optmat.omega_to_wavelength(values)
         evaluator = getattr(self.model, method)
         # Per particle, the polarizability does not depend on z, yet a translation
@@ -680,7 +654,7 @@ class OptmatSusceptibility(GasSusceptibility):
             compute=lambda: (np.asarray(evaluator(wavelength)) / EPS0,),
         )
         # A transparent model's imaginary part is identically zero, not small: taking
-        # the real part drops nothing and keeps the legacy real dtype downstream.
+        # the real part drops nothing and keeps a transparent gas real downstream.
         return np.asarray(sampled if self.absorbing else np.real(sampled))
 
     def susceptibility(

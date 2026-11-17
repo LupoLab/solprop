@@ -104,7 +104,7 @@ settings = SimulationSettings(
     absorber=absorber(grid),
     ionisation_field_range=(1e8, 1e11),
 )
-simulation = Simulation.from_radial(
+simulation = Simulation.from_free(
     grid, space, medium, responses, pulse, settings=settings, seed=20261027
 )
 run = simulation.run(progress="none")

@@ -2,34 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""The design check of a requested collar: what it sends back (SEP 40, 4.4).
+"""The design check of a requested collar: what it sends back (SEP 40, 4.4).
 
-A product of plane-wave reflection and a ray share cannot say how much of a launch a
-collar returns: evaluated on the phase-0 witnesses it was wrong by up to nine decades,
-because the return lives in diffraction tails. So the check computes it. The launch is
-propagated linearly on the design's own operator, one frequency at a time, and compared
-over the requested aperture with the same launch on a bare grid large enough that the
-launch does not reach its edge within the run:
+:func:`design_check` propagates the launch linearly through the designed collar, one
+frequency node at a time, and compares it over the requested aperture with the same
+launch on a bare grid too large to return it; the largest returned share along the run,
+weighted over equal-energy frequency nodes, is the estimate. Radially the generator is
+exponentiated by eigendecomposition; the Cartesian, line and planar grids take a
+one-frequency Strang march. Above :data:`BUDGET` the design is refused, an estimate
+near it is refined once and must meet :data:`REFINED_BUDGET`, and an inconclusive check
+is not a pass; :class:`CheckResult` is the verdict and its record.
 
-.. math::
-
-    U_\mathrm{ret} = \max_{z \le L} \frac{\sum_j s_j \,
-    \lVert E_\mathrm{collar}(z, \omega_j) - E_\mathrm{large}(z, \omega_j)
-    \rVert^2_\mathrm{aperture}}{\sum_j s_j\, U_\mathrm{launch}(\omega_j)},
-
-with nodes :math:`\omega_j` at equal-energy quantiles of the launch's spectrum and
-shares :math:`s_j`. Radially the generator
-:math:`\mathrm{diag}(i k_z) + F\,\mathrm{diag}(-\alpha/2)\,B` is exponentiated by its
-eigendecomposition; on the Cartesian, line and planar grids a one-frequency Strang
-march, diffraction exact in the transverse wavenumber and the collar in real space,
-steps no further than the plane spacing and the crossing limit. The bare grid is
-diagonal and needs no march.
-
-The verdict is the contract of section 4.4: above :data:`BUDGET` the design is refused;
-an estimate within a factor of two of it is refined once, doubling nodes, planes and
-steps and enlarging the bare grid by half, and passes at :data:`REFINED_BUDGET` if the
-two agree within a quarter; a check that cannot converge is inconclusive, which is not
-a pass.
+The formula and the reasoning are ``docs/dev/algorithms.md`` section 8, "The transverse
+collar's design check"; the contract is SEP 40 section 4.4.
 """
 
 from __future__ import annotations
@@ -520,7 +505,7 @@ def _half(  # noqa: PLR0917 - called positionally
 def design_check(  # noqa: PLR0917 - called positionally
     space: RadialGrid | FreeGrid | PlanarGrid,
     rate: Float[np.ndarray, " n_nodes"],
-    launch: Complex[np.ndarray, "n_batch n_columns n_pol n_omega"],
+    launch: Complex[np.ndarray, "n_columns n_pol n_omega"],
     dispersion: SpatialDispersion,
     z_max: float,
     width: float,
@@ -534,7 +519,7 @@ def design_check(  # noqa: PLR0917 - called positionally
     rate : numpy.ndarray
         The collar's power rate on the nodes, 1/m.
     launch : numpy.ndarray
-        The noise-free launch, canonical layout; its first batch member is checked.
+        The noise-free launch, canonical layout.
     dispersion : solprop.spatial.SpatialDispersion
         The medium and the temporal grid.
     z_max : float
@@ -548,7 +533,7 @@ def design_check(  # noqa: PLR0917 - called positionally
         The verdict, ``"pending"`` for a launch that is zero everywhere.
     """
     started = time.perf_counter()
-    columns = np.asarray(launch[0], dtype=np.complex128)
+    columns = np.asarray(launch, dtype=np.complex128)
     if not np.any(columns):
         return CheckResult("pending", reason="no launch to check yet")
     returned, nodes, planes, outgrown = _estimate(

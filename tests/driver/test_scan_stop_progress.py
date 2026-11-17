@@ -18,17 +18,17 @@ from jaxtyping import TypeCheckError
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER
+from solprop.backends import records
 from solprop.backends.registry import available
 from solprop.backends.session import DEFAULT_WORK_LIMIT
-from solprop.driver import _scan_batch
 from solprop.driver._scan_run import _collect, _Job, _Options, _ScanEvents, _Work
-from solprop.driver.executors import Batch, Local, Queue, Slurm, pool
+from solprop.driver.executors import Local, Queue, Slurm, pool
 from solprop.driver.executors.pool import PlaneScalars, Pool, _Channel, _WorkerReporter
 from solprop.driver.scan import Scan, run_scan
 from solprop.driver.simulation import Simulation
-from solprop.exceptions import DriverError, StopRequested
+from solprop.exceptions import DriverError, ExecutorError, StopRequested
 from solprop.grid import EnvelopeGrid
-from solprop.log import NullReporter, NullScanReporter, PlaneSummary
+from solprop.log import NullReporter, NullScanReporter, PlaneSummary, ScanReporter
 from solprop.stepper import FixedSchedule, Multistep
 
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
@@ -263,8 +263,7 @@ def test_local_stop_mid_point_is_not_committed_and_a_rerun_computes_it(tmp_path)
 
 @pytest.mark.skipif("native" not in available(), reason="native is not installed")
 def test_local_stop_reaches_a_one_plane_native_adams_point(tmp_path):
-    native = pytest.importorskip("solprop_native.session")
-    most = native.CALL_ATTEMPTS
+    most = records.CALL_ATTEMPTS
 
     def build(point):
         # More steps than a native call's bound, and no plane until the last of them.
@@ -411,69 +410,6 @@ def test_pool_stop_message_stops_the_point_in_flight(tmp_path):
     assert error.flag is flag
 
 
-def test_batch_stops_between_groups(tmp_path):
-    scan = Scan("batch_stop", power=[1.0, 2.0, 3.0])
-    flag = threading.Event()
-    reporter = StopAfterPoint(flag, index=0)
-    output = run_scan(
-        scan,
-        build_point,
-        output=tmp_path / "scan.h5",
-        executor=Batch(1),
-        progress=reporter,
-        stop=flag,
-    )
-    assert output.status.tolist() == ["done", "todo", "todo"]
-    assert reporter.finished() == [(0, "done")]
-    # A batch reports a point's start only as its result is collected.
-    assert reporter.calls[1:3] == [
-        ("point_started", 0),
-        ("point_finished", 0, "done", reporter.calls[2][3]),
-    ]
-    rerun = run_scan(scan, build_point, output=tmp_path / "scan.h5", executor=Batch(1))
-    assert rerun.status.tolist() == ["done", "done", "done"]
-
-
-def test_batch_gives_back_a_claimed_group_it_did_not_run(tmp_path):
-    flag = threading.Event()
-
-    def build(point):
-        # The second member is built after the first: the flag is set before the
-        # group they form would run.
-        if point.index == 1:
-            flag.set()
-        return build_point(point)
-
-    reporter = Recorder(watch=False)
-    output = run_scan(
-        Scan("batch_group", power=[1.0, 2.0]),
-        build,
-        output=tmp_path / "scan.h5",
-        executor=Batch(2),
-        progress=reporter,
-        stop=flag,
-    )
-    assert output.status.tolist() == ["todo", "todo"]
-    assert reporter.finished() == [(0, "stopped"), (1, "stopped")]
-
-
-def test_batch_stops_between_the_admitted_parts_of_a_group(tmp_path, monkeypatch):
-    # Admission splits a compatible group when memory holds fewer members at once.
-    monkeypatch.setattr(_scan_batch, "_admit", lambda group, work, executor: 1)
-    flag = threading.Event()
-    reporter = StopAfterPoint(flag, index=0)
-    output = run_scan(
-        Scan("batch_parts", power=[1.0, 2.0]),
-        build_point,
-        output=tmp_path / "scan.h5",
-        executor=Batch(2),
-        progress=reporter,
-        stop=flag,
-    )
-    assert output.status.tolist() == ["done", "todo"]
-    assert reporter.finished() == [(0, "done"), (1, "stopped")]
-
-
 @pytest.mark.skipif(
     sys.platform == "win32", reason="the Queue and Slurm executors are POSIX only"
 )
@@ -570,8 +506,8 @@ def test_the_worker_reporter_sends_scalars_never_a_field():
     assert type(received[1][2][0]) is float
 
 
-class PlainScanReporter:
-    """A scan reporter written to the four calls alone, which watches no point."""
+class PlainScanReporter(ScanReporter):
+    """A scan reporter that keeps the default point_reporter, so watches no point."""
 
     def __init__(self):
         self.calls = []
@@ -589,7 +525,7 @@ class PlainScanReporter:
         self.calls.append("scan_finished")
 
 
-def test_a_reporter_without_point_reporter_watches_no_point(tmp_path):
+def test_a_reporter_with_the_default_point_reporter_watches_no_point(tmp_path):
     reporter = PlainScanReporter()
     run_scan(
         Scan("plain", power=[1.0]),
@@ -611,8 +547,8 @@ def test_the_bar_choice_draws_one_outer_bar(tmp_path, capsys):
     assert "1/1" in capsys.readouterr().err
 
 
-class Plain:
-    """A reporter with the four basic calls only: no summary and no interruption."""
+class Plain(NullReporter):
+    """A reporter that overrides the four basic calls and inherits the other two."""
 
     def __init__(self):
         self.calls = []
@@ -630,7 +566,7 @@ class Plain:
         self.calls.append("finished")
 
 
-def test_relayed_calls_reach_only_what_a_point_reporter_implements():
+def test_relayed_calls_reach_the_point_reporter():
     flag = threading.Event()
     full, plain = PointRecorder(), Plain()
     reporters = {0: full, 1: plain, 2: None}
@@ -667,7 +603,7 @@ def test_relayed_calls_reach_only_what_a_point_reporter_implements():
     assert isinstance(stopped, StopRequested)
     assert stopped.flag is flag
     # Anything else that ended a worker's run is named, not raised again.
-    assert isinstance(other, DriverError)
+    assert isinstance(other, ExecutorError)
     assert "KeyboardInterrupt" in str(other)
 
 

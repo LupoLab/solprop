@@ -4,11 +4,17 @@
 
 """Recipes: a simulation as versioned TOML, read, built, run and saved (SEP 41, S1).
 
-A recipe is read, checked against the parameter metadata, built into a
-:class:`~solprop.driver.simulation.Simulation`, run, written back and exported as a
-plain Python script. It is one-way: objects are built from it and never turned back
-into tables, so a saved recipe always comes from a recipe or from plain values
-(:meth:`Recipe.from_keywords`).
+:class:`Recipe` is the whole life of one recipe: loaded (``load``, ``loads``,
+``from_dict``, ``example``, ``from_output``), edited by parameter path (``get``,
+``set``), checked against the parameter metadata (``check``, returning
+:class:`RecipeIssue` rows), built into a :class:`~solprop.driver.simulation.Simulation`
+(``build``, after its pins resolve), previewed, run, recorded in its output, saved and
+exported as a Python script. It is one-way: objects are built from it and never turned
+back into tables, so a saved recipe always comes from a recipe or from plain values
+(``from_keywords``). :class:`RecipeScan`, with the picklable :class:`RecipeBuilder`, is
+its ``[scan]`` table ready for :func:`~solprop.driver.scan.run_scan`;
+:func:`resume_file` continues a run from its file and the recipe it records;
+:data:`ROUTES` names the routes. The manual page is ``docs/guide/setup/recipes.md``.
 """
 
 import copy
@@ -21,10 +27,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, cast
 
+import h5py
 import numpy as np
 
-from solprop.exceptions import SolpropError, SolpropWarning
-from solprop.output.schema import RecipeRecord
+from solprop.exceptions import DriverError, SolpropError, SolpropWarning
+from solprop.grid import EnvelopeGrid
+from solprop.output.hdf5 import open_file
+from solprop.output.records import RecipeRecord
+from solprop.output.store import PlaneStore
+from solprop.recipe import export, preview, provenance
 from solprop.recipe.document import (
     FORMAT,
     NONE,
@@ -46,13 +57,22 @@ from solprop.recipe.metadata import (
     surface,
 )
 from solprop.recipe.paths import format_path, get_path, parse_path, set_path
+from solprop.recipe.pins import (
+    PULSE_PINS,
+    Pin,
+    design_target,
+    placeholder,
+    read_pins,
+    solve_pin,
+    solve_pulse,
+)
 from solprop.recipe.quantity import Unit, format_quantity, parse_quantity
 from solprop.recipe.registry import (
     REGISTRY,
     BuildContext,
     coerce,
     decode_keyword,
-    retired,
+    plane_parameter,
 )
 
 if TYPE_CHECKING:
@@ -62,8 +82,7 @@ if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
     from solprop.grid import TimeGrid
     from solprop.log import ProgressChoice, ProgressReporter, StopFlag
-    from solprop.output.schema import Output
-    from solprop.recipe.pins import Pin
+    from solprop.output.store import Output
     from solprop.recipe.preview import InputPreview, ModeSetPreview
     from solprop.tools import DesignRoots
 
@@ -179,10 +198,6 @@ class Recipe:
     ) -> None:
         """Adopt a checked document."""
         self._document: Document = validate_document(document)
-        build = self._document.get("build", {})
-        for key in [key for key in build if retired("build", key, build[key], key)]:
-            # A retired key whose value is what solprop does anyway is dropped.
-            del build[key]
         self._text = text
         self._base = base
         self._allow_outside = allow_outside
@@ -357,14 +372,16 @@ class Recipe:
             return cls.load(path)
 
     @classmethod
-    def from_output(cls, path: str | Path, *, resolved: bool = False) -> "Recipe":
+    def from_output(
+        cls, path: str | Path | PlaneStore, *, resolved: bool = False
+    ) -> "Recipe":
         """Read back the recipe a run's output records (SEP 41, S2).
 
         Parameters
         ----------
-        path : str or pathlib.Path
+        path : str, pathlib.Path or solprop.output.store.PlaneStore
             The HDF5 output of a run, or a scan's file, which records the authored
-            recipe only.
+            recipe only; or a run's opened output, in memory or on disk.
         resolved : bool, optional
             Read the resolved recipe, which rebuilds the run as it ran, rather than
             the authored one, for editing.
@@ -380,19 +397,20 @@ class Recipe:
             If the file records no recipe, being a file from a script, or its recipe
             is of a newer format.
         """
-        import h5py  # noqa: PLC0415 - only to tell a scan file from a run's
-
-        from solprop.output.hdf5 import open_file  # noqa: PLC0415 - layer above
         from solprop.processing.scans import ScanOutput  # noqa: PLC0415 - layer above
 
-        with h5py.File(path, "r") as file:
-            scan = "scan_schema_version" in file.attrs
-        if scan:
-            # Through the scan reader's own check of the schema its records declare.
-            record = ScanOutput(path).recipe
+        if isinstance(path, PlaneStore):
+            record = path.recipe
         else:
-            with open_file(path) as handler:
-                record = handler.recipe
+            with h5py.File(path, "r") as file:
+                scan = "scan_schema_version" in file.attrs
+            if scan:
+                # Through the scan reader's own check of the schema its records
+                # declare.
+                record = ScanOutput(path).recipe
+            else:
+                with open_file(path) as handler:
+                    record = handler.recipe
         if record is None:
             msg = (
                 f"{path} records no recipe: it was written from a script, which is "
@@ -628,6 +646,9 @@ class Recipe:
             )
         context = self._context(grid)
         out: dict[str, object] = {}
+        if "length" not in build and "length" in self._table():
+            # The route's length is required, None where a grid supplies it (SEP 51).
+            out["length"] = None
         for name, value in build.items():
             if name == "grid" and one_pass:
                 out[name] = grid
@@ -649,14 +670,18 @@ class Recipe:
         )
 
     def _missing(self) -> list[str]:
-        """Return the route's required keywords this recipe neither sets nor pins."""
-        pinned = self._document.get("pins", {})
+        """Return the route's required keywords this recipe neither sets nor pins.
+
+        A keyword route's length may be left to a grid (SEP 51), which then supplies
+        it: the route is called with ``length=None`` (:meth:`keywords`).
+        """
+        given = set(self._document["build"]) | set(self._document.get("pins", {}))
         return [
             name
             for name, entry in self._table().items()
             if entry.default is REQUIRED
-            and name not in self._document["build"]
-            and name not in pinned
+            and name not in given
+            and not (name == "length" and "grid" in given)
         ]
 
     def _require_keywords(self) -> None:
@@ -667,6 +692,12 @@ class Recipe:
         that solve its pins have dropped ``[pins]``, so a pinned keyword looks missing
         on them.
         """
+        given = set(self._document["build"]) | set(self._document.get("pins", {}))
+        table = self._table()
+        if "length" in table and "grid" in table and not given & {"length", "grid"}:
+            # A keyword route's length is stated once, as length or as a grid's
+            # (SEP 51): either will do, so neither is required alone.
+            raise RecipeError("a length or a grid is required", path="length")
         missing = self._missing()
         if len(missing) == 1:
             raise RecipeError("a required keyword is missing", path=missing[0])
@@ -694,11 +725,21 @@ class Recipe:
         if self._document.get("pins"):
             return self.resolve().build()
         builder = surface(self.route)
-        simulation = builder(**self.keywords())
-        if not self._grid_first() and any(
-            _needs_grid(value) for value in self._document["build"].values()
-        ):
-            simulation = builder(**self.keywords(grid=simulation._base_grid))
+        try:
+            simulation = builder(**self.keywords())
+            if not self._grid_first() and any(
+                _needs_grid(value) for value in self._document["build"].values()
+            ):
+                simulation = builder(**self.keywords(grid=simulation._base_grid))
+        except DriverError as error:
+            # SEP 51's refusals of the planes, the length and replay are the recipe's.
+            planes = plane_parameter(error)
+            if planes is None:
+                raise
+            prefix = "settings." if self.route in OBJECT_ROUTES else ""
+            if planes in ("length", "grid"):
+                prefix = ""
+            raise RecipeError(str(error), path=f"{prefix}{planes}") from error
         execution = self._execution()
         if execution:
             simulation.settings = dataclasses.replace(simulation.settings, **execution)
@@ -740,8 +781,6 @@ class Recipe:
         >>> f"{pinned.resolve().get('energy') * 1e6:.1f} uJ"
         '126.1 uJ'
         """
-        from solprop.recipe.pins import read_pins  # noqa: PLC0415 - cycle
-
         self._require_keywords()
         pins = read_pins(self)
         working = self._copy(("pins",))
@@ -750,7 +789,7 @@ class Recipe:
                 working._document["build"] = set_path(
                     working._document["build"],
                     parse_path(pin.path),
-                    _placeholder(pin.path),
+                    placeholder(pin.path),
                 )
         for pin in pins:
             value = _pick(pin, working._solve(pin))
@@ -782,8 +821,6 @@ class Recipe:
             If the path is not pinned, a pin does not read, or a required keyword is
             missing.
         """
-        from solprop.recipe.pins import read_pins  # noqa: PLC0415 - cycle
-
         self._require_keywords()
         pins = read_pins(self)
         steps = format_path(parse_path(path))
@@ -797,7 +834,7 @@ class Recipe:
                 working._document["build"] = set_path(
                     working._document["build"],
                     parse_path(pin.path),
-                    _placeholder(pin.path),
+                    placeholder(pin.path),
                 )
         if chosen.stage == "pulse":
             for pin in pins:
@@ -836,9 +873,7 @@ class Recipe:
         >>> [mode.label for mode in preview.modes]
         ['HE1,1:even', 'HE1,2:even']
         """
-        from solprop.recipe.preview import modes  # noqa: PLC0415 - layer D
-
-        return modes(self, z)
+        return preview.modes(self, z)
 
     def preview_input(self) -> "InputPreview":
         """Return the input pulse on the run's grid, as launched, without noise (S18).
@@ -858,9 +893,7 @@ class Recipe:
         >>> f"{preview.energy * 1e6:.1f} uJ"
         '275.0 uJ'
         """
-        from solprop.recipe.preview import preview_input  # noqa: PLC0415 - layer D
-
-        return preview_input(self)
+        return preview.preview_input(self)
 
     def _copy(self, drop: tuple[str, ...]) -> "Recipe":
         """Return a copy without some top-level tables, its data files kept."""
@@ -874,12 +907,6 @@ class Recipe:
 
     def _solve(self, pin: "Pin") -> "DesignRoots":
         """Solve one pin on this (unpinned) recipe's keywords."""
-        from solprop.recipe.pins import (  # noqa: PLC0415 - cycle
-            design_target,
-            solve_pin,
-            solve_pulse,
-        )
-
         keywords = self.keywords()
         if any(_needs_grid(value) for value in self._document["build"].values()):
             probe = self._copy(())
@@ -923,13 +950,11 @@ class Recipe:
 
         Returns
         -------
-        solprop.output.schema.RecipeRecord
+        solprop.output.records.RecipeRecord
             The authored and resolved texts, and the data files
             (:mod:`solprop.recipe.provenance`).
         """
-        from solprop.recipe.provenance import record  # noqa: PLC0415 - cycle
-
-        return record(
+        return provenance.record(
             self, simulation, base=self._base, allow_outside=self._allow_outside
         )
 
@@ -968,7 +993,7 @@ class Recipe:
 
         Returns
         -------
-        solprop.output.schema.Output
+        solprop.output.store.Output
             The run's output.
         """
         return self.build().run(output, **run_keywords)  # type: ignore[arg-type]
@@ -1007,7 +1032,7 @@ class Recipe:
         >>> scan.scan.shape, scan.scan.variables["peak_power"].tolist()
         ((2,), [5.0, 10.0])
         """
-        from solprop.driver.scan import Scan  # noqa: PLC0415 - layer D
+        from solprop.driver.scan import Scan  # noqa: PLC0415 - heavy: the executors
 
         table = dict(self._document.get("scan", {}))
         if not table:
@@ -1169,15 +1194,11 @@ class Recipe:
         str
             The script.
         """
-        from solprop.recipe.export import script  # noqa: PLC0415 - only here
-
-        return script(self, output)
+        return export.script(self, output)
 
 
 def _deferred(context: BuildContext) -> BuildContext:
     """Return a context for checking values built on the grid before it exists."""
-    from solprop.grid import EnvelopeGrid  # noqa: PLC0415 - only for the stand-in
-
     grid = EnvelopeGrid.from_limits(1.0, 800e-9, (400e-9, 2e-6), 200e-15)
     return dataclasses.replace(context, grid=grid, stand_in=True)
 
@@ -1272,25 +1293,16 @@ def _with_pulse_placeholders(document: Document) -> dict[str, object]:
 
     - Returns: the ``[build]`` table, unchanged where no pulse pin is unset.
     """
-    from solprop.recipe.pins import PULSE_PINS  # noqa: PLC0415 - cycle
-
     build = document["build"]
     for path in document.get("pins", {}):
         steps = parse_path(path)
         name = format_path(steps[-1:]).lstrip(".")
         if len(steps) > 1 and name in PULSE_PINS:
             try:
-                build = set_path(build, steps, _placeholder(path))
+                build = set_path(build, steps, placeholder(path))
             except RecipeError:
                 continue  # the pin's own check names what is wrong with it
     return build
-
-
-def _placeholder(path: str) -> float:
-    """Return the value a pulse pin stands at while the guide is solved."""
-    from solprop.recipe.pins import placeholder  # noqa: PLC0415 - cycle
-
-    return placeholder(path)
 
 
 def _pick(pin: "Pin", roots: "DesignRoots") -> float:
@@ -1336,7 +1348,7 @@ def resume_file(
 
     Returns
     -------
-    solprop.output.schema.Output
+    solprop.output.store.Output
         The handler the run continued in.
 
     Raises

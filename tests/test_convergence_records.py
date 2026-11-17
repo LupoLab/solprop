@@ -26,21 +26,6 @@ import pytest
 import convergence_records as cr
 from solprop.backends.registry import BACKEND_NAMES, available
 
-RETIRED_BACKENDS = frozenset({"numba_cuda", "numba_cpu", "mlx"})
-"""Backends whose rows stay as evidence after the backend itself was deleted."""
-
-MOVED_WRITERS = {
-    "tests/backends/test_numba_cpu.py": "tests/backends/test_backend_ladder.py"
-}
-"""Modules deleted with a backend whose shared tests moved, by the path rows still name.
-
-A row is not rewritten only because its writer moved; the path changes at its next
-write.
-"""
-
-RETIRED_WRITERS = frozenset({"tests/backends/test_numba_cpu_kernels.py"})
-"""Modules deleted with a backend, whose rows no test will ever write again."""
-
 TOP_LEVEL = {
     "schema",
     "study",
@@ -202,25 +187,15 @@ def _related(one, other):
 def _writer_exists(node, collected):
     """Whether ``node`` is collected, or would be with an absent backend installed.
 
-    An absent backend may be one coordinate of a compound parametrisation. Require
-    a collected counterpart with every other coordinate unchanged, so a renamed
-    case cannot pass merely because the same test function still exists.
-
-    "Absent" covers both a backend that is registered but not installed here and one
-    this package has deleted (:data:`RETIRED_BACKENDS`): the rows a deleted backend
-    wrote are evidence of what it measured and stay, and nothing will ever collect
-    their writer again. A row may also name a module that went with that backend:
-    :data:`RETIRED_WRITERS`, whose tests are gone, and :data:`MOVED_WRITERS`, whose
-    shared tests live on under another path and are looked up there.
+    An absent backend -- registered but not installed here -- may be one coordinate of
+    a compound parametrisation. Require a collected counterpart with every other
+    coordinate unchanged, so a renamed case cannot pass merely because the same test
+    function still exists.
     """
-    module, _, rest = node.partition("::")
-    if module in RETIRED_WRITERS:
-        return True
-    node = f"{MOVED_WRITERS.get(module, module)}::{rest}"
     if node in collected:
         return True
     base, _, parameter = node.partition("[")
-    absent = (set(BACKEND_NAMES) | RETIRED_BACKENDS) - set(available())
+    absent = set(BACKEND_NAMES) - set(available())
     coordinates = parameter.rstrip("]").split("-")
     for index, coordinate in enumerate(coordinates):
         if coordinate not in absent:
@@ -254,31 +229,6 @@ def test_every_row_was_written_by_a_test_that_still_exists(collected_tiers):
                 study,
                 row["written_by"],
             )
-
-
-def test_a_writer_of_a_removed_backend_counts_as_existing():
-    """A row of a deleted backend keeps its numbers without a writer to collect."""
-    collected = {"tests/backends/test_x.py::test_y[numpy_ref]"}
-    for removed in RETIRED_BACKENDS:
-        assert removed not in BACKEND_NAMES
-        assert _writer_exists(f"tests/backends/test_x.py::test_y[{removed}]", collected)
-        assert not _writer_exists(
-            f"tests/backends/test_z.py::test_y[{removed}]", collected
-        )
-
-
-def test_a_writer_that_went_with_its_backend_is_retired_or_looked_up_where_it_moved():
-    """A retired module's rows stay; a moved module's rows need the moved test."""
-    retired = next(iter(RETIRED_WRITERS))
-    assert not (cr.REPO / retired).exists()
-    assert _writer_exists(f"{retired}::test_gone[1]", set())
-    old, new = next(iter(MOVED_WRITERS.items()))
-    assert not (cr.REPO / old).exists()
-    assert (cr.REPO / new).exists()
-    collected = {f"{new}::test_y[numpy_ref]"}
-    assert _writer_exists(f"{old}::test_y[numba_cpu]", collected)
-    assert _writer_exists(f"{old}::test_y[numpy_ref]", collected)
-    assert not _writer_exists(f"{old}::test_z[numba_cpu]", collected)
 
 
 def test_a_writer_of_an_absent_backend_counts_and_a_renamed_one_does_not(monkeypatch):

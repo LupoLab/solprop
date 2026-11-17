@@ -57,7 +57,7 @@ How each is reached, and where it runs:
 | [a guide that moves along z](#guides-that-move-along-z) | √W, J | the route's own, with a `ZProfile` | both CPU, including a moving solid guide |
 | [rectangular hollow](#rectangular-hollow-guides) | √W, J | `prop_waveguide(modes, ..., gas=...)` | both CPU |
 | [planar, uniform in y](#planar-hollow-guides-uniform-in-y) | √(W/m), J/m: per metre of y | `prop_waveguide(modes, ..., gas=...)`, `ModeCollection.slab` | both CPU |
-| [radial free space](#radial-free-space) | V m (spectrum), J | `prop_radial`, `Simulation.from_radial` | both CPU |
+| [radial free space](#radial-free-space) | V m (spectrum), J | `prop_free`, `Simulation.from_free` on a `RadialGrid` | both CPU |
 | [Cartesian free space](#cartesian-free-space) | V/m, J | `prop_free`, `Simulation.from_free` | both CPU |
 | [line free space](#line-free-space-x-only) | V/m, J/m: per metre of y | `prop_free(grid, LineGrid(...), ...)` | both CPU |
 | [planar, resolved in y](#planar-guides-resolved-in-y) | √(W/m) per y frequency, J | `prop_planar`, `Simulation.from_planar` with a `PlanarGrid` | both CPU |
@@ -251,7 +251,7 @@ independently, and power never moves between them through the wall.
 $\partial_rE = ik_{\rm eff}E$ of the exact radial problem onto the retained basis
 $\mathrm{HE}_{11}\ldots\mathrm{HE}_{1N}$. The result is the rank-one generator
 $G = D + g(a)\,hh^{\rm T}$, where $h_m$ is the $m$-th mode's slope at the wall. It is
-carried as the `linear.coupled_flow` leaf ({class}`~solprop.modes.capillary.CoherentWall`,
+carried as the `linear.coupled_flow` leaf ({class}`~solprop.modes.wall.CoherentWall`,
 [the coherent wall](../waveguides/coherent-wall.md#the-coherent-wall)). `impedance="te_tm"` condenses the two
 conditions the glass really imposes, one for the tangential and one for the normal field.
 It couples the two radial families of one azimuthal order
@@ -267,7 +267,7 @@ taper's connection between the channels ([below](#guides-that-move-along-z)).
 **Valid when** the condensation is: it is quasi-static and paraxial. Three ratios —
 $u_N/(ka)$, $u_N/(k_0a)$ and $2N/|ak_{\rm eff}|$ — are computed over the active band and
 recorded. The run warns within a factor ten of
-{attr}`~solprop.modes.capillary.CoherentWall.validity_limit` and refuses above it.
+{attr}`~solprop.modes.wall.CoherentWall.validity_limit` and refuses above it.
 
 **Not valid when** the set is not contiguous from `HE_11`, spans two azimuthal orders or
 two polarisations, sits beside a tube lattice or a noise model, or declares a loss other
@@ -344,7 +344,7 @@ exterior field has fallen by a factor $10^8$. Normalisation and area integrate a
 n2=...)` or `Simulation.from_gnlse`: the fibre supplies $\beta(\omega)$, its loss and
 `aeff()`. Vector, through the general route below:
 `ModalGuide.from_step_index(...).field_provider` is a
-{class}`~solprop.modes.guide.StepIndexProvider`, and
+{class}`~solprop.modes.stepindex_vector.StepIndexProvider`, and
 `ModalGuide.from_provider(provider, knots, nodes=...)` solves it over the band.
 `prop_waveguide` refuses a bare `StepIndexMode` and names the entry to use.
 
@@ -573,7 +573,7 @@ $N = 256$ ([finite-transform error](../free-space/hankel.md#finite-transform-err
 power ({func}`~solprop.spatial.critical_power`) is the scalar paraxial Townes value,
 and does not predict where an exact-UPPE pulse collapses.
 
-**Entry point.** `prop_radial` and `Simulation.from_radial`
+**Entry point.** `prop_free` and `Simulation.from_free` on a `RadialGrid`
 ([construct and run a beam](../free-space/model.md#construct-and-run-a-beam)).
 
 ## Cartesian free space

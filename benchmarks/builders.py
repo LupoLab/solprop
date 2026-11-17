@@ -28,6 +28,7 @@ __all__ = [
     "soliton",
     "spatial",
     "spatial_grids",
+    "window",
 ]
 
 if TYPE_CHECKING:
@@ -162,7 +163,7 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
             fwhm=400e-15,
             energy=10e-6,
             modes=3,
-            loss=0.0,
+            loss_scale=0.0,
             backend=options["backend"],
             **_limits(options, 0.13, 515e-9, (220e-9, 4e-6), 2e-12),
             **_launch(options),
@@ -195,7 +196,7 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
             wavelength=800e-9,
             fwhm=30e-15,
             energy=3e-6,
-            loss=False,
+            loss_scale=0.0,
             modes=1,
             envelope=name == "argon_blueshift_envelope",
             mode_average=averaged,
@@ -219,7 +220,7 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
             wavelength=1030e-9,
             fwhm=40e-15,
             energy=3e-6,
-            loss=False,
+            loss_scale=0.0,
             plasma=False,
             modes=1,
             mode_average=True,
@@ -236,7 +237,7 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
             wavelength=1030e-9,
             fwhm=40e-15,
             energy=4e-6,
-            loss=False,
+            loss_scale=0.0,
             plasma=False,
             raman=True,
             modes=1,
@@ -474,7 +475,7 @@ def spatial(
         # at translation, its error measured at 1.7e-6 in field.
         settings = dataclasses.replace(settings, spatial_absorber=SpatialAbsorber())
     if isinstance(space, RadialGrid):
-        return Simulation.from_radial(
+        return Simulation.from_free(
             grid, space, medium, responses, pulse, settings=settings, **_launch(options)
         )
     return Simulation.from_free(
@@ -550,6 +551,66 @@ def _fibre_or_capillary(
     raise SuiteError(f"unknown builder {builder}")
 
 
+def window(simulation: Simulation, stop: float, **settings: Any) -> Simulation:
+    """Return a case run to `stop`, m, with `settings` replaced.
+
+    A run ends at its grid's length (SEP 51), so a shortened run (``ab --length``) is
+    the case rebuilt on its grid cut at `stop`, with everything the whole length set
+    carried over unchanged: the absorber's rates, the default steps and the profiles
+    already in the case's settings and simulation. At the case's own length the
+    settings are replaced on the case itself.
+
+    Parameters
+    ----------
+    simulation : solprop.driver.Simulation
+        The whole case, untranslated.
+    stop : float
+        Where the run ends, m, at most the case's length.
+    **settings : Any
+        Fields of :class:`~solprop.driver.SimulationSettings` to replace.
+
+    Returns
+    -------
+    solprop.driver.Simulation
+        The case, untranslated.
+
+    Raises
+    ------
+    SuiteError
+        When a shortened case was already translated, as a coupled launch is.
+    """
+    from solprop.driver import Simulation  # noqa: PLC0415
+
+    if stop >= simulation.grid.length:
+        simulation.settings = dataclasses.replace(simulation.settings, **settings)
+        return simulation
+    if simulation._problem is not None:
+        msg = "this case is translated at construction and runs only its whole length"
+        raise SuiteError(msg)
+    whole = simulation._base_grid
+    return Simulation(
+        dataclasses.replace(whole, length=stop),
+        simulation.modes,
+        simulation.responses,
+        simulation.initial,
+        settings=dataclasses.replace(
+            simulation.settings, **({"save_planes": []} | settings)
+        ),
+        noise=simulation.noise,
+        noise_resolution=simulation.noise_resolution,
+        profiles=simulation.profiles,
+        configuration=simulation.configuration,
+        spatial_grid=simulation.spatial_grid,
+        medium=simulation.medium,
+        frame=simulation.frame,
+        general=simulation.general,
+        guide=simulation.guide,
+        wall=simulation.wall,
+        taper_coupling=simulation.taper_coupling,
+        materials=simulation.materials,
+    )
+
+
 def build(configuration: Record) -> Simulation:
     """Build a case for the configured backend, stepper and observations.
 
@@ -573,14 +634,13 @@ def build(configuration: Record) -> Simulation:
         "fields": fields,
         "field_planes": (len(itinerary),) if fields == "planes" else (),
     }
-    if case.workload in ("scan", "group"):
+    if case.workload == "scan":
         # A scan keeps the fields run_scan asks for; its points keep the default.
         del observed["fields"], observed["field_planes"]
     chosen = integrator(configuration["stepper"])
     options = variant(configuration)
     if case.builder in ("kerr", "spatial"):
         settings = SimulationSettings(
-            save_planes=itinerary,
             dz_max=case.length,
             dz_init=case.length * 1e-4,
             auto_init=True,
@@ -590,18 +650,29 @@ def build(configuration: Record) -> Simulation:
             field_planes=observed["field_planes"],
             node_budget=_node_budget(),
         )
+        replay: dict[str, Any] = {}
         if case.step is not None:
             settings = dataclasses.replace(
                 settings,
                 integrator=LowStorageRungeKutta(scheme="rk4ip"),
                 schedule=FixedSchedule(
-                    np.diff(np.linspace(0.0, stop, max(1, round(stop / case.step)) + 1))
+                    np.diff(
+                        np.linspace(
+                            0.0, case.length, max(1, round(case.length / case.step)) + 1
+                        )
+                    )
                 ),
                 propagator_mode="tabulate",
             )
-        if case.builder == "kerr":
-            return kerr(case.name, settings, options["fft_size"])
-        return spatial(case.name, settings, options)
+            replay["schedule"] = FixedSchedule(
+                np.diff(np.linspace(0.0, stop, max(1, round(stop / case.step)) + 1))
+            )
+        whole = (
+            kerr(case.name, settings, options["fft_size"])
+            if case.builder == "kerr"
+            else spatial(case.name, settings, options)
+        )
+        return window(whole, stop, save_planes=itinerary, **replay)
     if case.builder == "exercise":
         from benchmarks.exercises import exercise  # noqa: PLC0415
 
@@ -615,7 +686,10 @@ def build(configuration: Record) -> Simulation:
         simulation = advanced(case.name, case.length, options)
         if case.name == "grin_nonlinear":
             # Translated at construction (its launch is coupled): only the backend
-            # and the field retention may still change.
+            # and the field retention may still change, so it runs whole.
+            if stop < case.length:
+                msg = "grin_nonlinear couples its launch at construction; run it whole"
+                raise SuiteError(msg)
             simulation.settings = dataclasses.replace(
                 simulation.settings,
                 backend=configuration["backend"],
@@ -628,5 +702,4 @@ def build(configuration: Record) -> Simulation:
     if chosen is not None:
         observed["integrator"] = chosen
     observed["node_budget"] = _node_budget()  # None: the translation's default
-    simulation.settings = dataclasses.replace(simulation.settings, **observed)
-    return simulation
+    return window(simulation, stop, **observed)

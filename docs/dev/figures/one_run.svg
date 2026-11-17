@@ -11,6 +11,8 @@ svg {
     --rule: #c9d0da;
     --p-fill: #e2f0e8;
     --p-edge: #2c7a55;
+    --s-fill: #ddf1f3;
+    --s-edge: #1d7a86;
     --t-fill: #fceedd;
     --t-edge: #a96a15;
     --b-fill: #e3ebfa;
@@ -28,6 +30,8 @@ svg {
     --rule: #3a424e;
     --p-fill: #16342a;
     --p-edge: #5cb98a;
+    --s-fill: #113236;
+    --s-edge: #5fc2ce;
     --t-fill: #3a2b15;
     --t-edge: #e0a44f;
     --b-fill: #17253f;
@@ -56,6 +60,9 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 .fill-p { fill: var(--p-fill); stroke: var(--p-edge); }
 .edge-p { stroke: var(--p-edge); }
 .ink-p { fill: var(--p-edge); }
+.fill-s { fill: var(--s-fill); stroke: var(--s-edge); }
+.edge-s { stroke: var(--s-edge); }
+.ink-s { fill: var(--s-edge); }
 .fill-t { fill: var(--t-fill); stroke: var(--t-edge); }
 .edge-t { stroke: var(--t-edge); }
 .ink-t { fill: var(--t-edge); }
@@ -108,13 +115,14 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="792.0" y="355.0" font-size="12" class="dim">z, n_steps, n_rejected, max_norm, mean_norm, wall_time</text>
 <path d="M598.0,350.5 L776.0,350.5" class="arrow" />
 <path d="M776.0,350.5 L767.0,354.1 L767.0,346.9 Z" class="head" />
-<text x="687.0" y="366.5" font-size="12" class="mid dim">HostDriver for numpy_ref;</text>
-<text x="687.0" y="382.0" font-size="12" class="mid dim">native's session</text>
+<text x="687.0" y="366.5" font-size="12" class="mid dim">HostSession for</text>
+<text x="687.0" y="382.0" font-size="12" class="mid dim">numpy_ref; native's</text>
+<text x="687.0" y="397.5" font-size="12" class="mid dim">session</text>
 <path d="M312.0,389.5 L312.0,417.5" class="arrow" />
 <path d="M312.0,417.5 L308.4,408.5 L315.6,408.5 Z" class="head" />
 <rect x="32" y="423.5" width="560.0" height="66.0" rx="7" ry="7" class="fill-d" />
 <text x="42.0" y="445.5" font-size="15" class="bold ink-d">run loop over save planes</text>
-<text x="42.0" y="461.0" font-size="12" class="dim">obs = backend.observe()        stats = backend.stats(spec)</text>
+<text x="42.0" y="461.0" font-size="12" class="dim">event = session.advance()     field = session.export(ticket, recipe)</text>
 <text x="42.0" y="476.5" font-size="12" class="dim">output.save(SavedPlane(z, field, stats, step_history, step_stats))</text>
 <rect x="782.0" y="423.5" width="386.0" height="66.0" rx="7" ry="7" class="fill-b" />
 <text x="792.0" y="445.5" font-size="15" class="bold ink-b">Observation  →  SavedPlane</text>

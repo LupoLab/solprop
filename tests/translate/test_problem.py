@@ -32,8 +32,10 @@ from solprop.pulses import GaussianPulse, SechPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import DOPRI5, FixedSchedule, PIController, default_dz_min
-from solprop.stepper.multistep import Multistep
+from solprop.stepper.settings import StepperSettings
+from solprop.translate.assembly import assemble
 from solprop.translate.chebyshev import PiecewiseChebyshev, build
+from solprop.translate.coupled import constant_schur_flow
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.linop import LinearOperator, constant_phi, profile_table
 from solprop.translate.masks import Grids
@@ -43,10 +45,9 @@ from solprop.translate.problem import (
     Flags,
     Initial,
     PropagationProblem,
-    StepperSettings,
+    _check_scalar_domain,
     _held_state,
     _walk_arrays,
-    assemble,
     validate_run,
 )
 from solprop.translate.responses import CompiledResponses, prefactor_at
@@ -57,9 +58,14 @@ DOCS = CONTRACT.parents[1]
 CURRENT_SCHEMA = re.compile(r"\b(kernel|output) schema \*\*(\d+)\*\*")
 """How a page states a current schema number: in bold, after the schema's name."""
 NUMBERED_SCHEMA = re.compile(
-    r"\b(?:(kernel|saved-output|output) )?schema:? \(?\**(\d+)\b"
+    r"\b(?:(kernel|saved-output|output) )?(?:schema|record layout):? \(?\**"
+    r"(?:currently )?(\d+)\b"
 )
-"""Any schema number, bold, bracketed or plain; one not named kernel is the output's."""
+"""Any schema number, bold, bracketed or plain; one not named kernel is the output's.
+
+The metadata record's layout is the output schema, and a page may call it that:
+``record layout (currently 2)`` is held to the number too.
+"""
 
 # The six array groups the contract's own walking rule names; everything else a field
 # holds -- Flags, StatsSpec, a Tableau, a RateTable -- is a leaf whose fields are not
@@ -261,7 +267,7 @@ def test_every_page_states_the_schema_the_code_writes():
     is not a statement of the current one; the SEP records are history throughout. The
     kernel contract no longer has a number (ADR-068): it names the last one as history.
     """
-    assert OUTPUT_SCHEMA_VERSION == 2
+    assert OUTPUT_SCHEMA_VERSION == 4
     stated: dict[str, list[str]] = {}
     for page in sorted(DOCS.rglob("*.md")):
         name = page.relative_to(DOCS).as_posix()
@@ -367,24 +373,62 @@ def test_the_polarisation_taper_is_off_unless_asked_for(envelope_grid, gnlse):
     assert np.array_equal(tapered.grids.omega_window, envelope_grid.omega_window)
 
 
-def test_a_stacked_initial_state_is_refused_by_name(envelope_grid, gnlse):
-    # A group of trajectories is a sequence of problems (SEP 47 section 6.7), never a
-    # leading axis of one problem's state.
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"save_planes": [0.0]}, "must contain a positive position"),
+        ({"save_planes": []}, "must contain a positive position"),
+        ({"save_planes": [-0.5, 1.0]}, "save_planes must be positive"),
+        ({"dz_max": 1e-9, "dz_init": 1e-3}, "dz_min <= dz_init <= dz_max"),
+        ({"stretch": 0.5}, "stretch must be at least 1"),
+        (
+            {
+                "save_planes": [0.37, 1.0],
+                "schedule": FixedSchedule.uniform(0.0, 1.0, 0.05, save_planes=[1.0]),
+            },
+            "does not land on the save plane",
+        ),
+        ({"components": ("x", "y")}, "resolves no components"),
+        # A group of trajectories is a sequence of problems (SEP 47 section 6.7),
+        # never a leading axis of one problem's state.
+        (
+            {"state": lambda start: np.stack([start, 2.0 * start])},
+            r"\(n_modes, n_pol, n_omega\)",
+        ),
+        (
+            {"state": lambda start: np.zeros(start.shape[-1], dtype=complex)},
+            "field0 must have shape",
+        ),
+        (
+            {"state": lambda start: np.zeros((1, 1, 7), dtype=complex)},
+            "spectral bins, expected",
+        ),
+        ({"modes": lambda mode: [mode, mode]}, "modes but 2 were given"),
+        (
+            {
+                "modes": lambda mode: [mode, mode],
+                "state": lambda start: np.stack([start[0], start[0]]),
+            },
+            "without a transverse quadrature",
+        ),
+    ],
+)
+def test_assemble_rejects_a_bad_request(envelope_grid, gnlse, overrides, message):
+    """`state(start)` and `modes(mode)`, when given, replace the state and the modes."""
     start = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=1.0).build(
         envelope_grid
     )
-    with pytest.raises(TranslationError, match=r"\(n_modes, n_pol, n_omega\)"):
-        assemble(
-            envelope_grid,
-            gnlse.mode,
-            [gnlse.kerr],
-            np.stack([start, 2.0 * start]),
-            controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[1.0],
-            dz_max=0.05,
-            dz_init=1e-4,
-            **GNLSE,
-        )
+    request = {
+        "controller": PIController(rtol=1e-8, atol=1e-14),
+        "save_planes": [1.0],
+        "dz_max": 0.05,
+        "dz_init": 1e-4,
+        **GNLSE,
+    } | overrides
+    state = request.pop("state", lambda start: start)(start)
+    modes = request.pop("modes", lambda mode: mode)(gnlse.mode)
+    with pytest.raises(TranslationError, match=message):
+        assemble(envelope_grid, modes, [gnlse.kerr], state, **request)
 
 
 def test_a_noise_realisation_is_carried_in_the_canonical_layout(envelope_grid, gnlse):
@@ -480,12 +524,214 @@ def corrupt_statistics(run_request, name, value):
     return run_request.for_run(stats=stats)
 
 
-def test_validate_rejects_a_not_finite_array(soliton, soliton_request):
-    spoiled = np.array(soliton.grids.omega, copy=True)
+def _with_nan(values):
+    spoiled = np.array(values, copy=True)
     spoiled[3] = np.nan
+    return frozen(spoiled)
+
+
+def _strided(values):
+    spoiled = np.repeat(np.asarray(values), 2)[::2]
     spoiled.setflags(write=False)
-    with pytest.raises(TranslationError, match="not finite"):
-        validate_run(corrupt(soliton, "grids", "omega", spoiled), soliton_request)
+    assert not spoiled.flags.c_contiguous
+    return spoiled
+
+
+def _zeros_like_field(problem, group, name, shape):
+    return frozen(np.zeros(shape, dtype=getattr(getattr(problem, group), name).dtype))
+
+
+def _prefactor_over_half(problem):
+    # The same values over half the run: the shape is right and the span is not.
+    prefactor = cast("PiecewiseChebyshev", problem.responses.prefactor)
+    return dataclasses.replace(prefactor, breakpoints=frozen(np.array([0.0, 0.5])))
+
+
+def _stale_raman_rates(problem, get):
+    # The decay-rate tables of a Raman kernel are tables along z like the density, and
+    # validate checks their span with the rest; a stale one from another run is refused
+    # by name, through the leaf that holds it.
+    stale = dataclasses.replace(
+        problem.responses.raman_coefficients,
+        decay_rates=(get("gradient").responses.density,),
+    )
+    return (stale,)
+
+
+def _raman_kernel_off_the_doubled_grid(problem, get):
+    # The convolution is built from n_to; a kernel of any other length would be
+    # convolved against the wrong axis rather than raise.
+    leaf = problem.responses.raman_coefficients
+    return (dataclasses.replace(leaf, undamped=np.zeros((1, problem.grids.n_to))),)
+
+
+# Each row corrupts one field of a valid problem as a stale cache or a hand-built
+# object would (`corrupt`), and names the refusal `validate_run` gives: the problem's
+# fixture, the group and field, the spoiled value `value(problem, get)` (`get` fetches
+# another fixture) and the exact match.
+SPOILED = [
+    (
+        "soliton",
+        "grids",
+        "omega",
+        lambda p, get: _with_nan(p.grids.omega),
+        "not finite",
+    ),
+    (
+        "soliton",
+        "grids",
+        "omega",
+        lambda p, get: frozen(np.asarray(p.grids.omega, dtype=np.float32)),
+        "dtype",
+    ),
+    (
+        "soliton",
+        "grids",
+        "omega",
+        lambda p, get: _strided(p.grids.omega),
+        "C-contiguous",
+    ),
+    (
+        "soliton",
+        "grids",
+        "omega",
+        lambda p, get: np.array(p.grids.omega, copy=True),
+        "writeable",
+    ),
+    (
+        "soliton",
+        "grids",
+        "active_mask",
+        lambda p, get: frozen(np.asarray(p.grids.active_mask, dtype=np.float64)),
+        "must be Boolean",
+    ),
+    (
+        "soliton",
+        "initial",
+        "field0",
+        lambda p, get: _zeros_like_field(p, "initial", "field0", (1, 1, 7)),
+        "field0 has shape",
+    ),
+    (
+        "soliton",
+        "grids",
+        "omega",
+        lambda p, get: _zeros_like_field(p, "grids", "omega", (7,)),
+        "bins, expected",
+    ),
+    # Whichever representation carries the operator, its value is the state.
+    (
+        "soliton",
+        "linear",
+        "phi_coefficients",
+        lambda p, get: frozen(np.zeros((1, 2, 1, 1, 1, 3), dtype=np.complex128)),
+        "linear carries values",
+    ),
+    (
+        "soliton",
+        "transform",
+        "synthesis",
+        lambda p, get: frozen(np.zeros((1, 2))),
+        "transform carries",
+    ),
+    (
+        "gradient",
+        "responses",
+        "temporal_absorber",
+        lambda p, get: frozen(np.zeros(7)),
+        "temporal_absorber has",
+    ),
+    (
+        "soliton",
+        "linear",
+        "phi_breakpoints",
+        lambda p, get: frozen(np.array([0.0, 2.0, 1.0])),
+        "strictly increasing",
+    ),
+    (
+        "soliton",
+        "linear",
+        "phi_breakpoints",
+        lambda p, get: frozen(np.array([0.0, 0.5])),
+        "does not contain the run",
+    ),
+    (
+        "gradient",
+        "linear",
+        "hard_kinks",
+        lambda p, get: frozen(np.array([0.123])),
+        "is not an interval edge",
+    ),
+    (
+        "soliton",
+        "responses",
+        "density",
+        lambda p, get: get("gradient").responses.density,
+        "every table along z must span",
+    ),
+    (
+        "raman_soliton",
+        "responses",
+        "raman_terms",
+        _stale_raman_rates,
+        r"raman_terms\[0\]\.decay_rates\[0\] covers",
+    ),
+    (
+        "raman_soliton",
+        "responses",
+        "raman_terms",
+        _raman_kernel_off_the_doubled_grid,
+        "on the doubled fine grid",
+    ),
+    (
+        "soliton",
+        "responses",
+        "prefactor",
+        lambda p, get: dataclasses.replace(
+            p.responses.prefactor,
+            coefficients=p.responses.prefactor.coefficients[..., :7],
+        ),
+        "prefactor carries values",
+    ),
+    (
+        "soliton",
+        "responses",
+        "prefactor",
+        lambda p, get: _prefactor_over_half(p),
+        r"responses\.prefactor covers",
+    ),
+    # A gradient's prefactor varies, so no array may stand in for it.
+    (
+        "gradient",
+        "responses",
+        "prefactor_constant",
+        lambda p, get: frozen(prefactor_at(p.responses, 0.0)),
+        "fast path is only for a prefactor",
+    ),
+    (
+        "soliton",
+        "responses",
+        "prefactor_constant",
+        lambda p, get: frozen(2.0 * prefactor_at(p.responses, 0.0)),
+        "does not agree with the prefactor",
+    ),
+    # The carrier is present exactly when the term that needs it is compiled.
+    (
+        "soliton",
+        "grids",
+        "carrier_2w0",
+        lambda p, get: frozen(np.ones(p.grids.n_to, dtype=np.complex128)),
+        "carrier_2w0 must be present",
+    ),
+]
+
+
+@pytest.mark.parametrize(("which", "group", "name", "value", "message"), SPOILED)
+def test_validate_rejects_a_spoiled_field(request, which, group, name, value, message):
+    problem = request.getfixturevalue(which)
+    spoiled = corrupt(problem, group, name, value(problem, request.getfixturevalue))
+    with pytest.raises(TranslationError, match=message):
+        validate_run(spoiled, request.getfixturevalue(f"{which}_request"))
 
 
 def test_validate_admits_infinite_energy_window_edges_but_not_nan(
@@ -503,129 +749,6 @@ def test_validate_admits_infinite_energy_window_edges_but_not_nan(
     with pytest.raises(TranslationError, match="not finite"):
         validate_run(
             soliton, corrupt_statistics(soliton_request, "energy_windows", spoiled)
-        )
-
-
-def test_validate_rejects_a_wrong_dtype(soliton, soliton_request):
-    spoiled = np.asarray(soliton.grids.omega, dtype=np.float32)
-    spoiled.setflags(write=False)
-    with pytest.raises(TranslationError, match="dtype"):
-        validate_run(corrupt(soliton, "grids", "omega", spoiled), soliton_request)
-
-
-def test_validate_rejects_a_non_contiguous_array(soliton, soliton_request):
-    spoiled = np.repeat(np.asarray(soliton.grids.omega), 2)[::2]
-    spoiled.setflags(write=False)
-    assert not spoiled.flags.c_contiguous
-    with pytest.raises(TranslationError, match="C-contiguous"):
-        validate_run(corrupt(soliton, "grids", "omega", spoiled), soliton_request)
-
-
-def test_validate_rejects_a_writeable_array(soliton, soliton_request):
-    with pytest.raises(TranslationError, match="writeable"):
-        validate_run(
-            corrupt(
-                soliton, "grids", "omega", np.array(soliton.grids.omega, copy=True)
-            ),
-            soliton_request,
-        )
-
-
-def test_validate_rejects_a_non_boolean_mask(soliton, soliton_request):
-    spoiled = np.asarray(soliton.grids.active_mask, dtype=np.float64)
-    spoiled.setflags(write=False)
-    with pytest.raises(TranslationError, match="must be Boolean"):
-        validate_run(corrupt(soliton, "grids", "active_mask", spoiled), soliton_request)
-
-
-@pytest.mark.parametrize(
-    ("group", "name", "shape", "message"),
-    [
-        ("initial", "field0", (1, 1, 7), "field0 has shape"),
-        ("grids", "omega", (7,), "bins, expected"),
-    ],
-)
-def test_validate_rejects_an_inconsistent_shape(
-    soliton, group, name, shape, message, soliton_request
-):
-    dtype = getattr(getattr(soliton, group), name).dtype
-    spoiled = np.zeros(shape, dtype=dtype)
-    spoiled.setflags(write=False)
-    with pytest.raises(TranslationError, match=message):
-        validate_run(corrupt(soliton, group, name, spoiled), soliton_request)
-
-
-def test_validate_rejects_a_phi_table_of_the_wrong_value_shape(
-    soliton, soliton_request
-):
-    """Whichever representation carries the operator, its value is the state."""
-    spoiled = np.zeros((1, 2, 1, 1, 1, 3), dtype=np.complex128)
-    spoiled.setflags(write=False)
-    with pytest.raises(TranslationError, match="linear carries values"):
-        validate_run(
-            corrupt(soliton, "linear", "phi_coefficients", spoiled), soliton_request
-        )
-
-
-def test_validate_rejects_a_transform_with_the_wrong_mode_count(
-    soliton, soliton_request
-):
-    spoiled = np.zeros((1, 2))
-    spoiled.setflags(write=False)
-    with pytest.raises(TranslationError, match="transform carries"):
-        validate_run(
-            corrupt(soliton, "transform", "synthesis", spoiled), soliton_request
-        )
-
-
-def test_validate_rejects_a_temporal_rate_of_the_wrong_length(
-    gradient, gradient_request
-):
-    spoiled = np.zeros(7)
-    spoiled.setflags(write=False)
-    with pytest.raises(TranslationError, match="temporal_absorber has"):
-        validate_run(
-            corrupt(gradient, "responses", "temporal_absorber", spoiled),
-            gradient_request,
-        )
-
-
-def test_validate_rejects_breakpoints_that_do_not_increase(soliton, soliton_request):
-    spoiled = np.array([0.0, 2.0, 1.0])
-    spoiled.setflags(write=False)
-    with pytest.raises(TranslationError, match="strictly increasing"):
-        validate_run(
-            corrupt(soliton, "linear", "phi_breakpoints", spoiled), soliton_request
-        )
-
-
-def test_validate_rejects_a_table_that_does_not_cover_the_run(soliton, soliton_request):
-    spoiled = np.array([0.0, 0.5])
-    spoiled.setflags(write=False)
-    with pytest.raises(TranslationError, match="does not contain the run"):
-        validate_run(
-            corrupt(soliton, "linear", "phi_breakpoints", spoiled), soliton_request
-        )
-
-
-def test_validate_rejects_a_kink_that_is_not_an_interval_edge(
-    gradient, gradient_request
-):
-    spoiled = np.array([0.123])
-    spoiled.setflags(write=False)
-    with pytest.raises(TranslationError, match="is not an interval edge"):
-        validate_run(
-            corrupt(gradient, "linear", "hard_kinks", spoiled), gradient_request
-        )
-
-
-def test_validate_rejects_a_profile_table_over_a_different_range(
-    soliton, gradient, soliton_request
-):
-    with pytest.raises(TranslationError, match="every table along z must span"):
-        validate_run(
-            corrupt(soliton, "responses", "density", gradient.responses.density),
-            soliton_request,
         )
 
 
@@ -648,24 +771,34 @@ def test_validate_still_rejects_a_negative_density(gradient, density, gradient_r
         validate_run(corrupt(gradient, "responses", "density", table), gradient_request)
 
 
-def test_validate_walks_the_raman_rate_tables_too(
-    raman_soliton, gradient, raman_soliton_request
-):
-    # The decay-rate tables of a Raman kernel are tables along z like the density, and
-    # validate checks their span with the rest; a stale one from another run is refused
-    # by name, through the leaf that holds it.
-    stale = dataclasses.replace(
-        raman_soliton.responses.raman_coefficients,
-        decay_rates=(gradient.responses.density,),
+def test_scalar_domain_check_refuses_a_dip_at_a_clustered_stationary_point():
+    # (u - 0.3)^4 - 1e-6 dips below zero only at its fourth-order minimum, where the
+    # derivative has a triple root. chebroots may return that cluster with a
+    # rounding-size imaginary part on some of its roots, which the check drops, but a
+    # real matrix's eigenvalues come in conjugate pairs, so an odd cluster keeps one
+    # exactly real root, and the check sees the dip there.
+    root = np.polynomial.polynomial.polypow([-0.3, 1.0], 4)
+    coefficients = np.polynomial.chebyshev.poly2cheb(
+        np.polynomial.polynomial.polyadd(root, [-1e-6])
     )
-    with pytest.raises(
-        TranslationError,
-        match=r"raman_terms\[0\]\.decay_rates\[0\] covers",
-    ):
-        validate_run(
-            corrupt(raman_soliton, "responses", "raman_terms", (stale,)),
-            raman_soliton_request,
-        )
+    stationary = np.polynomial.chebyshev.chebroots(
+        np.polynomial.chebyshev.chebder(coefficients)
+    )
+    # Three stationary points within 1e-4 of the minimum (the cluster's spread is
+    # about 1e-5 at a triple root), at least one of them exactly real.
+    assert np.all(np.abs(stationary - 0.3) < 1e-4)
+    assert np.any(np.isreal(stationary))
+    # Positive at both ends, so only the stationary point can refuse it.
+    assert np.all(np.polynomial.chebyshev.chebval([-1.0, 1.0], coefficients) > 0)
+    table = PiecewiseChebyshev(
+        coefficients=coefficients[None, :],
+        breakpoints=np.array([0.0, 1.0]),
+        degrees=np.array([coefficients.size - 1]),
+        hard_kinks=np.empty(0),
+        budget_exceeded=False,
+    )
+    with pytest.raises(TranslationError, match=r"density must lie in \[0"):
+        _check_scalar_domain(table, "density")
 
 
 @pytest.fixture(scope="module")
@@ -691,20 +824,6 @@ def raman_soliton_translation(envelope_grid, gnlse):
 def test_validate_accepts_the_compiled_raman_rows(raman_soliton, raman_soliton_request):
     assert raman_soliton.flags.has_raman
     assert validate_run(raman_soliton, raman_soliton_request) is None
-
-
-def test_validate_rejects_a_kernel_that_is_not_on_the_doubled_grid(
-    raman_soliton, raman_soliton_request
-):
-    # The convolution is built from n_to; a kernel of any other length would be
-    # convolved against the wrong axis rather than raise.
-    leaf = raman_soliton.responses.raman_coefficients
-    stale = dataclasses.replace(leaf, undamped=np.zeros((1, raman_soliton.grids.n_to)))
-    with pytest.raises(TranslationError, match="on the doubled fine grid"):
-        validate_run(
-            corrupt(raman_soliton, "responses", "raman_terms", (stale,)),
-            raman_soliton_request,
-        )
 
 
 def test_the_leaf_refuses_a_kernel_with_no_table_for_a_row(raman_soliton):
@@ -735,25 +854,6 @@ def test_validate_rejects_a_raman_kernel_on_a_vector_problem(
         validate_run(stale, raman_soliton_request)
 
 
-def test_validate_rejects_a_schedule_that_misses_a_save_plane(envelope_grid, gnlse):
-    start = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=1.0).build(
-        envelope_grid
-    )
-    with pytest.raises(TranslationError, match="does not land on the save plane"):
-        assemble(
-            envelope_grid,
-            gnlse.mode,
-            [gnlse.kerr],
-            start,
-            controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[0.37, 1.0],
-            dz_max=0.05,
-            dz_init=1e-4,
-            schedule=FixedSchedule.uniform(0.0, 1.0, 0.05, save_planes=[1.0]),
-            **GNLSE,
-        )
-
-
 def test_validate_rejects_a_schedule_that_misses_a_hard_kink(field_grid, capillary):
     start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-6).build(field_grid)
     with (
@@ -776,56 +876,6 @@ def test_validate_rejects_a_schedule_that_misses_a_hard_kink(field_grid, capilla
         )
 
 
-def test_validate_rejects_a_prefactor_of_the_wrong_value_shape(
-    soliton, soliton_request
-):
-    spoiled = dataclasses.replace(
-        soliton.responses.prefactor,
-        coefficients=soliton.responses.prefactor.coefficients[..., :7],
-    )
-    with pytest.raises(TranslationError, match="prefactor carries values"):
-        validate_run(
-            corrupt(soliton, "responses", "prefactor", spoiled), soliton_request
-        )
-
-
-def test_validate_rejects_a_prefactor_table_over_a_different_range(
-    soliton, soliton_request
-):
-    # The same values over half the run: the shape is right and the span is not.
-    edges = np.array([0.0, 0.5])
-    edges.setflags(write=False)
-    short = dataclasses.replace(
-        cast("PiecewiseChebyshev", soliton.responses.prefactor), breakpoints=edges
-    )
-    with pytest.raises(TranslationError, match=r"responses\.prefactor covers"):
-        validate_run(corrupt(soliton, "responses", "prefactor", short), soliton_request)
-
-
-def test_validate_rejects_a_constant_prefactor_beside_a_varying_prefactor(
-    gradient, gradient_request
-):
-    """A gradient's prefactor varies, so no array may stand in for it."""
-    constant = np.ascontiguousarray(prefactor_at(gradient.responses, 0.0))
-    constant.setflags(write=False)
-    with pytest.raises(TranslationError, match="fast path is only for a prefactor"):
-        validate_run(
-            corrupt(gradient, "responses", "prefactor_constant", constant),
-            gradient_request,
-        )
-
-
-def test_validate_rejects_a_constant_prefactor_that_disagrees_with_the_rest(
-    soliton, soliton_request
-):
-    wrong = np.ascontiguousarray(2.0 * prefactor_at(soliton.responses, 0.0))
-    wrong.setflags(write=False)
-    with pytest.raises(TranslationError, match="does not agree with the prefactor"):
-        validate_run(
-            corrupt(soliton, "responses", "prefactor_constant", wrong), soliton_request
-        )
-
-
 def test_validate_allows_a_fixed_fibre_to_go_without_the_fast_path(
     soliton, soliton_request
 ):
@@ -835,6 +885,145 @@ def test_validate_allows_a_fixed_fibre_to_go_without_the_fast_path(
     validate_run(
         corrupt(soliton, "responses", "prefactor_constant", None), soliton_request
     )
+
+
+# ------------------------------------------------------- dense observation's admission
+
+
+def observed_densely(run_request):
+    """Return a landed request adapted to dense observation, its replay dropped."""
+    return dataclasses.replace(
+        run_request,
+        replay=None,
+        observation=dataclasses.replace(run_request.observation, dense=True),
+    )
+
+
+def split_collar_run(field_grid, capillary, **extra):
+    """Assemble the gradient capillary under the per-step temporal collar."""
+    start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-6).build(field_grid)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MaterialRangeWarning)
+        return assemble(
+            field_grid,
+            capillary,
+            [KerrResponse(chi3=2.2e-52, thg=True)],
+            start,
+            controller=PIController(rtol=1e-8, atol=1e-14),
+            save_planes=[0.1, 0.2],
+            dz_max=0.01,
+            dz_init=1e-4,
+            absorber=absorber(field_grid),
+            absorber_scheme="split_step",
+            **extra,
+        )
+
+
+def noisy_run(envelope_grid, gnlse, **extra):
+    """Assemble the soliton launched with the 'modified' noise draw."""
+    start = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=1.0).build(
+        envelope_grid
+    )
+    return assemble(
+        envelope_grid,
+        gnlse.mode,
+        [gnlse.kerr],
+        start,
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[1.0],
+        dz_max=0.05,
+        dz_init=1e-4,
+        noise=modified_noise(envelope_grid, np.random.default_rng(3)),
+        **GNLSE,
+        **extra,
+    )
+
+
+@pytest.fixture(scope="module")
+def split_collar_translation(field_grid, capillary):
+    """The split-collar capillary, landed on a fixed schedule."""
+    schedule = FixedSchedule.uniform(0.0, 0.2, 0.01, save_planes=[0.1, 0.2])
+    return split_collar_run(field_grid, capillary, schedule=schedule)
+
+
+@pytest.fixture(scope="module")
+def noisy_translation(envelope_grid, gnlse):
+    """The noisy soliton, landed."""
+    return noisy_run(envelope_grid, gnlse)
+
+
+@pytest.fixture(scope="module")
+def coupled_translation(field_grid):
+    """A constant-fill capillary carrying a zero constant-Schur coupled flow."""
+    start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-6).build(field_grid)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MaterialRangeWarning)
+        problem, run_request = assemble(
+            field_grid,
+            MarcatiliMode(125e-6, "He", 1.0, cladding=1.45),
+            [KerrResponse(chi3=2.2e-52, thg=True)],
+            start,
+            controller=PIController(rtol=1e-8, atol=1e-14),
+            save_planes=[0.1, 0.2],
+            dz_max=0.01,
+            dz_init=1e-4,
+        )
+    flow = constant_schur_flow(
+        problem.grids.omega,
+        problem.linear.phi_breakpoints[[0, -1]],
+        np.zeros((1, 1, problem.grids.omega.size), dtype=complex),
+        dz_max=run_request.stepper.dz_max,
+        condition_limit=1e6,
+        gauge_id="test",
+        certificate_id="constant-schur",
+    )
+    linear = dataclasses.replace(problem.linear, coupled_flow=flow)
+    return dataclasses.replace(problem, linear=linear), run_request
+
+
+@pytest.mark.parametrize(
+    ("which", "reason"),
+    [
+        ("split_collar_translation", "per-step temporal collar"),
+        ("noisy_translation", "'modified' noise model"),
+        ("coupled_translation", "a coupled linear flow"),
+    ],
+)
+def test_validate_run_refuses_a_request_adapted_to_dense_observation(
+    request, which, reason
+):
+    # The landed request is admitted; the same problem observed densely is refused
+    # where a backend is built, not only where the request was first assembled.
+    problem, landed = request.getfixturevalue(which)
+    assert not landed.observation.dense
+    assert validate_run(problem, landed) is None
+    with pytest.raises(TranslationError, match=reason):
+        validate_run(problem, observed_densely(landed))
+
+
+def test_validate_run_admits_a_request_adapted_to_dense_observation(
+    soliton, soliton_request
+):
+    dense = observed_densely(soliton_request)
+    assert dense.stepper.interpolate_planes
+    assert validate_run(soliton, dense) is None
+
+
+@pytest.mark.parametrize(
+    ("which", "run", "inputs"),
+    [
+        ("split_collar_translation", split_collar_run, ("field_grid", "capillary")),
+        ("noisy_translation", noisy_run, ("envelope_grid", "gnlse")),
+    ],
+)
+def test_assembly_and_validate_run_refuse_dense_alike(request, which, run, inputs):
+    problem, landed = request.getfixturevalue(which)
+    with pytest.raises(TranslationError) as adapted:
+        validate_run(problem, observed_densely(landed))
+    arguments = [request.getfixturevalue(name) for name in inputs]
+    with pytest.raises(TranslationError) as assembled:
+        run(*arguments, interpolate_planes=True)
+    assert str(assembled.value) == str(adapted.value)
 
 
 # ------------------------------------------------------------------------ immutability
@@ -850,96 +1039,6 @@ def test_the_problem_cannot_be_mutated(soliton):
 
 
 # --------------------------------------------------------------- assemble rejects
-
-
-@pytest.mark.parametrize(
-    ("overrides", "message"),
-    [
-        ({"save_planes": [0.0]}, "must contain a positive position"),
-        ({"save_planes": []}, "must contain a positive position"),
-        ({"dz_max": 1e-9, "dz_init": 1e-3}, "dz_min <= dz_init <= dz_max"),
-        ({"stretch": 0.5}, "stretch must be at least 1"),
-    ],
-)
-def test_assemble_rejects_a_bad_request(envelope_grid, gnlse, overrides, message):
-    start = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=1.0).build(
-        envelope_grid
-    )
-    request = {
-        "controller": PIController(rtol=1e-8, atol=1e-14),
-        "save_planes": [1.0],
-        "dz_max": 0.05,
-        "dz_init": 1e-4,
-        **GNLSE,
-    } | overrides
-    with pytest.raises(TranslationError, match=message):
-        assemble(envelope_grid, gnlse.mode, [gnlse.kerr], start, **request)
-
-
-def test_assemble_rejects_a_state_of_the_wrong_rank(envelope_grid, gnlse):
-    with pytest.raises(TranslationError, match="field0 must have shape"):
-        assemble(
-            envelope_grid,
-            gnlse.mode,
-            [gnlse.kerr],
-            np.zeros(envelope_grid.n_omega, dtype=complex),
-            controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[1.0],
-            dz_max=0.05,
-            dz_init=1e-4,
-            **GNLSE,
-        )
-
-
-def test_assemble_rejects_a_state_of_the_wrong_width(envelope_grid, gnlse):
-    with pytest.raises(TranslationError, match="spectral bins, expected"):
-        assemble(
-            envelope_grid,
-            gnlse.mode,
-            [gnlse.kerr],
-            np.zeros((1, 1, 7), dtype=complex),
-            controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[1.0],
-            dz_max=0.05,
-            dz_init=1e-4,
-            **GNLSE,
-        )
-
-
-def test_assemble_rejects_a_mode_set_the_state_does_not_match(envelope_grid, gnlse):
-    start = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=1.0).build(
-        envelope_grid
-    )
-    with pytest.raises(TranslationError, match="modes but 2 were given"):
-        assemble(
-            envelope_grid,
-            [gnlse.mode, gnlse.mode],
-            [gnlse.kerr],
-            start,
-            controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[1.0],
-            dz_max=0.05,
-            dz_init=1e-4,
-            **GNLSE,
-        )
-
-
-def test_assemble_rejects_a_mode_set_without_a_quadrature(envelope_grid, gnlse):
-    start = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=1.0).build(
-        envelope_grid
-    )
-    with pytest.raises(TranslationError, match="without a transverse quadrature"):
-        assemble(
-            envelope_grid,
-            [gnlse.mode, gnlse.mode],
-            [gnlse.kerr],
-            np.stack([start[0], start[0]]),
-            controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[1.0],
-            dz_max=0.05,
-            dz_init=1e-4,
-            **GNLSE,
-        )
 
 
 # --------------------------------------------------------------------------- the groups
@@ -1095,62 +1194,6 @@ def test_a_broadcast_free_space_input_runs_as_its_expansion():
     np.testing.assert_array_equal(held.plane_field(0), reference.plane_field(0))
 
 
-def test_the_stepper_group_refuses_planes_that_do_not_increase():
-    with pytest.raises(TranslationError, match="non-empty and increasing"):
-        StepperSettings(
-            DOPRI5,
-            PIController(rtol=1e-8, atol=1e-14),
-            1e-9,
-            0.1,
-            1e-3,
-            1.1,
-            None,
-            [1.0, 0.5],
-            "tabulate",
-        )
-
-
-def test_the_stepper_group_leaves_the_caller_s_planes_writeable():
-    planes = np.array([0.5, 1.0])
-    settings = StepperSettings(
-        DOPRI5,
-        PIController(rtol=1e-8, atol=1e-14),
-        1e-9,
-        0.1,
-        1e-3,
-        1.1,
-        None,
-        planes,
-        "tabulate",
-    )
-    held = cast("np.ndarray", settings.save_planes)
-    assert planes.flags.writeable
-    assert not held.flags.writeable
-    # Not a view either: writing the caller's array later leaves the settings alone.
-    planes[0] = 0.25
-    assert held[0] == 0.5
-
-
-def _stepper(controller, integrator):
-    """Return stepper settings with one controller and one integrator."""
-    return StepperSettings(
-        DOPRI5, controller, 1e-9, 0.1, 1e-3, 1.1, None, [0.5, 1.0], "tabulate",
-        integrator=integrator,
-    )  # fmt: skip
-
-
-def test_the_adams_march_refuses_the_controller_settings_it_ignores():
-    # It reads the tolerances, the weights and the region, and chooses its steps by its
-    # own safety, min_factor and max_growth: anything else would be silently unused.
-    plain = PIController(rtol=1e-8, atol=1e-14, weights=None, region="active")
-    _stepper(plain, Multistep())
-    tuned = PIController(rtol=1e-8, atol=1e-14, safety=0.5, reject_free=True)
-    with pytest.raises(TranslationError, match="safety, reject_free would be ignored"):
-        _stepper(tuned, Multistep())
-    # The Runge-Kutta march reads them all.
-    _stepper(tuned, None)
-
-
 def test_the_stats_request_is_the_catalogue_object(
     envelope_grid, gnlse, soliton_request
 ):
@@ -1202,24 +1245,6 @@ def test_a_kernel_problem_can_be_built_by_hand_from_its_groups(
     validate_run(rebuilt, soliton_request)
     assert rebuilt.linear.phi_representation == "constant"
     assert math.isclose(rebuilt.linear.z_span[1], 1.05)
-
-
-def test_a_save_plane_at_or_below_zero_is_refused(envelope_grid, gnlse):
-    start = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=1.0).build(
-        envelope_grid
-    )
-    with pytest.raises(TranslationError, match="save_planes must be positive"):
-        assemble(
-            envelope_grid,
-            gnlse.mode,
-            [gnlse.kerr],
-            start,
-            controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[-0.5, 1.0],
-            dz_max=0.05,
-            dz_init=1e-4,
-            **GNLSE,
-        )
 
 
 def test_a_multimode_problem_assembles_with_a_quadrature(field_grid):
@@ -1322,25 +1347,6 @@ def test_inferred_vector_rows_require_an_explicit_product_choice(field_grid):
         ).problem.shape[1]
         == 2
     )
-
-
-def test_components_without_a_quadrature_are_refused(envelope_grid, gnlse):
-    start = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=1.0).build(
-        envelope_grid
-    )
-    with pytest.raises(TranslationError, match="resolves no components"):
-        assemble(
-            envelope_grid,
-            gnlse.mode,
-            [gnlse.kerr],
-            start,
-            controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[1.0],
-            dz_max=0.05,
-            dz_init=1e-4,
-            components=("x", "y"),
-            **GNLSE,
-        )
 
 
 @pytest.mark.parametrize("bad", [(), ("z",), ("x", "r")])
@@ -1498,14 +1504,6 @@ def test_validate_rejects_a_transform_and_a_state_that_both_carry_the_components
         validate_run(doubled, run_request)
 
 
-def test_validate_rejects_a_carrier_without_a_harmonic_term(soliton, soliton_request):
-    """The carrier is present exactly when the term that needs it is compiled."""
-    stray = np.ones(soliton.grids.n_to, dtype=np.complex128)
-    stray.setflags(write=False)
-    with pytest.raises(TranslationError, match="carrier_2w0 must be present"):
-        validate_run(corrupt(soliton, "grids", "carrier_2w0", stray), soliton_request)
-
-
 def test_validate_rejects_a_harmonic_term_without_its_carrier():
     """A third-harmonic envelope problem carries the carrier, and needs it."""
     grid = EnvelopeGrid.from_limits(1.0, WAVELENGTH, (500e-9, 2e-6), 1e-12, thg=True)
@@ -1627,7 +1625,7 @@ def radial_problem():
     pulse = SpatialPulse(
         GaussianPulse(wavelength=WAVELENGTH, fwhm=30e-15, energy=1e-9), 60e-6
     )
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid,
         RadialGrid(6e-4, 16),
         SpatialMedium("Ar", pressure=1.0),
@@ -1642,7 +1640,7 @@ def radial_problem():
         ),
         noise=None,
     )
-    return simulation.translate(), simulation._run_request()
+    return simulation.translate(), simulation.run_request()
 
 
 def test_validate_pairs_the_plane_measure_with_spatial_geometry(

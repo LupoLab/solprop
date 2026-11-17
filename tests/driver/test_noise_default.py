@@ -11,13 +11,13 @@ import numpy as np
 import pytest
 
 from solprop.driver import Simulation, SimulationSettings, prop_gnlse
-from solprop.driver.defaults import FREE_NOISE, resolve_noise
-from solprop.driver.simulation import INTERIOR_LAUNCH_NOISE
+from solprop.driver.defaults import FREE_NOISE, INTERIOR_LAUNCH_NOISE, resolve_noise
 from solprop.driver.summary import _noise
 from solprop.exceptions import DriverError
 from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.noise import photons_per_bin
-from solprop.output.schema import NoiseResolution, RunMetadata
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import NoiseResolution
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController
@@ -109,7 +109,7 @@ def test_the_capillary_and_radial_routes_default_to_input_noise():
         dz_max=grid.length,
         dz_init=grid.length,
     )
-    radial = Simulation.from_radial(
+    radial = Simulation.from_free(
         grid,
         RadialGrid(6e-4, 16),
         SpatialMedium(),

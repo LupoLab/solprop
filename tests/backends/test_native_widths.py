@@ -85,7 +85,7 @@ def _simulation(kind, space, n_pol, medium=LOSSY, waist=60e-6):
     simulation = Simulation.from_free(
         grid, space, medium, [], pulse, settings=settings, noise=None
     )
-    return grid, simulation.translate(), simulation._run_request()
+    return grid, simulation.translate(), simulation.run_request()
 
 
 def _gaussian(x, y, x0=0.0, y0=0.0, waist=6e-5):
@@ -274,6 +274,10 @@ def _field_for(route, grid, problem):
 
 
 def _check_fluence(monkeypatch, route, kind):
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
     grid, problem, run_request = _route(route, kind)
     field = _field_for(route, grid, problem)
     held = {}
@@ -288,8 +292,8 @@ def _check_fluence(monkeypatch, route, kind):
     monkeypatch.undo()
     backend = select("native", problem, run_request, grid=grid)
     try:
-        state = load_native(backend, field, clear_fsal=False)
-        packed = np.ravel(state.spatial_statistics(16, 0.5 * EPS0 * C, 0.0))
+        state = load_native(backend, field)
+        packed = np.ravel(_testing.spatial_statistics(state, 16, 0.5 * EPS0 * C, 0.0))
     finally:
         backend.close()
     n_nodes = problem.transform.n_nodes
@@ -338,13 +342,17 @@ def test_a_plane_s_moments_bound_the_refusal_as_its_fluence_does(route, kind):
     # What a plane's refusal scales by is in its moments, and its width comes out the
     # same whatever that is unless a negative lobe is near it: flag 16's value is held
     # to the reference's, so flag 32's is held to that.
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
     grid, problem, run_request = _route(route, kind)
     field = _field_for(route, grid, problem)
     backend = select("native", problem, run_request, grid=grid)
     try:
-        state = load_native(backend, field, clear_fsal=False)
-        fluence = np.ravel(state.spatial_statistics(16, 0.5 * EPS0 * C, 0.0))
-        moments = np.ravel(state.spatial_statistics(32, 0.5 * EPS0 * C, 0.0))
+        state = load_native(backend, field)
+        fluence = np.ravel(_testing.spatial_statistics(state, 16, 0.5 * EPS0 * C, 0.0))
+        moments = np.ravel(_testing.spatial_statistics(state, 32, 0.5 * EPS0 * C, 0.0))
     finally:
         backend.close()
     n_nodes = problem.transform.n_nodes
@@ -404,10 +412,10 @@ def test_a_plane_s_widths_bring_only_numbers_across(n_pol, monkeypatch):
     """The session's plane statistics cross as one packed row, and no field does.
 
     The native session reduces the widths in its own pass
-    (``session_statistics.cpp``); what crosses is the packed evaluation its plan
+    (``statistics_plan.cpp``); what crosses is the packed evaluation its plan
     unpacks, counted here. The session counts every field it exports, and the native
-    state every whole-state transfer to the host by any path
-    (``crossed_bytes()[0]``, solprop SEP 44): both stay at zero over the run.
+    state every whole-state transfer to the host by any path (its diagnostics'
+    ``crossed_bytes[0]``, solprop SEP 44): both stay at zero over the run.
     """
     statistics = pytest.importorskip("solprop_native._statistics")
     grid, problem, run_request = _simulation(
@@ -427,8 +435,8 @@ def test_a_plane_s_widths_bring_only_numbers_across(n_pol, monkeypatch):
         with launched(backend, problem, request) as (session, observation):
             native = session.native  # pyright: ignore[reportAttributeAccessIssue]
             assert native.status().exports == 0
-            state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
-            assert state.crossed_bytes()[0] == 0
+            diagnostics = backend._diagnostics()  # pyright: ignore[reportAttributeAccessIssue]
+            assert diagnostics["crossed_bytes"][0] == 0
     finally:
         backend.close()
     assert set(observation.stats) == set(WIDTHS)
@@ -507,27 +515,31 @@ def test_a_negative_lobe_is_refused_on_both():
 
 @native_only
 def test_the_native_trace_needs_a_held_plane_and_real_rings():
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
     grid, problem, run_request = _route("plane")
     backend = select("native", problem, run_request, grid=grid)
     no_rings = np.empty(0)
     factor = 0.5 * EPS0 * C
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         with pytest.raises(RuntimeError, match="follows the call that holds it"):
-            state.plane_fluence_trace(
-                0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0, no_rings, no_rings
+            _testing.plane_fluence_trace(
+                state, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0, no_rings, no_rings
             )
         with pytest.raises(ValueError, match="invalid spatial statistic flags"):
-            state.spatial_statistics(64, factor, 0.0)
-        np.ravel(state.spatial_statistics(32, factor, 0.0))
+            _testing.spatial_statistics(state, 64, factor, 0.0)
+        np.ravel(_testing.spatial_statistics(state, 32, factor, 0.0))
         with pytest.raises(ValueError, match="invalid fluence rings"):
-            state.plane_fluence_trace(
-                0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0, no_rings, no_rings
+            _testing.plane_fluence_trace(
+                state, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0, no_rings, no_rings
             )
-        np.ravel(state.spatial_statistics(32, factor, 0.0))
+        np.ravel(_testing.spatial_statistics(state, 32, factor, 0.0))
         with pytest.raises(ValueError, match="one-dimensional"):
-            state.plane_fluence_trace(
-                0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1, np.ones((1, 8)), np.ones((1, 8))
+            _testing.plane_fluence_trace(
+                state, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1, np.ones((1, 8)), np.ones((1, 8))
             )
     finally:
         backend.close()
@@ -535,12 +547,16 @@ def test_the_native_trace_needs_a_held_plane_and_real_rings():
 
 @native_only
 def test_a_line_has_no_plane_moments():
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
     grid, problem, run_request = _route("line")
     backend = select("native", problem, run_request, grid=grid)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         with pytest.raises(ValueError, match="need a Cartesian plane"):
-            state.spatial_statistics(32, 0.5 * EPS0 * C, 0.0)
+            _testing.spatial_statistics(state, 32, 0.5 * EPS0 * C, 0.0)
     finally:
         backend.close()
 
@@ -722,8 +738,8 @@ def _profiles(rng):
 def test_the_native_radial_widths_are_solprop_s_to_the_bit():
     """The radial widths ported operation for operation: NumPy's pairwise sums, the
     crossings' interpolation, the hollow and the uncrossed profiles."""
-    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        _core,
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
     )
 
     from solprop.spatial import radial_fluence_widths  # noqa: PLC0415
@@ -735,14 +751,14 @@ def test_the_native_radial_widths_are_solprop_s_to_the_bit():
         for fluence, axis in cases:
             arguments = (radius[:size], fluence[:size], weights[:size], axis)
             want = radial_fluence_widths(*arguments)
-            got = _core.radial_fluence_widths(*arguments, math.exp(-2))
+            got = _testing.radial_fluence_widths(*arguments, math.exp(-2))
             np.testing.assert_array_equal(got, want, err_msg=f"{size} samples")
 
 
 @native_only
 def test_the_native_radial_widths_refuse_what_solprop_s_refuse():
-    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        _core,
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
     )
 
     from solprop.spatial import radial_fluence_widths  # noqa: PLC0415
@@ -758,13 +774,15 @@ def test_the_native_radial_widths_refuse_what_solprop_s_refuse():
         with pytest.raises(GridError, match="radial fluence widths require") as want:
             radial_fluence_widths(radius, fluence, weights, axis)
         with pytest.raises(ValueError, match="radial fluence widths require") as got:
-            _core.radial_fluence_widths(radius, fluence, weights, axis, math.exp(-2))
+            _testing.radial_fluence_widths(radius, fluence, weights, axis, math.exp(-2))
         assert str(got.value) == str(want.value)
     huge = np.full(3, 1e300)
     with pytest.raises(GridError, match="not representable"):
         radial_fluence_widths(radius * 1e200, huge, weights, 1e300)
     with pytest.raises(ValueError, match="not representable"):
-        _core.radial_fluence_widths(radius * 1e200, huge, weights, 1e300, math.exp(-2))
+        _testing.radial_fluence_widths(
+            radius * 1e200, huge, weights, 1e300, math.exp(-2)
+        )
 
 
 X86_64 = platform.machine().lower() in {"x86_64", "amd64"}
@@ -814,8 +832,8 @@ def test_the_unfused_interp_is_numpy_s_on_x86_64():
 def test_the_native_line_widths_are_solprop_s_to_the_bit(monkeypatch):
     """A line's centroid, moment and two-sided average, ``numpy.interp`` included: to
     the bit on x86-64, and to the unfused rule wherever NumPy's own may fuse."""
-    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        _core,
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
     )
 
     from solprop.spatial import _line_fluence_widths  # noqa: PLC0415
@@ -836,12 +854,12 @@ def test_the_native_line_widths_are_solprop_s_to_the_bit(monkeypatch):
             samples = np.exp(-2 * ((x - centre) / waist) ** 2)
             samples = samples / np.max(samples)
             want = _line_fluence_widths(x, samples)
-            got = _core.line_fluence_widths(x, samples, math.exp(-2))
+            got = _testing.line_fluence_widths(x, samples, math.exp(-2))
             np.testing.assert_array_equal(got, want, err_msg=f"{n} {centre} {waist}")
         noisy = rng.uniform(0.0, 1.0, n)
         noisy = noisy / np.max(noisy)
         np.testing.assert_array_equal(
-            _core.line_fluence_widths(x, noisy, math.exp(-2)),
+            _testing.line_fluence_widths(x, noisy, math.exp(-2)),
             _line_fluence_widths(x, noisy),
         )
 
@@ -862,10 +880,10 @@ def _radial_route(kind="envelope"):
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 6e-5
     )
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid, RadialGrid(3e-4, 32), LOSSY, [], pulse, settings=settings, noise=None
     )
-    return grid, simulation.translate(), simulation._run_request()
+    return grid, simulation.translate(), simulation.run_request()
 
 
 @native_only
@@ -876,8 +894,10 @@ def test_a_profile_s_native_widths_refuse_as_the_host_s_do(monkeypatch, route):
     for a value that is not finite, each through ``translated`` as the plan raises
     it."""
     from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        _core,
         _statistics,
+    )
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
     )
 
     host_interp(monkeypatch)
@@ -908,12 +928,12 @@ def test_a_profile_s_native_widths_refuse_as_the_host_s_do(monkeypatch, route):
             want = host_spatial.signed_fluence_widths(geometry, profile, budget, axis)
         except (BackendError, GridError) as error:
             with pytest.raises(ValueError) as caught:
-                _core.fluence_block_widths(plan, block)
+                _testing.fluence_block_widths(plan, block)
             raised = _statistics.translated(caught.value)
             assert type(raised) is type(error)
             assert str(raised) == str(error)
             return type(error)
-        np.testing.assert_array_equal(_core.fluence_block_widths(plan, block), want)
+        np.testing.assert_array_equal(_testing.fluence_block_widths(plan, block), want)
         return None
 
     assert both(fluence) is None

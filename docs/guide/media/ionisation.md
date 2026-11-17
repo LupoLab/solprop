@@ -284,13 +284,15 @@ from the optical stepper tolerance and the rate model's physical uncertainty.
 
 - **Knots are uniform in `log E`**, so locating one is arithmetic rather than a search, and
   a single table spans two to four decades. `log W` is nearly linear in `log E` at the
-  low-field turn-on and flattens at high field, which is where the samples are needed.
+  low-field turn-on and flattens at high field, which is where the samples are needed;
+  knots uniform in `E` over the same span reach only about one per cent.
 - **The knot count is converged, not fixed**: it doubles until the interpolant is within
   `rtol` (`10⁻⁶` by default) of direct evaluation at three probe points per interval,
   measured as a difference of logarithms so that it stays meaningful where the rate is
   `10⁻³⁰⁰`. A few hundred knots suffice for a smooth rate.
-- **Both ends are clipped**: exactly zero below `field_min`, and held at the last value
-  above `field_max` rather than extrapolated, because a cubic in `log W` continued past its
+- **Both ends are clipped**: exactly zero below `field_min`, which the plasma loss term
+  $I_p W (1 - f) / E$ relies on, and held at the last value above `field_max` rather than
+  extrapolated, because a cubic in `log W` continued past its
   last knot is precisely how a diverged step becomes an infinity, and raising instead
   would abort a propagation in the middle.
 - **The cache key is deterministic**: it is built from the rate's own `parameters`,

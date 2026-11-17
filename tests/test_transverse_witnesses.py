@@ -14,9 +14,10 @@ from solprop.boundaries import SpatialAbsorber, no_absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BoundaryWarning, TranslationError
 from solprop.grid import EnvelopeGrid, LineGrid
-from solprop.output.schema import PlaneStore
+from solprop.output.store import PlaneStore
 from solprop.pulses import GaussianPulse
 from solprop.spatial import SpatialMedium
+from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController, RungeKutta
 
 K = 2 * math.pi / 800e-9
@@ -79,7 +80,7 @@ def test_the_crossing_counterexample_is_refused_on_one_step() -> None:
         ).translate()
 
 
-@pytest.mark.medium
+@pytest.mark.slow
 def test_the_crossing_counterexample_is_accurate_when_adaptive() -> None:
     # The exact generator leaves about 1e-6 of the launch in the aperture after one
     # circuit (section 4.7's table, for its own collar); adaptive in-stage RK, held
@@ -112,6 +113,9 @@ def test_the_ledger_closes_with_the_ramp_in_a_lossless_medium() -> None:
         spatial_absorber=SpatialAbsorber(real_space=False, discard_above=0.9 * top),
         # No spectral or temporal collar: the ramp is the only loss to account for.
         absorber=no_absorber(grid),
+        # No statistics: the sideband near the band edge carries signed axial flux,
+        # for which the beam widths are undefined, and the ledger needs none.
+        stats=StatsSpec(names=()),
     )
     simulation = Simulation.from_free(
         grid, space, SpatialMedium(1.0), [], launch, settings=settings, noise=None

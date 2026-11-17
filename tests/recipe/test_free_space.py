@@ -13,14 +13,13 @@ call's configuration hash, so those comparisons are of digests and exact.
 """
 
 import json
-import subprocess
-import sys
 import textwrap
 import warnings
 
 import numpy as np
 import pytest
 
+from builders import run_python
 from recipe.test_examples import _PROBE, ENTROPY, record
 from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.capabilities import route
@@ -105,7 +104,7 @@ def _radial_call() -> Simulation:
         ionisation_field_range=(1e8, 1e11),
         backend="numpy_ref",
     )
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(400e-6, 32),
         SpatialMedium("Ar", pressure=1.0),
@@ -152,7 +151,7 @@ FIELD = textwrap.dedent(
 
 def _field_call() -> Simulation:
     grid = FieldGrid.from_limits(0.2e-3, 800e-9, (400e-9, 2e-6), 150e-15)
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(200e-6, 16, collar_fraction=0.25),
         SpatialMedium("Ar", pressure=2.0, temperature=300.0),
@@ -319,7 +318,7 @@ PLANAR = textwrap.dedent(
 
 def _planar_call() -> Simulation:
     grid = EnvelopeGrid.from_limits(1e-2, 800e-9, (650e-9, 1000e-9), 400e-15)
-    modes = ModeCollection.slab(63.5e-6, (1, 3), "Ar", 1.0)
+    modes = ModeCollection.slab(63.5e-6, "Ar", 1.0, orders=(1, 3))
     return Simulation.from_planar(
         grid,
         PlanarGrid(modes, 1e-3, 16, n_x=24),
@@ -399,20 +398,6 @@ def test_the_execution_settings_are_refused_in_the_settings_table():
     with pytest.raises(RecipeError, match=r"\[execution\]") as caught:
         Recipe.loads(text).build()
     assert caught.value.parameter == "settings.fields"
-
-
-def test_a_double_precision_settings_table_still_builds_and_single_is_refused():
-    """``precision = "double"`` under settings is what solprop does anyway: dropped."""
-    double = RADIAL.replace(
-        'backend = "numpy_ref"', 'backend = "numpy_ref"\nprecision = "double"'
-    )
-    assert _hash(Recipe.loads(double).build()) == _hash(_radial_call())
-    single = Recipe.loads(double.replace('"double"', '"single"'))
-    with pytest.raises(
-        RecipeError, match=r"binary64 only \(ADR-077\); remove the key"
-    ) as caught:
-        single.build()
-    assert caught.value.parameter == "settings.precision"
 
 
 def test_what_only_python_holds_points_to_the_export():
@@ -521,14 +506,7 @@ def test_the_python_export_builds_the_same_run(name, tmp_path, monkeypatch):
     script = recipe.to_python()
     path = tmp_path / f"{name}.py"
     path.write_text(_PROBE.format(entropy=ENTROPY) + script, encoding="utf-8")
-    result = subprocess.run(
-        [sys.executable, str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=tmp_path,
-    )
-    assert result.returncode == 0, result.stderr
+    result = run_python(path)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         expected = record(recipe.build())

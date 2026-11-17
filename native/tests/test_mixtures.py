@@ -17,12 +17,15 @@ from solprop.physdata import Mixture
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend, _core
-from solprop_native.backend import (
-    _native_problem,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
+from solprop_native._lowering import (
+    _lower,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
+    _LowerPlan,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
 )
 
 
@@ -31,7 +34,7 @@ def mixture_case() -> tuple[PropagationProblem, RunRequest, FieldGrid]:
     """Declare nitrogen and oxygen channels with optmat's molecular rates."""
     mixture = Mixture.air(1.0)
     grid = FieldGrid.from_limits(1e-4, 800e-9, (400e-9, 2e-6), 400e-15, ffac=4.0)
-    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
+    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss_scale=0.0)
     responses = responses_for(
         mixture,
         thg=False,
@@ -75,7 +78,7 @@ def test_species_statistics_preserve_an_inert_component_and_close(
         assert backend.metadata()["plasma_channels"] == 2
     finally:
         backend.close()
-    assert backend._native_state.closed  # pyright: ignore[reportPrivateUsage] - lifecycle
+    assert backend._workspace.closed  # pyright: ignore[reportPrivateUsage] - lifecycle
     backend.close()
 
 
@@ -96,14 +99,15 @@ def test_native_channel_payload_refusals(
     problem, run_request, grid = mixture_case
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        payload = _native_problem(
+        payload = _lower(
             problem,
             run_request,
-            backend._terms,  # pyright: ignore[reportPrivateUsage] - fixed payload
+            _LowerPlan(terms=backend._terms),  # pyright: ignore[reportPrivateUsage] - fixed payload
         )
-        parameters = np.array(payload["channel_parameters"], dtype=float, copy=True)
+        plasma = payload.plasma
+        parameters = plasma.channel_parameters.reshape(plasma.n_channels, 9)
         if damage == "zero_channels":
-            payload["n_channels"] = 0
+            plasma.n_channels = 0
         elif damage == "parameter_extent":
             parameters = parameters[:, :-1].copy()
         elif damage == "nonfinite":
@@ -113,10 +117,10 @@ def test_native_channel_payload_refusals(
         elif damage == "interval":
             parameters[1, 5] = -1
         else:
-            payload["channel_coefficients"] = np.empty(0)
-        payload["channel_parameters"] = parameters
+            plasma.channel_coefficients = np.empty(0)
+        plasma.channel_parameters = parameters
         with pytest.raises(ValueError, match=r"channel|Channel|plasma"):
-            _core.State(payload)
+            _core.Workspace(payload)
     finally:
         backend.close()
 
@@ -127,13 +131,22 @@ def test_native_statistics_refuse_channel_preionisation_shape(
     problem, run_request, grid = mixture_case
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        load_native(backend, problem.initial.field0, clear_fsal=False)
+        load_native(backend, problem.initial.field0)
         with pytest.raises(ValueError, match="channel preionisation"):
-            backend._native_state.statistics(  # pyright: ignore[reportPrivateUsage] - native refusal
-                1 << 11, np.empty(0), np.empty(0), 0.0, 1.0, 0.0, 1.0, np.zeros(1)
+            _testing.statistics(
+                backend._workspace,  # pyright: ignore[reportPrivateUsage] - native refusal
+                1 << 11,
+                np.empty(0),
+                np.empty(0),
+                0.0,
+                1.0,
+                0.0,
+                1.0,
+                np.zeros(1),
             )
         with pytest.raises(ValueError, match="channel preionisation"):
-            backend._native_state.statistics(  # pyright: ignore[reportPrivateUsage] - native refusal
+            _testing.statistics(
+                backend._workspace,  # pyright: ignore[reportPrivateUsage] - native refusal
                 1 << 11,
                 np.empty(0),
                 np.empty(0),

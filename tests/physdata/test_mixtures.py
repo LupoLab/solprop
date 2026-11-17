@@ -324,10 +324,10 @@ def test_absorption_first_order_limit_and_total_loss_controls(absorbing_species)
     # for |chi| < 1/2. The 1 m core contributes <1e-12 relative waveguide correction.
     bound = float(np.max(np.abs(chi))) + 1e-12 + 32 * EPS
     assert_allclose(alpha, expected, rtol=bound, atol=0)
-    lossless = dataclasses.replace(mode, loss=False)
+    lossless = dataclasses.replace(mode, loss_scale=0.0)
     assert_array_equal(np.imag(lossless.neff(OMEGA)), np.zeros(OMEGA.shape))
     assert_allclose(
-        np.imag(dataclasses.replace(mode, loss=0.5).neff(OMEGA)),
+        np.imag(dataclasses.replace(mode, loss_scale=0.5).neff(OMEGA)),
         np.imag(mode.neff(OMEGA)) / 2,
         rtol=0,
         atol=0,

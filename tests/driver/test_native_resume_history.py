@@ -46,7 +46,7 @@ from solprop.driver import Simulation
 from solprop.grid import EnvelopeGrid
 from solprop.output import open_file
 from solprop.output.hdf5 import resume
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep, RungeKutta
 
 pytestmark = [
@@ -147,7 +147,7 @@ def opened(simulation, backend, planes=None):
     replaces its save planes, a run that ends at the last of them.
     """
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     if planes is not None:
         run_request = to_planes(run_request, planes)
     built: Any = select(
@@ -233,10 +233,8 @@ def assert_same_snapshot(found: MarchSnapshot | None, stored: MarchSnapshot) -> 
 def test_the_resident_history_is_restored_exactly_and_continued(build_simulation, case):
     simulation = CASES[case](build_simulation, "native")()
     problem, request, first = opened(simulation, "native")
-    engine = first._resident
-    assert type(engine).__name__ == "_ResidentAdams"
-    # The engine's own layout keeps a leading axis of one after the row axis.
-    shape = (engine.n_slots, 1, *problem.shape)
+    assert first._diagnostics()["method"] == "adams"
+    shape = (first._adams.n_slots, *problem.shape)
     whole = Snapshots()
     baseline = run_session(first, problem, request, owns=True, between=whole)
     stored = whole.at_plane(0)
@@ -292,7 +290,7 @@ def test_a_resume_without_the_snapshot_restarts_the_history(build_simulation, ca
     # The witness above is a real one: the same run without the snapshot does
     # evaluate the startup sample, once, on its way to the first plane.
     simulation = CASES[case](build_simulation, "native")()
-    first = float(simulation._run_request().stepper.save_planes[0])
+    first = float(simulation.run_request().stepper.save_planes[0])
     problem, request, backend = opened(simulation, "native", planes=[first])
     session = started(backend, problem, request, Start.entrance(problem))
     try:
@@ -332,7 +330,7 @@ def test_a_native_run_stopped_between_planes_continues_from_its_checkpoint(
     build_simulation, tmp_path, monkeypatch, caplog
 ):
     # The native march's failure is injected natively at a trial past the first
-    # plane (`adams_march_fault`): the run stops at its last accepted step, strictly
+    # plane (`inject_fault`): the run stops at its last accepted step, strictly
     # between two planes, and keeps the march's state beside the terminal checkpoint.
     from driver.test_native_march_lifecycle import (  # noqa: PLC0415 - needs native
         with_fault,
@@ -424,7 +422,7 @@ def snapshot_at_first_plane(simulation):
 
     Its session runs to that plane alone, which it lands on as the whole run does.
     """
-    first = float(simulation._run_request().stepper.save_planes[0])
+    first = float(simulation.run_request().stepper.save_planes[0])
     problem, request, backend = opened(
         simulation, simulation.settings.backend, planes=[first]
     )

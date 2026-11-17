@@ -26,7 +26,7 @@ def test_the_specification_names_and_counts_itself():
     assert method.name == "low-storage-rk4ip"
     assert (method.order, method.evaluations) == (4, 4)
     assert method.real_stability_interval == LOW_STORAGE_REAL_INTERVAL == 2.785
-    # Frozen, and equal by value: a lockstep batch compares members' integrators.
+    # Frozen, and equal by value: two runs compare their integrators.
     assert method == LowStorageRungeKutta(scheme="rk4ip")
     with pytest.raises(dataclasses.FrozenInstanceError):
         method.scheme = "rk4ip"  # type: ignore[misc]

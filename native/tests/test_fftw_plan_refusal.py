@@ -5,7 +5,7 @@
 """A mistyped FFTW planning effort is refused (SEP 43 inventory, item 73; #460).
 
 Native takes the effort from ``SOLPROP_FFTW_PLAN`` (``fftw_seed_effort`` in
-``include/solprop_native/fft_plan.hpp``). Read as ``measure``, a typo would change a
+``src/transforms/fftw_wisdom.cpp``). Read as ``measure``, a typo would change a
 run's plans in silence, so it is refused in a fresh process, as the neighbouring thread
 variables are.
 """
@@ -22,7 +22,7 @@ from solprop.grid import EnvelopeGrid
 from solprop.nonlinear.gnlse import problem_from
 from solprop.pulses import SechPulse
 from solprop.stepper import PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 
 grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12)
 model = problem_from(

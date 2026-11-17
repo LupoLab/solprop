@@ -1,0 +1,1 @@
+A snapshot interval shorter than 60 s is honoured ([#600](https://github.com/LupoLab/solprop/issues/600)): the 60 s retry back-off now follows only a failed or deferred snapshot attempt, where every successful publication used to impose it too.

@@ -83,9 +83,9 @@ eighth term is already past it; it is harmless in practice, since it sits at $F\
 factors: the 2016 fit is the evacuated one, and filling them changes $CL$ by
 $-0.9\,\%$ at 30 bar. The power attenuation coefficient is
 $\alpha=CL\ln(10)/10$ and the confinement contribution to the imaginary index is
-$c\alpha/(2\omega)$. `loss=True`, `False`, a nonnegative scale, and an absolute
-callable $\alpha(\omega)$ have the same meaning as for a capillary. A scale is a
-user adjustment to the fit. Gas absorption retains the parent's material contract.
+$c\alpha/(2\omega)$. `loss_scale` and an absolute `alpha` (a number or a callable
+$\alpha(\omega)$) have the same meaning as for a capillary. A scale is a user
+adjustment to the fit. Gas absorption retains the parent's material contract.
 
 The real-index fit uses an effective core radius and a dispersive resonance term:
 

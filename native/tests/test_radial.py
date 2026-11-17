@@ -18,9 +18,10 @@ from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 
 from solprop_native import NativeBackend, build_info
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 
 
 @pytest.mark.parametrize(
@@ -106,14 +107,19 @@ def test_radial_partial_chunks_preserve_the_reference_source(
     assert bound > 0
     reference = NumpyRefBackend(problem, run_request, grid=grid, options=options)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage]
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
+        reference.workspace.hoist(0.0)  # pyright: ignore[reportPrivateUsage]
         expected = np.asarray(
-            reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
-                reference._require_state(),  # pyright: ignore[reportPrivateUsage]
-                reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-                np.ones((1, *problem.shape), complex),
-            )[0]
+            reference.workspace.nonlinear(  # pyright: ignore[reportPrivateUsage]
+                reference.workspace.committed(),  # pyright: ignore[reportPrivateUsage]
+                reference.workspace.stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
+                np.ones(problem.shape, complex),
+            )
         )
     finally:
         reference.close()
@@ -132,17 +138,17 @@ def test_radial_partial_chunks_preserve_the_reference_source(
             == retained
         )
         assert (ledger["retained_synthesis"] > 0) == retained
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         native_trial(backend, 0.0, 0.0)
-        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
+        actual = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
         assert np.isfinite(actual).all()
         scale = float(np.max(np.abs(expected)))
         assert scale > 0
         np.testing.assert_allclose(actual, expected, rtol=0, atol=bound * scale)
         assert np.count_nonzero(actual[..., ~grid.active_mask]) == 0
-        load_native(backend, np.zeros_like(problem.initial.field0), clear_fsal=False)
+        load_native(backend, np.zeros_like(problem.initial.field0))
         native_trial(backend, 0.0, 0.0)
-        assert np.count_nonzero(state.stage_to_host(0)) == 0
+        assert np.count_nonzero(_testing.stage_to_host(state, 0)) == 0
         assert backend.memory_ledger() == ledger
     finally:
         backend.close()

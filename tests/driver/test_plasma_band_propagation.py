@@ -15,6 +15,7 @@ every ``ffac`` agrees to 1e-12, so the plasma-off run at ``ffac = 96`` is the ba
 """
 
 import dataclasses
+import math
 import warnings
 from typing import Any, cast
 
@@ -36,7 +37,7 @@ from solprop.exceptions import (
 from solprop.grid import FieldGrid
 from solprop.nonlinear.mixtures import responses_for
 from solprop.nonlinear.responses import PlasmaResponse
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.profiles import Constant
 from solprop.pulses import GaussianPulse
 from solprop.stats import PLASMA_INTEGRATION_STATISTICS, StatsSpec
@@ -145,6 +146,7 @@ def _run(gas, ffac, *, plasma, integration=None):
     return np.asarray(run["field"])[-1, 0, 0], run, grid
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize("gas", list(CASES))
 def test_ten_band_steps_meet_their_targets(request, gas):
     off, _, base = _run(gas, 96.0, plasma=False)
@@ -283,39 +285,26 @@ def test_a_band_rule_needs_field_plasma_channels():
         dataclasses.replace(problem.responses, plasma_integral=rule)
 
 
-def test_the_reference_s_diagnostics_refuse_a_problem_with_no_plasma_column():
+@pytest.mark.parametrize(
+    ("name", "message"),
+    [("plasma_undershoot", "carries none"), ("electron_density", "declares none")],
+)
+def test_the_reference_s_plasma_statistics_refuse_a_problem_with_no_plasma(
+    name, message
+):
     """The reference's own check, for a caller that asks its statistics directly."""
     simulation = build(
-        plasma=False, backend="numpy_ref", stats=StatsSpec(names=("plasma_undershoot",))
+        plasma=False, backend="numpy_ref", stats=StatsSpec(names=(name,))
     )
     problem = simulation.translate()
     backend = select(
-        "numpy_ref", problem, simulation._run_request(), grid=simulation.grid
+        "numpy_ref", problem, simulation.run_request(), grid=simulation.grid
     )
     try:
-        state = simulation._field0[np.newaxis]
-        with pytest.raises(BackendError, match="carries none"):
-            cast("NumpyRefBackend", backend)._backend_statistics(
-                ("plasma_undershoot",), state
-            )
-    finally:
-        backend.close()
-
-
-def test_the_reference_s_ionisation_refuses_a_problem_with_no_plasma():
-    """The reference's own check, for a caller that asks its statistics directly."""
-    simulation = build(
-        plasma=False, backend="numpy_ref", stats=StatsSpec(names=("electron_density",))
-    )
-    problem = simulation.translate()
-    backend = select(
-        "numpy_ref", problem, simulation._run_request(), grid=simulation.grid
-    )
-    try:
-        state = simulation._field0[np.newaxis]
-        with pytest.raises(BackendError, match="declares none"):
-            cast("NumpyRefBackend", backend)._backend_statistics(
-                ("electron_density",), state
+        state = simulation._field0
+        with pytest.raises(BackendError, match=message):
+            cast("NumpyRefBackend", backend).workspace.statistics._backend_statistics(
+                (name,), state, float(problem.initial.z), math.nan
             )
     finally:
         backend.close()

@@ -4,9 +4,21 @@
 
 """Define the provider-free host contract for the helium TDSE response.
 
-The seam holds immutable descriptors and owning SI arrays. The driver owns the
-optional native runtime, stable row chunks and transactional call reservations.
-No physical subtraction, calibration or density factor is applied here.
+The seam holds immutable descriptors and owning SI arrays; the driver owns the optional
+native runtime, stable row chunks and transactional call reservations. No physical
+subtraction, calibration or density factor is applied here.
+
+- :class:`TDSEDescriptor`: the resolved response identity the route carries
+  (:class:`solprop.translate.routes.TDSESource`), with its
+  :class:`AtomicWindowRecord` (:func:`resolve_atomic_window`) on the fine response
+  lattice (:func:`refine_response_grid`, :func:`lattice_times`).
+- :class:`TDSEBinding`: the driver's resource-owning atomic service, returning
+  :class:`TDSEResult` responses and charging calls through :class:`AtomicCallBudget`
+  and :class:`AtomicCallLedger`.
+- :func:`waveform_identity` hashes host waveforms for diagnostic reuse.
+
+The manual page is ``docs/guide/media/tdse.md``; the binding is
+``docs/dev/kernel-contract.md`` section 6.
 """
 
 import functools
@@ -20,6 +32,7 @@ from typing import Any, Literal, Protocol, cast, runtime_checkable
 import numpy as np
 from jaxtyping import Bool, Float
 
+from solprop._identity import canonical_json, text_digest
 from solprop._ownership import frozen_copy, hold
 from solprop.exceptions import (
     BackendError,
@@ -483,8 +496,7 @@ class TDSEDescriptor:
 
     def __post_init__(self) -> None:
         """Protect the seam identity against independently modified scalar fields."""
-        digest = hashlib.sha256(self.configuration_json.encode()).hexdigest()
-        if digest != self.identity:
+        if text_digest(self.configuration_json) != self.identity:
             raise TranslationError(
                 "TDSE descriptor identity does not match its configuration"
             )
@@ -711,12 +723,10 @@ class TDSEDescriptor:
             "shadow_order": order,
             "outputs": outputs,
         }
-        encoded = json.dumps(
-            specification, sort_keys=True, separators=(",", ":"), allow_nan=False
-        )
+        encoded = canonical_json(specification, finite=True)
         return cls(
             configuration_json=encoded,
-            identity=hashlib.sha256(encoded.encode()).hexdigest(),
+            identity=text_digest(encoded),
             kerr_model=response.kerr_model,
             remainder_scale=response.remainder_scale,
             cubic_scale=response.cubic_scale,

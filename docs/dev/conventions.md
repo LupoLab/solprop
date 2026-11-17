@@ -3,8 +3,8 @@
 The units, signs, normalisations, grids and array layouts that every module assumes and
 every docstring defers to. A function that departs from any of these says so in the first line
 of its docstring and explains why. Sign errors escape review; these belong in one place.
-The layer letters P, T, B, D and X that docstrings use are defined in
-[architecture.md §3](architecture.md) and ADR-001, not here.
+The layer letters P, S, T, B, D and X that docstrings use are defined in
+[architecture.md §3](architecture.md), ADR-001 and ADR-080, not here.
 
 ## 1. Units
 
@@ -57,8 +57,10 @@ half-spectrum of a real field rotates its carrier-envelope phase, and the frame 
 `β₁ω` through the origin; an envelope grid with a third-harmonic term keeps `β₀` too, and
 with it measures the frame term `β₁ω` from the origin, because `β₁(ω − ω₀)` would still
 remove the constant `−β₁ω₀`, which `A³ e^{2iω₀t}` does not share
-(`docs/guide/numerics/linear-operator.md`, "Which terms the frame removes"). These are Luna's
-internal signs, so kernels and stored spectra compare directly with Luna's.
+(`docs/guide/numerics/linear-operator.md`, "Which terms the frame removes"). The signs
+are Luna's internal ones, so kernel arrays compare directly with Luna's. Stored spectra
+do not: they are written in the optics convention, and compare with Luna's files through
+`fields(convention="fft")` (point 3 below).
 The stored spectral state is the **raw forward DFT of the sample array**,
 `Ẽ_k = Σ_n E_n e^{−2πi kn/N}` (NumPy forward: no `1/N`, no δt), inverted by
 `E_n = (1/N) Σ_k Ẽ_k e^{+2πi kn/N}`. Its phase origin is therefore the **first sample**,
@@ -101,8 +103,8 @@ later.
 The amplitude conversion is a separate, named boundary beside these Fourier helpers:
 `fourier.power_amplitude` maps internal `a` to saved `b`, and its inverse maps a resumed
 plane back. A session applies it on export (`backends.export.ExportRecipe` with
-`power=True`, bitwise the same as `power_amplitude`), for single runs and the batch scan
-path alike, before the output handler's conjugation. It never changes the Fourier sign. Input
+`power=True`, bitwise the same as `power_amplitude`), for single runs and scan points
+alike, before the output handler's conjugation. It never changes the Fourier sign. Input
 assembly and `Simulation.with_input` divide at the entrance. These are the amplitude
 conversion sites; no propagation kernel converts amplitudes.
 
@@ -159,6 +161,12 @@ realises the request rounded up and is kept to reproduce frozen witnesses, can p
 collar inside the requested window. In
 solprop these profiles become **rates** (ADR-007); the hard band limit outside the active
 mask is a 0/1 mask.
+
+**Hazards.** `grid.py` guards against four, each noted where it is handled: overlapping
+coarse spectral bins when the transform size is not a power of two; a degenerate temporal
+collar when the realised window equals the requested one; an envelope fine spacing that
+ignores the low-frequency edge; and an envelope crop derived from the upper edge alone and
+then applied symmetrically.
 
 **Oversampling scale factors** (Luna `NonlinearRHS.jl:19–56`): zero-pad the coarse spectrum
 into the fine one with scale `(n_omega_fine − 1)/(n_omega − 1) = n_to/n_t` (field) or
@@ -292,7 +300,8 @@ Cartesian one).
   the full Marcatili model onto one Robin impedance and shares that row's `v_n`: its
   `k_eff = k/v_n` uses the same vacuum `k = ω/c`, while the paraxial carrier it is written
   about is the in-core `k√ε_co`. It is the loss model of its channels, so it is
-  declared instead of a `LossSpec`, never beside one. `CoherentWall(impedance="te_tm")`
+  declared instead of a loss setting (`alpha`, or a `loss_scale` other than one), never
+  beside one. `CoherentWall(impedance="te_tm")`
   condenses the wall's **two** grazing impedances instead of their average — `1/k_TM` for
   the field normal to the wall and `1/k_TE` for the field tangential to it, this package's
   own `v_TM` and `v_TE` over `k_0` — rotated into the radial families of one total
@@ -305,7 +314,7 @@ Cartesian one).
   measured in `docs/guide/waveguides/modes.md`. For a solid guide the same connection is `Γ = W⁻¹S`
   with `S_mn = ⟨ψ_m|∂_zψ_n⟩` on the flux metric and its self-terms kept, anti-Hermitian
   rather than antisymmetric, its diagonal the normalisation's own rate plus a gauge phase
-  (`solprop.modes.modal_connection`, `docs/guide/waveguides/general-modal.md`); the Bessel form is its
+  (`solprop.modes.connection.modal_connection`, `docs/guide/waveguides/general-modal.md`); the Bessel form is its
   real exactly-normalised special case. The cumulative `Φ` beside such a block must be a
   multiple of the identity in the channel axis, so its normalisation term is the lowest
   channel's, and the flow's diagonal carries the rest of each channel's own,
@@ -333,19 +342,24 @@ Cartesian one).
 ## 6. Array layout and axis names
 
 Kernel state and canonical storage: `(n_modes, n_pol, n_omega)` complex128, ω
-contiguous (C order): one trajectory. A group of trajectories is a sequence of member
-problems, not a leading axis ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.7); a backend
-may hold its state privately with a leading axis of one (the native build's four-axis
-layout), and a march snapshot's file keeps that axis. Every backend computes in binary64
-(ADR-077). Saved fields: `(n_z, n_modes, n_pol, n_omega)`; a batched scan stores each member
-separately. Space-domain buffers: `(n_nodes_chunk, n_pol, n_to)`. Convenience accessors
+contiguous (C order): one trajectory, with no leading axis of one anywhere: not in a
+backend's state, the operator's value tables (§3 of the kernel contract), the memory
+ledgers or a march snapshot's stored state (SEP 52). Every backend computes in binary64
+(ADR-077). Saved fields: `(n_z, n_modes, n_pol, n_omega)`; a scan stores each point separately.
+Space-domain buffers: `(n_nodes_chunk, n_pol, n_to)`. Convenience accessors
 may squeeze trivial axes; the seam and the files never do.
+
+**The spectral layout is passed, never inferred.** A field grid stores the one-sided
+spectrum of a real field (`n_omega = n_t/2 + 1`) and an envelope grid the full FFT-order
+spectrum of a complex envelope (`n_omega = n_t`). Neither dtype nor array length tells
+them apart reliably — a real-valued envelope is an ordinary unchirped pulse, and a real
+field cast to complex is indistinguishable from an analytic signal — so every function of
+`fourier` that needs to know takes an explicit `kind` and checks the array against it.
 
 Standard axis names, reused verbatim in every jaxtyping annotation and docstring:
 
 | name | meaning |
 |---|---|
-| `n_batch` | the leading axis of one of a backend's private state layout, the operator's value tables (§3 of the kernel contract) and a march snapshot's stored state; never part of a single trajectory's seam |
 | `n_modes` | modes (1 for mode-averaged) |
 | `n_pol` | polarisation components of the kernel state (1 or 2) |
 | `n_components` | Cartesian components of a local physical field (1, 2 or 3); a general modal guide carries `n_pol = 1` and `n_components = 3` |
@@ -416,4 +430,4 @@ prefix instead: `plot_energy` and `plot_stats`.
 
 Two classes with similar columns but different meanings do not share a name:
 `backends.protocol.BackendHistory` holds each attempt's end and a running clock, and
-`output.schema.StepHistory` each attempt's start and its own time.
+`output.records.StepHistory` each attempt's start and its own time.

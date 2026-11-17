@@ -15,14 +15,14 @@ the compiled backends' parity.
 
 import dataclasses
 import math
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
 
 from backends.conftest import EQUIVALENCE_BACKENDS
+from sessions.runs import bare, final_field
 from sessions.runs import run as session_run
-from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver.simulation import Simulation
@@ -81,22 +81,20 @@ def gradient(
 def march(simulation, backend_class=NumpyRefBackend, *, compensation=None, plane=-1):
     """Run to the last plane; return a plane's field, the march and the steps."""
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = backend_class(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     if compensation is not None:
         method = run_request.stepper.integrator
-        backend._adams = HostAdamsMarch(backend, method, compensation=compensation)
+        backend._use_adams(method, compensation=compensation)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        steps, fields = [], []
-        for position in run_request.stepper.save_planes:
-            backend.propagate_to(float(position))
-            observed = backend.observe()
-            steps += list(observed.step_history.dz)
-            fields.append(observed.field)
-        return fields[plane], backend._adams, np.array(steps)
+        result = session_run(backend, problem, bare(run_request))
+        # Every attempt's step, rejected ones included, and each save plane's field.
+        steps = list(result.joined[0].dz)
+        fields = result.fields[1:]
+        assert len(fields) == len(run_request.stepper.save_planes)
+        return fields[plane], cast("Any", backend.march), np.array(steps)
     finally:
         backend.close()
 
@@ -105,7 +103,7 @@ def session_march(simulation, backend_class):
     """Run to the last plane through the backend's own session; return its field, the
     march's call ledger and every attempt's step."""
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     owner = backend_class(
         problem,
         run_request,
@@ -165,9 +163,9 @@ def test_a_structurally_absent_source_takes_the_exact_flow():
     problem = simulation.translate()
     assert len(problem.responses.response_order) == 1
     field, adams, _ = march(simulation)
-    assert adams is not None and not adams._engine.compensated
+    assert adams is not None and not cast("Any", adams._engine).compensated
     start = problem.initial.field0 * problem.grids.active_mask
-    exact = np.exp(delta_phi(problem.linear, 0.0, LENGTH))[0] * start
+    exact = np.exp(delta_phi(problem.linear, 0.0, LENGTH)) * start
     # Round-off of the flows' products, step by step.
     np.testing.assert_allclose(field, exact, rtol=0, atol=1e-12 * np.abs(exact).max())
 
@@ -286,15 +284,12 @@ def _tabulated(problem):
 
 def _table_field(candidate, simulation, backend_class):
     """Land on every save plane of `candidate` and return the last field."""
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = backend_class(
         candidate, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        backend.set_initial(candidate.initial.field0, None)
-        for position in run_request.stepper.save_planes:
-            backend.propagate_to(float(position))
-        return backend.observe().require_field()
+        return final_field(backend, candidate, bare(run_request), ended=True)
     finally:
         backend.close()
 
@@ -316,7 +311,7 @@ def test_a_compiled_backend_steps_a_z_table_as_the_reference(backend_name):
     simulation = gradient()
     tabulated = _tabulated(simulation.translate())
     reference = _table_field(tabulated, simulation, NumpyRefBackend)
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     owner = COMPILED[backend_name](
         tabulated,
         run_request,
@@ -345,15 +340,28 @@ def test_an_interior_hard_kink_restarts_the_history():
     assert error < 1e-5, error
 
 
-def test_the_modified_noise_along_a_gradient_with_the_same_draw():
-    # The compensation acts on the propagated state, never on the draw (SEP 16
-    # section 4.4); the draw's phase is each sample's own position's.
+@pytest.mark.parametrize(
+    "integrator",
+    [Multistep(formulation="interaction"), EXPONENTIAL],
+    ids=["interaction", "exponential"],
+)
+def test_the_modified_noise_along_a_gradient_with_the_same_draw(integrator):
+    # One draw for the run, conditional on which the source is deterministic in z: both
+    # Adams formulations converge to the Runge-Kutta solution with the same draw. The
+    # compensation acts on the propagated state, never on the draw (SEP 16 section
+    # 4.4); the draw's phase is each sample's own position's.
     reference, _, _ = march(
         gradient(integrator=RungeKutta(), rtol=1e-11, noise="modified", seed=3)
     )
-    field, _, _ = march(gradient(noise="modified", seed=3))
+    field, adams, _ = march(gradient(integrator=integrator, noise="modified", seed=3))
     error = np.linalg.norm(field - reference) / np.linalg.norm(reference)
     assert error < 1e-5, error
+    # A different draw moves the field far more than the error does, so the draw is
+    # really in the Adams source: measured 4.4e-8 of the field against 1.1e-9.
+    other, _, _ = march(gradient(integrator=integrator, noise="modified", seed=4))
+    assert np.linalg.norm(other - field) > 10 * np.linalg.norm(field - reference)
+    assert adams is not None
+    assert adams.ledger.rejected_steps < adams.ledger.accepted_steps
 
 
 def test_an_adiabatic_taper():
@@ -362,7 +370,7 @@ def test_an_adiabatic_taper():
     taper = Linear(100e-6, 80e-6, LENGTH)
     reference, _, _ = march(gradient(integrator=RungeKutta(), rtol=1e-11, radius=taper))
     field, adams, _ = march(gradient(radius=taper))
-    assert adams is not None and adams._engine.compensated
+    assert adams is not None and cast("Any", adams._engine).compensated
     error = np.linalg.norm(field - reference) / np.linalg.norm(reference)
     assert error < 1e-5, error
 

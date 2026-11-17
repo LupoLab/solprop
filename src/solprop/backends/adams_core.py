@@ -4,13 +4,13 @@
 
 """The Adams march's controller as functions of its policy and its state (SEP 39).
 
-The decisions of :class:`~solprop.backends.host.adams.HostAdamsMarch` -- the stencil and
-scored orders, the step-size factor, a rejection and its restart, the order choice, the
-proposal's caps and the approach to a landing -- each as a function of the run's
-:class:`~solprop.stepper.multistep.MarchPolicy` and the values it decides on, with no
-backend, engine or field in reach. The march calls them, and SEP 39 section 4 specifies
-them; the native march executes the same algorithm and is held to these functions by
-the decision traces of ``tests/data/adams_traces.json.gz``.
+The decisions of :class:`~solprop.backends.numpy_ref.marches.adams.HostAdamsMarch` --
+the stencil and scored orders, the step-size factor, a rejection and its restart, the
+order choice, the proposal's caps and the approach to a landing -- each as a function of
+the run's :class:`~solprop.stepper.multistep.MarchPolicy` and the values it decides on,
+with no backend, engine or field in reach. The march calls them, and SEP 39 section 4
+specifies them; the native march executes the same algorithm and is held to these
+functions by the decision traces of ``tests/data/adams_traces.json.gz``.
 
 Every function performs the operations of the code it was extracted from, in the same
 order, including how a comparison treats a NaN: ``min(a, b)`` is ``b`` only if
@@ -39,7 +39,6 @@ __all__ = [
     "factor",
     "next_landing",
     "order_weight",
-    "quiet_capped",
     "rejection",
     "replay_kink",
     "stable_factor",
@@ -355,8 +354,8 @@ def carrier_capped(
 
     Under a carrier frame no step covers more than the policy's carrier cap of carrier
     phase (SEP 35 section 6.4), measured by one chord of the reference element's
-    operator over the proposal, the largest over the batch. Applied before the landing
-    rule, so a shortened step is not a landing; a fixed schedule's replay is not capped.
+    operator over the proposal. Applied before the landing rule, so a shortened step is
+    not a landing; a fixed schedule's replay is not capped.
 
     Parameters
     ----------
@@ -367,7 +366,7 @@ def carrier_capped(
     proposal : float
         The controller's proposal, m.
     chord_phase : callable
-        ``(z1, z2) -> phase``, the chord's largest phase over the batch, rad.
+        ``(z1, z2) -> phase``, the chord's carrier phase, rad.
 
     Returns
     -------
@@ -386,31 +385,6 @@ def carrier_capped(
     if phase <= policy.carrier_cap:
         return proposal
     return (end - z) * (policy.carrier_cap / phase)
-
-
-def quiet_capped(proposal: float, *, quiet: bool, interval: float | None) -> float:
-    """Return the proposal, held to the monitor's interval while the collar rests.
-
-    The rule of ``solprop.backends.host.driver.HostDriver._quiet_capped``, with the
-    collar's state and the monitor's interval passed in.
-
-    Parameters
-    ----------
-    proposal : float
-        The controller's proposal, m.
-    quiet : bool
-        Whether the stages leave a quiet collar out.
-    interval : float or None
-        The monitor's interval, m, or ``None`` without a monitor.
-
-    Returns
-    -------
-    float
-        The proposal, or the interval while the collar is left out, m.
-    """
-    if not quiet or interval is None:
-        return proposal
-    return min(proposal, interval)
 
 
 def collar_reentry(

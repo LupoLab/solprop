@@ -26,7 +26,8 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-import solprop.translate.problem as problem_module
+import solprop.translate.assembly as assembly_module
+from coupled_flow_cases import guide_simulation
 from modal_provider_cases import (
     GENERAL_Z_END,
     SPLIT_DESCRIPTORS,
@@ -37,36 +38,26 @@ from modal_provider_cases import (
     split_guide,
 )
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
-from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.constants import C
-from solprop.driver import Simulation
 from solprop.exceptions import (
-    BackendError,
     DriverError,
     OutputError,
     SolpropWarning,
     TranslationError,
 )
 from solprop.modes.guide import ChannelBasis, ModalGuide
+from solprop.modes.tables import generator_is_coupled, sample_modal_table
 from solprop.output.capability import withheld_from
 from solprop.output.hdf5 import open_file
 from solprop.processing.time import _refuse_by_basis
 from solprop.stats import StatsSpec
 from solprop.translate.general import coupled_block, general_modal_route
-from solprop.translate.modal_tables import generator_is_coupled, sample_modal_table
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
 # hold more than a millionth of the energy in their guards or collar: the boundary
 # monitor warns (SEP 21), and the window's edge is not what this module tests.
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
 
-PULSE = {
-    "wavelength": 835e-9,
-    "fwhm": 20e-15,
-    "energy": 1e-12,
-    "shape": "gauss",
-    "backend": "numpy_ref",
-}
 
 STEPS = 10
 """Steps every run here takes over a millimetre."""
@@ -128,32 +119,17 @@ def plain(grid):
     return split_guide(grid, rotated=False)
 
 
-def build(guide, grid, *, channel=0, length=GENERAL_Z_END, **overrides):
-    """Return a simulation of one guide launching one channel."""
-    return Simulation.from_waveguide(
-        (),
-        length,
-        provider=guide,
-        grid=grid,
-        channel=channel,
-        save_planes=[length],
-        dz_max=length / STEPS,
-        dz_init=length / STEPS,
-        **({"noise": None, **PULSE | overrides}),
-    )
-
-
 @pytest.fixture(scope="module")
 def rotated_run(rotated, grid):
     """The rotated guide's ten-step run, and the problem it was assembled from."""
-    simulation = build(rotated, grid)
+    simulation = guide_simulation(rotated, grid)
     return simulation, simulation.translate(), simulation.run()
 
 
 @pytest.fixture(scope="module")
 def plain_runs(plain, grid):
     """One ten-step run per channel of the guide in the provider's own coordinates."""
-    return [build(plain, grid, channel=one).run() for one in (0, 1)]
+    return [guide_simulation(plain, grid, channel=one).run() for one in (0, 1)]
 
 
 # ------------------------------------------------------------------- construction
@@ -214,7 +190,7 @@ def test_the_rotated_route_carries_a_coupled_flow_and_the_plain_one_does_not(
     carrier = problem.linear.phi_constant
     assert carrier is not None
     assert float(np.max(abs(carrier - carrier[:, :1]))) == 0.0
-    assert build(plain, grid).translate().linear.coupled_flow is None
+    assert guide_simulation(plain, grid).translate().linear.coupled_flow is None
 
 
 def test_the_coupled_block_is_the_rotation_of_the_provider_s_own_generator(
@@ -350,7 +326,7 @@ def test_the_run_records_its_flow_and_a_run_without_one_does_not(
     assert flow["reference_channel"] == 0
     assert float(cast("float", flow["largest_coupling"])) > 0.0
     assert str(flow["gauge_id"]).endswith("+lp11(0,1)")
-    without = build(plain, grid)._modal_identity()
+    without = guide_simulation(plain, grid)._modal_identity()
     assert without is not None
     assert "flow" not in without
 
@@ -373,9 +349,9 @@ def test_a_declared_block_whose_exponent_is_too_large_is_refused_by_name(
     a ten-step schedule, so the limit is lowered here rather than the guide made
     absurd. What is under test is the door, its message and the numbers it names.
     """
-    monkeypatch.setattr(problem_module, "MAX_GENERAL_FLOW_EXPONENT", 1e-3)
+    monkeypatch.setattr(assembly_module, "MAX_GENERAL_FLOW_EXPONENT", 1e-3)
     with pytest.raises(TranslationError, match=re.escape("above the 0.001")):
-        build(rotated, grid).translate()
+        guide_simulation(rotated, grid).translate()
 
 
 def test_the_modified_noise_model_is_refused_beside_a_coupled_flow(rotated, grid):
@@ -387,12 +363,14 @@ def test_the_modified_noise_model_is_refused_beside_a_coupled_flow(rotated, grid
     with pytest.raises(
         TranslationError, match="coupled flow refuses the 'modified' noise model"
     ):
-        build(rotated, grid, noise="modified", seed=17).translate()
-    assert build(rotated, grid, noise="input", seed=17).translate() is not None
+        guide_simulation(rotated, grid, noise="modified", seed=17).translate()
+    assert (
+        guide_simulation(rotated, grid, noise="input", seed=17).translate() is not None
+    )
     # The problem's own validation names it too, for a problem that reaches a backend
     # by hand: the assembly refuses first, so the draw is spoofed onto a clean problem.
-    simulation = build(rotated, grid)
-    problem, run_request = simulation.translate(), simulation._run_request()
+    simulation = guide_simulation(rotated, grid)
+    problem, run_request = simulation.translate(), simulation.run_request()
     initial = problem.initial
     spoofed = replace(
         problem,
@@ -423,25 +401,27 @@ def test_zdw_is_withheld_on_a_split_block_and_admitted_on_the_plain_route(
     backend's, and the file's -- while the plain route still admits it.
     """
     with pytest.raises(DriverError, match="zdw is unavailable for this run"):
-        build(rotated, grid, stats=StatsSpec(names=("zdw",))).run(progress="none")
-    record = build(rotated, grid)._modal_identity()
+        guide_simulation(rotated, grid, stats=StatsSpec(names=("zdw",))).run(
+            progress="none"
+        )
+    record = guide_simulation(rotated, grid)._modal_identity()
     assert record is not None
     published = cast("list[str]", record["accessors"])
     assert "zdw" not in published
     assert "physical_energy" in published
-    plain_record = build(plain, grid)._modal_identity()
+    plain_record = guide_simulation(plain, grid)._modal_identity()
     assert plain_record is not None
     assert "zdw" in cast("list[str]", plain_record["accessors"])
     # The plain route admits the name at the door: this window has no zero crossing,
     # so the run finishes and records that, in the statistic's own words.
     with pytest.warns(SolpropWarning, match="records nan for modes"):
-        admitted = build(plain, grid, stats=StatsSpec(names=("zdw",))).run(
+        admitted = guide_simulation(plain, grid, stats=StatsSpec(names=("zdw",))).run(
             progress="none"
         )
     assert np.isnan(np.asarray(admitted["stats/zdw"])).all()
     # The file door reads the published list and agrees with the run.
     path = tmp_path / "rotated.h5"
-    build(rotated, grid).run(path, progress="none")
+    guide_simulation(rotated, grid).run(path, progress="none")
     handle = open_file(path)
     try:
         with pytest.raises(OutputError, match="zdw is unavailable for this run"):
@@ -456,23 +436,6 @@ def test_zdw_is_withheld_on_a_split_block_and_admitted_on_the_plain_route(
     assert withheld_from(stored) == ("zdw",)
     unlisted = replace(stored, modal={**stored.modal, "accessors": "none"})
     assert withheld_from(unlisted) == ()
-
-
-def test_a_lockstep_batch_refuses_a_member_carrying_a_coupled_flow(rotated, grid):
-    """The batch reimplements the step loop and applies neither half of the flow."""
-    simulation = build(rotated, grid)
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    member = NumpyRefBackend(
-        problem,
-        run_request,
-        grid=simulation.grid,
-        modes=list(simulation.modes),
-        profiles=None,
-    )
-    with pytest.raises(BackendError, match="lockstep batch does not execute"):
-        NumpyBatchBackend([member])
-    member.close()
 
 
 def test_a_coupled_block_names_a_reference_outside_its_channels(rotated):
@@ -498,7 +461,7 @@ def test_the_flow_record_survives_a_file_and_separates_two_rotations(
     refused by the block that moved and not only by the gauge.
     """
     path = tmp_path / "split.h5"
-    build(rotated, grid).run(path)
+    guide_simulation(rotated, grid).run(path)
     handle = open_file(path)
     try:
         metadata = handle.metadata
@@ -532,7 +495,7 @@ def test_the_flow_record_survives_a_file_and_separates_two_rotations(
         degenerate_blocks=((0, 1),),
         basis=other,
     )
-    identity = build(turned, grid)._modal_identity()
+    identity = guide_simulation(turned, grid)._modal_identity()
     assert identity is not None
     second = identity["flow"]
     assert isinstance(second, dict)

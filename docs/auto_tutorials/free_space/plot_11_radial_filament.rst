@@ -23,7 +23,7 @@ Reading a radial filament from its file
 
 A collimated 800 nm, 30 fs beam of 300 µm waist and 0.88 mJ in 1 bar of argon, about
 three times the critical power: it collapses, the plasma arrests the collapse, and a
-filament forms. The run is a plain :func:`~solprop.driver.interface.prop_radial`, every
+filament forms. The run is a plain :func:`~solprop.driver.interface.prop_free`, every
 argument an object a recipe writes as a table, and it is the call the filament's example
 recipe mirrors (``Recipe.example("filament")``). The lesson
 :doc:`/introduction/lessons/plot_03_filament` explains the physics; this page shows what
@@ -41,7 +41,7 @@ file.
     import matplotlib.pyplot as plt
     import numpy as np
 
-    from solprop.driver import SimulationSettings, prop_radial
+    from solprop.driver import SimulationSettings, prop_free
     from solprop.grid import EnvelopeGrid, RadialGrid
     from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
     from solprop.nonlinear.optmat_rates import OptmatRate
@@ -95,7 +95,7 @@ The radial grid reaches four waists; the envelope grid leaves out the third harm
         ),
         ionisation_field_range=(1e8, 1e11),
     )
-    result = prop_radial(
+    result = prop_free(
         grid,
         space,
         SpatialMedium("Ar", pressure=1.0),
@@ -193,7 +193,7 @@ conical emission. Each has its own unit; the colours here are in dB of each.
 
  .. code-block:: none
 
-    Complete filament reader example: 9.5 s
+    Complete filament reader example: 3.2 s
 
 
 
@@ -208,7 +208,7 @@ and :doc:`/guide/setup/recipes` the recipe that builds this run.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 9.581 seconds)
+   **Total running time of the script:** (0 minutes 3.213 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_11_radial_filament.py:

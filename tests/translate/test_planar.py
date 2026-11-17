@@ -21,12 +21,13 @@ from solprop.modes import PlanarGrid, SlabMode
 from solprop.profiles import Linear
 from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.planar import (
     _warn_grazing,  # pyright: ignore[reportPrivateUsage]
     planar_operators,
     planar_transform,
 )
-from solprop.translate.problem import assemble, validate_run
+from solprop.translate.problem import validate_run
 from solprop.translate.routes import transverse_of
 from solprop.translate.spatial import (
     SeparableOperator,
@@ -150,7 +151,7 @@ def test_the_operator_at_ky_zero_is_each_slab_mode_to_its_rounding(space, proble
             - 0.5 * separable.spectral_rate[active]
         )
         assert_allclose(
-            operator[0, channel, 0, active],
+            operator[channel, 0, active],
             expected,
             rtol=0,
             atol=8 * EPS * float(np.max(np.abs(beta))),
@@ -166,8 +167,8 @@ def test_the_operator_at_ky_zero_is_each_slab_mode_to_its_rounding(space, proble
     rows = slice(5, 19)
     part_operator, part_prefactor = separable_values(separable, rows)
     assert_allclose(
-        part_operator[0],
-        operator[0, rows],
+        part_operator,
+        operator[rows],
         rtol=0,
         atol=4 * EPS * float(np.max(np.abs(operator))),
     )
@@ -195,7 +196,7 @@ def test_a_high_ky_column_is_evanescent_and_clamped(space, problem):
     # k_y = pi/dy far beyond every beta: the evanescent cap and the literal clamp.
     column = 2 * 2
     active = GRID.active_mask
-    assert_allclose(np.real(operator[0, column, 0, active]), -data.evanescent_rate)
+    assert_allclose(np.real(operator[column, 0, active]), -data.evanescent_rate)
     assert_array_equal(prefactor[column, 0, active], data.prefactor_clamped[active])
 
 

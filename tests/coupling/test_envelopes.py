@@ -39,6 +39,7 @@ import numpy as np
 import pytest
 from scipy.special import jn_zeros, jv
 
+from builders import grid_at
 from facet_mode_matching import (
     Y_VACUUM,
     Beam,
@@ -1267,7 +1268,7 @@ FACET_LARGEST = 1.371e-3
 field in the cone, order one (HE11, EH11 and HE12 guided) at V = 3.905."""
 
 
-@pytest.mark.medium
+@pytest.mark.slow
 def test_the_vector_step_index_envelope_bounds_the_omitted_facet():
     """The vector model against the full facet solution, over every field in the cone.
 
@@ -1343,11 +1344,12 @@ def facet_port(contrast, v_centre):
         nodes=provider.node_rule(0.99 * active[0], n_r=48, n_theta=48),
         degenerate_blocks=((0, 1),),
     )
+    # Built for its port only: the grid is the tenth it would run (SEP 51).
     simulation = Simulation.from_waveguide(
         (),
         1e-4,
         provider=guide,
-        grid=grid,
+        grid=grid_at(grid, 1e-4),
         wavelength=wavelength,
         energy=1e-12,
         fwhm=20e-15,
@@ -1361,7 +1363,8 @@ def facet_port(contrast, v_centre):
     return simulation.input_port(), radius, (core, core, cladding)
 
 
-@pytest.mark.medium
+# slow by cost (#792): ~95 s on CI macOS; a functional check, not a witness
+@pytest.mark.slow
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.GeneralModalBasisWarning")
 def test_vector_paraxial_launches_the_facet_reference_within_its_items():
     """``couple`` into a step-index guide against the facet solution, bin by bin.

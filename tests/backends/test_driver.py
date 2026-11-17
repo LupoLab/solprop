@@ -2,33 +2,37 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The reference's step loop, driven through a stage evaluation that is not a backend.
+"""The reference's step control, driven through a stage evaluation that is scripted.
 
-:class:`solprop.backends.host.driver.HostDriver` is the marching half of the NumPy
-reference with the kernels left abstract, so it can be tested with a stage evaluation
-whose answers are scripted. That is the point: every claim here is about the *step
+The reference's session (:class:`solprop.backends.numpy_ref.session.HostSession`)
+schedules a run and drives its march; here the march's engine is a script
+(:class:`scripted_driver.HostScriptedDriver`), so every claim is about the *step
 control* -- landing, acceptance, the controller's state, the history, the noise models,
-the guards -- and none of them depends on any physics being evaluated correctly, which
-is what makes the same assertions true of every reference backend that inherits it.
-The descriptor and stage bundles a compiled backend is built against are frozen here
-too (``docs/dev/kernel-contract.md``).
+the guards, the statistics rows -- and none of them depends on any physics being
+evaluated correctly. The descriptor, the stage bundles and the backend surface a
+compiled backend is built against are frozen here too (``docs/dev/kernel-contract.md``).
 """
 
 import dataclasses
-import inspect
 import io
 import logging
+import sys
 import typing
+from typing import Any, cast
 
 import numpy as np
 import pytest
 
 from bounds import assert_within
 from scripted_driver import HostScriptedDriver
-from solprop.backends.host.driver import INITIAL_STEP_STATS_CAPACITY, HostDriver
+from sessions.executors import IDENTITY, Started, drive
+from sessions.runs import run
+from solprop.backends.events import ObservationReady
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.batch import NumpyBatchBackend
-from solprop.backends.protocol import BatchBackend, StepStats
+from solprop.backends.numpy_ref.dense import RungeKuttaDense
+from solprop.backends.numpy_ref.session import INITIAL_STEP_STATS_CAPACITY
+from solprop.backends.protocol import Backend
+from solprop.backends.session import Start
 from solprop.exceptions import BackendError
 from solprop.log import BarReporter, LogReporter, NullReporter
 from solprop.noise import input_noise, modified_noise
@@ -49,29 +53,69 @@ LENGTH = 0.02
 def present(value):
     """Return an optional array, having asserted that it is there.
 
-    The state and the noise are ``None`` before ``set_initial`` and after ``close``, so
-    the seam types them optional; a test that has just loaded one says so here rather
-    than asserting around it at every use.
+    The state and the noise are ``None`` before a start is loaded and after ``close``,
+    so the seam types them optional; a test that has just loaded one says so here
+    rather than asserting around it at every use.
     """
     assert value is not None
     return value
 
 
+def resumed(run_request, problem, z, *, field=None, noise=None):
+    """Return a start resuming at `z`, whose plane the run already saved."""
+    planes = np.asarray(run_request.stepper.save_planes)
+    return Start(
+        field=problem.initial.field0 if field is None else field,
+        z=float(z),
+        noise=noise,
+        plane_index=int(np.searchsorted(planes, z, side="right")),
+        plane_pending=False,
+    )
+
+
+def session_of(made, problem, run_request, start=None, **options):
+    """Return a session started on `made`, which it leaves open."""
+    return made.prepare(problem, run_request).start(
+        Start.entrance(problem) if start is None else start, owns=False, **options
+    )
+
+
+def planes_of(result):
+    """Return each observation past the launch, with its assembled history and rows."""
+    return [
+        (event, history, rows)
+        for event, history, rows in result.assembled()
+        if isinstance(event, ObservationReady) and event.plane_index >= 0
+    ]
+
+
+@dataclasses.dataclass
+class Scripted:
+    """A scripted backend with its problem and request."""
+
+    made: Any
+    problem: PropagationProblem
+    request: RunRequest
+
+    def run(self, start=None, **options):
+        """Drive a session from `start` to its end, exporting every field."""
+        return run(self.made, self.problem, self.request, start, **options)
+
+
 @pytest.fixture
 def scripted():
-    """The scripted driver on the reference's step loop."""
+    """The scripted reference backend."""
     return HostScriptedDriver
 
 
 @pytest.fixture
 def driver(soliton_problem, narrow_grid, scripted):
-    """Return ``(**kwargs) -> HostScriptedDriver`` loaded at the entrance."""
+    """Return ``(**kwargs) -> Scripted`` on the soliton's planes."""
 
-    def build(*, planes=(LENGTH,), field=None, noise=None, **kwargs):
+    def build(*, planes=(LENGTH,), **kwargs):
         problem, run_request = soliton_problem(narrow_grid, 1, save_planes=list(planes))
         made = scripted(problem, run_request, grid=narrow_grid, **kwargs)
-        made.set_initial(problem.initial.field0 if field is None else field, noise)
-        return made
+        return Scripted(made, problem, run_request)
 
     return build
 
@@ -79,13 +123,13 @@ def driver(soliton_problem, narrow_grid, scripted):
 def test_a_march_lands_exactly_on_its_save_plane(driver):
     """The position is the plane itself, not an accumulation of steps that nears it."""
     made = driver()
-    summary = made.propagate_to(LENGTH)
-    assert made._z == LENGTH
-    assert summary.z == LENGTH
-    assert summary.n_steps > 1
-    assert summary.n_rejected == 0
-    assert made.planes_begun == 1
-    assert made.accepted_hooks == summary.n_steps
+    result = made.run()
+    final = result.observations[-1]
+    assert final.z == LENGTH
+    assert made.made.march.state.z == LENGTH
+    assert final.summary.z == LENGTH
+    assert final.summary.n_steps > 1
+    assert final.summary.n_rejected == 0
 
 
 def test_the_landing_guard_admits_the_target_and_nothing_short_of_it():
@@ -99,21 +143,20 @@ def test_a_rejected_step_is_recorded_and_not_kept(driver):
     """The state after a rejection is the state before it, and the history says so."""
     # 5.0 is far above the controller's threshold of one, so the first step is refused
     # and the second, from the same position, is taken.
-    made = driver(norms=[5.0, 0.1], factor=2.0)
-    before = present(made._state)[0].copy()
-    made.propagate_to(LENGTH)
-    observed = made.observe()
-    assert not bool(observed.step_history.accepted[0])
-    assert bool(observed.step_history.accepted[1])
+    scripted = driver(norms=[5.0, 0.1], factor=2.0)
+    made = scripted.made
+    result = scripted.run()
+    before = result.fields[0]
+    ((_, history, _),) = planes_of(result)
+    assert not bool(history.accepted[0])
+    assert bool(history.accepted[1])
     assert made.calls[0][0] == made.calls[1][0] == 0.0
     # The refused step's shorter successor is what the controller asked for next.
     assert made.calls[1][1] < made.calls[0][1]
     # The scripted step doubles the state, so the division by powers of two is exact.
     assert np.array_equal(
-        before,
-        np.asarray(observed.field) / 2.0 ** (int(observed.step_history.accepted.sum())),
+        before, result.fields[-1] / 2.0 ** (int(history.accepted.sum()))
     )
-    assert made.accepted_hooks == int(observed.step_history.accepted.sum())
 
 
 def test_a_rejected_step_is_retried_at_the_rejection_factor_alone(
@@ -134,9 +177,8 @@ def test_a_rejected_step_is_retried_at_the_rejection_factor_alone(
     made = scripted(
         problem, run_request, grid=narrow_grid, norms=[0.01, 0.01, 0.01, 1.0001]
     )
-    made.set_initial(problem.initial.field0, None)
-    made.propagate_to(LENGTH)
-    accepted = made.observe().step_history.accepted
+    history, _ = run(made, problem, run_request, export=None).joined
+    accepted = history.accepted
     assert [bool(flag) for flag in accepted[:4]] == [True, True, True, False]
     assert controller.propose([0.01, 0.01, 0.01]) > 1.1
     rejected, retried = made.calls[3][1], made.calls[4][1]
@@ -151,25 +193,22 @@ def test_a_diverged_trial_is_rejected_shrunk_and_recorded_as_infinity(driver, di
     infinity, so the observation at the next plane reads it back rather than refusing
     the record and ending the run.
     """
-    made = driver(norms=[diverged, 0.1], factor=2.0)
-    made.propagate_to(LENGTH)
-    history = made.observe().step_history
+    scripted = driver(norms=[diverged, 0.1], factor=2.0)
+    made = scripted.made
+    history, _ = scripted.run(export=None).joined
     assert not bool(history.accepted[0])
     assert history.error_norm[0] == np.inf
     assert np.all(np.isfinite(history.error_norm[1:]))
     assert bool(history.accepted[1])
-    controller = made._stepper.controller
+    controller = made.request.stepper.controller
     assert made.calls[1][0] == 0.0
     assert made.calls[1][1] == pytest.approx(made.calls[0][1] * controller.min_factor)
 
 
 def test_the_history_covers_only_the_steps_since_the_last_observation(driver):
-    """``observe`` empties the history, as the protocol promises."""
-    made = driver(planes=(LENGTH / 2, LENGTH))
-    made.propagate_to(LENGTH / 2)
-    first = made.observe().step_history
-    made.propagate_to(LENGTH)
-    second = made.observe().step_history
+    """An observation's chunks are the attempts since the previous one."""
+    result = driver(planes=(LENGTH / 2, LENGTH)).run(export=None)
+    (_, first, _), (_, second, _) = planes_of(result)
     assert first.n_steps > 0
     assert second.n_steps > 0
     assert float(first.z[-1]) == LENGTH / 2
@@ -177,7 +216,7 @@ def test_the_history_covers_only_the_steps_since_the_last_observation(driver):
 
 
 def test_a_replayed_schedule_takes_its_steps_as_given(
-    scripted, driver, soliton_problem, narrow_grid
+    scripted, soliton_problem, narrow_grid
 ):
     """A replay never rejects and reads its position off the schedule's edges."""
     schedule = FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8)
@@ -185,11 +224,11 @@ def test_a_replayed_schedule_takes_its_steps_as_given(
         narrow_grid, 1, save_planes=[LENGTH], schedule=schedule
     )
     made = scripted(problem, run_request, grid=narrow_grid, norms=[5.0] * 8)
-    made.set_initial(problem.initial.field0, None)
-    summary = made.propagate_to(LENGTH)
+    final = run(made, problem, run_request, export=None).observations[-1]
+    summary = final.summary
     assert summary.n_steps == 8
     assert summary.n_rejected == 0
-    assert made._z == LENGTH
+    assert final.z == LENGTH
     # Every step is the schedule's, not the controller's.
     assert [dz for _, dz in made.calls] == pytest.approx([LENGTH / 8] * 8)
     assert not summary.met_tolerance
@@ -197,26 +236,20 @@ def test_a_replayed_schedule_takes_its_steps_as_given(
 
 def test_a_replay_that_runs_out_says_so(scripted, soliton_problem, narrow_grid):
     """A schedule too short for the target is an error, not a quiet stop."""
-    full, full_request = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         1,
-        save_planes=[LENGTH],
+        save_planes=[LENGTH / 2, LENGTH],
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8),
     )
-    # The operator table still covers the whole run, so the guard that fires is the
-    # schedule's own and not the table's.
-    problem = full
-    run_request = full_request.with_stepper(
-        dataclasses.replace(
-            full_request.stepper,
-            schedule=FixedSchedule.uniform(0.0, LENGTH / 2, LENGTH / 8),
-        )
-    )
     made = scripted(problem, run_request, grid=narrow_grid)
-    made.set_initial(problem.initial.field0, None)
-    made.propagate_to(LENGTH / 2)
+    run(made, problem, run_request, export=None, observations=2)
+    # The operator table still covers the whole run, so the guard that fires is the
+    # schedule's own and not the table's: the march replays a schedule that ends at
+    # the plane it stands on (the translation refuses one that misses a save plane).
+    short = FixedSchedule.uniform(0.0, LENGTH / 2, LENGTH / 8)
     with pytest.raises(BackendError, match="cannot reach"):
-        made.propagate_to(LENGTH)
+        made.march.replay_to(short, LENGTH)
 
 
 def test_a_schedule_of_equal_steps_lands_on_a_plane_its_running_sum_misses(
@@ -237,29 +270,35 @@ def test_a_schedule_of_equal_steps_lands_on_a_plane_its_running_sum_misses(
         narrow_grid, 1, save_planes=[LENGTH / 2, LENGTH], schedule=schedule
     )
     made = scripted(problem, run_request, grid=narrow_grid)
-    made.set_initial(problem.initial.field0, None)
-    made.propagate_to(LENGTH / 2)
-    assert made._schedule_index == 200
-    assert made._z == middle
-    made.propagate_to(LENGTH)
-    assert made._schedule_index == 400
-    resumed = scripted(problem, run_request, grid=narrow_grid)
-    resumed.set_initial(problem.initial.field0, None, z=LENGTH / 2)
-    assert resumed._schedule_index == 200
+    held = []
+
+    def march_state(session, batch):
+        del session
+        if any(isinstance(event, ObservationReady) for event in batch.events):
+            held.append((made.march.state.cursor, made.march.state.z))
+
+    run(made, problem, run_request, export=None, between=march_state)
+    assert held[1] == (200, middle)
+    assert held[2][0] == 400
+    with session_of(
+        made, problem, run_request, resumed(run_request, problem, LENGTH / 2)
+    ):
+        assert made.march.state.cursor == 200
 
 
 def test_a_resume_continues_a_replay_from_the_edge_it_stopped_at(
     scripted, soliton_problem, narrow_grid
 ):
-    """``set_initial(z=)`` finds the schedule index the position belongs to."""
+    """A start at a plane finds the schedule index the position belongs to."""
     schedule = FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8)
     problem, run_request = soliton_problem(
         narrow_grid, 1, save_planes=[LENGTH / 2, LENGTH], schedule=schedule
     )
     made = scripted(problem, run_request, grid=narrow_grid)
-    made.set_initial(problem.initial.field0, None, z=LENGTH / 2)
-    assert made._schedule_index == 4
-    made.propagate_to(LENGTH)
+    start = resumed(run_request, problem, LENGTH / 2)
+    with session_of(made, problem, run_request, start):
+        assert made.march.state.cursor == 4
+    run(made, problem, run_request, resumed(run_request, problem, LENGTH / 2))
     assert len(made.calls) == 4
 
 
@@ -273,11 +312,13 @@ def test_a_resume_off_the_schedule_s_edges_is_refused(
     )
     made = scripted(problem, run_request, grid=narrow_grid)
     with pytest.raises(BackendError, match="one of its edges"):
-        made.set_initial(problem.initial.field0, None, z=LENGTH / 3)
+        session_of(
+            made, problem, run_request, resumed(run_request, problem, LENGTH / 3)
+        )
 
 
 def test_the_input_noise_model_adds_its_realisation_once(
-    scripted, driver, soliton_problem, narrow_grid
+    scripted, soliton_problem, narrow_grid
 ):
     """Added at the entrance and never again, so a resume is not given a second draw."""
     problem, run_request = soliton_problem(
@@ -286,14 +327,16 @@ def test_the_input_noise_model_adds_its_realisation_once(
         save_planes=[LENGTH],
         noise=input_noise(narrow_grid, np.random.default_rng(7)),
     )
-    entrance = scripted(problem, run_request, grid=narrow_grid)
-    entrance.set_initial(problem.initial.field0, None)
-    resumed = scripted(problem, run_request, grid=narrow_grid)
-    resumed.set_initial(problem.initial.field0, None, z=LENGTH / 2)
     masked = problem.initial.field0 * problem.grids.active_mask
-    assert not np.array_equal(present(entrance._state)[0], masked)
-    assert np.array_equal(present(resumed._state)[0], masked)
-    assert entrance._noise is None
+    entrance = scripted(problem, run_request, grid=narrow_grid)
+    with session_of(entrance, problem, run_request):
+        assert not np.array_equal(present(entrance.workspace.state), masked)
+        assert entrance.workspace.noise is None
+    later = scripted(problem, run_request, grid=narrow_grid)
+    with session_of(
+        later, problem, run_request, resumed(run_request, problem, LENGTH / 2)
+    ):
+        assert np.array_equal(present(later.workspace.state), masked)
 
 
 def test_the_modified_noise_model_keeps_its_realisation_apart(
@@ -307,22 +350,25 @@ def test_the_modified_noise_model_keeps_its_realisation_apart(
         noise=modified_noise(narrow_grid, np.random.default_rng(7)),
     )
     made = scripted(problem, run_request, grid=narrow_grid)
-    made.set_initial(problem.initial.field0, None)
-    assert np.array_equal(
-        present(made._state)[0], problem.initial.field0 * problem.grids.active_mask
-    )
-    drawn = present(made._noise)
-    advanced = present(made._noise_at(made._stage_scalars(0.0, LENGTH / 2)))
-    # Dispersion yes, loss and gain no: the magnitude is untouched by the advance.
-    assert np.allclose(np.abs(advanced), np.abs(drawn))
-    assert not np.array_equal(advanced, drawn)
-    assert present(made._noise_phase()).shape == problem.shape
+    with session_of(made, problem, run_request):
+        assert np.array_equal(
+            present(made.workspace.state),
+            problem.initial.field0 * problem.grids.active_mask,
+        )
+        drawn = present(made.workspace.noise)
+        advanced = present(
+            made.workspace.noise_at(made.workspace.stage_scalars(0.0, LENGTH / 2))
+        )
+        # Dispersion yes, loss and gain no: the magnitude is untouched by the advance.
+        assert np.allclose(np.abs(advanced), np.abs(drawn))
+        assert not np.array_equal(advanced, drawn)
+        assert present(made.workspace.noise_phase(0.0)).shape == problem.shape
 
 
 def test_a_given_realisation_replaces_the_contract_s(
     scripted, soliton_problem, narrow_grid
 ):
-    """The realisation given to ``set_initial`` wins over the assembled one."""
+    """The realisation a start carries wins over the assembled one."""
     problem, run_request = soliton_problem(
         narrow_grid,
         1,
@@ -330,50 +376,51 @@ def test_a_given_realisation_replaces_the_contract_s(
         noise=modified_noise(narrow_grid, np.random.default_rng(7)),
     )
     made = scripted(problem, run_request, grid=narrow_grid)
-    made.set_initial(
-        problem.initial.field0,
-        modified_noise(narrow_grid, np.random.default_rng(11)),
+    start = Start.entrance(
+        problem, noise=modified_noise(narrow_grid, np.random.default_rng(11))
     )
-    assert not np.array_equal(present(made._noise), problem.initial.noise0)
+    with session_of(made, problem, run_request, start):
+        assert not np.array_equal(present(made.workspace.noise), problem.initial.noise0)
 
 
 def test_a_run_without_noise_reports_no_phase(driver, narrow_grid):
     """``noise_model = "none"`` has neither a realisation nor a phase to report."""
-    made = driver()
-    assert (
-        made._noise_field(modified_noise(narrow_grid, np.random.default_rng(3))) is None
-    )
-    assert made._noise_phase() is None
-    assert made._noise_at(made._stage_scalars(0.0, 0.0)) is None
+    scripted = driver()
+    workspace = scripted.made.workspace
+    with session_of(scripted.made, scripted.problem, scripted.request):
+        assert (
+            workspace._noise_field(
+                modified_noise(narrow_grid, np.random.default_rng(3))
+            )
+            is None
+        )
+        assert workspace.noise_phase(0.0) is None
+        assert workspace.noise_at(workspace.stage_scalars(0.0, 0.0)) is None
 
 
-def test_the_guards_refuse_what_cannot_be_done(
-    scripted, driver, soliton_problem, narrow_grid
-):
-    """Closed, unloaded, backwards, off the table, and the wrong shape."""
+def test_the_guards_refuse_what_cannot_be_done(scripted, soliton_problem, narrow_grid):
+    """Closed, unloaded, off the table, and the wrong shape."""
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
     empty = scripted(problem, run_request, grid=narrow_grid)
     with pytest.raises(BackendError, match="no initial state"):
-        empty.propagate_to(LENGTH)
+        empty.workspace.committed()
     with pytest.raises(BackendError, match="expected"):
-        empty.set_initial(np.zeros((1, 1, 3), dtype=complex), None)
+        session_of(
+            empty,
+            problem,
+            run_request,
+            Start(field=np.zeros((1, 1, 3), dtype=complex), z=0.0),
+        )
     with pytest.raises(BackendError, match="inside the operator table"):
-        empty.set_initial(problem.initial.field0, None, z=2 * LENGTH)
+        session_of(
+            empty, problem, run_request, Start(problem.initial.field0, 2 * LENGTH)
+        )
 
-    made = driver()
-    made.propagate_to(LENGTH)
-    with pytest.raises(BackendError, match="backwards"):
-        made.propagate_to(0.0)
-    with pytest.raises(BackendError, match="must be finite"):
-        made.propagate_to(float("nan"))
-    with pytest.raises(BackendError, match="beyond the operator table"):
-        made.propagate_to(1e3)
-
-    made.close()
+    empty.close()
     with pytest.raises(BackendError, match="closed"):
-        made.observe()
+        session_of(empty, problem, run_request)
     with pytest.raises(BackendError, match="closed"):
-        made.set_initial(problem.initial.field0, None)
+        empty.timing_probe(Start.entrance(problem))
 
 
 def test_statistics_without_a_grid_say_which_backend_to_give_one_to(
@@ -383,9 +430,12 @@ def test_statistics_without_a_grid_say_which_backend_to_give_one_to(
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
     made = scripted(problem, run_request)
     with pytest.raises(BackendError, match="'scripted'"):
-        made._require_grid()
+        made.workspace.statistics._require_grid()
     assert (
-        scripted(problem, run_request, grid=narrow_grid)._require_grid() is narrow_grid
+        scripted(
+            problem, run_request, grid=narrow_grid
+        ).workspace.statistics._require_grid()
+        is narrow_grid
     )
 
 
@@ -417,45 +467,58 @@ class Events(NullReporter):
         self.order.append("finished")
 
 
-def test_a_reporter_sees_every_attempted_step_including_the_rejected_ones(driver):
-    """`_record` is the one funnel every attempt goes through, so nothing is missed."""
-    reporter = Events()
-    made = driver(norms=[5.0, 0.1], factor=2.0)
-    made.set_progress(reporter)
-    summary = made.propagate_to(LENGTH)
-    made._progress.plane(LENGTH, summary)
+def reported(made, problem, run_request, reporter, start=None, **options):
+    """Drive a session whose attempts and start go to `reporter`; return the run."""
+    session = session_of(
+        made,
+        problem,
+        run_request,
+        start,
+        listener=reporter.step,
+        started=reporter.started,
+    )
+    try:
+        return drive(Started(session), **options)
+    finally:
+        session.close()
 
+
+def test_a_reporter_sees_every_attempted_step_including_the_rejected_ones(driver):
+    """Every attempt reaches the session's listener, so nothing is missed."""
+    reporter = Events()
+    scripted = driver(norms=[5.0, 0.1], factor=2.0)
+    result = reported(scripted.made, scripted.problem, scripted.request, reporter)
+    summary = result.observations[-1].summary
     assert reporter.order[0] == "started"
     assert reporter.extent == (0.0, LENGTH, 1)
     assert reporter.order.count("step") == summary.n_steps
     assert sum(1 for _, _, accepted in reporter.steps if not accepted) == 1
     assert summary.n_rejected == 1
     # The rejected attempt is reported at the position it would have reached, which the
-    # retry then reaches more slowly: the reporter, not the driver, is what has to know.
+    # retry then reaches more slowly: the reporter, not the session, has to know.
     rejected_at = next(z for z, _, accepted in reporter.steps if not accepted)
     assert rejected_at > reporter.steps[1][0]
 
 
-def test_started_is_announced_once_per_load_and_a_resume_announces_it_again(driver):
+def test_started_is_announced_once_per_session_and_a_resume_announces_it_again(
+    driver,
+):
     reporter = Events()
-    made = driver(planes=(LENGTH / 2, LENGTH))
-    made.set_progress(reporter)
-    made.propagate_to(LENGTH / 2)
-    made.propagate_to(LENGTH)
+    scripted = driver(planes=(LENGTH / 2, LENGTH))
+    made, problem, request = scripted.made, scripted.problem, scripted.request
+    result = reported(made, problem, request, reporter, export=IDENTITY)
     assert reporter.order.count("started") == 1
     assert reporter.extent == (0.0, LENGTH, 2)
-
-    made.set_initial(present(made._state)[0], None, z=LENGTH / 2)
-    made.propagate_to(LENGTH)
+    middle = result.fields[1]
+    reported(
+        made,
+        problem,
+        request,
+        reporter,
+        resumed(request, problem, LENGTH / 2, field=middle),
+    )
     assert reporter.order.count("started") == 2
     assert reporter.extent == (LENGTH / 2, LENGTH, 2)
-
-
-def test_the_reporter_is_the_backend_s_and_the_default_is_silent(driver):
-    """Nothing is reported until one is attached, so a bare backend costs nothing."""
-    made = driver()
-    assert isinstance(made._progress, NullReporter)
-    made.propagate_to(LENGTH)
 
 
 @pytest.mark.parametrize("period", [0.0, 1e9])
@@ -474,23 +537,19 @@ def test_a_run_with_a_reporter_is_the_run_without(soliton_problem, narrow_grid, 
     bound = 8 * 16 * np.finfo(float).eps
     schedule = FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8)
 
-    def run(reporter):
+    def marched(reporter):
         problem, run_request = soliton_problem(
             narrow_grid, 1, save_planes=[LENGTH / 2, LENGTH], schedule=schedule
         )
         made = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-        made.set_progress(reporter)
-        made.set_initial(problem.initial.field0, None)
-        fields, histories = [], []
-        for plane in (LENGTH / 2, LENGTH):
-            made.propagate_to(plane)
-            observed = made.observe()
-            fields.append(observed.field)
-            histories.append(observed.step_history)
-        made.close()
-        return fields, histories
+        try:
+            result = reported(made, problem, run_request, reporter, export=IDENTITY)
+        finally:
+            made.close()
+        observed = planes_of(result)
+        return result.fields[1:], [history for _, history, _ in observed]
 
-    quiet_fields, quiet_history = run(NullReporter())
+    quiet_fields, quiet_history = marched(NullReporter())
     rtol = soliton_problem(
         narrow_grid, 1, save_planes=[LENGTH]
     ).request.stepper.controller.rtol
@@ -502,7 +561,7 @@ def test_a_run_with_a_reporter_is_the_run_without(soliton_problem, narrow_grid, 
         BarReporter(period=1e-9, file=io.StringIO(), ncols=60, ascii=True),
     ]
     for reporter in reporters:
-        loud_fields, loud_history = run(reporter)
+        loud_fields, loud_history = marched(reporter)
         for quiet, loud in zip(quiet_fields, loud_fields, strict=True):
             assert_within(loud, quiet, bound, what="field")
         for quiet, loud in zip(quiet_history, loud_history, strict=True):
@@ -515,28 +574,32 @@ def test_a_run_with_a_reporter_is_the_run_without(soliton_problem, narrow_grid, 
 
 
 def test_the_reference_reports_its_calls_in_order(soliton_problem, narrow_grid):
-    # The native backend reports through its session's listener (the lifecycle
+    # The native backend reports through its session's listener too (the lifecycle
     # suite's progress cases, ``tests/sessions``).
     reporter = Events()
     planes = [LENGTH / 2, LENGTH]
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=planes)
     made = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-    made.set_progress(reporter)
-    made.set_initial(problem.initial.field0, None)
-    summaries = []
-    for plane in planes:
-        summary = made.propagate_to(plane)
-        summaries.append(summary)
-        reporter.plane(plane, summary)
-    reporter.finished(1.0)
-    made.close()
 
+    def plane(session, batch):
+        del session
+        for event in batch.events:
+            if isinstance(event, ObservationReady) and event.plane_index >= 0:
+                reporter.plane(event.z, event.summary)
+
+    try:
+        reported(made, problem, run_request, reporter, between=plane)
+    finally:
+        made.close()
+    reporter.finished(1.0)
     assert reporter.order[0] == "started"
     assert reporter.order[-1] == "finished"
     assert reporter.order.count("started") == 1
     assert reporter.order.count("finished") == 1
     assert reporter.order.count("plane") == len(planes)
-    assert reporter.order.count("step") == sum(one.n_steps for one in summaries)
+    assert reporter.order.count("step") == sum(
+        summary.n_steps for _, summary in reporter.planes
+    )
     # One `started`, then steps and planes interleaved with a plane last before the end.
     assert reporter.order[-2] == "plane"
 
@@ -551,23 +614,29 @@ def periodic(translation, names=("energy",), *, period=1):
     return Translation(problem, run_request.for_run(stats=spec))
 
 
-def rows_of(made):
-    """Propagate to the one plane and return the channel it flushed."""
-    made.propagate_to(LENGTH)
-    return made.observe().step_stats
+def observed_planes(made, problem, run_request):
+    """Run to the end; return each plane's assembled history and rows."""
+    result = run(made, problem, run_request, export=None)
+    return [(history, rows) for _, history, rows in planes_of(result)]
+
+
+def rows_of(made, problem, run_request):
+    """Run to the one plane and return the rows it assembled."""
+    ((_, rows),) = observed_planes(made, problem, run_request)
+    return rows
 
 
 def test_a_row_is_taken_at_the_position_the_accepted_step_reached(
     scripted, soliton_problem, narrow_grid
 ):
-    """The trap this test exists for, and the reason the call is not in a hook.
+    """The trap this test exists for: a row describes the step just committed.
 
-    ``_march_to`` records an attempt *before* it finishes the state and advances ``z``;
-    ``_replay_to`` records it *after* both. So a channel evaluated from inside
-    ``_on_accepted_step`` reads the previous step's position and state on an adaptive
-    run and the current step's on a replayed one -- and a cost gate is naturally
-    specified on a replayed schedule, where the wrong version passes. Both paths are
-    asserted here, against the same expectation.
+    An adaptive march records an attempt *before* it finishes the state and advances
+    ``z``, a replay *after* both. So a channel evaluated from the attempt's record
+    reads the previous step's position and state on an adaptive run and the current
+    step's on a replayed one -- and a cost gate is naturally specified on a replayed
+    schedule, where the wrong version passes. Both paths are asserted here, against the
+    same expectation.
     """
     schedule = FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8)
     for extra in ({}, {"schedule": schedule}):
@@ -575,10 +644,8 @@ def test_a_row_is_taken_at_the_position_the_accepted_step_reached(
             soliton_problem(narrow_grid, 1, save_planes=[LENGTH], **extra)
         )
         made = scripted(problem, run_request, grid=narrow_grid)
-        made.set_initial(problem.initial.field0, None)
-        rows = rows_of(made)
-        # `HostScriptedDriver.stats` returns `self._z`, so the recorded value is the
-        # position the driver held when the row was taken.
+        rows = rows_of(made, problem, run_request)
+        # The scripted statistics read the position they were taken at.
         assert rows.n_rows > 0
         np.testing.assert_array_equal(rows.values["energy"][:, 0], rows.z)
         # And that position is the end of an accepted step, never the start.
@@ -588,8 +655,8 @@ def test_a_row_is_taken_at_the_position_the_accepted_step_reached(
 
 def test_the_channel_is_empty_unless_the_run_asks_for_one(driver):
     """The default spec has no periodic subset, so nothing is buffered or flushed."""
-    made = driver()
-    rows = rows_of(made)
+    scripted = driver()
+    rows = rows_of(scripted.made, scripted.problem, scripted.request)
     assert rows.n_rows == 0
     assert rows.names == ()
 
@@ -602,10 +669,7 @@ def test_a_row_indexes_the_attempt_it_was_taken_after(
         soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
     )
     made = scripted(problem, run_request, grid=narrow_grid, norms=[5.0, 0.1, 0.1])
-    made.set_initial(problem.initial.field0, None)
-    made.propagate_to(LENGTH)
-    observed = made.observe()
-    rows, history = observed.step_stats, observed.step_history
+    ((history, rows),) = observed_planes(made, problem, run_request)
     assert history.n_rejected == 1
     # The first attempt was rejected, so the first row indexes attempt 1, not 0.
     assert rows.step[0] == 1
@@ -624,29 +688,24 @@ def test_the_period_counts_accepted_steps_and_a_rejection_is_not_one(
     made = scripted(
         problem, run_request, grid=narrow_grid, norms=[5.0, 0.1, 0.1, 0.1, 0.1]
     )
-    made.set_initial(problem.initial.field0, None)
-    made.propagate_to(LENGTH)
-    observed = made.observe()
-    accepted = np.flatnonzero(observed.step_history.accepted)
+    ((history, rows),) = observed_planes(made, problem, run_request)
+    accepted = np.flatnonzero(history.accepted)
     # Every second *accepted* attempt, so the rejection shifts nothing.
-    np.testing.assert_array_equal(observed.step_stats.step, accepted[1::2])
+    np.testing.assert_array_equal(rows.step, accepted[1::2])
 
 
 def test_the_rows_of_one_plane_are_flushed_with_it(
     scripted, soliton_problem, narrow_grid
 ):
-    """`observe` drains the buffer, so a plane's rows are its own."""
+    """An observation drains the buffer, so a plane's rows are its own."""
     planes = [LENGTH / 2, LENGTH]
     problem, run_request = periodic(soliton_problem(narrow_grid, 1, save_planes=planes))
     made = scripted(problem, run_request, grid=narrow_grid)
-    made.set_initial(problem.initial.field0, None)
     seen = []
-    for plane in planes:
-        made.propagate_to(plane)
-        observed = made.observe()
-        seen.append(observed.step_stats)
+    for history, rows in observed_planes(made, problem, run_request):
+        seen.append(rows)
         # Each plane's rows index that plane's own history, from zero.
-        assert observed.step_stats.step[0] < observed.step_history.n_steps
+        assert rows.step[0] < history.n_steps
     assert all(one.n_rows for one in seen)
     assert seen[0].z[-1] == pytest.approx(LENGTH / 2)
     assert seen[1].z[0] > LENGTH / 2
@@ -662,95 +721,27 @@ def test_the_buffer_grows_across_a_plane_with_more_steps_than_its_capacity(
         soliton_problem(narrow_grid, 1, save_planes=[LENGTH], schedule=schedule)
     )
     made = scripted(problem, run_request, grid=narrow_grid)
-    made.set_initial(problem.initial.field0, None)
-    rows = rows_of(made)
+    rows = rows_of(made, problem, run_request)
     assert rows.n_rows == n_steps
     assert np.all(np.diff(rows.z) > 0.0)
     np.testing.assert_array_equal(rows.step, np.arange(n_steps))
 
 
 def test_a_load_starts_the_period_again(scripted, soliton_problem, narrow_grid):
-    """`set_initial` resets the phase, so a resume is not the uninterrupted run."""
+    """Each session counts the period from its load, so a resume is not the
+    uninterrupted run."""
     problem, run_request = periodic(
         soliton_problem(narrow_grid, 1, save_planes=[LENGTH]), period=3
     )
     made = scripted(problem, run_request, grid=narrow_grid)
-    made.set_initial(problem.initial.field0, None)
-    assert made._accepted_steps == 0
-    made.propagate_to(LENGTH)
-    assert made._accepted_steps > 0
-    made.set_initial(problem.initial.field0, None)
-    assert made._accepted_steps == 0
-    assert made.observe().step_stats.n_rows == 0
-
-
-@pytest.mark.parametrize("replay", [False, True])
-def test_alternate_statistics_storage_hooks_keep_shared_acceptance_and_period(
-    scripted, soliton_problem, narrow_grid, replay
-):
-    class DeferredRows(scripted):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self.pending = []
-            self.resets = []
-            self.drains = 0
-
-        def stats(self, spec):
-            raise AssertionError("a periodic device row must not call host stats")
-
-        def _reset_step_stats(self, *, release):
-            self.pending.clear()
-            self.resets.append(release)
-
-        def _record_step_stats(self, spec, z, step):
-            assert spec.names == ("energy",)
-            assert spec.periodic == ()
-            assert z == self._z
-            self.pending.append((z, step))
-
-        def _drain_step_stats(self):
-            self.drains += 1
-            if not self.pending:
-                return StepStats.empty()
-            positions = np.array([z for z, _ in self.pending])
-            indices = np.array([step for _, step in self.pending])
-            self.pending.clear()
-            return StepStats(positions, indices, {"energy": positions[:, None]})
-
-    extra = {"schedule": FixedSchedule.uniform(0, LENGTH, LENGTH / 8)} if replay else {}
-    problem, run_request = periodic(
-        soliton_problem(narrow_grid, 1, save_planes=[LENGTH / 2, LENGTH], **extra),
-        period=3,
-    )
-    norms = () if replay else (5.0, 0.1)
-    deferred = DeferredRows(problem, run_request, grid=narrow_grid, norms=norms)
-    default = scripted(problem, run_request, grid=narrow_grid, norms=norms)
-    for owner in (deferred, default):
-        owner.set_initial(problem.initial.field0, None)
-    for plane in (LENGTH / 2, LENGTH):
-        for owner in (deferred, default):
-            owner.propagate_to(plane)
-        actual, expected = deferred.observe(), default.observe()
-        for name in ("z", "step"):
-            np.testing.assert_array_equal(
-                getattr(actual.step_stats, name), getattr(expected.step_stats, name)
-            )
-        for name in expected.step_stats.names:
-            np.testing.assert_array_equal(
-                actual.step_stats.values[name], expected.step_stats.values[name]
-            )
-        np.testing.assert_array_equal(actual.field, expected.field)
-        np.testing.assert_array_equal(
-            actual.step_history.accepted, expected.step_history.accepted
-        )
-    assert deferred.resets == [True, False, False]
-    assert deferred.drains == 2
-    assert deferred.observe().step_stats.n_rows == 0
-    deferred.set_initial(problem.initial.field0, None, z=LENGTH / 2)
-    assert deferred.resets[-1] is True
-    assert not deferred.pending
-    deferred.close()
-    default.close()
+    session = cast("Any", session_of(made, problem, run_request))
+    assert session._accepted_steps == 0
+    drive(Started(session))
+    assert session._accepted_steps > 0
+    session.close()
+    with cast("Any", session_of(made, problem, run_request)) as again:
+        assert again._accepted_steps == 0
+        assert again._rows.drain().n_rows == 0
 
 
 def test_a_statistic_that_changes_shape_within_a_plane_is_refused(
@@ -759,30 +750,31 @@ def test_a_statistic_that_changes_shape_within_a_plane_is_refused(
     """The buffer is laid out from the first row and indexes by that shape.
 
     Nothing the package builds can do this -- the spec is fixed when the backend is
-    built -- but a backend whose `stats` disagreed with itself would otherwise be
-    caught by a broadcast error deep in numpy rather than by a message naming the
+    built -- but a workspace whose statistics disagreed with themselves would otherwise
+    be caught by a broadcast error deep in numpy rather than by a message naming the
     statistic.
     """
-
-    class Widening(scripted):
-        def stats(self, spec) -> dict[str, np.ndarray]:
-            width = 1 + len(self._history) // 2
-            return {name: np.zeros((1, width)) for name in spec.names}
-
     problem, run_request = periodic(
         soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
     )
-    made = Widening(problem, run_request, grid=narrow_grid)
-    made.set_initial(problem.initial.field0, None)
+    made = scripted(problem, run_request, grid=narrow_grid)
+    taken = [0]
+
+    def widening(spec, z):
+        del z
+        taken[0] += 1
+        return {name: np.zeros((1, taken[0])) for name in spec.names}
+
+    made.workspace.stats = widening
     with pytest.raises(BackendError, match="came back with shape"):
-        made.propagate_to(LENGTH)
+        run(made, problem, run_request, export=None)
 
 
 # ----------------------------------------------------------- the executed norm
 
 
 def test_the_history_records_the_executed_norm_and_the_controller_the_equivalent(
-    driver,
+    driver, monkeypatch
 ):
     """A landing step clipped short is written up at the norm it scored.
 
@@ -793,18 +785,28 @@ def test_the_history_records_the_executed_norm_and_the_controller_the_equivalent
     plane does not restart it from a sliver; the history and everything read off it
     carry the norm each step actually committed.
     """
-    made = driver()
-    made.propagate_to(LENGTH)
-    history = made.observe().step_history
+    scripted = driver()
+    made = scripted.made
+    proposals = []
+    trial = made._trial_step
+
+    def recorded(z, dz):
+        proposals.append(made.march.state.proposal)
+        return trial(z, dz)
+
+    monkeypatch.setattr(made, "_trial_step", recorded)
+    history, _ = scripted.run(export=None).joined
     accepted = np.flatnonzero(history.accepted)
     last = accepted[-1]
     taken = float(history.dz[last])
-    proposal = made.proposals[last]
+    proposal = proposals[last]
     # The last accepted step is the landing on the plane, and it is not the proposal.
     assert taken != proposal
     executed = (taken / made._scale) ** 5
     assert float(history.error_norm[last]) == pytest.approx(executed)
-    assert made._accepted_norms[-1] == pytest.approx(executed * (proposal / taken) ** 5)
+    assert made.march.state.norms[-1] == pytest.approx(
+        executed * (proposal / taken) ** 5
+    )
     # And no accepted step of an adaptive run scores above one, by construction.
     assert np.all(history.error_norm[accepted] <= 1.0)
 
@@ -812,20 +814,19 @@ def test_the_history_records_the_executed_norm_and_the_controller_the_equivalent
 def test_the_controller_keeps_only_the_norms_it_reads(driver):
     """The controller reads two norms, a lag back; a march keeps those, not every step.
 
-    The first entry is still the start-up rule's cue: the history is emptied when a
-    field is loaded, and its length is one only after the first accepted step.
+    The first entry is still the start-up rule's cue: a session's march starts with no
+    norms, and its length is one only after the first accepted step.
     """
-    made = driver()
-    lag = made._stepper.controller.lag
-    assert made._accepted_norms.maxlen == lag + 2
-    summary = made.propagate_to(LENGTH)
+    scripted = driver()
+    made = scripted.made
+    lag = made.request.stepper.controller.lag
+    assert made.march.state.norms.maxlen == lag + 2
+    summary = scripted.run(export=None).observations[-1].summary
     assert summary.n_steps > lag + 2
-    assert len(made._accepted_norms) == lag + 2
-    made.set_initial(made._problem.initial.field0, None)
-    assert len(made._accepted_norms) == 0
+    assert len(made.march.state.norms) == lag + 2
+    with session_of(made, scripted.problem, scripted.request):
+        assert len(made.march.state.norms) == 0
 
-
-# --- the seam a compiled backend subclasses ----------------------------------------
 
 SEPARABLE_OPERATOR_FIELDS = (
     "k_squared",
@@ -901,49 +902,42 @@ MARCH_POLICY_FIELDS = (
 
 
 def test_a_trials_bundles_taken_together_are_kept_until_the_next_hoist(driver):
-    """``_stage_bundles`` reads the tables once and ``_stage_scalars`` takes the kept.
+    """``stage_bundles`` reads the tables once and ``stage_scalars`` takes the kept.
 
     The bundles equal the per-position ones bit for bit; a later stage at the same
     anchor and position is the kept bundle itself, and the next step's hoist drops
     them, so nothing a later step reads was taken for an earlier one.
     """
-    made = driver()
+    made = driver().made
     z0, dz = LENGTH / 4, LENGTH / 8
     positions = [z0 + dz, z0, z0 + 0.5 * dz, z0 + dz]
-    made._hoist(z0)
-    together = made._stage_bundles(z0, positions)
+    workspace = made.workspace
+    workspace.hoist(z0)
+    together = workspace.stage_bundles(z0, positions)
     assert together[0] is together[3]
     for z1, bundle in zip(positions, together, strict=True):
-        alone = scalars(made._problem, z0, z1)
+        alone = scalars(made.workspace.problem, z0, z1)
         assert bundle.z0 == z0 and bundle.z1 == z1
         assert np.array_equal(present(bundle.phi_delta), present(alone.phi_delta))
         assert np.array_equal(present(bundle.prefactor), present(alone.prefactor))
         assert bundle.density == alone.density
-        assert made._stage_scalars(z0, z1) is bundle
+        assert workspace.stage_scalars(z0, z1) is bundle
     # Asked again at the same anchor, nothing is read: the kept bundles come back.
-    again = made._stage_bundles(z0, positions[1:3])
+    again = workspace.stage_bundles(z0, positions[1:3])
     assert again[0] is together[1] and again[1] is together[2]
-    made._hoist(z0 + dz)
-    assert made._stage_scalars(z0, z0 + dz) is not together[0]
+    workspace.hoist(z0 + dz)
+    assert workspace.stage_scalars(z0, z0 + dz) is not together[0]
     made.close()
 
 
 def test_the_bundles_a_compiled_backend_packs_are_frozen():
-    """The stage bundles, the march policy and the batch seam are the seam's literal.
+    """The stage bundles and the march policy are the seam's literal.
 
     A compiled backend is built against these names and shapes, and its build stays
     valid across solprop commits because this test, not a version pin, guards them: a
     change here is a change of the seam, which rewrites these literals and adds a
     release-note fragment in the same commit.
     """
-    for name, signature in {
-        "observe_members": (
-            "(self, *, field: bool = True) -> "
-            "tuple[solprop.backends.protocol.Observation, ...]"
-        ),
-        "member_metadata": "(self) -> tuple[dict[str, object], ...]",
-    }.items():
-        assert str(inspect.signature(getattr(BatchBackend, name))) == signature, name
     assert tuple(f.name for f in dataclasses.fields(StageTerms)) == STAGE_TERMS_FIELDS
     assert (
         tuple(f.name for f in dataclasses.fields(StageScalars)) == STAGE_SCALARS_FIELDS
@@ -951,85 +945,59 @@ def test_the_bundles_a_compiled_backend_packs_are_frozen():
     assert tuple(f.name for f in dataclasses.fields(MarchPolicy)) == MARCH_POLICY_FIELDS
 
 
-HOST_SURFACE: dict[str, str] = {
-    "_adams_block": "(self, z: float, dz: float) -> object",
-    "_adams_lab_source": (
-        "(self, lab: jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega'], position: float, *, "
-        "purpose: Literal['startup', 'predictor', 'corrected', "
-        "'diagnostic'] = 'predictor') -> jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega']"
-    ),
-    "_adams_propagator": (
-        "(self, anchor: float, position: float) -> jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega']"
-    ),
-    "_adams_source": (
-        "(self, lab: jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega'], anchor: float, position: float, *, "
-        "purpose: Literal['startup', 'predictor', 'corrected', "
-        "'diagnostic'] = 'predictor') -> tuple[jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega'], jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega']]"
-    ),
-    "_apply_mask": (
-        "(self, state: jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega']) -> _StateT"
-    ),
-    "_begin_plane": "(self) -> None",
-    "_dense_stages": "(self) -> list[numpy.ndarray]",
-    "_finish": "(self, state: _StateT, dz: float) -> _StateT",
-    "_march_to": "(self, target: float) -> None",
-    "_on_accepted_step": "(self) -> None",
-    "_record": "(self, z: float, dz: float, norm: float, accepted: bool) -> None",
-    "_release_source_calls": "(self) -> None",
-    "_reserve_source_calls": "(self, count: int) -> None",
-    "_trial_step": "(self, z: float, dz: float) -> tuple[float, _StateT]",
-    "metadata": "(self) -> dict[str, object]",
-    "restore_call_ledgers": (
-        "(self, logical: collections.abc.Mapping[str, object], "
-        "atomic: collections.abc.Mapping[str, object] | None = None) -> None"
-    ),
-    "set_initial": (
-        "(self, field: jaxtyping.Complex[ndarray, "
-        "'n_modes n_pol n_omega'], "
-        "noise: solprop.noise.NoiseRealisation | None, *, z: float = 0.0, "
-        "resume: bool = False) -> None"
-    ),
-    "stats": "(self, spec: solprop.stats.StatsSpec) -> dict[str, numpy.ndarray]",
-}
-"""Every ``HostDriver`` hook a NumPy reference backend overrides (SEP 47 phase 2).
-
-The reference's own driver is no compiled seam, but its backends are written against
-these signatures: a change here changes what ``numpy_ref`` and its group override,
-in the same commit."""
-
-HOST_ATTRIBUTES = (
-    "helpers",
-    "max_batch",
-    "name",
-    "propagator_default",
-    "reads_transverse_edge",
+BACKEND_MEMBERS = (
+    "available_device_memory",
+    "close",
+    "closed",
+    "edge_memory",
+    "memory_ledger",
+    "metadata",
+    "prepare",
+    "request",
+    "timing_probe",
 )
-"""The ``HostDriver`` class attributes a NumPy reference backend sets."""
+"""The :class:`~solprop.backends.protocol.Backend` protocol's methods and properties,
+complete (SEP 52 section 5.1): its one attribute is ``name``. A change here changes the
+seam, in the same commit."""
+
+RETIRED_MEMBERS = (
+    "attach_monitor",
+    "drain_attempts",
+    "halt_ahead",
+    "march_export_refusal",
+    "march_snapshot",
+    "march_snapshot_nbytes",
+    "observe",
+    "propagate_to",
+    "reads_transverse_edge",
+    "request_halt",
+    "restore_call_ledgers",
+    "restore_march",
+    "set_halt_check",
+    "set_initial",
+    "set_progress",
+    "set_stop",
+    "stats",
+)
+"""The members the seam dropped: the host stepping seam SEP 52 deleted, every run
+being a session's, which schedules it and reads the state through the workspace, and
+the answers every backend gave alike."""
+
+REFERENCE_ATTRIBUTES = ("name",)
+"""The class attributes the NumPy reference backend sets."""
 
 
-def test_the_host_hooks_the_reference_overrides_are_frozen():
-    overridden = {
-        name
-        for backend in (NumpyRefBackend, NumpyBatchBackend)
-        for owner in backend.__mro__
-        if owner.__module__.startswith("solprop.backends.numpy_ref")
-        for name in vars(owner)
-        if hasattr(HostDriver, name) and not name.startswith("__")
-    } - {"_abc_impl"}
-    assert overridden == set(HOST_SURFACE) | set(HOST_ATTRIBUTES)
-    for name, signature in HOST_SURFACE.items():
-        hook = getattr(HostDriver, name)
-        if isinstance(hook, property):
-            assert hook.fget is not None
-            hook = hook.fget
-        assert str(inspect.signature(hook)) == signature, name
+def test_the_backend_surface_the_reference_implements_is_frozen():
+    members = {
+        name for name in dir(Backend) if not name.startswith("_") and name != "name"
+    }
+    assert members == set(BACKEND_MEMBERS)
+    assert isinstance(NumpyRefBackend.__dict__["request"], property)
+    for name in (*BACKEND_MEMBERS, *REFERENCE_ATTRIBUTES):
+        assert hasattr(NumpyRefBackend, name), name
+    retired = [name for name in RETIRED_MEMBERS if hasattr(NumpyRefBackend, name)]
+    assert retired == []
+    assert not hasattr(sys.modules["solprop.backends.protocol"], "HostStepping")
 
 
 def test_separable_operator_fields_are_frozen_with_the_driver_seam():
@@ -1061,20 +1029,18 @@ def test_linear_operator_fields_are_frozen_with_the_driver_seam():
     )
 
 
-def test_the_adams_and_dense_hooks_default_to_refusal(driver):
-    # A backend that executes neither the Adams march nor dense observation inherits
-    # these defaults; the propagator is the shared one, exp(Phi(b) - Phi(a)).
-    made = driver()
-    field = made._require_state()
-    with pytest.raises(BackendError, match="low-call Adams integrator"):
-        made._adams_source(field, 0.0, LENGTH / 4)
-    with pytest.raises(BackendError, match="does not observe densely"):
-        made._dense_stages()
-    propagator = made._adams_propagator(0.0, LENGTH / 4)
-    expected = np.exp(delta_phi(made._problem.linear, 0.0, LENGTH / 4))
+def test_the_workspace_propagator_is_the_operator_s_flow(driver):
+    # The propagator is the shared one, exp(Phi(b) - Phi(a)); a dense output whose
+    # engine holds no accepted step's extension refuses an observation.
+    made = driver().made
+    propagator = made.workspace.propagator(0.0, LENGTH / 4)
+    expected = np.exp(delta_phi(made.workspace.problem.linear, 0.0, LENGTH / 4))
     np.testing.assert_allclose(
         propagator.reshape(-1), np.broadcast_to(expected, propagator.shape).reshape(-1)
     )
+    dense = RungeKuttaDense(made.workspace, made._runge_kutta(made.workspace))
+    with pytest.raises(BackendError, match="no accepted step is held"):
+        dense.observe(LENGTH / 8)
 
 
 # --- the descriptor (SEP 47 section 6.2) -------------------------------------------

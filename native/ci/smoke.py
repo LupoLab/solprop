@@ -14,8 +14,9 @@ distribution build, that its version is the expected one, and that the libraries
 loaded (FFT, BLAS, OpenMP) are the copies inside the installed wheel, not ones from
 the build machine or the system, and that the wheel neither carries nor imports a
 single-precision FFTW. On Arm it checks that the bundled FFTW carries the NEON codelets.
-It then runs ``python -m solprop_native`` and checks
-that the build record it prints is JSON.
+It runs one check of the private test module the wheel ships (``_core._testing``,
+solprop SEP 52): the vector-maths layer's exponential against NumPy's. It then runs
+``python -m solprop_native`` and checks that the build record it prints is JSON.
 """
 
 from __future__ import annotations
@@ -28,7 +29,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
+
 import solprop_native
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 
 
 def bundled(library: str, package: Path) -> bool:
@@ -130,6 +134,13 @@ def main() -> None:
         required.add("LICENSE-libomp.txt or LICENSE-libgomp.txt")
     if missing := sorted(required - licences):
         sys.exit(f"the wheel lacks {', '.join(missing)}")
+    # The test module ships in the wheel; its exponential is held to one ulp (u10) by
+    # solprop's tests, and to a few here against NumPy's, whose libm adds its own.
+    x = np.linspace(-700.0, 700.0, 1001)
+    out = np.empty_like(x)
+    _testing.vector_exp(x, out)
+    if not np.allclose(out, np.exp(x), rtol=8 * np.finfo(np.float64).eps, atol=0.0):
+        sys.exit("the test module's vector_exp disagrees with NumPy's exponential")
 
     record = subprocess.run(
         [sys.executable, "-I", "-m", "solprop_native"],

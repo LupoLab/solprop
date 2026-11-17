@@ -28,7 +28,7 @@ from solprop.exceptions import CouplingError
 from solprop.fourier import spectrum_to_optics
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.modes import MarcatiliMode
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy
 
@@ -282,6 +282,54 @@ def test_a_mode_set_s_basis_is_its_value_at_the_plane():
     )
 
 
+def test_a_run_s_basis_is_derived_from_its_kind_and_what_is_at_hand():
+    """One derivation for a plane read from a file and a live simulation's port.
+
+    A spatial basis is its grid, a general one the reference its modal record names,
+    an ordinary mode set's its value at the plane -- unknown without the modes -- and
+    a planar one has none.
+    """
+    grid = envelope_grid()
+    space = RadialGrid(1e-3, 64)
+    assert PlaneBasis.of_run("radial", space=space).identity == (
+        PlaneBasis.of_space(space).identity
+    )
+    assert PlaneBasis.of_run("free", space=FreeGrid(1e-3, 8, 1e-3, 8)).kind == (
+        "cartesian"
+    )
+    with pytest.raises(CouplingError, match="transverse grid"):
+        PlaneBasis.of_run("radial")
+    planar = PlaneBasis.of_run("slab", labels=("TE0",))
+    assert (planar.kind, planar.identity, planar.labels) == ("planar", None, ("TE0",))
+    record = {"channels": [{"n": 1}], "tables": {"z": 1}, "guide": {"g": 2}}
+    general = PlaneBasis.of_run(
+        "multimode",
+        modal={"basis": "general_modal", **record, "metric": {"kind": "identity"}},
+    )
+    expected = {**record, "metric": {"kind": "identity", "gauge_id": None}}
+    assert general.kind == "general_modal"
+    assert general.identity == basis_identity("general_modal", expected)
+    modes = [MarcatiliMode(75e-6, "He", 1.0)]
+    known = PlaneBasis.of_run("mode_averaged", modes=modes, grid=grid, z=0.1)
+    assert known.kind == "modal"
+    assert known.identity == modal_basis_identity(modes, grid, 0.1)
+    unknown = PlaneBasis.of_run("multimode", modal={"basis": "capillary HE_1m"})
+    assert (unknown.kind, unknown.identity) == ("modal", None)
+    # A mode set costly to rebuild is rebuilt when the identity is first read, once.
+    calls: list[int] = []
+
+    def rebuilt(found=modes):
+        calls.append(1)
+        return found
+
+    deferred = PlaneBasis.of_run("multimode", modes=rebuilt, grid=grid, z=0.1)
+    assert deferred.kind == "modal" and calls == []
+    assert deferred.identity == known.identity
+    assert deferred.identity == known.identity and calls == [1]
+    nothing = PlaneBasis.of_run("multimode", modes=lambda: None, grid=grid)
+    assert nothing.identity is None
+
+
 def test_provenance_appends_its_history():
     provenance = PlaneProvenance("abc").then("one").then("two")
     assert provenance.history == ("one", "two")
@@ -291,6 +339,7 @@ def test_provenance_appends_its_history():
 def test_a_basis_identity_is_a_digest():
     with pytest.raises(CouplingError, match="SHA-256"):
         PlaneBasis("modal", "short")
+    assert PlaneBasis("modal", None).identity is None  # not known: matches no port
     with pytest.raises(CouplingError, match="transverse grid"):
         PlaneBasis("radial", basis_identity("radial", {}))
 

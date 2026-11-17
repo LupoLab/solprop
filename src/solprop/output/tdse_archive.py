@@ -4,33 +4,23 @@
 
 """Archive every raw TDSE provider evaluation of a run in an HDF5 sidecar (SEP 20).
 
-A TDSE run's optical output holds the propagated field; this append-only sidecar
-holds what the atomic provider actually returned for each evaluation, before any
-validation, shadow subtraction, scaling, padding or reduction, beside the exact
-input it was given. It is a history of evaluations, not a restart store: the
-optical file's call ledger stays authoritative for calls, budgets and resume, and
-the sidecar does no charge accounting.
+The sidecar holds what the atomic provider returned for each evaluation, before any
+validation, subtraction, scaling or reduction, beside the exact input it was given. It
+is a history of evaluations, not a restart store: the optical file's call ledger stays
+authoritative for calls, budgets and resume.
 
-**Layout** (schema :data:`TDSE_ARCHIVE_SCHEMA`). The root carries ``schema`` and
-``run_uuid``. ``sessions/session_NNNNNN`` is one run or resume (or one standalone
-consistency check), with its context and, once it closes, the bytes written and
-the write time. Inside it ``evaluations/evaluation_NNNNNNNNN`` is one logical
-provider evaluation: its labels as attributes, ``prewindow_field`` (the full
-nodal field of the evaluation, V/m), ``gate`` when an atomic window applies, one
-``chunk_NNN`` group per provider call holding ``drive`` (the exact float64 field
-passed, V/m) and ``raw`` (the returned record, through a versioned serializer),
-an ``exception`` group when the evaluation raised, and finally the ``outcome``
-attribute. ``trials/trial_NNNNNNNNN`` records whether an optical trial was
-accepted or rejected, appended when the stepper decides. Shared immutable values
--- sample times, gates and structured records -- are stored once per session under
-``shared`` and hard-linked where they are used, so they read back unchanged.
+- :class:`TDSEArchive` is the request a run is given; :class:`TDSEArchiveWriter` writes
+  one session (a run, a resume or a consistency check), append-only and flushed as each
+  group completes, and :func:`writer_memory` sizes its buffers for memory admission.
+- :class:`RecordSchema`, :class:`RecordField` and :func:`record_serializer` are the
+  versioned serializers of the provider records (the ``*_RESPONSE`` schemas), with
+  :func:`structured_json` for structured ones.
+- :func:`open_tdse_archive` returns a :class:`TDSEArchiveReader`, which streams
+  :class:`ArchivedSession`, :class:`ArchivedEvaluation` and :class:`ArchivedChunk` one
+  array at a time and reports a truncated evaluation as incomplete instead of failing.
 
-**Truncation.** Groups are flushed as they complete. A crash leaves every earlier
-evaluation readable; an evaluation without its ``outcome``, or missing a chunk or a
-dataset, is reported as incomplete by :class:`TDSEArchiveReader` rather than
-failing the read.
-
-The manual page is ``docs/guide/media/tdse.md``.
+The layout (schema :data:`TDSE_ARCHIVE_SCHEMA`) is in ``docs/guide/media/tdse.md``
+("The raw response archive").
 """
 
 import contextlib

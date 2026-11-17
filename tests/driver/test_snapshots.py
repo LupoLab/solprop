@@ -20,7 +20,8 @@ from numpy.testing import assert_array_equal
 from tests.driver.test_tdse_natural_output import _simulation, assert_no_extra_call
 from tests.hacc_cases import alpha_law, install, plain
 
-import solprop.driver.run as run_module
+import solprop.driver.runner as runner_module
+import solprop.driver.session_loop as session_loop_module
 import solprop.driver.simulation as simulation_module
 from march_bounds import TIGHTER, assert_in_envelope
 from solprop.backends.registry import available
@@ -39,7 +40,7 @@ from solprop.output import (
     resume,
 )
 from solprop.output import snapshots as module
-from solprop.output.schema import PlaneStore
+from solprop.output.store import PlaneStore
 from solprop.stepper import Multistep, PIController, RungeKutta
 
 pytestmark = [
@@ -121,10 +122,14 @@ def test_several_tdse_snapshots_keep_the_same_plans_and_all_calls(
         identities.append(
             (
                 id(backend),
-                id(backend._adams),
-                id(backend._tdse_binding),
-                id(binding._hacc.model),
-                tuple(id(plan) for plan in binding._plans.values()),
+                # The reference's session's march (its latest), native's own record.
+                id(backend.march if backend.name == "numpy_ref" else backend._adams),
+                id(getattr(backend, "workspace", backend)._tdse_binding),
+                # The model and its plans live behind the provider's worker (SEP 49):
+                # the same worker, the same view of the model and the same plans.
+                id(binding._worker),
+                id(binding._hacc),
+                tuple(sorted(binding._plan_records)),
             )
         )
         before = (len(fake.calls), len(fake.prepared), len(fake.plan_arguments))
@@ -134,7 +139,8 @@ def test_several_tdse_snapshots_keep_the_same_plans_and_all_calls(
         return publication
 
     monkeypatch.setattr(module, "_copy_generation", watched)
-    monkeypatch.setattr(simulation_module, "run_problem", run_with_live_resources)
+    for driver_module in (simulation_module, runner_module):
+        monkeypatch.setattr(driver_module, "run_problem", run_with_live_resources)
     simulation = _simulation()
     output = _run(
         simulation,
@@ -151,6 +157,7 @@ def test_several_tdse_snapshots_keep_the_same_plans_and_all_calls(
     assert controller.last_result.bytes_copied > 0
     assert len(built) == 3 and all(item == built[0] for item in built)
     assert len(live) == 1 and all(item == identities[0] for item in identities)
+    assert identities[0][-1]  # the plans were built before the snapshots
     assert len(fake.prepared) == 1
     assert output.outcome is not None
     assert_no_extra_call(output.outcome)
@@ -264,7 +271,7 @@ assert (after.outcome.logical_calls.get("startup", 0)
 def test_snapshot_requires_history_even_above_the_automatic_limit(
     tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(run_module, "MARCH_SNAPSHOT_AUTO_BYTES", 0)
+    monkeypatch.setattr(session_loop_module, "MARCH_SNAPSHOT_AUTO_BYTES", 0)
     controller = SnapshotController(tmp_path / "snapshots")
     controller.request()
     ordinary().run(tmp_path / "working.h5", snapshots=controller, progress="none")
@@ -535,13 +542,13 @@ def test_output_close_failure_does_not_replace_checkpoint_failure(
     assert not controller._active
 
 
-def test_ordinary_legacy_resume_can_start_taking_snapshots(tmp_path):
+def test_a_resume_with_no_outcome_record_can_start_taking_snapshots(tmp_path):
     class Stop(NullReporter):
         def step(self, z, dz, accepted):
             if accepted:
                 raise KeyboardInterrupt
 
-    path = tmp_path / "legacy.h5"
+    path = tmp_path / "no-outcome.h5"
     with pytest.raises(KeyboardInterrupt):
         ordinary().run(path, progress=Stop())
     with h5py.File(path, "r+") as file:

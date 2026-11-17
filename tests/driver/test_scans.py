@@ -26,7 +26,7 @@ from march_bounds import (
 from solprop import _process
 from solprop.driver._scan_context import _EXECUTOR
 from solprop.driver._scan_model import name_seed
-from solprop.driver.executors import Batch, Local, pool
+from solprop.driver.executors import Local, pool
 from solprop.driver.executors.pool import MemoryBudget, Pool
 from solprop.driver.scan import Scan, run_scan
 from solprop.driver.simulation import Simulation
@@ -201,7 +201,9 @@ def test_scan_equals_single_points_and_reruns_skip(tmp_path, executor):
 
 
 @pytest.mark.parametrize(
-    "executor", [Local(), Pool(2), Batch(2)], ids=["local", "pool", "batch"]
+    "executor",
+    [Local(), pytest.param(Pool(2), marks=pytest.mark.medium)],
+    ids=["local", "pool"],
 )
 def test_a_rerun_with_the_same_record_skips_and_any_change_conflicts(
     tmp_path, executor
@@ -625,20 +627,14 @@ def test_linux_allocation_uses_affinity_slurm_and_cgroup(tmp_path, monkeypatch):
     (root / "proc/self/cgroup").write_text("0::/\n")
     (root / "sys/fs/cgroup").mkdir(parents=True)
     (root / "sys/fs/cgroup/cpu.max").write_text("200000 100000")
+    (root / "sys/fs/cgroup/memory.max").write_text(str(1024**3))
     monkeypatch.setattr(
         _process, "_own_cgroup_cpus", lambda: _process.cgroup_cpus(root)
     )
+    monkeypatch.setattr(pool, "cgroup_memory", lambda: _process.cgroup_memory(root))
     monkeypatch.delenv("SOLPROP_THREADS", raising=False)
     monkeypatch.setattr(_process, "physical_cores", lambda cpus: None)
     monkeypatch.setattr(_process, "top_tier_cores", lambda: None)
-    memory = tmp_path / "memory.max"
-    memory.write_text(str(1024**3))
-    missing = tmp_path / "missing"
-    monkeypatch.setattr(
-        pool,
-        "Path",
-        lambda name: {"/sys/fs/cgroup/memory.max": memory}.get(name, missing),
-    )
     monkeypatch.setattr(pool.sys, "platform", "linux")
     monkeypatch.setattr(
         pool.os, "sched_getaffinity", lambda pid: {2, 4, 6, 8}, raising=False

@@ -9,7 +9,7 @@ reference: a multimode capillary taper on the adiabatic opt-out
 (``taper_coupling=False``), whose expansion does not resolve the kinked taper; a
 radial run through three species on independent density paths, more than the
 two-parameter expansion takes; optmat's dry air falling to vacuum, three populations on
-a modal guide; and a ``Batch`` of moving-dispersion fibres. The moving dispersion and
+a modal guide; and moving-dispersion fibres of three areas. The moving dispersion and
 the temperature-path fill are in ``tests/driver/test_specified_paths.py`` and
 ``tests/driver/test_temperature_paths.py``, a forced table and a table prefactor in
 ``tests/backends/test_native_z_table.py``. Ten fixed steps of each march, the native
@@ -21,8 +21,6 @@ and the modified noise read the table's phase too.
 import copy
 import dataclasses
 import warnings
-from contextlib import ExitStack
-from typing import Any
 
 import numpy as np
 import pytest
@@ -39,12 +37,6 @@ from march_bounds import (
     simulation_bound,
 )
 from optmat_parity_cases import variant
-from solprop.backends import select
-from solprop.backends.events import ObservationReady
-from solprop.backends.export import ExportRecipe
-from solprop.backends.protocol import stepping
-from solprop.backends.session import Start
-from solprop.backends.sessions import start_group
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
@@ -150,7 +142,7 @@ def test_a_radial_run_through_three_independent_species(integrator):
             for index, label in enumerate(fill.labels)
         }
     )
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid,
         RadialGrid(1e-3, 16, collar_fraction=0.0),
         SpatialMedium(fill),
@@ -183,7 +175,7 @@ def test_a_radial_run_through_three_independent_species(integrator):
 )
 def test_dry_air_falling_to_vacuum(integrator):
     # optmat's dry air on three independent density paths; its Adams run is the
-    # parity ladder of tests/backends/test_optmat_raman_parity.py.
+    # catalogue row `optmat air_vacuum` (tests/backends/optmat_rows.py).
     case = variant("air_vacuum", integrator=integrator)
     assert case.simulation is not None
     assert case.problem.linear.phi_representation == "table"
@@ -191,7 +183,7 @@ def test_dry_air_falling_to_vacuum(integrator):
 
 
 def fibre(index, backend):
-    """Return member `index` of a moving-dispersion batch, its own area and power."""
+    """Return the moving-dispersion fibre `index`, its own area and power."""
     grid = EnvelopeGrid.from_limits(FIBRE_LENGTH, 835e-9, (600e-9, 1300e-9), 2e-12)
     schedule = FixedSchedule.uniform(
         0.0, FIBRE_LENGTH, FIBRE_LENGTH / 4, save_planes=[FIBRE_LENGTH]
@@ -213,72 +205,10 @@ def fibre(index, backend):
     )
 
 
-def loaded(simulation, cleanup):
-    """Return the simulation's backend, loaded at the entrance and closed at exit."""
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    owner = select(
-        simulation.settings.backend,
-        problem,
-        run_request,
-        grid=simulation.grid,
-        modes=simulation.modes,
-        profiles=simulation.profiles,
-    )
-    cleanup.callback(owner.close)
-    stepping(owner).set_initial(problem.initial.field0, simulation.noise)
-    return owner
-
-
-def test_a_batch_of_z_table_members():
-    # The native group runs each member's native session on its own tables (SEP 47
-    # section 6.7), each member within the march's bound of the reference.
-    identity = ExportRecipe(power=False, optics=False)
-    with ExitStack() as cleanup:
-        members = [fibre(index, "native") for index in range(3)]
-        problems = [one.translate() for one in members]
-        assert not problems[0].device_ready
-        owners = [
-            select(
-                one.settings.backend,
-                problem,
-                one._run_request(),
-                grid=one.grid,
-                modes=one.modes,
-                profiles=one.profiles,
-            )
-            for one, problem in zip(members, problems, strict=True)
-        ]
-        for owner in owners:
-            cleanup.callback(owner.close)
-        group = start_group(
-            owners,
-            problems,
-            [one._run_request() for one in members],
-            [Start.entrance(problem) for problem in problems],
-        )
-        cleanup.callback(group.close)
-        assert type(group).__name__ == "NativeGroupSession"
-        fields: dict[int, np.ndarray] = {}
-        while not group.finished:
-            batch = group.advance()
-            for index, events in enumerate(batch.members):
-                for event in events:
-                    if isinstance(event, ObservationReady):
-                        fields[index] = np.array(
-                            group.export(index, event.ticket, identity)
-                        )
-            group.acknowledge(batch.receipt)
-        for index, member in enumerate(members):
-            reference: Any = loaded(on(member, "numpy_ref"), cleanup)
-            reference.propagate_to(FIBRE_LENGTH)
-            bound = simulation_bound(member, backend="native")
-            assert_matched(
-                fields[index],
-                reference.observe().require_field(),
-                bound,
-                what=f"member {index}",
-            )
+@pytest.mark.parametrize("index", range(3))
+def test_moving_dispersion_fibres_on_the_z_table(index):
+    # Each fibre's own tables, each within the march's bound of the reference.
+    assert_native_matches(fibre(index, "numpy_ref"))
 
 
 DENSE = pytest.mark.parametrize(

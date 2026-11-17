@@ -73,8 +73,8 @@ points by the same hash ([scans](../workflows/scans.md)).
 ### The resume key
 
 The hash a resume compares is
-{py:meth}`~solprop.output.schema.RunMetadata.configuration_hash`, the digest of the hashed
-part of the run record, {py:meth}`~solprop.output.schema.RunMetadata.hashed`. It is stamped
+{py:meth}`~solprop.output.metadata.RunMetadata.configuration_hash`, the digest of the hashed
+part of the run record, {py:meth}`~solprop.output.metadata.RunMetadata.hashed`. It is stamped
 in every file; the stamp tells whether the file is intact, and a suspended writer, a
 snapshot and a scan row compare it too.
 
@@ -131,7 +131,7 @@ A call without `seed=` draws fresh operating-system entropy each time it is buil
 with `resume=True` continues its own file, a realisation the constructor drew without a
 seed is drawn again from the seed the file recorded before the hashes are compared,
 and the run logs that it did. This covers the default noise of `prop_gnlse`,
-`prop_capillary`, `prop_waveguide` and `prop_radial` and an explicit `noise="input"` or
+`prop_capillary`, `prop_waveguide` and `prop_free` on a radial grid, and an explicit `noise="input"` or
 `"modified"` given without a seed. A seed the call gives, or a realisation it passes in,
 is never replaced: a resume that differs in it is refused, and the refusal names the
 seed the file was drawn from (`pass seed=17 to draw it again`).
@@ -212,8 +212,8 @@ handler only then.
 ## Completion status and terminal checkpoints
 
 Both standard handlers implement the optional
-{py:class}`~solprop.output.schema.CheckpointOutput` capability. Their `outcome`
-property is a {py:class}`~solprop.output.schema.RunOutcome`: `running`, `complete`,
+{py:class}`~solprop.output.store.CheckpointOutput` capability. Their `outcome`
+property is a {py:class}`~solprop.output.records.RunOutcome`: `running`, `complete`,
 `budget_exhausted` or `failed`, together with the actual position, a stop message,
 cumulative logical and atomic call ledgers, and the latest execution facts. The
 `previous_executions` records retain earlier runs of the same resumed file. These
@@ -221,7 +221,7 @@ records are outside the scientific configuration hash. A budget stop is unfinish
 it never becomes a successful result by changing the requested end position.
 
 An ordinary exception or a call-budget stop also writes a
-{py:class}`~solprop.output.schema.TerminalCheckpoint` at the last available finite
+{py:class}`~solprop.output.records.TerminalCheckpoint` at the last available finite
 field. Normally this is an accepted step endpoint. A failure while processing a
 dense observation can instead retain that interpolated field. It is separate from the regular observations: `n_saved`, `handler["z"]`,
 `handler["field"]` and the per-plane statistics keep their original meanings.
@@ -275,8 +275,7 @@ Each execution record states what a resume can rely on, under
   `automatic_size_limit` (over the 256 MiB kept by default, with the size),
   `unavailable_history` (the march held nothing to continue there),
   `output_cannot_store` (a handler without `save_march`, such as `MemoryOutput`),
-  `write_failed` (the write was cut short), `incompatible_representation` (the engine
-  does not export its history), `unsupported_method` (the
+  `write_failed` (the write was cut short), `unsupported_method` (the
   Runge–Kutta proposal and norm memory are not persisted) or `no_method_history`
   (the low-storage march has none).
 - `restoration`, in a resumed execution: `restored` (the Adams history continued),
@@ -300,12 +299,11 @@ A resume warns once, with a `SolpropWarning` beginning "the Adams history starts
 afresh", when the Adams history it expected was omitted by the automatic size limit or
 cannot be restored (the backend cannot install it, the file kept it and it cannot be
 read back, or the write that kept it failed part-way). Setting it aside with `resume_history=False` is recorded without a warning.
-A file written before this record has none: its retention reads as
-`{"state": "unknown", "reason": "legacy"}`, never as an invented reason, and it resumes
-as it always did.
+A record that states no retention at the resume position reads as
+`{"state": "unknown", "reason": "not_recorded"}`, never as an invented reason.
 
-Scientific changes still require a new run. Device choice, batch width and execution
-memory limits may change on resume and are recorded in `outcome.execution`; a new
+Scientific changes still require a new run. Device choice and execution memory
+limits may change on resume and are recorded in `outcome.execution`; a new
 atomic call limit cannot be smaller than the calls already attempted. The driver
 validates the checkpoint and ledgers before preparing atomic resources. Resuming
 an already completed file returns it without preparing another backend or atomic
@@ -332,7 +330,7 @@ last plane
 A finished field-free file resumes as finished, running nothing. A run continuing a file
 keeps its fields by the file's rule, and is refused if it asks for another.
 
-Custom handlers implementing only {py:class}`~solprop.output.schema.Output` remain
+Custom handlers implementing only {py:class}`~solprop.output.store.Output` remain
 usable for ordinary propagation, keeping every field; a field-free run needs a handler
 that can hold field-free planes (`retain`), as both standard handlers do. TDSE requires the checkpoint capability and
 refuses an incompatible handler before native preparation.
@@ -383,14 +381,11 @@ same budget as the knot defect — and `modal.metric.active_departure` is the sa
 quantity over every bin the active band admits, weighted by nothing, which is warned on
 rather than gated (see [general modal propagation](../waveguides/general-modal.md)).
 
-**`modal.accessors` is in the record and deliberately *not* in the key.** It is the list
-of statistic names the basis admits, which is a statement about what the package version
-that wrote the file could compute — not about what the run computed, which is what every
-other entry of `modal` says. Were it in the key, every accessor solprop gains would
-invalidate every general modal file already written, for a capability those files *gain*
-rather than lose. {py:func}`~solprop.output.hdf5.check_cache` compares the two lists as
-a **subset** instead: a file whose list lacks a name this version admits resumes, and a
-file naming an accessor this version does not admit is refused by that name.
+**The key holds `modal.accessors` too**, the list of statistic names the basis admits.
+A file whose list differs from the run's, by a name more or a name fewer, has another
+configuration hash, and {py:func}`~solprop.output.hdf5.check_cache` refuses it as it
+refuses any other change, naming `modal.accessors`. A file written by a solprop version
+that admitted other accessors is therefore finished with that version, or rerun.
 
 Because the record holds the metric's **identity** and not its arrays,
 {py:func}`solprop.processing.modal.physical_energy` refuses a file whose metric is not
@@ -403,9 +398,12 @@ from the guide's reference and needs no metric at all.
 ## Reading E and H back
 
 A general modal file stores channel amplitudes, not fields. {py:mod}`solprop.processing.modal`
-is the way back: given the run's own reference tables, rebuilt from the guide the record
-names, it synthesises `E(x, y, t)` in V/m and `H(x, y, t)` in A/m at the guide's
-quadrature nodes and forms what a detector would see.
+is the way back: given the guide the run was made with, it rebuilds the run's own
+reference tables, synthesises `E(x, y, t)` in V/m and `H(x, y, t)` in A/m at the guide's
+quadrature nodes and forms what a detector would see. Each accessor reads one saved
+plane, the last unless `plane=` or `z=` names another, and takes the tables from
+{py:func}`~solprop.processing.modal.reference_tables` as `tables=` to skip the rebuild
+in a loop.
 
 ```{code-block} python
 from solprop.processing.modal import (
@@ -414,14 +412,12 @@ from solprop.processing.modal import (
     plane_nodes,
     reconstructed_flux,
 )
-from solprop.translate.general import general_modal_route
 
 with open_file("run.h5") as stored:
     print([one.display_label for one in channel_labels(stored)])
-    tables = general_modal_route(guide, grid, z_max=length, omega_reference=w0).tables
-    field = electric_field(stored, tables, plane=-1, guide=guide)  # (n_nodes, 3, n_t)
-    power = reconstructed_flux(stored, tables, plane=-1, guide=guide)  # (n_t,), W
-    xy, weights = plane_nodes(stored, tables, plane=-1, guide=guide)  # m, m^2
+    field = electric_field(stored, guide=guide)  # (n_nodes, 3, n_t), V/m
+    power = reconstructed_flux(stored, guide=guide)  # (n_t,), W
+    xy, weights = plane_nodes(stored, guide=guide)  # m, m^2
 ```
 
 {py:func}`~solprop.processing.modal.plane_nodes` says where those values are: the
@@ -450,7 +446,7 @@ checked against `metadata.modal["guide"]` — the sampling with its knots, and t
 `modal.guide.regions.0.kerr.chi3`. The keyword has **no default** on any of the six
 accessors that reconstruct from the tables (`electric_field`, `magnetic_field`,
 `reconstructed_flux`, `instantaneous_flux`, `coordinate_intensity` and `plane_nodes`):
-every caller has the guide, because that is what the tables were rebuilt from, and a check that
+the tables are rebuilt from it unless they are passed as `tables=`, and a check that
 closes the hole only when it is asked for is not a gate. A call that omits it raises
 `TypeError`. A record whose identity block is a **subset** of the rebuilt one is
 refused as incomplete rather than passing on the entries it happens to carry: what was

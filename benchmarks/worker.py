@@ -10,7 +10,7 @@ final field and whether to count. The worker builds and translates the case and
 constructs its backend, runs an untimed warm-up over the first part of the guide, then
 times complete runs through the driver's own loop, each restarted from the translated
 launch with the boundary monitor ``Simulation.run`` attaches, or the case's workload of
-repeated inputs, a scan or a group (``benchmarks.registry.Case``). Asked to count, it
+repeated inputs or a scan (``benchmarks.registry.Case``). Asked to count, it
 then makes one more repetition with the native adapter's structural counters on
 (SEP 47 section 7.3), reported apart so that counting costs no timed repetition
 anything. It prints one JSON event per line; the last is the receipt.
@@ -22,6 +22,7 @@ import dataclasses
 import importlib
 import importlib.metadata
 import logging
+import os
 import shutil
 import sys
 import tempfile
@@ -45,6 +46,7 @@ from benchmarks.records import (
 __all__ = [
     "HOST_SPACES",
     "SNAPSHOT_CAPACITY",
+    "WINDOW_SETTING",
     "Diagnostics",
     "count",
     "emit",
@@ -59,10 +61,10 @@ __all__ = [
 if TYPE_CHECKING:
     import numpy as np
 
-    from solprop.backends.protocol import Backend, HostStepping
+    from solprop.backends.protocol import Backend
     from solprop.driver import Simulation
     from solprop.monitor import BoundaryMonitor
-    from solprop.output.schema import FieldRetention, Output
+    from solprop.output.store import FieldRetention, Output
     from solprop.translate.problem import PropagationProblem
 
 
@@ -202,8 +204,8 @@ class _Loaded:
     loaded, before the output opens and the launch plane is saved. Within the block
     the backend's load is wrapped to read the clock and the counter as it returns; it
     is restored on exit. The load is the native backend's own ``_load`` where it has
-    one (SEP 47 phase 5), else ``set_initial``, the reference's and an earlier
-    native build's.
+    one (SEP 47 phase 5), else the reference's workspace's ``load``, which its session
+    calls (SEP 52), else ``set_initial``, an earlier build's.
 
     Attributes
     ----------
@@ -215,31 +217,38 @@ class _Loaded:
 
     def __init__(self, engine: Backend) -> None:
         self._engine = engine
-        self._name = (
-            "_load"
-            if callable(getattr(type(engine), "_load", None))
-            else ("set_initial")
-        )
+        workspace = getattr(engine, "workspace", None)
+        self._owner: object = engine
+        if callable(getattr(type(engine), "_load", None)):
+            self._name = "_load"
+        elif callable(getattr(type(workspace), "load", None)):
+            self._owner, self._name = workspace, "load"
+        else:
+            self._name = "set_initial"
         self.ended = 0
         self.calls: int | None = None
 
     def _load(self, *args: object, **keywords: object) -> object:
-        loaded = getattr(type(self._engine), self._name)(
-            self._engine, *args, **keywords
-        )
+        loaded = getattr(type(self._owner), self._name)(self._owner, *args, **keywords)
         self.calls = source_calls(self._engine)
         self.ended = time.perf_counter_ns()
         return loaded
 
     def __enter__(self) -> _Loaded:
-        setattr(self._engine, self._name, self._load)
+        setattr(self._owner, self._name, self._load)
         return self
 
     def __exit__(self, kind: type[BaseException] | None, *rest: object) -> None:
-        delattr(self._engine, self._name)
+        delattr(self._owner, self._name)
         if kind is None and not self.ended:
             msg = "the run never loaded its backend, so nothing was timed"
             raise SuiteError(msg)
+
+
+WINDOW_SETTING = "SOLPROP_BENCHMARK_WINDOW"
+"""``run`` times a run from before its load (``ab --baseline-env`` and
+``--candidate-env``); unset, the window starts once the backend's load returns, as the
+recorded history's does."""
 
 
 def timed_run(
@@ -298,7 +307,7 @@ def timed_run(
     if Start is None:
         # A build from before SEP 47's sessions: run_problem takes a loaded backend,
         # so the load comes first and the window starts after it, as it did then.
-        cast("HostStepping", engine).set_initial(
+        cast("Any", engine).set_initial(
             problem.initial.field0, None, z=problem.initial.z
         )
         before = source_calls(engine)
@@ -311,6 +320,11 @@ def timed_run(
                 problem, engine, handler, start=Start.entrance(problem), **observed
             )
         before, loaded_at = loaded.calls, loaded.ended
+        if os.environ.get(WINDOW_SETTING) == "run":
+            # The whole run, its load included: two builds that load the state at
+            # different points (before the session, or in its start) then time the
+            # same work. The history's window stays the default.
+            loaded_at = began
     ended = time.perf_counter_ns()
     seconds = (ended - loaded_at) * 1e-9
     after = source_calls(engine)
@@ -368,9 +382,12 @@ def _run_request(simulation: Any) -> Any:
     """Return a simulation's run request, or ``None`` on a build without one.
 
     From SEP 47's request on, the stepping policy and the statistics are the
-    request's and a backend is built with it; before, the problem carried them.
+    request's and a backend is built with it; before, the problem carried them. The
+    public ``run_request`` is preferred; an older build named it ``_run_request``.
     """
-    request = getattr(simulation, "_run_request", None)
+    request = getattr(simulation, "run_request", None)
+    if request is None:
+        request = getattr(simulation, "_run_request", None)
     return None if request is None else request()
 
 
@@ -542,7 +559,7 @@ def warm_up(engine: Backend, problem: PropagationProblem, until: float) -> None:
     if Start is None:
         # Before SEP 47: load, march and observe the backend directly, through the
         # stepping seam every backend had then.
-        stepped = cast("HostStepping", engine)
+        stepped = cast("Any", engine)
         stepped.set_initial(problem.initial.field0, None, z=problem.initial.z)
         if until > problem.initial.z:
             stepped.propagate_to(until)
@@ -622,7 +639,7 @@ def measure(
     from solprop.backends import select  # noqa: PLC0415
     from solprop.driver.executors.pool import peak_rss  # noqa: PLC0415
     from solprop.driver.run import field_retention  # noqa: PLC0415
-    from solprop.output.schema import serialise  # noqa: PLC0415
+    from solprop.output.serialisation import serialise  # noqa: PLC0415
 
     free_before = _device_free(configuration)
     started = time.perf_counter()

@@ -4,45 +4,26 @@
 
 """Physical E and H on a saved plane of a general modal run, and what they measure.
 
-A general modal guide propagates channel amplitudes, and its file stores those: the
-mode axis is a coordinate axis and not a physical field. This module is the way back.
-Given the run's own reference tables -- the ones
-:func:`solprop.translate.general.general_modal_route` built, rebuilt from the guide the
-file names -- it reconstructs ``E(x, y, t)`` and ``H(x, y, t)`` in V/m and A/m at the
-guide's quadrature nodes, and forms the quantities a detector would see: the
-cycle-averaged :func:`reconstructed_flux`, the real :func:`instantaneous_flux` with its
-sum-frequency term, and the per-coordinate :func:`coordinate_intensity`, which is
-**not additive**.
+A general modal file stores channel amplitudes on a coordinate axis, not a physical
+field, and records the guide's identity rather than its E/H reference arrays. This
+module is the way back: :func:`reference_tables` rebuilds the run's reference tables
+from the guide (``guide=`` is **required** everywhere; ``tables=`` reuses one rebuild),
+checking the tables, the guide's sampling and its regions against the stored identity
+path by path, and refusing the first entry that disagrees.
 
-**What a file carries and what it does not.** The run record holds the guide's
-*identity* -- the channel labels, the provider, the sampling, the table and metric
-identities -- and not the reference arrays themselves, which are tens of megabytes per
-run and are rebuilt from the guide in **tens of milliseconds** (28 ms on the slice's
-one-channel 288-node fixture; about 0.71 s if the guide has still to be solved, which
-is where that cost is). Physical profile storage for output is separate from the
-execution tables and may be a hash-identified sidecar.
-Every function here therefore takes the tables beside the handler and **checks them
-against the stored identity**, path by path, refusing the first entry that disagrees,
-so a reconstruction is never made from the wrong guide. ``guide=`` is **required**
-beside them, and its sampling and its regions are checked too, which the tables'
-identity cannot see: a guide re-sampled at other interior knots, or declaring another
-``chi3``, builds tables whose identity agrees entry for entry. Every
-caller has the guide, because that is what the tables were rebuilt from, so there is no
-reading of this module in which the narrower check is the one wanted; the keyword has
-no default and no alias.
+- Fields: :func:`electric_field` and :func:`magnetic_field` (V/m, A/m at the guide's
+  nodes), :func:`plane_nodes` (where those nodes are, with their area weights) and
+  :func:`channel_labels`. A guide whose geometry moves along z is solved again at each
+  plane's own position.
+- What a detector sees: :func:`reconstructed_flux` (cycle-averaged),
+  :func:`instantaneous_flux` (with its sum-frequency term), :func:`coordinate_intensity`
+  (per channel, **not additive**) and :func:`physical_energy`.
+- :func:`channel_amplitudes` inverts a nodal E/H pair, on the entrance reference only.
 
-**A guide whose geometry moves along z** is reconstructed at each plane's own
-position: the guide is solved again there on the rule that has moved with its
-interfaces, so the fields come back on that position's nodes and the flux is weighted
-by that position's areas.
-:func:`channel_amplitudes` recovers amplitudes on the entrance reference only.
-
-**The accessor whitelist.** These names are admitted on a general modal basis and
-refused on every other, because an orthogonal modal run and a spatial run carry
-neither the certified metric nor the E/H reference they promise
-(:mod:`solprop.output.capability`). The refusal is the same text the run loop uses.
-
-The manual page is ``docs/guide/results/output.md``.
+These names are admitted on a general modal basis and refused on every other
+(:mod:`solprop.output.capability`). The manual covers this in
+``docs/guide/results/reading-output.md`` and ``docs/guide/results/resuming.md``
+("Reading E and H back").
 """
 
 import logging
@@ -55,14 +36,17 @@ from jaxtyping import Complex, Float, Inexact
 from solprop import fourier, stats
 from solprop.exceptions import ModeError, OutputError, TranslationError
 from solprop.modes.guide import ModalGuide
+from solprop.modes.path import path_rule, path_snapshot
 from solprop.modes.protocol import ChannelLabel
+from solprop.modes.tables import DEFAULT_GRAM_ATOL
 from solprop.modes.vector import ModalNodeRule
 from solprop.output.capability import capability_of, refusal_for, withheld_from
-from solprop.output.schema import Convention, Output, RunMetadata
-from solprop.processing.axes import _plane_field, grid_of
-from solprop.translate.chebyshev import _EDGE_SLACK_FRACTION
-from solprop.translate.general import guide_identity
-from solprop.translate.modal_path import path_rule, path_snapshot
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import Convention
+from solprop.output.store import Output
+from solprop.processing.axes import _plane_field, _plane_index, grid_of
+from solprop.translate import general
+from solprop.translate.chebyshev import EDGE_SLACK_FRACTION
 from solprop.translate.modal_tables import ModalTransformTables
 
 __all__ = [
@@ -75,6 +59,7 @@ __all__ = [
     "physical_energy",
     "plane_nodes",
     "reconstructed_flux",
+    "reference_tables",
 ]
 
 logger = logging.getLogger(__name__)
@@ -220,7 +205,7 @@ def _checked_tables(
     refusal = _identity_refusal("tables", tables.identity, modal["tables"])
     if refusal is None:
         try:
-            expected = guide_identity(guide)
+            expected = general.guide_identity(guide)
         except TranslationError as absent:
             # A guide built by `from_step_index` declares no sampling and so has no
             # identity at all. That is the translation layer's refusal, and it is
@@ -235,33 +220,64 @@ def _checked_tables(
 
 
 def _amplitudes(
-    output: Output, plane: int | None, z: float | None
+    output: Output, index: int
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Return one plane's channel amplitudes in the internal convention.
 
-    - ``z``: plane position, m.
+    - ``index``: the plane, negative from the end.
     """
-    if plane is None and z is None:
-        msg = (
-            "a reconstruction is made on one saved plane: give plane= or z=. A "
-            "whole run of physical fields is n_z times the size of the run itself"
-        )
-        raise OutputError(msg)
-    return _plane_field(output, plane, z, convention="fft")
+    return _plane_field(output, index, None, convention="fft")
 
 
-def _plane_position(output: Output, plane: int | None, z: float | None) -> float:
-    """Return the position of the one saved plane a selection names, in m.
+def _plane_position(output: Output, index: int) -> float:
+    """Return the stored position of one saved plane, in m.
 
-    - ``z``: plane position, m; the nearest saved plane is the one meant, as
-      :func:`_amplitudes` reads it.
-    - Returns: the stored position of that plane, m.
+    - ``index``: the plane, negative from the end.
     """
-    positions = output["z"]
-    if z is not None:
-        return float(positions[int(np.argmin(np.abs(positions - z)))])
-    assert plane is not None
-    return float(positions[plane])
+    return float(output["z"][index])
+
+
+def _reference(
+    output: Output,
+    name: str,
+    guide: ModalGuide,
+    tables: ModalTransformTables | None,
+) -> ModalTransformTables:
+    """Return the run's reference tables, rebuilt from the guide unless given, checked.
+
+    The record keeps the tables' identity and not their arrays (the module's notes);
+    the end of its ``z_span`` and the basis budget are what rebuild the same extent
+    and gate (:func:`solprop.translate.general.reference_tables`).
+
+    - ``name``: the accessor asking, for its refusal on another basis.
+    - Returns: tables whose identity, and whose guide's, are the file's.
+    """
+    metadata = _require_general(output, name)
+    if tables is None:
+        modal = metadata.modal
+        assert modal is not None
+        identity = modal.get("tables")
+        span = identity.get("z_span") if isinstance(identity, Mapping) else None
+        if not isinstance(span, Sequence) or len(span) != 2:
+            msg = (
+                "this file's modal.tables identity records no z_span, so the extent "
+                "its reference was tabulated over is unknown: pass the run's own "
+                "tables= instead"
+            )
+            raise OutputError(msg)
+        metric = modal.get("metric")
+        budget = metric.get("budget") if isinstance(metric, Mapping) else None
+        try:
+            tables = general.reference_tables(
+                guide,
+                grid_of(output),
+                z_end=float(span[1]),
+                gram_atol=DEFAULT_GRAM_ATOL if budget is None else float(budget),
+            )
+        except (TranslationError, ModeError) as refused:
+            msg = f"the reference cannot be rebuilt from this guide: {refused}"
+            raise OutputError(msg) from refused
+    return _checked_tables(metadata, tables, guide)
 
 
 @dataclass(frozen=True, eq=False)
@@ -297,7 +313,7 @@ def _moved_rule(guide: ModalGuide, position: float) -> tuple[float, ModalNodeRul
 
     - ``position``: the plane's own position, m.
     - Returns: the position, snapped onto the path's end when within the edge slack, and
-      the provider's own rule there (:func:`solprop.translate.modal_path.path_rule`).
+      the provider's own rule there (:func:`solprop.modes.path.path_rule`).
     """
     sampling = guide.sampling
     if sampling is None or sampling.path is None:
@@ -311,7 +327,7 @@ def _moved_rule(guide: ModalGuide, position: float) -> tuple[float, ModalNodeRul
     # path's end rather than on it; within the edge slack a schedule is matched to
     # its kinks with, it is the end.
     edges = sampling.path.z_edges
-    slack = _EDGE_SLACK_FRACTION * float(edges[-1] - edges[0])
+    slack = EDGE_SLACK_FRACTION * float(edges[-1] - edges[0])
     if edges[0] - slack <= position <= edges[-1] + slack:
         position = min(max(position, float(edges[0])), float(edges[-1]))
     return position, path_rule(guide.field_provider, sampling.nodes, position)
@@ -345,8 +361,8 @@ def _plane_reference(
     the rule that has moved with the interfaces to that plane (node ``q`` is the point
     ``x_q(z)``), so the guide is solved again there exactly as
     its path was sampled -- the provider's own rule asked for as the entrance rule was
-    (:func:`solprop.translate.modal_path.path_rule`), in the provider's own gauge
-    (:func:`solprop.translate.modal_path.path_snapshot`), then carried to the run's
+    (:func:`solprop.modes.path.path_rule`), in the provider's own gauge
+    (:func:`solprop.modes.path.path_snapshot`), then carried to the run's
     bins by the same cubic in frequency the maps were built with. It is the same
     field the run's Chebyshev-expanded synthesis stores at that position, to the
     path's held-out accuracy, and H comes from the same solve; the expansion carries
@@ -390,13 +406,12 @@ def _plane_reference(
     return _PlaneReference(electric, magnetic, rule.weights)
 
 
-def _spectra(  # noqa: PLR0917 - called positionally
+def _spectra(
     output: Output,
-    tables: ModalTransformTables,
-    plane: int | None,
-    z: float | None,
+    index: int,
     name: str,
     guide: ModalGuide,
+    tables: ModalTransformTables | None,
 ) -> tuple[
     Complex[np.ndarray, "n_nodes 3 n_omega"],
     Complex[np.ndarray, "n_nodes 3 n_omega"],
@@ -407,13 +422,12 @@ def _spectra(  # noqa: PLR0917 - called positionally
     On a moving guide they are the plane's own modes at that plane's own nodes
     (:func:`_plane_reference`).
 
-    - ``z``: plane position, m.
+    - ``index``: the plane, negative from the end.
     - Returns: the electric and magnetic spectra, each ``(n_nodes, 3, n_omega)``, and
       the area weights of the nodes they live on, m^2.
     """
-    metadata = _require_general(output, name)
-    _checked_tables(metadata, tables, guide)
-    field = _amplitudes(output, plane, z)
+    tables = _reference(output, name, guide, tables)
+    field = _amplitudes(output, index)
     grid = grid_of(output)
     if not np.array_equal(grid.omega, tables.omega):
         msg = (
@@ -423,7 +437,7 @@ def _spectra(  # noqa: PLR0917 - called positionally
             f"{grid.omega[-1]:.6e}: rebuild the route on this run's own grid"
         )
         raise OutputError(msg)
-    reference = _plane_reference(tables, guide, _plane_position(output, plane, z))
+    reference = _plane_reference(tables, guide, _plane_position(output, index))
     # n_pol is one on this route, and the backend refuses anything else; summing
     # it keeps the contraction honest if that ever changes.
     amplitudes = np.sum(field, axis=1)
@@ -442,7 +456,7 @@ def channel_labels(output: Output) -> tuple[ChannelLabel, ...]:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
 
     Returns
@@ -482,15 +496,66 @@ def channel_labels(output: Output) -> tuple[ChannelLabel, ...]:
     )
 
 
+def reference_tables(output: Output, *, guide: ModalGuide) -> ModalTransformTables:
+    """Rebuild a general modal run's E/H reference tables from its guide.
+
+    What every reconstruction accessor here does when it is not given ``tables=``,
+    done once: a loop over many planes passes the result to each call rather than
+    rebuilding it each time. The tables are tabulated over the extent the file's
+    table identity records (:func:`solprop.translate.general.reference_tables`) and
+    checked against that identity and the guide's, path by path.
+
+    Parameters
+    ----------
+    output : solprop.output.store.Output
+        An opened output handler holding a general modal run.
+    guide : solprop.modes.guide.ModalGuide
+        The guide the run was made with.
+
+    Returns
+    -------
+    solprop.translate.modal_tables.ModalTransformTables
+        The run's own reference tables.
+
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the run is not a general modal one, its record carries no table extent,
+        the reference cannot be rebuilt from the guide, or the guide is not the one
+        that produced the file.
+
+    Examples
+    --------
+    >>> from solprop.processing._examples import example_general_run
+    >>> from solprop.processing.modal import reconstructed_flux, reference_tables
+    >>> run, _, guide = example_general_run()
+    >>> tables = reference_tables(run, guide=guide)
+    >>> [
+    ...     reconstructed_flux(run, guide=guide, tables=tables, plane=index).ndim
+    ...     for index in (0, 1)
+    ... ]
+    [1, 1]
+    """
+    metadata = output.metadata
+    if metadata is None or capability_of(metadata) != "general_modal":
+        msg = (
+            "reference_tables rebuilds the reference of a general modal run, and this "
+            "output does not hold one"
+        )
+        raise OutputError(msg)
+    # The tables a reconstruction reads; any of its accessors' names passes the gate.
+    return _reference(output, "electric_field", guide, None)
+
+
 def electric_field(
     output: Output,
-    tables: ModalTransformTables,
     *,
+    guide: ModalGuide,
+    tables: ModalTransformTables | None = None,
     plane: int | None = None,
     z: float | None = None,
     analytic: bool = False,
     convention: Convention = "optics",
-    guide: ModalGuide,
 ) -> Inexact[np.ndarray, "n_nodes 3 n_t"]:
     """Return the electric field at the guide's nodes on one saved plane, in V/m.
 
@@ -502,15 +567,21 @@ def electric_field(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding a general modal run.
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        The run's own reference, rebuilt from the guide the record names; its
-        identity is checked against the file's.
+    guide : solprop.modes.guide.ModalGuide
+        The guide the run was made with. The reference is rebuilt from it when
+        `tables` is not given, and its sampling and regions are checked against the
+        file's own guide identity, which the tables' identity cannot see. Required.
+    tables : solprop.translate.modal_tables.ModalTransformTables or None, optional
+        The run's reference tables, rebuilt from `guide` by default; pass them to
+        reuse one rebuild across many calls. Their identity is checked against the
+        file's either way.
     plane : int or None, optional
-        Index of the plane wanted, negative from the end.
+        Index of the plane wanted, negative from the end; the last by default.
     z : float or None, optional
-        Position of the plane wanted, m. Exactly one of `plane` and `z` is given.
+        Position of the plane instead, m: the nearest saved plane. Refused beside a
+        `plane`.
     analytic : bool, optional
         Return the complex analytic signal instead of the real physical field. The
         real field is ``numpy.real`` of it, and the two flux accessors differ in
@@ -521,10 +592,6 @@ def electric_field(
         convention of ``docs/dev/conventions.md`` section 2 unless ``'fft'`` asks
         for the internal one the reference is solved in. The **real** field is
         convention-free, so this is read only with `analytic`.
-    guide : solprop.modes.guide.ModalGuide
-        The guide the reference was rebuilt from. Its sampling and its regions are
-        checked against the file's own guide identity, which the tables' identity
-        cannot see. It is **required** and has no default.
 
     Returns
     -------
@@ -535,22 +602,26 @@ def electric_field(
     ------
     solprop.exceptions.OutputError
         If the run is not a general modal one, the tables or the guide are not the
-        ones that produced the file, or no single plane was selected.
+        ones that produced the file, or the reference cannot be rebuilt from the
+        guide.
+    solprop.exceptions.ProcessingError
+        If the plane is named both by index and by position.
     """
-    spectrum, _, _ = _spectra(output, tables, plane, z, "electric_field", guide)
+    index = _plane_index(output, plane, z)
+    spectrum, _, _ = _spectra(output, index, "electric_field", guide, tables)
     signal = stats.analytic_field(grid_of(output), spectrum)
     return _in_convention(signal, convention) if analytic else np.real(signal)
 
 
 def magnetic_field(
     output: Output,
-    tables: ModalTransformTables,
     *,
+    guide: ModalGuide,
+    tables: ModalTransformTables | None = None,
     plane: int | None = None,
     z: float | None = None,
     analytic: bool = False,
     convention: Convention = "optics",
-    guide: ModalGuide,
 ) -> Inexact[np.ndarray, "n_nodes 3 n_t"]:
     """Return the magnetic field at the guide's nodes on one saved plane, in A/m.
 
@@ -562,22 +633,26 @@ def magnetic_field(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding a general modal run.
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        The run's own reference; its identity is checked against the file's.
+    guide : solprop.modes.guide.ModalGuide
+        The guide the run was made with. The reference is rebuilt from it when
+        `tables` is not given, and its sampling and regions are checked against the
+        file's own guide identity, which the tables' identity cannot see. Required.
+    tables : solprop.translate.modal_tables.ModalTransformTables or None, optional
+        The run's reference tables, rebuilt from `guide` by default; pass them to
+        reuse one rebuild across many calls. Their identity is checked against the
+        file's either way.
     plane : int or None, optional
-        Index of the plane wanted, negative from the end.
+        Index of the plane wanted, negative from the end; the last by default.
     z : float or None, optional
-        Position of the plane wanted, m. Exactly one of `plane` and `z` is given.
+        Position of the plane instead, m: the nearest saved plane. Refused beside a
+        `plane`.
     analytic : bool, optional
         Return the complex analytic signal instead of the real physical field.
     convention : {'optics', 'fft'}, optional
         Sign convention of the analytic signal, as :func:`electric_field` takes it
         and with the same default.
-    guide : solprop.modes.guide.ModalGuide
-        The guide the reference was rebuilt from, checked as in
-        :func:`electric_field`. Required.
 
     Returns
     -------
@@ -588,9 +663,13 @@ def magnetic_field(
     ------
     solprop.exceptions.OutputError
         If the run is not a general modal one, the tables or the guide are not the
-        ones that produced the file, or no single plane was selected.
+        ones that produced the file, or the reference cannot be rebuilt from the
+        guide.
+    solprop.exceptions.ProcessingError
+        If the plane is named both by index and by position.
     """
-    _, spectrum, _ = _spectra(output, tables, plane, z, "magnetic_field", guide)
+    index = _plane_index(output, plane, z)
+    _, spectrum, _ = _spectra(output, index, "magnetic_field", guide, tables)
     signal = stats.analytic_field(grid_of(output), spectrum)
     return _in_convention(signal, convention) if analytic else np.real(signal)
 
@@ -616,12 +695,12 @@ def _longitudinal(
 
 def reconstructed_flux(
     output: Output,
-    tables: ModalTransformTables,
     *,
+    guide: ModalGuide,
+    tables: ModalTransformTables | None = None,
     plane: int | None = None,
     z: float | None = None,
     density: bool = False,
-    guide: ModalGuide,
 ) -> Float[np.ndarray, "*shape"]:
     """Return the cycle-averaged Poynting flux of one saved plane, in watts.
 
@@ -645,20 +724,24 @@ def reconstructed_flux(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding a general modal run.
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        The run's own reference; its identity is checked against the file's.
+    guide : solprop.modes.guide.ModalGuide
+        The guide the run was made with. The reference is rebuilt from it when
+        `tables` is not given, and its sampling and regions are checked against the
+        file's own guide identity, which the tables' identity cannot see. Required.
+    tables : solprop.translate.modal_tables.ModalTransformTables or None, optional
+        The run's reference tables, rebuilt from `guide` by default; pass them to
+        reuse one rebuild across many calls. Their identity is checked against the
+        file's either way.
     plane : int or None, optional
-        Index of the plane wanted, negative from the end.
+        Index of the plane wanted, negative from the end; the last by default.
     z : float or None, optional
-        Position of the plane wanted, m. Exactly one of `plane` and `z` is given.
+        Position of the plane instead, m: the nearest saved plane. Refused beside a
+        `plane`.
     density : bool, optional
         Return the flux **density** at each node, ``(n_nodes, n_t)`` in W/m^2,
         instead of its weighted sum over the cross-section.
-    guide : solprop.modes.guide.ModalGuide
-        The guide the reference was rebuilt from, checked as in
-        :func:`electric_field`. Required.
 
     Returns
     -------
@@ -670,10 +753,14 @@ def reconstructed_flux(
     ------
     solprop.exceptions.OutputError
         If the run is not a general modal one, the tables or the guide are not the
-        ones that produced the file, or no single plane was selected.
+        ones that produced the file, or the reference cannot be rebuilt from the
+        guide.
+    solprop.exceptions.ProcessingError
+        If the plane is named both by index and by position.
     """
+    index = _plane_index(output, plane, z)
     electric, magnetic, weights = _spectra(
-        output, tables, plane, z, "reconstructed_flux", guide
+        output, index, "reconstructed_flux", guide, tables
     )
     grid = grid_of(output)
     flux = _longitudinal(
@@ -686,12 +773,12 @@ def reconstructed_flux(
 
 def instantaneous_flux(
     output: Output,
-    tables: ModalTransformTables,
     *,
+    guide: ModalGuide,
+    tables: ModalTransformTables | None = None,
     plane: int | None = None,
     z: float | None = None,
     density: bool = False,
-    guide: ModalGuide,
 ) -> Float[np.ndarray, "*shape"]:
     """Return the instantaneous Poynting flux of one saved plane, in watts.
 
@@ -722,20 +809,24 @@ def instantaneous_flux(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding a general modal run.
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        The run's own reference; its identity is checked against the file's.
+    guide : solprop.modes.guide.ModalGuide
+        The guide the run was made with. The reference is rebuilt from it when
+        `tables` is not given, and its sampling and regions are checked against the
+        file's own guide identity, which the tables' identity cannot see. Required.
+    tables : solprop.translate.modal_tables.ModalTransformTables or None, optional
+        The run's reference tables, rebuilt from `guide` by default; pass them to
+        reuse one rebuild across many calls. Their identity is checked against the
+        file's either way.
     plane : int or None, optional
-        Index of the plane wanted, negative from the end.
+        Index of the plane wanted, negative from the end; the last by default.
     z : float or None, optional
-        Position of the plane wanted, m. Exactly one of `plane` and `z` is given.
+        Position of the plane instead, m: the nearest saved plane. Refused beside a
+        `plane`.
     density : bool, optional
         Return the flux **density** at each node, ``(n_nodes, n_t)`` in W/m^2,
         instead of its weighted sum over the cross-section.
-    guide : solprop.modes.guide.ModalGuide
-        The guide the reference was rebuilt from, checked as in
-        :func:`electric_field`. Required.
 
     Returns
     -------
@@ -747,10 +838,14 @@ def instantaneous_flux(
     ------
     solprop.exceptions.OutputError
         If the run is not a general modal one, the tables or the guide are not the
-        ones that produced the file, or no single plane was selected.
+        ones that produced the file, or the reference cannot be rebuilt from the
+        guide.
+    solprop.exceptions.ProcessingError
+        If the plane is named both by index and by position.
     """
+    index = _plane_index(output, plane, z)
     electric, magnetic, weights = _spectra(
-        output, tables, plane, z, "instantaneous_flux", guide
+        output, index, "instantaneous_flux", guide, tables
     )
     grid = grid_of(output)
     flux = _longitudinal(
@@ -763,11 +858,11 @@ def instantaneous_flux(
 
 def coordinate_intensity(
     output: Output,
-    tables: ModalTransformTables,
     *,
+    guide: ModalGuide,
+    tables: ModalTransformTables | None = None,
     plane: int | None = None,
     z: float | None = None,
-    guide: ModalGuide,
 ) -> Float[np.ndarray, "n_modes n_nodes n_t"]:
     """Return the flux density each channel would carry alone, in W/m^2.
 
@@ -784,17 +879,21 @@ def coordinate_intensity(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding a general modal run.
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        The run's own reference; its identity is checked against the file's.
-    plane : int or None, optional
-        Index of the plane wanted, negative from the end.
-    z : float or None, optional
-        Position of the plane wanted, m. Exactly one of `plane` and `z` is given.
     guide : solprop.modes.guide.ModalGuide
-        The guide the reference was rebuilt from, checked as in
-        :func:`electric_field`. Required.
+        The guide the run was made with. The reference is rebuilt from it when
+        `tables` is not given, and its sampling and regions are checked against the
+        file's own guide identity, which the tables' identity cannot see. Required.
+    tables : solprop.translate.modal_tables.ModalTransformTables or None, optional
+        The run's reference tables, rebuilt from `guide` by default; pass them to
+        reuse one rebuild across many calls. Their identity is checked against the
+        file's either way.
+    plane : int or None, optional
+        Index of the plane wanted, negative from the end; the last by default.
+    z : float or None, optional
+        Position of the plane instead, m: the nearest saved plane. Refused beside a
+        `plane`.
 
     Returns
     -------
@@ -805,12 +904,15 @@ def coordinate_intensity(
     ------
     solprop.exceptions.OutputError
         If the run is not a general modal one, the tables or the guide are not the
-        ones that produced the file, or no single plane was selected.
+        ones that produced the file, or the reference cannot be rebuilt from the
+        guide.
+    solprop.exceptions.ProcessingError
+        If the plane is named both by index and by position.
     """
-    metadata = _require_general(output, "coordinate_intensity")
-    _checked_tables(metadata, tables, guide)
-    amplitudes = np.sum(_amplitudes(output, plane, z), axis=1)
-    reference = _plane_reference(tables, guide, _plane_position(output, plane, z))
+    index = _plane_index(output, plane, z)
+    tables = _reference(output, "coordinate_intensity", guide, tables)
+    amplitudes = np.sum(_amplitudes(output, index), axis=1)
+    reference = _plane_reference(tables, guide, _plane_position(output, index))
     grid = grid_of(output)
     return np.stack(
         [
@@ -826,11 +928,11 @@ def coordinate_intensity(
 
 def plane_nodes(
     output: Output,
-    tables: ModalTransformTables,
     *,
+    guide: ModalGuide,
+    tables: ModalTransformTables | None = None,
     plane: int | None = None,
     z: float | None = None,
-    guide: ModalGuide,
 ) -> tuple[Float[np.ndarray, "n_nodes 2"], Float[np.ndarray, " n_nodes"]]:
     """Return where one saved plane is reconstructed: its nodes and area weights.
 
@@ -842,22 +944,26 @@ def plane_nodes(
     every plane. For a **moving** guide they are the plane's own: the rule that has
     moved with the interfaces to that plane's position, which is the provider's
     rule asked for there exactly as the entrance rule was
-    (:func:`solprop.translate.modal_path.path_rule`) -- the same rule the field
+    (:func:`solprop.modes.path.path_rule`) -- the same rule the field
     accessors solve on, so no caller needs the translation layer to plot a plane.
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding a general modal run.
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        The run's own reference; its identity is checked against the file's.
-    plane : int or None, optional
-        Index of the plane wanted, negative from the end.
-    z : float or None, optional
-        Position of the plane wanted, m. Exactly one of `plane` and `z` is given.
     guide : solprop.modes.guide.ModalGuide
-        The guide the reference was rebuilt from, checked as in
-        :func:`electric_field`. Required.
+        The guide the run was made with. The reference is rebuilt from it when
+        `tables` is not given, and its sampling and regions are checked against the
+        file's own guide identity, which the tables' identity cannot see. Required.
+    tables : solprop.translate.modal_tables.ModalTransformTables or None, optional
+        The run's reference tables, rebuilt from `guide` by default; pass them to
+        reuse one rebuild across many calls. Their identity is checked against the
+        file's either way.
+    plane : int or None, optional
+        Index of the plane wanted, negative from the end; the last by default.
+    z : float or None, optional
+        Position of the plane instead, m: the nearest saved plane. Refused beside a
+        `plane`.
 
     Returns
     -------
@@ -871,8 +977,10 @@ def plane_nodes(
     ------
     solprop.exceptions.OutputError
         If the run is not a general modal one, the tables or the guide are not the
-        ones that produced the file, no single plane was selected, or a moving
-        guide cannot be solved again at the plane's position.
+        ones that produced the file, the reference cannot be rebuilt from the guide,
+        or a moving guide cannot be solved again at the plane's position.
+    solprop.exceptions.ProcessingError
+        If the plane is named both by index and by position.
 
     Examples
     --------
@@ -880,19 +988,19 @@ def plane_nodes(
     >>> from solprop.processing._examples import example_general_run
     >>> from solprop.processing.modal import plane_nodes, reconstructed_flux
     >>> run, tables, guide = example_general_run()
-    >>> xy, weights = plane_nodes(run, tables, plane=-1, guide=guide)
+    >>> xy, weights = plane_nodes(run, guide=guide)
     >>> xy.shape == (weights.size, 2)
     True
-    >>> density = reconstructed_flux(run, tables, plane=-1, density=True, guide=guide)
-    >>> flux = reconstructed_flux(run, tables, plane=-1, guide=guide)
+    >>> density = reconstructed_flux(run, guide=guide, tables=tables, density=True)
+    >>> flux = reconstructed_flux(run, guide=guide, tables=tables)
     >>> bool(np.allclose(weights @ density, flux, rtol=1e-12, atol=0.0))
     True
     """
-    metadata = _require_general(output, "plane_nodes")
-    _checked_tables(metadata, tables, guide)
+    index = _plane_index(output, plane, z)
+    tables = _reference(output, "plane_nodes", guide, tables)
     # Read for its refusals alone: the same plane selection the field accessors make.
-    _amplitudes(output, plane, z)
-    return _plane_rule(tables, guide, _plane_position(output, plane, z))
+    _amplitudes(output, index)
+    return _plane_rule(tables, guide, _plane_position(output, index))
 
 
 def physical_energy(
@@ -917,7 +1025,7 @@ def physical_energy(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding a general modal run.
     plane : int or None, optional
         Index of the plane wanted, negative from the end; with neither `plane` nor

@@ -22,7 +22,13 @@ import pytest
 
 from convergence_records import Column, Study, record
 from legacy_geometry import LEGACY_GRID
-from solprop.backends.numpy_ref import passes
+from solprop.backends.numpy_ref.passes.plasma import (
+    ionisation_rate,
+    plasma_current,
+    plasma_integration_diagnostics,
+    plasma_integration_statistics,
+    plasma_scan,
+)
 from solprop.constants import C
 from solprop.grid import FieldGrid
 from solprop.nonlinear.ionisation import RunningIntegral
@@ -149,11 +155,11 @@ def _field_on(grid, base, spectrum):
 def _column(field, coefficients, dt, integral):
     """Return the polarisation and the current it integrates, one scalar column."""
     nodes = field[None, None, :]
-    rate = passes.ionisation_rate(nodes, coefficients.rate)
-    fraction, free = passes.plasma_scan(
+    rate = ionisation_rate(nodes, coefficients.rate)
+    fraction, free = plasma_scan(
         nodes, rate, coefficients, preionisation=0.0, dt=dt, integral=integral
     )
-    polarisation = passes.plasma_current(
+    polarisation = plasma_current(
         nodes,
         rate,
         fraction,
@@ -249,7 +255,7 @@ def study(case):
                 * grid.dt_fine
             )
             if name == "band":
-                diagnostics = passes.plasma_integration_diagnostics(
+                diagnostics = plasma_integration_diagnostics(
                     field[None, None, :], (coefficients,), (0.0,), grid.dt_fine, rule
                 )
     reference = (4 * spectra[96.0, "trapezoid"] - spectra[48.0, "trapezoid"]) / 3
@@ -292,7 +298,7 @@ def study(case):
         }
     )
     assert diagnostics is not None
-    undershoot, work_defect, _ = passes.plasma_integration_statistics(diagnostics)
+    undershoot, work_defect, _ = plasma_integration_statistics(diagnostics)
     return rows, undershoot, work_defect
 
 

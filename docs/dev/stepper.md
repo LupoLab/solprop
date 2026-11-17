@@ -175,10 +175,10 @@ order conditions are checked for both weight vectors and the propagated solution
 fifth-order one, and the FSAL stage is not recycled before anything that depends on the
 completed step (irrelevant without dense output, but tested).
 
-**Who marches** ([SEP 47](seps/archive/sep-0047-run-ownership.md)). The NumPy reference runs
-its own step driver and marches in `backends/host/`: `HostDriver`, `HostAdamsMarch`,
-`HostLowStorageMarch` and the fixed-schedule group `HostGroup`. Every
-native run is its native session's, whose compiled Runge-Kutta, Adams and low-storage
+**Who marches** ([SEP 47](seps/archive/sep-0047-run-ownership.md), [SEP 52](seps/archive/sep-0052-backend-shape.md)).
+The NumPy reference's session schedules its runs and drives its marches in
+`backends/numpy_ref/`: `HostSession` over `RungeKuttaMarch`, `HostAdamsMarch` and
+`HostLowStorageMarch`. Every native run is its native session's, whose compiled Runge-Kutta, Adams and low-storage
 marches decide natively from one policy record each: the native backend loads a start
 itself (`solprop_native._load`) and keeps its Adams march's policy, ledger and history
 in a record of its own (`_NativeAdamsMarch`), and inherits no Python step loop. The
@@ -262,7 +262,7 @@ only forward flows are applied, four per element, and on a constant operator
 `P = Q = exp(hD/2)`. The step is four passes over three registers -- the state `A`,
 overwritten in place by `P A` and then by the accepted step, the accumulator `B` and the
 stage input `C` -- beside the pipeline's scratch, each pass one source evaluation
-(`_adams_lab_source`, the complete lab-frame source with the noise draw at the pass's
+(the workspace's `lab_source`, the complete lab-frame source with the noise draw at the pass's
 position) and one fold:
 
 | pass | evaluation | fold |
@@ -273,18 +273,20 @@ position) and one fold:
 | 4 | `F4` at `z_n + h` | `A <- Q B + h/6 S` |
 
 `HostLowStorageMarch` replays a schedule and nothing else, mirroring `HostAdamsMarch`'s
-replay: each step calls the host engine (`HostLowStorage.step`), applies `_finish` and
-moves the position in one commit. The native backend holds no such march: its resident
-registers (`_ResidentLowStorage`) step only for a timing probe's trial, one native call
-per step. The native execution session ([SEP 47](seps/archive/sep-0047-run-ownership.md) section 6.3,
+replay: each step's trial (`NumpyLowStorage.trial`) overwrites the state, in flight until
+the engine's accept finishes it, and the march moves its position in the same commit
+(SEP 52 §5.2). The native backend holds no such march in Python: a timing probe's
+trial is one step of the workspace's own low-storage engine (`Workspace.probe`, which
+closes the workspace afterwards, SEP 52 §5.5). The native execution session ([SEP 47](seps/archive/sep-0047-run-ownership.md) section 6.3,
 `solprop_native.session`) owns the loop itself: the native Runge-Kutta march replays the
 schedule, and each step is one in-place native step whose stage scalars, the table keys
 of `table_steps` and the flows' increments, the native state forms from its stage
-tables (`native/src/low_storage.cpp`), with no return to Python; a failure partway
+tables (`native/src/march/low_storage.cpp`), with no return to Python; a failure partway
 through a step leaves no consistent state, so the session's terminal event is poisoned
 and claims no checkpoint. There is no estimate: the history's norm is 0.0, "not estimated". The step
-is **in flight** from its start to its commit (`HostDriver._in_flight`), and every entry
-that reads or advances the state refuses it until `set_initial`; divergence is detected
+is **in flight** from its start to its commit (the engine's `in_flight`, which the march
+reports with the step's start and length), and every entry that reads or advances the
+state refuses it until a new session loads a start; divergence is detected
 on the accepted state's squared norm, which pass 4 reduces over the norm mask. The
 stiffness indicator `h rho = 2 ||F3 - F2|| / ||F2 - g1||` (exactly `|h lambda|` for
 `u' = lambda u`) is kept by the host engine and logged when it passes RK4's negative-real
@@ -303,8 +305,9 @@ a Cartesian Kerr beam, `tests/backends/test_low_storage.py`).
 
 ### Low-call Adams methods
 
-`stepper/multistep.py` and `backends/numpy_ref/multistep.py` hold the Adams integrator, the default
-of `prop_capillary`, `prop_radial` and `prop_planar` (ADR-037, ADR-045, ADR-055;
+`stepper/multistep.py` and `backends/numpy_ref/multistep.py` (with `adams_kernels.py` and
+`adams_tables.py`) hold the Adams integrator, the default
+of `prop_capillary`, `prop_free` on a radial grid and `prop_planar` (ADR-037, ADR-045, ADR-055;
 `stepper/runge_kutta.py`'s `RungeKutta` names the tableau's march, the default of
 `prop_gnlse`, `prop_waveguide` and `prop_free`).
 `Multistep` is an Adams march with a derivative history, in the exponential formulation
@@ -316,25 +319,20 @@ picture, transporting the history, on request
 - a corrector one order higher than its predictor;
 - variable order up to five by default.
 
-The march (`backends/numpy_ref/multistep.py`) is shared: a backend supplies the step driver's two
-hooks `_adams_source`, one source evaluation at a lab-frame field returned in the step's
-anchor frame, and `_adams_propagator`, and takes the march as its `_march_to` when the
-problem carries an integrator. `numpy_ref` evaluates through its reference passes. `native` keeps
-its state natively, so it also supplies `_adams_state` and `_adams_adopt`, a host copy of
-the accepted state and the native finish; its source is stage zero of a trial whose
-every stage row is the evaluation position's (`State.adams_source`), on every route
-but a coupled flow, and its lab-frame source the same with the anchor at the
-position, and after a dense
-observation, which loads the interpolated field natively, `_adams_restore` reloads the
-march's own state. The selected family, one-order-higher PEC, takes a **fused**
+The reference's march (`backends/numpy_ref/marches/adams.py`) hands every state-sized operation to its
+engine, `HostHistory` (`backends/numpy_ref/multistep.py`), over the workspace's
+operations: `source`, one source evaluation at a lab-frame field returned in the step's
+anchor frame, and `propagator`. `native` marches natively, its source stage zero of a
+trial whose every stage row is the evaluation position's, on every route but a coupled
+flow, and its lab-frame source the same with the anchor at the position. The selected family, one-order-higher PEC, takes a **fused**
 path: the history is a store of rows, and a step is three passes of `AdamsKernels` --
 the predictor's lab-frame field, the corrected field with the defects of the step's own
 and the neighbouring orders, and the transport -- which the native engine runs in its kernels. Dense observation of save planes is ADR-036's; on the
 fused path the step's slopes are copied before the in-place transport.
 **The exponential formulation** (ADR-041) shares the march. Its samples are
-untransported: the source comes from the hook `_adams_lab_source`, the lab-frame
+untransported: the source comes from the workspace's `lab_source`, the lab-frame
 evaluation, and lands in the same store of rows, which an accepted step does not
-re-anchor. A trial takes `x = ΔΦ` over the step from the backend's own `_delta_phi`,
+re-anchor. A trial takes `x = ΔΦ` over the step from the workspace's own `delta_phi`,
 so that its flow `exp(x)` is the propagator the interaction formulation would apply,
 forms the moments `k! φ_{k+1}(x)` once (`backends/exponential.py`), and applies the
 predictor, the corrector and the neighbouring orders' defects in the monomial basis of
@@ -343,7 +341,7 @@ so no propagator multiplies them. The defect, the norm's scale and the lifecycle
 the transported formulation's; so is the order choice, but for the in-stage collar's
 stability, which it weighs (`adams_core.order_weight`): each order's
 step factor is capped at `COLLAR_STABILITY` times PEC's negative-real interval over
-`h max(α) / 2`, the step itself left to the chosen order's defect. **Beside a coupled flow** (ADR-044) the backend's hook `_adams_block` returns the frozen block of the step's
+`h max(α) / 2`, the step itself left to the chosen order's defect. **Beside a coupled flow** (ADR-044) the workspace's `coupled_block` returns the frozen block of the step's
 section (`CoupledBlock`); `coupled_moments` forms the trial's flow and moments as
 matrix functions of `(ΔΦ/h) I + G_s` on the block's bins, `CoupledExponentialKernels`
 applies them -- on the native backend in its kernels, which
@@ -352,7 +350,7 @@ take the matrix functions from the flow actions' eigenbasis (`CoupledBlock.basis
 compensation below,
 formed from each sample's flow weights against the step's own section. The lab-frame
 source runs without the flow's pipeline on every backend. The interaction formulation
-is refused by name (`backends.exponential.refuse_formulation`).
+is refused by name (`backends.exponential.refuse_adams`).
 
 **The carrier frame** ([SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md),
 `Multistep.carrier_frame`, opt-in) changes what an exponential trial interpolates and
@@ -374,8 +372,8 @@ caps each proposal at `CARRIER_PHASE_CAP` of carrier phase before the landing ru
 (`HostAdamsMarch._capped`), measured by the reference element's chord alone
 (`CarrierChord`, the operator's own constant, expansion or z table at that element),
 so a capped step is not a landing; a replayed schedule is not capped. The native
-engine (`_ResidentAdams`) forms its `sigma` from the same chord on the host and passes
-it with the factors in `ExponentialWeights` (`shifted`, `shift`, `factor_re`,
+engine (`engines::ResidentEngine`) forms its `sigma` from the same chord, read from the
+stage tables (`stage::chord`), and passes it with the factors in `ExponentialWeights` (`shifted`, `shift`, `factor_re`,
 `factor_im`); its kernels read rows through `adams_history` and form moments through
 `adams_moment_phi`, and dense observation takes the accepted step's carrier frame. An
 inert or `"off"` run takes the unshifted arithmetic exactly. `"scalar"` runs on
@@ -405,15 +403,15 @@ corrector, carry and defect norms are native passes over its resident eigenbasis
 frozen-residual flow's generator applied once per sample.
 
 **The native Runge–Kutta march** (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)):
-`HostDriver._march_to`'s decisions are pure functions of a `RungeKuttaPolicy`
+`RungeKuttaMarch.march_to`'s decisions are pure functions of a `RungeKuttaPolicy`
 (`backends/rk_core.py`), held to a decision corpus recorded before the refactor
-(`tests/data/rk_traces.json.gz`), and `native` executes them (`native/src/rk_march.cpp`) on
+(`tests/data/rk_traces.json.gz`), and `native` executes them (`native/src/march/rk_march.cpp`) on
 its staged trial and native norm, a call of attempts at a time, returning only at a host
 event and taking the boundary checks itself; the kernel contract's section 12 is the
 interface. It covers interpolated planes (the step across a plane returns to solprop, which
 holds its extension; in SEP 47's native session the march holds it through its engine,
 `rk::Engine::extend`, finishes the step itself and the session observes the plane where the
-state lives, `native/src/dense.cpp`), a replayed schedule, a coupled flow (its guards transcribed), a z table
+state lives, `native/src/march/dense.cpp`), a replayed schedule, a coupled flow (its guards transcribed), a z table
 the transverse edge (read on the host, as the Adams march reads it) and a weighted norm
 (reduced natively in both loops), on CPU and device builds alike. `PIController` is final
 (ADR-077): defining a subclass raises `StepperError`, so its decisions and its norm are the
@@ -427,40 +425,40 @@ record, `MarchPolicy`, formed by `march_policy` from the method and the settings
 the decisions are pure functions of the policy, the march's state and a trial's norms
 (`backends/adams_core.py`). The kernel contract's section 11 specifies them. `native`
 executes `Multistep()` in either formulation and replayed schedules from that record on its resident engine
-(`native/src/adams_march.cpp`), a run of attempts per call, and returns to solprop
-only at an event: the target reached or crossed, an accepted step on which the driver
-has work (a statistics row, a natural stop), a boundary check whose verdict needs
-solprop, the call's bound, the budget, the floor or a native error. The march takes the
+(`native/src/march/adams_march.cpp`), a run of attempts per call, and returns to its
+native session (`native/src/session/session.cpp`) only at an event: the target reached
+or crossed, an accepted step on which the session has work (a statistics row, a natural
+stop), a boundary check whose verdict the session gives, the call's bound, the budget, the floor or a native error. The march takes the
 boundary monitor's checks itself ([SEP 45](seps/archive/sep-0045-native-rk-march.md) §4.8),
 buffers their readings and predicts the monitor's verdict; a run with a transverse
 edge keeps returning at each check. The run's stop flag is polled before each call
 and a signal's handler runs after it, so the call's bound, 256 attempts or 0.1 s, is
-what either waits for. The driver books the call's attempts through
-`_record_attempt` and `_account_step`, inside one commit, replaying each buffered
-reading through the monitor at its own step. The Python march is the reference --
+what either waits for. The session books the call's attempts (`absorb`, as
+`HostSession.record`) and accounts each accepted step as `HostSession._account_step`
+does, inside one commit, replaying each buffered reading through the monitor at its own
+step. The Python march is the reference --
 `HostAdamsMarch` for `numpy_ref`; native steps every configuration it admits with the
 native march and has no Python march to fall back on (SEP 47 phase 5): the interaction
 formulation beside a coupled flow, a representation its stage tables do not read and
 the untransported compensation witness are refused by name. A z table's carrier frame steps natively: the stage tables carry the imaginary
 part of the table's reference element as a scalar table, read by the Clenshaw helper
-solprop's tables use, so its shift and step cap are the host's (issue #255). A native
-group replays each member in its own native session (`solprop_native.group`).
+solprop's tables use, so its shift and step cap are the host's (issue #255).
 
-**Resume** (ADR-046): an engine that can export its rows (`snapshot_rows`, and
-`load_rows` to install them) lets `HostAdamsMarch.snapshot` (and the native session's
-`march_snapshot`) return a `MarchSnapshot` -- the
-accepted state, the rows, each history entry's position, kind and row, the order, the
-rejection count and the proposed step -- which the run loop keeps beside every save
+**Resume** (ADR-046): an Adams history keeps its rows where the state lives, behind the
+session's `HistoryRows` (`export`, and `install` to put them back; the reference's
+`AdamsRows`, which `HostHistory` writes). The session's `march_snapshot` returns a
+`MarchSnapshot` -- the accepted state, the rows, and, from
+`HostAdamsMarch.snapshot_fields`, each history entry's position, kind and row, the order,
+the rejection count and the proposed step -- which the run loop keeps beside every save
 plane and terminal checkpoint through an output's `save_march`, and which
-`HostAdamsMarch.load` installs at the same position on a resume. `HostHistory` exports
-them, and so does the native backend's resident engine (SEP 29 §6.6): it copies its
+`HostAdamsMarch.load` installs at the same position on a resume, its rows installed
+beside it. The native backend's resident engine exports them too (SEP 29 §6.6): it copies its
 persistent views to the host, losslessly, under the host engine's names and layout
 (`store`, and `states` and `rates` for a compensated history), and a frozen-residual
 flow's `G(z_j) u_j` per sample as `applied` where the host engine keeps the sample's
 weights (`weights_<row>`). Each engine refuses rows it does not keep, so those two
 histories do not cross; every other history does. The engines' trial and dense-step
-bookkeeping is not exported: a load forgets it (`reset`), as the next step is a new
-trial. Both methods are part of the `AdamsEngine` protocol. A march whose saved rows
+bookkeeping is not exported: a load forgets it, as the next step is a new trial. A march whose saved rows
 the engine refuses (another engine's rows, another build's shapes) resumes afresh, and
 the driver warns.
 Nothing in the trial lifecycle reads a held trial across the snapshot: it is taken
@@ -469,8 +467,6 @@ only at an accepted position with nothing ahead of it.
 **Prescribed schedules**: with a schedule the march replays its steps
 (`HostAdamsMarch._replay_to`), accepting each whatever its estimate, which is recorded as
 the Runge–Kutta replay records it; a hard kink on an edge restarts the history.
-`HostAdamsMarch.replay_step` is also the unit a lockstep batch advances each member by
-(`HostGroup._replay_to`), each member keeping its own history and ledger.
 
 The derivation, the stability limits and the measured comparison are in
 [SEP 13](seps/archive/sep-0013-expensive-response-steppers.md) and on the manual page
@@ -692,8 +688,7 @@ Memory: the expansion is `n_terms × n_modes × n_pol × n_omega × 16 B` plus s
 `n_intervals × (degree+1) × n_modes × n_pol × n_omega × 16 B`. On the comb-to-continuum
 size — six modes, 16 385 bins, a 1.5 m hydrogen gradient — that is 49.7 MB against 792 MB
 for Φ and 15.1 MB against 759 MB for the prefactor, so the pair falls from 1.55 GB to
-64.8 MB; `ΔΦ` falls from 17.8 ms to 1.2 ms with it. Either is shared
-across batch members with the same fibre.
+64.8 MB; `ΔΦ` falls from 17.8 ms to 1.2 ms with it.
 
 ## 5. The co-moving frame and analytic β₁
 
@@ -781,12 +776,10 @@ rejected a step the replay may choose a different order; and a resumed march can
 its history from a restart rather than carry the original one. A replay of an adaptive
 run is therefore an accuracy comparison (an envelope against a tighter or stored
 reference), and so is a resumed run against the uninterrupted one. Rounding-level
-comparisons — backend against backend, one thread against many, a batch member against its
-solo run — run **both** sides on one prescribed schedule with a fixed-order method and
+comparisons — backend against backend, one thread against many, a scan point against its
+run alone — run **both** sides on one prescribed schedule with a fixed-order method and
 matched startup, restart history and save planes ([testing.md](testing.md) section 3).
 Recording and replaying every adaptive decision is not provided.
-
-Batch lockstep execution uses fixed schedules only (ADR-013).
 
 ## 9. Open numerical questions
 

@@ -14,6 +14,10 @@ from benchmarks.native_session import measure
 
 pytest.importorskip("solprop_native")
 
+# Both tests propagate a registered benchmark case: the harness's real-case runs are
+# slow (testing.md section 2).
+pytestmark = pytest.mark.slow
+
 
 @pytest.mark.parametrize("case", ["stats_period1_rk", "stats_period1_adams"])
 def test_period_one_rows_take_no_return_to_python(case):

@@ -4,16 +4,21 @@
 
 """Solve the exact, lossless vector eigenproblem of a circular step-index fibre.
 
-The characteristic equation is evaluated after clearing its Bessel denominators;
-sign changes at Bessel poles are therefore never accepted as eigenvalues.
-TE means ``A + B = 0`` and TM means ``A + (n_cl/n_co)**2 B = 0``.
-The transverse profile is evaluated at an explicitly declared wavelength.
-See ``docs/guide/waveguides/step-index.md`` for the Snyder and Love references.
+:class:`StepIndexMode` is one exact vector mode (Snyder and Love) of a step-index
+fibre, solved on the real parts of the core and cladding indices that
+:func:`real_index_and_slope` samples with their analytic slopes, with its transverse
+profile evaluated at an explicitly declared wavelength (and at a cladding decay no
+smaller than :data:`PROFILE_MIN_W`). The characteristic equation is evaluated after
+clearing its Bessel denominators, so sign changes at Bessel poles are never accepted
+as eigenvalues; TE means ``A + B = 0`` and TM means ``A + (n_cl/n_co)**2 B = 0``. The
+vector E/H fields and the modal provider built from these modes are in
+:mod:`solprop.modes.stepindex_vector`. See ``docs/guide/waveguides/step-index.md``
+for the references.
 """
 
 import logging
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import KW_ONLY, dataclass, field, replace
 from functools import cache, cached_property
 from types import MappingProxyType
@@ -29,11 +34,16 @@ from scipy.special import jn_zeros, jv, jvp, kve
 from solprop._display import Displayed, engineering, line
 from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError
+from solprop.modes.fill import LossFunction
 from solprop.modes.protocol import ChannelLabel, CrossSection
 from solprop.physdata.glasses import GlassIndex, fused_silica, lossless_index
 from solprop.profiles import ZProfile, as_profile
 
-__all__ = ["PROFILE_MIN_W", "StepIndexMode"]
+__all__ = [
+    "PROFILE_MIN_W",
+    "StepIndexMode",
+    "real_index_and_slope",
+]
 
 PROFILE_MIN_W = 0.1
 """Smallest cladding decay the frozen transverse profile is evaluated at.
@@ -47,7 +57,6 @@ field over a disc no fixed rule resolves. It bounds the *frozen profile* only:
 logger = logging.getLogger(__name__)
 
 _Kind = Literal["HE", "EH", "TE", "TM"]
-_Loss = Callable[[Float[np.ndarray, " n_omega"]], Float[np.ndarray, " n_omega"]]
 _EPS = np.finfo(float).eps
 _MAX_V = 20000.0
 """Largest fibre frequency V at which the root scan runs.
@@ -650,14 +659,14 @@ class _ApertureIndex(GlassIndex):
         - ``omega``: positive angular frequencies in rad/s.
         - Returns: complex refractive index and slope in s/rad, with the input shape.
         """
-        index, derivative = _material(self.cladding, omega)
+        index, derivative = real_index_and_slope(self.cladding, omega)
         addition = self.numerical_aperture**2 / (2 * index)
         return np.asarray(index + addition, dtype=complex), np.asarray(
             derivative * (1 - addition / index), dtype=complex
         )
 
 
-def _material(
+def real_index_and_slope(
     material: GlassIndex | float, omega: Float[np.ndarray, "*shape"]
 ) -> tuple[Float[np.ndarray, "*shape"], Float[np.ndarray, "*shape"]]:
     """Sample the real index and its analytic slope for the lossless eigenproblem.
@@ -667,9 +676,26 @@ def _material(
     drops and warns beyond its bound; any other glass's real part is taken as
     documented on :class:`StepIndexMode`.
 
-    - ``material``: index model or positive constant refractive index.
-    - ``omega``: positive angular frequencies in rad/s.
-    - Returns: real index and derivative in s/rad, with the input shape.
+    Parameters
+    ----------
+    material : GlassIndex or float
+        Index model or positive constant refractive index.
+    omega : numpy.ndarray
+        Positive angular frequencies in rad/s, any shape.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The real index, dimensionless, and its derivative in s/rad, with the shape
+        of `omega`.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.modes.stepindex import real_index_and_slope
+    >>> index, slope = real_index_and_slope(1.45, np.array([2.0e15, 2.5e15]))
+    >>> index.tolist(), slope.tolist()
+    ([1.45, 1.45], [0.0, 0.0])
     """
     if isinstance(material, GlassIndex):
         lossless = lossless_index(material)
@@ -704,7 +730,7 @@ class StepIndexMode(Displayed):
     """Describe an exact vector mode with an explicitly frozen profile wavelength.
 
     Solve the lossless Snyder and Love eigenproblem using the real parts of the
-    material indices. Material absorption is not inferred; ``loss`` supplies the
+    material indices. Material absorption is not inferred; ``alpha`` supplies the
     power attenuation independently. An optmat index
     (:class:`~solprop.physdata.glasses.OptmatGlass`) is held as its transparent
     approximation (:func:`~solprop.physdata.glasses.lossless_index`): the real part,
@@ -722,8 +748,10 @@ class StepIndexMode(Displayed):
         Core refractive index; None selects fused silica. An optmat index given here
         is held as its transparent counterpart.
     cladding : GlassIndex or float or None
-        Cladding refractive index; None selects the constant index 1. An optmat
-        index given here is held as its transparent counterpart.
+        Cladding refractive index; None selects the constant index 1, a strand in
+        air -- unlike :meth:`from_numerical_aperture`, whose ``cladding=None`` is
+        fused silica. An optmat index given here is held as its transparent
+        counterpart.
     kind : {'HE', 'EH', 'TE', 'TM'}
         Vector mode family in Snyder and Love's convention.
     n : int
@@ -735,9 +763,10 @@ class StepIndexMode(Displayed):
     profile_wavelength : float
         Required wavelength in m for the transverse profile, inside both material
         validity ranges and above the selected mode's cutoff in frequency.
-    loss : float or callable
-        Non-negative power attenuation in 1/m, constant or alpha(omega).
-        A callable may supply its analytic slope as a ``derivative`` attribute.
+    alpha : float or callable
+        Non-negative power attenuation coefficient in 1/m, constant or a callable
+        ``alpha(omega)``; the default 0 is lossless. A callable may supply its
+        analytic slope as a ``derivative`` attribute.
     core_radius : ZProfile
         Resolved radius path in m.
 
@@ -765,7 +794,7 @@ class StepIndexMode(Displayed):
     m: int = 1
     parity: Literal["even", "odd"] = "even"
     profile_wavelength: float
-    loss: float | _Loss = 0.0
+    alpha: float | LossFunction = 0.0
     core_radius: ZProfile = field(init=False, repr=False)
     _core: GlassIndex | float = field(init=False, repr=False)
     _cladding: GlassIndex | float = field(init=False, repr=False)
@@ -776,7 +805,7 @@ class StepIndexMode(Displayed):
         Raises
         ------
         ModeError
-            If geometry, indices, family, parity, loss or profile are invalid.
+            If geometry, indices, family, parity, alpha or profile are invalid.
         """
         if self.kind not in ("HE", "EH", "TE", "TM"):
             raise ModeError("kind must be HE, EH, TE or TM")
@@ -790,8 +819,10 @@ class StepIndexMode(Displayed):
             raise ModeError("parity must be even or odd")
         if not math.isfinite(self.profile_wavelength) or self.profile_wavelength <= 0:
             raise ModeError("profile_wavelength must be positive and finite")
-        if not callable(self.loss) and (not math.isfinite(self.loss) or self.loss < 0):
-            raise ModeError("loss must be a non-negative finite coefficient in 1/m")
+        if not callable(self.alpha) and (
+            not math.isfinite(self.alpha) or self.alpha < 0
+        ):
+            raise ModeError("alpha must be a non-negative finite coefficient in 1/m")
         object.__setattr__(self, "core_radius", as_profile(self.radius))
         # The eigenproblem is lossless: an optmat index is held as its transparent
         # counterpart, in the declared field too, so that the mode carries -- and a
@@ -821,9 +852,11 @@ class StepIndexMode(Displayed):
             if math.isfinite(float(position)):
                 self._radius(float(position))
         self._profile_at(0.0)
-        if callable(self.loss) and not callable(getattr(self.loss, "derivative", None)):
+        if callable(self.alpha) and not callable(
+            getattr(self.alpha, "derivative", None)
+        ):
             logger.warning(
-                "the loss callable has no derivative; only its contribution to "
+                "the alpha callable has no derivative; only its contribution to "
                 "dneff_domega is Richardson differenced"
             )
 
@@ -852,7 +885,7 @@ class StepIndexMode(Displayed):
         m: int = 1,
         parity: Literal["even", "odd"] = "even",
         profile_wavelength: float,
-        loss: float | _Loss = 0.0,
+        alpha: float | LossFunction = 0.0,
     ) -> "StepIndexMode":
         """Construct a fibre with the core index n_co = n_cl + NA^2/(2 n_cl).
 
@@ -863,7 +896,8 @@ class StepIndexMode(Displayed):
         numerical_aperture : float
             Positive finite numerical aperture, dimensionless.
         cladding : GlassIndex or float or None, optional
-            Cladding index; None selects fused silica.
+            Cladding index; None selects fused silica -- unlike the constructor,
+            whose ``cladding=None`` is the constant index 1.
         kind : {'HE', 'EH', 'TE', 'TM'}, optional
             Vector mode family.
         n, m : int, optional
@@ -872,8 +906,8 @@ class StepIndexMode(Displayed):
             Hybrid orientation.
         profile_wavelength : float
             Required profile wavelength in m.
-        loss : float or callable, optional
-            Power attenuation in 1/m.
+        alpha : float or callable, optional
+            Power attenuation coefficient in 1/m, as the class attribute.
 
         Returns
         -------
@@ -907,7 +941,7 @@ class StepIndexMode(Displayed):
             m=m,
             parity=parity,
             profile_wavelength=profile_wavelength,
-            loss=loss,
+            alpha=alpha,
         )
 
     def _radius(self, z: float) -> float:
@@ -930,8 +964,8 @@ class StepIndexMode(Displayed):
         - ``z``: position along the fibre in m.
         - Returns: effective indices and their transverse roots u, shape (n_omega,).
         """
-        core, _ = _material(self._core, omega)
-        cladding, _ = _material(self._cladding, omega)
+        core, _ = real_index_and_slope(self._core, omega)
+        cladding, _ = real_index_and_slope(self._cladding, omega)
         if (
             not np.all(np.isfinite(core))
             or not np.all(np.isfinite(cladding))
@@ -998,7 +1032,13 @@ class StepIndexMode(Displayed):
             f"cutoff V={cutoff:.16g}"
         )
 
-    def _loss_values(
+    def _loss_text(self) -> str:
+        """Return the attenuation for printing, worded as the hollow modes word it."""
+        if callable(self.alpha):
+            return "alpha(omega)"
+        return "none" if self.alpha == 0 else f"alpha {self.alpha:g} 1/m"
+
+    def _alpha_values(
         self, omega: Float[np.ndarray, " n_omega"]
     ) -> tuple[Float[np.ndarray, " n_omega"], Float[np.ndarray, " n_omega"]]:
         """Return absolute power attenuation and its slope.
@@ -1006,30 +1046,30 @@ class StepIndexMode(Displayed):
         - ``omega``: positive angular frequencies in rad/s.
         - Returns: attenuation in 1/m and its derivative in s/(rad m).
         """
-        if not callable(self.loss):
-            return np.full_like(omega, self.loss), np.zeros_like(omega)
-        attenuation = np.asarray(self.loss(omega), dtype=float)
+        if not callable(self.alpha):
+            return np.full_like(omega, self.alpha), np.zeros_like(omega)
+        attenuation = np.asarray(self.alpha(omega), dtype=float)
         if (
             attenuation.shape != omega.shape
             or not np.all(np.isfinite(attenuation))
             or np.any(attenuation < 0)
         ):
             raise ModeError(
-                "loss callable must return finite non-negative coefficients "
+                "alpha callable must return finite non-negative coefficients "
                 "with the shape of omega"
             )
-        analytic = getattr(self.loss, "derivative", None)
+        analytic = getattr(self.alpha, "derivative", None)
         if callable(analytic):
             slope = np.asarray(analytic(omega), dtype=float)
         else:
             # Same fourth-order difference and step as the existing absolute-loss
             # path; the lossless eigenvalue derivative is always analytic.
-            step = omega * 1e-5
-            wide = (self.loss(omega + step) - self.loss(omega - step)) / (2 * step)
-            narrow = (self.loss(omega + step / 2) - self.loss(omega - step / 2)) / step
+            step, curve = omega * 1e-5, self.alpha
+            wide = (curve(omega + step) - curve(omega - step)) / (2 * step)
+            narrow = (curve(omega + step / 2) - curve(omega - step / 2)) / step
             slope = (4 * narrow - wide) / 3
         if slope.shape != omega.shape or not np.all(np.isfinite(slope)):
-            raise ModeError("loss derivative must be finite with the shape of omega")
+            raise ModeError("alpha derivative must be finite with the shape of omega")
         return attenuation, slope
 
     def neff(
@@ -1055,7 +1095,7 @@ class StepIndexMode(Displayed):
             If inputs are invalid or any frequency is below cutoff.
         """
         values = _checked_omega(omega)
-        attenuation, _ = self._loss_values(values)
+        attenuation, _ = self._alpha_values(values)
         return np.asarray(
             self._eigenpairs(values, z)[0] + 0.5j * C * attenuation / values
         )
@@ -1108,8 +1148,8 @@ class StepIndexMode(Displayed):
         """
         values = _checked_omega(omega)
         index, u = self._eigenpairs(values, z)
-        core, dcore = _material(self._core, values)
-        cladding, dcladding = _material(self._cladding, values)
+        core, dcore = real_index_and_slope(self._core, values)
+        cladding, dcladding = real_index_and_slope(self._cladding, values)
         square = (self._radius(z) * values / C) ** 2
         w = np.sqrt(square * (core - cladding) * (core + cladding) - u**2)
         ratio = (cladding / core) ** 2
@@ -1135,7 +1175,7 @@ class StepIndexMode(Displayed):
             if partial_index == 0 or not math.isfinite(float(partial_index)):
                 raise ModeError("eigenvalue derivative is singular")
             slope[row] = -partial_frequency / partial_index
-        attenuation, dattenuation = self._loss_values(values)
+        attenuation, dattenuation = self._alpha_values(values)
         result = np.asarray(
             slope + 0.5j * C * (dattenuation * values - attenuation) / values**2
         )
@@ -1247,8 +1287,8 @@ class StepIndexMode(Displayed):
         """
         omega = np.asarray([2 * math.pi * C / self.profile_wavelength])
         _, transverse = self._eigenpairs(omega, z)
-        core = float(_material(self._core, omega)[0][0])
-        cladding = float(_material(self._cladding, omega)[0][0])
+        core = float(real_index_and_slope(self._core, omega)[0][0])
+        cladding = float(real_index_and_slope(self._cladding, omega)[0][0])
         radius = self._radius(z)
         scale = radius * float(omega[0]) / C
         u = float(transverse[0])
@@ -1363,7 +1403,7 @@ class StepIndexMode(Displayed):
             ("cladding", cladding),
             ("parity", self.parity),
             ("profile frozen at", engineering(self.profile_wavelength, "m")),
-            ("loss", self.loss if isinstance(self.loss, (int, float)) else "callable"),
+            ("loss", self._loss_text()),
         ]
 
     def dimlimits(
@@ -1513,7 +1553,8 @@ class StepIndexMode(Displayed):
         Maxwell curl equations use exp(i omega t - i beta z). The radial
         roots, family counting and analytic dispersion derivative are unchanged.
         """
-        from solprop.modes import _stepindex_vector  # noqa: PLC0415 - type cycle
+        # Imported here: stepindex_vector imports this module at its top.
+        from solprop.modes import stepindex_vector  # noqa: PLC0415
 
         omega, z = float(omega), float(z)
         # A public boundary owes its caller a ModeError, not the AttributeError a
@@ -1524,8 +1565,8 @@ class StepIndexMode(Displayed):
                 f"xy must be Cartesian (x, y) pairs of shape (n_points, 2), got "
                 f"{points.shape}"
             )
-        electric, magnetic = _stepindex_vector._fields(self, points, omega, z)
-        power, error = _stepindex_vector._power(self, omega, z)
+        electric, magnetic = stepindex_vector._fields(self, points, omega, z)
+        power, error = stepindex_vector._power(self, omega, z)
         if power <= error:
             raise ModeError("full-domain power norm is non-positive or unresolved")
         return electric / np.sqrt(power), magnetic / np.sqrt(power)

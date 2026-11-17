@@ -20,7 +20,7 @@ from solprop.exceptions import GridError, OutputError
 from solprop.fourier import energy_omega
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.hankel import QDHT
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import (
     SpatialFlux,
@@ -216,7 +216,7 @@ def test_a_flat_top_keeps_its_interpolated_widths(grid):
     space = RadialGrid(1.2e-3, 256)
     waist, order = 200e-6, 8
     temporal = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9)
-    state = SpatialPulse(temporal, waist, order=order).build(
+    state = SpatialPulse(temporal, waist, m=order).build(
         grid, space, medium=SpatialMedium()
     )
     flux = _vacuum(grid, space)

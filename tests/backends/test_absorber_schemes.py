@@ -48,9 +48,9 @@ import warnings
 import numpy as np
 import pytest
 
-from sessions.runs import final_field
+from sessions.runs import bare, final_field
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.passes import apply_temporal_rate
+from solprop.backends.numpy_ref.passes.stepping import apply_temporal_rate
 from solprop.boundaries import STABILITY_RADIUS, absorber, stable_step
 from solprop.exceptions import MaterialRangeWarning, TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid
@@ -59,7 +59,8 @@ from solprop.nonlinear.gnlse import problem_from
 from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse, SechPulse
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import _printed_down, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import _printed_down
 
 BETA2 = -11.83e-27  # s^2/m
 GAMMA = 0.11  # 1/(W m)
@@ -115,9 +116,7 @@ def exit_field(grid, scheme, n_steps):
     problem, run_request = biting_case(grid, scheme, n_steps)
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(LENGTH)
-        return backend.observe().require_field()[0, 0].copy()
+        return final_field(backend, problem, bare(run_request), z=LENGTH)[0, 0].copy()
     finally:
         backend.close()
 
@@ -385,9 +384,7 @@ def test_the_split_step_absorber_leaves_nothing_outside_the_active_band(
         # above can see).
         rate = problem.responses.temporal_absorber
         assert rate is not None
-        absorbed = apply_temporal_rate(
-            field[None], rate, length / BAND_STEPS, kind=kind
-        )
+        absorbed = apply_temporal_rate(field, rate, length / BAND_STEPS, kind=kind)
         assert outside[0]
         assert np.abs(absorbed[..., 0]).max() > 1e-3 * np.abs(absorbed).max()
 

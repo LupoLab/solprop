@@ -33,11 +33,11 @@ do not launch the full suite merely because a SEP is being committed or merged.
 | invariant | energy and photon number where conserved, Parseval, time reversal, symmetries, positivity, orthonormality of modes | grids, transforms, modes, responses |
 | convergence | halve the step or double the grid and the error scales at the expected order; three levels with an order gate that rejects `order > p + 3` | stepper, quadrature, tables, Chebyshev |
 | round trip | build → translate → run → process and recover a known input | pulses, output, processing |
-| parity | field vs envelope for narrowband pulses; mode-averaged vs one-mode multimode; batch vs sequential; backend vs reference | every nonlinear feature, on each backend that runs it (on `numpy_ref` and `native` always; ADR-068, ADR-077) |
+| parity | field vs envelope for narrowband pulses; mode-averaged vs one-mode multimode; scan point vs run alone; backend vs reference | every nonlinear feature, on each backend that runs it (on `numpy_ref` and `native` always; ADR-068, ADR-077) |
 | property-based | `hypothesis` over grid sizes, pulse parameters, pressures | grids, pulses, materials, Chebyshev |
 | golden regression | `pytest-regressions` (`num_regression`) with tolerance, reference stored next to the test | materials tables, stored Luna results |
 | reference problem | the ladder in [stepper.md §11](stepper.md#11-verification-ladder-for-solprops-solver-tests): P0 linear, P1 N-soliton with phase, P2 analytic z-varying loss and dispersion, P3 cross-scheme Richardson | solver work |
-| target simulation | RDW VUV and CtC against stored Luna results and solprop's own converged references (§8) | the named problems M2, M3, M4 |
+| target simulation | RDW VUV and CtC against solprop's own converged references, and their inputs and plasma against stored Luna results (§8) | the named problems M2, M3, M4 |
 | doctest | every `Examples` section runs | all docstrings |
 | smoke | import time budget; a run of every gallery example in reduced size | package, docs |
 
@@ -52,18 +52,26 @@ the default one.
 | tier | marker | what belongs in it | budget |
 |---|---|---|---|
 | **fast** | none | unit, invariant, property and error-path tests; doctests; no propagation longer than a few steps | under a second each |
-| **medium** | `medium` | a functional check that needs a real but short run — a few hundred steps — or a parameter sweep that genuinely costs seconds | 60 s for the tier |
-| **slow** | `slow` | regressions against a stored witness (M1, M2, M4), convergence ladders and order studies whose numbers are in the convergence records (§5), and the CtC-size build | 4 min for the lane |
+| **medium** | `medium` | a functional check that needs a real but short run — a few hundred steps — or a parameter sweep that genuinely costs seconds | under 30 s each; the tier's total held to a ratchet |
+| **slow** | `slow` | regressions against a stored witness (M1, M2, M4), convergence ladders and order studies whose numbers are in the convergence records (§5), and the CtC-size build | about 50 min of wall time for each slow CI job |
+
+The benchmark harness's own tests (`tests/test_benchmark_*.py`) follow the same rule:
+its logic — plans, records, history, case definitions, builders, and the worker and
+command line on the purpose-built `smoke` case — is fast or medium; a test that
+propagates a registered benchmark case, however short its window, is slow.
 
 Two further markers select **lanes** rather than tiers, and a test may carry one of them
 instead of a tier marker:
 
 - `gpu` needs a device and is skipped without one. It selects the native device tests,
-  run by hand on a machine with a device; no CI lane reaches them.
+  run by hand with `uv run poe test-gpu` on a machine with a CUDA or HIP build and a
+  device; no CI lane reaches them. **Run the GPU lane on a CUDA/HIP machine at each
+  release and on pull requests that change device code, and record the result in the
+  pull request or the release record.**
 - `benchmark` is run by **no lane at all**. It is where a study goes whose numbers are
   recorded in its docstring and on which nothing in the default configuration depends —
-  the full-size CtC case, the gigabyte Φ table, the polarisation taper's recurrence
-  floor. Each says in its own docstring how to run it by hand; the benchmarks
+  the full-size M2 witness and its historical wall time, and the M2 order study's two
+  middle switches. Each says in its own docstring how to run it by hand; the benchmarks
   (`poe bench`) are a separate program and do not reach them.
 
 ### The lanes
@@ -74,7 +82,7 @@ instead of a tier marker:
 | medium alone | `uv run poe test-medium` | the medium tier, timed against its budget |
 | slow | `uv run poe test-slow` | the slow tier under xdist, one worker per core, `--dist loadgroup`, every thread pool pinned to one thread per worker |
 | coverage | `uv run poe cov` | the fast and medium tiers under xdist with one thread per worker; 100 % of the package (`coverage-cpu.ini`) |
-| gpu | `uv run pytest -m gpu` | needs a card |
+| gpu | `uv run poe test-gpu` | the `gpu`-marked tests of solprop and of solprop-native, against an installed CUDA or HIP build that sees a device; it fails on a CPU build rather than skipping every test |
 | benchmark | by hand, per docstring; `uv run poe bench` for `benchmarks/` | see [benchmarks.md](benchmarks.md) |
 
 Hypothesis properties use the `solprop` profile loaded by `tests/conftest.py`.
@@ -160,33 +168,114 @@ SOLPROP_NATIVE_THREADS=1 OMP_PROC_BIND=false uv run poe test-slow
 SOLPROP_NATIVE_THREADS=1 OMP_PROC_BIND=false uv run poe cov
 SOLPROP_TEST_BACKEND=native SOLPROP_NATIVE_THREADS=1 uv run poe test-slow
 
-# On an accelerator build:
-SOLPROP_TEST_BACKEND=native uv run pytest -m gpu
+# On an accelerator build (the task sets SOLPROP_TEST_BACKEND=native):
+uv run poe test-gpu
 ```
 
 The two thread settings matter: eighteen xdist workers each initialising an
 eighteen-thread Kokkos pool oversubscribe the machine, and OpenMP binding pins each
 worker's threads to the same first cores.
 
+### Shared code and out-of-process providers
+
+Parity between the backends checks what each computes independently. It cannot check
+code both call: a defect in the TDSE response's source assembly
+(`solprop.backends.tdse_source`, [SEP 49](seps/archive/sep-0049-tdse-on-native.md)) is the same
+on both. That module's tests state their expectations independently of it, analytic or
+manufactured (`tests/backends/test_tdse_source.py`, `tests/edge_source_cases.py`), and a
+deliberate defect in each term is shown to fail one of them; parity then covers what each
+backend does with the source. The atomic provider runs in a worker process. Its contract
+is tested with real workers serving manufactured providers (`tests/source_adapters.py`,
+`tests/driver/test_source_worker.py`, `tests/driver/test_tdse_worker.py`): results equal
+a direct call bit for bit, the handshake's refusals, every failure, cancellation by
+signal and stop flag, and clean-up. These tests have hard deadlines, so a broken
+cancellation fails instead of hanging; the production code has none. An installed
+Pyroraptor is not tested in CI; it is checked by hand (SEP 49, section 7.4).
+
+### Scripted engines
+
+Step control, the session lifecycle and the service loop are tested with their numerical
+outcomes scripted, never by substituting the code under test. A scripted engine replaces
+the engine under the real march and the real session ([SEP 52](seps/archive/sep-0052-backend-shape.md)
+§6.3), as native's scripted engines test its compiled marches:
+
+- `tests/scripted_driver.py`'s `HostScriptedDriver` is the reference backend whose
+  Runge-Kutta engine multiplies the state by a constant and scores norms from a list,
+  with statistics that read the position; `tests/sessions/executors.py`'s
+  `HostSessionScript` adds the lifecycle suite's rejections, failures and in-flight
+  failures, and `ScriptedSession` a warning barrier at a chosen endpoint.
+- The decision traces (`tests/backends/rk_traces.py`, `adams_traces.py`) run each
+  reference march over a scripted engine and a stub session that applies the session's
+  own rules (`numpy_ref.session.step_cap`, `natural_stop`), and the native marches over the same
+  stub (`tests/backends/native_trace_marches.py`); the stored corpora
+  (`tests/data/*_traces.json.gz`) hold both to the same decisions and are regenerated only
+  under SEP 52 §4's rule. Native's marches run over its own scripted engines
+  (`_core._testing.ScriptedMarch`, `ScriptedRkMarch`).
+
+### Engine-level parity
+
+Below a whole run, the backends are compared engine by engine, through the protocols both
+implement (`solprop.backends.engines`: `RungeKuttaEngine`, `AdamsEngine`; SEP 52 §6.5).
+A case is written once against the protocol and played on each backend's engines over a
+workspace loaded with the launch, configured with the run's records and watched by the
+case's monitor (`tests/engine_pairs.py`): the reference's own engines over its
+`NumpyWorkspace`, and native's from the private `_core._testing.engines(workspace)`,
+whose prefixed methods `NativeRungeKutta` and `NativeAdams` put behind the protocols'
+names. `tests/backends/test_engine_parity.py` takes rejected and accepted Runge–Kutta
+trials, the stage registers, a dense extension, the low-storage step's in-flight interval,
+the split collar's sums in each `AcceptRecord` and the boundary reading; its Adams cases
+record the calls the reference's own march makes on a run (`engine_pairs.record_adams`:
+the startup, every trial, each accept with the history it keeps, the carrier chord and
+rotations) and replay them on both engines. Every comparison is held to a SEP 25 budget
+from `tests/march_bounds.py`, fixed before the run: `k` matched steps' share of
+`march_bound` for the state, that over `rtol` for a scaled norm, four times it against
+the state's energy for a sum over part of the window. Each compared term is also asserted
+to stand well clear of its bound, so a zero or misplaced term fails (the split sums
+against the same reduction of the finished field, for example). The state-level entry
+points of `_testing` (a trial's partials, the stage rows, the flow actions, the
+statistics) stay for the tests of what the protocols do not expose; they promise
+nothing.
+
 ### Budgets and timing assertions
 
-The medium tier's budget is tight: time it with `poe test-medium` before adding to it. Most
-of the default lane's time is the compiled-kernel tests, which compile one kernel per
-parametrisation, so parametrise a compiled test only over what the kernel actually
-branches on.
+The fast and medium budgets are judged on CI's macOS arm64 test lane, from each test's
+JUnit time: setup, call and teardown, so a shared fixture counts against the first test
+that builds it. A fast test takes under a second and a medium test under 30 s. The medium
+tier's total, the sum of its tests' times over the lane's shards, is held to a ratchet:
+`max_total` in `tests/tier_budget.toml`, which may only go down. Lower it when medium
+tests are trimmed or moved to slow; never raise it to let a change through. It was reset
+once, when the first baseline turned out to be one low run (#792). Time a new medium test
+(`uv run pytest <file> --durations=0`) before adding it. Most of the default lane's time is the compiled-kernel tests, which
+compile one kernel per parametrisation, so parametrise a compiled test only over what the
+kernel actually branches on.
 
-A test that asserts a **cost** belongs in the slow tier, because its verdict needs a quiet
-machine and repeated fresh processes. The periodic-statistics cost gate
-(`tests/driver/test_prop_capillary.py`, driving `tests/statistics_cost_probe.py`) is the
-pattern: three fresh processes per configuration, rotating the plain/watched order across
-the pairs, each warming its configuration and recording three runs with production
-imports and without coverage or the runtime type hook; the parent compares the median of
-the process medians against the existing 25 % bound and records the MAD, raw wall and CPU
-times, the load, backend metadata and the exact step histories. A child failure fails the
-parent. Each measured window is ten fixed Runge–Kutta steps over 2 mm, on the reduced
-M2 grid. `poe test-slow` completes its parallel functional tests before running this
-cost check serially: competing test workers can otherwise slow one arm more than
-the other. The bound has not been relaxed.
+The budgets are read from the lanes' JUnit reports. The collection hook in
+`tests/conftest.py` writes each test's tier into its report as the property `tier`
+(`fast` where it carries no marker), and `tests/tier_budget.py` reads one lane's reports,
+the shards of one platform together, and names the fast tests that took a second or more
+and the medium tests that took 30 s or more, slowest first, and the medium tier's total
+against the ratchet. CI's **tier-budget** job writes that report for each platform of the
+test lane into the run's summary; the Windows reports are for comparison. Locally,
+`uv run poe test --junitxml=report.xml` and then
+`uv run python tests/tier_budget.py report.xml`. The report is advisory: tests exceed
+both per-test budgets today, so the job does not gate a pull request, and `--enforce`
+(exit 1 when a test exceeds its tier's budget or the medium total exceeds the ratchet) is
+for when they hold. The slow lane's budget is about 50 minutes of pytest wall time for each
+slow CI job, which the job's log shows: after the re-tiering of #792 the jobs took 37 min
+on macOS arm64 (three workers) and 43 min on Ubuntu (two), the larger plus 5 % rounded
+up to five minutes. Sharding the lane, as the default lane is sharded, is #803.
+
+A test may be in `slow` by **cost** rather than by purpose when it takes over 60 s on CI
+and can't be made cheaper without changing its claim. Its marker then carries a comment
+saying so, with its CI time and what it is: `# slow by cost (#792): ~190 s on CI macOS; a
+functional check, not a witness`. Such a test is a candidate to bring back.
+
+A **cost** is not asserted by a test: a wall-clock verdict needs a quiet machine and
+repeated fresh processes, which no lane has. Cost claims are measured by the benchmarks
+([benchmarks.md](benchmarks.md)), by hand on an idle machine and recorded with the
+release benchmarks. The periodic-statistics channel's budget, under a quarter of a step
+at a row per step, is `benchmarks/statistics_cost.py`'s: it times the reduced M2 case
+with and without the rows, interleaved, and reports the fraction against that budget.
 
 ## 3. Tolerance policy
 
@@ -197,13 +286,13 @@ or step; the accuracy of a reference (a table's stated accuracy, an experimental
 Luna result's own convergence). Independent floating-point computations are compared by
 numerical error, never by bits ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)):
 no comparison requires bitwise agreement across backends, builds, machines, thread counts,
-batch membership, scan execution or repeated runs. Every comparison belongs to one of five
+scan execution or repeated runs. Every comparison belongs to one of five
 classes, and `tests/bounds.py` holds the reusable parts of their bounds.
 
 | class | what is compared | criterion |
 |---|---|---|
 | **P**, structural | lossless storage, copies and views; integer accounting and ledgers; identity metadata and hashes used for configuration identity, cache validation or provenance; hard-mask zeros; explicitly exact no-ops (a feature left off, a row reusing the data its plane stores) | exact (`np.array_equal`, `==`), with a comment saying why the contract is exact |
-| **R**, matched discrete computation | two backends, thread counts, a batch member and its solo run, a scan point and its run, a fast path and the general path: the same method, orders, startup and restart history, schedule and inputs | a rounding bound |
+| **R**, matched discrete computation | two backends, thread counts, a scan point and its run, a fast path and the general path: the same method, orders, startup and restart history, schedule and inputs | a rounding bound |
 | **T**, accuracy | adaptive runs, ordinary replay, resumed against uninterrupted runs: discrete trajectories that may differ | an accuracy envelope |
 | **D**, recorded state | a route's stored final state (§5) | `ndarrays_regression` at a bound of class R or T |
 | **N**, noise | a seeded realisation | a short-window R comparison, or an ensemble observable with a tolerance set from the ensemble size |
@@ -287,7 +376,7 @@ configuration identity, cache validation, artifact integrity or provenance are e
 these records.
 
 - **Recorded final states.** A route that must not move when nothing in it changed (an
-  opt-in feature left off, a section with nothing to score, the legacy entry points) is
+  opt-in feature left off, a section with nothing to score, the `prop_*` entry points) is
   checked against its recorded final state with `ndarrays_regression`
   (`tests/state_records.py`, stored beside the test), at a bound derived as class R for
   a fixed-schedule case and as a class T envelope otherwise. That bound is above what a
@@ -315,6 +404,16 @@ these records.
   compared; where the explicit value is solprop's own rather than Luna's, deliberately,
   to measure the difference, the test says so. A witness is retired, with its
   generator, only when it blocks a change, and that change says so.
+- **The backend corpus** (`tests/data/backend_corpus.npz`, [SEP 52](seps/index.md) §7)
+  pins what every march and route family left on `numpy_ref` and the native CPU build
+  before that SEP restructured them: short fixed-schedule runs (and two adaptive ones),
+  their monitor and edge records, a resume and the timing probe
+  (`tests/backend_corpus_cases.py`). `tests/backends/test_backend_corpus.py` holds each
+  backend to its own record within the matched march's budget (class R) or an accuracy
+  envelope (class T), and reports bitwise agreement on the recording build and thread
+  setting as a diagnostic only. Its generator refuses to overwrite it unless a change
+  of the reference's numbers is recorded under SEP 52 §4. The split collar's session
+  rules are held beside it (`tests/sessions/test_split_collar_rules.py`).
 - **Analytic problems** (P1, P2) are truth and need no stored data.
 - **Converged solprop references** (P3) are produced by the three-level ladder with the order
   gate and stored with their observed order.
@@ -341,6 +440,33 @@ top of `tests/` (`*_cases.py`, `*_oracles.py`, `*_parity.py`, `convergence_studi
 parametrise instead of copy-pasting; shared tolerances are named constants with their
 justification.
 
+Backend parity on a fixed schedule lives in one **case catalogue**:
+`tests/capability_routes.py` collects the rows, each a built problem with the axes it
+covers (route, response, stepper, features) and the bound of each rung it runs, and
+`tests/parity_ladder.py` runs a row on native against `numpy_ref`
+(`tests/backends/test_parity_catalogue.py`). A family's rows live beside its cases in
+`tests/backends/*_rows.py`: `dispersive_rows.py` (whose docstring shows how to read one),
+`optmat_rows.py`, `plasma_rows.py`, `column_rows.py`, `free_rows.py`, `geometry_rows.py`,
+`planar_rows.py`, `session_rows.py`, `general_rows.py`, `mixture_rows.py`,
+`ladder_rows.py`, `flow_rows.py`, `driver_rows.py`, `axis_plasma_rows.py` and
+`vector_raman_rows.py`; a row's cases come from plain `*_cases.py` modules, never from a
+test module. Comparisons the catalogue does not express stay in their modules: adaptive
+marches (#809), monitors, events, resume, and checks against an oracle, a host formula
+or native itself. A row that writes an accuracy record does so through `Row.record`; a
+row slow by cost says why in `Row.slow`. A row states the physical claim it holds in one sentence
+(`why`), and explains a bound with a floor, a margin or a choice in `bound_note` (what
+was measured against it, what a wrong backend would miss by); every failure quotes
+both, and a rung outside its bound gives the measured value, the bound and their ratio.
+Every row says how to switch its term off, and each guarded rung's reference must then
+move by more than a thousand bounds (`parity_ladder.DETECTION`, the guard the optmat
+rows held their first stage to before they joined), so a parity rung cannot pass
+vacuously. A rung that cannot clear a thousand declares its own lower
+guard, at least a hundred bounds, with the measured margin that limits it
+(`parity_ladder.Detection`); a rung the term cannot move that far is listed as unguarded,
+with why it is kept. Every row guards at least one rung, unless the guard found an old
+claim vacuous: that row is kept, declared `vacuous` with what was measured. A new
+parity case is a row, not a new ladder.
+
 Two tests read the documentation rather than the package: `tests/test_guide_snippets.py`
 runs the user guide's code, and `tests/test_seps.py` keeps each enhancement proposal's
 header, folder, index row and roadmap link consistent with its status
@@ -361,10 +487,12 @@ are done when:
   (§3);
 - a change to a numerical result updates the convergence records it moves, with
   `SOLPROP_WRITE_RECORDS=1` on a clean tree, and says why they moved;
-- a hot-path change carries a benchmark entry ([benchmark rules](benchmarks.md#rules)).
+- a hot-path change carries a benchmark entry ([benchmark rules](benchmarks.md#rules));
+- a change to device code records the GPU lane's result (`poe test-gpu`, §2) in the
+  pull request.
 
 A change is qualified on `numpy_ref` and the native CPU
-build; device builds are exercised separately with `pytest -m gpu`. No test, lane or
+build; device builds are exercised separately with `poe test-gpu` (§2). No test, lane or
 timing runs a full-length propagation: qualify on about ten steps or a fibre short enough
 to finish in seconds (`AGENTS.md`, qualification scope).
 
@@ -376,6 +504,6 @@ Tests, records and benchmarks refer to these by name.
 |---|---|
 | **P0–P3** | the solver's verification ladder: linear only (P0), N-soliton recurrence with phase (P1), analytic z-varying loss and dispersion (P2), full UPPE against a Richardson reference (P3); see [stepper.md](stepper.md) §11 |
 | **M1** | N = 6 soliton recurrence through `prop_gnlse`: GNLSE, envelope grid, mode-averaged, checked against the analytic solution with its phase |
-| **M2**, **RDW** | resonant dispersive-wave emission into the VUV in a hollow capillary: 125 µm core radius, 1.5 m, helium from 0.8 bar to vacuum, four HE₁ₘ modes, a 7.5 fs 275 µJ pulse, field grid, Kerr and plasma; full and reduced sizes, against a stored Luna witness and solprop's own converged reference |
-| **M3** | the M2 case on a compiled backend (`numba_cpu` when it was recorded): against `numpy_ref` (and Luna) at equal achieved error; the whole-run benchmark rows |
-| **M4**, **CtC** | the comb-to-continuum supercontinuum: 16 µm core radius, 0.2 m of hydrogen at 40 bar, six HE₁ₘ modes, a 400 fs pulse at 515 nm on a 4 ps field grid, Raman and plasma; full and reduced sizes, against a stored Luna witness |
+| **M2**, **RDW** | resonant dispersive-wave emission into the VUV in a hollow capillary: 125 µm core radius, 1.5 m, helium from 0.8 bar to vacuum, four HE₁ₘ modes, a 7.5 fs 275 µJ pulse, field grid, Kerr and plasma; full and reduced sizes, against solprop's own converged reference, with its inputs against a stored Luna witness ([accuracy.md](accuracy.md) §5) |
+| **M3** | the M2 case on a compiled backend (`numba_cpu` when it was recorded): against `numpy_ref` at equal achieved error; the whole-run benchmark rows |
+| **M4**, **CtC** | the comb-to-continuum supercontinuum: 16 µm core radius, 0.2 m of hydrogen at 40 bar, six HE₁ₘ modes, a 400 fs pulse at 515 nm on a 4 ps field grid, Raman and plasma; full and reduced sizes, with the reduced case's inputs and plasma against a stored Luna witness ([accuracy.md](accuracy.md) §6) |

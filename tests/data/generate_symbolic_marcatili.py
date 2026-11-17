@@ -97,7 +97,7 @@ def solprop_inputs() -> dict[str, Any]:
     model = PoleSumSusceptibility(
         gas=Gas.Ar,
         source="borzsonyi",
-        reference_state=ReferenceState(pressure_bar=1.0, temperature=273.15),
+        reference_state=ReferenceState(pressure=1.0, temperature=273.15),
         wavelength_range=(400e-9, 1000e-9),
         citation="A. Börzsönyi et al., Appl. Opt. 47, 4856 (2008)",
         b=tuple(strength for strength, _ in LUNA_POLES),

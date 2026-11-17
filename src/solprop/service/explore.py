@@ -9,6 +9,10 @@ Every number comes from solprop's mode preview (``Recipe.modes``): the effective
 explorer only shows them in a chosen unit (a group index is ``c beta1``, ``D`` is
 ``-2 pi c beta2 / lambda^2``, a loss in dB/m is ``10 log10(e)`` times the power
 loss), and against a chosen axis: wavelength, frequency or photon energy.
+:func:`offered` lists the :class:`Quantity` choices of a route and :class:`Axis` the
+axes; :func:`quantity_values`, :func:`axis_values` and :func:`value_at` compute the
+curves; the ``sweep`` and ``design`` helpers and :func:`table_rows` the sweeps, the
+design tool's lines and the readout table.
 """
 
 import math

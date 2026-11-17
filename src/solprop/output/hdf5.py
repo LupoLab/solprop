@@ -2,71 +2,31 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The streaming HDF5 output handler, with cache and resume.
+"""The streaming HDF5 output handler, with cache, resume and read-only reopening.
 
-One file per run, kept open between optional snapshot transactions. Saves and
-metadata calls reuse the handle. Without snapshots the file opens only once.
+- :class:`HDF5Output` streams a run to one file, kept open between optional snapshot
+  transactions; it preallocates the planes the run reserved, writes the saved-plane
+  count ``n_saved`` last so a hard stop leaves a readable file, follows the run's field
+  retention, and with ``append=True`` continues a file it wrote earlier.
+- :func:`check_cache` is the resume gate: the file's configuration hash must equal the
+  requested one (ADR-066); :func:`resume` returns a :class:`ResumeState`: the record,
+  the terminal checkpoint or else the last plane, back in the internal convention, the
+  whole step history, the outcome and any Adams march snapshot.
+- :func:`open_file` opens a finished run read-only through the same protocol, which is
+  how :mod:`solprop.processing` reads it; :func:`read_recipe` and :func:`write_recipe`
+  read and write the recipe group (SEP 41).
+- :data:`COMPRESSIONS` is what h5py ships without a filter plugin.
 
-**What is on disk, and where.** Root attributes carry the identifying scalars --
-``schema_version``, ``spectral_convention``, ``field_layout``, ``configuration_hash``,
-``simulation_kind``, ``grid_kind``, ``created`` and, once a backend has executed the
-run, ``backend`` -- and ``meta/json`` carries the
-whole :class:`solprop.output.schema.RunMetadata` as one JSON string. The metadata goes
-in a *dataset* rather than an attribute because HDF5 caps an attribute in the object
-header at 64 kB and a serialised configuration -- a capillary with a tabulated
-cladding glass, a stored noise realisation -- goes past that; the identifying scalars
-stay attributes, where a reader looks for them first. ``field`` is ``(n_z, n_modes,
-n_pol, n_omega)`` complex, chunked one plane at a time and extendable along ``n_z``,
-in the **optics** convention and marked so. ``noise_phase``, when the run
-has noise, has the same shape and stays in the internal convention. ``z`` is the plane
-positions, ``stats/<name>`` one dataset per statistic, each with a leading plane axis,
-and ``step_history/<column>`` the attempts of the whole run concatenated, with
-``step_history/counts`` saying how many belong to each plane.
-
-**Preallocation and the saved-plane count.** The plane-indexed datasets are created at
-the first save for every plane the run reserved
-(:meth:`~solprop.output.schema.PlaneStore.reserve`), with an unlimited leading axis, and
-grow by doubling if the run saves more; the step-history and between-planes columns
-grow by doubling too. The root attribute ``n_saved`` counts the planes actually
-written: each plane's data is written and flushed first and the count last, so a hard
-stop leaves the count at the last complete plane. The attempts and rows belonging to
-those planes are the sums of ``step_history/counts`` and ``step_stats/counts`` over
-them, so the count alone fixes every column's length. Every reader and :func:`resume`
-read only the first ``n_saved`` planes. A clean close trims every dataset to its count,
-so a finished file holds no unused rows.
-
-**Field retention** (SEP 22). The root attribute ``fields`` says
-which planes keep their field (:class:`~solprop.output.schema.FieldRetention`), and
-``field_shape`` the shape of one plane's field whether or not it is stored. A run that
-keeps every field stores ``field`` and ``noise_phase`` as above. One that keeps the
-named planes stores exactly those, in plane order, with a ``field_planes`` dataset of
-their indices beside them; one that keeps none has no ``field`` and no ``noise_phase``
-dataset. :func:`resume` continues only from a plane that carries a field: a
-terminal checkpoint always does, and a file whose last regular plane is field-free and
-which holds no checkpoint is refused by name when a run is continued from it.
-
-**Cache and resume.** :func:`check_cache` compares the file's configuration hash with
-the requested one (ADR-066): they must be equal, so resuming with different physics or
-numerics of the same shape is refused, by naming what changed. A file of another output
-schema is not read at all (:data:`~solprop.output.schema.SCHEMA_VERSION`).
-:func:`resume` returns the metadata, the last plane -- converted back to the internal
-convention -- and the step history. A handler built with ``append=True`` then carries
-on in the same file: it opens it read-write instead of replacing it, compares the
-record offered with the file's, holds the file's record as its own, and continues
-numbering planes and attempts where the file left off. :func:`open_file`
-opens a finished file **read-only** through the same protocol it was written with, which
-is how :mod:`solprop.processing` reads a run after the driver has closed it.
-
-Compression is restricted to what h5py ships: ``None``, ``'gzip'`` or ``'lzf'``. Blosc
-is not offered, because it needs a filter plugin solprop does not depend on.
-
-The manual page is ``docs/guide/results/output.md``.
+The on-disk layout, preallocation, the saved-plane count and field retention are in
+``docs/guide/results/output.md`` ("What is on disk"); the cache and resume rules in
+``docs/guide/results/resuming.md``.
 """
 
 import json
 import logging
 import math
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import cast
@@ -79,25 +39,27 @@ from solprop import fourier
 from solprop._display import Displayed, line, tail
 from solprop.exceptions import OutputError
 from solprop.output._writer_lock import WriterLock
-from solprop.output.schema import (
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import (
     HISTORY_FIELDS,
     STEP_STATS_INDEX,
-    FieldRetention,
-    FieldsChoice,
-    JsonValue,
     MarchSnapshot,
-    Output,
-    PlaneLayout,
-    PlaneStore,
     RecipeFile,
     RecipeRecord,
-    RunMetadata,
     RunOutcome,
     SavedPlane,
     StepHistory,
     StepStats,
     StoredField,
     TerminalCheckpoint,
+)
+from solprop.output.serialisation import JsonValue
+from solprop.output.store import (
+    FieldRetention,
+    FieldsChoice,
+    Output,
+    PlaneLayout,
+    PlaneStore,
 )
 
 __all__ = [
@@ -195,11 +157,7 @@ def _overwrite_text(file: h5py.File, name: str, text: str) -> None:
 def _write_march(group: h5py.Group, snapshot: MarchSnapshot) -> None:
     """Store a march snapshot, its position last, so that a torn write reads as none."""
     group.attrs["z"] = math.nan
-    # The dataset keeps the leading axis of one it has always had, so that every
-    # reader of the format reads it (SEP 47 section 6.7).
-    _overwrite(
-        group, "state", np.asarray(snapshot.state, dtype=np.complex128)[np.newaxis]
-    )
+    _overwrite(group, "state", np.asarray(snapshot.state, dtype=np.complex128))
     _overwrite(group, "positions", np.asarray(snapshot.positions, dtype=np.float64))
     _overwrite(group, "slots", np.asarray(snapshot.slots, dtype=np.int64))
     rows = group.require_group("rows")
@@ -214,10 +172,7 @@ def _write_march(group: h5py.Group, snapshot: MarchSnapshot) -> None:
     group.attrs["rejections"] = snapshot.rejections
     group.attrs["last_rejected"] = snapshot.last_rejected
     group.attrs["collar_was_quiet"] = snapshot.collar_was_quiet
-    if snapshot.history_key is not None:
-        group.attrs["history_key"] = snapshot.history_key
-    elif "history_key" in group.attrs:
-        del group.attrs["history_key"]
+    group.attrs["history_key"] = snapshot.history_key
     group.attrs["z"] = snapshot.z
 
 
@@ -235,10 +190,17 @@ def _read_march(file: h5py.File, z: float) -> MarchSnapshot | None:
     if stored != z:
         return None
     try:
+        held = np.asarray(_dataset(group, "state")[()])
+    except (KeyError, ValueError) as error:
+        logger.warning("ignoring the unreadable march snapshot in the file: %s", error)
+        return None
+    # Outside the tolerant reads: a state of another shape is refused, not ignored.
+    state = _trajectory_state(held)
+    try:
         rows = _group(group, "rows")
         return MarchSnapshot(
             z=stored,
-            state=_trajectory_state(np.asarray(_dataset(group, "state")[()])),
+            state=state,
             proposal=float(np.asarray(group.attrs["proposal"])),
             method=str(group.attrs["method"]),
             order=int(np.asarray(group.attrs["order"])),
@@ -251,11 +213,7 @@ def _read_march(file: h5py.File, z: float) -> MarchSnapshot | None:
                 str(name): np.asarray(_dataset(rows, str(name))[()]) for name in rows
             },
             collar_was_quiet=bool(np.asarray(group.attrs["collar_was_quiet"])),
-            history_key=(
-                str(group.attrs["history_key"])
-                if "history_key" in group.attrs
-                else None
-            ),
+            history_key=str(group.attrs["history_key"]),
         )
     except (KeyError, ValueError, OutputError) as error:
         logger.warning("ignoring the unreadable march snapshot in the file: %s", error)
@@ -265,19 +223,12 @@ def _read_march(file: h5py.File, z: float) -> MarchSnapshot | None:
 def _trajectory_state(
     stored: Complex[np.ndarray, "*shape"],
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
-    """Return a stored march state without the leading axis of one its file keeps.
-
-    Every file writes ``(1, n_modes, n_pol, n_omega)``; ``(n_modes, n_pol, n_omega)``
-    is taken as it is. A leading axis longer than one is a stacked group, which a
-    single trajectory's snapshot never is, and is refused rather than squeezed.
-    """
-    if stored.ndim == 4 and stored.shape[0] == 1:
-        return stored[0]
+    """Return a stored march state, ``(n_modes, n_pol, n_omega)``, or refuse it."""
     if stored.ndim == 3:
         return stored
     msg = (
         f"the march snapshot's state has shape {stored.shape}, expected one "
-        "trajectory's (1, n_modes, n_pol, n_omega)"
+        "trajectory's (n_modes, n_pol, n_omega)"
     )
     raise OutputError(msg)
 
@@ -636,23 +587,23 @@ class ResumeState(Displayed):
 
     Attributes
     ----------
-    metadata : solprop.output.schema.RunMetadata
+    metadata : solprop.output.metadata.RunMetadata
         The record of the interrupted run, including its step schedule.
-    plane : solprop.output.schema.SavedPlane
+    plane : solprop.output.records.SavedPlane
         The accepted terminal checkpoint when present, otherwise the last regular
         plane, with its field back in the **internal** FFT convention. Modal
         amplitudes remain in output units until the driver applies the weight at z.
     n_saved : int
         Number of regular planes stored. The next scheduled index is determined
         from the actual position, independently of this count.
-    history : solprop.output.schema.StepHistory
+    history : solprop.output.records.StepHistory
         Every attempt of the whole run so far, concatenated.
-    outcome : solprop.output.schema.RunOutcome or None
+    outcome : solprop.output.records.RunOutcome or None
         Completion status and cumulative call ledgers; ``None`` when the file
         records none.
-    checkpoint : solprop.output.schema.TerminalCheckpoint or None
+    checkpoint : solprop.output.records.TerminalCheckpoint or None
         Separate accepted terminal state, preferred over the last regular save.
-    march : solprop.output.schema.MarchSnapshot or None
+    march : solprop.output.records.MarchSnapshot or None
         The Adams march's state where the run stopped, when the file kept one there.
 
     Examples
@@ -717,10 +668,13 @@ class ResumeState(Displayed):
 class HDF5Output(PlaneStore):
     """Stream a run to one HDF5 file, opened once and extended plane by plane.
 
-    Reading through ``__getitem__`` and
-    :meth:`~solprop.output.schema.PlaneStore.fields` works while the handler is
-    open and stops when it is closed, because the arrays live in the file rather than in
-    memory; :func:`open_file` opens a finished file for reading afterwards.
+    Reading through ``__getitem__``, :meth:`~solprop.output.store.PlaneStore.fields`
+    and :meth:`~solprop.output.store.PlaneStore.plane_field` works throughout. While
+    the handler is open the reads go through its handle; once the run has closed it,
+    each read opens the file for reading, reads, and closes it again, so a finished run
+    returned by ``prop_*(..., output="run.h5")`` or ``Simulation.run`` reads like one in
+    memory and holds no handle between reads. :func:`open_file` keeps one handle open
+    for many reads.
 
     Parameters
     ----------
@@ -757,9 +711,8 @@ class HDF5Output(PlaneStore):
     >>> from pathlib import Path
     >>> from solprop.grid import EnvelopeGrid
     >>> from solprop.output import HDF5Output
-    >>> from solprop.output.schema import (
-    ...     GridRecord, RunMetadata, SavedPlane, StepperRecord
-    ... )
+    >>> from solprop.output.metadata import RunMetadata
+    >>> from solprop.output.records import GridRecord, SavedPlane, StepperRecord
     >>> from solprop.stepper import DOPRI5, PIController
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (400e-9, 2e-6), 2e-12)
     >>> metadata = RunMetadata(
@@ -912,7 +865,7 @@ class HDF5Output(PlaneStore):
     def _store(self, plane: SavedPlane, exported: StoredField | None) -> None:
         """Store one plane and flush it to disk (:meth:`save`); refused if read-only.
 
-        An exported field (:meth:`~solprop.output.schema.PlaneStore.save_exported`)
+        An exported field (:meth:`~solprop.output.store.PlaneStore.save_exported`)
         is a new array, which h5py writes into the plane's chunk as it is: no NumPy
         copy, and an uncompressed chunk no copy of HDF5's own either (a compressed one
         is filtered through HDF5's buffer).
@@ -948,7 +901,7 @@ class HDF5Output(PlaneStore):
 
         Parameters
         ----------
-        snapshot : solprop.output.schema.MarchSnapshot
+        snapshot : solprop.output.records.MarchSnapshot
             The march's state at the last saved plane or terminal checkpoint.
 
         Raises
@@ -1154,12 +1107,36 @@ class HDF5Output(PlaneStore):
         file.flush()
 
     def _require_file(self) -> h5py.File:
-        """Return the open file, refusing once the handler is closed."""
+        """Return the open handle a write goes through, refusing without one."""
         if self._file is None:
-            action = "reopen it" if self._closed else "call open(metadata) first"
-            msg = f"the output file {self._path} is not open; {action}"
+            if self._suspended_identity is not None:
+                action = "the run holding it is suspended; resume the run first"
+            elif self._closed:
+                action = "the run has finished, so it can only be read"
+            else:
+                action = "call open(metadata) first"
+            msg = f"the output file {self._path} is not open for writing; {action}"
             raise OutputError(msg)
         return self._file
+
+    @contextmanager
+    def _reading(self) -> Iterator[h5py.File]:
+        """Yield a handle to read through: the open one, or a read-only one for a read.
+
+        A finished handler opens its file read-only for the one read and closes it
+        again, so a closed run stays readable without holding a handle; a suspended
+        writer keeps refusing, because its run still owns the file.
+        """
+        if self._file is not None or not self._closed:
+            yield self._require_file()
+            return
+        try:
+            file = h5py.File(self._path, "r")
+        except OSError as error:
+            msg = f"cannot read the output file {self._path}: {error}"
+            raise OutputError(msg) from error
+        with file:
+            yield file
 
     def _write_metadata(self, metadata: RunMetadata) -> None:
         """Open the file if it is not open yet, and write the run record.
@@ -1400,7 +1377,7 @@ class HDF5Output(PlaneStore):
 
         - ``plane``: the plane: its field in the internal convention, or ``None`` where
           the field was exported straight into the stored form
-          (:meth:`~solprop.output.schema.PlaneStore.save_exported`) and `stored` alone
+          (:meth:`~solprop.output.store.PlaneStore.save_exported`) and `stored` alone
           holds it. A subclass whose own ``_append`` reads the plane's field does not
           take exports (``PlaneStore.takes_exports``).
         - ``stored``: that field converted to the optics convention; ``None`` on a
@@ -1488,11 +1465,15 @@ class HDF5Output(PlaneStore):
                 dataset.resize(length, axis=0)
 
     def _read(self, group: str, name: str) -> np.ndarray:
-        """Return one stored array, read out of the open file.
+        """Return one stored array, through the open handle or a read-only one.
 
         - ``group``: ``''``, ``'stats'``, ``'step_history'`` or ``'step_stats'``.
         """
-        file = self._require_file()
+        with self._reading() as file:
+            return self._read_from(file, group, name)
+
+    def _read_from(self, file: h5py.File, group: str, name: str) -> np.ndarray:
+        """Return one stored array, read out of a handle (:meth:`_read`)."""
         if group == "step_stats" and (
             group not in file
             or (name not in _group(file, group) and not self.step_stat_names)
@@ -1527,7 +1508,8 @@ class HDF5Output(PlaneStore):
 
         - Returns: the stored field, optics convention.
         """
-        return np.asarray(_dataset(self._require_file(), "field")[slot])
+        with self._reading() as file:
+            return np.asarray(_dataset(file, "field")[slot])
 
     def _write_recipe(self, record: RecipeRecord) -> None:
         """Write the recipe group into the open file (SEP 41, S2)."""
@@ -1610,7 +1592,7 @@ def _write_annotation(file: h5py.File, name: str, text: str) -> None:
 def _stored_metadata(path: Path | str) -> tuple[RunMetadata, str]:
     """Return the record a file carries and the digest stored beside it.
 
-    - Returns: the :class:`solprop.output.schema.RunMetadata` and the
+    - Returns: the :class:`solprop.output.metadata.RunMetadata` and the
       ``configuration_hash`` attribute the writer stored, which are checked against each
       other.
     """
@@ -1666,7 +1648,7 @@ def check_cache(path: Path | str | Output, metadata: RunMetadata) -> bool:
 
     Parameters
     ----------
-    path : pathlib.Path or str or solprop.output.schema.Output
+    path : pathlib.Path or str or solprop.output.store.Output
         The file to check; an output handler is refused by name.
     metadata : RunMetadata
         The record of the run about to start.
@@ -1681,13 +1663,12 @@ def check_cache(path: Path | str | Output, metadata: RunMetadata) -> bool:
     ------
     OutputError
         If the hashes differ, or the file was written at another output schema; or
-        if the file's general modal record names an accessor this build no longer
-        admits (``_check_accessors``); or if `path` is an output handler.
+        if `path` is an output handler.
 
     Examples
     --------
     >>> from solprop.output.hdf5 import check_cache
-    >>> from solprop.output.schema import _example_metadata
+    >>> from solprop.output.metadata import _example_metadata
     >>> check_cache("no-such-file.h5", _example_metadata())
     False
     """
@@ -1696,58 +1677,16 @@ def check_cache(path: Path | str | Output, metadata: RunMetadata) -> bool:
         logger.debug("no cache at %s; starting from the beginning", path)
         return False
     stored, _ = _stored_metadata(path)
-    _check_plasma_benchmark(stored)
-    _check_accessors(path, stored, metadata)
     if stored.configuration_hash() == metadata.configuration_hash():
         return True
     raise OutputError(_resume_refusal(path, stored, metadata))
-
-
-def _check_plasma_benchmark(metadata: RunMetadata) -> None:
-    """Keep the historical gated equation out of every continuation path."""
-    if metadata.configuration.get("_benchmark_plasma_source"):
-        raise OutputError("gated plasma benchmark output cannot be resumed")
-
-
-def _check_accessors(
-    path: Path | str, stored: RunMetadata, metadata: RunMetadata
-) -> None:
-    """Refuse a resume whose file names an accessor this build cannot supply.
-
-    The published accessor list is **not** in the resume key: it says what the
-    package version that wrote the file could compute, not what the run computed,
-    and keeping it in the key would make every accessor this package gains
-    invalidate every general modal file ever written. What
-    matters is the one direction that is a real loss -- a file naming a capability
-    this build has dropped -- so the list is checked as a **subset** here instead.
-    A file written before an accessor was added resumes; one written by a build
-    that had an accessor this one does not is refused by the name it is missing.
-    """
-    if stored.modal is None or metadata.modal is None:
-        return
-    theirs = stored.modal.get("accessors")
-    mine = metadata.modal.get("accessors")
-    if not isinstance(theirs, list) or not isinstance(mine, list):
-        return
-    missing = sorted(str(one) for one in theirs if one not in mine)
-    if not missing:
-        return
-    msg = (
-        f"{path} was written by a build whose general modal basis admitted "
-        f"{', '.join(missing)}, which this build does not: a resume would silently "
-        "drop a statistic the file's own record says the run could ask for. The "
-        "accessor list is not in the resume key -- a file written before an "
-        "accessor existed resumes -- so this is a capability that was removed, not "
-        "one that was added"
-    )
-    raise OutputError(msg)
 
 
 def _last_history(file: h5py.File, index: int) -> tuple[StepHistory, StepHistory]:
     """Return the whole step history and the part belonging to one plane.
 
     - Returns: the whole history and the slice, both as
-      :class:`solprop.output.schema.StepHistory`.
+      :class:`solprop.output.records.StepHistory`.
     """
     group = _group(file, "step_history")
     counts = np.asarray(_dataset(group, "counts")[: index + 1], dtype=np.int64)
@@ -1802,7 +1741,7 @@ def resume(path: Path | str | Output) -> ResumeState:
 
     Parameters
     ----------
-    path : pathlib.Path or str or solprop.output.schema.Output
+    path : pathlib.Path or str or solprop.output.store.Output
         The file to read; an output handler is refused by name.
 
     Returns
@@ -1824,7 +1763,8 @@ def resume(path: Path | str | Output) -> ResumeState:
     >>> from solprop.grid import EnvelopeGrid
     >>> from solprop.output import HDF5Output
     >>> from solprop.output.hdf5 import resume
-    >>> from solprop.output.schema import SavedPlane, _example_metadata
+    >>> from solprop.output.metadata import _example_metadata
+    >>> from solprop.output.records import SavedPlane
     >>> metadata = _example_metadata()
     >>> n_omega = metadata.grid.n_omega
     >>> with tempfile.TemporaryDirectory() as folder:
@@ -1852,7 +1792,6 @@ def resume(path: Path | str | Output) -> ResumeState:
     """
     path = _file_path(path, "resume")
     metadata, _ = _stored_metadata(path)
-    _check_plasma_benchmark(metadata)
     with h5py.File(path, "r") as file:
         outcome = _read_outcome(file)
         checkpoint = _current_checkpoint(
@@ -1957,9 +1896,8 @@ def open_file(path: Path | str) -> HDF5Output:
     >>> from pathlib import Path
     >>> from solprop.grid import EnvelopeGrid
     >>> from solprop.output import MemoryOutput, open_file
-    >>> from solprop.output.schema import (
-    ...     GridRecord, RunMetadata, SavedPlane, StepperRecord
-    ... )
+    >>> from solprop.output.metadata import RunMetadata
+    >>> from solprop.output.records import GridRecord, SavedPlane, StepperRecord
     >>> from solprop.stepper import DOPRI5, PIController
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (400e-9, 2e-6), 2e-12)
     >>> memory = MemoryOutput()

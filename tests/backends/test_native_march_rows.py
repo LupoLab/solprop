@@ -37,7 +37,7 @@ def rows(implementation: type):
         simulation.settings, integrator=Multistep()
     )
     problem = simulation.translate()
-    run_request = simulation._run_request().for_run(
+    run_request = simulation.run_request().for_run(
         stats=StatsSpec(names=("energy",), periodic=("energy",), period=3)
     )
     backend = implementation(problem, run_request, grid=simulation.grid)
@@ -47,7 +47,7 @@ def rows(implementation: type):
         )
         try:
             if implementation is NativeBackend:
-                assert type(backend._resident).__name__ == "_ResidentAdams"
+                assert backend._diagnostics()["method"] == "adams"
             run = drive(Started(session))
         finally:
             session.close()

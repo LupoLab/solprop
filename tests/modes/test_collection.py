@@ -106,16 +106,6 @@ def test_hybrid_and_transverse_families_are_orthogonal():
     assert overlap(hybrid, transverse) == pytest.approx(0.0, abs=1e-9)
 
 
-def test_an_overlap_needs_one_cross_section():
-    with pytest.raises(ModeError, match="needs one cross-section"):
-        overlap(MarcatiliMode(RADIUS, "He", 1.0), MarcatiliMode(2 * RADIUS, "He", 1.0))
-
-
-def test_an_overlap_needs_a_closed_form_normalisation():
-    with pytest.raises(ModeError, match="provides no normalisation"):
-        overlap(DummyMode(), DummyMode())
-
-
 # --------------------------------------------------------------- orthonormality
 
 
@@ -134,11 +124,6 @@ def test_orthonormality_is_symmetric():
     ]
     matrix = orthonormality(modes)
     np.testing.assert_allclose(matrix, matrix.T, rtol=0.0, atol=0.0)
-
-
-def test_orthonormality_needs_a_mode():
-    with pytest.raises(ModeError, match="at least one mode"):
-        orthonormality([])
 
 
 def test_the_fixed_rule_reproduces_the_adaptive_overlaps():
@@ -195,11 +180,6 @@ def test_the_partner_of_a_higher_order_hybrid_turns_by_a_quarter_of_its_period()
     assert overlap(mode, partner) == pytest.approx(0.0, abs=1e-9)
 
 
-def test_a_mode_that_cannot_say_is_refused():
-    with pytest.raises(ModeError, match="orthogonal polarisation"):
-        polarisation_pairs([DummyMode()])
-
-
 # ------------------------------------------------------------- the collection
 
 
@@ -211,21 +191,36 @@ def test_a_collection_is_an_ordered_sequence():
     assert list(collection) == modes
 
 
-def test_a_collection_needs_a_mode():
-    with pytest.raises(ModeError, match="at least one mode"):
-        ModeCollection(())
-
-
-def test_a_collection_refuses_mismatched_cross_sections():
-    # Two *different* channels, so that it is the cross-section that is refused
-    # and not the repeated channel a collection also refuses.
-    with pytest.raises(ModeError, match="share a cross-section"):
-        ModeCollection(
-            [
-                MarcatiliMode(RADIUS, "He", 1.0),
-                MarcatiliMode(2 * RADIUS, "He", 1.0, m=2),
-            ]
-        )
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        (
+            lambda: overlap(
+                MarcatiliMode(RADIUS, "He", 1.0), MarcatiliMode(2 * RADIUS, "He", 1.0)
+            ),
+            "needs one cross-section",
+        ),
+        (lambda: overlap(DummyMode(), DummyMode()), "provides no normalisation"),
+        (lambda: orthonormality([]), "at least one mode"),
+        (lambda: polarisation_pairs([DummyMode()]), "orthogonal polarisation"),
+        (lambda: ModeCollection(()), "at least one mode"),
+        # Two *different* channels, so that it is the cross-section that is refused
+        # and not the repeated channel a collection also refuses.
+        (
+            lambda: ModeCollection(
+                [
+                    MarcatiliMode(RADIUS, "He", 1.0),
+                    MarcatiliMode(2 * RADIUS, "He", 1.0, m=2),
+                ]
+            ),
+            "share a cross-section",
+        ),
+        (lambda: ModeCollection.he1m(RADIUS, "He", 0.8, count=0), "at least one mode"),
+    ],
+)
+def test_a_set_that_is_not_one_guide_is_refused(call, message):
+    with pytest.raises(ModeError, match=message):
+        call()
 
 
 def test_a_collection_reports_the_shared_cross_section():
@@ -321,7 +316,7 @@ def he1m_modes(*arguments, **keywords) -> tuple[MarcatiliMode, ...]:
 
 
 def test_he1m_builds_the_first_count_hybrid_modes():
-    modes = he1m_modes(RADIUS, "He", 0.8, 4)
+    modes = he1m_modes(RADIUS, "He", 0.8, count=4)
     assert len(modes) == 4
     assert [mode.m for mode in modes] == [1, 2, 3, 4]
     assert {(mode.kind, mode.n) for mode in modes} == {("HE", 1)}
@@ -329,7 +324,7 @@ def test_he1m_builds_the_first_count_hybrid_modes():
 
 def test_he1m_needs_no_azimuthal_rule():
     # |J_0(u r/a)| does not depend on theta, so the set integrates radially.
-    modes = ModeCollection.he1m(RADIUS, "He", 0.8, 3)
+    modes = ModeCollection.he1m(RADIUS, "He", 0.8, count=3)
     assert modes.azimuthal_order == 0
     assert not modes.needs_full_rule
 
@@ -337,26 +332,23 @@ def test_he1m_needs_no_azimuthal_rule():
 def test_he1m_is_orthonormal():
     # The adaptive overlaps, not the fixed rule the run uses: a set checked on its own
     # quadrature would be orthonormal by construction.
-    got = ModeCollection.he1m(RADIUS, "He", 0.8, 3).orthonormality()
+    got = ModeCollection.he1m(RADIUS, "He", 0.8, count=3).orthonormality()
     # dblquad's own accuracy on the Bessel products, measured at 4e-11 here.
     np.testing.assert_allclose(got, np.eye(3), atol=1e-9)
 
 
 def test_he1m_carries_the_mode_keywords_to_every_mode():
-    modes = he1m_modes(RADIUS, "He", 0.8, 2, model="reduced", loss=False, cladding=1.45)
+    modes = he1m_modes(
+        RADIUS, "He", 0.8, count=2, model="reduced", loss_scale=0.0, cladding=1.45
+    )
     assert [mode.model for mode in modes] == ["reduced", "reduced"]
-    assert [mode.loss for mode in modes] == [False, False]
+    assert [mode.loss_scale for mode in modes] == [0.0, 0.0]
     assert [mode.cladding_index for mode in modes] == [1.45, 1.45]
 
 
 def test_he1m_matches_the_modes_built_by_hand():
-    by_hand = [MarcatiliMode(RADIUS, "He", 0.8, m=m, loss=False) for m in (1, 2)]
-    got = he1m_modes(RADIUS, "He", 0.8, 2, loss=False)
+    by_hand = [MarcatiliMode(RADIUS, "He", 0.8, m=m, loss_scale=0.0) for m in (1, 2)]
+    got = he1m_modes(RADIUS, "He", 0.8, count=2, loss_scale=0.0)
     omega = np.array([2.356e15])
     for one, other in zip(got, by_hand, strict=True):
         np.testing.assert_array_equal(one.neff(omega), other.neff(omega))
-
-
-def test_he1m_refuses_an_empty_set():
-    with pytest.raises(ModeError, match="at least one mode"):
-        ModeCollection.he1m(RADIUS, "He", 0.8, 0)

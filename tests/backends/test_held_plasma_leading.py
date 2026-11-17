@@ -10,7 +10,7 @@ import numpy as np
 from scipy.integrate import quad, quad_vec
 from tests.backends.test_held_plasma import EPS, grid_case
 
-from solprop.backends.numpy_ref.passes import held_plasma_spectrum
+from solprop.backends.numpy_ref.passes.plasma import held_plasma_spectrum
 
 
 def _recover(grid, current):

@@ -12,8 +12,9 @@ tables of the plasma density, each channel's preionisation, the species densitie
 taper, the effective area and the modal power weight (:meth:`~solprop.translate.
 chebyshev.PiecewiseChebyshev.packed`), read by the native Clenshaw recursion bit for bit
 as solprop evaluates them. A general modal basis's statistics read the square root of
-its flux metric (:func:`solprop.stats._whitened`), formed here from the metric's own
-values by the same ``eigh`` on each interval where the metric is constant.
+its flux metric (``solprop.stats.definitions._whitened``), formed here from the
+metric's own values by the same ``eigh`` on each interval where the metric is
+constant.
 
 A profile statistic (``density``, ``pressure``, ``core_radius``) reads its path from
 the representation the propagation already carries when one of the problem's scalar
@@ -80,7 +81,6 @@ __all__ = [
     "ADMITTED_GENERAL_STATISTICS",
     "ADMITTED_SPATIAL_STATISTICS",
     "ADMITTED_STATISTICS",
-    "NODE_POPULATIONS",
     "PROFILE_TOLERANCE",
     "STATISTIC_IDS",
     "ZDW_TOLERANCE",
@@ -90,11 +90,6 @@ __all__ = [
     "translated",
     "uncovered",
 ]
-
-NODE_POPULATIONS = "_node_populations"
-"""The plan's per-node channel populations, ``(n_nodes, n_channels, 2)``: each node's
-final fraction and peak rate, which the transitional session's host on-axis statistics
-reuse on a Radau rule (SEP 19). Not a catalogue statistic."""
 
 STATISTIC_IDS: Mapping[str, int] = {
     name: index
@@ -133,7 +128,6 @@ STATISTIC_IDS: Mapping[str, int] = {
             "density",
             "pressure",
             "core_radius",
-            NODE_POPULATIONS,
             "beam_radius",
             "fwhm_r",
             "zdw",
@@ -422,7 +416,7 @@ def _table(table: PiecewiseChebyshev | None) -> dict[str, object] | None:
 
 
 def _root(metric: np.ndarray) -> np.ndarray:
-    """Return the metric's square root as :func:`solprop.stats._whitened` forms it.
+    """Return the metric's square root as ``solprop.stats.definitions._whitened`` does.
 
     ``W`` is ``(n_modes, n_modes, n_omega)``; ``W^(1/2)`` comes back frequency first,
     ``(n_omega, n_modes, n_modes)``.
@@ -549,7 +543,7 @@ def _profile_table(
     """Return a profile statistic's table and its record, lowered once per problem.
 
     - ``z_end``: the run's last plane, m
-      (:attr:`solprop.translate.problem.StepperSettings. z_end`).
+      (:attr:`solprop.stepper.settings.StepperSettings. z_end`).
     - Returns: the table, and its record for ``statistics_tables`` (a copy).
     """
     held = _PROFILE_TABLES.setdefault(problem, {})
@@ -645,7 +639,6 @@ def _shape(
     species = int(cast("int", plan["n_species"]))
     nodes = int(cast("int", plan["n_nodes"]))
     absorbed = int(cast("int", plan["n_absorbed"]))
-    channels = int(cast("int", plan["n_channels"]))
     shapes: dict[str, tuple[int, ...]] = {
         "omega0": (modes, pol),
         "energy": () if plan["route"] == _ROUTES["spatial"] else (modes, pol),
@@ -668,7 +661,6 @@ def _shape(
         "region_spectrum": (regions, n_omega),
         "aperture_spectrum": (apertures, n_omega),
         "aperture_on_axis_spectrum": (apertures, n_omega),
-        NODE_POPULATIONS: (nodes, channels, 2),
     }
     return shapes.get(name, ())
 
@@ -676,8 +668,8 @@ def _shape(
 def _on_axis(modes: Sequence[Mode]) -> np.ndarray:
     """Return the mode set's synthesis on the axis at the reference position.
 
-    ``HostDriver._on_axis_synthesis`` before its taper: the single node ``r = 0`` of
-    :func:`~solprop.modes.quadrature.on_axis_rule`, rows x and y.
+    ``ReferenceStatistics._on_axis_synthesis`` before its taper: the single node
+    ``r = 0`` of :func:`~solprop.modes.quadrature.on_axis_rule`, rows x and y.
     """
     rule = on_axis_rule(modes[0].dimlimits(0.0)[0])
     return mode_matrix(modes, rule, 0.0, components=("x", "y")).synthesis
@@ -1056,14 +1048,15 @@ def lower(
     - ``apertures``: a spatial route's far-field tables packed for the native pass (the
       adapter's ``_aperture_payload``): the apertures, the regions and the exponent.
     - ``on_axis``: the mode set's synthesis on the axis at the reference position, when
-      the caller already built it (``HostDriver._on_axis``); built here otherwise.
+      the caller already built it (``ReferenceStatistics._on_axis_synthesis``); built
+      here otherwise.
     - ``z_end``: the run's last plane, m, which a profile statistic's table must reach.
     - ``planes``: every position the plane statistics will be taken at, when the run
       fixes them all before it starts; ``zdw`` is then searched exactly there
       (:func:`_zdw_tables`).
     """
     names = tuple(names)
-    left = uncovered(problem, [name for name in names if name != NODE_POPULATIONS])
+    left = uncovered(problem, names)
     if left:
         msg = f"the native statistics plan does not evaluate {left!r} on this route"
         raise BackendError(msg)
@@ -1184,7 +1177,7 @@ def lower(
         if axis:
             node = axis_node(problem, on_axis)
             plan["axis_node"] = -1 if node is None else node
-    if asked & (_PLASMA | _SPECIES | {NODE_POPULATIONS}) or axis:
+    if asked & (_PLASMA | _SPECIES) or axis:
         if len(channels) == 1:
             plan["plasma_density"] = _table(channels[0].density)
             plan["plasma_preionisation"] = _table(channels[0].preionisation)

@@ -101,3 +101,35 @@ def test_the_native_sessions_unit_is_strict(tmp_path, monkeypatch, capsys):
     wheel = _wheel(tmp_path, monkeypatch, STRICT + session)
     assert check_strict_fma.main([wheel]) == 1
     assert "solprop_native::session::apply_recipe" in capsys.readouterr().err
+
+
+def test_code_past_a_strict_symbol_s_end_is_not_its_own(tmp_path, monkeypatch, capsys):
+    # A stripped wheel labels only exported functions: a link may place another file's
+    # unlabelled, contracting code right after a strict function (as LTO put a
+    # dispersive kernel after march::reached). The symbol's size bounds the function.
+    listing = (
+        "0000000000001100 <solprop_native::march::reached(double, double, int)>:\n"
+        "    1100:\tvmulsd %xmm1,%xmm0,%xmm0\n"
+        "    1104:\tretq\n"
+        "    1110:\tvfmadd231sd %xmm1,%xmm2,%xmm0\n"
+    )
+    symbols = (
+        "0000000000001100 g    DF .text\t0000000000000005  Base        "
+        "solprop_native::march::reached(double, double, int)\n"
+    )
+    wheel = tmp_path / "solprop_native-0-cp314-abi3-linux_x86_64.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("solprop_native/_core.abi3.so", b"")
+
+    def objdump(command, **_):
+        table = "-T" in command
+        output = symbols if table else "" if "-t" in command else listing
+        return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
+
+    monkeypatch.setattr(check_strict_fma.subprocess, "run", objdump)
+    assert check_strict_fma.main([str(wheel)]) == 0
+    assert "1 strict functions, none fused" in capsys.readouterr().out
+    # Inside the symbol, the same instruction is the function's own.
+    listing = listing.replace("    1110:", "    1102:")
+    assert check_strict_fma.main([str(wheel)]) == 1
+    assert "1 fused multiply-add(s) in" in capsys.readouterr().err

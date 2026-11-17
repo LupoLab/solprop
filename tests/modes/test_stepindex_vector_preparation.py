@@ -11,7 +11,7 @@ from scipy.integrate import quad
 
 from solprop.constants import C
 from solprop.exceptions import ModeError
-from solprop.modes import _stepindex_vector as vector
+from solprop.modes import stepindex_vector as vector
 from solprop.modes.stepindex import StepIndexMode
 from solprop.profiles import Linear
 
@@ -126,7 +126,7 @@ def test_each_new_frequency_or_position_resolves_its_own_material_and_mode(monke
 
 def test_attenuating_mode_is_refused_before_quadrature(monkeypatch):
     mode = StepIndexMode(
-        4e-6, core=1.45, cladding=1.40, profile_wavelength=835e-9, loss=1.0
+        4e-6, core=1.45, cladding=1.40, profile_wavelength=835e-9, alpha=1.0
     )
 
     def forbidden(*args, **kwargs):

@@ -46,13 +46,13 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-import solprop.translate.problem as problem_module
+import solprop.translate.walls as walls_module
 from driver.test_coherent_capillary import LENGTH, linear_launch, varying
 from driver.test_flow_collar import backend_class
 from sessions.runs import bare, final_field
 from solprop.exceptions import GrazingIncidenceWarning, MaterialRangeWarning
 from solprop.modes import CoherentWall, wall_operator
-from solprop.modes.capillary import WallImpedance
+from solprop.modes.wall import WallImpedance
 from solprop.profiles import PiecewiseLinear
 from solprop.stepper import FixedSchedule
 from solprop.translate.linop import delta_phi, power_weight_at
@@ -92,7 +92,7 @@ def transfer(radii, steps, name="numpy_ref"):
     )
     simulation.settings = replace(simulation.settings, absorber=None)
     problem, grid = simulation.translate(), simulation.grid
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None and flow.connection is not None
     backend = backend_class(name)
@@ -104,7 +104,7 @@ def transfer(radii, steps, name="numpy_ref"):
         driver = backend(launched, run_request, grid=grid)
         final = final_field(driver, launched, bare(run_request), ended=True, owns=True)
         columns.append(final[:, 0, index] / 1e-9)
-    carrier = delta_phi(problem.linear, 0.0, LENGTH)[0, :, 0, index]
+    carrier = delta_phi(problem.linear, 0.0, LENGTH)[:, 0, index]
     assert np.all(carrier == carrier[0])
     root = {z: np.sqrt(power_weight_at(problem, z)[:, 0, index]) for z in (0, LENGTH)}
     vacuum = np.stack(columns, axis=1)
@@ -143,7 +143,8 @@ def test_a_mirrored_taper_transfers_as_the_transpose_of_the_forward_one(
 
     Bound, stated first. (i) Each ten-step transfer is within its discretisation
     error ``e_10`` of the model's, and the scheme converges at an order ``p >= 1``
-    here (measured 4.87 and 4.95), so ``||T_10 - T_5|| >= e_5 - e_10 >=
+    here (above four, gated by the true-power tests of
+    ``test_coherent_capillary.py``), so ``||T_10 - T_5|| >= e_5 - e_10 >=
     e_10``: the refinement differences of the two tapers majorise their errors.
     (ii) The model's defect ``D`` is bounded by Duhamel, ``||D|| <= K^2
     int ||Delta||``, with ``K = exp(int ||E||)``, ``E = W^(1/2) G W^(-1/2) - G``,
@@ -207,7 +208,7 @@ def test_with_the_wall_block_placed_in_true_power_the_flow_is_reciprocal(
     differences, the Kerr coupling (1e-12) and the rounding of four ``numpy_ref``
     runs (1e-12), exactly as in the test above with its placement term removed.
     """
-    original = problem_module._wall_generator_at
+    original = walls_module._wall_generator_at
 
     def placed_in_true_power(
         block, grid, z, sampled, impedance: WallImpedance = "mean"
@@ -219,7 +220,7 @@ def test_with_the_wall_block_placed_in_true_power_the_flow_is_reciprocal(
         ratio[:, :, grid.active_mask] = np.sqrt(weight[None] / weight[:, None])
         return generator * ratio
 
-    monkeypatch.setattr(problem_module, "_wall_generator_at", placed_in_true_power)
+    monkeypatch.setattr(walls_module, "_wall_generator_at", placed_in_true_power)
     forward = {
         steps: transfer((WIDE, WIDE, NARROW, NARROW), steps)[0] for steps in (5, 10)
     }

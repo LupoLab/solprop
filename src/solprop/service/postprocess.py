@@ -20,7 +20,7 @@ from typing import Any
 
 import numpy as np
 
-from solprop import capabilities
+from solprop import capabilities, fourier
 from solprop.constants import C
 from solprop.exceptions import SolpropError
 from solprop.optics import (
@@ -52,12 +52,11 @@ from solprop.processing import (
 )
 from solprop.processing.compression import Compression
 from solprop.processing.time import fwhm
+from solprop.service._payload import Payload
 from solprop.service.reduce import TIME_OVERSAMPLING
 from solprop.service.results import band_of
 
 __all__ = ["POSTPROCESS_HANDLERS", "catalogue", "compress_chain"]
-
-Payload = Mapping[str, object]
 
 
 def catalogue(_payload: Payload) -> dict[str, list[str]]:
@@ -223,8 +222,8 @@ def search(
     wavelength : float
         The reference wavelength, m.
     **common : Any
-        The compressor's input and selection: ``grid``, ``spectrum``, ``modes`` and
-        ``bandpass``.
+        The compressor's input and selection: ``grid``, ``spectrum`` (one plane in
+        the optics convention), ``modes`` and ``bandpass``.
 
     Returns
     -------
@@ -367,7 +366,8 @@ def compress_chain(payload: Payload) -> dict[str, object]:
                     stage,
                     wavelength,
                     grid=grid,
-                    spectrum=current,
+                    # The compressors take a plane as a file stores it.
+                    spectrum=fourier.spectrum_to_optics(current, kind=grid.kind),
                     modes=selection,
                     bandpass=band,
                 )

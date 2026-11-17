@@ -21,11 +21,11 @@ import h5py
 import pytest
 
 import solprop.driver.run as run_module
+import solprop.driver.session_loop as session_loop_module
 from driver.test_abandoned_step import built as low_storage
 from driver.test_resume import run_until
 from driver.test_resume_history import AFRESH, soliton
-from solprop.backends.host.driver import HostDriver
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.session import SessionError
 from solprop.exceptions import SolpropWarning
 from solprop.output import (
@@ -62,6 +62,15 @@ def resumed(build, path) -> list[warnings.WarningMessage]:
         for one in caught
         if issubclass(one.category, SolpropWarning) and AFRESH in str(one.message)
     ]
+
+
+def warned_once_and_reset(build, path, text, reason) -> None:
+    """Resume, warned once with `text`; the history is recorded reset for `reason`."""
+    caught = resumed(build, path)
+    assert len(caught) == 1
+    assert text in str(caught[0].message)
+    restoration = restart(path)["restoration"]
+    assert (restoration["state"], restoration["reason"]) == ("reset", reason)
 
 
 def interrupted(build, path) -> float:
@@ -130,7 +139,7 @@ def test_a_kept_history_set_aside_on_resume_is_recorded_without_a_warning(
 def test_a_history_over_the_automatic_limit_warns_once_on_resume(
     build_simulation, tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(run_module, "MARCH_SNAPSHOT_AUTO_BYTES", 1)
+    monkeypatch.setattr(session_loop_module, "MARCH_SNAPSHOT_AUTO_BYTES", 1)
     build = soliton(build_simulation, "numpy_ref")
     path = tmp_path / "run.h5"
     z = interrupted(build, path)
@@ -139,13 +148,8 @@ def test_a_history_over_the_automatic_limit_warns_once_on_resume(
     assert retention["reason"] == "automatic_size_limit"
     assert retention["z"] == z
     assert retention["limit"] == 1
-    caught = resumed(build, path)
-    assert len(caught) == 1
-    assert "resume_history=True keeps it" in str(caught[0].message)
-    restoration = restart(path)["restoration"]
-    assert (restoration["state"], restoration["reason"]) == (
-        "reset",
-        "automatic_size_limit",
+    warned_once_and_reset(
+        build, path, "resume_history=True keeps it", "automatic_size_limit"
     )
 
 
@@ -155,14 +159,7 @@ def test_a_kept_history_that_cannot_be_read_back_warns_once(build_simulation, tm
     interrupted(build, path)
     with h5py.File(path, "r+") as file:
         del file["march_snapshot"]
-    caught = resumed(build, path)
-    assert len(caught) == 1
-    assert "cannot be read back" in str(caught[0].message)
-    restoration = restart(path)["restoration"]
-    assert (restoration["state"], restoration["reason"]) == (
-        "reset",
-        "unavailable_history",
-    )
+    warned_once_and_reset(build, path, "cannot be read back", "unavailable_history")
 
 
 def test_a_history_this_backend_cannot_install_is_recorded_as_incompatible(
@@ -172,37 +169,10 @@ def test_a_history_this_backend_cannot_install_is_recorded_as_incompatible(
     path = tmp_path / "run.h5"
     interrupted(build, path)
     monkeypatch.setattr(
-        HostDriver, "restore_march", lambda self, snapshot: "refused by the test"
+        HostSession, "_restore_march", lambda self, snapshot: "refused by the test"
     )
-    caught = resumed(build, path)
-    assert len(caught) == 1
-    assert "refused by the test" in str(caught[0].message)
-    restoration = restart(path)["restoration"]
-    assert (restoration["state"], restoration["reason"]) == (
-        "reset",
-        "incompatible_representation",
-    )
-
-
-def test_a_resuming_march_that_cannot_carry_a_history_warns_once_and_resets(
-    build_simulation, tmp_path, monkeypatch
-):
-    # The file keeps a history, and the resuming engine says before installing it that
-    # its march cannot carry one (the protocol's `march_export_refusal`): the history
-    # restarts, once, with a warning that gives the engine's reason.
-    build = soliton(build_simulation, "numpy_ref")
-    path = tmp_path / "run.h5"
-    interrupted(build, path)
-    assert restart(path)["retention"]["state"] == "retained"
-    monkeypatch.setattr(
-        HostDriver, "march_export_refusal", lambda self: "refused by the test"
-    )
-    caught = resumed(build, path)
-    assert [str(one.message) for one in caught] == [f"{AFRESH}: refused by the test"]
-    restoration = restart(path)["restoration"]
-    assert (restoration["state"], restoration["reason"]) == (
-        "reset",
-        "incompatible_representation",
+    warned_once_and_reset(
+        build, path, "refused by the test", "incompatible_representation"
     )
 
 
@@ -245,13 +215,13 @@ def test_a_low_storage_resume_has_no_history_to_record(tmp_path):
 
 
 @pytest.mark.parametrize("march", [True, False])
-def test_a_file_without_the_record_reads_as_unknown_and_resumes(
+def test_a_record_that_states_no_retention_reads_as_unknown_and_resumes(
     build_simulation, tmp_path, march
 ):
-    # A file written before the record: no reason is invented for it, and a missing
-    # history is not warned about, as before.
+    # No reason is invented for a record that states nothing, and a missing history
+    # is not warned about.
     build = soliton(build_simulation, "numpy_ref")
-    path = tmp_path / "legacy.h5"
+    path = tmp_path / "unstated.h5"
     z = interrupted(build, path)
     with h5py.File(path, "r+") as file:
         outcome = json.loads(str(_dataset(file, "meta/outcome").asstr()[()]))
@@ -268,7 +238,7 @@ def test_a_file_without_the_record_reads_as_unknown_and_resumes(
     assert run_module.retention_at(state.outcome.execution, z) is None
     assert resumed(build, path) == []
     restoration = restart(path)["restoration"]
-    assert restoration["retention"] == {"state": "unknown", "reason": "legacy"}
+    assert restoration["retention"] == {"state": "unknown", "reason": "not_recorded"}
     assert (restoration["state"], restoration["reason"]) == (
         ("restored", "retained_history") if march else ("reset", "unavailable_history")
     )
@@ -291,7 +261,7 @@ def test_a_resumed_monitor_states_its_reconstruction(build_simulation, tmp_path)
 def test_a_required_snapshot_records_its_retention(tmp_path, monkeypatch):
     from driver.test_snapshots import ordinary  # noqa: PLC0415 - its case
 
-    monkeypatch.setattr(run_module, "MARCH_SNAPSHOT_AUTO_BYTES", 0)
+    monkeypatch.setattr(session_loop_module, "MARCH_SNAPSHOT_AUTO_BYTES", 0)
     controller = SnapshotController(tmp_path / "snapshots")
     controller.request()
     ordinary(integrator=Multistep()).run(
@@ -333,14 +303,7 @@ def test_a_history_write_cut_short_warns_once_on_resume(
     retention = restart(path)["retention"]
     assert (retention["state"], retention["reason"]) == ("omitted", "write_failed")
     assert resume(path).march is None
-    caught = resumed(build, path)
-    assert len(caught) == 1
-    assert "write failed" in str(caught[0].message)
-    restoration = restart(path)["restoration"]
-    assert (restoration["state"], restoration["reason"]) == (
-        "reset",
-        "unavailable_history",
-    )
+    warned_once_and_reset(build, path, "write failed", "unavailable_history")
 
 
 def test_a_monitor_continuation_is_given_once_and_before_it_watches():
@@ -389,31 +352,3 @@ def test_a_history_set_aside_on_request_restarts_quietly_under_the_default_polic
     restoration = restart(path)["restoration"]
     assert (restoration["state"], restoration["reason"]) == ("reset", "explicit_policy")
     assert restoration["retention"]["state"] == "omitted"
-
-
-def test_a_history_the_writing_engine_could_not_export_warns_once_on_resume(
-    build_simulation, tmp_path, monkeypatch
-):
-    # The run that wrote the file had an engine that did not export its history; a
-    # resume whose engine could install one finds none and says why, once.
-    build = soliton(build_simulation, "numpy_ref")
-    path = tmp_path / "run.h5"
-    with monkeypatch.context() as patched:
-        patched.setattr(HostDriver, "march_snapshot_nbytes", lambda self, z: None)
-        patched.setattr(
-            HostDriver, "march_export_refusal", lambda self: "refused by the test"
-        )
-        interrupted(build, path)
-    retention = restart(path)["retention"]
-    assert (retention["state"], retention["reason"]) == (
-        "omitted",
-        "incompatible_representation",
-    )
-    caught = resumed(build, path)
-    assert len(caught) == 1
-    assert "the run's engine does not export it" in str(caught[0].message)
-    restoration = restart(path)["restoration"]
-    assert (restoration["state"], restoration["reason"]) == (
-        "reset",
-        "incompatible_representation",
-    )

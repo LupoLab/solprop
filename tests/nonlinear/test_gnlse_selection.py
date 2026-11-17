@@ -22,7 +22,7 @@ from solprop.nonlinear.gnlse import (
     raman_susceptibility,
 )
 from solprop.nonlinear.raman import SampledShape
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.physdata.glasses import SilicaBundle
 from solprop.physdata.selection import MaterialSelection
 

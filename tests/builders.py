@@ -1,0 +1,213 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""Shared builders for tests: construction code several test modules repeated.
+
+A builder here replaces copies that were the same code, so a migrated test builds
+exactly what it built before; a builder that assembles a problem or a simulation was
+pinned, when it was migrated, by the configuration hash of what the old copies built.
+"""
+
+import dataclasses
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+from typing import Any, Literal
+
+import numpy as np
+
+from legacy_geometry import LEGACY_GRID, bare_absorber
+from march_bounds import FIXED_ORDER
+from solprop._helpers import PLAIN, Helpers
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.boundaries import DEFAULT_BOUNDARY_N, Absorber, absorber
+from solprop.driver import Simulation
+from solprop.driver.scan import ScanPoint
+from solprop.exceptions import GridError
+from solprop.grid import EnvelopeGrid, TimeGrid
+from solprop.stats import StatsSpec
+from solprop.stepper import FixedSchedule
+from solprop.translate.problem import PropagationProblem
+from solprop.translate.run_request import RunRequest
+
+__all__ = [
+    "HASH_PROBE",
+    "fixed_fibre_point",
+    "grid_at",
+    "held_collar",
+    "launch_derivative",
+    "load_reference",
+    "numpy_ref_launch_derivative",
+    "reference_trial",
+    "run_python",
+    "stage_helpers",
+]
+
+HASH_PROBE = textwrap.dedent(
+    """\
+    from solprop.driver.simulation import Simulation
+
+    def run(self, *args, **kwargs):
+        print(self.metadata().configuration_hash())
+        raise SystemExit(0)
+
+    Simulation.run = run
+    """
+)
+"""A prefix for an exported script: its run prints the configuration hash and exits."""
+
+
+def load_reference(
+    backend: Any,
+    field: Any = None,
+    *,
+    noise: Any = None,
+    z: float | None = None,
+    resume: bool = False,
+) -> Any:
+    """Load a ``numpy_ref`` backend's workspace as a session loads its start.
+
+    The state masked to the active band, with the ``input`` noise's draw at the
+    launch (:meth:`solprop.backends.numpy_ref.workspace.NumpyWorkspace.load`), for the
+    workspace- and engine-level checks; no monitor is bound and nothing is stepped.
+
+    - ``field``: the state; the problem's launch by default.
+    - ``z``: its position, m; the problem's entrance by default.
+    - Returns: the committed state.
+    """
+    workspace = backend.workspace
+    problem = workspace.problem
+    values = problem.initial.field0 if field is None else field
+    workspace.load(
+        np.ascontiguousarray(values, dtype=np.complex128),
+        noise,
+        z=float(problem.initial.z) if z is None else float(z),
+        resume=resume,
+    )
+    return workspace.committed()
+
+
+def grid_at[G: TimeGrid](grid: G, length: float) -> G:
+    """Return `grid` with another length, m, and every sample as it was.
+
+    A run ends at its grid's length (SEP 51), so a test that ran a short window of a
+    longer grid shortens the grid instead. The length also sets the default absorber's
+    reference length; :func:`held_collar` keeps the rates the old length gave.
+    """
+    return dataclasses.replace(grid, length=length)
+
+
+def held_collar(grid: TimeGrid, length: float) -> Absorber:
+    """Return the default collar on `grid`, at the rates a grid of `length` gave.
+
+    :func:`solprop.driver.settings.default_collar` with its reference length pinned to
+    ``length / DEFAULT_BOUNDARY_N``, m, so that shortening a test's grid to the window
+    it runs (:func:`grid_at`) leaves its absorber unchanged.
+    """
+    reference = length / DEFAULT_BOUNDARY_N
+    try:
+        return absorber(grid, boundary_length=reference)
+    except GridError:
+        return absorber(grid, boundary_length=reference, temporal=False)
+
+
+def launch_derivative(backend: NumpyRefBackend, problem: PropagationProblem) -> Any:
+    """Return an open ``numpy_ref`` backend's stage derivative ``N(E, z=0)`` at launch.
+
+    The backend is loaded with the problem's launch field, hoisted to z = 0 and asked
+    for its nonlinear stage there with unit stage weights, as the first stage of a
+    trial is.
+    """
+    state = load_reference(backend, problem.initial.field0)
+    backend.workspace.hoist(0.0)
+    return backend.workspace.nonlinear(
+        state,
+        backend.workspace.stage_scalars(0.0, 0.0),
+        np.ones(problem.shape, complex),
+    )
+
+
+def reference_trial(backend: Any, z: float, dz: float) -> tuple[float, Any]:
+    """Return a ``numpy_ref`` trial's norm and raw end state, committing nothing.
+
+    A Runge-Kutta engine over the backend's workspace forms the trial from the
+    committed state and holds it; its end state is before the accepted step's finish.
+    """
+    engine = backend._runge_kutta(backend.workspace)
+    norm = engine.trial(z, dz)
+    return norm, engine.trial_state
+
+
+def numpy_ref_launch_derivative(
+    problem: PropagationProblem, run_request: RunRequest, grid: TimeGrid
+) -> Any:
+    """Open ``numpy_ref`` on the problem, return :func:`launch_derivative`, close it."""
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
+    try:
+        return launch_derivative(backend, problem)
+    finally:
+        backend.close()
+
+
+def stage_helpers(backend: object) -> Helpers:
+    """Return the scalar evaluations a backend's march forms its stage tables with.
+
+    Native's own record (``NativeBackend.helpers``); the reference evaluates with the
+    plain forms, ``PLAIN`` (SEP 29 section 6.6).
+    """
+    return getattr(backend, "helpers", PLAIN)
+
+
+def run_python(path: Path) -> "subprocess.CompletedProcess[str]":
+    """Run a written script with this interpreter in its own folder, as a person would.
+
+    A fresh process, so without the tests' type hook; asserts it exits cleanly, showing
+    its standard error if not, and returns the completed process.
+    """
+    result = subprocess.run(
+        [sys.executable, str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=path.parent,
+    )
+    assert result.returncode == 0, result.stderr
+    return result
+
+
+def fixed_fibre_point(
+    point: ScanPoint,
+    backend: str = "numpy_ref",
+    noise: Literal["input", "modified"] = "modified",
+) -> Simulation:
+    """Build a scan point's millimetre of fibre on a fixed four-step schedule.
+
+    The point's index scales the nonlinearity, the dispersion and the peak power; its
+    seed draws the noise. The former grid without a collar: a short fixed schedule is
+    refused beside the default collar, and the scan tests that build it are about
+    scans, not boundaries.
+    """
+    grid = EnvelopeGrid.from_limits(0.001, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID)
+    return Simulation.from_gnlse(
+        0.11 * (point.index + 1),
+        0.001,
+        [0.0, 0.0, -1.183e-26 * (point.index + 1)],
+        wavelength=835e-9,
+        grid=grid,
+        absorber=bare_absorber(grid),
+        width=100e-15,
+        peak_power=float(point.index + 1),
+        shape="sech",
+        save_planes=[0.0005, 0.001],
+        schedule=FixedSchedule.uniform(
+            0.0, 0.001, 0.00025, save_planes=[0.0005, 0.001]
+        ),
+        stats=StatsSpec(names=("energy", "peak_power"), periodic=("energy",), period=2),
+        noise=noise,
+        seed=point.seed,
+        # The fixed order leaves no controller decision on the prescribed schedule.
+        integrator=FIXED_ORDER,
+        backend=backend,
+    )

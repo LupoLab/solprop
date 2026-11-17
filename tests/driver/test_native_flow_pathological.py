@@ -30,16 +30,18 @@ import numpy as np
 import pytest
 
 import flow_parity
+from builders import load_reference, reference_trial
 from flow_parity import QUIET, STEPS, UNIT, build, reference_formation_bound
 from native_flow_guards import check_flow_conditioning as check_native
 from sessions.runs import load_native, native_trial
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref import passes as reference_passes
-from solprop.backends.numpy_ref.backend import (
-    _check_flow_conditioning,
-    _coupled_flow_maps,
-    _flow_action,
+from solprop.backends.numpy_ref import workspace as workspace_module
+from solprop.backends.numpy_ref.coupled_flow import (
+    check_flow_conditioning,
+    flow_action,
+    held_flow,
 )
+from solprop.backends.numpy_ref.passes.stepping import error_norm
 from solprop.boundaries import absorber
 from solprop.exceptions import BackendError, TranslationError
 from solprop.grid import EnvelopeGrid
@@ -60,12 +62,13 @@ pytestmark = [
 solprop_native = pytest.importorskip("solprop_native")
 NativeBackend = solprop_native.NativeBackend
 native_backend = pytest.importorskip("solprop_native.backend")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 
 def scalar_case():
     """Return the scalar wall's problem, request and grid: three modes, ten steps."""
     simulation = build("scalar")
-    return simulation.translate(), simulation._run_request(), simulation.grid
+    return simulation.translate(), simulation.run_request(), simulation.grid
 
 
 def with_factors(held, triangular):
@@ -91,14 +94,16 @@ def formed(monkeypatch, problem, run_request, grid, held, dz):
     monkeypatch.setattr(native_backend, "_host_flow", lambda _: held)
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        native = backend._native_state
+        native = backend._workspace
         n_modes = held.vectors.shape[-1]
         tableau = run_request.stepper.tableau
         fractions = np.array([*(float(node) for node in tableau.nodes), 1.0])
-        measured = np.asarray(native.form_flow_actions(0, dz, fractions)[0])
+        measured = np.asarray(_testing.form_flow_actions(native, 0, dz, fractions)[0])
         shape = (fractions.size, -1, n_modes, n_modes)
-        forward = native.flow_actions_to_host(inverse=False).reshape(shape)[-1]
-        inverse = native.flow_actions_to_host(inverse=True).reshape(shape)[-1]
+        forward = _testing.flow_actions_to_host(native, inverse=False).reshape(shape)[
+            -1
+        ]
+        inverse = _testing.flow_actions_to_host(native, inverse=True).reshape(shape)[-1]
         return forward, inverse, measured
     finally:
         backend.close()
@@ -128,9 +133,9 @@ def test_a_nearly_degenerate_nonnormal_bin_is_formed_by_scaling_and_squaring(
     assert np.all(route[2:])
     dz = flow_parity.LENGTH / STEPS
     forward, inverse, _ = formed(monkeypatch, problem, run_request, grid, crafted, dz)
-    reference = _coupled_flow_maps(problem)
+    reference = held_flow(problem)
     assert reference is not None
-    expected = _flow_action(replace(reference, triangular=crafted.triangular), 0, dz)
+    expected = flow_action(replace(reference, triangular=crafted.triangular), 0, dz)
     norm = float(np.max(np.linalg.norm(dz * triangular[:2], axis=(-2, -1))))
     bound = 2.0 * reference_formation_bound(reference.n_modes, norm, 0)
     for got, want in zip((forward, inverse), expected, strict=True):
@@ -145,11 +150,11 @@ def test_an_empty_measurement_is_not_refused():
     dz = flow_parity.LENGTH / STEPS
     held = native_backend._host_flow(problem)
     check_native(native_backend, held, 0, np.empty(0), dz)
-    reference = _coupled_flow_maps(problem)
+    reference = held_flow(problem)
     assert reference is not None
     channels = problem.shape[0]
     nothing = np.empty((0, channels, channels), dtype=complex)
-    _check_flow_conditioning(reference, 0, (nothing, nothing), dz)
+    check_flow_conditioning(reference, 0, (nothing, nothing), dz)
     # The guard is live: one bin over its declared row is refused, on either.
     over = np.array(held.condition_bound[0]) * 2.0
     with pytest.raises(BackendError, match="above"):
@@ -200,14 +205,13 @@ def test_the_spectral_norm_bounds_the_singular_value_to_its_rounding(monkeypatch
 def _native_partials(problem, run_request, grid, field, dz):
     """Return the error norm's partials of one native trial from `field`.
 
-    The native state itself, loaded with the field, scores the staged trial, as the
-    native backend's own trial does (SEP 47 phase 5).
+    The native workspace itself, loaded with the field, scores the trial on its stage
+    tables, as the native march's own trial does (SEP 47 phase 5).
     """
     assert problem.initial.noise0 is None
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        backend._staged_rows()
-        load_native(backend, field, clear_fsal=False)
+        load_native(backend, field)
         return native_trial(backend, 0.0, dz)
     finally:
         backend.close()
@@ -238,7 +242,7 @@ def test_the_partials_read_a_mask_with_a_hard_zero_and_the_old_norm_before_the_a
     partials = _native_partials(problem, run_request, grid, field, dz)
 
     captured = {}
-    original = reference_passes.error_norm
+    original = error_norm
 
     def capture(error, state, advanced, reference_mask, controller):
         captured["partials"] = [
@@ -248,12 +252,11 @@ def test_the_partials_read_a_mask_with_a_hard_zero_and_the_old_norm_before_the_a
         return original(error, state, advanced, reference_mask, controller)
 
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(reference_passes, "error_norm", capture)
+        patch.setattr(workspace_module, "error_norm", capture)
         reference = NumpyRefBackend(problem, run_request, grid=grid)
         try:
-            reference.set_initial(field, None)
-            reference._trial_step(0.0, dz)
-            expected_state = reference._require_state().copy()
+            expected_state = load_reference(reference, field).copy()
+            reference_trial(reference, 0.0, dz)
         finally:
             reference.close()
 

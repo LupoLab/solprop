@@ -17,7 +17,7 @@ import logging
 import threading
 import tracemalloc
 import weakref
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import cast
 
 import numpy as np
@@ -32,7 +32,7 @@ from solprop import capabilities, sol
 from solprop.backends.registry import available
 from solprop.backends.session import Start
 from solprop.driver import Simulation
-from solprop.driver import service as service_module
+from solprop.driver import session_loop as service_module
 from solprop.driver.run import run_problem
 from solprop.exceptions import DriverError, OutputError
 from solprop.output import (
@@ -41,17 +41,16 @@ from solprop.output import (
     check_cache,
     resumability,
     resume,
+    serialisation,
 )
-from solprop.output import schema as output_schema
-from solprop.output.schema import (
-    PEAK_FIELDS_ANNOTATION,
+from solprop.output.metadata import PEAK_FIELDS_ANNOTATION, _example_metadata
+from solprop.output.records import SavedPlane
+from solprop.output.store import (
     CheckpointOutput,
     FieldRetention,
     Output,
     PlaneStore,
     RetainingOutput,
-    SavedPlane,
-    _example_metadata,
 )
 from solprop.plotting.style import field_modes
 from solprop.processing import energy
@@ -224,7 +223,7 @@ def test_every_march_delivers_its_planes_and_keeps_none_alive(
 
     handler = CallbackOutput(receive)
     assert simulation.run(handler, progress="none") is handler
-    planes = simulation.settings.save_planes
+    planes = np.asarray(simulation.settings.save_planes)
     assert handler.n_saved == len(kept) == len(planes) + 1
     assert kept == [index < 2 for index in range(len(kept))]
     # The positions are the save planes, landed on within a relative rounding.
@@ -251,7 +250,7 @@ def test_the_fields_setting_says_what_every_plane_carries(backend, fields, carri
 @pytest.mark.parametrize("backend", available())
 def test_the_planes_of_natural_steps_reach_the_callable(backend):
     simulation = cartesian(backend, replay=False)
-    end = simulation.settings.save_planes[-1:]
+    end = np.asarray(simulation.settings.save_planes)[-1:]
     simulation.settings = dataclasses.replace(
         simulation.settings, step_planes=2, save_planes=end
     )
@@ -379,46 +378,98 @@ def test_saving_a_plane_allocates_no_volume(backend):
     volume = simulation._field0.nbytes
     handler = _Measured(nothing)
     simulation.run(handler, progress="none")
-    assert handler.n_saved == len(simulation.settings.save_planes) + 1
+    assert handler.n_saved == len(np.asarray(simulation.settings.save_planes)) + 1
     assert max(handler.peaks) < volume / 10
     assert max(handler.left) < volume / 10
 
 
-def _live_levels_at_planes(
-    simulation: Simulation, receive: Callable[[SavedPlane], None]
-) -> list[int]:
-    """Return the traced memory alive at each plane of a second run, in bytes.
+_RUN_DEPTH = 1000
+"""Frames ``tracemalloc`` keeps per allocation: more than any run's stack is deep."""
 
-    The first run on the runner settles what a backend and the run path build once. Each
-    reading follows a collection, because what is measured is what stays alive: a run
-    leaves cycles for the collector, and a pass may free an earlier run's at any moment.
+_MADE_HERE = (
+    tracemalloc.Filter(True, __file__, all_frames=True),
+    tracemalloc.Filter(False, tracemalloc.__file__, all_frames=True),
+)
+"""Allocations whose stack passes through this module, less the tracer's own."""
+
+
+def _live_at_planes(
+    simulation: Simulation, receive: Callable[[SavedPlane], None]
+) -> list[tracemalloc.Snapshot]:
+    """Return what a second run allocated and keeps alive, at each of its planes.
+
+    The first run on the runner settles what a backend and the run path build once;
+    the tracer starts after it, so what it sees is what the second run allocated. Each
+    snapshot follows a collection, because what is measured is what stays alive: a run
+    leaves cycles for the collector, and a pass may free an earlier run's at any
+    moment.
     """
-    levels: list[int] = []
+    snapshots: list[tracemalloc.Snapshot] = []
 
     def noting(plane: SavedPlane) -> None:
         receive(plane)
         gc.collect()
-        levels.append(tracemalloc.get_traced_memory()[0])
+        snapshots.append(tracemalloc.take_snapshot())
 
     with simulation.runner() as runner:
         runner.run(simulation._field0, output=CallbackOutput(nothing), progress="none")
-        runner.run(simulation._field0, output=CallbackOutput(noting), progress="none")
-    return levels
+        tracemalloc.start(_RUN_DEPTH)
+        try:
+            runner.run(
+                simulation._field0, output=CallbackOutput(noting), progress="none"
+            )
+        finally:
+            tracemalloc.stop()
+    return snapshots
+
+
+def _made_by_the_run(snapshot: tracemalloc.Snapshot) -> tracemalloc.Snapshot:
+    """Return the part of a snapshot that the run allocated.
+
+    The tracer counts every thread of the process, and in a test session other threads
+    (an xdist channel, a progress monitor another test started) allocate while the run
+    goes; what the run allocated has this module's frame below it, and the snapshots
+    the tracer took of itself have the tracer's.
+    """
+    # A stack deeper than the tracer keeps would lose this module's frame, and the
+    # allocation with it: the measure must see the whole of every stack.
+    assert all(
+        (trace.traceback.total_nframe or 0) <= len(trace.traceback)
+        for trace in snapshot.traces
+    )
+    return snapshot.filter_traces(_MADE_HERE)
+
+
+def _growth(
+    snapshots: Sequence[tracemalloc.Snapshot],
+) -> list[tracemalloc.StatisticDiff]:
+    """Return what the run keeps at its last plane beyond its second, by site."""
+    second, last = (_made_by_the_run(snapshots[index]) for index in (1, -1))
+    return last.compare_to(second, "traceback")
+
+
+def _report(growth: Sequence[tracemalloc.StatisticDiff]) -> str:
+    """Name the five sites where the most was kept, for a failure's message."""
+    return "\n\n".join(
+        f"{site.size_diff:+d} B at\n" + "\n".join(site.traceback.format(limit=12))
+        for site in growth[:5]
+    )
 
 
 @pytest.mark.medium
 @pytest.mark.parametrize("backend", available())
-@pytest.mark.usefixtures("traced")
 def test_a_reducing_run_keeps_no_more_alive_as_it_goes(backend, monkeypatch):
-    """From the second plane to the last the live level stays under one volume.
+    """From the second plane to the last what the run keeps grows by under one volume.
 
     From the second, because the planes before it may still be building buffers. A run
     keeps about a kilobyte per plane, and this session's runtime type checks some tens
     more in their caches, on a volume of hundreds. Keeping a copy of every field is the
     control, which shows that the measure can see a volume at all: it adds one per
     plane, so three here, of which the bound takes a tenth off for what a pass frees.
+    What is counted is what the run allocated, not what the whole process did
+    meanwhile, and a failure names where the growth was allocated.
     """
-    monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", 0)
+    monkeypatch.setattr(serialisation, "INLINE_ARRAY_LIMIT", 0)
     volume = cartesian(backend)._field0.nbytes
     copies: list[np.ndarray] = []
 
@@ -426,12 +477,15 @@ def test_a_reducing_run_keeps_no_more_alive_as_it_goes(backend, monkeypatch):
         assert plane.field is not None
         copies.append(plane.field.copy())
 
-    reducing = _live_levels_at_planes(cartesian(backend), nothing)
-    copying = _live_levels_at_planes(cartesian(backend), keep_a_copy)
+    reducing = _live_at_planes(cartesian(backend), nothing)
+    copying = _live_at_planes(cartesian(backend), keep_a_copy)
     planes = len(reducing)
     assert planes >= 4
-    assert reducing[-1] - reducing[1] < volume
-    assert copying[-1] - copying[1] > 0.9 * (planes - 2) * volume
+    kept = _growth(reducing)
+    assert sum(site.size_diff for site in kept) < volume, _report(kept)
+    assert (
+        sum(site.size_diff for site in _growth(copying)) > 0.9 * (planes - 2) * volume
+    )
 
 
 @pytest.mark.parametrize("backend", available())
@@ -482,6 +536,11 @@ def test_reading_a_key_is_refused_by_name(key):
 def test_reading_the_fields_is_refused_by_name(convention):
     with pytest.raises(OutputError, match="does not hold the fields"):
         opened().fields(convention)
+
+
+def test_a_plane_s_field_is_refused_by_name():
+    with pytest.raises(OutputError, match="does not hold the field of plane 0"):
+        opened().plane_field(0)
 
 
 def test_what_reads_a_run_is_refused_by_name():
@@ -594,7 +653,7 @@ def test_what_the_callable_raises_stops_the_run_and_propagates(backend):
         assert not runner.closed
         assert runner.run(
             simulation._field0, output=CallbackOutput(nothing), progress="none"
-        ).n_saved == handler.n_saved + len(simulation.settings.save_planes)
+        ).n_saved == handler.n_saved + len(np.asarray(simulation.settings.save_planes))
 
 
 @pytest.mark.parametrize("backend", available())

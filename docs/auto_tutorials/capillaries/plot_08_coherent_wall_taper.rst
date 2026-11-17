@@ -59,7 +59,7 @@ along the varying index by the lowest channel's effective index; the flow's own
 diagonal carries the rest of each channel's, ``-(1/2) d ln(w_n/w_1)/dz``, so the
 upper channels' amplitudes are good to the step error.
 
-.. GENERATED FROM PYTHON SOURCE LINES 47-60
+.. GENERATED FROM PYTHON SOURCE LINES 47-61
 
 .. code-block:: Python
 
@@ -71,6 +71,7 @@ upper channels' amplitudes are good to the step error.
 
     from solprop.boundaries import absorber
     from solprop.driver import prop_capillary
+    from solprop.exceptions import GrazingIncidenceWarning, SolpropWarning
     from solprop.grid import FieldGrid
     from solprop.modes import CoherentWall
     from solprop.profiles import PiecewiseLinear
@@ -83,7 +84,7 @@ upper channels' amplitudes are good to the step error.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 61-66
+.. GENERATED FROM PYTHON SOURCE LINES 62-67
 
 The taper: straight, a linear transition, straight -- the shape of a 125 to 62.5 um
 capillary taper, scaled to the radius and length a ten-step run allows. The corners
@@ -91,7 +92,7 @@ of the profile are where the sections start and end, and the fixed schedule land
 on every one of them (a schedule that comes near a corner without landing on it
 is refused by name).
 
-.. GENERATED FROM PYTHON SOURCE LINES 66-132
+.. GENERATED FROM PYTHON SOURCE LINES 67-137
 
 .. code-block:: Python
 
@@ -104,11 +105,15 @@ is refused by name).
 
     def run(wall, radius=taper, taper_coupling=True):
         """Propagate three channels ten steps along `radius`, with or without a wall."""
-        # The band runs past helium's and silica's fitted ranges and the geometry is a
-        # marginal one on purpose, so that a fifth of a millimetre shows the wall: both
-        # warn, and both are silenced here, as is the advisory step of the coupled flow.
+        # The geometry is a marginal one on purpose, so that a fifth of a millimetre shows
+        # the wall (GrazingIncidenceWarning), and the collar is weakened for the steps'
+        # stability, which the walk-off check reports although the modes walk apart by
+        # a fraction of a femtosecond in a 300 fs window: both are silenced by name.
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+            warnings.simplefilter("ignore", GrazingIncidenceWarning)
+            warnings.filterwarnings(
+                "ignore", "the temporal absorber attenuates", SolpropWarning
+            )
             return prop_capillary(
                 radius,
                 length,
@@ -178,14 +183,14 @@ is refused by name).
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 133-137
+.. GENERATED FROM PYTHON SOURCE LINES 138-142
 
 What the record says about the sectioning: how many frozen sections the run was
 cut into, the Chebyshev degree along z the generator was resolved at, whether a
 connection was carried, and the advisory step a declared ``dz_max`` is warned
 against. Ten steps of 20 um sit inside it.
 
-.. GENERATED FROM PYTHON SOURCE LINES 137-143
+.. GENERATED FROM PYTHON SOURCE LINES 142-148
 
 .. code-block:: Python
 
@@ -208,7 +213,7 @@ against. Ten steps of 20 um sit inside it.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 144-149
+.. GENERATED FROM PYTHON SOURCE LINES 149-154
 
 Freezing is a rearrangement. Four frozen sections per interval freeze four
 different blocks and carry four different residuals, and the answer does not
@@ -216,7 +221,7 @@ move: the residual is evaluated exactly, so what ``sections`` buys is a smaller
 explicit term, not a new physical model. At finite step size, changing this split can
 still change the numerical error, so section and step refinement are distinct checks.
 
-.. GENERATED FROM PYTHON SOURCE LINES 149-182
+.. GENERATED FROM PYTHON SOURCE LINES 154-187
 
 .. code-block:: Python
 
@@ -271,7 +276,7 @@ still change the numerical error, so section and step refinement are distinct ch
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 183-190
+.. GENERATED FROM PYTHON SOURCE LINES 188-195
 
 Related reading
 ---------------
@@ -284,7 +289,7 @@ For a paced introduction to propagation, start with the
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 7.224 seconds)
+   **Total running time of the script:** (0 minutes 8.791 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_capillaries_plot_08_coherent_wall_taper.py:

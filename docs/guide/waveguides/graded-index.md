@@ -176,7 +176,7 @@ eigenvalue order, and whose `beta_1` and `beta_2` are **the interpolant's**, the
 dense table's cubic in frequency differentiated, because a provider declares no
 analytic frequency derivative. The constructor solves the whole band once, into a
 single `sample_modal_table`, and reads every channel out of that one table;
-`solprop.translate.modal_tables.sample_provider_table(provider, channel, omega)` is
+`solprop.modes.tables.sample_provider_table(provider, channel, omega)` is
 the same bridge for one channel on its own, the sibling of `sample_index_table` for
 a provider.
 

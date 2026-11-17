@@ -12,7 +12,7 @@ import functools
 import math
 import re
 from types import SimpleNamespace
-from typing import NoReturn, cast
+from typing import Any, NoReturn, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -22,9 +22,9 @@ from conftest import PhaseACase, RamanCase
 from legacy_geometry import LEGACY_GRID
 from session_runs import committed_steps, load_native, native_trial, run
 from solprop.backends.events import ObservationReady
-from solprop.backends.low_storage import schedule_key
 from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.records import run_records
 from solprop.backends.session import Start
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, TranslationError
@@ -37,16 +37,25 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, PIController
 from solprop.stepper.multistep import Multistep
+from solprop.translate.assembly import assemble
 from solprop.translate.coupled import CoupledFlowTables
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.stage import terms
 
 import solprop_native
-from solprop_native import NativeBackend, _core, build_info, check_build
-from solprop_native.backend import (
-    _native_problem,  # pyright: ignore[reportPrivateUsage]
-    _ResidentLowStorage,  # pyright: ignore[reportPrivateUsage]
+import solprop_native.backend
+from solprop_native import (
+    NativeBackend,
+    _core,
+    _device,  # pyright: ignore[reportPrivateUsage]
+    build_info,
+    check_build,
+)
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
+from solprop_native._lowering import (
+    _lower,  # pyright: ignore[reportPrivateUsage]
+    _LowerPlan,  # pyright: ignore[reportPrivateUsage]
 )
 from solprop_native.session import NativeSession
 
@@ -106,7 +115,7 @@ def test_native_modal_payload_requires_both_fixed_coefficient_arrays(
             prefactor=None if missing == "prefactor" else terms.prefactor,
         )
         with pytest.raises(BackendError, match="device-ready fixed-term problem"):
-            _native_problem(problem, run_request, damaged)
+            _lower(problem, run_request, _LowerPlan(terms=damaged))
     finally:
         backend.close()
 
@@ -174,23 +183,23 @@ def test_stage_observation_owns_its_host_copy_and_checks_lifetime(
     """
     problem, run_request, grid = phase_a_case
     backend = NativeBackend(problem, run_request, grid=grid)
-    state = load_native(backend, problem.initial.field0, clear_fsal=False)
+    state = load_native(backend, problem.initial.field0)
     with pytest.raises(RuntimeError, match="stage"):
-        state.stage_to_host(0)
+        _testing.stage_to_host(state, 0)
     native_trial(backend, 0.0, 1e-4)
-    derivative = state.stage_to_host(0)
+    derivative = _testing.stage_to_host(state, 0)
     assert derivative.shape == (1, grid.n_omega)
     assert derivative.dtype == np.complex128
     assert np.max(np.abs(derivative)) > 0
     saved = derivative.copy()
     derivative.fill(0)
     # Exact: a second host copy of the same device stage, not a recomputation.
-    np.testing.assert_array_equal(state.stage_to_host(0), saved)
+    np.testing.assert_array_equal(_testing.stage_to_host(state, 0), saved)
     with pytest.raises(IndexError, match="stage"):
-        state.stage_to_host(run_request.stepper.tableau.n_stages)
+        _testing.stage_to_host(state, run_request.stepper.tableau.n_stages)
     backend.close()
     with pytest.raises(RuntimeError, match="closed"):
-        state.stage_to_host(0)
+        _testing.stage_to_host(state, 0)
 
 
 def test_the_solprop_version_is_recorded_and_never_compared(
@@ -201,7 +210,9 @@ def test_the_solprop_version_is_recorded_and_never_compared(
     def elsewhere(name: str) -> str:
         return f"{name}-elsewhere"
 
-    monkeypatch.setattr(solprop_native.backend, "version", elsewhere)
+    # The version is looked up where the build facts are formed (`_device`), and the
+    # metadata reads the facts through the backend's own name.
+    monkeypatch.setattr(_device, "version", elsewhere)
     # The build facts are read once per process; read them afresh under the patch,
     # through a fresh cache the patch removes again.
     facts = solprop_native.backend._build_facts  # pyright: ignore[reportPrivateUsage]
@@ -325,20 +336,22 @@ def test_a_low_storage_table_never_built_is_refused(phase_a_case: PhaseACase) ->
     marched, marched_request = problem, run_request.with_stepper(stepper)
     backend = NativeBackend(marched, marched_request, grid=grid)
     try:
-        # The resident engine on the loaded state, with the key of the first step's
-        # table, which no step built.
-        load_native(backend, marched.initial.field0, clear_fsal=False)
-        method = marched_request.stepper.integrator
-        assert isinstance(method, LowStorageRungeKutta)
-        engine = _ResidentLowStorage(backend, method)
-        engine._table_step = schedule_key(  # pyright: ignore[reportPrivateUsage]
-            engine._keys,  # pyright: ignore[reportPrivateUsage]
-            engine._edges,  # pyright: ignore[reportPrivateUsage]
-            0.0,
-            target / 4,
+        # The resident engine builds the first step's table; a load then forgets
+        # it, and the same engine, still holding that step's key, steps again.
+        workspace = load_native(backend, marched.initial.field0)
+        _testing.configure_march(
+            workspace,
+            run_records(marched, marched_request, Start.entrance(marched)),
         )
-        with pytest.raises(RuntimeError, match="table has not been built"):
-            engine.step(0.0, target / 4)
+        engines = _testing.engines(workspace)
+        try:
+            engines.rk_trial(0.0, target / 4)
+            field = np.ascontiguousarray(marched.initial.field0).reshape(-1)
+            engines.load(field, np.empty(0, dtype=np.complex128))
+            with pytest.raises(RuntimeError, match="table has not been built"):
+                engines.rk_trial(0.0, target / 4)
+        finally:
+            engines.close()
     finally:
         backend.close()
 
@@ -397,14 +410,22 @@ def test_tdse_is_refused_by_name_before_integrator_or_native_setup(
     source_filter: str,
     dense_output: bool,
 ) -> None:
-    """Refuse TDSE before native setup or either supported march is selected."""
+    """Refuse TDSE without its binding before native setup or a march is selected.
+
+    The CPU build runs the TDSE response through its host source (solprop SEP 49),
+    which needs the driver's binding; a problem without one is refused by name first.
+    """
     problem, run_request, grid = phase_a_case
     # This deliberately bypasses scientific validation to isolate the adapter's
     # earliest refusal. Neither a valid atomic basis nor an optional provider is
-    # needed to reject a route that this backend never executes.
+    # needed to refuse a route that comes without its binding.
     requested = copy.copy(problem)
     route = copy.copy(problem.route)
-    object.__setattr__(route, "tdse", SimpleNamespace(source_filter=source_filter))
+    object.__setattr__(
+        route,
+        "tdse",
+        SimpleNamespace(descriptor=SimpleNamespace(), source_filter=source_filter),
+    )
     object.__setattr__(requested, "route", route)
     requested_request = run_request.with_stepper(
         dataclasses.replace(
@@ -418,8 +439,8 @@ def test_tdse_is_refused_by_name_before_integrator_or_native_setup(
         raise AssertionError("unsupported TDSE reached native setup")
 
     monkeypatch.setattr(solprop_native.backend, "require_device_ready", forbidden)
-    monkeypatch.setattr(_core, "State", forbidden)
-    with pytest.raises(BackendError, match=r"TDSEGasResponse.*SEP 12"):
+    monkeypatch.setattr(_core, "Workspace", forbidden)
+    with pytest.raises(BackendError, match="explicit host response binding"):
         NativeBackend(requested, requested_request, grid=grid)
 
 
@@ -544,8 +565,8 @@ def test_the_dispersive_electronic_leaf_runs_on_the_free_space_route(
 
     A lone symmetric response filters each chunk's spectrum in place and, on an
     envelope grid, its product is the chunk's own polarisation; the polynomial holds
-    its products. solprop's ``test_native_dispersive_routes.py`` holds the route to
-    its reference.
+    its products. solprop's parity catalogue (``tests/capability_routes.py``) holds
+    the route to its reference.
     """
     _, base_request, grid = phase_a_case
     space = FreeGrid(1e-3, 4, 1.5e-3, 6, collar_fraction=0)
@@ -588,11 +609,6 @@ def test_statistics_do_not_observe_the_full_field(
     names = ("omega0", "energy", "peak_power", "fwhm_t")
     run_request = run_request.for_run(stats=StatsSpec(names=names))
     backend = NativeBackend(problem, run_request, grid=grid)
-
-    def fail_if_observed(state: object) -> NoReturn:
-        pytest.fail(f"statistics observed native state {state!r}")
-
-    monkeypatch.setattr(backend, "_observed_field", fail_if_observed)
     session = backend.prepare(problem, run_request).start(Start.entrance(problem))
     observed: list[dict[str, np.ndarray]] = []
     try:
@@ -623,13 +639,20 @@ def test_raman_metadata_memoization_and_conditional_ledger(
     coefficients = problem.responses.raman_coefficients
     assert coefficients is not None
     rates = tuple(float(table(0.0)) for table in coefficients.decay_rates)
-    backend._raman_spectrum(rates)  # pyright: ignore[reportPrivateUsage]
-    assert backend._raman_transforms == 1  # pyright: ignore[reportPrivateUsage]
-    backend._raman_spectrum(rates)  # pyright: ignore[reportPrivateUsage]
-    assert backend._raman_transforms == 1  # pyright: ignore[reportPrivateUsage]
-    backend._raman_spectrum(tuple(reversed(rates)))  # pyright: ignore[reportPrivateUsage]
+    workspace = backend._workspace  # pyright: ignore[reportPrivateUsage]
+    none = np.empty(0, dtype=np.float64)
+
+    def transforms() -> int:
+        diagnostics = backend._diagnostics()  # pyright: ignore[reportPrivateUsage]
+        return int(diagnostics["raman_kernel_transforms"])
+
+    _testing.prepare_raman(workspace, np.asarray(rates), none)
+    assert transforms() == 1
+    _testing.prepare_raman(workspace, np.asarray(rates), none)
+    assert transforms() == 1
+    _testing.prepare_raman(workspace, np.asarray(rates[::-1]), none)
     expected = 1 if len(set(rates)) == 1 else 2
-    assert backend._raman_transforms == expected  # pyright: ignore[reportPrivateUsage]
+    assert transforms() == expected
     metadata = backend.metadata()
     ledger = backend.memory_ledger()
     assert metadata["raman_enabled"] is True
@@ -646,14 +669,14 @@ def test_raman_metadata_memoization_and_conditional_ledger(
     backend.close()
 
 
-def _raman_native_payload(raman_case: RamanCase) -> dict[str, object]:
+def _raman_native_payload(raman_case: RamanCase) -> _core.Problem:
     problem, run_request, grid = raman_case
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        return _native_problem(  # pyright: ignore[reportPrivateUsage]
+        return _lower(
             problem,
             run_request,
-            backend._terms,  # pyright: ignore[reportPrivateUsage]
+            _LowerPlan(terms=backend._terms),  # pyright: ignore[reportPrivateUsage]
         )
     finally:
         backend.close()
@@ -665,43 +688,95 @@ def test_native_raman_rows_refuse_hidden_array_conversions(
 ) -> None:
     """The private seam accepts exact arrays and never copies a near miss."""
     payload = _raman_native_payload(raman_case)
-    rows = cast(np.ndarray, payload["raman_undamped"])
-    if spoiling == "dtype":
-        payload["raman_undamped"] = rows.astype(np.float32)
-    elif spoiling == "rank":
-        payload["raman_undamped"] = rows.ravel()
-    else:
-        payload["raman_undamped"] = np.zeros(
-            (rows.shape[0], 2 * rows.shape[1]), dtype=np.float64
-        )[:, ::2]
+    raman = payload.raman
+    rows = raman.undamped.reshape(raman.n_terms, -1)
+
+    def _spoil() -> None:
+        if spoiling == "dtype":
+            raman.undamped = rows.astype(np.float32)  # pyright: ignore[reportAttributeAccessIssue]
+        elif spoiling == "rank":
+            raman.undamped = rows.ravel()
+        else:
+            raman.undamped = np.zeros(
+                (rows.shape[0], 2 * rows.shape[1]), dtype=np.float64
+            )[:, ::2]
+        _core.Workspace(payload)
+
     with pytest.raises((TypeError, ValueError)):
-        _core.State(payload)
+        _spoil()
+
+
+@pytest.mark.parametrize("spoiling", ["undamped", "tensor_weights"])
+def test_native_raman_tables_refuse_a_transposed_layout(
+    raman_case: RamanCase, spoiling: str
+) -> None:
+    """A table with the right element count but its axes swapped is refused by name."""
+    payload = _raman_native_payload(raman_case)
+    raman = payload.raman
+    if spoiling == "undamped":
+        raman.undamped = raman.undamped.reshape(-1, raman.n_terms)
+    else:
+        raman.tensor_weights = raman.tensor_weights.reshape(2, raman.n_terms)
+    with pytest.raises(ValueError, match=f"raman_{spoiling} must have shape"):
+        _core.Workspace(payload)
+
+
+@pytest.mark.parametrize("spoiling", ["flat", "rank_four", "count"])
+def test_native_fixed_terms_refuse_a_wrong_layout(
+    phase_a_case: PhaseACase, spoiling: str
+) -> None:
+    """The fixed terms are (n_phi_terms, ...) arrays of rank two or three."""
+    problem, run_request, grid = phase_a_case
+    backend = NativeBackend(problem, run_request, grid=grid)
+    try:
+        terms = backend._terms  # pyright: ignore[reportPrivateUsage]
+        payload = _lower(problem, run_request, _LowerPlan(terms=terms))
+    finally:
+        backend.close()
+    assert terms.phi is not None
+    # As the adapter lays them out: (n_phi_terms, rows, n_omega).
+    phi = np.ascontiguousarray(terms.phi).reshape(
+        terms.phi.shape[0], -1, problem.shape[-1]
+    )
+    if spoiling == "flat":
+        payload.linear.phi_terms = phi.reshape(-1)
+        message = "rank-two or rank-three"
+    elif spoiling == "rank_four":
+        payload.linear.phi_terms = phi.reshape(1, *phi.shape)
+        message = "rank-two or rank-three"
+    else:
+        # The same elements, the leading axis no longer the term count.
+        assert phi.shape[::-1][0] != payload.linear.n_phi_terms
+        payload.linear.phi_terms = phi.reshape(phi.shape[::-1])
+        message = "phi_terms must hold n_phi_terms rows"
+    with pytest.raises(ValueError, match=message):
+        _core.Workspace(payload)
 
 
 def test_native_raman_rows_accept_read_only_input(raman_case: RamanCase) -> None:
     """Construction reads Raman rows but does not require write access to them."""
     payload = _raman_native_payload(raman_case)
-    rows = np.array(cast(np.ndarray, payload["raman_undamped"]), copy=True)
+    rows = payload.raman.undamped.reshape(payload.raman.n_terms, -1)
     rows.setflags(write=False)
-    payload["raman_undamped"] = rows
-    state = _core.State(payload)
-    state.close()
+    payload.raman.undamped = rows
+    workspace = _core.Workspace(payload)
+    workspace.close()
 
 
 def test_native_raman_rates_refuse_wrong_dtype_and_shape(
     raman_case: RamanCase,
 ) -> None:
     """The diagnostic preparation seam has the same exact-array contract as trials."""
-    state = _core.State(_raman_native_payload(raman_case))
+    workspace = _core.Workspace(_raman_native_payload(raman_case))
+    none = np.empty(0, dtype=np.float64)
+    single: Any = np.zeros(1, dtype=np.float32)
     try:
         with pytest.raises(TypeError):
-            state.prepare_raman(
-                np.zeros(1, dtype=np.float32)  # pyright: ignore[reportArgumentType]
-            )
+            _testing.prepare_raman(workspace, single, none)
         with pytest.raises(ValueError, match="shape"):
-            state.prepare_raman(np.zeros((1, 1), dtype=np.float64))
+            _testing.prepare_raman(workspace, np.zeros((1, 1), dtype=np.float64), none)
     finally:
-        state.close()
+        workspace.close()
 
 
 def test_metadata_and_memory_ledger_are_self_consistent(
@@ -822,20 +897,25 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
     )
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage]
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
+        reference.workspace.hoist(0.0)  # pyright: ignore[reportPrivateUsage]
         expected = np.asarray(
-            reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
-                reference._require_state(),  # pyright: ignore[reportPrivateUsage]
-                reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-                np.ones((1, *problem.shape), complex),
-            )[0]
+            reference.workspace.nonlinear(  # pyright: ignore[reportPrivateUsage]
+                reference.workspace.committed(),  # pyright: ignore[reportPrivateUsage]
+                reference.workspace.stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
+                np.ones(problem.shape, complex),
+            )
         )
     finally:
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         info = build_info()
         # The native rule: a host execution space, at this shape; the dev build
         # without TPL BLAS packs too.
@@ -849,7 +929,7 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
             assert not provider.endswith("-packed-real"), provider
             assert ledger.get("radial_blas_buffers", 0) == 0
         native_trial(backend, 0.0, 0.0)
-        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
+        actual = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
     finally:
         backend.close()
     scale = float(np.max(np.abs(expected)))
@@ -928,12 +1008,12 @@ def test_the_plasma_stash_is_off_under_modified_noise(
     )
     problem = simulation.translate()
     assert problem.responses.plasma_channels
-    payload = _native_problem(  # pyright: ignore[reportPrivateUsage]
+    payload = _lower(
         problem,
-        simulation._run_request(),  # pyright: ignore[reportPrivateUsage]
-        terms(problem),
+        simulation.run_request(),
+        _LowerPlan(terms=terms(problem)),
     )
-    assert payload["stash_plasma"] is stashed
+    assert payload.plasma.stash is stashed
 
 
 def test_the_plasma_stash_is_off_under_the_split_step_absorber() -> None:
@@ -942,7 +1022,7 @@ def test_the_plasma_stash_is_off_under_the_split_step_absorber() -> None:
     The last stage's input is then not the committed field, so the plasma statistics
     are scanned afresh (the stash needs a first-same-as-last step).
     """
-    payloads = {}
+    payloads: dict[str, _core.Problem] = {}
     for scheme in ("nonlinear", "split_step"):
         simulation = Simulation.from_capillary(
             125e-6,
@@ -968,11 +1048,11 @@ def test_the_plasma_stash_is_off_under_the_split_step_absorber() -> None:
             simulation.settings, absorber_scheme=scheme
         )
         problem = simulation.translate()
-        payloads[scheme] = _native_problem(  # pyright: ignore[reportPrivateUsage]
+        payloads[scheme] = _lower(
             problem,
-            simulation._run_request(),  # pyright: ignore[reportPrivateUsage]
-            terms(problem),
+            simulation.run_request(),
+            _LowerPlan(terms=terms(problem)),
         )
-    assert payloads["nonlinear"]["stash_plasma"] is True
-    assert payloads["split_step"]["split_step_absorber"] is True
-    assert payloads["split_step"]["stash_plasma"] is False
+    assert payloads["nonlinear"].plasma.stash is True
+    assert payloads["split_step"].absorber.split_step is True
+    assert payloads["split_step"].plasma.stash is False

@@ -4,7 +4,6 @@
 
 """Exercise allocation limits and worker failure cleanup without large jobs."""
 
-import ctypes
 import importlib.util
 import multiprocessing
 import os
@@ -19,12 +18,13 @@ from unittest.mock import Mock
 
 import pytest
 import threadpoolctl
+from tests.test_host import windows
 
 from solprop import _process
 from solprop.driver.executors import pool
 from solprop.driver.executors.queue import Queue
 from solprop.driver.executors.slurm import Slurm
-from solprop.exceptions import DriverError
+from solprop.exceptions import DriverError, ExecutorError
 
 
 @pytest.fixture(autouse=True)
@@ -34,13 +34,20 @@ def _fake_cpus_are_cores(monkeypatch):
     monkeypatch.setattr(_process, "top_tier_cores", lambda: None)
 
 
-@pytest.mark.parametrize("value", ["max", "0", "4294967296"])
-def test_linux_memory_limits_ignore_unlimited_or_zero_cgroups(
-    tmp_path, monkeypatch, value
-):
-    record = tmp_path / "memory.max"
-    record.write_text(value)
-    monkeypatch.setattr(pool, "Path", lambda name: record)
+def _cgroup_tree(root, line, groups):
+    """Write ``/proc/self/cgroup`` and each group's ``memory.max`` under ``root``."""
+    (root / "proc/self").mkdir(parents=True)
+    (root / "proc/self/cgroup").write_text(line + "\n")
+    for directory, value in groups.items():
+        group = root / "sys/fs/cgroup" / directory
+        group.mkdir(parents=True, exist_ok=True)
+        (group / "memory.max").write_text(value)
+    return root
+
+
+def _linux(monkeypatch, root):
+    """Simulate a Linux machine of 4 GiB whose control groups live under ``root``."""
+    monkeypatch.setattr(pool, "cgroup_memory", lambda: _process.cgroup_memory(root))
     monkeypatch.setattr(pool.sys, "platform", "linux")
     monkeypatch.setattr(
         pool.os,
@@ -50,7 +57,61 @@ def test_linux_memory_limits_ignore_unlimited_or_zero_cgroups(
     )
     monkeypatch.delenv("SLURM_MEM_PER_NODE", raising=False)
     monkeypatch.delenv("SLURM_MEM_PER_CPU", raising=False)
+
+
+@pytest.mark.parametrize("value", ["max", "0", "4294967296", "8589934592"])
+def test_linux_memory_limits_ignore_unlimited_or_zero_cgroups(
+    tmp_path, monkeypatch, value
+):
+    _linux(monkeypatch, _cgroup_tree(tmp_path, "0::/", {".": value}))
     assert pool._memory_limit() == 2**32
+
+
+def test_the_memory_limit_is_the_process_group_not_the_root(tmp_path, monkeypatch):
+    # A nested version 2 group limited to 1 GiB under a root that says max: a
+    # systemd slice on a shared node, with no Slurm variables.
+    root = _cgroup_tree(
+        tmp_path,
+        "0::/user.slice/job.scope",
+        {".": "max", "user.slice/job.scope": str(2**30)},
+    )
+    _linux(monkeypatch, root)
+    assert pool._memory_limit() == 2**30
+
+
+def test_a_slurm_memory_limit_below_the_group_still_binds(tmp_path, monkeypatch):
+    _linux(monkeypatch, _cgroup_tree(tmp_path, "0::/job", {"job": str(2**31)}))
+    monkeypatch.setenv("SLURM_MEM_PER_NODE", "1024")
+    assert pool._memory_limit() == 2**30
+
+
+@pytest.mark.parametrize("readable", [True, False])
+def test_an_unreadable_memory_limit_is_an_executor_error_naming_it(
+    tmp_path, monkeypatch, readable
+):
+    root = _cgroup_tree(tmp_path, "0::/job", {"job": "garbled"})
+    if not readable:
+        # A directory in the file's place fails to read on any platform and as any
+        # user, root included, unlike a permission bit.
+        record = root / "sys/fs/cgroup/job/memory.max"
+        record.unlink()
+        record.mkdir()
+    _linux(monkeypatch, root)
+    # Any separator: Windows quotes the path with doubled backslashes.
+    with pytest.raises(ExecutorError, match=r"job\W+memory\.max"):
+        pool._memory_limit()
+
+
+@pytest.mark.parametrize(
+    "variable", ["SOLPROP_SCAN_CPU_OFFSET", "SOLPROP_SCAN_CPU_COUNT"]
+)
+def test_a_malformed_cpu_slice_is_a_driver_error_naming_it(monkeypatch, variable):
+    monkeypatch.setattr(_process, "cgroup_cpus", lambda: None)
+    monkeypatch.delenv("SOLPROP_SCAN_CPU_OFFSET", raising=False)
+    monkeypatch.delenv("SOLPROP_SCAN_CPU_COUNT", raising=False)
+    monkeypatch.setenv(variable, "x")
+    with pytest.raises(DriverError, match=variable):
+        pool._cpus()
 
 
 @pytest.mark.parametrize("offset,count", [(-1, 1), (0, 0)])
@@ -343,30 +404,8 @@ def test_receive_propagates_worker_traceback():
     child.close()
 
 
-class _FakeKernel32:
-    """Answer the two Windows memory queries as kernel32 would, or refuse them."""
-
-    def __init__(self, *, succeed: bool = True) -> None:
-        self.succeed = succeed
-
-    def GetCurrentProcess(self) -> int:  # noqa: N802 - the Win32 name
-        return -1
-
-    def K32GetProcessMemoryInfo(self, process, counters, size) -> int:  # noqa: N802
-        assert process == -1
-        assert size == counters._obj.cb
-        counters._obj.PeakWorkingSetSize = 3 * 2**20
-        return int(self.succeed)
-
-    def GlobalMemoryStatusEx(self, status) -> int:  # noqa: N802
-        assert status._obj.dwLength > 0
-        status._obj.ullTotalPhys = 16 * 2**30
-        return int(self.succeed)
-
-
 def test_windows_reads_peak_working_set_and_physical_memory(monkeypatch):
-    monkeypatch.setattr(pool, "_kernel32", _FakeKernel32)
-    monkeypatch.setattr(pool.sys, "platform", "win32")
+    windows(monkeypatch)
     monkeypatch.delenv("SLURM_MEM_PER_NODE", raising=False)
     monkeypatch.delenv("SLURM_MEM_PER_CPU", raising=False)
     assert pool.peak_rss() == 3 * 2**20
@@ -374,45 +413,11 @@ def test_windows_reads_peak_working_set_and_physical_memory(monkeypatch):
 
 
 def test_windows_memory_queries_report_a_refusal(monkeypatch):
-    monkeypatch.setattr(pool, "_kernel32", lambda: _FakeKernel32(succeed=False))
-    with pytest.raises(DriverError, match="process memory query"):
-        pool._windows_peak_working_set()
-    with pytest.raises(DriverError, match="physical memory query"):
-        pool._windows_physical_memory()
-
-
-@pytest.mark.skipif(sys.platform != "win32", reason="the real Windows query")
-def test_windows_peak_working_set_is_read_from_the_process():
-    # The process handle is pointer-sized; truncated, Windows refuses the query.
-    assert pool._windows_peak_working_set() > 2**20
-    assert pool._windows_physical_memory() > 2**30
-
-
-def test_kernel32_is_loaded_only_on_windows():
-    if pool.sys.platform == "win32":
-        assert pool._kernel32() is not None
-    else:
-        with pytest.raises(AttributeError):
-            pool._kernel32()
-
-
-def test_kernel32_preserves_pointer_sized_process_handles(monkeypatch):
-    kernel32 = Mock(
-        spec=ctypes.CDLL, GetCurrentProcess=Mock(), K32GetProcessMemoryInfo=Mock()
-    )
-    loader = Mock(return_value=kernel32)
-    monkeypatch.setattr(pool.ctypes, "WinDLL", loader, raising=False)
-    assert pool._kernel32() is kernel32
-    loader.assert_called_once_with("kernel32")
-    # HANDLE must retain all pointer bits, including the current-process -1 value.
-    assert kernel32.GetCurrentProcess.restype is ctypes.c_void_p
-    assert kernel32.GetCurrentProcess.argtypes == []
-    assert kernel32.K32GetProcessMemoryInfo.restype is ctypes.c_int
-    assert kernel32.K32GetProcessMemoryInfo.argtypes == [
-        ctypes.c_void_p,
-        ctypes.POINTER(pool._ProcessMemoryCounters),
-        ctypes.c_uint32,
-    ]
+    windows(monkeypatch, succeed=False)
+    with pytest.raises(ExecutorError, match="process memory query"):
+        pool.peak_rss()
+    with pytest.raises(ExecutorError, match="physical memory query"):
+        pool._memory_limit()
 
 
 def test_windows_pipe_type_accepts_both_connection_classes(monkeypatch):

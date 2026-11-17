@@ -4,21 +4,23 @@
 
 """The GNLSE as a mode-averaged envelope problem.
 
-The generalised nonlinear Schroedinger equation is not a separate solver path in
-solprop: the field is primary and the GNLSE is an interface mapping. It is the
-mode-averaged envelope problem with a **specified mode**
-(:class:`SpecifiedMode`) — a mode whose propagation constant is given directly, as a
-Taylor series, a table, or a declared path of either along z, rather than derived from
-a waveguide geometry — plus a mapping from the usual GNLSE coefficient ``gamma`` onto
-the third-order susceptibility the Kerr response takes. The shock term is not a
-separate operator either: it is the ``omega`` dependence of the normalisation
-prefactor (:mod:`solprop.nonlinear.normalisation`).
+The generalised nonlinear Schroedinger equation is not a separate solver path but an
+interface mapping: :func:`problem_from` maps GNLSE parameters onto a
+:class:`GnlseProblem`, the mode-averaged envelope problem with a :class:`SpecifiedMode`
+(a mode whose propagation constant is given directly rather than derived from a
+geometry), with ``gamma`` (or ``n2``) mapped onto the susceptibilities the Kerr and
+Raman responses take (:func:`kerr_susceptibility`, :func:`raman_susceptibility`). The
+shock term is the ``omega`` dependence of the normalisation prefactor
+(:mod:`solprop.nonlinear.normalisation`).
 
-When Raman is off and no fraction is given the **whole** of ``gamma`` acts as Kerr, so
-an "N = 6" soliton is N = 6. A fraction given explicitly is always held back from the
-Kerr term, with Raman on or off, so that switching Raman alone adds the delayed response
-without changing the instantaneous one.
+- **Dispersion**: :class:`TaylorDispersion` and :class:`TabulatedDispersion` give
+  ``beta(omega)``; a :class:`DispersionPath` (:class:`ConstantDispersion`,
+  :class:`InterpolatedDispersion`, :func:`as_dispersion_path`) lets it vary along z.
+- **Loss**: :func:`attenuation_from_db`.
 
+With Raman off and no fraction given the **whole** of ``gamma`` is Kerr, so an "N = 6"
+soliton is N = 6; a fraction given explicitly is always held back from the Kerr term, so
+switching Raman alone adds the delayed response without changing the instantaneous one.
 The derivation and a worked example are in ``docs/guide/waveguides/gnlse.md``.
 """
 
@@ -39,6 +41,7 @@ from solprop._ownership import frozen_copy
 from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError, SurrogateAreaWarning
 from solprop.modes.base import alpha, beta, beta1
+from solprop.modes.fill import LossFunction
 from solprop.modes.protocol import (
     GEOMETRY_PATH_NAMES,
     ChannelLabel,
@@ -79,9 +82,6 @@ DispersionFunction = Callable[
     [Float[np.ndarray, " n_omega"]], Float[np.ndarray, " n_omega"]
 ]
 """A propagation constant, or a derivative of one, as a function of frequency."""
-
-LossFunction = Callable[[Float[np.ndarray, " n_omega"]], Float[np.ndarray, " n_omega"]]
-"""A power attenuation coefficient in 1/m as a function of angular frequency."""
 
 
 @runtime_checkable
@@ -573,8 +573,8 @@ class TaylorDispersion:
 
     The instance is callable and stands where a closure would. That is what makes a mode
     built from it **reproducible in a run's metadata**:
-    :func:`solprop.output.schema.serialise` records a closure as its ``repr``, which
-    carries the function's memory address, so a configuration holding one hashes
+    :func:`solprop.output.serialisation.serialise` records a closure as its ``repr``,
+    which carries the function's memory address, so a configuration holding one hashes
     differently in every process and the run could never be resumed from its own file.
     A frozen dataclass records its fields instead.
 
@@ -1105,10 +1105,10 @@ class SpecifiedMode:
     dispersion_derivative : callable or DispersionPath
         ``d beta / d omega`` in s/m, analytic, same shapes; a path when
         ``dispersion`` is one, declared at the same positions.
-    loss : float or callable or DispersionPath
-        Power attenuation in 1/m: a constant, a function of ``omega`` with the same
-        shapes, or a declared path. Convert a figure in dB/m with
-        :func:`attenuation_from_db`.
+    alpha : float or callable or DispersionPath
+        Power attenuation coefficient in 1/m: a constant, a function of ``omega``
+        with the same shapes, or a declared path. Convert a figure in dB/m with
+        :func:`attenuation_from_db`. Negative values describe gain.
     effective_area : float or ZProfile
         ``A_eff`` in m^2, positive: a constant, or a declared path along the fibre.
         A path makes the mode z-varying, and the area then enters exactly once, as
@@ -1140,7 +1140,7 @@ class SpecifiedMode:
 
     dispersion: DispersionFunction | DispersionPath
     dispersion_derivative: DispersionFunction | DispersionPath
-    loss: float | LossFunction | DispersionPath
+    alpha: float | LossFunction | DispersionPath
     effective_area: float | ZProfile
 
     # Properties rather than class attributes: the protocol declares these three as
@@ -1170,7 +1170,7 @@ class SpecifiedMode:
         """
         return all(
             path.is_constant
-            for path in (self.dispersion_path, self.derivative_path, self.loss_path)
+            for path in (self.dispersion_path, self.derivative_path, self.alpha_path)
         )
 
     @property
@@ -1204,16 +1204,16 @@ class SpecifiedMode:
         return as_dispersion_path(self.dispersion_derivative)
 
     @property
-    def loss_path(self) -> DispersionPath:  # numpydoc ignore=RT01
-        """Power attenuation as a path along z.
+    def alpha_path(self) -> DispersionPath:  # numpydoc ignore=RT01
+        """Power attenuation coefficient as a path along z, 1/m.
 
         The declared path; a constant number becomes a uniform attenuation at
         every frequency and every position.
         """
-        loss = self.loss
-        if isinstance(loss, float | int):
-            return ConstantDispersion(_UniformLoss(float(loss)))
-        return as_dispersion_path(loss)
+        attenuation = self.alpha
+        if isinstance(attenuation, float | int):
+            return ConstantDispersion(_UniformLoss(float(attenuation)))
+        return as_dispersion_path(attenuation)
 
     @property
     def scale_invariant(self) -> bool:  # numpydoc ignore=RT01
@@ -1336,7 +1336,7 @@ class SpecifiedMode:
             raise ModeError(msg)
         moving = [
             path
-            for path in (self.dispersion_path, self.derivative_path, self.loss_path)
+            for path in (self.dispersion_path, self.derivative_path, self.alpha_path)
             if not path.is_constant
         ]
         declared = np.unique(
@@ -1455,7 +1455,7 @@ class SpecifiedMode:
         betas: Float[np.ndarray, " n_deg"] | list[float],
         omega_ref: float,
         *,
-        loss: float | LossFunction = 0.0,
+        alpha: float | LossFunction = 0.0,
         aeff: float | ZProfile = 1.0,
         # Quoted so that beartype, which resolves the annotation while the class body
         # is still executing, does not look up a name that is not yet bound.
@@ -1472,8 +1472,9 @@ class SpecifiedMode:
             Taylor coefficients ``beta_0, beta_1, ...`` in s^n/m, at least one.
         omega_ref : float
             Frequency the series is expanded about, rad/s, positive.
-        loss : float or callable, optional
-            Power attenuation in 1/m; a constant or a function of ``omega``. Default 0.
+        alpha : float or callable, optional
+            Power attenuation coefficient in 1/m; a constant or a function of
+            ``omega``. Default 0.
         aeff : float or ZProfile, optional
             Effective area in m^2, or a declared path along the fibre. Default 1.0,
             which is the GNLSE convention in which the area has been folded into
@@ -1501,7 +1502,7 @@ class SpecifiedMode:
         return cls(
             TaylorDispersion(betas, omega_ref),
             TaylorDispersion(betas, omega_ref, 1),
-            loss,
+            alpha,
             aeff if isinstance(aeff, ZProfile) else float(aeff),
         )
 
@@ -1513,7 +1514,7 @@ class SpecifiedMode:
         omega_ref: float,
         *,
         aeff: Float[np.ndarray, " n_positions"] | Sequence[float] | ZProfile,
-        loss: float | LossFunction | DispersionPath = 0.0,
+        alpha: float | LossFunction | DispersionPath = 0.0,
     ) -> "SpecifiedMode":
         """Build a fibre whose Taylor dispersion and area are declared along z.
 
@@ -1540,8 +1541,8 @@ class SpecifiedMode:
         aeff : array_like or ZProfile
             Effective area in m^2: one positive value per position, or a declared
             path whose breakpoints are exactly `positions`.
-        loss : float or callable or DispersionPath, optional
-            Power attenuation in 1/m. Default 0.
+        alpha : float or callable or DispersionPath, optional
+            Power attenuation coefficient in 1/m. Default 0.
 
         Returns
         -------
@@ -1584,7 +1585,7 @@ class SpecifiedMode:
         return cls(
             InterpolatedDispersion(nodes, members),
             InterpolatedDispersion(nodes, derivatives),
-            loss,
+            alpha,
             _area_path(aeff, nodes),
         )
 
@@ -1679,7 +1680,7 @@ class SpecifiedMode:
         omega: Float[np.ndarray, " n_nodes"],
         beta: Float[np.ndarray, " n_nodes"],
         *,
-        loss: float | LossFunction = 0.0,
+        alpha: float | LossFunction = 0.0,
         aeff: float | ZProfile = 1.0,
     ) -> "SpecifiedMode":
         """Build a mode from a tabulated propagation constant.
@@ -1696,8 +1697,9 @@ class SpecifiedMode:
             least four.
         beta : numpy.ndarray
             Propagation constant at those frequencies, 1/m, shape ``(n_nodes,)``.
-        loss : float or callable, optional
-            Power attenuation in 1/m; a constant or a function of ``omega``. Default 0.
+        alpha : float or callable, optional
+            Power attenuation coefficient in 1/m; a constant or a function of
+            ``omega``. Default 0.
         aeff : float or ZProfile, optional
             Effective area in m^2, or a declared path along the fibre. Default 1.0.
 
@@ -1724,7 +1726,7 @@ class SpecifiedMode:
         return cls(
             TabulatedDispersion(omega, beta),
             TabulatedDispersion(omega, beta, 1),
-            loss,
+            alpha,
             aeff if isinstance(aeff, ZProfile) else float(aeff),
         )
 
@@ -1928,17 +1930,17 @@ class SpecifiedMode:
         """
         return self.dispersion_path(np.asarray(omega, dtype=float), z)
 
-    def alpha(
+    def attenuation(
         self, omega: Float[np.ndarray, " n_omega"], z: float = 0.0
     ) -> Float[np.ndarray, " n_omega"]:
-        """Return the power attenuation coefficient.
+        """Return the power attenuation coefficient alpha the mode declares.
 
         Parameters
         ----------
         omega : numpy.ndarray
             Angular frequencies, rad/s, shape ``(n_omega,)``.
         z : float, optional
-            Position along the waveguide, m. It reaches the declared loss path; a
+            Position along the waveguide, m. It reaches a declared path; a
             constant or a function of frequency alone ignores it.
 
         Returns
@@ -1955,13 +1957,13 @@ class SpecifiedMode:
         ...     attenuation_from_db,
         ... )
         >>> mode = SpecifiedMode.from_taylor(
-        ...     [1.0e7], omega_ref=2.0e15, loss=attenuation_from_db(10.0)
+        ...     [1.0e7], omega_ref=2.0e15, alpha=attenuation_from_db(10.0)
         ... )
-        >>> f"{mode.alpha(np.array([2.0e15]))[0]:.6f}"
+        >>> f"{mode.attenuation(np.array([2.0e15]))[0]:.6f}"
         '2.302585'
         """
         values = np.asarray(omega, dtype=float)
-        return np.asarray(self.loss_path(values, z), dtype=float)
+        return np.asarray(self.alpha_path(values, z), dtype=float)
 
     def neff(
         self, omega: Float[np.ndarray, " n_omega"], z: float = 0.0
@@ -2004,7 +2006,7 @@ class SpecifiedMode:
         '1.498962'
         """
         values = _positive(omega)
-        return C * (self.beta(values, z) + 0.5j * self.alpha(values, z)) / values
+        return C * (self.beta(values, z) + 0.5j * self.attenuation(values, z)) / values
 
     def neff_minus_one(
         self, omega: Float[np.ndarray, " n_omega"], z: float = 0.0
@@ -2045,7 +2047,9 @@ class SpecifiedMode:
         '0.450000'
         """
         values = _positive(omega)
-        numerator = C * (self.beta(values, z) + 0.5j * self.alpha(values, z)) - values
+        numerator = (
+            C * (self.beta(values, z) + 0.5j * self.attenuation(values, z)) - values
+        )
         return numerator / values
 
     def dneff_domega(
@@ -2427,7 +2431,7 @@ def problem_from(
         raise ModeError(msg, parameter=("raman", "raman_fraction"))
 
     mode = SpecifiedMode.from_taylor(
-        betas, omega_ref, loss=attenuation_from_db(loss_db_per_m), aeff=aeff
+        betas, omega_ref, alpha=attenuation_from_db(loss_db_per_m), aeff=aeff
     )
     wavenumber = omega_ref / C
     if isinstance(n2, str):

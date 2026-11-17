@@ -4,14 +4,13 @@
 
 """Pins: recipe values set from a design target (SEP 41, S1 and S7)."""
 
-import subprocess
-import sys
 import warnings
 from typing import cast
 
 import numpy as np
 import pytest
 
+from builders import run_python
 from solprop.modes import MarcatiliMode
 from solprop.modes.base import beta2
 from solprop.recipe import Recipe, RecipeError
@@ -24,7 +23,7 @@ from solprop.tools import (
     pulse_peak_power,
     soliton_order,
 )
-from solprop.tools import _fill_n2 as fill_n2
+from solprop.tools.waveguide import _fill_n2 as fill_n2
 
 ZDW_PIN = {
     "target": "zdw",
@@ -187,7 +186,7 @@ def test_a_pinned_required_keyword_builds_where_a_missing_one_is_refused():
     without = pinned({"radius": pin}, drop=("radius", "length"))
     for call in (without.build, without.resolve, lambda: without.pin_roots("radius")):
         with pytest.raises(
-            RecipeError, match=r"^length: a required keyword is missing$"
+            RecipeError, match=r"^length: a length or a grid is required$"
         ) as caught:
             call()
         assert caught.value.parameter == "length"
@@ -254,14 +253,7 @@ def test_the_export_solves_the_pins_before_the_route_s_call(tmp_path):
     path = tmp_path / "pinned.py"
     path.write_text(_PROBE + script)
     # A subprocess, as a person runs the script: without the tests' type hook.
-    result = subprocess.run(
-        [sys.executable, str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=tmp_path,
-    )
-    assert result.returncode == 0, result.stderr
+    result = run_python(path)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         expected = quiet_build(recipe).metadata().configuration_hash()
@@ -395,6 +387,17 @@ def test_a_route_that_does_not_build_is_refused_on_the_pin():
         solve_pin("gnlse", {}, "pressure", ZDW(500e-9), (0.1, 1.0))
 
 
+def test_a_pressure_pin_beside_a_temperature_path_is_refused_on_the_pin():
+    # Regression: the re-filled mode took its density at a scalar temperature, so a
+    # temperature path reached the equation of state and raised a TypeError.
+    path = {"type": "Linear", "start": 293.15, "end": 400.0, "length": 1.0}
+    recipe = pinned({"pressure": ZDW_PIN}, drop=("pressure",), temperature=path)
+    with pytest.raises(RecipeError, match="temperature is a path") as caught:
+        recipe.resolve()
+    assert caught.value.path == "pressure"
+
+
+@pytest.mark.medium
 @pytest.mark.child_runs_auto
 def test_an_rdw_pin_with_its_pulse_exports_its_solver_call(tmp_path):
     pin = {
@@ -414,11 +417,4 @@ def test_an_rdw_pin_with_its_pulse_exports_its_solver_call(tmp_path):
     assert "RDW(keywords['wavelength'], 2e-07, peak_power=1000000000.0" in script
     path = tmp_path / "rdw.py"
     path.write_text(_PROBE + script)
-    result = subprocess.run(
-        [sys.executable, str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=tmp_path,
-    )
-    assert result.returncode == 0, result.stderr
+    run_python(path)

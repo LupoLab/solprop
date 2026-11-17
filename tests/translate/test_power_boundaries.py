@@ -31,7 +31,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec, _poynting_statistics, analytic_field
 from solprop.stepper import PIController
 from solprop.translate import expansion, linop
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 
 
 @dataclass
@@ -155,10 +155,10 @@ def test_spatial_contract_refuses_a_modal_weight(grid):
         dz_max=grid.length,
         dz_init=grid.length,
     )
-    problem = Simulation.from_radial(
+    problem = Simulation.from_free(
         grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     ).translate()
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     simulation.translate()
@@ -201,7 +201,7 @@ def test_retranslating_the_same_modal_input_is_exactly_identical():
             n_r=8,
             n_save=2,
             thg=False,
-            loss=False,
+            loss_scale=0.0,
             cladding=1.45,
             noise=None,
         )
@@ -244,7 +244,7 @@ def test_a_taper_with_a_floored_vacuum_end_translates():
     phi = linear.phi_expansion
     assert phi is not None and phi.endpoint_degrees is not None
     assert phi.parameters == ("core_radius", "density")
-    n_pol = linear.value_shape[2]
+    n_pol = linear.value_shape[1]
     (mode,) = simulation.modes
     assert isinstance(mode, ParameterisedMode)
     sample = linop._log_weight_sampler((mode,), simulation.grid, n_pol, None)
@@ -276,7 +276,7 @@ def test_a_taper_with_a_floored_vacuum_end_translates():
 def test_unit_index_intensity_retains_the_vacuum_limit(grid, launch, name, with_modes):
     if name not in available():
         pytest.skip(f"the {name} backend is not installed")
-    mode = MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45, loss_scale=0.0)
     problem, run_request = assemble(
         grid,
         mode,

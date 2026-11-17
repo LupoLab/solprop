@@ -21,14 +21,16 @@ is exported. Three things are checked on each:
 """
 
 import dataclasses
+import functools
 import math
 import re
+from typing import Any, cast
 
 import numpy as np
 import pytest
 
-from bounds import gamma
-from optmat_parity import INTEGRATION_AGREEMENT
+from bounds import INTEGRATION_AGREEMENT, gamma
+from builders import load_reference
 from sessions.executors import (
     PLANES,
     device_build,
@@ -40,23 +42,17 @@ from sessions.executors import (
 from sessions.runs import load_native
 from solprop.backends.events import ObservationReady, Terminal
 from solprop.backends.export import ExportRecipe
-from solprop.backends.protocol import stepping
 from solprop.backends.registry import select
 from solprop.exceptions import BackendError, SolpropError, TranslationError
-from solprop.stats import (
-    CATALOGUE,
-    PLASMA_INTEGRATION_STATISTICS,
-    StatsSpec,
-    _half_max_range,
-    _power,
-)
+from solprop.stats import CATALOGUE, PLASMA_INTEGRATION_STATISTICS, StatsSpec
+from solprop.stats.definitions import _half_max_range, _power
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 
 native_session = pytest.importorskip("solprop_native.session")
 native_statistics = pytest.importorskip("solprop_native._statistics")
+_testing = pytest.importorskip("solprop_native._core")._testing
 from solprop_native import (  # noqa: E402  # pyright: ignore[reportMissingImports]
-    _core,
     _counters,
 )
 
@@ -177,7 +173,7 @@ def _reference(problem, run_request, spec, seen, *, grid, modes=None, profiles=N
     Returns
     -------
     list of dict
-        The reference's statistics, without a batch axis, one per observation.
+        The reference's statistics, one per observation.
     """
     backend = select(
         "numpy_ref", problem, run_request, grid=grid, modes=modes, profiles=profiles
@@ -186,10 +182,8 @@ def _reference(problem, run_request, spec, seen, *, grid, modes=None, profiles=N
     out = []
     try:
         for record in seen:
-            stepping(backend).set_initial(
-                record.field, None, z=record.z, resume=record.z > start
-            )
-            values = stepping(backend).stats(spec)
+            load_reference(backend, record.field, z=record.z, resume=record.z > start)
+            values = cast("Any", backend).workspace.stats(spec, record.z)
             out.append({name: np.asarray(value) for name, value in values.items()})
     finally:
         backend.close()
@@ -225,7 +219,6 @@ def _check_structure(seen, status, counters):
     }
     assert sum(record["native_returns"].values()) == status.batches
     assert record["field_crossings"] == {"export": len(seen)}
-    assert record["host_attempts"] == record["transverse_reads"] == 0
 
 
 def _within(actual, expected, bound, what):
@@ -351,7 +344,7 @@ def test_the_native_width_is_solprop_s_crossing_to_the_bit(outer):
     for trace in traces:
         start, end = _half_max_range(t, trace, outer=outer)
         expected = end - start
-        got = _core.half_width(t, trace, outer)
+        got = _testing.half_width(t, trace, outer)
         if math.isnan(expected):
             assert math.isnan(got)
         else:
@@ -586,10 +579,10 @@ def test_a_native_plan_refusal_is_the_reference_s_exception():
     assert lowering.plan is not None
     backend = select("native", problem, run_request, grid=grid, modes=modes)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         with pytest.raises(SolpropError) as caught:
             try:
-                state.planned_statistics(lowering.plan, far)
+                _testing.planned_statistics(state, lowering.plan, far)
             except (ValueError, IndexError, RuntimeError) as error:
                 raise native_statistics.translated(error) from error
     finally:
@@ -709,7 +702,7 @@ SPATIAL = (
 
 def test_a_beam_s_flux_and_far_field_statistics_are_native():
     """A Cartesian beam: the flux scalars and the far-field pass, plane and row."""
-    from backends.test_radial_nonlinear import make_problem  # noqa: PLC0415
+    from backends.spatial_cases import make_problem  # noqa: PLC0415
     from solprop.grid import EnvelopeGrid, FreeGrid  # noqa: PLC0415
     from solprop.pulses import GaussianPulse, SpatialPulse  # noqa: PLC0415
     from solprop.spatial import SpatialMedium  # noqa: PLC0415
@@ -824,8 +817,7 @@ def _beam(route):
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 6e-5
     )
-    build = Simulation.from_radial if route == "radial" else Simulation.from_free
-    simulation = build(
+    simulation = Simulation.from_free(
         grid,
         space,
         SpatialMedium(1.45 + 2e-3j),
@@ -834,7 +826,7 @@ def _beam(route):
         settings=settings,
         noise=None,
     )
-    return grid, simulation.translate(), simulation._run_request()
+    return grid, simulation.translate(), simulation.run_request()
 
 
 def _host_widths(problem, run_request, grid, record, monkeypatch):
@@ -861,13 +853,18 @@ def _host_widths(problem, run_request, grid, record, monkeypatch):
     backend = select("native", problem, run_request, grid=grid)
     try:
         # The record's exported state, loaded into the native state itself.
-        state = load_native(backend, record.field, clear_fsal=False)
+        state = load_native(backend, record.field)
         packed = np.ravel(
-            state.spatial_statistics(32 if plane else 16, 0.5 * EPS0 * C, record.z)
+            _testing.spatial_statistics(
+                state, 32 if plane else 16, 0.5 * EPS0 * C, record.z
+            )
         )
         if plane:
             return plane_fluence_widths(
-                geometry, packed, n_terms, state.plane_fluence_trace
+                geometry,
+                packed,
+                n_terms,
+                functools.partial(_testing.plane_fluence_trace, state),
             )
         count = problem.transform.n_nodes
         budget = fluence_budget(np.full(count, packed[count + 1]), n_terms)
@@ -947,8 +944,10 @@ def test_a_negative_lobe_s_widths_are_refused_by_the_session_as_by_the_reference
     with pytest.raises(BackendError, match="nonnegative fluence profile") as want:
         reference = select("numpy_ref", problem, run_request, grid=grid)
         try:
-            stepping(reference).set_initial(field, None)
-            stepping(reference).stats(StatsSpec(names=("beam_radius",)))
+            load_reference(reference, field)
+            cast("Any", reference).workspace.stats(
+                StatsSpec(names=("beam_radius",)), float(problem.initial.z)
+            )
         finally:
             reference.close()
     session = native_session.NativeSession(
@@ -1032,10 +1031,8 @@ def test_a_varying_metric_s_statistics_are_refused_by_native_before_allocation()
     inside = float(run_request.stepper.save_planes[-1]) / 8
     reference = select("numpy_ref", problem, request, grid=grid)
     try:
-        stepping(reference).set_initial(
-            problem.initial.field0, None, z=inside, resume=True
-        )
-        values = stepping(reference).stats(spec)
+        load_reference(reference, z=inside, resume=True)
+        values = cast("Any", reference).workspace.stats(spec, inside)
     finally:
         reference.close()
     assert set(values) == set(GENERAL)

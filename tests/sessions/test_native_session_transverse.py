@@ -43,7 +43,7 @@ from sessions.executors import (
 )
 from sessions.test_native_session_monitor import IDENTITY, Served, _serve
 from solprop.backends.events import ObservationReady, Outcome, ServiceRequired
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.driver import Simulation
@@ -62,7 +62,7 @@ MARCHES = {"rk": RungeKutta, "adams": Multistep}
 
 def _prepared(simulation: Simulation) -> tuple[Any, Any]:
     """Return a simulation's problem, without statistics, and its monitored request."""
-    return simulation.translate(), simulation._run_request().for_run(
+    return simulation.translate(), simulation.run_request().for_run(
         stats=StatsSpec(), monitor=simulation._boundary_monitor()
     )
 
@@ -288,7 +288,6 @@ def test_an_edged_native_session_returns_to_python_only_at_its_events():
     accepted = sum(int(event.history.accepted.sum()) for event in observations)
     assert accepted > len(observations)
     found = counters.record()
-    assert found["transverse_reads"] == 0
     assert found["native_returns"] == {
         "session_observation": len(observations),
         "session_terminal": 1,
@@ -303,16 +302,15 @@ def test_a_raised_warning_ends_the_run_at_its_endpoint(march):
     def simulation() -> Simulation:
         return packet_run(REREVIEW, integrator=MARCHES[march](), backend="native")
 
+    # Both sessions report the edge's warning as a barrier at its committed endpoint,
+    # whose filters raise it there (SEP 52 section 5.1).
     reference, native = _both(simulation, error=True)
-    terminal = reference.run.terminal
-    assert terminal.outcome is Outcome.FAILED
-    assert isinstance(terminal.error, BoundaryWarning)
-    assert native.raised is not None
-    z, warning = native.raised
-    assert terminal.error is not None
-    assert type(warning) is type(terminal.error)
-    assert masked(str(warning)) == masked(str(terminal.error))
-    assert z == pytest.approx(terminal.z, rel=PLANE_RTOL)
+    assert reference.raised is not None and native.raised is not None
+    (expected_z, expected), (z, warning) = reference.raised, native.raised
+    assert isinstance(expected, BoundaryWarning)
+    assert type(warning) is type(expected)
+    assert masked(str(warning)) == masked(str(expected))
+    assert z == pytest.approx(expected_z, rel=PLANE_RTOL)
     assert [(one.kind, one.plane_index) for one in native.run.observations] == [
         (one.kind, one.plane_index) for one in reference.run.observations
     ]
@@ -386,12 +384,10 @@ def test_a_resumed_edge_continues_the_reference_s_record(noise, continued):
         finally:
             _counters.disable()
     reference, native = served
-    # A restart's launch is judged on the loaded state less the draw, which crosses
-    # once; a continued record's launch is not judged, and nothing crosses for it.
-    if continued:
-        assert crossings[1] == {}
-    else:
-        assert sum(crossings[1].values()) == 1, crossings[1]
+    # A restart's launch is judged on the loaded state less the draw, read on the host
+    # before the state crosses (SEP 52); a continued record's launch is not judged.
+    # Neither reads the state back.
+    assert crossings[1] == {}
     _compare(reference, native)
     assert native.record is not None
     edge = native.record["transverse"]

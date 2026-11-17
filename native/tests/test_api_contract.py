@@ -35,7 +35,12 @@ from solprop.stepper import FixedSchedule
 from thread_sizing import Sizing, assert_threaded
 
 import solprop_native as native
-from solprop_native import _bind, _core  # pyright: ignore[reportPrivateUsage]
+from solprop_native import (
+    _bind,  # pyright: ignore[reportPrivateUsage]
+    _build,  # pyright: ignore[reportPrivateUsage]
+    _core,
+)
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 
 POOL_VARIABLES = (
     "SOLPROP_NATIVE_KERNEL_THREADS",
@@ -236,10 +241,14 @@ def source_tree(tmp_path: Path) -> tuple[Path, list[str]]:
         "CMakeLists.txt": "project(p)\n",
         "README.md": "not compiled",
         "build/generated.cpp": "not a source: outside src and include",
+        "cmake/Module.cmake": "# a module\n",
+        "cmake/notes.txt": "not a module",
+        "cmake/nested/Deeper.cmake": "not digested: below cmake",
         "include/solprop_native/deep.h": "// h\n",
         "include/solprop_native/kept.txt": "not a source",
         "src/B.cpp": "// sorts before a lower-case name, bytewise\n",
         "src/a.hpp": "// \u00e9 and CRLF\r\n",
+        "src/general/part.inc": "// a fragment one unit includes\n",
         "src/solprop_native/module.py": "not a source",
     }.items():
         path = tmp_path / name
@@ -247,9 +256,11 @@ def source_tree(tmp_path: Path) -> tuple[Path, list[str]]:
         path.write_bytes(text.encode())
     return tmp_path, [
         "CMakeLists.txt",
+        "cmake/Module.cmake",
         "include/solprop_native/deep.h",
         "src/B.cpp",
         "src/a.hpp",
+        "src/general/part.inc",
     ]
 
 
@@ -257,10 +268,10 @@ def test_the_digest_is_the_sorted_record_of_the_compiled_sources(
     source_tree: tuple[Path, list[str]],
 ) -> None:
     root, names = source_tree
-    digest = native._source_digest(root)  # pyright: ignore[reportPrivateUsage]
+    digest = _build._source_digest(root)  # pyright: ignore[reportPrivateUsage]
     assert digest == _digest_of(root, names)
     (root / "src/B.cpp").write_bytes(b"// one byte more\n ")
-    assert native._source_digest(root) != digest  # pyright: ignore[reportPrivateUsage]
+    assert _build._source_digest(root) != digest  # pyright: ignore[reportPrivateUsage]
 
 
 def test_the_build_script_and_python_agree_on_the_digest(
@@ -291,15 +302,15 @@ def _editable_root() -> Path:
 @pytest.fixture
 def fresh_checkout_digest() -> Iterator[None]:
     """Read the checkout's digest afresh, and leave no patched value in the cache."""
-    native._checkout_digest.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _build._checkout_digest.cache_clear()  # pyright: ignore[reportPrivateUsage]
     yield
-    native._checkout_digest.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _build._checkout_digest.cache_clear()  # pyright: ignore[reportPrivateUsage]
 
 
 @pytest.mark.usefixtures("fresh_checkout_digest")
 def test_an_editable_build_records_its_checkouts_digest() -> None:
     root = _editable_root()
-    source_digest = native._source_digest  # pyright: ignore[reportPrivateUsage]
+    source_digest = _build._source_digest  # pyright: ignore[reportPrivateUsage]
     assert native.build_info().source_digest == source_digest(root)
     assert native.check_build() is None
 
@@ -313,7 +324,7 @@ def test_an_extension_built_from_other_sources_is_refused_naming_uv_sync(
     def other(root: Path) -> str:
         return f"not {root}'s"
 
-    monkeypatch.setattr(native, "_source_digest", other)
+    monkeypatch.setattr(_build, "_source_digest", other)
     with pytest.raises(BackendError, match=r"other sources.*`uv sync "):
         native.check_build()
 
@@ -324,13 +335,13 @@ def test_the_digest_is_computed_once_per_process(
 ) -> None:
     root = _editable_root()
     calls: list[Path] = []
-    source_digest = native._source_digest  # pyright: ignore[reportPrivateUsage]
+    source_digest = _build._source_digest  # pyright: ignore[reportPrivateUsage]
 
     def counted(where: Path) -> str:
         calls.append(where)
         return source_digest(where)
 
-    monkeypatch.setattr(native, "_source_digest", counted)
+    monkeypatch.setattr(_build, "_source_digest", counted)
     native.check_build()
     native.check_build()
     assert calls == [root]
@@ -341,16 +352,16 @@ def test_a_wheel_layout_skips_the_comparison(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A wheel has no ``CMakeLists.txt`` two levels up: nothing is read or compared."""
-    installed = tmp_path / "site-packages" / "solprop_native" / "__init__.py"
-    monkeypatch.setattr(native, "__file__", str(installed))
+    installed = tmp_path / "site-packages" / "solprop_native" / "_build.py"
+    monkeypatch.setattr(_build, "__file__", str(installed))
 
     def refuse(root: Path) -> str:
         raise AssertionError(f"a wheel has no sources to hash, asked for {root}")
 
-    monkeypatch.setattr(native, "_source_digest", refuse)
+    monkeypatch.setattr(_build, "_source_digest", refuse)
     info = dataclasses.replace(native.build_info(), source_digest="a wheel's own")
-    monkeypatch.setattr(native, "build_info", lambda: info)
-    assert native._checkout_digest() is None  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr(_build, "build_info", lambda: info)
+    assert _build._checkout_digest() is None  # pyright: ignore[reportPrivateUsage]
     assert native.check_build() is None
 
 
@@ -739,7 +750,7 @@ def test_substantial_native_trial_releases_the_gil(
     """
     problem, run_request, grid = phase_a_case
     backend = native.NativeBackend(problem, run_request, grid=grid)
-    load_native(backend, problem.initial.field0, clear_fsal=False)
+    load_native(backend, problem.initial.field0)
     active = threading.Event()
     finished = threading.Event()
     stamps: list[float] = []
@@ -1028,14 +1039,14 @@ def test_the_reference_parts_time_what_they_are_asked_to() -> None:
     """
     rng = np.random.default_rng(28)
     volume = rng.standard_normal((3, 4, 5)) + 1j * rng.standard_normal((3, 4, 5))
-    pairs = _core.reference_fft3_pairs(np.ascontiguousarray(volume), 1, 3)
+    pairs = _testing.reference_fft3_pairs(np.ascontiguousarray(volume), 1, 3)
     copies = _core.reference_stream_copies(1000, 1, 4)
     assert len(pairs) == 3
     assert all(seconds > 0.0 for seconds in pairs)
     assert len(copies) == 4
     assert all(seconds > 0.0 for seconds in copies)
     with pytest.raises(ValueError, match="three-dimensional"):
-        _core.reference_fft3_pairs(np.ascontiguousarray(volume[0]), 0, 1)
+        _testing.reference_fft3_pairs(np.ascontiguousarray(volume[0]), 0, 1)
 
 
 def test_operation_sizing_metadata_preserves_process_cap(

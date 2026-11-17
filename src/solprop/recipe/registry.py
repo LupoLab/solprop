@@ -5,19 +5,18 @@
 """From recipe values to the objects a route takes: the registry and the decoder.
 
 A recipe names an object by a ``type`` key, which must be an entry of the fixed
-:data:`REGISTRY` (SEP 41 section 5.1): a **named factory**, a constructor, class
-method or module function, with the units of its keywords declared and any **build
-context** it receives declared too. Format 1 defines one context, the route's time
-grid, so ``absorber = {type = "absorber"}`` builds
-``solprop.boundaries.absorber(grid)``; on the free-space routes it is the ``grid``
-keyword itself, and the absorber is a keyword of the ``settings`` table.
-A recipe never imports a module or evaluates code: a type outside the registry is
-refused, and the Python export is the way out.
-
-:func:`decode` turns one value of a recipe into the Python value a keyword takes:
-quantities into numbers in the keyword's unit, ``{re, im}`` into a complex number,
-``{file, sha256}`` into an array read from a checked file, a table with a ``type`` into
-an object, and ``"none"`` into ``None`` where the keyword has that spelling.
+:data:`REGISTRY` (SEP 41 section 5.1): a :class:`Factory`, a named constructor, class
+method or module function, with the units of its keywords declared and any build
+context it receives declared too. Format 1 defines one context, the route's time grid,
+so ``absorber = {type = "absorber"}`` builds ``solprop.boundaries.absorber(grid)``
+(:class:`BuildContext` carries it, with the recipe's directory). A recipe never imports
+a module or evaluates code: a type outside the registry is refused, and the Python
+export is the way out. :func:`decode` turns one value into what a keyword takes
+(quantities into numbers in the keyword's unit, ``{re, im}`` into a complex number,
+``{file, sha256}`` into a checked array, a typed table into an object through
+:func:`build_object`, ``"none"`` into ``None``); :func:`decode_keyword` does it for a
+build keyword by its metadata, and :func:`coerce` gives a list its annotated container.
+:func:`plane_parameter` and :func:`refuse_plane_count` (SEP 51) name a refused keyword.
 """
 
 import functools
@@ -31,7 +30,8 @@ from typing import Final, Literal
 import numpy as np
 
 from solprop.boundaries import SpatialAbsorber, absorber
-from solprop.driver.simulation import SimulationSettings
+from solprop.driver.settings import SimulationSettings
+from solprop.exceptions import DriverError
 from solprop.grid import (
     EnvelopeGrid,
     FieldGrid,
@@ -41,7 +41,7 @@ from solprop.grid import (
     TimeGrid,
 )
 from solprop.modes.antiresonant import TubeLattice
-from solprop.modes.capillary import CoherentWall, MarcatiliMode
+from solprop.modes.capillary import MarcatiliMode
 from solprop.modes.collection import ModeCollection
 from solprop.modes.graded_index import GradedIndexProvider, PowerLawPermittivity
 from solprop.modes.guide import ModalGuide
@@ -49,6 +49,7 @@ from solprop.modes.material import IndexMaterial, MaterialKerr
 from solprop.modes.rectangular import RectMode
 from solprop.modes.slab import PlanarGrid, SlabMode
 from solprop.modes.stepindex import StepIndexMode
+from solprop.modes.wall import CoherentWall
 from solprop.monitor import BoundaryCheck
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.optmat_rates import OptmatRate
@@ -87,8 +88,8 @@ from solprop.stepper import LowStorageRungeKutta, Multistep, PIController, Runge
 from solprop.stepper.schedule import FixedSchedule
 
 __all__ = [
+    "PLANE_PARAMETERS",
     "REGISTRY",
-    "RETIRED_KEYWORDS",
     "BuildContext",
     "Context",
     "Factory",
@@ -97,7 +98,8 @@ __all__ = [
     "coerce",
     "decode",
     "decode_keyword",
-    "retired",
+    "plane_parameter",
+    "refuse_plane_count",
     "unit_of",
 ]
 
@@ -210,7 +212,7 @@ _PULSE_UNITS: Final[Mapping[str, UnitSpec]] = {
     "wavelength": "m",
     "energy": "J",
     "peak_power": "W",
-    "phase": phase_unit,
+    "phases": phase_unit,
     "t0": "s",
     "fwhm": "s",
     "width": "s",
@@ -250,6 +252,7 @@ takes no mixture.
 
 _SLAB_UNITS: Final[Mapping[str, UnitSpec]] = {
     "half_gap": "m",
+    "alpha": "m^-1",
     "pressure": "bar",
     "temperature": "K",
 }
@@ -283,77 +286,6 @@ density, prefactor index, transverse quadrature and components are set by a rout
 builder, an adiabatic budget and a TDSE's resources have no registered type, and the
 underscored fields are private.
 """
-
-_BINARY64: Final = "solprop computes in binary64 only (ADR-077); remove the key"
-_CF4: Final = (
-    "CF4 coupled-flow sections were retired (ADR-077): the default frozen-residual "
-    "flow is used; remove the key"
-)
-_GRID_TRANSFORMS: Final = (
-    "transforms was retired in SEP 47 with the mlx backend: fft_size='auto' takes "
-    "FFTW's transform cost; remove the key"
-)
-
-RETIRED_KEYWORDS: Final[Mapping[tuple[str, str], str]] = {
-    ("build", "precision"): _BINARY64,
-    ("SimulationSettings", "precision"): _BINARY64,
-    ("FieldGrid.from_limits", "transforms"): _GRID_TRANSFORMS,
-    ("EnvelopeGrid.from_limits", "transforms"): _GRID_TRANSFORMS,
-    ("CoherentWall", "method"): _CF4,
-    ("CoherentWall", "growth_limit"): _CF4,
-    ("CoherentWall", "fallback"): _CF4,
-}
-"""Why a recipe table no longer takes a keyword it once did, by owner and keyword.
-
-The owner is a registered type's name, or ``"build"`` for a route's ``[build]``
-table."""
-
-_STILL_SO: Final[Mapping[str, object]] = {"precision": "double"}
-"""A retired keyword's value that says what solprop does anyway, so an old recipe
-holding it still loads: the key is dropped."""
-
-
-def retired(owner: str, key: str, value: object, path: str) -> bool:
-    """Refuse a retired keyword by name, or say it is to be dropped.
-
-    Parameters
-    ----------
-    owner : str
-        The registered type's name, or ``"build"`` for a route's ``[build]`` table.
-    key : str
-        The keyword.
-    value : object
-        Its value in the recipe.
-    path : str
-        The keyword's path, for the refusal.
-
-    Returns
-    -------
-    bool
-        True when the keyword is retired and its value is what solprop does anyway,
-        such as ``precision = "double"``, so the caller drops it; False when the
-        keyword is not retired.
-
-    Raises
-    ------
-    RecipeError
-        If the keyword is retired, naming why and the fix.
-
-    Examples
-    --------
-    >>> from solprop.recipe.registry import retired
-    >>> retired("build", "precision", "double", "precision")
-    True
-    >>> retired("build", "length", "1 m", "length")
-    False
-    """
-    reason = RETIRED_KEYWORDS.get((owner, key))
-    if reason is None:
-        return False
-    if key in _STILL_SO and value == _STILL_SO[key]:
-        return True
-    raise RecipeError(reason, path=path)
-
 
 _FILL_UNITS: Final[Mapping[str, UnitSpec]] = {
     "pressure": "bar",
@@ -390,7 +322,7 @@ REGISTRY: Final[Mapping[str, Factory]] = {
         Factory("EnvelopeGrid.from_limits", EnvelopeGrid.from_limits, _GRID_UNITS),
         Factory("FieldGrid.from_limits", FieldGrid.from_limits, _GRID_UNITS),
         Factory("StatsSpec", StatsSpec),
-        Factory("BoundaryCheck", BoundaryCheck),
+        Factory("BoundaryCheck", BoundaryCheck, {"interval": "m"}),
         Factory(
             "FixedSchedule.uniform",
             FixedSchedule.uniform,
@@ -419,19 +351,19 @@ REGISTRY: Final[Mapping[str, Factory]] = {
         Factory(
             "MarcatiliMode",
             MarcatiliMode,
-            {"radius": "m", "phi": "rad"},
+            {"radius": "m", "phi": "rad", "alpha": "m^-1"},
             omitted=_MODE_FILL,
         ),
         Factory(
             "RectMode",
             RectMode,
-            {"half_width_x": "m", "half_width_y": "m"},
+            {"half_width_x": "m", "half_width_y": "m", "alpha": "m^-1"},
             omitted=_MODE_FILL,
         ),
         Factory(
             "StepIndexMode",
             StepIndexMode,
-            {"radius": "m", "profile_wavelength": "m", "loss": "m^-1"},
+            {"radius": "m", "profile_wavelength": "m", "alpha": "m^-1"},
         ),
         Factory("glass", glass),
         Factory("IndexMaterial", IndexMaterial),
@@ -714,8 +646,6 @@ def build_object(
         if key == factory.data_file:
             arguments[key] = item
             continue
-        if retired(factory.name, key, item, f"{path}.{key}"):
-            continue
         if factory.target is SimulationSettings and key in _EXECUTION_FIELDS:
             msg = f"{key} is set in the recipe's [execution] table, not in settings"
             raise RecipeError(msg, path=f"{path}.{key}")
@@ -732,15 +662,95 @@ def build_object(
                 "route's gas, pressure and temperature, so a mode table names no fill"
             )
             raise RecipeError(msg, path=path)
+        if factory.target is SimulationSettings:
+            refuse_plane_count(key, item, f"{path}.{key}")
         decoded = decode(item, factory.units.get(key), context, f"{path}.{key}")
         arguments[key] = coerce(factory.target, key, decoded)
     if factory.solves and context.stand_in:
         # A solve on a band that is not the run's would refuse what the run accepts.
         return None
+    return _constructed(factory, positional, arguments, path)
+
+
+def _constructed(
+    factory: Factory,
+    positional: Sequence[object],
+    arguments: Mapping[str, object],
+    path: str,
+) -> object:
+    """Call a factory's target, its refusals of the planes reported as the recipe's."""
     try:
         return factory.target(*positional, **arguments)
     except TypeError as error:
         raise RecipeError(f"{factory.name}: {error}", path=path) from error
+    except DriverError as error:
+        planes = plane_parameter(error)
+        if planes is None:
+            raise
+        raise RecipeError(str(error), path=f"{path}.{planes}") from error
+
+
+PLANE_PARAMETERS: Final = ("save_planes", "n_save", "length", "grid", "schedule")
+"""The keywords whose refusals SEP 51 states, which a recipe reports as its own."""
+
+
+def plane_parameter(error: DriverError) -> str | None:
+    """Return the keyword a refusal of the planes, the length or replay names.
+
+    Parameters
+    ----------
+    error : solprop.exceptions.DriverError
+        A refusal raised while a recipe's run is built.
+
+    Returns
+    -------
+    str or None
+        The first keyword it names of :data:`PLANE_PARAMETERS`, or ``None`` for
+        another refusal, which keeps its own type.
+
+    Examples
+    --------
+    >>> from solprop.exceptions import DriverError
+    >>> from solprop.recipe.registry import plane_parameter
+    >>> plane_parameter(DriverError("...", parameter=("save_planes", "n_save")))
+    'save_planes'
+    """
+    named = error.parameter
+    paths = (named,) if isinstance(named, str) else tuple(named or ())
+    return next((one for one in paths if one in PLANE_PARAMETERS), None)
+
+
+def refuse_plane_count(key: str, value: object, path: str) -> None:
+    """Refuse a bare integer given as ``save_planes``, naming ``n_save`` (SEP 51).
+
+    A recipe once read ``save_planes = 80`` as one plane at 80 m (#533); positions and
+    a count have one name each, so the integer is refused with the fix.
+
+    Parameters
+    ----------
+    key : str
+        The keyword.
+    value : object
+        Its value as TOML read it.
+    path : str
+        The value's parameter path, for the error.
+
+    Raises
+    ------
+    RecipeError
+        If `key` is ``save_planes`` and `value` an integer.
+
+    Examples
+    --------
+    >>> from solprop.recipe.registry import refuse_plane_count
+    >>> refuse_plane_count("save_planes", [0.1, 0.2], "settings.save_planes")
+    """
+    if key == "save_planes" and isinstance(value, int) and not isinstance(value, bool):
+        msg = (
+            f"save_planes = {value} reads as one position in m, not a count; for "
+            f"evenly spaced planes write n_save = {value}"
+        )
+        raise RecipeError(msg, path=path)
 
 
 @functools.cache
@@ -903,6 +913,7 @@ def decode_keyword(entry: Parameter, value: object, context: BuildContext) -> ob
             "hold; use the Python export (Recipe.to_python)"
         )
         raise RecipeError(msg, path=entry.name)
+    refuse_plane_count(entry.name, value, entry.name)
     unit = unit_of(entry, value)
     if unit is None and _numeric_rows(entry, value):
         msg = f"{entry.name} takes one row of numbers, not a list of rows"

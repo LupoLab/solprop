@@ -347,14 +347,13 @@ The walled taper's propagation map, summed over the modes. The spectrum broadens
 slowly along the straight section and explodes at the end of the taper, where the
 pulse compresses and the dispersive wave appears near 130 nm.
 
-.. GENERATED FROM PYTHON SOURCE LINES 252-264
+.. GENERATED FROM PYTHON SOURCE LINES 252-263
 
 .. code-block:: Python
 
 
     figures = prop_2d(
         walled,
-        "wavelength",
         spec_range=(90e-9, 1.4e-6),
         time_range=(-30e-15, 30e-15),
         db_min=-40,
@@ -375,14 +374,14 @@ pulse compresses and the dispersive wave appears near 130 nm.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 265-269
+.. GENERATED FROM PYTHON SOURCE LINES 264-268
 
 Compression along the fibre
 ---------------------------
 The peak of the total power: the taper compresses the pulse earlier than the
 straight bore does, because it squeezes the same energy into a smaller area.
 
-.. GENERATED FROM PYTHON SOURCE LINES 269-289
+.. GENERATED FROM PYTHON SOURCE LINES 268-288
 
 .. code-block:: Python
 
@@ -426,7 +425,7 @@ straight bore does, because it squeezes the same energy into a smaller area.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 290-298
+.. GENERATED FROM PYTHON SOURCE LINES 289-297
 
 Mode conversion at full energy
 ------------------------------
@@ -437,7 +436,7 @@ moves more; against that, the taper's own conversion -- the linear figure above 
 is visible only in ``HE_14``, which the wall and the connection hold an order of
 magnitude above the adiabatic run before the taper and through it.
 
-.. GENERATED FROM PYTHON SOURCE LINES 298-321
+.. GENERATED FROM PYTHON SOURCE LINES 297-320
 
 .. code-block:: Python
 
@@ -476,13 +475,13 @@ magnitude above the adiabatic run before the taper and through it.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 322-325
+.. GENERATED FROM PYTHON SOURCE LINES 321-324
 
 The same numbers at two places: just after the transition (z = 0.71 m), before
 the pulse has compressed, where the difference is the connection alone, and at
 the exit.
 
-.. GENERATED FROM PYTHON SOURCE LINES 325-336
+.. GENERATED FROM PYTHON SOURCE LINES 324-335
 
 .. code-block:: Python
 
@@ -513,7 +512,7 @@ the exit.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 337-342
+.. GENERATED FROM PYTHON SOURCE LINES 336-341
 
 The dispersive wave
 -------------------
@@ -521,7 +520,7 @@ The exit spectra, summed over the modes. The narrower core pushes the dispersive
 wave further into the ultraviolet than the straight bore does, and the energy in
 the ultraviolet band is printed below.
 
-.. GENERATED FROM PYTHON SOURCE LINES 342-364
+.. GENERATED FROM PYTHON SOURCE LINES 341-363
 
 .. code-block:: Python
 
@@ -567,13 +566,13 @@ the ultraviolet band is printed below.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 365-368
+.. GENERATED FROM PYTHON SOURCE LINES 364-367
 
 Runtime and reproducibility
 ---------------------------
 Six complete one-metre runs of four coupled modes: three linear, three nonlinear.
 
-.. GENERATED FROM PYTHON SOURCE LINES 368-375
+.. GENERATED FROM PYTHON SOURCE LINES 367-374
 
 .. code-block:: Python
 
@@ -592,12 +591,12 @@ Six complete one-metre runs of four coupled modes: three linear, three nonlinear
 
  .. code-block:: none
 
-    97 s; backend native, 32 threads
+    138 s; backend native, 32 threads
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 376-383
+.. GENERATED FROM PYTHON SOURCE LINES 375-382
 
 Related reading
 ---------------
@@ -610,7 +609,7 @@ For a paced introduction to propagation, start with the
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (1 minutes 36.756 seconds)
+   **Total running time of the script:** (2 minutes 17.860 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_02_tapered_capillary.py:

@@ -5,51 +5,28 @@
 """Response definitions compiled into one fused time-domain pass.
 
 A response says what polarisation a medium produces from the field at a point
-(:mod:`solprop.nonlinear.responses`); a backend needs coefficients, a table and an
-ordering it can execute without knowing any physics. This module performs that
-compilation for the responses that exist: the instantaneous Kerr term, the delayed
-Raman term, the ionisation rate as a spline table, the UPPE prefactor and the temporal
-absorber. Section 5 of ``docs/dev/kernel-contract.md`` is the class
-:class:`CompiledResponses`, field for field.
+(:mod:`solprop.nonlinear.responses`); a backend needs coefficients, tables and an
+ordering it can execute without knowing any physics. :func:`compile_responses` builds
+:class:`CompiledResponses`, section 5 of ``docs/dev/kernel-contract.md`` field for
+field, its pass ordered as :class:`ResponseStage` steps. A response it cannot compile,
+or one undefined on the problem's grid, is refused by name rather than half-built.
 
-What is not compiled yet is refused rather than half-built. The spectral-domain
-responses have a field in the contract and no compiler here, so it stays
-empty and its flag stays false; anything else raises a
-:class:`solprop.exceptions.TranslationError` naming the response, so nothing reaches a
-backend that would evaluate a term it does not have. A response that declares it is
-undefined on the problem's grid is refused with that reason: the plasma model is written
-for a resolved carrier and has no envelope form.
+- Reduced terms: :class:`KerrCoefficients` (:func:`kerr_coefficients`),
+  :class:`DispersiveKerrTerms` (:func:`dispersive_terms`),
+  :class:`PlasmaCoefficients` (:func:`plasma_coefficients`) with its
+  :class:`PlasmaChannel` populations, and :class:`RamanCoefficients`
+  (:func:`raman_coefficients`), whose ``thg`` drive form is the problem's, checked
+  against the Kerr response beside it.
+- :class:`RegionalResponseTables` (:func:`regional_responses`): a general guide's
+  per-region responses.
+- The prefactor: zero outside the active band, it carries the oversampling **crop**
+  scale (the pad scale is in the synthesis, :mod:`solprop.translate.modal`) and follows
+  z in ``Phi``'s representations; :func:`prefactor_at` evaluates it at one position.
+- :func:`response_kinks` and :func:`unlanded_kinks`: where the response paths kink.
 
-**The Raman fraction is not this module's business.** A response that declares
-``fraction`` is one whose *author* already reduced the Kerr coefficient beside it --
-:func:`solprop.nonlinear.gnlse.kerr_susceptibility` does exactly that for the GNLSE --
-and a molecular gas's Raman response is absolute, with the full electronic ``chi3``
-beside it. Applying ``(1 - f_R)`` here would either double the reduction or invent one,
-and would reduce the Kerr term even with Raman switched off.
-
-**The Raman drive form is a property of the problem.** Whether a field grid's drive
-keeps the ``2 omega`` beat is not a property of each response: a drive that keeps it
-radiates a third harmonic through the later multiplication by the field, and a grid
-built without one does not oversample enough to hold it. So the compiler checks that
-the declared Kerr and Raman responses agree about ``thg`` on a field grid, and refuses
-a field-grid Raman response with no Kerr response beside it. That is why the answer is
-a field of :class:`RamanCoefficients` rather than of either response.
-
-The prefactor carries the **crop** scale of the oversampling round trip; the pad scale
-is in the synthesis, for the reason given in :mod:`solprop.translate.modal`. It is zero
-outside the active band rather than one: raw, unnormalised polarisation left in the
-out-of-band bins would be seen by every Runge-Kutta stage and every error estimate.
-
-It also follows z. ``Re n_eff(omega, z)`` moves with the gas and the bore, so on a
-gradient fill or a taper the prefactor is not one array but a path. Rather than being
-evaluated afresh at every stage, it is resolved once, the way ``Phi`` is
-and in whichever of ``Phi``'s two representations the mode set allows: an expansion in
-the scalar paths the modes declare, with the plain products of the basis polynomials as
-its weights because the prefactor is a value at z and not a cumulative one, or an
-adaptive Chebyshev table of z over the same span and split on the same declared kinks.
-Either is one pass per stage through :func:`prefactor_at`. A mode set that does not vary
-along z carries the array instead, in ``prefactor_constant``, and a backend takes that
-fast path.
+A declared Raman ``fraction`` never reduces the Kerr term here; why is
+``docs/guide/media/raman.md``. The drive form and the Raman kernel are
+``docs/guide/media/raman-numerics.md``.
 """
 
 import functools
@@ -92,8 +69,8 @@ from solprop.translate.chebyshev import (
     DEFAULT_MAX_INTERVALS,
     DEFAULT_TOL,
     PiecewiseChebyshev,
-    _held_table,
     build_from_paths,
+    held_table,
 )
 from solprop.translate.envelope_plasma import (
     EnvelopePlasmaAssembly,
@@ -106,7 +83,7 @@ from solprop.translate.expansion import (
     build_expansion,
     reweight_expansion,
 )
-from solprop.translate.ionisation import RateTable, _frozen_table, build_rate_table
+from solprop.translate.ionisation import RateTable, build_rate_table, frozen_table
 from solprop.translate.linop import (
     DEFAULT_MARGIN,
     PhiRepresentation,
@@ -276,8 +253,10 @@ class KerrCoefficients:
     Attributes
     ----------
     coefficient : float
-        ``eps0 chi3`` per unit of the density path, in m^2/V^2 when the density is
-        dimensionless and m^5/V^2 when it is a number density in m^-3. The density is
+        ``eps0 chi3`` per unit of the density path, in C m/V^3 when the density is
+        dimensionless and C m^4/V^3 when it is a number density in m^-3, so that
+        coefficient, density and the cube of the field give a polarisation in C/m^2.
+        ``eps0`` is already included: a backend applies it unchanged. The density is
         the contract's ``density`` table and multiplies this at every position.
     cubic_form : {'real', 'analytic'}
         Which of the two forms above the pass evaluates.
@@ -382,7 +361,7 @@ def declares_harmonic_carrier(responses: Sequence[object], grid: TimeGrid) -> bo
     exactly when this is true (:meth:`solprop.linear.Frame.comoving`,
     :func:`solprop.linear.frame_origin`). It is the declared form of
     :attr:`CompiledResponses.harmonic_carrier`, which
-    :func:`solprop.translate.problem.assemble` checks it against once the responses
+    :func:`solprop.translate.assembly.assemble` checks it against once the responses
     have compiled. Only the electronic responses radiate the harmonic on an envelope
     grid: the constant and the dispersive Kerr terms with ``thg=True``. A Raman
     response's ``thg`` is ignored there (:func:`solprop.nonlinear.raman.raman_drive`),
@@ -610,7 +589,7 @@ class DispersiveKerrTerms:
         -------
         tuple of tuple
             ``(channel, factor, weights)``: the first channel of the term, whose
-            region it acts in; ``eps0 gamma3_0 rho`` summed over its channels, C/V^3;
+            region it acts in; ``eps0 gamma3_0 rho`` summed over its channels, C m/V^3;
             and its multipliers.
         """
         factors = [
@@ -862,7 +841,7 @@ def plasma_coefficients(
             raise TranslationError(msg)
         # A table the builder made is frozen and held already and crosses as it
         # stands; one made any other way crosses as a frozen copy.
-        table = _frozen_table(rate)
+        table = frozen_table(rate)
     elif not isinstance(rate, IonisationRate):
         # A bare callable satisfies the response's own EvaluableRate, but a table needs
         # a threshold to clip against and named parameters to key its cache on.
@@ -918,7 +897,7 @@ def response_kinks(
     A step lands only on the hard kinks of ``Phi``, which the mode set declares. A
     response can carry a path the modes know nothing about: a plasma response's
     pre-ionisation along z, or a density path given to
-    :func:`solprop.translate.problem.assemble` explicitly. Its breakpoints are where
+    :func:`solprop.translate.assembly.assemble` explicitly. Its breakpoints are where
     the right-hand side is not smooth, so they must become hard kinks as well, or a
     step straddles them and the integrator loses its order there.
 
@@ -1471,7 +1450,7 @@ def isotropic_kerr_tensor(form: KerrForm = "analytic") -> Float[np.ndarray, "3 3
     index convention of the record and of the reference pass that reads it.
 
     On the **real** three-component field the same contraction is the real cubic
-    ``P = eps0 T:EEE`` the legacy field route evaluates, whose scalar limit is
+    ``P = eps0 T:EEE`` the channel field route evaluates, whose scalar limit is
     ``P = eps0 chi3 E^3``. Each of the three delta terms then contributes
     ``E_i (E.E)``, so the normalisation is a third and not a quarter:
 
@@ -1617,8 +1596,8 @@ def regional_responses(
 
     ``chi3`` is stored as one Chebyshev coefficient on one interval, because a
     declared material is constant along a constant guide; a z-varying
-    susceptibility needs the density path of the legacy compiler and is not
-    compiled here.
+    susceptibility needs the density path of the channel routes' compiler and is
+    not compiled here.
 
     Parameters
     ----------
@@ -2058,7 +2037,7 @@ class CompiledResponses:
         ``(n_modes, n_pol, n_omega)``, whichever representation carries it.
         """
         if self.separable is not None:
-            return self.separable.value_shape[1:]
+            return self.separable.value_shape
         if self.prefactor_expansion is not None:
             return self.prefactor_expansion.value_shape
         # `_check_prefactor_representation` has already made the narrowing true; a cast
@@ -2317,7 +2296,7 @@ def _prefactor_table(
             span,
             tol,
         )
-    return _held_table(table)
+    return held_table(table)
 
 
 def _log_prefactor(compiled: "CompiledResponses", z_max: float) -> None:
@@ -2428,8 +2407,9 @@ def _material_profiles(
 ) -> _MaterialProfiles:
     """Resolve component profiles while preserving the original single path.
 
-    - ``mixture``: ordered component populations; None retains the legacy material path.
-    - ``profile``: total density path in m^-3, or the legacy nonlinear scale.
+    - ``mixture``: ordered component populations; None keeps the single-material path.
+    - ``profile``: total density path in m^-3, or the single material's nonlinear
+      scale.
     """
     if mixture is None and modes:
         declared = getattr(modes[0], "mixture", None)
@@ -2873,7 +2853,7 @@ def compile_responses(
         Which application of the temporal rate the backend will use.
     mandatory_edges : array_like, optional
         Positions in z that must be interval edges of the prefactor table.
-        :func:`solprop.translate.problem.assemble` passes the cumulative operator's
+        :func:`solprop.translate.assembly.assemble` passes the cumulative operator's
         ``hard_kinks``, which is the union of the mode set's declared breakpoints, so
         that the two tables split on the same edges; a standalone caller should do the
         same, because a table left to locate a kink by bisection spends intervals on it
@@ -2901,7 +2881,8 @@ def compile_responses(
 
     mixture : Mixture or None, optional
         Explicit species and component paths for a spatial material. Modal assembly
-        also discovers the mixture carried by its modes. None keeps the legacy path.
+        also discovers the mixture carried by its modes. None keeps the
+        single-material path.
     regional_responses : RegionalResponseTables or None, optional
         The compiled per-region response of a general modal guide, carried through
         to contract section 5's optional leaf unchanged. It is not compiled here:
@@ -3251,7 +3232,7 @@ def _tabulate_rate(rate: IonisationRate, field_range: tuple[float, float]) -> Ra
     - ``field_range``: lower and upper field amplitude in V/m the table must cover.
     - Returns: the converged table, with read-only arrays.
     """
-    return _frozen_table(build_rate_table(rate, field_range))
+    return frozen_table(build_rate_table(rate, field_range))
 
 
 def raman_coefficients(

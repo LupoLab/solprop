@@ -12,7 +12,7 @@ import dataclasses
 
 import pytest
 
-from backends.test_band_plasma_parity import case
+from backends.plasma_column_cases import case
 from solprop.backends.node_chunk import _balanced_chunk, _held_current_chunk
 from solprop.exceptions import BackendError
 from solprop.translate.plasma_integration import design_running_integral

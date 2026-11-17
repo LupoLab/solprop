@@ -2,47 +2,35 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Raman response models and the reference evaluation of the Raman polarisation.
+"""Raman response models and the reference evaluation of the Raman polarisation.
 
-A Raman response is a medium's *delayed* answer to the field: the molecular vibration
-or rotation the pulse drives keeps ringing after the pulse has gone, and the
-polarisation at time ``t`` depends on the whole history of the drive. It is therefore a
-convolution, where the Kerr response of :mod:`solprop.nonlinear.responses` is pointwise,
-and that difference is the whole of why this module exists separately.
+A Raman response is a medium's *delayed* answer to the field, a convolution over the
+history of the drive where the Kerr response of :mod:`solprop.nonlinear.responses` is
+pointwise. Each model is a frozen dataclass returning ``h(t)`` for ``t >= 0`` and
+declaring how its coherence dephases with density.
 
-The models here are a damped oscillator, the
-vibrational mode of a molecular gas, the non-rigid-rotor rotational ladder with its
-Boltzmann populations, the intermediate-broadening line set of an amorphous solid, and
-a shape sampled from an optmat silica bundle. Each is a frozen dataclass returning
-``h(t)`` for ``t >= 0``, and each declares how its coherence dephases with density.
+- **Models** (:class:`RamanModel`): :class:`DampedOscillator` (and
+  :func:`normalised_damped_oscillator`), a molecular vibration (:func:`vibrational`),
+  the non-rigid rotational ladder (:class:`RotationalLines`,
+  :func:`rotational_nonrigid`), an amorphous solid's line set
+  (:class:`IntermediateBroadening`) and a shape sampled from optmat's silica bundle
+  (:class:`SampledShape`, :func:`bundle_response`), with :func:`undamped_dephasing` for
+  a coherence that does not decay with density.
+- **Responses**: :class:`RamanResponse`, the delayed polarisation of a medium from its
+  models, each declared for vector use as a :class:`RamanTensorTerm`, with its NumPy
+  reference evaluation driven by :func:`raman_drive`; :class:`SilicaTensorResponse`,
+  fused silica's tensor response in a general modal guide's material region, whose
+  kernels are a share of the region's ``chi3`` and so in 1/s; :func:`response_for`
+  builds a named material's response.
+
 The molecular and line-set models take a caller's own constants
 (:mod:`solprop.physdata.raman_types`); every built-in gas's response is optmat's
-(:mod:`solprop.nonlinear.optmat_raman`, SEP 3) and fused silica's is its bundle.
-
-Beside them is :class:`SilicaTensorResponse`: the delayed
-**tensor** response of fused silica declared by a material region of a general modal
-guide, whose two channels are a share of the region's own ``chi3`` rather than a
-per-density response, and whose kernels are therefore in **1/s** and not in the units
-below.
-
-**Units.** Every model of a gas or a scalar route returns ``h(t)`` in
-**m^5 V^-2 s^-1**, the units that make
-
-.. math::
-
-    P(t) = \varepsilon_0\, \rho\, E(t) \int h(t - t')\, E^2(t')\, dt'
-
-hold with ``P`` in C/m^2, the number density ``rho`` in m^-3 and the field ``E`` in V/m.
-So ``integral h dt`` carries the units of
-:attr:`solprop.nonlinear.responses.KerrResponse.chi3` per unit density, m^5/V^2, and the
-Raman and Kerr responses of the same medium are directly comparable. The ``eps0``
-stands outside the integral, so ``h`` here is linear in ``eps0``; a convention whose
-outer expression has no ``eps0`` hides it inside every ``K`` as ``(4 pi eps0)^2`` and
-has an ``h`` quadratic in ``eps0``, larger by that factor. The scalar vibrational factor
-also includes the independent amplitude correction described in :func:`vibrational`.
-
-The manual page is ``docs/guide/media/raman.md``; the kernel's view of the response is
-``docs/dev/kernel-contract.md`` section 5, and the sampling onto the doubled grid is
+(:mod:`solprop.nonlinear.optmat_raman`). **Units**: a gas or scalar-route model returns
+``h`` in m^5 V^-2 s^-1, so that ``P = eps0 rho E int h(t - t') E^2(t') dt'`` and
+``int h dt`` is comparable with the Kerr ``chi3`` per unit density
+(``docs/guide/media/raman.md``, "The response function and its units");
+:func:`vibrational` adds its own amplitude correction. The kernel's view is
+``docs/dev/kernel-contract.md`` §5, and the sampling onto the doubled grid is
 :mod:`solprop.translate.raman`.
 """
 
@@ -907,7 +895,7 @@ def _check_evaluate(
 
     - ``dt``: sample spacing of the fine grid, s.
     - ``max_components``: how many Cartesian components the caller carries: two for the
-      legacy routes, whose transverse state is at most two-component, and three for the
+      channel routes, whose transverse state is at most two-component, and three for the
       general modal guide's tensor responses.
     """
     if kind not in ("field", "envelope"):
@@ -1126,8 +1114,9 @@ class RamanResponse:
     Parameters
     ----------
     models : tuple of RamanModel or None, optional
-        Legacy scalar-only kernels, in summation order. Supply exactly one nonempty
-        route: ``models`` or keyword-only ``tensor_terms``.
+        Scalar-only kernels, in summation order: the shorthand for
+        ``tensor_terms=(RamanTensorTerm(m, "scalar_only"), ...)``. Supply exactly one
+        of ``models`` and keyword-only ``tensor_terms``, nonempty.
     fraction : float or None, optional
         Overall Raman share in ``(0, 1]``, or ``None`` for absolute kernels.
     thg : bool, optional
@@ -1140,11 +1129,11 @@ class RamanResponse:
     Attributes
     ----------
     tensor_terms : tuple of RamanTensorTerm
-        The canonical immutable declaration. Supply this keyword or legacy
-        ``models``, exactly one nonempty route. Legacy models become scalar-only
-        terms. Each term retains its own dephasing and explicit tensor assignment.
+        The declaration: ``models=`` given to the constructor becomes one
+        scalar-only term per model. Each term retains its own dephasing and explicit
+        tensor assignment.
     models : tuple of RamanModel
-        Derived compatibility view of the declared models, in their original order.
+        The models of the terms, in declaration order.
     fraction : float or None, optional
         The Raman fraction ``f_R``, in ``(0, 1]``, multiplying the whole response, or
         ``None`` when the models are already absolute -- which every molecular model
@@ -1214,9 +1203,9 @@ class RamanResponse:
 
     @property
     def models(self) -> tuple[RamanModel, ...]:  # numpydoc ignore=RT01
-        """Scalar models in declaration order.
+        """The models of the terms, in declaration order.
 
-        A derived compatibility view; replace ``tensor_terms`` to update models.
+        Read from ``tensor_terms``; replace those to change the models.
         """
         return tuple(term.model for term in self.tensor_terms)
 

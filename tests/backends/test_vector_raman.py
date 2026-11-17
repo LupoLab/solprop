@@ -6,6 +6,7 @@
 
 import math
 from dataclasses import fields, replace
+from typing import Any
 
 import numpy as np
 import pytest
@@ -14,9 +15,13 @@ from numpy.testing import assert_allclose
 from bounds import gamma, ladder_bound
 from former_raman import FORMER_H2, former_response
 from solprop.backends.node_chunk import _raman_chunk
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.responses import (
+    raman_polarisation,
+    tensor_raman_spectrum,
+)
 from solprop.constants import EPS0
-from solprop.driver.simulation import _undamped_model_key
+from solprop.driver.mixtures import _undamped_model_key
 from solprop.exceptions import BackendError, TranslationError
 from solprop.profiles import Constant
 from solprop.translate.responses import RamanCoefficients, raman_coefficients
@@ -31,9 +36,46 @@ from vector_raman_cases import (
 from vector_raman_tensor_oracle import BUDGETS, cartesian_direct, convolution_bound
 
 
+def _owner(backend) -> Any:
+    """Return what holds a backend's Raman kernel: the reference's stage source."""
+    workspace = getattr(backend, "workspace", None)
+    return backend if workspace is None else workspace.stage_source
+
+
+def raman_refreshes(backend):
+    """Read a backend's Raman kernel transforms: the reference workspace's own, or
+    the native workspace's (``raman_kernel_transforms``)."""
+    if backend.name == "native":
+        return backend._diagnostics()["raman_kernel_transforms"]
+    return _owner(backend)._raman_transforms
+
+
+def prepare_raman(backend, rates, densities=()):
+    """Prepare a backend's Raman kernel at `rates` and `densities`, without a step.
+
+    The reference workspace's memo returns its kernel; the native workspace prepares
+    its own (``_testing.prepare_raman``) and returns nothing, and a problem without a
+    Raman term has no kernel to prepare on either.
+    """
+    if backend.name != "native":
+        return _owner(backend)._raman_spectrum(
+            rates, *((densities,) if densities else ())
+        )
+    if not backend._problem.responses.raman_terms:
+        return None
+    _testing = pytest.importorskip("solprop_native._core")._testing
+
+    _testing.prepare_raman(
+        backend._workspace,
+        np.ascontiguousarray(rates, dtype=np.float64),
+        np.ascontiguousarray(densities, dtype=np.float64),
+    )
+    return None
+
+
 def test_reference_pass_rejects_three_physical_components():
     with pytest.raises(BackendError, match="one or two physical components"):
-        passes.raman_polarisation(
+        raman_polarisation(
             np.zeros((1, 3, 16)),
             np.zeros(17, complex),
             kind="field",
@@ -59,20 +101,25 @@ def test_vector_complete_run_matches_reference_and_modal_routes(
     per_rhs = 3 * 512 * np.finfo(float).eps * math.ceil(
         math.log2(2 * grid.n_to)
     ) + 8 * gamma(problem.transform.n_nodes)
-    for got, reference, evaluations in (
-        (actual[0], expected[0], 1),
-        (actual[1], expected[1], 7 * steps),
-    ):
+    # Native's final state and statistics against the reference's are the catalogue's
+    # rows ``vector raman complete ...`` (backends/vector_raman_rows.py). Its first
+    # stage, a trial's of an eighth of the run, has no rung there and stays here. The
+    # reference's instance compares the reference with itself (#808).
+    compared = [(actual[0], expected[0], 1)]
+    if backend_class.name != "native":
+        compared.append((actual[1], expected[1], 7 * steps))
+    for got, reference, evaluations in compared:
         scale = float(np.max(abs(reference)))
         bound = ladder_bound(
             backend_class.name, 2 * evaluations * per_rhs, grid.n_to, 3 * evaluations
         )
         assert scale > 0 and bound > 0
         assert_allclose(got, reference, rtol=0, atol=bound * scale)
-    for name, value in expected[2].items():
-        # Statistics add a temporal reduction and a squared-modulus operation.
-        bound = 112 * per_rhs + 8 * gamma(grid.n_to * problem.transform.n_nodes)
-        assert_allclose(actual[2][name], value, rtol=bound, atol=0)
+    if backend_class.name != "native":
+        for name, value in expected[2].items():
+            # Statistics add a temporal reduction and a squared-modulus operation.
+            bound = 112 * per_rhs + 8 * gamma(grid.n_to * problem.transform.n_nodes)
+            assert_allclose(actual[2][name], value, rtol=bound, atol=0)
     row_problem, row_request, row_grid, row_modes = vector_translation(
         family, material, route="rows", steps=steps
     )
@@ -151,8 +198,8 @@ def test_effective_kernel_convolution_matches_physical_term_sums(count):
     values = rng.standard_normal((3, 2, count)) + 1j * rng.standard_normal(
         (3, 2, count)
     )
-    spectrum = passes.tensor_raman_spectrum(tuple(components), rates, densities, dt)
-    actual = passes.raman_polarisation(
+    spectrum = tensor_raman_spectrum(tuple(components), rates, densities, dt)
+    actual = raman_polarisation(
         values, spectrum, kind="envelope", thg=response.thg, density=1.0
     )
     for node in range(3):
@@ -191,7 +238,7 @@ def test_tensor_spectrum_refuses_missing_or_incapable_channels(spoiling):
     else:
         components = (replace(components[0], tensor_capable=False),)
     with pytest.raises(BackendError, match="tensor-capable"):
-        passes.tensor_raman_spectrum(components, rates, densities, grid.dt_fine)
+        tensor_raman_spectrum(components, rates, densities, grid.dt_fine)
 
 
 def test_undamped_reuse_distinguishes_tensor_roles():
@@ -224,18 +271,18 @@ def test_vector_kernel_cache_refreshes_all_dynamic_inputs(backend_class):
     backend = backend_class(problem, run_request, grid=grid, modes=modes)
     bundle = scalars(problem, 0.0, 0.0)
     try:
-        backend._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
-        backend._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
-        assert backend._raman_transforms == 1
+        prepare_raman(backend, bundle.raman_rates, bundle.raman_densities)
+        prepare_raman(backend, bundle.raman_rates, bundle.raman_densities)
+        assert raman_refreshes(backend) == 1
         rates = list(bundle.raman_rates)
         for index in range(len(rates)):
             rates[index] += 1e12
-            backend._raman_spectrum(tuple(rates), bundle.raman_densities)
-            assert backend._raman_transforms == 2 + index
+            prepare_raman(backend, tuple(rates), bundle.raman_densities)
+            assert raman_refreshes(backend) == 2 + index
         # Single-component amplitude is applied after convolution, so density
         # changes alone need no kernel rebuild (unlike mixtures).
-        backend._raman_spectrum(tuple(rates), (2 * bundle.raman_densities[0],))
-        assert backend._raman_transforms == 1 + len(rates)
+        prepare_raman(backend, tuple(rates), (2 * bundle.raman_densities[0],))
+        assert raman_refreshes(backend) == 1 + len(rates)
     finally:
         backend.close()
 

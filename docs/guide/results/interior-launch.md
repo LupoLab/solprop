@@ -53,5 +53,5 @@ atomic runtime resources beside `backend="numpy_ref"` and a `Multistep` integrat
 The declared response sampling refines the existing fine lattice once, retaining
 the coarse grid, period and collars. An inherited standard temporal collar is
 evaluated on the finer lattice with the same physical reference length; a custom
-absorber must already carry matching fine samples. Changing execution device,
-batch width or memory limits does not alter the scientific resume identity.
+absorber must already carry matching fine samples. Changing execution device or
+memory limits does not alter the scientific resume identity.

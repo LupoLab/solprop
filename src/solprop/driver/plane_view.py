@@ -4,12 +4,14 @@
 
 """The lazy view of a saved plane that a plane observer is shown (SEP 41, S3).
 
-A :class:`~solprop.log.PlaneObserver` is shown each saved plane as a
-:class:`PlaneView`: the plane's position, statistics row and basis at once, and its
-field, spectrum, power and spectral density only on request, computed by the same
-:mod:`solprop.processing` functions that read a file, so what an observer draws is
-what the file holds. On a device a plane whose field the output does not keep is
-fetched only when asked for, and the fetch is counted in the run's resources.
+A reporter that defines ``observe_plane`` (:class:`~solprop.log.ProgressReporter`) is
+shown each saved plane as a :class:`PlaneView`, through a run's :class:`PlaneWatch`:
+the plane's position, statistics row and basis at once, and its field, spectrum, power
+and spectral density only on request, computed by the same :mod:`solprop.processing`
+functions that read a file, so what an observer draws is what the file holds. On a
+device a plane whose field the output does not keep is fetched only when asked for,
+and the fetch is counted in the run's resources. The manual page is
+``docs/guide/performance/progress.md`` ("Watching each saved plane").
 """
 
 import logging
@@ -21,13 +23,18 @@ from typing import TYPE_CHECKING, Any, Final
 import numpy as np
 
 from solprop._host import ObserverSpend
-from solprop.capabilities import Quantity, _quantities
 from solprop.exceptions import DriverError, SolpropWarning
-from solprop.log import PlaneObserver, ProgressReporter
-from solprop.output.capability import BasisCapability, capability_of
+from solprop.log import ProgressReporter
+from solprop.output.capability import (
+    BasisCapability,
+    Quantity,
+    capability_of,
+    quantities,
+)
 from solprop.output.memory import MemoryOutput
-from solprop.output.schema import RunMetadata, SavedPlane, StoredField
-from solprop.processing import fields
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import SavedPlane, StoredField
+from solprop.processing import fields, planes
 
 if TYPE_CHECKING:
     from solprop.coupling.plane import FieldPlane
@@ -46,17 +53,17 @@ class PlaneView:
 
     Parameters
     ----------
-    plane : solprop.output.schema.SavedPlane
+    plane : solprop.output.records.SavedPlane
         The plane as committed, its field ``None`` where the output keeps none.
     index : int
         Its index among the saved planes.
-    metadata : solprop.output.schema.RunMetadata
+    metadata : solprop.output.metadata.RunMetadata
         The run's record.
     fetch : callable or None
         Returns the plane's field where it was not kept; ``None`` where it was.
     spend : solprop._host.ObserverSpend
         The run's observer ledger, which counts the fetches.
-    stored : solprop.output.schema.StoredField or None, optional
+    stored : solprop.output.records.StoredField or None, optional
         The kept field as the output stored it, where it was exported straight into
         the output (SEP 47 section 5.4) and the plane carries none: the view reads
         that, with no fetch.
@@ -105,9 +112,11 @@ class PlaneView:
     def quantities(self) -> dict[str, Quantity]:  # numpydoc ignore=RT01
         """What the plane's derived quantities are.
 
-        Whether its power, energy, density and field are physical fluxes.
+        Whether its power, energy, density and field are physical fluxes, as
+        :func:`solprop.capabilities.output` states them; a spatial plane has only
+        its field.
         """
-        return _quantities(self.basis)
+        return quantities(self._metadata, self.basis)
 
     def _reader(self) -> MemoryOutput:
         """Return the plane as a one-plane output, fetching its field once if needed."""
@@ -247,9 +256,7 @@ class PlaneView:
             For a run :func:`~solprop.processing.planes.field_plane` refuses (a hybrid
             planar run, the modified noise model).
         """
-        from solprop.processing.planes import field_plane  # noqa: PLC0415 - heavy
-
-        return field_plane(self._reader(), 0)
+        return planes.field_plane(self._reader(), 0)
 
     def _close(self) -> None:
         """End the view's validity and let its arrays go."""
@@ -258,13 +265,13 @@ class PlaneView:
 
 
 class PlaneWatch:
-    """Show a run's saved planes to its reporter, when it is a plane observer.
+    """Show a run's saved planes to its reporter, when it defines ``observe_plane``.
 
     Parameters
     ----------
     reporter : solprop.log.ProgressReporter
-        The run's reporter; only a :class:`~solprop.log.PlaneObserver` is shown planes.
-    metadata : solprop.output.schema.RunMetadata
+        The run's reporter; only one that defines ``observe_plane`` is shown planes.
+    metadata : solprop.output.metadata.RunMetadata
         The run's record.
     fetch : callable
         Returns the field at the current plane, for a plane the output keeps none of.
@@ -280,7 +287,9 @@ class PlaneWatch:
         spend: ObserverSpend,
     ) -> None:
         """Hold the observer, or nothing for a reporter that is not one."""
-        self._observer = reporter if isinstance(reporter, PlaneObserver) else None
+        self._observe: Callable[[float, PlaneView], None] | None = getattr(
+            reporter, "observe_plane", None
+        )
         self._metadata = metadata
         self._fetch = fetch
         self._spend = spend
@@ -292,11 +301,11 @@ class PlaneWatch:
 
         Parameters
         ----------
-        plane : solprop.output.schema.SavedPlane
+        plane : solprop.output.records.SavedPlane
             The plane as committed.
         index : int
             Its index among the saved planes.
-        stored : solprop.output.schema.StoredField or None, optional
+        stored : solprop.output.records.StoredField or None, optional
             Its kept field as the output stored it, where it was exported straight
             into the output and the plane carries none.
 
@@ -305,8 +314,8 @@ class PlaneWatch:
         SolpropWarning
             When the observer raised, which then sees no more planes in this run.
         """
-        observer = self._observer
-        if observer is None:
+        observe = self._observe
+        if observe is None:
             return
         view = PlaneView(
             plane,
@@ -318,11 +327,11 @@ class PlaneWatch:
         )
         started = time.perf_counter()
         try:
-            observer.observe_plane(plane.z, view)
+            observe(plane.z, view)
         except Exception as error:
             # Not a stop, an interrupt or a signal: those are BaseExceptions and stop
             # the run as they would anywhere.
-            self._observer = None
+            self._observe = None
             logger.exception("the plane observer failed at z = %.6e m", plane.z)
             msg = (
                 f"the plane observer raised {type(error).__name__}: {error}; it is "

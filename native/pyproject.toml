@@ -4,7 +4,10 @@
 
 [build-system]
 requires = [
-  "nanobind>=2.9",
+  # Pinned: the binding's code and its stub's generated part follow one nanobind release,
+  # and an isolated wheel build would otherwise take whatever release is newest. The dev
+  # group pins the same version for the editable build (solprop SEP 52).
+  "nanobind==3.1.0",
   # The distribution profile's Linux and Windows BLAS, copied into the wheel; never a runtime
   # dependency. Other builds ignore it.
   "scipy-openblas32>=0.3.34; sys_platform == 'linux' or sys_platform == 'win32'",

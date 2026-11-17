@@ -7,33 +7,28 @@ r"""Recorded benchmark envelopes of the approximate coupling models' provider pa
 SEP 31 section 4.3 admits a provider pair to an approximate coupling model only with
 an independent benchmark envelope for what the model omits, recorded with its
 identity, range and independently bounded numerical error, and never extrapolated.
-Each :class:`PairEnvelope` here is one such record. The numbers were measured by the
-oracles in ``tests/coupling/test_envelopes.py``, which recompute them and hold the
-recorded bounds; the manual page ``docs/guide/workflows/coupling.md`` describes them.
+Each :class:`PairEnvelope` or :class:`FieldEnvelope` is one such record:
 
-- :data:`CAPILLARY_ENVELOPE`: the scalar J0 profile the model projects onto against
-  Marcatili's leaky HE1m core field :math:`J_0(u_m(1 - i\delta)r/a)`,
-  :math:`\delta = |\nu_n|c/(\omega a)`, the physics the scalar model omits. Its
-  discrepancy depends on the field (mode m departs by about :math:`u_m\delta`), so
-  no fixed bound covers every field usefully: a :class:`FieldEnvelope`, evaluated
-  for the field coupled, in closed form (``solprop.coupling._leaky``), with its
-  range and numerical error recorded.
-- :data:`STEP_INDEX_ENVELOPE`: the weak-guidance LP01 overlap of two step-index
-  fibres of one material pair and different radii against the full-vector flux
-  overlap of their exact bound HE11 fields
-  (:meth:`solprop.modes.stepindex.StepIndexMode.electromagnetic_field`). It replaces the
-  contrast screen within its range.
-- :data:`STEP_INDEX_BEAM_ENVELOPE`: an incident beam's scalar overlap with a weakly
-  guiding fibre's LP01 profile against its full-vector flux coupling into the exact
-  HE11 pair, the beam's H from its own plane-wave spectrum. The bound is the largest
-  discrepancy over every incident field inside the widest admitted cone, so it
-  covers any beam shape, alignment and polarisation; it scales linearly with the
-  fibre's contrast.
-- :data:`VECTOR_STEP_INDEX_ENVELOPE`: the vector model's flux recovery into a
-  :class:`~solprop.modes.guide.StepIndexProvider` guide against an independent
-  full-vector mode-matching solution of the planar entrance facet, the reflection
-  and backward fields the model omits, maximised over every incident field inside the
-  widest admitted cone. Its bound scales with the square of the guide's contrast.
+- :data:`CAPILLARY_ENVELOPE`: the scalar J0 profile against Marcatili's leaky HE1m
+  core field. Its discrepancy depends on the field (mode m departs by about
+  :math:`u_m\delta`), so no fixed bound covers every field usefully: it is a
+  :class:`FieldEnvelope`, evaluated for the field coupled in closed form
+  (``solprop.coupling._leaky``), with its range and numerical error recorded.
+- :data:`STEP_INDEX_ENVELOPE`: the weak-guidance LP01 overlap of two step-index fibres
+  against the full-vector flux overlap of their exact HE11 fields
+  (:meth:`solprop.modes.stepindex.StepIndexMode.electromagnetic_field`); it replaces
+  the contrast screen within its range.
+- :data:`STEP_INDEX_BEAM_ENVELOPE`: a beam's scalar LP01 overlap against its
+  full-vector coupling into the exact HE11 pair, maximised over every field inside
+  the widest admitted cone; it scales linearly with the fibre's contrast.
+- :data:`VECTOR_STEP_INDEX_ENVELOPE`: the vector model into a
+  :class:`~solprop.modes.stepindex_vector.StepIndexProvider` guide against a
+  full-vector mode-matching solution of the entrance facet; it scales with the
+  square of the contrast.
+
+The numbers were measured by the oracles in ``tests/coupling/test_envelopes.py``, which
+recompute them and hold the recorded bounds; ``docs/guide/workflows/coupling.md``,
+section "The admission budget and the report", describes each envelope.
 """
 
 from collections.abc import Mapping

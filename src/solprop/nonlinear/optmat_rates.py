@@ -4,41 +4,22 @@
 
 """Ionisation rates from optmat's rate models, on solprop's rate protocol (SEP 3).
 
-solprop keeps no ionisation-rate formula of its own for an optmat-backed run (SEP 3,
-D1): :class:`OptmatRate` adapts one of optmat's rate models to the
+solprop keeps no ionisation-rate formula of its own (SEP 3, D1): :class:`OptmatRate`
+adapts one of optmat's atomic or molecular rate models to the
 :class:`~solprop.nonlinear.ionisation.IonisationRate` protocol, which the translation
-layer tabulates into the existing :class:`~solprop.translate.ionisation.RateTable`
-unchanged. An atom's rate comes from ``optmat.gas.ionisation_rates`` and a
-molecule's from ``optmat.gas.molecular_ionisation_rates``; each refuses the other's
-species. The adapter converts and records; the physics is optmat's.
+layer tabulates into a :class:`~solprop.translate.ionisation.RateTable` unchanged. The
+physics is optmat's; the adapter adds only a threshold field below which the rate is
+exactly zero (under :data:`NEGLIGIBLE_RATE`), the ceiling
+:data:`~solprop.nonlinear.ionisation.MAX_RATE`, one energy per event for the plasma loss
+(:data:`ENERGY_LOSS`) taken at a reference field with its recorded bound, and a hold
+above the model's maximum field.
 
-What the adapter adds, and nothing else:
+- :func:`selected_rate` is the rate a selection means for a species.
+- :func:`bind_reference_field` binds a run's unbound rates to the input's peak field.
+- :func:`peak_field_report` returns, after a run, a :class:`PeakFieldReport` of the
+  largest field each population's rate saw.
 
-- a **threshold**: the field below which optmat's instantaneous rate is under a
-  declared negligible rate (:data:`NEGLIGIBLE_RATE`), found by bisection in the
-  logarithm of the field. Below it the rate is exactly zero, which the plasma loss
-  term ``I W (1 - f) / E`` relies on;
-- the **ceiling** :data:`~solprop.nonlinear.ionisation.MAX_RATE`, a numerical safety
-  cap that no physical rate reaches;
-- the **energy per event** the plasma loss pays (SEP 3, D8). optmat's rate-weighted
-  energy ``I(E) = L(E) / W(E)`` moves with the field between the channels of a noble
-  gas; solprop's kernel carries one energy per population, so the loss takes the
-  constant ``I(E_ref)`` at a reference field -- the input's peak field, which the
-  capillary driver binds (:func:`bind_reference_field`) -- clipped to the tabulated
-  fields, and the largest relative departure of ``I(E)`` from it over the tabulated
-  fields at which the rate is not negligible is recorded as its bound. A one-channel
-  model, every molecular one among them, is exact. Without a reference field the
-  energy is the weak-field limit, the lowest channel's;
-- the **maximum field**: optmat warns at every evaluation above it, and a rate table
-  routinely extends there. Above it optmat's instantaneous rate is outside its fit and
-  turns over, falling towards zero within a decade of field, so the adapter holds the
-  rate at its value at the maximum field and a table is built up to it
-  (:func:`solprop.translate.ionisation.build_rate_table`). A direct evaluation above
-  it is recorded in the run's material log rather than warned at every call;
-  :meth:`OptmatRate.check_input` warns when the input's own peak exceeds it, and
-  whether a run reached it is :func:`peak_field_report`'s to say, after the run.
-
-The manual page is ``docs/guide/media/ionisation.md``, section "Rates from optmat".
+The manual page is ``docs/guide/media/ionisation.md``, "Rates from optmat".
 """
 
 import dataclasses
@@ -62,8 +43,10 @@ from solprop.physdata import _optmat
 from solprop.physdata.gases import Gas
 from solprop.physdata.selection import MaterialRecord, MaterialSelection
 from solprop.physdata.species import (
+    MIXTURE_AIR_POINTER,
     Species,
     built_in_population,
+    dispersion_only_air,
     ionisation_potential,
 )
 
@@ -486,7 +469,7 @@ class OptmatRate:
         """
         record = self.material_records[0]
         # Each evaluation of the search repeats the same warning; one is enough.
-        for text in dict.fromkeys(str(item.message) for item in ranged):
+        for text in dict.fromkeys(_optmat.optmat_text(item.message) for item in ranged):
             _optmat.record_outside(self._resolved, self.species_identity, (text,))
             _optmat.warn_once(
                 ("rate-range", record.digest, text),
@@ -911,9 +894,11 @@ def selected_rate(
     Raises
     ------
     MaterialError
-        If the species is custom (not built in, or with its own ionisation data),
-        which needs an explicit rate (D1), or there is no carrier, or a model object
-        describes another species.
+        If the species is the dispersion-only built-in ``Air`` entry, which has no
+        ionisation data (the message points to
+        :meth:`~solprop.physdata.mixtures.Mixture.air`), or is custom (not built
+        in, or with its own ionisation data), which needs an explicit rate (D1), or
+        there is no carrier, or a model object describes another species.
 
     Examples
     --------
@@ -925,6 +910,9 @@ def selected_rate(
     'comparison'
     """
     name = label or material.name
+    if dispersion_only_air(material):
+        msg = f"{name} ({material.name}) has no ionisation data: {MIXTURE_AIR_POINTER}"
+        raise MaterialError(msg)
     if (
         not built_in_population(material)
         or material.name == Gas.Air.value

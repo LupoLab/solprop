@@ -1,0 +1,69 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""What the optmat cases need beyond the parity ladder: native's ledger.
+
+The ladder itself -- every case on native against ``numpy_ref``, rung by rung, with
+what each case carries -- is the catalogue's (``tests/backends/optmat_rows.py``).
+"""
+
+import numpy as np
+import pytest
+
+from bounds import EPS, assert_within
+from builders import launch_derivative
+from optmat_parity_cases import build_case
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.stepping import apply_hard_mask
+
+
+@pytest.mark.medium
+def test_native_holds_every_row_of_the_composition_leaf():
+    # The rows are a view of n_terms x 2 n_to doubles and the per-stage decay rates
+    # one per row and stage: both scale with the row count, so no fixed term count
+    # is assumed (SEP 3, section 6). The two host backends read the problem's array.
+    native = pytest.importorskip("solprop_native")
+    case = build_case("air_floor")
+    problem, run_request = case.problem, case.run_request
+    backend = native.NativeBackend(
+        problem, run_request, grid=case.grid, modes=case.modes
+    )
+    try:
+        ledger = backend.memory_ledger()
+    finally:
+        backend.close()
+    rows = case.n_rows
+    assert ledger["raman_undamped"] == rows * 2 * problem.grids.n_to * 8
+    # Two slots, the step and the Adams sample, share one packed upload per trial.
+    assert (
+        ledger["stage_raman_rates"]
+        == 2 * run_request.stepper.tableau.n_stages * rows * 8
+    )
+
+
+@pytest.mark.medium
+def test_the_lab_frame_sample_is_the_hoisted_derivative_on_the_masked_launch():
+    # The reference's two evaluations of the launch's source -- its lab-frame sample
+    # (the ladder's source rung) and its hoisted first stage (the derivative rung) --
+    # run the same passes on the same scalars, so on the same input they agree to
+    # rounding: a few ulps, normwise relative (measured: bit for bit). The sample is
+    # taken after the anchor was hoisted elsewhere, so a stale anchor would show. The
+    # 4.3e-13 they differed by was the input: the derivative evaluates the loaded state,
+    # masked to the active band, and the unmasked sample the launch's out-of-band
+    # content, which the masked launch must therefore change.
+    case = build_case("ar_field")
+    problem = case.problem
+    backend = NumpyRefBackend(
+        problem, case.run_request, grid=case.grid, modes=case.modes
+    )
+    try:
+        hoisted = np.array(launch_derivative(backend, problem))
+        launch = problem.initial.field0
+        masked = apply_hard_mask(launch, problem.grids.active_mask)
+        assert np.any(masked != launch)
+        backend.workspace.hoist(1e-3)
+        sample = np.array(backend.workspace.lab_source(masked, 0.0))
+    finally:
+        backend.close()
+    assert_within(sample, hoisted, 8 * EPS, what="lab-frame sample")

@@ -12,7 +12,7 @@ InsertNewlineAtEOF: true
 CommentPragmas: '^ (IWYU pragma:|NOLINT)'
 # No RemoveSemicolon: clang-format parses `const auto f = KOKKOS_LAMBDA(...) {...};` as a
 # function definition and removes the semicolon the declaration needs. Declaring the
-# macro (`Macros:`) fixes that but makes formatting general.cpp minutes slower.
+# macro (`Macros:`) fixes that but makes formatting src/general/ minutes slower.
 # Include blocks: this package's and the directory's own headers ("..."), then the
 # third-party libraries, then the standard library, then platform headers (the operating
 # system, the compiler and the device runtimes). An include under #if stays in its own

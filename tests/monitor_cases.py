@@ -22,9 +22,10 @@ from typing import Any, cast
 
 import numpy as np
 
+from builders import load_reference
 from capability_routes import LENGTH, ROUTES
 from solprop.backends.events import Terminal
-from solprop.backends.host.driver import HostDriver
+from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import select
 from solprop.backends.session import ExecutionOptions, Start
@@ -48,10 +49,23 @@ ROUTE_NAMES = (
     "cartesian",
     "line",
     "planar",
+    "capillary (pressure gradient)",
+    "general guide (moving)",
+    "capillary (coherent wall)",
+    "capillary (taper coupling)",
 )
 """Every route: the single-column engine (the GNLSE and mode-averaged capillaries),
 field and envelope modal columns, the general modal route, radial (whose columns carry
-the Hankel quadrature), Cartesian and line free space and the planar hybrid."""
+the Hankel quadrature), Cartesian and line free space, the planar hybrid, the pressure
+gradient, and the coupled flows (:data:`COUPLED`)."""
+
+COUPLED = (
+    "general guide (moving)",
+    "capillary (coherent wall)",
+    "capillary (taper coupling)",
+)
+"""The coupled-flow routes: the moving general guide, the coherent wall and the taper
+coupling, which the low-storage march refuses by name."""
 
 SCHEMES = ("nonlinear", "split_step")
 MARCHES = {
@@ -62,6 +76,15 @@ MARCHES = {
 """The marches whose finishes differ: the Runge-Kutta finish, the Adams adoption (the
 native engine's resident history on its modal routes) and the low-storage register
 step accepted in place (the native engine's resident step)."""
+
+ROUTE_MARCHES = tuple(
+    (route, march)
+    for route in ROUTE_NAMES
+    for march in sorted(MARCHES)
+    if not (march == "low_storage" and route in COUPLED)
+)
+"""Every route under every march it admits: the low-storage march steps a diagonal
+linear flow only, and refuses the :data:`COUPLED` routes at translation."""
 
 STEPS = 4
 """Fixed steps over the probe's fifth of a millimetre: a matched schedule, so that the
@@ -75,21 +98,46 @@ COPY_AT = 0.42
 its tail in the high guard."""
 
 
+QUIET_STEPS = 20
+"""Fixed steps of the quiet probe: more than :data:`solprop.monitor.CADENCE`, so that a
+quiet window's cadence leaves steps between its checks unchecked."""
+
+QUIET_BUDGET = 100.0
+"""The quiet probe's budget: the activity threshold, ``(0.1 budget)**2`` of the energy,
+is above any share a region can hold, so no step is checked for an active edge."""
+
+
 def probe(
-    route: str, scheme: str, march: object | None = None, *, steps: int = STEPS
+    route: str,
+    scheme: str,
+    march: object | None = None,
+    *,
+    steps: int = STEPS,
+    budget: float = 1.0,
 ) -> Simulation:
     """Return a route's tiny case under an absorber scheme; with a march, on a fixed
-    schedule of `steps` steps."""
+    schedule of `steps` steps, more where a hard kink splits one.
+
+    The check's `budget` is relaxed (the launch puts light in the guards on purpose):
+    at the default every step holds an active collar and is checked, and at
+    :data:`QUIET_BUDGET` none does, so only the cadence decides.
+    """
     simulation = ROUTES[route](None)
     settings: dict[str, Any] = {
-        # Relaxed: the launch puts light in the guards on purpose.
-        "boundary_check": BoundaryCheck(budget=1.0, stop_factor=1.0),
+        "boundary_check": BoundaryCheck(budget=budget, stop_factor=1.0),
         "absorber_scheme": scheme,
     }
     if march is not None:
         settings["integrator"] = march
+        # A fixed schedule must land on the guide's hard kinks (the taper coupling's
+        # corners), which split a segment into more, shorter steps. They are read off
+        # a second build: a translated simulation takes no new schedule.
         settings["schedule"] = FixedSchedule.uniform(
-            0.0, LENGTH, LENGTH / steps, save_planes=[LENGTH]
+            0.0,
+            LENGTH,
+            LENGTH / steps,
+            save_planes=[LENGTH],
+            hard_kinks=ROUTES[route](None).translate().linear.hard_kinks,
         )
     simulation.settings = dataclasses.replace(simulation.settings, **settings)
     return simulation
@@ -106,24 +154,23 @@ def with_copy(field: np.ndarray, n_t: int) -> np.ndarray:
     return field * (1.0 + COPY_SHARE * phase)
 
 
-def as_driver(backend: Backend) -> HostDriver[Any]:
-    """Return the reference backend as its step driver.
+def as_reference(backend: Backend) -> NumpyRefBackend:
+    """Return the reference backend, whose workspace a test loads and reads directly.
 
     Raises
     ------
     TypeError
-        For any other backend: since SEP 47 phase 5 the native backend has no direct
-        driver API, and its monitor is read through its session
+        For any other backend: the native backend's state is read through its session
         (:func:`record_after_march`, or a session's ``monitor_record``).
     """
-    if not isinstance(backend, HostDriver):
+    if not isinstance(backend, NumpyRefBackend):
         msg = (
-            f"{type(backend).__name__} has no step driver to load and read directly; "
+            f"{type(backend).__name__} has no workspace to load and read directly; "
             "read its boundary monitor through its session "
             "(monitor_cases.record_after_march or RunSession.monitor_record)"
         )
         raise TypeError(msg)
-    return cast("HostDriver[Any]", backend)
+    return backend
 
 
 def watched(
@@ -135,16 +182,18 @@ def watched(
 ) -> Backend:
     """Return the reference backend loaded with the edge-reaching launch and watched.
 
-    `options` default to the simulation's own execution options; `problem` and
-    `run_request` to its own translation.
+    Its workspace holds the launch and reads the simulation's boundary monitor, as a
+    session's attached monitor has it read; nothing is judged. `options` default to
+    the simulation's own execution options; `problem` and `run_request` to its own
+    translation.
 
     Raises
     ------
     TypeError
-        For a backend other than the reference (:func:`as_driver`).
+        For a backend other than the reference (:func:`as_reference`).
     """
     problem = simulation.translate() if problem is None else problem
-    run_request = simulation._run_request() if run_request is None else run_request
+    run_request = simulation.run_request() if run_request is None else run_request
     backend = select(
         name,
         problem,
@@ -155,27 +204,39 @@ def watched(
         options=simulation.settings.execution_options() if options is None else options,
     )
     try:
-        driver = as_driver(backend)
+        reference = as_reference(backend)
     except TypeError:
         backend.close()
         raise
-    driver.set_initial(with_copy(problem.initial.field0, simulation.grid.n_t), None)
+    load_reference(reference, with_copy(problem.initial.field0, simulation.grid.n_t))
     monitor = simulation._boundary_monitor()
     assert monitor is not None
-    driver.attach_monitor(monitor)
+    if monitor.split:
+        # The split collar's crossing limit, which a reading's occupancy needs.
+        monitor.crossing = problem.split_crossing
+    reference.workspace.bind_monitor(monitor)
     return backend
 
 
 def reading(backend: Backend) -> BoundaryEnergies:
     """Return the reference backend's reading of its current state.
 
+    The workspace's reading of the committed state, with nothing taken by a split since
+    the load, as a session's first reading after attaching its monitor.
+
     Raises
     ------
     TypeError
-        For a backend other than the reference (:func:`as_driver`).
+        For a backend other than the reference (:func:`as_reference`).
     """
-    driver = as_driver(backend)
-    return driver._boundary_energies(driver._require_state())
+    reading = as_reference(backend).workspace.reading()
+    return BoundaryEnergies(
+        total=reading.total,
+        regions=reading.regions,
+        removed=0.0,
+        found=None,
+        occupancy=reading.occupancy,
+    )
 
 
 def record_after_march(
@@ -183,9 +244,16 @@ def record_after_march(
     name: str,
     problem: PropagationProblem | None = None,
     run_request: RunRequest | None = None,
+    *,
+    interval: float | None = None,
 ) -> dict[str, Any]:
     """Return a backend's monitor record after the probe's fixed steps, with the split
     collar's crossing cap the last check read (``step_cap``).
+
+    `interval`, when given, replaces the monitor's longest unchecked distance
+    (:attr:`solprop.monitor.BoundaryMonitor.interval`, the guide's length over
+    :data:`solprop.monitor.CHECKS`, which every probe's step exceeds): ``math.inf``
+    leaves a quiet window to the cadence alone.
 
     The edge-reaching launch runs through the backend's own session, watched by the
     simulation's boundary monitor. The reference's session updates that monitor, whose
@@ -194,9 +262,11 @@ def record_after_march(
     crossing cap (``monitor_cap``) itself.
     """
     problem = simulation.translate() if problem is None else problem
-    run_request = simulation._run_request() if run_request is None else run_request
+    run_request = simulation.run_request() if run_request is None else run_request
     monitor = simulation._boundary_monitor()
     assert monitor is not None
+    if interval is not None:
+        monitor.interval = interval
     request = run_request.for_run(monitor=monitor)
     backend = select(
         name,
@@ -221,7 +291,7 @@ def record_after_march(
                 raise terminal.error
         record = session.monitor_record()
         assert record is not None
-        if isinstance(backend, HostDriver):
+        if isinstance(backend, NumpyRefBackend):
             cap = float(monitor.step_cap)
         else:
             cap = float(cast("Any", session).monitor_cap())

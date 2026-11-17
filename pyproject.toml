@@ -83,14 +83,15 @@ dev = [
     "psutil>=7.1.0",
     # The native gate (native/scripts/check.sh). The C++ formatter and clang-tidy are
     # pinned so the check does not depend on the machine's LLVM (Ubuntu's 18 and
-    # Homebrew's 23 format native/src/general.cpp differently, and each LLVM release
+    # Homebrew's 23 format the native sources differently, and each LLVM release
     # adds checks); clang-tidy's PyPI wheels start at 23.1.3, the nearest to the
     # formatter's 23.1.0, and exist for Linux and macOS (the gate is bash) but not
     # Windows on Arm, where a sync would build LLVM. The build tools let it build the
-    # editable package and the distribution wheel without isolation.
+    # editable package and the distribution wheel without isolation; nanobind is the
+    # release the native build-system pins.
     "clang-format==23.1.0",
     "clang-tidy==23.1.4; sys_platform == 'linux' or sys_platform == 'darwin'",
-    "nanobind>=2.9",
+    "nanobind==3.1.0",
     "scikit-build-core>=0.11",
     "setuptools-scm>=9",
     "scipy-openblas32>=0.3.34; sys_platform == 'linux' or sys_platform == 'win32'",
@@ -280,7 +281,8 @@ filterwarnings = [
     "ignore:the safety ramp has removed .* above the input noise's share.*refine:Warning",
     "ignore:the launch holds .* of the requested size on its .* the aperture clips it:Warning",
 ]
-# (The boundary monitor's warnings are ignored by tests/conftest.py, as a mark: a
+# (The boundary monitor's warnings stay errors here: a module that ignores them opts
+# out with a `filterwarnings` mark and its reason, docs/dev/testing.md section 3. A
 # filter here naming solprop's class would import solprop before coverage starts.)
 markers = [
     # The three tiers of docs/dev/testing.md section 2, one marker each; a test carries
@@ -352,7 +354,7 @@ changelog-preview = "python -m tools.release_notes preview"
 changelog-collect = "python -m tools.release_notes collect"
 size       = "python -m tools.size_report"           # where the lines go, per package
 size-check = "python -m tools.size_report --check"   # the ratchets of tools/size_budget.toml
-test-medium = "pytest -m medium --durations=0"   # the tier timed against its 60 s budget
+test-medium = "pytest -m medium --durations=0"   # each test timed against its 30 s budget
 docs       = "sphinx-build -b html -W -n --keep-going docs docs/_build/html"
 # Python rather than `rm -rf`, so the task also runs on Windows.
 docs-clean = "python -c \"import shutil; [shutil.rmtree(p, ignore_errors=True) for p in ('docs/_build', 'docs/introduction/lessons', 'docs/auto_tutorials', 'docs/api/generated')]\""
@@ -367,8 +369,7 @@ help = "Plan the tracking run; pass track, ab, history or list options (SEP 38).
 # Every thread pool stays at one thread per worker so eighteen workers do not fight over
 # the same cores: SOLPROP_THREADS=1 is each worker's thread budget (ADR-052), which the
 # native backend sizes every pool within; SOLPROP_NATIVE_THREADS is its own cap
-# (OMP_NUM_THREADS does not set it). The statistics-cost check runs alone and keeps the
-# full budget.
+# (OMP_NUM_THREADS does not set it).
 [tool.poe.tasks.test-windows-arm]
 cmd = "pytest -n auto --dist loadgroup"
 env = { PYTHONUTF8 = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1" }
@@ -380,20 +381,26 @@ env = { PYTHONUTF8 = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1", V
 help = "Default lane (fast and medium tiers) under xdist; plain `pytest` runs it serially."
 
 [tool.poe.tasks.test-slow]
-sequence = ["test-slow-functional", "test-statistics-cost"]
-env = { PYTHONUTF8 = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
-help = "Slow lane, followed by the statistics cost check without competing test workers."
-
-[tool.poe.tasks.test-slow-functional]
 # `--durations=0` times every test: it is the data the tiers are maintained from.
-cmd = "pytest -m slow -k 'not test_the_statistics_channel_costs_under_a_quarter_of_a_step' --durations=0 -n auto --dist loadgroup"
+cmd = "pytest -m slow --durations=0 -n auto --dist loadgroup"
 env = { PYTHONUTF8 = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
-help = "Functional slow tests: the milestones, ladders and CtC-size build."
+help = "Slow lane: the milestones, ladders and CtC-size build."
 
-[tool.poe.tasks.test-statistics-cost]
-cmd = "pytest -m slow tests/driver/test_prop_capillary.py::test_the_statistics_channel_costs_under_a_quarter_of_a_step"
-env = { PYTHONUTF8 = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
-help = "Measure periodic statistics on ten steps, after the parallel slow tests finish."
+# The GPU lane, on any machine with a CUDA or HIP build of solprop-native installed and a
+# device it sees (testing.md section 2). `-m gpu` replaces addopts' marker expression on
+# purpose, as `test-slow` does with `-m slow`: `gpu` is a lane marker, which a test
+# carries instead of a tier (tests/test_tiers.py), so `-m gpu` is exactly the lane and
+# selects no slow or benchmark test. The first step fails on a CPU build, where every
+# device test would otherwise skip and the lane pass vacuously; the last runs the native
+# package's own gpu-marked tests from its directory, under its own pytest configuration.
+[tool.poe.tasks.test-gpu]
+sequence = [
+    { cmd = "python -c \"import solprop_native as n; i = n.build_info(); print('solprop-native', i.package_version, i.device_backend, i.device_arch, i.device_count, 'device(s)'); raise SystemExit(0 if i.device_backend in ('cuda', 'hip') and i.device_count > 0 else 'poe test-gpu needs a CUDA or HIP build of solprop-native that sees a device')\"" },
+    { cmd = "pytest -m gpu -rs tests" },
+    { cmd = "pytest -m gpu -rs", cwd = "native" },
+]
+env = { PYTHONUTF8 = "1", SOLPROP_TEST_BACKEND = "native" }
+help = "GPU lane: the gpu-marked tests of solprop and solprop-native against an installed CUDA or HIP build, on a device."
 
 # The CPU coverage lane measures coverage-cpu.ini's source, which is the whole package.
 # It runs under xdist with one thread per worker, as `poe test` does, and pytest-cov
@@ -463,10 +470,10 @@ help = "The definition-of-done gate, in order."
 cmd = "bash native/scripts/check.sh"
 help = "The native package's gate (C++ and its Python adapter)."
 
-# The pinned clang-format over every tracked C++ file under native/ (the lint stage of
-# check-native checks the same list).
+# The pinned clang-format over every tracked C++ file under native/, the fragments a unit
+# includes (.inc) among them (the lint stage of check-native checks the same list).
 [tool.poe.tasks.fmt-native]
-shell = "git ls-files -z -- 'native/*.cpp' 'native/*.hpp' 'native/*.h' | xargs -0 clang-format -i"
+shell = "git ls-files -z -- 'native/*.cpp' 'native/*.hpp' 'native/*.h' 'native/*.inc' | xargs -0 clang-format -i"
 interpreter = "bash"
 help = "Format every tracked native C++ file with the pinned clang-format."
 

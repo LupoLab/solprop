@@ -173,7 +173,7 @@ def test_the_rate_bounds_bound_the_operator_it_forms(evanescent_rate):
     operator = separable(evanescent_rate=evanescent_rate)
     rate, _ = separable_values(operator)
     bounds = rate_bounds(operator)
-    real = np.real(rate[0, :, 0, :])
+    real = np.real(rate[:, 0, :])
     assert bounds.loss >= float(np.max(-real))
     assert bounds.gain >= float(np.max(real))
     assert bounds.gain > 0  # the second bin's medium has gain

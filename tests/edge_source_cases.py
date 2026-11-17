@@ -18,8 +18,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from solprop.backends.numpy_ref import passes
-from solprop.backends.numpy_ref.tdse import (
+from solprop.backends.numpy_ref.passes.transforms import project
+from solprop.backends.tdse_source import (
     FFT_ERROR_CONSTANT,
     _current_operands,
     _current_part,
@@ -38,8 +38,9 @@ from solprop.nonlinear.tdse import (
 )
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import power_weight_at
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.responses import prefactor_at
 from solprop.translate.routes import TDSESource, tdse_descriptor, tdse_of
 from solprop.translate.stage import StageScalars, scalars
@@ -111,9 +112,7 @@ class EdgeCase:
         """
         problem, bundle = self.problem, self.bundle
         ones = np.ones((problem.transform.n_nodes, 1, 1))
-        weight = passes.project(
-            ones, problem.transform.projection, bundle.taper_scale, 1
-        )
+        weight = project(ones, problem.transform.projection, bundle.taper_scale, 1)
         scale = bundle.density * self.descriptor.remainder_scale
         source = tdse_of(problem.route)
         assert source is not None
@@ -134,6 +133,7 @@ def make_case(
     fft_size: str = "pow2",
     n_r: int = 4,
     kerr_model: str = "tdse_native",
+    responses: tuple = (),
 ) -> EdgeCase:
     """Assemble a capillary problem and attach a manufactured SAE descriptor.
 
@@ -154,6 +154,9 @@ def make_case(
     kerr_model : str
         ``tdse_native`` for the gated source, or a cubic replacement, whose source
         is ungated.
+    responses : tuple
+        Optical responses compiled beside the atom: a Kerr term for a cubic
+        replacement's polarisation; none by default.
 
     Returns
     -------
@@ -162,11 +165,11 @@ def make_case(
     """
     parent = FieldGrid.from_limits(0.001, 800e-9, limits, trange, fft_size=fft_size)
     grid = refine_response_grid(parent, TDSESampling(refinement))
-    mode = MarcatiliMode(125e-6, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, cladding=1.45, loss_scale=0.0)
     problem = assemble(
         grid,
         mode,
-        (),
+        responses,
         np.zeros((1, 1, grid.n_omega), dtype=np.complex128),
         controller=PIController(rtol=1e-2, atol=1e-14),
         save_planes=[0.001],

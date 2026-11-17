@@ -6,10 +6,10 @@
 
 The host column runs whole-row passes: each running integral is a band filter and a
 chunked scan, a team may split a row between its threads, and each pass is limited to
-its row's live window (``include/solprop_native/plasma.hpp``). These cases aim at what
-that can get wrong: a preionised field whose rate is identically zero (the current
-lives with no exposure), a field just above threshold (a tiny exposure from a few
-cycle peaks), pulses cut by either end of the window (the point reflections and the
+its row's live window (``include/solprop_native/response/plasma.hpp``). These cases aim
+at what that can get wrong: a preionised field whose rate is identically zero (the
+current lives with no exposure), a field just above threshold (a tiny exposure from a
+few cycle peaks), pulses cut by either end of the window (the point reflections and the
 windows reaching an end), a mixture there (several channels), and a two-component
 field on the radial route. Each is compared at one evaluation, one fixed step and ten,
 under a fixed-order method, with :mod:`test_band_plasma`'s bounds, decided before these
@@ -47,7 +47,8 @@ from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController, RungeKutta
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend
@@ -68,6 +69,7 @@ from test_band_plasma import (
     evaluation_bound,
     march_bound,
 )
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 
 type ComplexArray = npt.NDArray[np.complex128]
 
@@ -149,7 +151,7 @@ def capillary(
     grid = simulation.grid
     assert isinstance(grid, FieldGrid)
     statistics = StatsSpec(names=STATISTICS)
-    return grid, problem, simulation._run_request().for_run(stats=statistics)  # pyright: ignore[reportPrivateUsage]
+    return grid, problem, simulation.run_request().for_run(stats=statistics)
 
 
 def vector(steps: int) -> tuple[FieldGrid, PropagationProblem, RunRequest]:
@@ -196,10 +198,15 @@ def node_fields(
     """Return the reference's node fields at the launch plane, (nodes, n_pol, n_to)."""
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
+        state = reference.workspace.committed()  # pyright: ignore[reportPrivateUsage]
         return np.concatenate(
-            list(reference._plasma_nodes(state[0]))  # pyright: ignore[reportPrivateUsage]
+            list(reference.workspace.statistics.node_fields(state, 0.0))
         )
     finally:
         reference.close()
@@ -270,21 +277,26 @@ def test_one_evaluation_matches_the_reference(kind: str) -> None:
     assert_is_stressing(kind, problem, run_request, grid)
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
-        expected = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
-            reference._require_state(),  # pyright: ignore[reportPrivateUsage]
-            reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-            np.ones((1, *problem.shape), complex),
-        )[0]
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
+        reference.workspace.hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
+        expected = reference.workspace.nonlinear(  # pyright: ignore[reportPrivateUsage]
+            reference.workspace.committed(),  # pyright: ignore[reportPrivateUsage]
+            reference.workspace.stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
+            np.ones(problem.shape, complex),
+        )
     finally:
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         # A zero-length trial exposes the first stage, N(E, z = 0).
         native_trial(backend, 0.0, 0.0)
-        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
+        actual = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
     finally:
         backend.close()
     scale = float(np.max(np.abs(expected)))
@@ -325,14 +337,17 @@ def test_the_launch_exposure_is_within_its_scan_bound(kind: str) -> None:
     dt = grid.dt_fine
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
-        state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
-        bundle = reference._stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
+        reference.workspace.hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
+        state = reference.workspace.committed()  # pyright: ignore[reportPrivateUsage]
+        bundle = reference.workspace.stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         fields = np.real(
-            np.concatenate(
-                list(reference._plasma_nodes(state[0]))  # pyright: ignore[reportPrivateUsage]
-            )
+            np.concatenate(list(reference.workspace.statistics.node_fields(state, 0.0)))
         )
         field_error = node_field_error(reference, problem, fields)
     finally:

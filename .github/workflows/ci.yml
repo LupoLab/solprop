@@ -55,6 +55,13 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           lanes=full
+          # A pull request's checkout is GitHub's merge of its head into the base branch's
+          # current tip, its first parent. The event's base.sha can be older than that tip
+          # (it does not follow later pushes to main), and a diff against it would count
+          # whatever main merged since as the pull request's own change.
+          if [ "$EVENT" = pull_request ] && git rev-parse -q --verify HEAD^2 > /dev/null; then
+            BASE=$(git rev-parse HEAD^1)
+          fi
           if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             git diff --name-only "$BASE" HEAD > changed.txt
             cat changed.txt
@@ -79,8 +86,10 @@ jobs:
           fi
           echo "lanes=$lanes" | tee -a "$GITHUB_OUTPUT"
           # Whether a device build could have changed; without a diff to read, it could.
+          # The second grep reads the whole pipe: grep -q stops at its first match, the
+          # first grep then dies of SIGPIPE, and under pipefail that reads as no match.
           device=true
-          if [ -f changed.txt ] && ! grep -vE '\.md$' changed.txt | grep -qE '^native/|^\.github/workflows/ci\.yml$'; then
+          if [ -f changed.txt ] && ! grep -vE '\.md$' changed.txt | grep -E '^native/|^\.github/workflows/ci\.yml$' > /dev/null; then
             device=false
           fi
           echo "device=$device" | tee -a "$GITHUB_OUTPUT"
@@ -303,8 +312,35 @@ jobs:
           path: junit.xml
           retention-days: 14
 
-  # The slow lane on Linux with the native wheel, and the statistics channel's cost
-  # budget, a timing measurement that runs alone on the runner.
+  # The tiers' budgets (docs/dev/testing.md section 2) against the test lane's JUnit
+  # reports, one platform's shards at a time (tests/tier_budget.py), written to the run's
+  # summary. The rule is judged on macos-arm64; the Windows reports are for comparison.
+  # Report-only: the budgets are exceeded today, so the script runs without --enforce
+  # and ci-passed does not need the job.
+  tier-budget:
+    needs: [changes, test]
+    if: ${{ !cancelled() && needs.changes.outputs.lanes == 'full' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: junit-*
+          path: reports
+      - run: uv python install 3.14
+      - name: Report the tiers against their budgets
+        shell: bash
+        run: |
+          for platform in macos-arm64 windows-amd64 windows-arm64; do
+            files=(reports/junit-"$platform"-*/junit.xml)
+            [ -e "${files[0]}" ] || continue
+            uv run --no-project --python 3.14 python -I tests/tier_budget.py \
+              --title "$platform" "${files[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+
+  # The slow lane on Linux with the native wheel.
   slow:
     needs: [changes, native-wheel]
     if: needs.changes.outputs.lanes == 'full'
@@ -334,8 +370,7 @@ jobs:
       - run: uv pip install --no-deps wheelhouse/*.whl
       - run: uv run --no-sync poe test-slow
 
-  # The slow lane's functional tests on macOS, with the native wheel installed; macOS's
-  # three shared cores make the statistics-cost timing noise.
+  # The slow lane on macOS, with the native wheel installed.
   slow-macos:
     needs: [changes, native-wheel]
     if: needs.changes.outputs.lanes == 'full'
@@ -358,7 +393,7 @@ jobs:
       - run: uv python install 3.14
       - run: uv sync --locked --no-install-package solprop-native
       - run: uv pip install --no-deps wheelhouse/*.whl
-      - run: uv run --no-sync poe test-slow-functional
+      - run: uv run --no-sync poe test-slow
 
   # The coverage lane (`poe cov`) as parallel jobs, on Linux with the native wheel
   # installed and the driver tests on it (solprop's native paths are part of the 100 %):
@@ -402,6 +437,7 @@ jobs:
       # which kills the job with its log.
       - name: Add swap
         run: |
+          df -h /
           sudo fallocate -l 4G /swap.extra
           sudo chmod 600 /swap.extra
           sudo mkswap /swap.extra
@@ -575,9 +611,16 @@ jobs:
   device-compile-cuda:
     needs: changes
     if: needs.changes.outputs.lanes == 'full' && needs.changes.outputs.device == 'true'
-    name: device-compile (CUDA 12.8)
+    name: device-compile (CUDA 12.8, ${{ matrix.arch }})
     runs-on: ubuntu-24.04
     timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        # HOPPER90 is the preset's production target. AMPERE86 (the NVIDIA A40)
+        # compiles kernels that HOPPER90 does not, such as the device GEMM behind
+        # #815, which only that build's objects can show.
+        arch: [HOPPER90, AMPERE86]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -608,6 +651,7 @@ jobs:
           cmake --preset cuda \
             -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 -DCMAKE_CUDA_HOST_COMPILER=g++-14 \
             -DCUDA_ROOT=/usr/local/cuda-12.8 \
+            -DSOLPROP_NATIVE_CUDA_ARCH=${{ matrix.arch }} \
             -DPython_EXECUTABLE="$GITHUB_WORKSPACE/.venv/bin/python"
       - name: Compile, tests included
         working-directory: native
@@ -617,6 +661,11 @@ jobs:
           export PATH="/usr/local/cuda-12.8/bin:$PATH"
           cmake --build --preset cuda --parallel 4
           df -h /
+      - name: No device lambda in two of the extension's files (#815)
+        working-directory: native/build/presets/cuda
+        run: |
+          python3 ../../../ci/check_lambda_tags.py \
+            $(find CMakeFiles/solprop_native_core.dir CMakeFiles/_core.dir -name '*.o')
 
   device-compile-hip:
     needs: changes

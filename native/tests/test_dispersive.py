@@ -4,13 +4,12 @@
 
 """The adapter of solprop SEP 6's dispersive response.
 
-The native response executes the layout the adapter packs (``_dispersive_payload``):
+The native response executes the layout the adapter packs (``_lower_dispersive``):
 these tests hold the layout to
 the leaf (the general modal route's regions among it), the field family to the sector
-and one evaluation to solprop's reference. The full parity ladders are solprop's
-``tests/backends/test_native_dispersive_kerr.py`` (the fused node path) and
-``test_native_dispersive_routes.py`` (the Cartesian, line, planar and general modal
-routes).
+and one evaluation to solprop's reference. The full parity ladder is solprop's
+case catalogue (``tests/capability_routes.py``, the dispersive rows: the fused node
+path and the Cartesian, line, planar and general modal routes).
 """
 
 from __future__ import annotations
@@ -36,16 +35,27 @@ from solprop.physdata.nonlinear_data import OptmatKerr
 from solprop.profiles import Constant
 from solprop.pulses import GaussianPulse
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import profile_table
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.responses import dispersive_terms
 from solprop.translate.run_request import RunRequest
 
-from solprop_native import NativeBackend
-from solprop_native.backend import (
-    _dispersive_payload,  # pyright: ignore[reportPrivateUsage]
-    _native_problem,  # pyright: ignore[reportPrivateUsage]
+from solprop_native import NativeBackend, _core
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
+from solprop_native._lowering import (
+    _lower,  # pyright: ignore[reportPrivateUsage]
+    _lower_dispersive,  # pyright: ignore[reportPrivateUsage]
+    _LowerPlan,  # pyright: ignore[reportPrivateUsage]
 )
+
+
+def _dispersive_payload(problem: PropagationProblem) -> _core.Problem.Dispersive:
+    """The native problem's dispersive group as the adapter fills it."""
+    native = _core.Problem()
+    _lower_dispersive(native, problem)
+    return native.dispersive
+
 
 EPS = float(np.finfo(float).eps)
 LENGTH = 2e-3
@@ -78,7 +88,7 @@ def capillary(
             thg=thg,
             noise=None,
         )
-        return simulation.translate(), simulation._run_request()  # pyright: ignore[reportPrivateUsage]
+        return simulation.translate(), simulation.run_request()
 
 
 def averaged(
@@ -89,7 +99,7 @@ def averaged(
     pulse = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=2e-6).build(grid)
     problem, run_request = assemble(
         grid,
-        MarcatiliMode(75e-6, cladding=1.45, loss=False),
+        MarcatiliMode(75e-6, cladding=1.45, loss_scale=0.0),
         [
             DispersiveKerrResponse(
                 OptmatKerr("Ar").dispersive_model(), evaluator, thg=thg
@@ -120,25 +130,28 @@ def test_a_symmetric_mixture_is_one_product_under_its_filter() -> None:
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None
     assert leaf.n_channels == 2
-    payload = cast(dict[str, Any], _dispersive_payload(problem))
+    payload = _dispersive_payload(problem)
     bins = leaf.positive.size
-    assert payload["dispersive_symmetric"] is True
-    assert payload["dispersive_form"] == 1
-    assert payload["dispersive_inputs"].shape == (1, bins)
+    assert payload.symmetric is True
+    assert payload.form == 1
+    assert payload.inputs.shape == (bins,)
     # Copies, indices, masks and power-of-two scalings of a mask are exact; the
     # quartics are three products of the filters', within gamma(3) each way.
-    np.testing.assert_array_equal(payload["dispersive_inputs"][0], leaf.filters[0])
-    np.testing.assert_array_equal(payload["dispersive_term_rows"], [0])
-    np.testing.assert_array_equal(payload["dispersive_term_channels"], [3])
-    np.testing.assert_array_equal(payload["dispersive_group_offsets"], [0, 2])
-    np.testing.assert_array_equal(payload["dispersive_group_members"], [0, 1])
+    np.testing.assert_array_equal(payload.inputs, leaf.filters[0])
+    np.testing.assert_array_equal(payload.term_rows, [0])
+    np.testing.assert_array_equal(payload.term_channels, [3])
+    np.testing.assert_array_equal(payload.group_offsets, [0, 2])
+    np.testing.assert_array_equal(payload.group_members, [0, 1])
     squares = leaf.filters * leaf.filters
     np.testing.assert_allclose(
-        payload["dispersive_quartics"], squares * squares, rtol=2 * gamma(3), atol=0.0
+        payload.quartics.reshape(squares.shape),
+        squares * squares,
+        rtol=2 * gamma(3),
+        atol=0.0,
     )
     positive = leaf.positive.astype(float)
-    np.testing.assert_array_equal(payload["dispersive_output_scale"], positive / 4.0)
-    np.testing.assert_array_equal(payload["dispersive_input_scale"], np.ones(bins))
+    np.testing.assert_array_equal(payload.output_scale, positive / 4.0)
+    np.testing.assert_array_equal(payload.input_scale, np.ones(bins))
 
 
 def test_the_polynomial_groups_species_of_one_leg_bound() -> None:
@@ -154,34 +167,34 @@ def test_the_polynomial_groups_species_of_one_leg_bound() -> None:
     assert leaf is not None
     assert leaf.groups() == ((0, 1),)
     assert leaf.outputs is not None
-    payload = cast(dict[str, Any], _dispersive_payload(problem))
+    payload = _dispersive_payload(problem)
     positive = leaf.positive.astype(float)
     # The field grid's conserving sector: the analytic family, Pi_+ / 8 on the output.
-    assert payload["dispersive_form"] == 1
+    assert payload.form == 1
     # The masks, indices and power-of-two scalings are exact; a product of filters
     # or of a multiplier and the mask is within gamma(2) each way.
-    np.testing.assert_array_equal(payload["dispersive_input_scale"], positive)
+    np.testing.assert_array_equal(payload.input_scale, positive)
     np.testing.assert_allclose(
-        payload["dispersive_inputs"],
+        payload.inputs.reshape(2, -1),
         np.stack([leaf.filters[0], leaf.filters[0] * leaf.filters[0]]) * leaf.positive,
         rtol=2 * gamma(2),
         atol=0.0,
     )
-    np.testing.assert_array_equal(payload["dispersive_term_rows"], [0, 1, 0, 1, 2])
-    np.testing.assert_array_equal(payload["dispersive_term_channels"], [0, 0, 1, 1, 2])
+    np.testing.assert_array_equal(payload.term_rows, [0, 1, 0, 1, 2])
+    np.testing.assert_array_equal(payload.term_channels, [0, 0, 1, 1, 2])
     np.testing.assert_allclose(
-        payload["dispersive_term_multipliers"][2],
+        payload.term_multipliers.reshape(-1, positive.size)[2],
         leaf.outputs[1, 0] * positive / 8.0,
         rtol=2 * gamma(2),
         atol=0.0,
     )
     np.testing.assert_array_equal(
-        payload["dispersive_term_multipliers"][4], positive / 8.0
+        payload.term_multipliers.reshape(-1, positive.size)[4], positive / 8.0
     )
     np.testing.assert_array_equal(
-        payload["dispersive_pair_constants"], np.asarray(leaf.products)
+        payload.pair_constants.reshape(-1, 2), np.asarray(leaf.products)
     )
-    assert payload["dispersive_quartics"].size == 0
+    assert payload.quartics.size == 0
 
 
 @pytest.mark.parametrize(
@@ -200,17 +213,19 @@ def test_the_sector_chooses_the_field_family(
     problem, run_request = capillary("gas-polynomial", envelope=envelope, thg=thg)
     backend = NativeBackend(problem, run_request)
     try:
-        payload = _native_problem(problem, run_request, backend._terms)  # pyright: ignore[reportPrivateUsage]
+        payload = _lower(problem, run_request, _LowerPlan(terms=backend._terms))  # pyright: ignore[reportPrivateUsage]
     finally:
         backend.close()
-    assert payload["family"] == family
-    assert payload["dispersive_form"] == form
-    assert payload["nonlinear"] is False
+    assert payload.dims.family == getattr(_core.FieldFamily, family)
+    assert payload.dispersive.form == form
+    assert payload.kerr.nonlinear is False
 
 
 def test_a_problem_without_the_leaf_packs_nothing() -> None:
     problem, _ = capillary("carrier-kerr", envelope=False, thg=True)
-    assert _dispersive_payload(problem) == {"dispersive": False}
+    payload = _dispersive_payload(problem)
+    assert payload.enabled is False
+    assert payload.inputs.size == 0
 
 
 def general_leaf(evaluator: str) -> tuple[Any, FieldGrid]:
@@ -247,23 +262,19 @@ def test_the_general_route_lays_out_its_regions(evaluator: str) -> None:
         ),
         grid_kind="field",
     )
-    payload = cast(
-        dict[str, Any], _dispersive_payload(cast(PropagationProblem, problem))
-    )
-    np.testing.assert_array_equal(payload["dispersive_node_region"], region_index)
-    assert payload["dispersive_form"] == 1
+    payload = _dispersive_payload(cast(PropagationProblem, problem))
+    np.testing.assert_array_equal(payload.node_region, region_index)
+    assert payload.form == 1
     if evaluator == "symmetric":
         assert leaf.groups() == ((0,), (1, 2))
-        np.testing.assert_array_equal(payload["dispersive_group_keys"], [3, 5])
-        np.testing.assert_array_equal(payload["dispersive_term_rows"], [0, 1])
-        np.testing.assert_array_equal(payload["dispersive_term_channels"], [0, 4])
+        np.testing.assert_array_equal(payload.group_keys, [3, 5])
+        np.testing.assert_array_equal(payload.term_rows, [0, 1])
+        np.testing.assert_array_equal(payload.term_channels, [0, 4])
         return
     assert leaf.groups() == ((0,), (1,), (2,))
-    np.testing.assert_array_equal(payload["dispersive_group_keys"], [3, 5, 5])
+    np.testing.assert_array_equal(payload.group_keys, [3, 5, 5])
     # Two cubes, by region in the order the groups name them; then each group's pair.
-    np.testing.assert_array_equal(
-        payload["dispersive_term_rows"], [0, 2, 3, 1, 4, 5, 1, 6, 7]
-    )
+    np.testing.assert_array_equal(payload.term_rows, [0, 2, 3, 1, 4, 5, 1, 6, 7])
 
 
 def test_a_trial_without_the_densities_is_refused() -> None:
@@ -271,13 +282,14 @@ def test_a_trial_without_the_densities_is_refused() -> None:
     problem, run_request, grid = averaged("symmetric", thg=True)
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        load_native(backend, problem.initial.field0, clear_fsal=False)
+        load_native(backend, problem.initial.field0)
         stages = run_request.stepper.tableau.n_stages
         terms = backend._terms.phi  # pyright: ignore[reportPrivateUsage]
         assert terms is not None
         n_phi = terms.shape[0]
         with pytest.raises(ValueError, match="dispersive densities"):
-            backend._native_state.trial_step(  # pyright: ignore[reportPrivateUsage]
+            _testing.trial_step(
+                backend._workspace,  # pyright: ignore[reportPrivateUsage]
                 1e-4,
                 np.zeros((stages + 1) * n_phi),
                 np.zeros(stages * n_phi),
@@ -309,13 +321,18 @@ def test_one_evaluation_matches_the_reference(evaluator: str, thg: bool) -> None
         backend = backend_class(problem, run_request, grid=grid)
         try:
             if isinstance(backend, NativeBackend):
-                state = load_native(backend, problem.initial.field0, clear_fsal=False)
+                state = load_native(backend, problem.initial.field0)
                 native_trial(backend, 0.0, 0.0)
-                spectra.append(state.projected_to_host(False))
+                spectra.append(_testing.projected_to_host(state, False))
             else:
-                backend.set_initial(problem.initial.field0, None)
-                backend._adams_lab_source(problem.initial.field0[None], 0.0)  # pyright: ignore[reportPrivateUsage]
-                projected = np.asarray(backend._last_projected)  # pyright: ignore[reportPrivateUsage]
+                backend.workspace.load(
+                    np.ascontiguousarray(problem.initial.field0, dtype=complex),
+                    None,
+                    z=0.0,
+                    resume=False,
+                )
+                backend.workspace.lab_source(problem.initial.field0, 0.0)
+                projected = np.asarray(backend.workspace.stage_source._last_projected)  # pyright: ignore[reportPrivateUsage]
                 spectra.append(np.asarray(np.fft.rfft(projected, axis=-1)))
         finally:
             backend.close()

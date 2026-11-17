@@ -40,7 +40,7 @@ from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.grid import EnvelopeGrid, LineGrid
 from solprop.linear import Frame
 from solprop.monitor import BoundaryCheck
-from solprop.output.schema import PlaneStore
+from solprop.output.store import PlaneStore
 from solprop.pulses import GaussianPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
@@ -237,7 +237,7 @@ def committed(output: PlaneStore) -> np.ndarray:
 
 
 # ------------------------------------------------------------- the re-review's packet
-@pytest.mark.medium
+@pytest.mark.slow
 def test_the_rereview_packet_reads_as_part_ii_tabulates() -> None:
     # Part II's witness: the edge share at z = 0, L/2 and L, and the field error at L
     # against a bare line eight times wider at the same spacing. +-5 %: the same linear
@@ -335,7 +335,7 @@ def test_a_fixed_schedule_reading_on_the_wrap_stops() -> None:
             27,
             0.098,
             [0.796, 0.885, 0.984, 1.0],
-            marks=pytest.mark.medium,
+            marks=pytest.mark.slow,
         ),
     ],
     ids=["ms", "rk"],
@@ -363,11 +363,8 @@ def test_the_scaled_miss_steps_as_part_ii_tabulates(
         assert reads > STOP
 
 
-@pytest.mark.parametrize(
-    "integrator",
-    [Multistep(), pytest.param(RungeKutta(), marks=pytest.mark.medium)],
-    ids=["ms", "rk"],
-)
+@pytest.mark.medium
+@pytest.mark.parametrize("integrator", [Multistep(), RungeKutta()], ids=["ms", "rk"])
 def test_the_scaled_miss_is_stopped_under_the_ceiling(
     integrator: Multistep | RungeKutta,
 ) -> None:
@@ -379,6 +376,7 @@ def test_the_scaled_miss_is_stopped_under_the_ceiling(
     assert z - packet.length / 16 * (1 + 1e-9) < true_stop(packet) <= z
 
 
+@pytest.mark.medium
 def test_the_scaled_miss_is_read_far_above_the_stop() -> None:
     # With the edge's budget relaxed the run completes, and the record shows what
     # the ceiling's reads saw: sixteen of them, at most L/16 apart (the relaxed budget
@@ -399,19 +397,6 @@ def test_the_scaled_miss_is_read_far_above_the_stop() -> None:
     assert max(record["edge_max"]) > 1e3 * STOP
 
 
-def _driver_class(backend: str) -> type:
-    """Return the class of `backend`'s step driver, which holds its edge reading."""
-    if backend == "native":
-        from solprop_native.backend import (  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
-            NativeBackend,
-        )
-
-        return NativeBackend
-    from solprop.backends.host.driver import HostDriver  # noqa: PLC0415
-
-    return HostDriver
-
-
 @pytest.mark.parametrize(
     ("backend", "route"),
     [("numpy_ref", "host"), ("native", "session")],
@@ -423,7 +408,7 @@ def test_a_plane_the_step_already_read_reduces_nothing_more(
     # Every step of this schedule is longer than the spacing, so each reads the edge,
     # and a plane landing on one has nothing to add. Its read used to cross the state,
     # synthesise it and only then find the gap zero: on a device, a whole state's copy
-    # for nothing. The reference reads through its driver's `_edge_reading`; the
+    # for nothing. The reference reads through its workspace's `edge_reading`; the
     # native session reads its edge resident (`Session::edge_plane` skips the plane),
     # with no reading through Python.
     _require(backend)
@@ -431,14 +416,23 @@ def test_a_plane_the_step_already_read_reduces_nothing_more(
     length = packet.length
     planes = [length / 4, length / 2, length]
     calls = {"readings": 0}
-    driver = cast("type[Any]", _driver_class(backend))
-    edge_reading = driver._edge_reading
+    if route == "session":
+        from solprop_native.backend import (  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
+            NativeBackend,
+        )
 
-    def counting(self: Any, *args: Any, **keywords: Any) -> _EdgeReading:
-        calls["readings"] += 1
-        return edge_reading(self, *args, **keywords)
+        # The native backend holds no edge reading in Python to go through.
+        assert not hasattr(NativeBackend, "_edge_reading")
+    else:
+        from solprop.backends.numpy_ref.workspace import NumpyWorkspace  # noqa: PLC0415
 
-    monkeypatch.setattr(driver, "_edge_reading", counting)
+        edge_reading = NumpyWorkspace.edge_reading
+
+        def counting(self: Any, *args: Any, **keywords: Any) -> _EdgeReading:
+            calls["readings"] += 1
+            return edge_reading(self, *args, **keywords)
+
+        monkeypatch.setattr(NumpyWorkspace, "edge_reading", counting)
     schedule = FixedSchedule.uniform(0.0, length, length / 8, save_planes=planes)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)
@@ -488,6 +482,7 @@ def test_a_replay_reads_by_its_next_step_whatever_the_first_proposal(
     assert short["reads"] < 40
 
 
+@pytest.mark.medium
 def test_the_scaled_miss_on_its_own_committed_steps_is_coarse() -> None:
     # Part II's committed positions as a fixed schedule: every read misses the
     # crossing, as unmonitored, but the run reports coarse with its largest gap,

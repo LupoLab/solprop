@@ -28,7 +28,7 @@ pytest.importorskip("solprop_native.session")
 def _native_cap(simulation: Any) -> float:
     """Run the edge-reaching launch through a native session; return its cap."""
     problem = simulation.translate()
-    request = simulation._run_request().for_run(monitor=simulation._boundary_monitor())
+    request = simulation.run_request().for_run(monitor=simulation._boundary_monitor())
     backend = select(
         "native",
         problem,

@@ -76,11 +76,14 @@ percentage point of the first case's step.
 to evaluate, the spectral windows the windowed statistics need, the periodic subset and
 its period. It validates on construction — an unknown name, a repeated name, a window
 that is not ordered, a periodic statistic the run does not record, all raise
-{py:class}`~solprop.exceptions.OutputError` — so a mistake surfaces where the run is set
+{py:class}`~solprop.exceptions.ProcessingError` — so a mistake surfaces where the run is set
 up rather than at the first save plane.
 
 {py:func}`~solprop.stats.default_spec` returns what a run of each kind records unless
-told otherwise; it names no periodic subset, so the channel is off unless asked for.
+told otherwise; it names no periodic subset, so the channel is off unless asked for. The
+`prop_*` interfaces and `Simulation.from_*` start from it and add their route's
+statistics; a `Simulation` built directly records none until given a spec
+([configure before running](../setup/running.md#configure-before-running)).
 
 ```{code-block} python
 import numpy as np
@@ -122,7 +125,7 @@ recorded no subset reads back as an **empty channel** rather than an error, so a
 there is one.
 
 **A row is the plane's own number.** The channel evaluates through the same
-{py:meth}`~solprop.backends.protocol.HostStepping.stats` a save plane uses, on the state the
+statistics a save plane uses, on the state the
 accepted step committed, so a row that lands on a plane is what that plane records, to
 the statistic's rounding. There is one definition of each statistic and no second implementation to drift
 from the first.
@@ -136,7 +139,7 @@ below. What disqualifies one is cost per step, not difficulty: `zdw` is a root s
 mode, which would dominate the step if paid on every accepted one; `peak_intensity` is
 admitted because its on-axis matrix is built once and rescaled with the taper rather than
 rebuilt on every call. A spec naming `zdw` in the periodic subset raises
-{py:class}`~solprop.exceptions.OutputError` when it is built. `zdw` searches the grid's own
+{py:class}`~solprop.exceptions.ProcessingError` when it is built. `zdw` searches the grid's own
 band; a mode with one sign of $\beta_2$ at both ends of the band records `nan` with a
 warning, and the run continues.
 
@@ -294,7 +297,7 @@ Six statistics are functionals of the physical same-frequency flux
 $\sum_{mn}\bar a_m W_{mn} a_n$ — its integral (`physical_energy`), its density in
 frequency (`spectral_flux`), its peak
 (`analytic_flux`), its two widths (`fwhm_t`, `fwhm_t_outer`) and the spectral centroid
-of its per-channel share (`omega0`) — and {py:data}`~solprop.stats.METRIC_WEIGHTED_STATISTICS`
+of its per-channel share (`omega0`) — and {py:data}`~solprop.stats.catalogue.METRIC_WEIGHTED_STATISTICS`
 names them. Each takes `metric=`, the basis's flux metric $W(\omega)$ of shape
 `(n_modes, n_modes, n_omega)`. **`metric=None` is the identity** and is the path an
 ordinary modal or spatial run takes, bit for bit the unweighted statistic.
@@ -321,7 +324,7 @@ column whose density sums to at most one machine epsilon of the largest column's
 basis at all. It is **withheld** beside a coupled flow — a declared basis of a split
 block, whose rotated channels carry only the block's mean propagation constant — and
 asked for by name there it is refused at the driver, the backend and the file
-({py:data}`~solprop.stats.WITHHELD_WITH_A_FLOW`,
+({py:data}`~solprop.stats.catalogue.WITHHELD_WITH_A_FLOW`,
 [general modal propagation](../waveguides/modal-bases.md#a-declared-basis-of-a-block-that-is-only-nearly-degenerate)).
 
 The run's own statistics get $W$ from the backend, which evaluates the
@@ -615,7 +618,6 @@ reference within a rounding bound, and decides every hard edge as the reference 
 The same pass also forms `on_axis_spectrum` (an aperture with
 $W\equiv1$). A solprop-native build from before this pass is refused them by
 name, before it is built.
-Lockstep batch members must carry equal tables.
 
 ```{code-block} python
 import numpy as np
@@ -651,9 +653,15 @@ medium measure is [SEP 34](../../dev/seps/archive/sep-0034-medium-flux.md).
 ## What `collect` guarantees
 
 Each statistic is evaluated by the public function of the same name, so there is exactly
-one definition of each and no path computes anything twice. Reductions run over the contiguous frequency and time axes, and two evaluations of the
+one definition of each and no path computes anything twice: no host definition beside a
+device one, and a backend's fused pass is validated against it. Reductions run over the contiguous frequency and time axes, and two evaluations of the
 same input agree to rounding ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)). Every value is a NumPy array — zero-dimensional for a scalar — and its shape
 is the `shape` field of its {py:class}`~solprop.stats.StatDefinition`.
+
+Spatial statistics are in field units on the geometry's transverse integration measure;
+their host definitions are in {py:mod}`solprop.spatial`, and a backend's periodic
+reductions are qualified against them. Plasma statistics need the compiled response, and
+spatial widths need the geometry declared at assembly.
 
 A dependency that is missing raises {py:class}`~solprop.exceptions.OutputError` naming
 what is wanted: a windowed statistic with no windows, `zdw` with no modes, a profile
@@ -664,7 +672,7 @@ statistic with no profile, and the message lists the profiles that were given.
 ```{code-block} python
 import numpy as np
 from solprop.grid import EnvelopeGrid
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec, collect
 

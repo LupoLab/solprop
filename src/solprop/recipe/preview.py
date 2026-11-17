@@ -4,13 +4,15 @@
 
 """Previews: what a recipe will build, shown before the run (SEP 41, S18).
 
-:func:`modes` gives the mode set a guided route builds, with its effective index,
+:func:`modes` gives a guided route's (:data:`GUIDED`) mode set as a
+:class:`ModeSetPreview` of :class:`ModePreview` rows: each mode's effective index,
 dispersion to third order, loss, effective area and nonlinear coefficient over the
-grid's band, and each mode's phase matching to a soliton at the pump in the launch
-mode; :func:`preview_input` gives the input pulse on the
-run's grid as the launch sets it, without noise, through the same processing functions
-that read a run's file, and on the free-space routes the beam's fluence across the
-launch plane too. Both resolve the recipe's pins first.
+grid's band, and its phase matching to a soliton at the pump in the launch mode.
+:func:`preview_input` gives the input pulse on the run's grid as the launch sets it,
+without noise, as an :class:`InputPreview`, through the same processing functions that
+read a run's file, and on the free-space routes the beam's fluence across the launch
+plane too. Both resolve the recipe's pins first. The manual page is
+``docs/guide/setup/recipes.md`` ("Previews").
 """
 
 from collections.abc import Mapping
@@ -78,17 +80,18 @@ class ModePreview:
     gamma : numpy.ndarray or None
         The nonlinear coefficient ``n2 omega / (c A_eff)`` in rad/(W m), with the
         fill's ``n2`` at the grid's reference wavelength, the carrier its Kerr data
-        are taken at (:func:`solprop.tools.nonlinear_coefficient` at each
+        are taken at (:func:`solprop.tools.soliton.nonlinear_coefficient` at each
         frequency); ``None`` where the mode has no fill or the fill no Kerr data.
     phase_mismatch : numpy.ndarray or None
         The phase mismatch in rad/m between a dispersive wave in this mode and a
         soliton in the launch mode (the set's first) at the pump
-        (:func:`solprop.tools.phase_mismatch`); ``None`` without a pump. See
-        :func:`modes` for the pump and the nonlinear term.
+        (:func:`solprop.tools.phase_matching.phase_mismatch`); ``None`` without a pump.
+        See :func:`modes` for the pump and the nonlinear term.
     rdw : tuple of float
         The phase-matched wavelengths in m, shortest first, between the band's
-        short edge and 0.9 of the pump (:func:`solprop.tools.lambda_rdw_all`);
-        empty without a pump or a root.
+        short edge and 0.9 of the pump
+        (:func:`solprop.tools.phase_matching.lambda_rdw_all`); empty without a pump or a
+        root.
     """
 
     label: str
@@ -210,11 +213,11 @@ def modes(recipe: "Recipe", z: float | None = None) -> ModeSetPreview:
     mode (the launch mode's own for the first; intermodal for the rest). With an
     unchirped sech or Gaussian pulse given by its FWHM and its energy or peak power,
     and a fill with Kerr data, the soliton's nonlinear wavenumber is that of its
-    largest constituent (:func:`solprop.tools.phase_mismatch`'s default); otherwise,
-    and for a pump in normal dispersion, which launches no soliton, the condition is
-    the linear one.
+    largest constituent (:func:`solprop.tools.phase_matching.phase_mismatch`'s
+    default); otherwise, and for a pump in normal dispersion, which launches no soliton,
+    the condition is the linear one.
     """
-    from solprop.modes.base import (  # noqa: PLC0415
+    from solprop.modes.base import (  # noqa: PLC0415 - heavy
         aeff,
         alpha,
         beta,
@@ -284,23 +287,24 @@ def _pump(  # noqa: PLR0911 - one return per case of the linear condition
     - ``z``: the position, m: the fill's coefficient, the mode's area and its dispersion
       are taken there, as the mismatch is.
     - Returns: the pump wavelength in m (``None`` without a numeric ``wavelength``), and
-      the keywords :func:`solprop.tools.phase_mismatch` takes for the nonlinear term
-      (``peak_power``, ``gamma``, ``fwhm``, ``shape``), empty for the linear condition.
+      the keywords :func:`solprop.tools.phase_matching.phase_mismatch` takes for the
+      nonlinear term (``peak_power``, ``gamma``, ``fwhm``, ``shape``), empty for the
+      linear condition.
       The nonlinear coefficient is the recipe's ``gamma`` where it gives one (the
       GNLSE), else the launch mode's fill's at `z`. The condition is linear for a
       chirped pulse (a ``phases`` term from second order on), a pump in normal
       dispersion, and a pulse below the soliton threshold, which has no largest
       constituent.
     """
-    from solprop.modes.base import beta2  # noqa: PLC0415 - layer above
-    from solprop.physdata.mixtures import Mixture  # noqa: PLC0415
-    from solprop.recipe.pins import _route_pulse  # noqa: PLC0415
-    from solprop.tools import (  # noqa: PLC0415
+    from solprop.modes.base import beta2  # noqa: PLC0415 - heavy
+    from solprop.physdata.mixtures import Mixture  # noqa: PLC0415 - heavy
+    from solprop.recipe.pins import _route_pulse  # noqa: PLC0415 - heavy
+    from solprop.tools import (  # noqa: PLC0415 - heavy
         SolitonOrder,
-        _fill_n2,
         nonlinear_coefficient,
         phase_mismatch,
     )
+    from solprop.tools.waveguide import _fill_n2  # noqa: PLC0415 - heavy
 
     wavelength = keywords.get("wavelength")
     if not isinstance(wavelength, int | float) or soliton is None:
@@ -363,7 +367,7 @@ def _phase_matching(
     - ``limits``: the band's shortest and longest wavelengths, m.
     - Returns: ``phase_mismatch`` and ``rdw``, the :class:`ModePreview` fields.
     """
-    from solprop.tools import lambda_rdw_all, phase_mismatch  # noqa: PLC0415
+    from solprop.tools import lambda_rdw_all, phase_mismatch  # noqa: PLC0415 - heavy
 
     if pump is None:
         return None, ()
@@ -397,8 +401,8 @@ def _gamma(
     - ``z``: the position, m.
     - Returns: ``gamma`` in rad/(W m); ``None`` without a fill or its Kerr data.
     """
-    from solprop.physdata.mixtures import Mixture  # noqa: PLC0415
-    from solprop.tools import _fill_n2  # noqa: PLC0415 - the tools' own n2
+    from solprop.physdata.mixtures import Mixture  # noqa: PLC0415 - heavy
+    from solprop.tools.waveguide import _fill_n2  # noqa: PLC0415 - heavy
 
     mixture = getattr(mode, "mixture", None)
     if not isinstance(mixture, Mixture):
@@ -430,9 +434,12 @@ def preview_input(recipe: "Recipe") -> InputPreview:
         The pulse in time and frequency, its energy and its peak power, and on a
         free-space route its fluence.
     """
-    from solprop.driver.plane_view import PlaneView  # noqa: PLC0415 - layer D
-    from solprop.output.schema import SavedPlane  # noqa: PLC0415
-    from solprop.recipe.metadata import OBJECT_ROUTES, parameters  # noqa: PLC0415
+    from solprop.driver.plane_view import PlaneView  # noqa: PLC0415 - heavy
+    from solprop.output.records import SavedPlane  # noqa: PLC0415 - heavy
+    from solprop.recipe.metadata import (  # noqa: PLC0415 - heavy
+        OBJECT_ROUTES,
+        parameters,
+    )
 
     quiet = recipe.resolve()
     build = quiet._document["build"]
@@ -513,8 +520,8 @@ def _beam(
     - ``field``: the launched spectrum, internal, shape ``(n_modes, n_pol, n_omega)``.
     - ``z``: the launch position, m.
     """
-    from solprop.grid import FreeGrid, LineGrid, RadialGrid  # noqa: PLC0415
-    from solprop.spatial import (  # noqa: PLC0415 - the free-space routes only
+    from solprop.grid import FreeGrid, LineGrid, RadialGrid  # noqa: PLC0415 - heavy
+    from solprop.spatial import (  # noqa: PLC0415 - heavy
         SpatialFlux,
         planar_fluence,
         spatial_energy,

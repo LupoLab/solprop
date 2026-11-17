@@ -7,7 +7,7 @@
 The engine carries each stage input forward and
 its source back by the step's actions, adds a frozen-residual flow's explicit
 residual, and carries the accepted step by the whole action
-(``src/coupled_flow.cpp``); it also forms the actions, from each
+(``src/response/coupled_flow.cpp``); it also forms the actions, from each
 section's eigenbasis or by the reference's scaling and squaring, and measures the
 whole step's conditioning, which the adapter checks against the certificate. Two
 capillary cases are propagated ten fixed steps on both backends: a scalar coherent
@@ -23,18 +23,19 @@ import dataclasses
 import math
 import warnings
 from collections.abc import Iterator
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
 import pytest
-from session_runs import alone, assert_same, grouped, one_thread
 from session_runs import run as run_session
-from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.backend import (
-    _coupled_flow_maps,  # pyright: ignore[reportPrivateUsage]
-    _flow_action,  # pyright: ignore[reportPrivateUsage]
+from solprop.backends.exponential import (
+    FLOW_MAX_SQUARINGS,
+    FLOW_TAYLOR_ORDER,
+    FLOW_TAYLOR_SCALE,
 )
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.coupled_flow import flow_action, held_flow
 from solprop.backends.session import Start
 from solprop.boundaries import absorber
 from solprop.driver import Simulation
@@ -47,15 +48,25 @@ from solprop.stepper import FixedSchedule
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
-from solprop_native import NativeBackend
+from solprop_native import NativeBackend, _core
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
+from solprop_native._lowering import (
+    _lower_flow,  # pyright: ignore[reportPrivateUsage]
+)
 from solprop_native.backend import (
-    _flow_payload,  # pyright: ignore[reportPrivateUsage]
+    _flow_guard,  # pyright: ignore[reportPrivateUsage]
     _host_flow,  # pyright: ignore[reportPrivateUsage]
 )
-from solprop_native.group import refusal as group_refusal
 
 type ComplexArray = npt.NDArray[np.complex128]
 type RealArray = npt.NDArray[np.float64]
+
+
+def _flow_rows(flow: Any) -> _core.Problem.Flow:
+    """The native problem's coupled flow group as the adapter fills it."""
+    native = _core.Problem()
+    _lower_flow(native, flow)
+    return native.flow
 
 
 def _norms(stack: ComplexArray | RealArray, *, spectral: bool = True) -> RealArray:
@@ -261,7 +272,7 @@ def _parity_bound(
 def test_ten_steps_of_the_flow_are_the_reference_within_the_bound(name: str) -> None:
     case = CASES[name]()
     problem = case.translate()
-    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
+    run_request = case.run_request()
     grid = cast(FieldGrid, case.grid)
     expected = run(NumpyRefBackend, problem, run_request, grid)
     actual = run(NativeBackend, problem, run_request, grid)
@@ -273,90 +284,12 @@ def test_ten_steps_of_the_flow_are_the_reference_within_the_bound(name: str) -> 
     assert float(np.max(np.abs(actual - expected))) / scale <= bound
 
 
-def _owner(
-    case: Simulation, problem: PropagationProblem, run_request: RunRequest
-) -> NativeBackend:
-    """Return a native backend for one member, with the case's modes and profiles."""
-    return NativeBackend(
-        problem,
-        run_request,
-        grid=case.grid,
-        modes=case.modes,
-        profiles=case.profiles,
-    )
-
-
-@pytest.mark.parametrize("name", sorted(CASES))
-def test_a_coupled_flow_group_runs_each_member_as_its_lone_session(name: str) -> None:
-    """A native group admits coupled-flow members (solprop SEP 47 section 6.7).
-
-    Each member runs in its own native session, its flow action and explicit residual
-    its own, so nothing of a member's step is shared: on one thread, where the
-    reductions' order is fixed, each member is the same problem run alone through the
-    native session bit for bit. On any thread count each member's final field is
-    ``numpy_ref``'s within the ten-step bound :func:`_parity_bound`, fixed before the
-    native run from the reference's own runs (``numpy_ref``'s lockstep batch refuses a
-    coupled member, so the reference is each member run alone). The members differ in
-    their launch alone.
-    """
-    case = CASES[name]()
-    original = case.translate()
-    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
-    grid = cast(FieldGrid, case.grid)
-    problems = [
-        dataclasses.replace(
-            original,
-            initial=dataclasses.replace(
-                original.initial, field0=original.initial.field0 * scale
-            ),
-        )
-        for scale in (1.0, 0.75)
-    ]
-    starts = [Start.entrance(one) for one in problems]
-    requests = [run_request] * len(problems)
-    assert group_refusal(problems, requests, starts) is None
-    bounds: list[tuple[ComplexArray, float]] = []
-    for problem in problems:
-        expected = run(NumpyRefBackend, problem, run_request, grid)
-        small = np.asarray(problem.initial.field0 * 1e-3, dtype=np.complex128)
-        linear = 1e3 * run(NumpyRefBackend, problem, run_request, grid, small)
-        bounds.append((expected, _parity_bound(problem, run_request, expected, linear)))
-    # The session forms the run's statistics, the gas's density among them, from the
-    # case's profiles.
-    members = grouped(
-        [_owner(case, one, run_request) for one in problems],
-        problems,
-        requests,
-        starts,
-    )
-    for problem, member, (expected, bound) in zip(
-        problems, members, bounds, strict=True
-    ):
-        assert member[-1]["z"] == LENGTH
-        np.testing.assert_array_equal(
-            member[-1]["attempts"]["dz"], np.full(STEPS, LENGTH / STEPS)
-        )
-        scale = float(np.max(np.abs(problem.initial.field0)))
-        actual = np.asarray(member[-1]["field"], dtype=np.complex128)
-        assert float(np.max(np.abs(actual - expected))) / scale <= bound
-        if one_thread():
-            single = alone(
-                _owner(case, problem, run_request),
-                problem,
-                run_request,
-                Start.entrance(problem),
-            )
-            assert_same(member, single)
-    # The members differ: each is its own launch, not one copied.
-    assert not np.array_equal(members[0][-1]["field"], members[1][-1]["field"])
-
-
 def test_a_step_beyond_the_certificate_is_refused_by_name() -> None:
     # The certificate guards the Runge-Kutta march's inverse flow action; solprop's
     # default exponential formulation acts forward only and does not measure it.
     case = CASES["scalar_wall"]()
     problem = case.translate()
-    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
+    run_request = case.run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     shrunk = dataclasses.replace(
@@ -377,7 +310,7 @@ def test_a_step_beyond_the_certificate_is_refused_by_name() -> None:
 def test_the_flow_ledger_counts_its_views() -> None:
     case = CASES["taper_gradient"]()
     problem = case.translate()
-    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
+    run_request = case.run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert flow.generator is not None
@@ -405,8 +338,8 @@ def test_the_engine_forms_the_reference_s_actions_within_the_formation_bound() -
     """
     case = CASES["taper_gradient"]()
     problem = case.translate()
-    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
-    reference = _coupled_flow_maps(problem)
+    run_request = case.run_request()
+    reference = held_flow(problem)
     assert reference is not None
     dz = LENGTH / STEPS
     bound = _formation_bound(problem, run_request, dz)
@@ -416,22 +349,22 @@ def test_the_engine_forms_the_reference_s_actions_within_the_formation_bound() -
     )
     backend = NativeBackend(problem, run_request, grid=case.grid)
     try:
-        native = backend._native_state  # pyright: ignore[reportPrivateUsage]
+        native = backend._workspace  # pyright: ignore[reportPrivateUsage]
         shape = (fractions.size, -1, reference.n_modes, reference.n_modes)
         for section in range(reference.frozen.shape[0]):
-            measured = native.form_flow_actions(section, dz, fractions)[0]
-            forward = native.flow_actions_to_host(False).reshape(shape)
-            inverse = native.flow_actions_to_host(True).reshape(shape)
+            measured = _testing.form_flow_actions(native, section, dz, fractions)[0]
+            forward = _testing.flow_actions_to_host(native, False).reshape(shape)
+            inverse = _testing.flow_actions_to_host(native, True).reshape(shape)
             for slot, fraction in enumerate(fractions):
                 if fraction == 0.0:
                     continue
-                expected = _flow_action(reference, section, float(fraction) * dz)
+                expected = flow_action(reference, section, float(fraction) * dz)
                 for got, want in zip(
                     (forward[slot], inverse[slot]), expected, strict=True
                 ):
                     error = _norms(got - want) / _norms(want)
                     assert float(np.max(error)) <= bound
-            pair = _flow_action(reference, section, dz)
+            pair = flow_action(reference, section, dz)
             whole = _norms(pair[0]) * _norms(pair[1])
             assert (
                 float(np.max(abs(measured / whole - 1.0)))
@@ -439,6 +372,29 @@ def test_the_engine_forms_the_reference_s_actions_within_the_formation_bound() -
             )
     finally:
         backend.close()
+
+
+def test_the_flow_s_series_constants_are_solprop_s() -> None:
+    """The guard carries solprop's scale and cap; the kernels compile solprop's in.
+
+    The workspace's guard reads the Taylor scale and the squaring cap from the record
+    the adapter fills; the kernels no guard reaches (the action's series and the Adams
+    march's augmented exponentials) compile them in, with the series degree. All three
+    are solprop's, exactly: a structural contract.
+    """
+    flow = _host_flow(CASES["scalar_wall"]().translate())
+    guard = _flow_guard(flow)
+    assert guard is not None
+    assert (guard["taylor_scale"], guard["max_squarings"]) == (
+        FLOW_TAYLOR_SCALE,
+        FLOW_MAX_SQUARINGS,
+    )
+    compiled = (
+        _testing.flow_taylor_order,
+        _testing.flow_taylor_scale,
+        _testing.flow_max_squarings,
+    )
+    assert compiled == (FLOW_TAYLOR_ORDER, FLOW_TAYLOR_SCALE, FLOW_MAX_SQUARINGS)
 
 
 def test_the_residual_s_data_are_zero_exactly_outside_the_requested_band() -> None:
@@ -460,9 +416,9 @@ def test_the_residual_s_data_are_zero_exactly_outside_the_requested_band() -> No
     scored = problem.grids.inband_mask[flow.active]
     assert np.any(~scored)
     assert np.any(scored)
-    payload = _flow_payload(flow)
-    frozen = cast("ComplexArray", payload["flow_frozen"])
-    terms = cast("ComplexArray", payload["flow_residual_terms"])
+    payload = _flow_rows(flow)
+    frozen = payload.frozen.reshape(flow.frozen.shape)
+    terms = payload.residual_terms.reshape(flow.residual_terms.shape)
     assert np.all(frozen[:, ~scored] == 0.0)
     assert np.all(terms[:, ~scored] == 0.0)
     assert np.array_equal(frozen[:, scored], flow.frozen[:, scored])
@@ -475,8 +431,8 @@ def test_the_residual_s_data_are_zero_exactly_outside_the_requested_band() -> No
     )
     full = _host_flow(everywhere)
     assert full is not None
-    unmasked = _flow_payload(full)
-    assert np.array_equal(cast("ComplexArray", unmasked["flow_frozen"]), flow.frozen)
+    unmasked = _flow_rows(full)
+    assert np.array_equal(unmasked.frozen.reshape(flow.frozen.shape), flow.frozen)
     assert np.array_equal(
-        cast("ComplexArray", unmasked["flow_residual_terms"]), flow.residual_terms
+        unmasked.residual_terms.reshape(flow.residual_terms.shape), flow.residual_terms
     )

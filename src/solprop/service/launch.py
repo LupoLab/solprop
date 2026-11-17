@@ -4,18 +4,18 @@
 
 """Start a run without a window: directly, or as a Slurm job (design 13.4).
 
-Either way the run is ``python -m solprop.service.job FOLDER``
-(:mod:`solprop.service.job`), with its spec in the folder, and either way it outlives
+Either way :func:`prepare` writes the run's folder and spec, the run is
+``python -m solprop.service.job FOLDER`` (:mod:`solprop.service.job`), and it outlives
 whoever started it. What started it is written to ``submitted.json`` at once, so a run
-still waiting in Slurm's queue, which has written nothing of its own yet, can be found
-and listed.
+still waiting in Slurm's queue, which has written nothing of its own yet, can be found.
 
-Directly, the run is a process in a session of its own, so closing the SSH session or
-the helper that started it does not end it. Through Slurm it is a batch job from a
-template the user edits (:class:`SlurmResources`): its resources and any lines a site
-needs (module loads, an environment), and nothing else. The job asks for ``SIGTERM``
-two minutes before its time limit, so solprop writes a checkpoint the run can be
-resumed from.
+- :func:`start_direct` runs it as a process in a session of its own, so closing the SSH
+  session or the helper that started it does not end it.
+- :func:`submit_slurm` submits :func:`slurm_script`'s batch job, from a template the
+  user edits (:class:`SlurmResources`: its resources and any lines a site needs). The
+  job asks for ``SIGTERM`` two minutes before its time limit, so solprop writes a
+  checkpoint the run can be resumed from. :func:`slurm_states` (:class:`SlurmState`)
+  and :func:`cancel_slurm` follow and end it.
 """
 
 import os
@@ -29,7 +29,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Final
 
-from solprop._process import BLAS_IDLE_DEFAULTS, child_environment
+from solprop._process import batch_script, child_environment
 from solprop.service.messages import ServiceError
 from solprop.service.record import process_stamp, set_aside, write_json
 from solprop.service.worker import SPEC, RunSpec, spec_value
@@ -307,39 +307,27 @@ def slurm_script(
     """
     name = re.sub(r"[^A-Za-z0-9_.-]", "_", folder.name)[:40]
     posix = folder.as_posix()  # a cluster's path, whatever this computer writes
-    lines = [
-        "#!/bin/bash",
-        f"#SBATCH --job-name=solprop-{name}",
-        f"#SBATCH --output={shlex.quote(posix + '/' + JOB_OUTPUT)}",
-        f"#SBATCH --chdir={shlex.quote(posix)}",
-        "#SBATCH --ntasks=1",
-        f"#SBATCH --cpus-per-task={int(resources.cpus)}",
-        f"#SBATCH --signal=B:TERM@{WARNING_SECONDS}",
+    directives = {
+        "job-name": f"solprop-{name}",
+        "output": posix + "/" + JOB_OUTPUT,
+        "chdir": posix,
+        "ntasks": "1",
+        "cpus-per-task": str(int(resources.cpus)),
+        "signal": f"B:TERM@{WARNING_SECONDS}",
+        "partition": resources.partition,
+        "time": resources.time,
+        "mem": resources.memory,
+        "gres": resources.gres,
+    }
+    site = [
+        *(f"#SBATCH {option.strip()}" for option in resources.extra if option.strip()),
+        *(line for line in resources.setup if line.strip()),
     ]
-    if resources.partition:
-        lines.append(f"#SBATCH --partition={resources.partition}")
-    if resources.time:
-        lines.append(f"#SBATCH --time={resources.time}")
-    if resources.memory:
-        lines.append(f"#SBATCH --mem={resources.memory}")
-    if resources.gres:
-        lines.append(f"#SBATCH --gres={resources.gres}")
-    lines.extend(
-        f"#SBATCH {option.strip()}" for option in resources.extra if option.strip()
-    )
-    lines.extend(line for line in resources.setup if line.strip())
     budget = str(threads) if threads is not None else "${SLURM_CPUS_PER_TASK:-1}"
-    lines.append(f"export SOLPROP_THREADS={budget}")
-    # A job is a fresh Python: its BLAS pools spin unless told (solprop issue #383).
-    lines.extend(
-        f"export {name}=${{{name}:-{value}}}"
-        for name, value in BLAS_IDLE_DEFAULTS.items()
+    command = shlex.join([python, "-m", "solprop.service.job", posix])
+    return batch_script(
+        directives, [f"export SOLPROP_THREADS={budget}", f"exec {command}"], site=site
     )
-    command = " ".join(
-        shlex.quote(part) for part in [python, "-m", "solprop.service.job", posix]
-    )
-    lines.append(f"exec {command}")
-    return "\n".join(lines) + "\n"
 
 
 def _run(

@@ -40,9 +40,8 @@ not a defect.
 
 ## Replaying a schedule
 
-When the steps themselves must be the same, for a batch run in lockstep, for debugging,
-or to make a numerical error common to every member of an ensemble, record the schedule
-once and replay it ([fixed schedules](fixed-schedules.md)):
+When the steps themselves must be the same, for debugging or to make a numerical error
+common to every member of an ensemble, record the schedule once and replay it ([fixed schedules](fixed-schedules.md)):
 
 ```{code-block} python
 from solprop.stepper import calibrate, discover, replay

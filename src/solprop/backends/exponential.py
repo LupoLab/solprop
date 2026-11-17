@@ -18,19 +18,26 @@ Adams weights (:func:`solprop.stepper.multistep.integrated_weights`).
 
 The phi functions are evaluated by two algorithms, each where it is stable:
 
-- **near zero** (``|x| <= 8``): scale to ``y = x / 2**s`` with ``|y| <= 1/2``, sum the
-  Taylor series of the highest function to a fixed number of terms, recur down with
-  ``phi_k(y) = 1/k! + y phi_{k+1}(y)``, which contracts an error by ``|y|`` and never
-  divides by ``y``, and undo the scaling by the doubling identity
+- **near zero** (``|x| <= 3``, ``PHI_JOIN``): scale to ``y = x / 2**s`` with
+  ``|y| <= 1/2``, sum the Taylor series of the highest function to a fixed number of
+  terms, recur down with ``phi_k(y) = 1/k! + y phi_{k+1}(y)``, which contracts an error
+  by ``|y|`` and never divides by ``y``, and undo the scaling by the doubling identity
   ``phi_k(2y) = [exp(y) phi_k(y) + sum_{j=1}^k phi_j(y) / (k - j)!] / 2**k``, obtained
   by splitting the defining integral at one half [1]_ [2]_;
-- **away from zero** (``|x| > 8``): recur up from ``phi_0 = exp(x)``,
-  ``phi_k(x) = (phi_{k-1}(x) - 1/(k-1)!) / x``, whose division by ``|x| > 8`` contracts
+- **away from zero** (``|x| > 3``): recur up from ``phi_0 = exp(x)``,
+  ``phi_k(x) = (phi_{k-1}(x) - 1/(k-1)!) / x``, whose division by ``|x| > 3`` contracts
   the error of every earlier function.
 
 Both are checked against augmented matrix exponentials and independent quadrature in
 ``tests/backends/test_exponential_weights.py``, on both sides of the join. This module
 is the reference the native backend's moment kernels are checked against.
+
+A coupled flow's matrix exponentials -- its actions and, for the exponential Adams
+formulation, the augmented exponentials of its moments -- are formed by scaling, a
+Taylor series and squaring in both backends, with the one set of constants here
+(:data:`FLOW_TAYLOR_ORDER`, :data:`FLOW_TAYLOR_SCALE`, :data:`FLOW_MAX_SQUARINGS`): the
+reference reads them, and the native adapter hands the scale and the squaring cap to
+its workspace's flow guard.
 
 References
 ----------
@@ -56,14 +63,16 @@ from solprop.stepper.multistep import (
     Multistep,
     lagrange_coefficients,
 )
+from solprop.stepper.settings import StepperSettings
 from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.expansion import ParameterExpansion
 from solprop.translate.linop import LinearOperator
-from solprop.translate.problem import PropagationProblem, StepperSettings
+from solprop.translate.problem import PropagationProblem
 
 __all__ = [
-    "COUPLED_SECTIONS",
-    "EXPONENTIAL_REPRESENTATIONS",
+    "FLOW_MAX_SQUARINGS",
+    "FLOW_TAYLOR_ORDER",
+    "FLOW_TAYLOR_SCALE",
     "MAX_PHI_ORDER",
     "PHI_JOIN",
     "CarrierChord",
@@ -72,8 +81,8 @@ __all__ = [
     "carrier_reference",
     "exponential_weights",
     "phi_functions",
+    "refuse_adams",
     "refuse_carrier_frame",
-    "refuse_formulation",
 ]
 
 MAX_PHI_ORDER = MAX_ADAMS_ORDER + 2
@@ -90,17 +99,25 @@ doublings. Three keeps both sides within the witnesses' 256 ulp with a margin an
 bounds the doublings, the most expensive part of the near branch (SEP 16 phase 3;
 eight, the SEP 15 study's join, cost up to four)."""
 
-COUPLED_SECTIONS = frozenset({"constant_schur", "frozen_residual"})
-"""The coupled flow's section methods the exponential formulation steps (SEP 16 Q3)."""
+FLOW_TAYLOR_ORDER = 16
+"""Degree of the Taylor series a coupled flow's scaled exponential is summed to.
 
-EXPONENTIAL_REPRESENTATIONS = ("constant", "separable", "expansion", "table")
-"""The linear-operator representations the exponential formulation steps (SEP 16).
+Scaling brings the row-sum norm below :data:`FLOW_TAYLOR_SCALE`, so the truncated tail
+is at most ``FLOW_TAYLOR_SCALE**(n+1)/(n+1)!``, which is 2.1e-20 at this degree --
+below the rounding of the squarings that follow it and of the two unitary products
+around it. The alternative, a Pade approximant, buys a lower degree at the cost of a
+solve per frequency; the reference takes the series (``docs/dev/architecture.md``
+section 3: physics and reference code carry no performance tricks)."""
 
-A constant operator's reference flow over a step is its exact flow and its residual
-is the source alone, ``R_n = F``. A varying one (``expansion``, ``table``) takes the
-compensated reference of SEP 16 section 4.2 (phase 4): the chord over the step and the
-transported compensation ``(D(z_j) - B_n) u_j``, with ``D`` the derivative of the
-representation itself."""
+FLOW_TAYLOR_SCALE = 0.5
+"""Row-sum norm a coupled flow's exponent is scaled below before its series."""
+
+FLOW_MAX_SQUARINGS = 30
+"""Largest number of squarings a coupled flow's exponential may need before refusal.
+
+``2**30`` times the scale is a step whose own generator spans 21 orders of magnitude in
+the exponent; a problem that needs it has not been certified by anything the
+translation layer measured."""
 
 _SERIES_TERMS = 24
 """Taylor terms of the highest phi function at ``|y| <= 1/2``.
@@ -270,74 +287,32 @@ def exponential_weights(
     return np.tensordot(coefficients, moments, axes=(1, 0))
 
 
-def refuse_formulation(
-    problem: PropagationProblem, stepper: StepperSettings, backend: str
-) -> None:
-    """Refuse the exponential formulation where it is not yet delivered (SEP 16).
-
-    The exponential formulation steps constant, separable and varying diagonal
-    operators (phases 2--4) and the constant-Schur and frozen-residual sections of a
-    coupled flow (phase 5).
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem.
-    stepper : solprop.translate.problem.StepperSettings
-        The run's stepper section, whose method is checked.
-    backend : str
-        The backend's name, for the message.
-
-    Raises
-    ------
-    BackendError
-        Naming what is unsupported.
-    """
-    method = stepper.integrator
-    if not isinstance(method, Multistep) or method.formulation != "exponential":
-        return
-    # Every representation (EXPONENTIAL_REPRESENTATIONS) is stepped since phase 4.
-    flow = problem.linear.coupled_flow
-    if flow is None:
-        return
-    methods = set(flow.section_methods)
-    if not methods <= COUPLED_SECTIONS:
-        unsupported = ", ".join(sorted(repr(one) for one in methods - COUPLED_SECTIONS))
-        msg = (
-            f"{backend}: the {method.name} integrator does not step a coupled flow's "
-            f"{unsupported} sections; pass integrator=RungeKutta(), the Runge-Kutta "
-            "march"
-        )
-        raise BackendError(msg)
-
-
 @dataclass(frozen=True)
 class CarrierChord:
     """The reference element's cumulative operator alone (SEP 35 sections 6.1, 6.4).
 
     The operator's own representation restricted to column 0, polarisation 0 and the
-    reference bin, every batch member kept: its chord over a step is the reference
-    element's exponent, to rounding the one the backend forms, at one scalar per
-    member. The step cap reads it for every proposal, and a backend that forms its
-    exponent elsewhere (the native engine, on a device too) takes its shift from it
-    with nothing read back.
+    reference bin: its chord over a step is the reference element's exponent, to
+    rounding the one the backend forms, at one scalar. The step cap reads it for every
+    proposal, and a backend that forms its exponent elsewhere (the native engine, on a
+    device too) takes its shift from it with nothing read back.
 
     Attributes
     ----------
     constant : numpy.ndarray or None
-        ``D`` at the element, 1/m, shape ``(n_batch_c,)``, for a constant operator.
+        ``D`` at the element, 1/m, shape ``()``, for a constant operator.
     expansion : solprop.translate.expansion.ParameterExpansion or None
         The expansion with its terms at the element, for an expansion.
     table : solprop.translate.chebyshev.PiecewiseChebyshev or None
         The z table at the element, for a table.
     """
 
-    constant: Complex[np.ndarray, " n_batch_c"] | None = None
+    constant: Complex[np.ndarray, ""] | None = None
     expansion: ParameterExpansion | None = None
     table: PiecewiseChebyshev | None = None
 
-    def exponent(self, z1: float, z2: float) -> Complex[np.ndarray, " n_batch_c"]:
-        """Return ``Phi(z2) - Phi(z1)`` at the element, per batch member.
+    def exponent(self, z1: float, z2: float) -> Complex[np.ndarray, ""]:
+        """Return ``Phi(z2) - Phi(z1)`` at the element.
 
         Parameters
         ----------
@@ -347,10 +322,10 @@ class CarrierChord:
         Returns
         -------
         numpy.ndarray
-            Dimensionless, shape ``(n_batch_c,)``.
+            Dimensionless, shape ``()``.
         """
         if self.constant is not None:
-            return self.constant * (z2 - z1)
+            return np.asarray(self.constant * (z2 - z1))
         if self.expansion is not None:
             return np.asarray(self.expansion.delta(z1, z2), dtype=np.complex128)
         assert self.table is not None
@@ -375,14 +350,14 @@ def carrier_chord(linear: LinearOperator, index: int) -> CarrierChord | None:
     """
 
     def _element(values: np.ndarray) -> np.ndarray:
-        """Return ``values[..., b, 0, 0, index]`` over its leading axes and batch.
+        """Return ``values[..., 0, 0, index]`` over its leading axes.
 
-        - ``values``: a representation's array, its last four axes the state's layout.
+        - ``values``: a representation's array, its last three axes the state's layout.
         - Returns: column 0, polarisation 0 and the reference bin, every leading axis
           kept.
         """
         column = min(index, values.shape[-1] - 1)
-        return np.ascontiguousarray(values[..., 0, 0, column])
+        return np.array(values[..., 0, 0, column], order="C", copy=True)
 
     if linear.phi_constant is not None:
         return CarrierChord(constant=_element(linear.phi_constant))
@@ -403,7 +378,7 @@ def carrier_chord(linear: LinearOperator, index: int) -> CarrierChord | None:
 class CarrierReference:
     """Where a run's carrier frame takes its shift, fixed for the run (SEP 35 6.1).
 
-    The shift of batch member ``b`` is ``sigma_b = i Im x[b, 0, 0, bin]``, ``x`` the
+    The shift is ``sigma = i Im x[0, 0, bin]``, ``x`` the
     trial's own exponent ``Phi(z + h) - Phi(z)``: column 0 is the frame's mode
     (``build_phi`` fixes the frame on the first mode; a coupled route's carrier is the
     same in every channel), polarisation 0. The change of variable is exact for any
@@ -440,9 +415,9 @@ class CarrierReference:
         return self.bin is not None
 
     def shift(
-        self, exponent: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
-    ) -> Complex[np.ndarray, "n_batch 1 1 1"]:
-        """Return each batch member's shift for a trial's exponent.
+        self, exponent: Complex[np.ndarray, "n_modes n_pol n_omega"]
+    ) -> Complex[np.ndarray, "1 1 1"]:
+        """Return the shift for a trial's exponent.
 
         Parameters
         ----------
@@ -452,8 +427,7 @@ class CarrierReference:
         Returns
         -------
         numpy.ndarray
-            Purely imaginary, shape ``(n_batch, 1, 1, 1)``, broadcasting against the
-            state.
+            Purely imaginary, shape ``(1, 1, 1)``, broadcasting against the state.
 
         Raises
         ------
@@ -464,13 +438,11 @@ class CarrierReference:
             msg = f"the carrier frame is inert for this run: {self.reason}"
             raise BackendError(msg)
         # The real part (loss) is never shifted (SEP 35 section 10).
-        phase = np.imag(exponent[:, 0, 0, self.bin]).reshape((-1, 1, 1, 1))
+        phase = np.imag(exponent[0, 0, self.bin]).reshape((1, 1, 1))
         return 1j * phase
 
-    def phase(
-        self, exponent: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
-    ) -> float:
-        """Return the largest carrier phase over the batch, for the step cap.
+    def phase(self, exponent: Complex[np.ndarray, "n_modes n_pol n_omega"]) -> float:
+        """Return the carrier phase, for the step cap.
 
         Parameters
         ----------
@@ -480,14 +452,14 @@ class CarrierReference:
         Returns
         -------
         float
-            ``max_b |Im x[b, 0, 0, bin]|``, rad; 0 when the policy is inert.
+            ``|Im x[0, 0, bin]|``, rad; 0 when the policy is inert.
         """
         if self.bin is None:
             return 0.0
-        return float(np.max(np.abs(np.imag(exponent[:, 0, 0, self.bin]))))
+        return float(np.abs(np.imag(exponent[0, 0, self.bin])))
 
     def chord_phase(self, z1: float, z2: float) -> float:
-        """Return the largest carrier phase over the batch from the chord alone.
+        """Return the carrier phase from the chord alone.
 
         Parameters
         ----------
@@ -497,7 +469,7 @@ class CarrierReference:
         Returns
         -------
         float
-            ``max_b |Im (Phi(z2) - Phi(z1))|`` at the reference element, rad; 0 when
+            ``|Im (Phi(z2) - Phi(z1))|`` at the reference element, rad; 0 when
             the policy is inert.
 
         Raises
@@ -510,7 +482,7 @@ class CarrierReference:
         if self.chord is None:
             msg = "the carrier frame's reference has no chord on this operator"
             raise BackendError(msg)
-        return float(np.max(np.abs(np.imag(self.chord.exponent(z1, z2)))))
+        return float(np.abs(np.imag(self.chord.exponent(z1, z2))))
 
 
 def carrier_reference(
@@ -616,7 +588,7 @@ def refuse_carrier_frame(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper section, whose method is checked.
     backend : str
         The backend's name, for the message.
@@ -640,3 +612,73 @@ def refuse_carrier_frame(
     )
     if refusal is not None:
         raise BackendError(refusal)
+
+
+def refuse_adams(
+    problem: PropagationProblem,
+    stepper: StepperSettings,
+    backend: str,
+    *,
+    delivered: frozenset[str] = frozenset(),
+) -> None:
+    """Refuse what an Adams march does not execute (SEP 13 sections 2 and 6.2).
+
+    The interaction formulation's history is of source samples transported along a
+    diagonal flow, so it refuses a coupled flow by name rather than transport the
+    history through inverse actions (SEP 16 Q3); the exponential formulation steps every
+    coupled flow the problem admits
+    (:func:`solprop.translate.admission.check_general_route`). Either refuses the
+    carrier frames the backend does not deliver (:func:`refuse_carrier_frame`). The
+    ``modified`` noise is admitted for both formulations (SEP 16 section 4.4): its draw
+    is fixed for the run and added to each sample's field at that sample's own
+    position, never to the propagating state, so conditional on the draw the source is
+    a deterministic, nonautonomous function of position that the history interpolates.
+    The split-step temporal collar is admitted: it changes the state only inside the
+    collar, where its first-order splitting error already lies (``docs/dev/stepper.md``
+    section 6), and it removes the collar's stability limit, which binds the Adams
+    methods long before Runge-Kutta's (SEP 13 phase 2).
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The problem.
+    stepper : solprop.stepper.settings.StepperSettings
+        The run's stepper section; any method but
+        :class:`~solprop.stepper.multistep.Multistep` passes untouched.
+    backend : str
+        The backend's name, for the message.
+    delivered : frozenset of str, optional
+        The carrier-frame policies this backend steps; none by default.
+
+    Raises
+    ------
+    BackendError
+        Naming what the Adams march does not step here.
+
+    Examples
+    --------
+    >>> from solprop.backends.exponential import refuse_adams
+    >>> from solprop.driver import Simulation
+    >>> simulation = Simulation.from_gnlse(
+    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
+    ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
+    ...     width=100e-15, peak_power=9.8, shape="sech",
+    ... )
+    >>> request = simulation.run_request()
+    >>> refuse_adams(simulation.translate(), request.stepper, "numpy_ref") is None
+    True
+    """
+    integrator = stepper.integrator
+    if not isinstance(integrator, Multistep):
+        return
+    if (
+        problem.linear.coupled_flow is not None
+        and integrator.formulation != "exponential"
+    ):
+        msg = (
+            f"{backend}: the {integrator.name} integrator does not step a problem "
+            "with a coupled linear flow; use Multistep(formulation='exponential') or "
+            "the Runge-Kutta march"
+        )
+        raise BackendError(msg)
+    refuse_carrier_frame(problem, stepper, backend, delivered=delivered)

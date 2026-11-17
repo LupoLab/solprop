@@ -56,8 +56,8 @@ compares the backends by problem.
 
 Each interface has its own default integrator
 ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)): `Multistep()` on
-`prop_capillary`, `prop_radial` and `prop_planar`, `RungeKutta()` on `prop_gnlse`,
-`prop_waveguide` and `prop_free`. `Multistep()` evaluates the nonlinear response once
+`prop_capillary`, `prop_free` on a radial grid and `prop_planar`, `RungeKutta()` on
+`prop_gnlse`, `prop_waveguide` and `prop_free` on a Cartesian or line grid. `Multistep()` evaluates the nonlinear response once
 per step; `RungeKutta()` usually six times, in fewer, longer steps. `Multistep()` tends
 to gain where the response dominates a step's cost, `RungeKutta()` where it is cheap.
 Compare the two on a short stretch of your own problem when it matters: the call counts
@@ -176,7 +176,7 @@ execution. Stage and reduction work, packing and temporal copies, nonlinear resp
 native dense transforms, coupled matrix functions and FFT plans have separate size rules. Response sizing accounts for both the total
 work, active columns and fine samples per column. The choices and plans are cached when the
 backend is constructed; no runtime tuning occurs during propagation. Partial chunks
-and fused batch updates use their own work sizes. Vendor BLAS pools retain their
+use their own work sizes. Vendor BLAS pools retain their
 process-start settings. Non-OpenMP host builds preserve their execution-space policy;
 `build_info().cpu_size_policy_enabled` reports whether operation widths are supported.
 
@@ -201,7 +201,7 @@ The calibration moves the samples per thread.
 
 | operation | work used for sizing | threading starts | full pool starts |
 |---|---|---:|---:|
-| stage, update and reduction | elements in the field or fused batch | 4,096 (8,192 on macOS) | as threading |
+| stage, update and reduction | elements in the field | 4,096 (8,192 on macOS) | as threading |
 | packing and temporal copies | entries actually copied | 65,536 | 65,536 |
 | nonlinear response | active columns × components × fine samples | 32,768 | 196,608, or 65,536 fine samples per column, or 40 component columns |
 | native/custom GEMM | output rows × inner dimension × samples | 1,048,576 | 1,048,576 |
@@ -224,8 +224,8 @@ choices automatically; start by setting only the process cap when sharing a mach
 
 `python -m solprop_native` records the policy constants and explicit override mask.
 Its existing thread counts remain process capacities. The backend's metadata records
-`execution_sizing`, with the chosen `threads` and sizing `elements` for each operation;
-`batch_execution_sizing` covers fused batch work. Response entries also report
+`execution_sizing`, with the chosen `threads` and sizing `elements` for each operation.
+Response entries also report
 `fine_samples` and `columns`, because equal total work can have different column
 lengths. `build_info()` reports the resolved process values as `requested_threads`,
 `runtime_threads`, `thread_count` (kernels), `fftw_threads`, `raman_fft_threads`,
@@ -397,8 +397,8 @@ solprop runs a line, and those threads spin for about 0.1 s before they sleep. O
 time, against 0.75 in 0.67 with `OPENBLAS_THREAD_TIMEOUT=20`, which makes idle threads
 sleep after about 0.4 ms of spinning and changes no width. A Python process solprop
 starts itself takes `OPENBLAS_THREAD_TIMEOUT=20` unless the variable is already set: a
-run started from the window (directly or as a Slurm job), the window's kernel, and
-`Pool` workers. Your own script loads NumPy first, so set it yourself if CPU time on a
+run started from the window (directly or as a Slurm job), the window's kernel,
+`Pool` workers and a `Slurm` scan's controllers. Your own script loads NumPy first, so set it yourself if CPU time on a
 shared machine matters, before Python starts:
 
 ```sh

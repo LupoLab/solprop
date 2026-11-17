@@ -16,7 +16,8 @@ import numpy as np
 
 from solprop.fourier import n_omega_for
 from solprop.stepper.low_storage import LowStorageRungeKutta
-from solprop.translate.problem import PropagationProblem, StepperSettings
+from solprop.stepper.settings import StepperSettings
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import tdse_descriptor
 
 __all__ = [
@@ -57,7 +58,7 @@ def reference_base_memory(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper section (``RunRequest.stepper``), whose method decides the
         rows.
     tabulating : bool
@@ -243,8 +244,8 @@ def low_storage_flows(
     """Return how many flow volumes a compiled backend's low-storage march holds.
 
     The one predicate the engines share (SEP 24 section 4.3): with
-    ``propagator_mode="auto"`` resolved for this march as
-    ``HostDriver._propagator_mode`` resolves it on a CPU, a tabulated constant operator
+    ``propagator_mode="auto"`` resolved for this march as the reference resolves it
+    on a CPU (``NumpyRefBackend._propagator_mode``), a tabulated constant operator
     -- every separable one included, whose ``phi_representation`` is ``"separable"`` --
     holds one volume, ``exp(h_t D / 2)``; a tabulated varying operator holds the
     step's ``P`` and ``Q``; recomputing holds none. A native device build resolves
@@ -255,7 +256,7 @@ def low_storage_flows(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper section, whose propagator mode decides the count.
     backend : str
         A registry name; every backend that runs the march counts the same.
@@ -272,7 +273,7 @@ def low_storage_flows(
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
-    >>> from solprop.translate.problem import assemble
+    >>> from solprop.translate.assembly import assemble
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.183e-26], omega_ref=grid.omega0,
     ...                      gamma=0.11, shock=False)
@@ -321,7 +322,7 @@ def low_storage_stage_register(problem: PropagationProblem, backend: str) -> boo
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
-    >>> from solprop.translate.problem import assemble
+    >>> from solprop.translate.assembly import assemble
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.183e-26], omega_ref=grid.omega0,
     ...                      gamma=0.11, shock=False)
@@ -360,7 +361,7 @@ def adams_memory(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper section, whose method decides the rows.
 
     Returns
@@ -376,7 +377,7 @@ def adams_memory(
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
     >>> from solprop.stepper.multistep import Multistep
-    >>> from solprop.translate.problem import assemble
+    >>> from solprop.translate.assembly import assemble
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.183e-26], omega_ref=grid.omega0,
     ...                      gamma=0.11, shock=False)
@@ -434,7 +435,7 @@ def z_table_slots(stepper: StepperSettings) -> int:
 
     Parameters
     ----------
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper section, whose method and tableau decide the positions.
 
     Returns
@@ -449,7 +450,7 @@ def z_table_slots(stepper: StepperSettings) -> int:
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
-    >>> from solprop.translate.problem import assemble
+    >>> from solprop.translate.assembly import assemble
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.183e-26], omega_ref=grid.omega0,
     ...                      gamma=0.11, shock=False)

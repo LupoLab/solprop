@@ -11,7 +11,8 @@ from bounds import gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.spatial import collar_field_fraction
 from solprop.constants import C
-from solprop.driver.simulation import Simulation, SimulationSettings
+from solprop.driver.settings import SimulationSettings
+from solprop.driver.simulation import Simulation
 from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.optmat_rates import OptmatRate
@@ -69,7 +70,7 @@ def _run(
         if steps is None
         else FixedSchedule.uniform(0.0, LENGTH, LENGTH / steps),
     )
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid, space, medium, list(responses), initial, settings=settings, noise=None
     )
     output = simulation.run()

@@ -183,7 +183,7 @@ def test_radial_update_shares_covered_operator_terms_and_input(source, constant)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-9), 80e-6
     )
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         source.grid,
         space,
         SpatialMedium(material),
@@ -222,7 +222,7 @@ def test_radial_update_shares_covered_operator_terms_and_input(source, constant)
 def test_uncovered_constant_update_falls_back_to_constant_operator(source, geometry):
     material = source.modes[0].mixture
     if geometry == "radial":
-        source = Simulation.from_radial(
+        source = Simulation.from_free(
             source.grid,
             RadialGrid(6e-4, 8, collar_fraction=0.0),
             SpatialMedium(material),
@@ -246,7 +246,7 @@ def test_fixed_density_change_invalidates_radius_expansion(source, caplog):
     material = source.modes[0].mixture.with_densities(
         {label: Constant(1e24) for label in source.modes[0].mixture.labels}
     )
-    source.modes = (
+    source._modes = (
         replace(
             source.modes[0],
             mixture=material,
@@ -264,10 +264,10 @@ def test_fixed_density_change_invalidates_radius_expansion(source, caplog):
 
 def test_update_requires_a_shared_material_declaration(source):
     material = source.modes[0].mixture
-    source.modes = (replace(source.modes[0], mixture=None),)
+    source._modes = (replace(source.modes[0], mixture=None),)
     with pytest.raises(DriverError, match="needs a Mixture"):
         source.with_mixture(material)
-    source.modes = (
+    source._modes = (
         replace(source.modes[0], mixture=material),
         replace(
             source.modes[0],
@@ -282,8 +282,8 @@ def test_update_requires_a_shared_material_declaration(source):
 @pytest.mark.parametrize("populations", [1, 2])
 def test_anonymous_rates_resolve_unique_species_during_update(source, populations):
     material = Mixture.of(*source.modes[0].mixture.components[:populations])
-    source.modes = (replace(source.modes[0], mixture=material),)
-    source.responses = tuple(
+    source._modes = (replace(source.modes[0], mixture=material),)
+    source._responses = tuple(
         replace(response, species=None)
         for response in source.responses
         if isinstance(response, PlasmaResponse) and response.species in material.labels
@@ -315,7 +315,7 @@ def test_custom_broadened_kernel_is_shared_when_its_model_is_unchanged(source):
         thg=False,
         species=material.labels[0],
     )
-    source.responses = (
+    source._responses = (
         *(one for one in source.responses if not isinstance(one, RamanResponse)),
         response,
     )
@@ -352,7 +352,7 @@ def test_input_and_mixture_updates_compose_and_preserve_rate_tables(source):
 
 def test_input_update_replaces_or_removes_constructor_pulse_recipe(source):
     previous = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-9)
-    source.configuration = {"pulse": previous, "label": "kept"}
+    source._configuration = {"pulse": previous, "label": "kept"}
     replacement = GaussianPulse(wavelength=800e-9, fwhm=12e-15, energy=2e-9)
     updated = source.with_input(replacement)
     assert updated.configuration["pulse"] is replacement
@@ -364,7 +364,7 @@ def test_input_update_replaces_or_removes_constructor_pulse_recipe(source):
 
 
 def test_phi_reuse_refuses_a_changed_index_by_name(source, caplog):
-    from solprop.driver.simulation import _same_operator_function  # noqa: PLC0415
+    from solprop.driver.mixtures import _same_operator_function  # noqa: PLC0415
 
     original = source.translate()
     material = source.modes[0].mixture
@@ -375,7 +375,7 @@ def test_phi_reuse_refuses_a_changed_index_by_name(source, caplog):
         source.initial,
         settings=replace(source.settings, prefactor_index=1.0),
     )
-    with caplog.at_level(logging.INFO, logger="solprop.driver.simulation"):
+    with caplog.at_level(logging.INFO, logger="solprop.driver.mixtures"):
         assert (
             _same_operator_function(
                 source,

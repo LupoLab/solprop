@@ -1,0 +1,800 @@
+// SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// The far-field pass of solprop SEP 23 against a straightforward serial host reduction
+// of the same definitions, measured by the medium's axial flux (solprop SEP 34): the
+// beam spectrum, the absorbed channels, the regions, the apertures' collected and
+// on-axis spectra and the on-axis spectrum, on a plane and on a line of several blocks,
+// on field and envelope grids. The two sum the same terms in different associations, so
+// they agree within a rounding bound fixed before running (solprop SEP 25), never by
+// bits; hard-edge membership is shared.
+
+#include "bounds.hpp"
+#include "solprop_native/problem/problem.hpp"
+#include "solprop_native/response/far_field.hpp"
+#include "solprop_native/runtime/execution.hpp"
+
+#include <Kokkos_Core.hpp>
+#include <gtest/gtest.h>
+
+#include <array>
+#include <cmath>
+#include <complex>
+#include <cstddef>
+#include <cstdint>
+#include <initializer_list>
+#include <limits>
+#include <numbers>
+#include <random>
+#include <stdexcept>
+#include <utility>
+#include <vector>
+
+namespace {
+
+namespace native = solprop_native;
+using native::Complex;
+using solprop_native::test::gamma;
+
+constexpr double kEpsilon = std::numeric_limits<double>::epsilon();
+constexpr double kDistance = 0.25;
+constexpr std::uint64_t kEvery = native::far_field_flags;
+constexpr int kPerRow = -1;
+
+struct Case {
+  native::Problem problem;
+  std::vector<Complex> field, on_axis, square, square_low;
+  std::vector<double> weights, transverse, transverse_low, spectral_rate, user_rate,
+      transverse_rate, omega;
+  std::vector<unsigned char> active;
+  std::vector<double> apertures, regions;
+  double evanescent{2e4};
+};
+
+// A transverse grid of spacing `dk` rad/m in FFT order, `count` samples.
+std::vector<double> fft_axis(const std::size_t count, const double dk) {
+  std::vector<double> axis(count);
+  for (std::size_t index = 0; index < count; ++index) {
+    const auto signed_index = index < (count + 1) / 2 ? static_cast<double>(index)
+                                                      : static_cast<double>(index) -
+                                                            static_cast<double>(count);
+    axis[index] = dk * signed_index;
+  }
+  return axis;
+}
+
+Case make_case(const std::size_t n_x, const std::size_t n_y, const std::size_t n_pol,
+               const bool envelope, const int profile) {
+  Case data;
+  auto& problem = data.problem;
+  const std::size_t n = 9;
+  problem.spatial.n_x = n_x;
+  problem.spatial.n_y = n_y;
+  problem.dims.n_omega = n;
+  problem.dims.n_t = envelope ? n : 2 * (n - 1);
+  problem.dims.n_pol_state = n_pol;
+  problem.dims.n_modes = n_x * n_y;
+  problem.grid.dt = 1.5e-15;
+  problem.dims.family =
+      envelope ? native::FieldFamily::envelope : native::FieldFamily::field_real;
+  problem.spatial.k_x = fft_axis(n_x, n_y > 1 ? 1.5e6 : 1.0e5);
+  problem.spatial.k_y = n_y > 1 ? fft_axis(n_y, 1.2e6) : std::vector<double>{0.0};
+  const std::size_t columns = n_x * n_y;
+  // NOLINTNEXTLINE(bugprone-random-generator-seed): a fixed seed keeps the test reproducible
+  std::mt19937_64 random(7);
+  std::normal_distribution<double> normal;
+  data.field.resize(columns * n_pol * n);
+  for (auto& value : data.field)
+    value = Complex(1e3 * normal(random), 1e3 * normal(random));
+  for (std::size_t column = 0; column < columns; ++column) {
+    data.weights.push_back(1e-9 * (1.0 + 0.01 * static_cast<double>(column % 7)));
+    const double phase = 0.3 * static_cast<double>(column);
+    data.on_axis.emplace_back(std::cos(phase) / static_cast<double>(columns),
+                              std::sin(phase) / static_cast<double>(columns));
+    const double kx = problem.spatial.k_x[column % n_x];
+    const double ky = problem.spatial.k_y[column / n_x];
+    data.transverse.push_back(kx * kx + ky * ky);
+    data.transverse_low.push_back(1e-3 * static_cast<double>(column % 3));
+    data.transverse_rate.push_back(column % 2 == 0 ? 0.0 : 3.0);
+  }
+  for (std::size_t bin = 0; bin < n; ++bin) {
+    // Frequencies from zero (a field grid's first bin) upwards, some bins inactive
+    // and a medium of complex index whose wavenumber is 0.4 omega / c, so every
+    // channel and the zero-frequency rule take part and the outer columns are
+    // evanescent; the images in the mask plane follow the vacuum mapping.
+    const double omega = envelope ? 2.0e15 + 1e14 * static_cast<double>(bin)
+                                  : 2.5e14 * static_cast<double>(bin);
+    data.omega.push_back(omega);
+    const double k = 0.4 * omega / native::far_field_speed_of_light;
+    data.square.emplace_back(k * k, 1e-6 * k * k);
+    data.square_low.emplace_back(1e-4 * static_cast<double>(bin), 0.0);
+    // The collar's 5 at the last bin, and the user's rate where it stands alone and,
+    // on the last bin, within the total.
+    data.user_rate.push_back(bin % 2 == 0 ? 0.5 : 0.0);
+    data.spectral_rate.push_back(data.user_rate.back() + (bin + 1 == n ? 5.0 : 0.0));
+    data.active.push_back(bin == 1 ? 0U : 1U);
+  }
+  // Three apertures: code `profile`, the scale row z c / omega (zero at omega <= 0).
+  const double centres[3][2] = {{0.0, 0.0}, {0.056, -0.045}, {-0.056, 0.045}};
+  const double diameters[3] = {0.12, 0.06, 0.09};
+  for (std::size_t index = 0; index < 3; ++index) {
+    const double half_width = diameters[index] / 2.0;
+    const double width = diameters[index] / 8.0;
+    const double edge = profile == 3 ? 4.0 : profile == 0 ? 0.0 : width;
+    const double inverse = profile == 1 || profile == 2 ? 1.0 / width : 0.0;
+    const double y = n_y > 1 ? centres[index][1] : 0.0;
+    for (const double value :
+         {centres[index][0], y, half_width, 0.0, 1.0, 1.0, inverse, edge,
+          static_cast<double>(profile), static_cast<double>(native::far_field_circle),
+          kDistance})
+      data.apertures.push_back(value);
+    for (std::size_t bin = 0; bin < n; ++bin)
+      data.apertures.push_back(data.omega[bin] > 0.0
+                                   ? kDistance * native::far_field_speed_of_light /
+                                         data.omega[bin]
+                                   : 0.0);
+  }
+  const double inf = std::numeric_limits<double>::infinity();
+  data.regions = {-inf, 0.0, -inf, 0.0, 0.0, inf, -inf, 0.0,
+                  -inf, 0.0, 0.0,  inf, 0.0, inf, 0.0,  inf};
+  return data;
+}
+
+template <class T> auto device(const char* label, const std::vector<T>& values) {
+  Kokkos::View<T*, native::Layout, native::MemorySpace> view(label, values.size());
+  const auto host = Kokkos::create_mirror_view(view);
+  for (std::size_t index = 0; index < values.size(); ++index)
+    host(index) = values[index];
+  Kokkos::deep_copy(view, host);
+  return view;
+}
+
+// One row's table entry, by its constant.
+double& constant_of(Case& data, const std::size_t index,
+                    const native::FarFieldConstant constant) {
+  const auto row = native::far_field_aperture_constants + data.problem.dims.n_omega;
+  return data.apertures[index * row + constant];
+}
+
+std::vector<double> run(Case& data, const std::uint64_t flags, const int profile,
+                        const int exponent) {
+  const auto n = data.problem.dims.n_omega;
+  // Every row takes `profile`; a test of mixed rows passes kPerRow and sets its own.
+  std::vector<double> apertures = data.apertures;
+  if (profile != kPerRow) {
+    const auto row = native::far_field_aperture_constants + n;
+    for (std::size_t index = 0; index * row < apertures.size(); ++index)
+      apertures[index * row + native::far_field_profile] = static_cast<double>(profile);
+  }
+  const auto rows = data.problem.spatial.n_x * data.problem.spatial.n_y *
+                    data.problem.dims.n_pol_state;
+  native::FarFieldPass::ComplexView2 field("test.field", rows, n);
+  const auto host = Kokkos::create_mirror_view(field);
+  for (std::size_t row = 0; row < rows; ++row)
+    for (std::size_t bin = 0; bin < n; ++bin)
+      host(row, bin) = data.field[row * n + bin];
+  Kokkos::deep_copy(field, host);
+  native::FarFieldPass pass(data.problem, native::ExecutionSpace{});
+  const native::FarFieldPass::Inputs inputs{
+      .weights = device("test.weights", data.weights),
+      .on_axis = device("test.on_axis", data.on_axis),
+      .square = device("test.square", data.square),
+      .square_low = device("test.square_low", data.square_low),
+      .transverse = device("test.transverse", data.transverse),
+      .transverse_low = device("test.transverse_low", data.transverse_low),
+      .spectral_rate = device("test.spectral_rate", data.spectral_rate),
+      .user_rate = device("test.user_rate", data.user_rate),
+      .transverse_rate = device("test.transverse_rate", data.transverse_rate),
+      .omega = device("test.omega", data.omega),
+      .active = device("test.active", data.active),
+      .evanescent = data.evanescent};
+  auto values = pass.run(flags, apertures, exponent, data.regions, 0.5, field, inputs);
+  return values;
+}
+
+// One row's weight at one column and bin, by the shared element functions: `profile`,
+// or the row's own for kPerRow. Each shape's formula is checked against its closed form
+// in TheShapesAreTheirFormulas.
+double host_weight(const Case& data, const std::size_t index, const double kx,
+                   const double ky, const std::size_t bin, const int profile) {
+  const auto row = native::far_field_aperture_constants + data.problem.dims.n_omega;
+  const double* constants = &data.apertures[index * row];
+  const double scale = constants[native::far_field_aperture_constants + bin];
+  const double centre_x = constants[native::far_field_centre_x];
+  const double centre_y = constants[native::far_field_centre_y];
+  const double origin = native::far_field_radius(scale, kx, ky, 0.0, 0.0);
+  const double distance = constants[native::far_field_distance];
+  const int code = profile == kPerRow
+                       ? static_cast<int>(constants[native::far_field_profile])
+                       : profile;
+  const int shape = static_cast<int>(constants[native::far_field_shape]);
+  if (shape == native::far_field_circle)
+    return native::far_field_weight(
+        native::far_field_radius(scale, kx, ky, centre_x, centre_y), origin, scale,
+        constants[native::far_field_half_width],
+        constants[native::far_field_inverse_width], constants[native::far_field_edge],
+        distance, code);
+  if (scale <= 0.0 || origin >= distance)
+    return 0.0;
+  return native::far_field_shaped_weight(
+      native::far_field_offset(scale, kx, centre_x),
+      native::far_field_offset(scale, ky, centre_y),
+      native::FarFieldOutline{.half_width = constants[native::far_field_half_width],
+                              .half_height = constants[native::far_field_half_height],
+                              .stretch_x = constants[native::far_field_stretch_x],
+                              .stretch_y = constants[native::far_field_stretch_y],
+                              .inverse_width =
+                                  constants[native::far_field_inverse_width],
+                              .edge = constants[native::far_field_edge]},
+      shape, code);
+}
+
+// The serial host reduction: each definition written out directly, every sum over
+// columns in one plain loop. `magnitude` forms the same sums of |terms|, the scale of
+// the rounding bound.
+std::vector<double> reference(const Case& data, const int profile, const int exponent,
+                              const bool magnitude) {
+  const auto& problem = data.problem;
+  const auto n = problem.dims.n_omega;
+  const auto n_pol = problem.dims.n_pol_state;
+  const auto columns = problem.spatial.n_x * problem.spatial.n_y;
+  const bool envelope = problem.dims.family == native::FieldFamily::envelope;
+  const double dt = problem.grid.dt;
+  const double density =
+      envelope ? dt * dt / (2.0 * std::numbers::pi) : 2.0 * dt * dt / std::numbers::pi;
+  const std::size_t row = native::far_field_aperture_constants + n;
+  const std::size_t n_apertures = data.apertures.size() / row;
+  const std::size_t n_regions = data.regions.size() / 4;
+  std::vector<double> beam(n);
+  std::vector<double> absorbed(native::far_field_absorbed_channels);
+  std::vector<double> axis(n);
+  std::vector<std::vector<double>> regions(n_regions, std::vector<double>(n));
+  std::vector<std::vector<double>> collected(n_apertures, std::vector<double>(n));
+  std::vector<std::vector<double>> through(n_apertures, std::vector<double>(n));
+  for (std::size_t bin = 0; bin < n; ++bin) {
+    // Each amplitude and its magnetic closure, the same sum with conj(eta) applied.
+    std::vector<std::complex<double>> amplitude(n_pol);
+    std::vector<std::complex<double>> axial(n_apertures * n_pol);
+    std::vector<std::complex<double>> closed(n_pol);
+    std::vector<std::complex<double>> closed_axial(n_apertures * n_pol);
+    for (std::size_t column = 0; column < columns; ++column) {
+      const double kx = problem.spatial.k_x[column % problem.spatial.n_x];
+      const double ky = problem.spatial.k_y[column / problem.spatial.n_x];
+      double power = 0.0;
+      for (std::size_t pol = 0; pol < n_pol; ++pol)
+        power += std::norm(
+            std::complex<double>(data.field[(column * n_pol + pol) * n + bin].real(),
+                                 data.field[(column * n_pol + pol) * n + bin].imag()));
+      const std::complex<double> longitudinal =
+          (std::complex<double>(data.square[bin].real(), data.square[bin].imag()) -
+           data.transverse[column]) +
+          (std::complex<double>(data.square_low[bin].real(),
+                                data.square_low[bin].imag()) -
+           data.transverse_low[column]);
+      const auto root = std::sqrt(longitudinal);
+      const bool propagating = longitudinal.real() > 0.0;
+      const double attenuation =
+          propagating ? root.imag() : std::min(std::abs(root.imag()), data.evanescent);
+      const bool live = data.active[bin] != 0U;
+      // The conjugate admittance conj(c k_z / omega) on the forward power ports.
+      const std::complex<double> closing =
+          live && propagating && data.omega[bin] > 0.0
+              ? std::conj(native::far_field_speed_of_light * root / data.omega[bin])
+              : std::complex<double>{};
+      const double weighted = data.weights[column] * power * closing.real();
+      beam[bin] += weighted;
+      const double energy = (envelope || bin == 0 || bin + 1 == n ? 1.0 : 4.0) * dt /
+                            static_cast<double>(problem.dims.n_t);
+      absorbed[0] +=
+          energy * weighted * (data.spectral_rate[bin] - data.user_rate[bin]);
+      absorbed[4] += energy * weighted * data.user_rate[bin];
+      if (live) {
+        absorbed[1] += energy * weighted * data.transverse_rate[column];
+        absorbed[propagating ? 3 : 2] +=
+            energy * weighted * 2.0 * (magnitude ? std::abs(attenuation) : attenuation);
+      }
+      for (std::size_t region = 0; region < n_regions; ++region)
+        if (native::far_field_member(
+                kx, ky, data.regions[4 * region], data.regions[4 * region + 1],
+                data.regions[4 * region + 2], data.regions[4 * region + 3]))
+          regions[region][bin] += weighted;
+      const std::complex<double> alpha(data.on_axis[column].real(),
+                                       data.on_axis[column].imag());
+      for (std::size_t pol = 0; pol < n_pol; ++pol) {
+        const auto& stored = data.field[(column * n_pol + pol) * n + bin];
+        const std::complex<double> value(stored.real(), stored.imag());
+        amplitude[pol] += magnitude ? std::abs(alpha) * std::abs(value) : alpha * value;
+        closed[pol] += magnitude ? std::abs(alpha) * std::abs(closing) * std::abs(value)
+                                 : alpha * (closing * value);
+      }
+      for (std::size_t index = 0; index < n_apertures; ++index) {
+        const double weight = host_weight(data, index, kx, ky, bin, profile);
+        collected[index][bin] += weighted * (exponent == 1 ? weight : weight * weight);
+        for (std::size_t pol = 0; pol < n_pol; ++pol) {
+          const auto& stored = data.field[(column * n_pol + pol) * n + bin];
+          const std::complex<double> value(stored.real(), stored.imag());
+          axial[index * n_pol + pol] += magnitude
+                                            ? std::abs(alpha) * weight * std::abs(value)
+                                            : alpha * (weight * value);
+          closed_axial[index * n_pol + pol] +=
+              magnitude ? std::abs(alpha) * weight * std::abs(closing) * std::abs(value)
+                        : alpha * (closing * (weight * value));
+        }
+      }
+    }
+    // Re(A conj(G)): the amplitude's pairing with its closure.
+    for (std::size_t pol = 0; pol < n_pol; ++pol)
+      axis[bin] += density * (amplitude[pol] * std::conj(closed[pol])).real();
+    for (std::size_t index = 0; index < n_apertures; ++index)
+      for (std::size_t pol = 0; pol < n_pol; ++pol)
+        through[index][bin] += density * (axial[index * n_pol + pol] *
+                                          std::conj(closed_axial[index * n_pol + pol]))
+                                             .real();
+  }
+  std::vector<double> packed;
+  packed.reserve(beam.size());
+  for (const double value : beam)
+    packed.push_back(0.5 * density * value);
+  for (const double value : absorbed)
+    packed.push_back(0.5 * value);
+  for (const auto& rows : {regions, collected})
+    for (const auto& one : rows)
+      for (const double value : one)
+        packed.push_back(0.5 * density * value);
+  for (const auto& one : through)
+    for (const double value : one)
+      packed.push_back(0.5 * value);
+  for (const double value : axis)
+    packed.push_back(0.5 * value);
+  return packed;
+}
+
+// Each value is a sum over the columns (and bands) of terms of up to eight rounded
+// operations; a squared modulus of a complex sum at most triples the relative bound,
+// and an aperture's weight carries a transcendental routine's absolute error of a few
+// ulps of one: 3 gamma(8 m + 64) of the sum of the magnitudes, plus 8 eps of it.
+void expect_matches(const std::vector<double>& actual,
+                    const std::vector<double>& expected,
+                    const std::vector<double>& magnitude, const std::size_t columns) {
+  ASSERT_EQ(actual.size(), expected.size());
+  const double relative = 3.0 * gamma(8 * columns + 64) + 8.0 * kEpsilon;
+  for (std::size_t index = 0; index < actual.size(); ++index) {
+    const double bound = relative * std::abs(magnitude[index]);
+    // A sum of no terms (a hole no image reaches at a bin) is an exact zero.
+    if (magnitude[index] == 0.0) {
+      EXPECT_EQ(actual[index], 0.0) << index;
+      continue;
+    }
+    EXPECT_LE(std::abs(actual[index] - expected[index]), bound) << index;
+  }
+}
+
+struct Variant {
+  std::size_t n_x, n_y, n_pol;
+  bool envelope;
+  int profile, exponent;
+};
+
+class FarFieldPassAgainstHost : public ::testing::TestWithParam<Variant> {};
+
+TEST_P(FarFieldPassAgainstHost, EveryStatisticMatchesTheSerialReduction) {
+  const auto variant = GetParam();
+  auto data = make_case(variant.n_x, variant.n_y, variant.n_pol, variant.envelope,
+                        variant.profile);
+  const auto actual = run(data, kEvery, variant.profile, variant.exponent);
+  const auto expected = reference(data, variant.profile, variant.exponent, false);
+  const auto magnitude = reference(data, variant.profile, variant.exponent, true);
+  expect_matches(actual, expected, magnitude, variant.n_x * variant.n_y);
+  // Every channel but the evanescent one, which carries no axial flux, and every
+  // aperture take part on this fixture.
+  const auto n = data.problem.dims.n_omega;
+  for (const std::size_t channel : {0U, 1U, 3U, 4U})
+    EXPECT_NE(actual[n + channel], 0.0) << channel;
+  EXPECT_EQ(actual[n + 2], 0.0);
+  // On a line the boxes excluding k_y = 0 select nothing (SEP 23 section 4.10).
+  for (std::size_t row = variant.n_y == 1 ? 2 : 0; row < 4 + 3; ++row) {
+    double total = 0.0;
+    for (std::size_t bin = 0; bin < n; ++bin)
+      total += actual[n + native::far_field_absorbed_channels + row * n + bin];
+    EXPECT_GT(total, 0.0) << row;
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(Grids, FarFieldPassAgainstHost,
+                         ::testing::Values(Variant{5, 4, 1, true, 1, 2},
+                                           Variant{5, 4, 2, false, 2, 1},
+                                           Variant{6, 3, 1, false, 3, 2},
+                                           Variant{5, 4, 2, true, 0, 2},
+                                           Variant{130, 1, 1, true, 2, 1}));
+
+TEST(FarFieldPass, EveryRadiusPathMatchesTheSerialReduction) {
+  // One distance and centre (both radii shared), one distance (the origin's shared)
+  // and a second distance (neither): each against the host reduction.
+  for (const int path : {0, 1, 2}) {
+    auto data = make_case(5, 4, 2, true, 1);
+    const std::size_t row =
+        native::far_field_aperture_constants + data.problem.dims.n_omega;
+    for (std::size_t index = 1; index < 3; ++index) {
+      if (path == 0) {
+        data.apertures[index * row + native::far_field_centre_x] =
+            data.apertures[native::far_field_centre_x];
+        data.apertures[index * row + native::far_field_centre_y] =
+            data.apertures[native::far_field_centre_y];
+      }
+      if (path == 2 && index == 2) {
+        data.apertures[index * row + native::far_field_distance] = 0.3;
+        for (std::size_t bin = 0; bin < data.problem.dims.n_omega; ++bin)
+          data.apertures[index * row + native::far_field_aperture_constants + bin] =
+              0.3 * native::far_field_speed_of_light / data.omega[bin];
+      }
+    }
+    const auto actual = run(data, kEvery, 1, 1);
+    expect_matches(actual, reference(data, 1, 1, false), reference(data, 1, 1, true),
+                   20);
+  }
+}
+
+TEST(FarFieldPass, MixedShapesAndProfilesMatchTheSerialReduction) {
+  // A hard half-plane and its complement beside a smooth rectangle and an apodised
+  // ellipse, one distance and then two, so the shaped branch runs under both origins.
+  for (const bool one_distance : {true, false}) {
+    auto data = make_case(5, 4, 2, true, 1);
+    const std::size_t n = data.problem.dims.n_omega;
+    const std::size_t row = native::far_field_aperture_constants + n;
+    const auto scale_row =
+        std::vector<double>(data.apertures.begin() +
+                                static_cast<long>(native::far_field_aperture_constants),
+                            data.apertures.begin() + static_cast<long>(row));
+    const auto set_row = [&](const std::size_t index, const int shape, const int code,
+                             const double half_width, const double half_height,
+                             const double stretch_x, const double stretch_y,
+                             const double edge) {
+      constant_of(data, index, native::far_field_shape) = shape;
+      constant_of(data, index, native::far_field_profile) = code;
+      constant_of(data, index, native::far_field_half_width) = half_width;
+      constant_of(data, index, native::far_field_half_height) = half_height;
+      constant_of(data, index, native::far_field_stretch_x) = stretch_x;
+      constant_of(data, index, native::far_field_stretch_y) = stretch_y;
+      constant_of(data, index, native::far_field_edge) = edge;
+      constant_of(data, index, native::far_field_inverse_width) =
+          code == 1 || code == 2 ? 1.0 / edge : 0.0;
+    };
+    for (std::size_t index = 0; index < 3; ++index)
+      for (const auto constant :
+           {native::far_field_centre_x, native::far_field_centre_y})
+        constant_of(data, index, constant) = 0.01;
+    constant_of(data, 0, native::far_field_centre_y) = 0.0;
+    set_row(0, native::far_field_half_plane_x_ge, 0, 0.0, 0.0, 1.0, 1.0, 0.0);
+    set_row(1, native::far_field_rectangle, 2, 0.06, 0.03, 1.0, 1.0, 0.01);
+    set_row(2, native::far_field_ellipse, 1, std::sqrt(0.06 * 0.03),
+            std::sqrt(0.03 / 0.06), std::sqrt(0.06 / 0.03), 1.0, 0.01);
+    constant_of(data, 2, native::far_field_half_height) = 0.0;
+    constant_of(data, 2, native::far_field_stretch_x) = std::sqrt(0.03 / 0.06);
+    constant_of(data, 2, native::far_field_stretch_y) = std::sqrt(0.06 / 0.03);
+    if (!one_distance) {
+      constant_of(data, 1, native::far_field_distance) = 0.3;
+      for (std::size_t bin = 0; bin < n; ++bin)
+        data.apertures[row + native::far_field_aperture_constants + bin] =
+            scale_row[bin] * (0.3 / kDistance);
+    }
+    const auto actual = run(data, kEvery, kPerRow, 2);
+    expect_matches(actual, reference(data, kPerRow, 2, false),
+                   reference(data, kPerRow, 2, true), 20);
+  }
+}
+
+TEST(FarFieldPass, AHalfPlaneAndItsComplementTileTheColumns) {
+  // In a band whose outer columns the map still reaches, both rows at one edge sum to
+  // the terms of every column inside the disc: exactly one row holds each, by one sign.
+  auto data = make_case(5, 4, 1, true, 0);
+  const std::size_t n = data.problem.dims.n_omega;
+  for (const auto shape_pair : {std::array{native::far_field_half_plane_x_ge,
+                                           native::far_field_half_plane_x_lt},
+                                std::array{native::far_field_half_plane_y_ge,
+                                           native::far_field_half_plane_y_lt}}) {
+    auto rows = data;
+    rows.apertures.resize(2 * (native::far_field_aperture_constants + n));
+    for (std::size_t index = 0; index < 2; ++index) {
+      constant_of(rows, index, native::far_field_shape) = shape_pair[index];
+      constant_of(rows, index, native::far_field_half_width) = 0.0;
+      constant_of(rows, index, native::far_field_centre_x) =
+          shape_pair[0] == native::far_field_half_plane_x_ge ? 0.02 : 0.0;
+      constant_of(rows, index, native::far_field_centre_y) =
+          shape_pair[0] == native::far_field_half_plane_x_ge ? 0.0 : -0.02;
+    }
+    const auto columns = rows.problem.spatial.n_x * rows.problem.spatial.n_y;
+    for (std::size_t column = 0; column < columns; ++column)
+      for (std::size_t bin = 0; bin < n; ++bin) {
+        const double kx = rows.problem.spatial.k_x[column % rows.problem.spatial.n_x];
+        const double ky = rows.problem.spatial.k_y[column / rows.problem.spatial.n_x];
+        const double first = host_weight(rows, 0, kx, ky, bin, 0);
+        const double second = host_weight(rows, 1, kx, ky, bin, 0);
+        const double scale = rows.apertures[native::far_field_aperture_constants + bin];
+        const bool reached = scale > 0.0 && native::far_field_radius(scale, kx, ky, 0.0,
+                                                                     0.0) < kDistance;
+        EXPECT_EQ(first + second, reached ? 1.0 : 0.0);
+        EXPECT_EQ(first * second, 0.0);
+      }
+  }
+}
+
+TEST(FarFieldPass, TheShapesAreTheirFormulas) {
+  const auto outline = [](const double half_width, const double half_height,
+                          const double stretch_x, const double stretch_y,
+                          const double width) {
+    return native::FarFieldOutline{.half_width = half_width,
+                                   .half_height = half_height,
+                                   .stretch_x = stretch_x,
+                                   .stretch_y = stretch_y,
+                                   .inverse_width = width > 0.0 ? 1.0 / width : 0.0,
+                                   .edge = width};
+  };
+  // The offset is X - x, so x >= X reads across <= 0, whichever side is asked for.
+  EXPECT_EQ(native::far_field_offset(2.0, -3.0, 1.0), -5.0);
+  const auto plane = outline(0.0, 0.0, 1.0, 1.0, 0.0);
+  // Named in full: nvcc can't deduce a list whose later members are bare braces.
+  for (const auto& [across, kept] :
+       std::initializer_list<std::pair<double, double>>{{-1.0, 1.0},
+                                                        {-0.0, 1.0},
+                                                        {0.0, 1.0},
+                                                        {std::nextafter(0.0, 1.0), 0.0},
+                                                        {1.0, 0.0}}) {
+    SCOPED_TRACE(across);
+    EXPECT_EQ(native::far_field_shaped_weight(across, 9.0, plane,
+                                              native::far_field_half_plane_x_ge, 0),
+              kept);
+    EXPECT_EQ(native::far_field_shaped_weight(across, 9.0, plane,
+                                              native::far_field_half_plane_x_lt, 0),
+              1.0 - kept);
+    EXPECT_EQ(native::far_field_shaped_weight(9.0, across, plane,
+                                              native::far_field_half_plane_y_ge, 0),
+              kept);
+    EXPECT_EQ(native::far_field_shaped_weight(9.0, across, plane,
+                                              native::far_field_half_plane_y_lt, 0),
+              1.0 - kept);
+  }
+  // A smooth half-plane's two sides sum to one on the raised cosine's edge, and each is
+  // the edge's formula, with its compact support exact.
+  const auto soft = outline(0.0, 0.0, 1.0, 1.0, 0.125);
+  EXPECT_EQ(native::far_field_shaped_weight(-0.125, 0.0, soft,
+                                            native::far_field_half_plane_x_ge, 2),
+            1.0);
+  EXPECT_EQ(native::far_field_shaped_weight(0.125, 0.0, soft,
+                                            native::far_field_half_plane_x_ge, 2),
+            0.0);
+  EXPECT_NEAR(native::far_field_shaped_weight(0.0, 0.0, soft,
+                                              native::far_field_half_plane_x_ge, 2),
+              0.5, 2 * kEpsilon);
+  EXPECT_NEAR(native::far_field_shaped_weight(0.05, 0.0, soft,
+                                              native::far_field_half_plane_x_ge, 1) +
+                  native::far_field_shaped_weight(0.05, 0.0, soft,
+                                                  native::far_field_half_plane_x_lt, 1),
+              1.0, 2 * kEpsilon);
+  // A closed rectangle, the product of two edges of |offset|.
+  const auto box = outline(2.0, 1.0, 1.0, 1.0, 0.0);
+  EXPECT_EQ(
+      native::far_field_shaped_weight(2.0, -1.0, box, native::far_field_rectangle, 0),
+      1.0);
+  EXPECT_EQ(native::far_field_shaped_weight(std::nextafter(2.0, 3.0), 0.0, box,
+                                            native::far_field_rectangle, 0),
+            0.0);
+  EXPECT_EQ(native::far_field_shaped_weight(0.0, std::nextafter(-1.0, -2.0), box,
+                                            native::far_field_rectangle, 0),
+            0.0);
+  const auto rounded = outline(2.0, 1.0, 1.0, 1.0, 0.25);
+  EXPECT_NEAR(native::far_field_shaped_weight(2.0, 1.0, rounded,
+                                              native::far_field_rectangle, 1),
+              0.25, 4 * kEpsilon);
+  EXPECT_NEAR(native::far_field_shaped_weight(2.0, 1.0,
+                                              outline(2.0, 1.0, 1.0, 1.0, 4.0),
+                                              native::far_field_rectangle, 3),
+              std::exp(-2.0), 8 * kEpsilon);
+  // An ellipse of semi-axes 4 and 1 is a circle of radius 2 under stretches 1/2 and 2.
+  const auto oval = outline(2.0, 0.0, 0.5, 2.0, 0.0);
+  EXPECT_EQ(native::far_field_scaled_radius(4.0, 0.0, 0.5, 2.0), 2.0);
+  EXPECT_EQ(native::far_field_scaled_radius(0.0, 1.0, 0.5, 2.0), 2.0);
+  EXPECT_EQ(
+      native::far_field_shaped_weight(4.0, 0.0, oval, native::far_field_ellipse, 0),
+      1.0);
+  EXPECT_EQ(native::far_field_shaped_weight(0.0, std::nextafter(1.0, 2.0), oval,
+                                            native::far_field_ellipse, 0),
+            0.0);
+  EXPECT_NEAR(native::far_field_shaped_weight(4.0, 0.0,
+                                              outline(2.0, 0.0, 0.5, 2.0, 4.0),
+                                              native::far_field_ellipse, 3),
+              std::exp(-1.0), 4 * kEpsilon);
+}
+
+TEST(FarFieldPass, APartialRequestPacksOnlyItsRows) {
+  auto data = make_case(5, 4, 1, true, 1);
+  const auto every = run(data, kEvery, 1, 2);
+  const auto n = data.problem.dims.n_omega;
+  // The beam spectrum and the apertures' on-axis spectra alone: the same values as
+  // the full request's rows, within the bound (another slot count, the same sums).
+  const auto partial =
+      run(data, native::far_field_beam | native::far_field_amplitude, 1, 2);
+  ASSERT_EQ(partial.size(), 4 * n);
+  const auto magnitude = reference(data, 1, 2, true);
+  const double relative = 3.0 * gamma(8 * 20 + 64) + 8.0 * kEpsilon;
+  for (std::size_t bin = 0; bin < n; ++bin) {
+    EXPECT_LE(std::abs(partial[bin] - every[bin]), relative * magnitude[bin]);
+    for (std::size_t index = 0; index < 3; ++index) {
+      const auto full =
+          n + native::far_field_absorbed_channels + (4 + 3) * n + index * n + bin;
+      EXPECT_LE(std::abs(partial[n + index * n + bin] - every[full]),
+                relative * magnitude[full]);
+    }
+  }
+  // A region request without regions forms nothing.
+  data.regions.clear();
+  EXPECT_TRUE(run(data, native::far_field_regions, 1, 2).empty());
+}
+
+TEST(FarFieldPass, DeclaredAperturesCostNothingUnlessAsked) {
+  // A periodic beam spectrum or region sample with apertures declared: the aperture
+  // loop is gated on the layout's aperture slot, so the rows are those of a request
+  // that carries no apertures, within the bound (the same sums, no aperture term).
+  auto data = make_case(5, 4, 2, true, 2);
+  const std::uint64_t flags = native::far_field_beam | native::far_field_regions |
+                              native::far_field_absorbed | native::far_field_axis;
+  const auto declared = run(data, flags, 2, 1);
+  const auto magnitude = reference(data, 2, 1, true);
+  data.apertures.clear();
+  const auto bare = run(data, flags, 2, 1);
+  ASSERT_EQ(declared.size(), bare.size());
+  const auto n = data.problem.dims.n_omega;
+  constexpr auto absorbed = native::far_field_absorbed_channels;
+  ASSERT_EQ(bare.size(), (1 + 4 + 1) * n + absorbed);
+  const double relative = 3.0 * gamma(8 * 20 + 64) + 8.0 * kEpsilon;
+  for (std::size_t index = 0; index < bare.size(); ++index) {
+    // Packed rows: the beam, the absorbed powers, the regions, the axis; the full
+    // request also packs three rows of each aperture statistic before the axis.
+    const std::size_t full = index < 5 * n + absorbed ? index : index + (3 + 3) * n;
+    EXPECT_LE(std::abs(declared[index] - bare[index]), relative * magnitude[full])
+        << index;
+  }
+}
+
+TEST(FarFieldPass, TheLayoutAndBandsAreSolpropsOwn) {
+  // solprop's far_field_layout: every quantity, three apertures, four regions, two
+  // polarisations.
+  const auto layout = native::far_field_layout(kEvery, 3, 4, 2);
+  // Each amplitude holds its electric sum and its magnetic closure, 4 n_pol slots.
+  EXPECT_EQ(layout.beam, 0);
+  EXPECT_EQ(layout.absorbed, 1);
+  EXPECT_EQ(layout.regions, 6);
+  EXPECT_EQ(layout.apertures, 10);
+  EXPECT_EQ(layout.stride, 9);
+  EXPECT_EQ(layout.collected, 0);
+  EXPECT_EQ(layout.amplitude, 1);
+  EXPECT_EQ(layout.axis, 37);
+  EXPECT_EQ(layout.n_slots, 45U);
+  const auto alone = native::far_field_layout(native::far_field_amplitude, 2, 0, 1);
+  EXPECT_EQ(alone.apertures, 0);
+  EXPECT_EQ(alone.stride, 4);
+  EXPECT_EQ(alone.collected, -1);
+  EXPECT_EQ(alone.amplitude, 0);
+  EXPECT_EQ(native::far_field_layout(native::far_field_regions, 0, 0, 1).n_slots, 0U);
+  // solprop's far_field_bands: a row per band on a plane, 64-column blocks on a line,
+  // the last block short.
+  EXPECT_EQ(native::far_field_band_count(5, 7, 3, 10), 7U);
+  EXPECT_EQ(native::far_field_band_count(130, 1, 2, 8), 3U);
+  EXPECT_EQ(native::far_field_band_edge(1, 3, 130, 1), 64U);
+  EXPECT_EQ(native::far_field_band_edge(3, 3, 130, 1), 130U);
+  EXPECT_EQ(native::far_field_band_edge(2, 7, 5, 7), 10U);
+  // The budget caps the bands: 512 rows of 4096 slots by 64 bins admit 64.
+  EXPECT_EQ(native::far_field_band_count(8, 512, 4096, 64), 64U);
+  EXPECT_EQ(native::far_field_band_edge(1, 64, 8, 512), 64U);
+  EXPECT_THROW(static_cast<void>(native::far_field_band_count(5, 7, 0, 10)),
+               std::invalid_argument);
+}
+
+TEST(FarFieldPass, TheElementFunctionsHoldTheirContracts) {
+  // The radius as written; the weight's zeros; the raised cosine's compact support.
+  const double radius = native::far_field_radius(2.0, 3.0, -1.0, 0.5, 0.25);
+  EXPECT_EQ(radius, std::sqrt(6.5 * 6.5 + 1.75 * 1.75));
+  EXPECT_EQ(native::far_field_weight(0.5, 0.0, 0.0, 1.0, 8.0, 0.0, 10.0, 1), 0.0);
+  EXPECT_EQ(native::far_field_weight(0.5, 10.0, 1.0, 1.0, 8.0, 0.0, 10.0, 1), 0.0);
+  EXPECT_EQ(native::far_field_weight(1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 10.0, 0), 1.0);
+  EXPECT_EQ(native::far_field_weight(std::nextafter(1.0, 2.0), 0.0, 1.0, 1.0, 0.0, 0.0,
+                                     10.0, 0),
+            0.0);
+  EXPECT_EQ(native::far_field_weight(0.875, 0.0, 1.0, 1.0, 8.0, 0.0, 10.0, 2), 1.0);
+  EXPECT_EQ(native::far_field_weight(1.125, 0.0, 1.0, 1.0, 8.0, 0.0, 10.0, 2), 0.0);
+  EXPECT_NEAR(native::far_field_weight(1.0, 0.0, 1.0, 1.0, 8.0, 0.0, 10.0, 1), 0.5,
+              2 * kEpsilon);
+  EXPECT_NEAR(native::far_field_weight(1.0, 0.0, 1.0, 1.0, 0.0, 4.0, 10.0, 3),
+              std::exp(-1.0), 4 * kEpsilon);
+  // tanh's saturation: the skipped transcendental's value, exactly.
+  for (const double t : {22.0, 30.0, 1e3}) {
+    EXPECT_EQ(std::tanh(t), 1.0);
+    EXPECT_EQ(native::far_field_weight(1.0 + t / 8.0, 0.0, 1.0, 1.0, 8.0, 0.0, 10.0, 1),
+              0.0);
+    EXPECT_EQ(native::far_field_weight(0.0, 0.0, 1.0, t / 8.0, 8.0, 0.0, 1e9, 1), 1.0);
+  }
+  EXPECT_EQ(
+      0.5 * (1.0 - std::tanh(21.9)),
+      native::far_field_weight(1.0 + 21.9 / 8.0, 0.0, 1.0, 1.0, 8.0, 0.0, 10.0, 1));
+  EXPECT_TRUE(native::far_field_member(-0.0, -1.0, 0.0, 1.0, 0.0, 2.0));
+  EXPECT_FALSE(native::far_field_member(0.0, -2.0, 0.0, 1.0, 0.0, 2.0));
+}
+
+// numba_cpu's weight-body test (SEP 43): each profile against its formula over a radius
+// on each side of the edge, a hard edge's and the rest's zeros aside. solprop's
+// `aperture_profile` writes these; here std:: forms them on the host, and one
+// transcendental per weight against another differs by a few ulps: 4e-16 of the value
+// plus 4e-16, fixed before measuring, as the retired test held.
+TEST(FarFieldPass, TheWeightsAreTheProfileOnEitherSideOfTheEdge) {
+  constexpr std::array radii{0.0, 0.5, 0.875, 1.0, 1.0625, 1.125, 1.5, 3.0};
+  constexpr double half_width = 1.0;
+  constexpr double width = 0.125;
+  constexpr double order = 4.0;
+  const double pi = std::numbers::pi_v<double>;
+  for (const double rho : radii) {
+    const double argument = (rho - half_width) / width;
+    const double tanh_weight = 0.5 * (1.0 - std::tanh(argument));
+    const double rcos_weight = argument <= -1.0 ? 1.0
+                               : argument >= 1.0
+                                   ? 0.0
+                                   : 0.5 * (1.0 - std::sin(0.5 * pi * argument));
+    const double gauss_weight = std::exp(-std::pow(rho / half_width, order));
+    const auto near = [](const double got, const double want) {
+      EXPECT_LE(std::abs(got - want), 4e-16 * std::abs(want) + 4e-16);
+    };
+    SCOPED_TRACE(rho);
+    EXPECT_EQ(native::far_field_weight(rho, 0.0, 1.0, half_width, 0.0, 0.0, 10.0, 0),
+              rho <= half_width ? 1.0 : 0.0);
+    near(native::far_field_weight(rho, 0.0, 1.0, half_width, 1.0 / width, width, 10.0,
+                                  1),
+         tanh_weight);
+    near(native::far_field_weight(rho, 0.0, 1.0, half_width, 1.0 / width, width, 10.0,
+                                  2),
+         rcos_weight);
+    near(native::far_field_weight(rho, 0.0, 1.0, half_width, 0.0, order, 10.0, 3),
+         gauss_weight);
+  }
+}
+
+TEST(FarFieldPass, InvalidRequestsAreRefused) {
+  auto data = make_case(5, 4, 1, true, 1);
+  EXPECT_THROW(static_cast<void>(run(data, 16, 1, 2)), std::invalid_argument);
+  // The axial-flux spectrum's former flag: the beam spectrum is the axial flux.
+  EXPECT_THROW(static_cast<void>(run(data, 1U << 6U, 1, 2)), std::invalid_argument);
+  EXPECT_THROW(static_cast<void>(run(data, 0, 1, 2)), std::invalid_argument);
+  EXPECT_THROW(static_cast<void>(run(data, kEvery, 4, 2)), std::invalid_argument);
+  EXPECT_THROW(static_cast<void>(run(data, kEvery, 1, 3)), std::invalid_argument);
+  auto short_table = data;
+  short_table.apertures.pop_back();
+  EXPECT_THROW(static_cast<void>(run(short_table, kEvery, 1, 2)),
+               std::invalid_argument);
+  auto negative = data;
+  negative.apertures[native::far_field_aperture_constants + 2] = -1.0;
+  EXPECT_THROW(static_cast<void>(run(negative, kEvery, 1, 2)), std::invalid_argument);
+  auto fractional = data;
+  constant_of(fractional, 0, native::far_field_profile) = 0.5;
+  EXPECT_THROW(static_cast<void>(run(fractional, kEvery, kPerRow, 2)),
+               std::invalid_argument);
+  auto unknown = data;
+  constant_of(unknown, 0, native::far_field_shape) = 7.0;
+  EXPECT_THROW(static_cast<void>(run(unknown, kEvery, kPerRow, 2)),
+               std::invalid_argument);
+  auto supergauss = data;
+  constant_of(supergauss, 0, native::far_field_shape) =
+      native::far_field_half_plane_x_ge;
+  constant_of(supergauss, 0, native::far_field_profile) = native::far_field_supergauss;
+  EXPECT_THROW(static_cast<void>(run(supergauss, kEvery, kPerRow, 2)),
+               std::invalid_argument);
+  auto undefined = data;
+  undefined.regions[0] = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THROW(static_cast<void>(run(undefined, kEvery, 1, 2)), std::invalid_argument);
+  auto bare = data;
+  bare.apertures.clear();
+  EXPECT_THROW(static_cast<void>(run(bare, native::far_field_collected, 1, 2)),
+               std::invalid_argument);
+  auto radial = data;
+  radial.problem.spatial.n_x = 0;
+  EXPECT_THROW(static_cast<void>(run(radial, kEvery, 1, 2)), std::invalid_argument);
+}
+
+} // namespace

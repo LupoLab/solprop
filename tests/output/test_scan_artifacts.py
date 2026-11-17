@@ -14,9 +14,10 @@ import pytest
 from output.test_scan import result
 from solprop.exceptions import OutputError
 from solprop.output.hdf5 import _dataset, _group
+from solprop.output.metadata import RunMetadata, _example_metadata
 from solprop.output.scan import PointResult
 from solprop.output.scan_artifacts import read_artifact, write_artifact
-from solprop.output.schema import RECORD_ARRAY_LIMIT, RunMetadata, _example_metadata
+from solprop.output.serialisation import RECORD_ARRAY_LIMIT
 
 
 @pytest.mark.parametrize(

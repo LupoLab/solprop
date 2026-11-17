@@ -99,7 +99,7 @@ metre of y:
 
 .. code-block:: Python
 
-    modes = ModeCollection.slab(half_gap, (1, 3, 5), "Ar", 1.0)
+    modes = ModeCollection.slab(half_gap, "Ar", 1.0, orders=(1, 3, 5))
     shares = gaussian_coupling(modes.modes, 0.735 * half_gap)
     print(
         {
@@ -186,7 +186,7 @@ quadrature diagnostic visible when it has only one recorded value.
 
  .. code-block:: none
 
-    SolpropWarning: the temporal absorber attenuates a packet walking off by 39.7 fs over 0.1 m by only 0.004 nepers, below the 6.9 that stops it wrapping around the time window; widen trange, or raise boundary_N above 3.46e+04
+    SolpropWarning: the temporal absorber attenuates a packet walking off by 39.7 fs over 0.1 m by only 0.004 nepers, below the 6.9 that stops it wrapping around the time window; widen trange, give absorber(grid, walkoff=3.99e-14) to strengthen the temporal collar alone, or, strengthening the spectral collar too, raise boundary_N above 0.171
     per_unit_width
 
     [<Figure size 1200x750 with 7 Axes>, <Figure size 800x500 with 3 Axes>]
@@ -207,7 +207,7 @@ quadrature diagnostic visible when it has only one recorded value.
 
  .. code-block:: none
 
-    ran in 2.0 s
+    ran in 2.4 s
 
 
 
@@ -224,7 +224,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 2.026 seconds)
+   **Total running time of the script:** (0 minutes 2.387 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_08_planar.py:

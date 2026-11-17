@@ -46,8 +46,9 @@ every step, so no exponent grows with the run.
 
 **Where.** {py:func}`solprop.linear.dispersion_operator` and
 {py:class}`solprop.linear.Frame` assemble $D$; {py:func}`solprop.translate.linop.delta_phi`
-returns the exponent; {py:func}`solprop.backends.numpy_ref.passes.stage_input` and
-{py:func}`solprop.backends.numpy_ref.passes.stage_output` are the two applications.
+returns the exponent; {py:func}`solprop.backends.numpy_ref.passes.stepping.stage_input`
+and {py:func}`solprop.backends.numpy_ref.passes.stepping.stage_output` are the two
+applications.
 
 **Why this one.** The alternative is an operator splitting, which is what Luna uses.
 An earlier prototype study measured both at matched error
@@ -78,8 +79,8 @@ not a converged answer.
 ## 2. The Runge–Kutta pairs
 
 This section is the tableau theory of `RungeKutta()`, the explicit march and the default
-integrator of `prop_gnlse`, `prop_waveguide` and `prop_free`. `Multistep()`, the default
-of `prop_capillary`, `prop_radial` and `prop_planar` (ADR-055), is the low-call
+integrator of `prop_gnlse`, `prop_waveguide` and `prop_free` on a Cartesian grid. `Multistep()`, the default
+of `prop_capillary`, `prop_free` on a radial grid and `prop_planar` (ADR-055), is the low-call
 exponential Adams method: its formulation and history management are in the
 [solver guide](../guide/numerics/adams.md) and the
 [stepper design](stepper.md#low-call-adams-methods).
@@ -156,7 +157,7 @@ $f_{\max} = 1.1$, and a lag of one step by default.
 {py:func}`solprop.stepper.controller.limit_step`;
 {py:func}`solprop.stepper.schedule.landing` with
 {py:class}`solprop.stepper.schedule.StepTargets`. The loop is the reference's
-`backends/host/driver.py`; the native session's compiled march performs the same steps.
+`backends/numpy_ref/marches/runge_kutta.py`; the native session's compiled march performs the same steps.
 
 **Why a global magnitude.** Per-element scaling is catastrophic here: the in-band dynamic
 range of a hollow-fibre spectrum reaches $10^{17}$ and about a third of in-band bins carry
@@ -201,8 +202,8 @@ inconclusive rather than believed. `rtol` does not fix the global error at the o
 every run records what it achieved ({py:class}`solprop.stepper.controller.ControlRecord`);
 how far the two can differ is measured in [stepper.md §3](stepper.md).
 
-**Cost.** A few scalar operations per step, plus one reduction over the in-band mask that
-the backend fuses into its accept pass. A weighted norm costs a second traversal, and only a
+**Cost.** A few scalar operations per step, plus one reduction over the norm's region (the
+active band by default) that the backend fuses into its accept pass. A weighted norm costs a second traversal, and only a
 weighted run pays it.
 
 **Traps.** A proposal below `dz_min` raises at once rather than being clamped;
@@ -628,6 +629,33 @@ the temporal rate is bounded by construction at
 {py:data}`solprop.boundaries.TEMPORAL_ALPHA_LENGTH`, a fifth of the cap, because as the
 capped logarithm it cost the scheme 40 % of its steps through the error estimate before it
 ever cost stability.
+
+**The transverse collar's design check.** A free-space run's collar
+({py:class}`solprop.spatial_absorber.SpatialAbsorber`) is checked at translation for what
+it sends back ({py:func}`solprop.translate.collar_check.design_check`,
+[SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md) §4.4). A product of
+plane-wave reflection and a ray share cannot say how much of a launch a collar returns:
+evaluated on the phase-0 witnesses it was wrong by up to nine decades, because the return
+lives in diffraction tails. So the check computes it. The launch is propagated linearly on
+the design's own operator, one frequency at a time, and compared over the requested
+aperture with the same launch on a bare grid large enough that the launch does not reach
+its edge within the run:
+
+$$U_\mathrm{ret} = \max_{z \le L} \frac{\sum_j s_j \,
+\lVert E_\mathrm{collar}(z, \omega_j) - E_\mathrm{large}(z, \omega_j)
+\rVert^2_\mathrm{aperture}}{\sum_j s_j\, U_\mathrm{launch}(\omega_j)},$$
+
+with nodes $\omega_j$ at equal-energy quantiles of the launch's spectrum and shares $s_j$.
+Radially the generator $\mathrm{diag}(i k_z) + F\,\mathrm{diag}(-\alpha/2)\,B$ is
+exponentiated by its eigendecomposition; on the Cartesian, line and planar grids a
+one-frequency Strang march, diffraction exact in the transverse wavenumber and the collar in
+real space, steps no further than the plane spacing and the crossing limit. The bare grid is
+diagonal and needs no march. Above
+{py:data}`~solprop.translate.collar_check.BUDGET` the design is refused; an estimate within
+a factor of two of it is refined once, doubling nodes, planes and steps and enlarging the
+bare grid by half, and passes at {py:data}`~solprop.translate.collar_check.REFINED_BUDGET`
+if the two agree within a quarter; a check that cannot converge is inconclusive, which is
+not a pass.
 
 ## 9. Noise
 

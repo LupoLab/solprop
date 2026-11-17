@@ -196,3 +196,10 @@ def test_the_gas_policy_provisional_is_refused_for_silica():
     assert "provisional" in RAMAN_POLICIES
     with pytest.raises(MaterialError, match="'provisional' admits a gas's"):
         SilicaBundle.resolve("provisional")
+
+
+def test_silica_bundles_compare_by_their_digest():
+    assert SilicaBundle.resolve() == SilicaBundle.resolve()
+    assert hash(SilicaBundle.resolve()) == hash(SilicaBundle.resolve())
+    assert SilicaBundle.resolve() != SilicaBundle.resolve(tensor=True)
+    assert SilicaBundle.resolve() != "default"

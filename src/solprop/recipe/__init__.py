@@ -5,9 +5,19 @@
 """Recipes: a simulation written as a TOML document, built into a ``Simulation``.
 
 A recipe holds the keywords of one route's constructor, with quantities written in
-their units (``"125 um"``, ``"1.2 bar"``), and the run's execution settings. It is
-loaded, checked against the parameter metadata, built, run, exported as a Python script
-and saved. The format is SEP 41's; the manual page is ``docs/guide/setup/recipes.md``.
+their units (``"125 um"``, ``"1.2 bar"``), and the run's execution settings. The
+package re-exports, on first use, ``Recipe``, ``RecipeIssue``, ``RecipeScan`` and
+``resume_file`` (:mod:`~solprop.recipe.core`), ``RecipeError``
+(:mod:`~solprop.recipe.errors`), and ``parameters``, ``Parameter``, ``Form`` and
+``Resolution`` (:mod:`~solprop.recipe.metadata`). The other modules are the
+document's shape and value forms (:mod:`~solprop.recipe.document`), quantities and
+units (:mod:`~solprop.recipe.quantity`), parameter paths (:mod:`~solprop.recipe.paths`),
+the registry of buildable types (:mod:`~solprop.recipe.registry`) and their keywords'
+metadata (:mod:`~solprop.recipe.type_metadata`), pins (:mod:`~solprop.recipe.pins`),
+previews (:mod:`~solprop.recipe.preview`), the record a run keeps
+(:mod:`~solprop.recipe.provenance`) and the Python export
+(:mod:`~solprop.recipe.export`). The format is SEP 41's; the manual page is
+``docs/guide/setup/recipes.md``.
 
 >>> from solprop.recipe import Recipe
 >>> recipe = Recipe.example("rdw")
@@ -60,6 +70,7 @@ _SUBMODULES: Final = (
     "provenance",
     "quantity",
     "registry",
+    "type_metadata",
 )
 """The submodules reachable as attributes; a test keeps it equal to what is on disk."""
 

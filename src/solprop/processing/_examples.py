@@ -22,10 +22,10 @@ from solprop.grid import EnvelopeGrid, FieldGrid, TimeGrid
 from solprop.modes.guide import ModalGuide
 from solprop.modes.protocol import ChannelLabel
 from solprop.output.memory import MemoryOutput
-from solprop.output.schema import (
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import (
     GridRecord,
     ModeRecord,
-    RunMetadata,
     SavedPlane,
     StepperRecord,
     StepStats,

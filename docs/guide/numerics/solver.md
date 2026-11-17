@@ -6,8 +6,8 @@ problem. A small local error estimate does not establish that the full simulatio
 or a weak generated band is accurate.
 
 Start with the interface's default integrator, `Multistep()` on `prop_capillary`,
-`prop_radial` and `prop_planar` and `RungeKutta()` on `prop_gnlse`, `prop_waveguide` and
-`prop_free` ([the defaults](choosing-a-stepper.md#the-defaults)), then use
+`prop_free` on a radial grid and `prop_planar`, and `RungeKutta()` on `prop_gnlse`,
+`prop_waveguide` and `prop_free` on a Cartesian or line grid ([the defaults](choosing-a-stepper.md#the-defaults)), then use
 [stepper selection](choosing-a-stepper.md) when source cost, memory or dynamics
 motivate a comparison. This chapter explains
 `rtol`, `atol`, `dz_init` and `dz_max`, the interaction picture and the error norm.
@@ -44,7 +44,7 @@ or accuracy guarantee.
 Three integrators take the steps, and everything else on this page — the linear flow,
 the source definitions, caps and save-plane conventions — is used by all of them.
 `integrator=` on every entry point and on
-{py:class}`~solprop.driver.simulation.SimulationSettings` chooses between `Multistep()`,
+{py:class}`~solprop.driver.settings.SimulationSettings` chooses between `Multistep()`,
 the exponential Adams method ([the Adams integrator](adams.md)), `RungeKutta()`,
 the interaction-picture Dormand–Prince pair below, and `LowStorageRungeKutta()`, a
 fixed-schedule RK4; [choosing a stepper](choosing-a-stepper.md) describes each, gives
@@ -118,6 +118,18 @@ $$\mathrm{err} = \frac{\lVert e \rVert_2}
 + \texttt{atol}},$$
 
 so that $\mathrm{err} = 1$ means the step sat exactly at the requested tolerance.
+
+**A weak launch is held to `atol`, not to `rtol`.** Where the state's norm is far below
+`atol / rtol`, `atol` dominates the scale and the relative error is not controlled: the
+steps grow to `dz_max` and the error is what that step gives, whatever `rtol`. A linear
+run launched at $10^{-9}\,\sqrt{\mathrm{W}}$ in one bin of the moving-guide tests'
+graded-index taper (1 mm, a frozen-residual coupled flow, `Multistep()`, `dz_max` a tenth
+of the length, `prop_waveguide`'s `atol` of $10^{-10}\,\sqrt{\mathrm{W}}$) took ten steps
+at `rtol` of 1e-4 and of 1e-8 alike, with a relative error of 7.7e-4 against a converged
+Runge–Kutta reference. With `atol=0`, or launched at $1\,\sqrt{\mathrm{W}}$, it took 22
+and 94 steps, and its error fell from 4.4e-6 to 4.4e-10 and 4.8e-10. `numpy_ref` and the
+native CPU build gave the same errors to the digits shown. For a run far weaker than an
+interface's default `atol` expects, scale `atol` with the launch or set it to zero.
 
 The norm scores the whole **active band** ([grids](../setup/grids.md#the-active-band-and-absorbing-collars)):
 the requested band and the spectral collars around it, where light generated in the run

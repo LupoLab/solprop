@@ -114,14 +114,13 @@ The run
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 88-99
+.. GENERATED FROM PYTHON SOURCE LINES 88-98
 
 .. code-block:: Python
 
 
     figures = prop_2d(
         run,
-        "wavelength",
         spec_range=(200e-9, 3e-6),
         time_range=(-150e-15, 250e-15),
         db_min=-40,
@@ -141,7 +140,7 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 100-106
+.. GENERATED FROM PYTHON SOURCE LINES 99-105
 
 The output, and what a compressor makes of it
 ---------------------------------------------
@@ -150,7 +149,7 @@ pulse after the best Taylor-phase compression (group-delay dispersion and
 third-order dispersion) of the output spectrum. On the right, the input and output
 spectra.
 
-.. GENERATED FROM PYTHON SOURCE LINES 106-132
+.. GENERATED FROM PYTHON SOURCE LINES 105-131
 
 .. code-block:: Python
 
@@ -204,12 +203,12 @@ spectra.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 133-135
+.. GENERATED FROM PYTHON SOURCE LINES 132-134
 
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 135-137
+.. GENERATED FROM PYTHON SOURCE LINES 134-136
 
 .. code-block:: Python
 
@@ -223,7 +222,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    25 s; backend native
+    24 s; backend native
 
 
 
@@ -231,7 +230,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 24.692 seconds)
+   **Total running time of the script:** (0 minutes 23.897 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_01_self_phase_modulation.py:

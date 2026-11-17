@@ -4,8 +4,9 @@
 
 """The hybrid planar front end: ``prop_planar`` and ``Simulation.from_planar``.
 
-Every run is at most ten fixed steps of an argon-filled gap on ``numpy_ref``; Kokkos
-(``tests/backends/test_planar_native.py``) executes it as well.
+Every run is at most ten fixed steps of an argon-filled gap on ``numpy_ref``; native
+executes it as well (the case catalogue's planar rows,
+``tests/backends/planar_rows.py``).
 Energies are in J: the geometry integrates over y.
 """
 
@@ -68,7 +69,7 @@ from solprop.spatial import (
     spatial_fluence,
     spatial_intensity,
 )
-from solprop.stats import analytic_field, default_spec
+from solprop.stats import analytic_field
 from solprop.stepper import PIController
 from solprop.stepper.schedule import FixedSchedule
 
@@ -136,7 +137,7 @@ def test_prop_planar_runs_a_launch_and_records_the_slab_geometry(tmp_path):
         space,
         [kerr()],
         pulse(),
-        settings=settings(stats=default_spec("free")),
+        settings=settings(),
         output=path,
         progress="none",
     )
@@ -385,7 +386,7 @@ def test_an_input_that_is_not_a_planar_launch_is_refused_by_name():
         ({"propz": 1e-3}, "propz must be 0"),
         ({"jones": (1.0, 1.0j)}, "jones takes one entry"),
         ({"offset_x": math.inf}, "offset_x must be finite"),
-        ({"waist_x": 0.0}, "waist_x must be a finite positive number"),
+        ({"waist_x": 0.0}, "waist_x must be finite and positive"),
     ],
 )
 def test_a_planar_pulse_refuses_what_it_does_not_carry(keywords, match):

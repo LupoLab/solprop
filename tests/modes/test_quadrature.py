@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from scipy.special import roots_legendre
 
-from bounds import EPS, assert_within
+from bounds import EPS
 from solprop.exceptions import ModeError
 from solprop.modes import ChannelLabel, CrossSection, MarcatiliMode, RectMode
 from solprop.modes.quadrature import (
@@ -141,11 +141,6 @@ def test_the_embedded_gauss_rule_is_exact_to_its_own_degree(n):
     for degree in range(2 * n):
         exact = 2.0 / (degree + 1) if degree % 2 == 0 else 0.0
         assert float(np.sum(coarse * nodes**degree)) == pytest.approx(exact, abs=1e-13)
-
-
-def test_the_kronrod_order_must_be_positive():
-    with pytest.raises(ModeError, match="needs n >= 1"):
-        gauss_kronrod(0)
 
 
 @pytest.mark.parametrize("key", sorted(REFERENCE["kronrod"]))
@@ -301,24 +296,33 @@ def test_the_cartesian_rule_integrates_a_rectangle():
     assert value == pytest.approx((2.0 * 8.0 / 3.0) * (2.0 / 3.0), rel=1e-14)
 
 
-def test_a_cartesian_rule_cannot_be_azimuthally_symmetric():
-    with pytest.raises(ModeError, match="no azimuthally symmetric form"):
-        quadrature_rule("cartesian", full=False, n_r=8)
-
-
 # ------------------------------------------------------------------ validation
 
 
 @pytest.mark.parametrize(
-    ("kwargs", "message"),
+    ("call", "message"),
     [
-        ({"kind": "polar", "full": False, "n_r": 1}, "n_r >= 2"),
-        ({"kind": "polar", "full": True, "n_r": 8, "n_theta": 1}, "n_theta >= 2"),
+        (lambda: gauss_kronrod(0), "needs n >= 1"),
+        (lambda: quadrature_rule("polar", full=False, n_r=1), "n_r >= 2"),
+        (lambda: quadrature_rule("polar", full=True, n_r=8, n_theta=1), "n_theta >= 2"),
+        (
+            lambda: quadrature_rule("cartesian", full=False, n_r=8),
+            "no azimuthally symmetric form",
+        ),
+        (
+            lambda: quadrature_rule("cartesian", full=True, n_r=8, breaks=(0.5,)),
+            "radial breaks",
+        ),
+        (lambda: transverse_quadrature([], n_r=8), "at least one mode"),
+        (
+            lambda: mode_matrix([], quadrature_rule("polar", full=False, n_r=8)),
+            "at least one mode",
+        ),
     ],
 )
-def test_a_bad_rule_is_refused(kwargs, message):
+def test_a_bad_rule_is_refused(call, message):
     with pytest.raises(ModeError, match=message):
-        quadrature_rule(**kwargs)
+        call()
 
 
 def test_an_unknown_cross_section_is_refused():
@@ -394,11 +398,6 @@ def test_the_full_rule_can_be_forced_either_way():
     assert not transverse_quadrature(modes, n_r=8, n_theta=8, full=False).full
 
 
-def test_a_rule_needs_a_mode():
-    with pytest.raises(ModeError, match="at least one mode"):
-        transverse_quadrature([], n_r=8)
-
-
 # ------------------------------------------------------------ the mode matrices
 
 
@@ -437,12 +436,6 @@ def test_bad_components_are_refused(components):
     rule = transverse_quadrature(modes, n_r=8)
     with pytest.raises(ModeError, match="non-empty subset"):
         mode_matrix(modes, rule, components=components)
-
-
-def test_mode_matrices_need_a_mode():
-    rule = quadrature_rule("polar", full=False, n_r=8)
-    with pytest.raises(ModeError, match="at least one mode"):
-        mode_matrix([], rule)
 
 
 def test_modes_with_different_cross_sections_are_refused():
@@ -847,57 +840,49 @@ def test_composite_radial_panels_are_exact_with_embedded_coarse_weights(kronrod)
                 )
 
 
-# The twenty-four rules the composite-break work had to leave alone, recorded from
-# the tree before that change. Comparing the branch with itself cannot fail; this
-# compares it with the record.
-FIXED_RULES = Path(__file__).parents[1] / "data/quadrature_rules_before_breaks.json"
+@pytest.mark.parametrize("n_r", [8, 12, 17, 24, 32, 33])
+@pytest.mark.parametrize("radial_rule", ["gauss", "gauss_kronrod"])
+@pytest.mark.parametrize("kind", ["polar", "cartesian"])
+def test_a_rule_without_breaks_is_its_familys_gauss_rule(kind, radial_rule, n_r):
+    """Every unbroken rule integrates each monomial below its degree to rounding.
 
-
-def test_the_fixed_rules_are_what_they_were_before_radial_breaks():
-    """The rules match their record to the rounding of their eigensolve.
-
-    Gauss and Gauss-Kronrod nodes and weights come from a symmetric tridiagonal
-    eigenproblem of order ``n_r``, backward stable to ``O(n_r u)`` of its norm, so each
-    array is held normwise to ``4 n_r eps`` (a factor-of-four margin on ``n_r`` eps)
-    of the record; another platform's LAPACK moves the last bits within that. The
-    metadata and the coarse rules' zero weights are structural and exact.
+    A Gauss rule of ``n`` nodes is exact to degree ``2n - 1``; a Kronrod extension of
+    an ``n``-node Gauss rule to ``3n + 1``, and its embedded coarse weights are that
+    Gauss rule's. The radial interval is ``(0, 1)``, a Cartesian axis ``[-1, 1]``,
+    and a Cartesian rule reads ``gauss_kronrod`` as ``gauss``. Each sum is held to
+    ``4 n eps``, the rounding of a reduction over ``n`` weights summing to at most
+    two, with a factor-of-four margin; any change to a rule's nodes or weights beyond
+    rounding moves some monomial by far more.
     """
-    record = json.loads(FIXED_RULES.read_text())["rules"]
-    assert len(record) == 24
-    for entry in record:
-        rule = quadrature_rule(
-            entry["kind"],
-            full=True,
-            n_r=entry["n_r"],
-            n_theta=16,
-            radial_rule="gauss_kronrod" if entry["kronrod"] else "gauss",
-        )
-        assert rule.breaks == ()
-        assert [rule.n_r, rule.n_theta, rule.kronrod, rule.full] == entry["meta"]
-        for name in (
-            "xi_r",
-            "w_r",
-            "w_r_coarse",
-            "xi_theta",
-            "w_theta",
-            "w_theta_coarse",
-        ):
-            actual = np.asarray(getattr(rule, name), dtype=float)
-            expected = np.asarray(entry[name], dtype=float)
-            label = (
-                f"{entry['kind']} kronrod={entry['kronrod']} n_r={entry['n_r']} {name}"
-            )
-            if name.endswith("_coarse"):
-                np.testing.assert_array_equal(
-                    actual == 0.0, expected == 0.0, err_msg=label
-                )
-            # The eigensolve's O(n u) in each array's own length: the radial arrays
-            # have n_r points, the angular ones n_theta (Linux LAPACK and Accelerate
-            # differ by 7e-15 on the 16 angular weights of an 8-point radial rule).
-            points = rule.n_theta if "theta" in name else rule.n_r
-            assert_within(actual, expected, 4 * points * EPS, what=label)
-    # An explicit empty break list is the same rule, which is what the driver
-    # passes for every Cartesian set.
+    rule = quadrature_rule(
+        kind, full=True, n_r=n_r, n_theta=16, radial_rule=radial_rule
+    )
+    assert rule.breaks == ()
+    kronrod = radial_rule == "gauss_kronrod" and kind == "polar"
+    assert rule.kronrod == kronrod
+    axes = [(rule.xi_r, rule.w_r, rule.w_r_coarse)]
+    if kind == "cartesian":
+        axes.append((rule.xi_theta, rule.w_theta, rule.w_theta_coarse))
+    for nodes, fine, coarse in axes:
+        assert fine is not None and coarse is not None
+        gauss = int(np.count_nonzero(coarse))
+        degrees = [(fine, 3 * gauss + 1 if kronrod else 2 * gauss - 1)]
+        if kronrod:
+            degrees.append((coarse, 2 * gauss - 1))
+        else:
+            np.testing.assert_array_equal(coarse, fine)
+        for weights, top in degrees:
+            for degree in range(top + 1):
+                if kind == "polar":
+                    exact = 1.0 / (degree + 1)
+                else:
+                    exact = 2.0 / (degree + 1) if degree % 2 == 0 else 0.0
+                value = float(weights @ nodes**degree)
+                assert abs(value - exact) <= 4 * nodes.size * EPS, (degree, value)
+
+
+def test_an_explicit_empty_break_list_is_the_rule_without_breaks():
+    """What the driver passes for every Cartesian set."""
     explicit = quadrature_rule("polar", full=True, n_r=12, n_theta=8, breaks=())
     default = quadrature_rule("polar", full=True, n_r=12, n_theta=8)
     for name in ("xi_r", "w_r", "w_r_coarse", "xi_theta", "w_theta", "w_theta_coarse"):
@@ -908,8 +893,3 @@ def test_the_fixed_rules_are_what_they_were_before_radial_breaks():
 def test_invalid_radial_breaks_are_refused(breaks):
     with pytest.raises(ModeError, match="radial breaks"):
         quadrature_rule("polar", full=False, n_r=8, breaks=breaks)
-
-
-def test_cartesian_radial_breaks_are_refused():
-    with pytest.raises(ModeError, match="radial breaks"):
-        quadrature_rule("cartesian", full=True, n_r=8, breaks=(0.5,))

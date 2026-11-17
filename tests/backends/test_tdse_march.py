@@ -7,7 +7,7 @@
 import dataclasses
 import itertools
 import json
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -16,12 +16,13 @@ from numpy.testing import assert_array_equal
 from sessions.executors import IDENTITY, Started, drive
 from sessions.runs import run as session_run
 from solprop.backends import registry
+from solprop.backends.events import ObservationReady
 from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
 from solprop.driver import Simulation
-from solprop.exceptions import BackendError, ResponseBudgetError
+from solprop.exceptions import BackendError, ResponseBudgetError, TDSEArchiveError
 from solprop.nonlinear.tdse import (
     TDSEBasis,
     TDSECalibration,
@@ -147,32 +148,59 @@ def march_problem(request):
         profiles=parent.profiles,
         frame=parent.frame,
     )
-    return simulation.translate(), simulation._run_request(), simulation.grid
+    return simulation.translate(), simulation.run_request(), simulation.grid
 
 
-def opened_backend(case, limit, *, fail_at=None):
+def opened_backend(case, limit, *, fail_at=None, binding_type=None):
     problem, run_request, grid = case
     assert tdse_descriptor(problem.route) is not None
-    binding = ManufacturedBinding(
+    binding = (ManufacturedBinding if binding_type is None else binding_type)(
         tdse_descriptor(problem.route), limit, fail_at=fail_at
     )
     backend = NumpyRefBackend(problem, run_request, grid=grid, tdse_binding=binding)
-    backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
     return backend, binding
+
+
+def failed_run(backend, case, z=None):
+    """Run a session from the launch (or `z`) to its failure.
+
+    Returns the terminal event, the field its ticket exports (``None`` without one)
+    and the run, whose first field is the loaded launch's.
+    """
+    problem, run_request, _ = case
+    held = {}
+
+    def keep(session, batch):
+        terminal = batch.terminal
+        if terminal is not None and terminal.ticket is not None:
+            held["field"] = session.export(terminal.ticket, IDENTITY)
+
+    start = None
+    if z is not None:
+        planes = run_request.stepper.save_planes
+        start = Start(
+            field=problem.initial.field0,
+            z=z,
+            plane_index=int(np.searchsorted(planes, z, side="right")),
+        )
+    result = session_run(
+        backend, problem, run_request, start, raises=False, between=keep
+    )
+    terminal = result.terminal
+    assert terminal.error is not None
+    return terminal, held.get("field"), result
 
 
 def test_whole_startup_trial_is_reserved_before_any_atomic_chunk(march_problem):
     backend, binding = opened_backend(march_problem, 3)
-    initial = backend.observe().require_field()
     try:
-        with pytest.raises(ResponseBudgetError):
-            backend.propagate_to(1e-5)
+        terminal, field, result = failed_run(backend, march_problem)
+        assert isinstance(terminal.error, ResponseBudgetError)
         assert binding.ledger.attempted == 0
         assert binding.ledger.reserved == 0
-        assert backend._adams is not None
-        assert backend._adams.ledger.total == 0
-        assert backend.observe().z == 0.0
-        assert_array_equal(backend.observe().require_field(), initial)
+        assert cast("Any", backend.march).ledger.total == 0
+        assert terminal.z == 0.0
+        assert_array_equal(field, result.fields[0])
     finally:
         backend.close()
 
@@ -182,21 +210,20 @@ def test_atomic_stop_keeps_accepted_state_and_labels_predictor(
     march_problem, initial_z
 ):
     backend, binding = opened_backend(march_problem, 5)
-    backend.set_initial(march_problem[0].initial.field0, None, z=initial_z)
     try:
-        with pytest.raises(ResponseBudgetError, match="atomic-call budget") as caught:
-            backend.propagate_to(1e-5)
-        observation = backend.observe()
-        assert observation.z > initial_z
-        assert caught.value.z == observation.z
-        assert f"z = {observation.z:g} m" in str(caught.value)
-        assert caught.value.calls == binding.ledger.attempted
-        assert caught.value.__suppress_context__
-        assert_array_equal(caught.value.field, observation.field)
+        terminal, field, _ = failed_run(backend, march_problem, z=initial_z)
+        error = terminal.error
+        assert isinstance(error, ResponseBudgetError)
+        assert "atomic-call budget" in str(error)
+        assert terminal.z > initial_z
+        assert error.z == terminal.z
+        assert f"z = {terminal.z:g} m" in str(error)
+        assert error.calls == binding.ledger.attempted
+        assert error.__suppress_context__
+        assert_array_equal(error.field, field)
         assert binding.ledger.attempted == 4
         assert binding.ledger.reserved == 0
-        assert backend._adams is not None
-        assert backend._adams.ledger.total == 2
+        assert cast("Any", backend.march).ledger.total == 2
         assert binding.purposes == ["startup", "predictor"]
         metadata = backend.metadata()
         last = metadata["tdse_last_evaluation"]
@@ -207,7 +234,7 @@ def test_atomic_stop_keeps_accepted_state_and_labels_predictor(
         assert projection["kind"] == "embedded_same_rows"
         # Optical observation and permitted statistics do not request another
         # expensive atomic evaluation of the corrected accepted field.
-        backend.stats(StatsSpec(names=("energy",)))
+        backend.workspace.stats(StatsSpec(names=("energy",)), terminal.z)
         assert binding.ledger.attempted == 4
     finally:
         backend.close()
@@ -217,42 +244,97 @@ def test_failed_chunk_is_charged_and_unused_trial_reservation_is_released(
     march_problem,
 ):
     backend, binding = opened_backend(march_problem, 8, fail_at=2)
-    initial = backend.observe().require_field()
     try:
-        with pytest.raises(BackendError, match="second-chunk failure"):
-            backend.propagate_to(1e-5)
+        terminal, field, result = failed_run(backend, march_problem)
+        assert isinstance(terminal.error, BackendError)
+        assert "second-chunk failure" in str(terminal.error)
         assert binding.ledger.attempted == 2
         assert binding.ledger.failed_calls == 1
         assert binding.ledger.reserved == 0
-        assert backend._adams is not None
-        assert backend._adams.ledger.total == 1
-        assert backend.observe().z == 0.0
-        assert_array_equal(backend.observe().require_field(), initial)
+        assert cast("Any", backend.march).ledger.total == 1
+        assert terminal.z == 0.0
+        assert_array_equal(field, result.fields[0])
     finally:
         backend.close()
 
 
-@pytest.mark.parametrize("backend_name", ["native"])
-def test_registry_refuses_tdse_before_constructing_a_backend(
-    march_problem, monkeypatch, backend_name
+class _ArchiveFailsOnAcceptance(ManufacturedBinding):
+    """Fail to record an accepted trial, as an archive that cannot write would."""
+
+    def record_trial(self, *, accepted):
+        if accepted:
+            raise TDSEArchiveError("synthetic archive failure")
+
+
+class _ReleaseFails(ManufacturedBinding):
+    """Fail to release a reservation, after releasing it, while ``failing`` is set."""
+
+    failing = True
+
+    def release_reservation(self):
+        super().release_reservation()
+        if self.failing:
+            raise RuntimeError("synthetic release failure")
+
+
+def test_an_archive_failure_after_an_accepted_commit_keeps_the_new_state(
+    march_problem,
 ):
-    """An unsupported explicit backend never silently redirects the atomic problem."""
+    """The commit is the failure boundary (SEP 49, section 6.3)."""
+    backend, binding = opened_backend(
+        march_problem, 20, binding_type=_ArchiveFailsOnAcceptance
+    )
+    try:
+        terminal, _, _ = failed_run(backend, march_problem)
+        assert isinstance(terminal.error, TDSEArchiveError)
+        assert "synthetic archive failure" in str(terminal.error)
+        # The accepted step stands and is booked; nothing stays reserved.
+        assert terminal.z > 0.0
+        assert cast("Any", backend.march).ledger.accepted_steps == 1
+        assert binding.ledger.reserved == 0
+        # The startup and the predictor, two chunks each, stay charged.
+        assert binding.ledger.attempted == 4
+    finally:
+        backend.close()
+
+
+def test_a_failed_release_is_a_note_on_the_trial_s_own_error(march_problem):
+    backend, binding = opened_backend(
+        march_problem, 8, fail_at=2, binding_type=_ReleaseFails
+    )
+    try:
+        terminal, _, _ = failed_run(backend, march_problem)
+        error = terminal.error
+        assert isinstance(error, BackendError)
+        assert "second-chunk failure" in str(error)
+        assert "synthetic release failure" in "\n".join(error.__notes__)
+        assert binding.ledger.reserved == 0
+        assert terminal.z == 0.0
+    finally:
+        cast("_ReleaseFails", binding).failing = False
+        backend.close()
+
+
+def test_registry_hands_a_tdse_binding_to_either_backend(march_problem, monkeypatch):
+    """Both backends run the TDSE response (SEP 49); the binding goes to the factory."""
     problem, run_request, grid = march_problem
+    constructed = []
 
-    def forbidden(*args, **kwargs):
-        raise AssertionError("no backend is constructed for an unsupported TDSE route")
+    class ConstructedError(Exception):
+        pass
 
-    monkeypatch.setattr(registry, "_construct", forbidden)
-    with pytest.raises(BackendError, match=f"{backend_name} does not execute TDSE"):
-        registry.select(backend_name, problem, run_request, grid=grid)
+    def construct(name, *args, **kwargs):
+        constructed.append((name, kwargs.get("tdse_binding")))
+        raise ConstructedError
 
-
-def test_direct_native_construction_refuses_tdse_before_allocating(march_problem):
-    """The direct constructor enforces the same named refusal as the registry."""
-    native = pytest.importorskip("solprop_native")
-    problem, run_request, grid = march_problem
-    with pytest.raises(BackendError, match="native does not execute TDSE"):
-        native.NativeBackend(problem, run_request, grid=grid)
+    monkeypatch.setattr(registry, "_construct", construct)
+    monkeypatch.setattr(registry, "_native_installed", lambda: True)
+    monkeypatch.setattr("solprop.calibration.first_use.ensure", lambda: None)
+    binding = ManufacturedBinding(tdse_descriptor(problem.route), 10)
+    for name in ("numpy_ref", "native"):
+        with pytest.raises(ConstructedError):
+            registry.select(name, problem, run_request, grid=grid, tdse_binding=binding)
+    assert constructed == [("numpy_ref", binding), ("native", binding)]
 
 
 def test_tdse_problem_requires_a_binding_even_at_the_direct_backend(march_problem):
@@ -271,18 +353,6 @@ def test_a_binding_cannot_be_attached_to_an_ordinary_problem(
     with pytest.raises(BackendError, match="explicit host response binding"):
         NumpyRefBackend(problem, run_request, grid=narrow_grid, tdse_binding=binding)
     assert binding.ledger.attempted == 0
-
-
-@pytest.mark.parametrize("name", ["electron_density", "peak_ionisation_rate"])
-def test_tdse_runtime_statistics_refuse_legacy_rate_observables(march_problem, name):
-    """A dynamic request for rate-model statistics cannot trigger another solve."""
-    backend, binding = opened_backend(march_problem, 4)
-    try:
-        with pytest.raises(BackendError, match="does not define legacy statistics"):
-            backend.stats(StatsSpec(names=(name,)))
-        assert binding.ledger.attempted == 0
-    finally:
-        backend.close()
 
 
 @pytest.mark.parametrize("kind", ["logical", "atomic"])
@@ -345,13 +415,21 @@ def test_reference_rk_restoration_requires_the_matching_response_path(
             if kind == "atomic"
             else None
         )
+        start = Start(
+            field=problem.initial.field0,
+            z=float(problem.initial.z),
+            ledgers={"logical": logical, "atomic": atomic or {}},
+        )
         if kind == "logical":
             # Not installed in a Runge-Kutta march (SEP 42 section 5.6).
-            backend.restore_call_ledgers(logical, atomic)
-            assert backend._adams is None
+            session = start_session(backend, problem, run_request, start, owns=False)
+            try:
+                assert "response_calls" not in session.execution_record()
+            finally:
+                session.close()
         else:
             with pytest.raises(BackendError, match="requires a TDSE binding"):
-                backend.restore_call_ledgers(logical, atomic)
+                start_session(backend, problem, run_request, start, owns=False)
     finally:
         backend.close()
 
@@ -363,17 +441,31 @@ def test_backend_restores_atomic_charges_without_numerical_history(march_problem
         startup=1, predictor=1, accepted_steps=1, orders=[1]
     ).to_record()
     atomic = dataclasses.asdict(AtomicCallLedger(8, 4, 2, 2, 0, 0))
-    initial = backend.observe().require_field().copy()
+    problem, run_request, _ = march_problem
+    start = Start(
+        field=problem.initial.field0,
+        z=float(problem.initial.z),
+        ledgers={"logical": logical, "atomic": atomic},
+    )
     try:
-        backend.restore_call_ledgers(logical, atomic)
-        assert backend.metadata()["response_calls"] == logical
-        assert binding.ledger == AtomicCallLedger(8, 4, 0, 2, 0, 0)
-        assert backend._adams is not None
-        assert backend._adams._history == []
-        assert backend._adams._order == 1
-        assert_array_equal(backend.observe().require_field(), initial)
-        cast("list[list[int]]", logical["orders"]).append([3, 1])
-        assert backend._adams.ledger.orders == [1]
+        session = start_session(backend, problem, run_request, start, owns=False)
+        try:
+            initial = backend.workspace.committed().copy()
+            assert session.execution_record()["response_calls"] == logical
+            assert binding.ledger == AtomicCallLedger(8, 4, 0, 2, 0, 0)
+            march = cast("Any", backend.march)
+            assert march._history == []
+            assert march._order == 1
+            launch = session.advance()
+            event = launch.events[0]
+            assert isinstance(event, ObservationReady)
+            observed = session.export(event.ticket, IDENTITY)
+            assert_array_equal(observed, initial)
+            session.acknowledge(launch.receipt)
+            cast("list[list[int]]", logical["orders"]).append([3, 1])
+            assert march.ledger.orders == [1]
+        finally:
+            session.close()
     finally:
         backend.close()
 
@@ -394,6 +486,8 @@ def test_logical_ledger_schema_mismatch_is_refused(change):
     "orders",
     [
         ((1, 1),),
+        [1],
+        [1, 2, 3],
         [1, [1, 1]],
         [[1]],
         [[1, 1, 1]],
@@ -411,26 +505,6 @@ def test_logical_ledger_restoration_refuses_invalid_predictor_orders(orders):
     record = CallLedger().to_record()
     record["orders"] = orders
     with pytest.raises(BackendError, match=r"orders must be \[order, count\] pairs"):
-        CallLedger.from_record(record)
-
-
-@pytest.mark.parametrize("orders", [[1], [1, 2, 3, 3, 4, 5, 5, 5], [0], [True, 2]])
-def test_a_flat_list_of_orders_is_refused_by_name(orders):
-    """An earlier development build of the same output schema wrote one order a step.
-
-    Read as pairs it would be refused for its shape alone, or, were the decoder
-    lenient, misread; the refusal says where such a record came from instead.
-    """
-    record = CallLedger(accepted_steps=len(orders)).to_record()
-    record["orders"] = orders
-    flat = all(type(one) is int for one in orders)
-    match = (
-        r"flat form an earlier development build wrote.*rerun the case, or read it "
-        r"with that build"
-        if flat
-        else r"orders must be \[order, count\] pairs"
-    )
-    with pytest.raises(BackendError, match=match):
         CallLedger.from_record(record)
 
 

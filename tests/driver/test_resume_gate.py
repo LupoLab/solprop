@@ -22,11 +22,11 @@ import pytest
 import record_routes
 from solprop.cli import main
 from solprop.driver import Simulation
-from solprop.driver.simulation import _check_resume_choice
-from solprop.exceptions import OutputError
+from solprop.driver.resume import _check_resume_choice
+from solprop.exceptions import DriverError, OutputError
 from solprop.log import NullReporter
 from solprop.output import check_cache, open_file, resumability
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.recipe import Recipe, resume_file
 
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
@@ -116,8 +116,9 @@ def test_a_finished_file_comes_back_only_under_its_own_hash(tmp_path):
 @pytest.mark.parametrize("word", ["force", "yes", 1])
 def test_a_resume_that_is_not_one_of_the_three_values_is_refused(word):
     # Directly: the test session's type hook would refuse the word at `run`'s door.
-    with pytest.raises(ValueError, match="resume must be False, True or"):
+    with pytest.raises(DriverError, match="resume must be False, True or") as refused:
         _check_resume_choice(word)
+    assert refused.value.parameter == "resume"
 
 
 def test_the_command_line_has_no_force(tmp_path, capsys):

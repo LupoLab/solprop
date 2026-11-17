@@ -7,7 +7,8 @@
 import numpy as np
 import pytest
 
-from backends.test_radial_nonlinear import derivative, make_problem
+from backends.spatial_cases import make_problem
+from backends.test_radial_nonlinear import derivative
 from bounds import gamma
 from legacy_geometry import LEGACY_GRID
 from solprop.backends.numpy_ref import NumpyRefBackend

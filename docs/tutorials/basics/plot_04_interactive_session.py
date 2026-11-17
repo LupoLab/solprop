@@ -82,7 +82,9 @@ print(f"for a wave at 250 nm, fill to {target:.2f} bar")
 # **inner** resonator diameter divided by the inscribed core diameter. The model's
 # wall resonances can produce several roots; phase matching does not ensure low loss.
 
-lattice = sol.TubeLattice.from_inner_diameter_ratio(20e-6, 300e-9, 0.6, 6)
+lattice = sol.TubeLattice.from_inner_diameter_ratio(
+    20e-6, wall_thickness=300e-9, inner_diameter_ratio=0.6, n_tubes=6
+)
 antiresonant = sol.VincettiMode(20e-6, "He", 2.0, lattice=lattice)
 antiresonant_gamma = sol.nonlinear_coefficient(
     antiresonant, sol.n2("He", pressure=2.0, wavelength=800e-9), 800e-9
@@ -123,7 +125,7 @@ print(run)
 # The propagation maps: the spectrum broadens symmetrically and the pulse stretches, as
 # self-phase modulation in normal dispersion does.
 
-figures = sol.prop_2d(run, "wavelength", spec_range=(500e-9, 1.2e-6), db_min=-30)
+figures = sol.prop_2d(run, spec_range=(500e-9, 1.2e-6), db_min=-30)
 
 # %%
 # Compress

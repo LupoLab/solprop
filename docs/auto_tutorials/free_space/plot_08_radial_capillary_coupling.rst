@@ -47,7 +47,7 @@ capillary. The ionisation they would carry is estimated offline at the end.
 functions and a target on-axis nonlinear phase of the linear Gaussian beam,
 :math:`B_{\rm lin} = 0.3` rad, accumulated from the launch plane to the focus.
 
-.. GENERATED FROM PYTHON SOURCE LINES 35-61
+.. GENERATED FROM PYTHON SOURCE LINES 35-62
 
 .. code-block:: Python
 
@@ -60,6 +60,7 @@ functions and a target on-axis nonlinear phase of the linear Gaussian beam,
     from scipy.special import j0, jn_zeros
 
     from solprop import fourier
+    from solprop.boundaries import DEFAULT_BOUNDARY_N, absorber
     from solprop.constants import EPS0, C
     from solprop.coupling import CouplingModel, couple
     from solprop.driver import Simulation, SimulationSettings
@@ -84,7 +85,7 @@ functions and a target on-axis nonlinear phase of the linear Gaussian beam,
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 62-79
+.. GENERATED FROM PYTHON SOURCE LINES 63-80
 
 The energy from the material functions
 --------------------------------------
@@ -104,7 +105,7 @@ Integrating :math:`k_0 n_2 I_0` from :math:`z = -L` to the focus gives
 energy is that of the beam through its launch plane, in the argon
 (:doc:`/guide/free-space/flux`).
 
-.. GENERATED FROM PYTHON SOURCE LINES 79-109
+.. GENERATED FROM PYTHON SOURCE LINES 80-110
 
 .. code-block:: Python
 
@@ -154,7 +155,7 @@ energy is that of the beam through its launch plane, in the argon
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 110-117
+.. GENERATED FROM PYTHON SOURCE LINES 111-118
 
 Two propagations through the gap
 --------------------------------
@@ -164,7 +165,7 @@ converged ones of the refinement study described at the end: 1 mm radial domain
 with 256 nodes, a 300 fs window over 500 nm to 1.4 um, and steps no longer than
 0.25 mm. The only difference between the two runs is the response list.
 
-.. GENERATED FROM PYTHON SOURCE LINES 117-138
+.. GENERATED FROM PYTHON SOURCE LINES 118-139
 
 .. code-block:: Python
 
@@ -184,7 +185,7 @@ with 256 nodes, a 300 fs window over 500 nm to 1.4 um, and steps no longer than
     kerr = [KerrResponse(gamma3("Ar", wavelength=WAVELENGTH), thg=False)]
     gap = {}
     for name, responses in (("linear", []), ("Kerr", kerr)):
-        simulation = Simulation.from_radial(
+        simulation = Simulation.from_free(
             grid, space, medium, responses, beam, settings=settings, noise=None
         )
         gap[name] = (simulation, simulation.run(progress="none"))
@@ -196,13 +197,13 @@ with 256 nodes, a 300 fs window over 500 nm to 1.4 um, and steps no longer than
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 139-142
+.. GENERATED FROM PYTHON SOURCE LINES 140-143
 
 The beam radius is the second moment of the time-integrated axial flux. The Kerr
 lens pulls the beam to a slightly smaller spot and moves its focus a little
 upstream. Its peak intensity rises by about 14 % but stays far from collapse.
 
-.. GENERATED FROM PYTHON SOURCE LINES 142-163
+.. GENERATED FROM PYTHON SOURCE LINES 143-164
 
 .. code-block:: Python
 
@@ -245,7 +246,7 @@ upstream. Its peak intensity rises by about 14 % but stays far from collapse.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 164-177
+.. GENERATED FROM PYTHON SOURCE LINES 165-178
 
 The fields at the entrance
 --------------------------
@@ -261,7 +262,7 @@ L}(r,\omega_0)]`. Both planes carry the same reference, because both runs share
 one frame. It is masked where the linear field's amplitude at that bin falls below
 1 % of its peak, where neither phase means much.
 
-.. GENERATED FROM PYTHON SOURCE LINES 177-211
+.. GENERATED FROM PYTHON SOURCE LINES 178-212
 
 .. code-block:: Python
 
@@ -317,7 +318,7 @@ one frame. It is masked where the linear field's amplitude at that bin falls bel
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 212-224
+.. GENERATED FROM PYTHON SOURCE LINES 213-225
 
 The fluence is the time integral of the axial flux, :math:`n_0\varepsilon_0c|E|^2/2`
 summed over the spectrum (:doc:`/guide/free-space/flux`). The Kerr beam arrives
@@ -332,7 +333,7 @@ brighter, and the power through the whole plane is unchanged, since the gap is
 lossless. The plane's spectrum broadens a little by self-phase modulation, which
 shows only in its wings, three decades down.
 
-.. GENERATED FROM PYTHON SOURCE LINES 224-264
+.. GENERATED FROM PYTHON SOURCE LINES 225-265
 
 .. code-block:: Python
 
@@ -388,7 +389,7 @@ shows only in its wings, three decades down.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 265-278
+.. GENERATED FROM PYTHON SOURCE LINES 266-279
 
 Coupling into the capillary
 ---------------------------
@@ -404,18 +405,25 @@ The modal share is :math:`s_m = U_m/U_{\rm incident}`: the energy launched into
 mode *m*, in its native true-power metric, over the incident energy of the
 whole entrance plane in the coupling's common measure.
 
-.. GENERATED FROM PYTHON SOURCE LINES 278-316
+.. GENERATED FROM PYTHON SOURCE LINES 279-324
 
 .. code-block:: Python
 
 
+    # The capillary's grid samples as the gap's does -- a launch is bound to its
+    # lattice -- and is built for the capillary's own 5 mm, since a run ends at its
+    # grid's length; its collar keeps the rate the gap's 20 mm grid gives.
+    capillary_grid = EnvelopeGrid.from_limits(
+        LENGTH, WAVELENGTH, (500e-9, 1.4e-6), 300e-15, thg=False
+    )
     capillary = Simulation.from_capillary(
         RADIUS,
         LENGTH,
         "Ar",
         PRESSURE,
         wavelength=WAVELENGTH,
-        grid=grid,
+        grid=capillary_grid,
+        absorber=absorber(capillary_grid, boundary_length=GAP / DEFAULT_BOUNDARY_N),
         envelope=True,
         fwhm=FWHM,
         energy=energy,
@@ -484,14 +492,14 @@ whole entrance plane in the coupling's common measure.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 317-321
+.. GENERATED FROM PYTHON SOURCE LINES 325-329
 
 The Kerr-prepared beam puts 2.4 % of the incident energy less into
 :math:`HE_{11}` and almost all of it into :math:`HE_{12}`. The total captured
 share barely moves: the change is a redistribution between modes, not a loss.
 The narrower, more curved entrance field looks more like the second mode.
 
-.. GENERATED FROM PYTHON SOURCE LINES 321-353
+.. GENERATED FROM PYTHON SOURCE LINES 329-361
 
 .. code-block:: Python
 
@@ -539,7 +547,7 @@ The narrower, more curved entrance field looks more like the second mode.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 354-373
+.. GENERATED FROM PYTHON SOURCE LINES 362-381
 
 The 5 mm capillary
 ------------------
@@ -561,7 +569,7 @@ of :math:`HE_{12}`. Because both cases go through the same capillary physics, th
 beating, the loss and the Kerr coupling are the same in both. The difference
 between the outputs comes from the prepared incident field.
 
-.. GENERATED FROM PYTHON SOURCE LINES 373-422
+.. GENERATED FROM PYTHON SOURCE LINES 381-430
 
 .. code-block:: Python
 
@@ -637,7 +645,7 @@ between the outputs comes from the prepared incident field.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 423-430
+.. GENERATED FROM PYTHON SOURCE LINES 431-438
 
 In both cases :math:`HE_{12}` gives energy to :math:`HE_{11}` along the
 capillary, far more than its wall loss. Linear modes of a uniform capillary do not
@@ -647,7 +655,7 @@ advances. The Kerr-prepared launch leaves the capillary with about 0.27 uJ less
 in :math:`HE_{11}` and 0.27 uJ more in :math:`HE_{12}`, close to the
 0.29 uJ moved at the entrance.
 
-.. GENERATED FROM PYTHON SOURCE LINES 432-440
+.. GENERATED FROM PYTHON SOURCE LINES 440-448
 
 Checks
 ------
@@ -658,7 +666,7 @@ window, is printed below. So is the coupling's numerical item, which measures th
 entrance planes' content in the outer fifth of their transverse spectral window.
 Both are far below anything that could affect the shares.
 
-.. GENERATED FROM PYTHON SOURCE LINES 440-457
+.. GENERATED FROM PYTHON SOURCE LINES 448-465
 
 .. code-block:: Python
 
@@ -687,13 +695,13 @@ Both are far below anything that could affect the shares.
 
  .. code-block:: none
 
-    linear: outer-domain fluence 2.7e-27, spectral-edge content 2.7e-36
+    linear: outer-domain fluence 2.7e-27, spectral-edge content 2.4e-36
       Kerr: outer-domain fluence 6.1e-27, spectral-edge content 8.9e-28
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 458-474
+.. GENERATED FROM PYTHON SOURCE LINES 466-482
 
 **Convergence.** A separate refinement study varied the radial domain
 (0.8 to 1.5 mm), the radial nodes (192 to 512), the window (200 to 500 fs), the
@@ -712,7 +720,7 @@ share. The two differ by the ratio of the gas index to the mode index, about
 field of a 30 fs Gaussian at the highest on-axis intensity of the Kerr run. This
 is an offline estimate, not part of the propagation.
 
-.. GENERATED FROM PYTHON SOURCE LINES 474-491
+.. GENERATED FROM PYTHON SOURCE LINES 482-499
 
 .. code-block:: Python
 
@@ -747,7 +755,7 @@ is an offline estimate, not part of the propagation.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 492-501
+.. GENERATED FROM PYTHON SOURCE LINES 500-509
 
 An ionised fraction of about 1e-7 lowers the index by about 2e-9. The Kerr index
 change it competes with is 6e-6. Leaving plasma out is defensible at this
@@ -759,7 +767,7 @@ it through the window's Fresnel transmission yourself, or transport the plane
 through a :class:`~solprop.coupling.elements.PlanarInterface`, before giving it
 (:doc:`/guide/free-space/flux`, :doc:`/guide/workflows/coupling`).
 
-.. GENERATED FROM PYTHON SOURCE LINES 501-504
+.. GENERATED FROM PYTHON SOURCE LINES 509-512
 
 .. code-block:: Python
 
@@ -774,12 +782,12 @@ through a :class:`~solprop.coupling.elements.PlanarInterface`, before giving it
 
  .. code-block:: none
 
-    run time 2.8 s
+    run time 9.6 s
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 505-512
+.. GENERATED FROM PYTHON SOURCE LINES 513-520
 
 Related reading
 ---------------
@@ -792,7 +800,7 @@ The design is
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 2.787 seconds)
+   **Total running time of the script:** (0 minutes 9.602 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_08_radial_capillary_coupling.py:

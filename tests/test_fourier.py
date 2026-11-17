@@ -12,6 +12,7 @@ from hypothesis import strategies as st
 from numpy.testing import assert_allclose
 from scipy.signal import hilbert
 
+from bounds import assert_within, fft_bound, gamma
 from solprop import fourier
 from solprop.constants import HBAR
 from solprop.exceptions import GridError
@@ -442,3 +443,108 @@ def test_parseval_holds_for_any_size(n_half, kind, seed):
         fourier.forward(samples, kind=kind), 1.0, kind=kind
     )
     assert_allclose(energy_time, energy_freq, rtol=n_t * EPS, atol=0.0)
+
+
+# Batches of up to two leading axes, each short: the transforms act on the last axis
+# only, so a batch checks that nothing mixes rows, not that rows are many.
+BATCHES = st.lists(st.integers(min_value=1, max_value=3), max_size=2).map(tuple)
+
+
+def random_samples(kind, shape, seed, exponent):
+    """Gaussian samples of the layout's dtype, scaled by ``10**exponent``."""
+    rng = np.random.default_rng(seed)
+    samples = rng.standard_normal(shape)
+    if kind == "envelope":
+        samples = samples + 1j * rng.standard_normal(shape)
+    return samples * 10.0**exponent
+
+
+@given(
+    n_half=st.integers(min_value=2, max_value=512),
+    kind=st.sampled_from(KINDS),
+    batch=BATCHES,
+    exponent=st.integers(min_value=-100, max_value=100),
+    seed=st.integers(min_value=0, max_value=2**32 - 1),
+)
+@settings(max_examples=80, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+def test_inverse_undoes_forward_for_any_size_scale_and_batch(
+    n_half, kind, batch, exponent, seed
+):
+    n_t = 2 * n_half
+    samples = random_samples(kind, (*batch, n_t), seed, exponent)
+    recovered = fourier.inverse(fourier.forward(samples, kind=kind), kind=kind)
+    assert recovered.dtype == samples.dtype  # real stays real, complex complex
+    # One forward and one inverse transform of length n_t, normwise: the round trip
+    # budget of tests/bounds.py, fixed for the ladder before any of these draws. The
+    # scale 10**exponent stays far from overflow and underflow (|x|**2 is not formed),
+    # so the relative bound does not depend on it.
+    assert_within(recovered, samples, fft_bound(n_t), what="inverse(forward(x))")
+
+
+@given(
+    n_half=st.integers(min_value=2, max_value=512),
+    kind=st.sampled_from(KINDS),
+    batch=BATCHES,
+    dt=st.floats(min_value=1e-18, max_value=1e-12),
+    exponent=st.integers(min_value=-60, max_value=60),
+    seed=st.integers(min_value=0, max_value=2**32 - 1),
+)
+@settings(max_examples=80, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+def test_parseval_holds_for_any_spacing_scale_and_batch(
+    n_half, kind, batch, dt, exponent, seed
+):
+    n_t = 2 * n_half
+    samples = random_samples(kind, (*batch, n_t), seed, exponent)
+    energy_time = fourier.energy_t(samples, dt, kind=kind)
+    energy_freq = fourier.energy_omega(
+        fourier.forward(samples, kind=kind), dt, kind=kind
+    )
+    assert energy_time.shape == batch
+    # Each energy is a sum of n_t non-negative terms (gamma(n_t) each), and the
+    # spectrum carries one transform's normwise error, which the squares double. The
+    # exponent keeps |x|**2 * dt inside the normal range, so the bound is relative.
+    rtol = 2 * gamma(n_t) + 2 * fft_bound(n_t)
+    assert_allclose(energy_freq, energy_time, rtol=rtol, atol=0.0)
+    assert np.all(energy_time > 0.0)
+
+
+@given(
+    n_t=st.integers(min_value=4, max_value=1024),
+    batch=BATCHES,
+    exponent=st.integers(min_value=-100, max_value=100),
+    seed=st.integers(min_value=0, max_value=2**32 - 1),
+)
+@settings(max_examples=80, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+def test_the_analytic_signal_keeps_the_field_and_doubles_its_power(
+    n_t, batch, exponent, seed
+):
+    rng = np.random.default_rng(seed)
+    spectrum = rng.standard_normal((*batch, n_t // 2 + 1)) + 1j * rng.standard_normal(
+        (*batch, n_t // 2 + 1)
+    )
+    # No zero-frequency or Nyquist content, as on every grid solprop builds: those two
+    # bins are not doubled, so the power identity below holds only without them.
+    spectrum[..., 0] = 0.0
+    if n_t % 2 == 0:
+        spectrum[..., -1] = 0.0
+    field = np.fft.irfft(spectrum, n=n_t, axis=-1) * 10.0**exponent
+    analytic = fourier.analytic_signal(field)
+    # Each comparison is one transform pair and a pointwise weighting: the round trip
+    # budget of tests/bounds.py, normwise against the field.
+    bound = fft_bound(n_t)
+    assert_within(np.real(analytic), field, bound, what="Re analytic_signal(E)")
+    # The negative-frequency bins of the analytic signal vanish, to the same budget
+    # measured against the whole spectrum's norm.
+    negative = np.fft.fft(analytic, axis=-1)[..., n_t // 2 + 1 :]
+    scale = np.linalg.norm(np.fft.fft(analytic, axis=-1))
+    assert np.linalg.norm(negative) <= bound * scale
+    # Its power is twice the field's mean square (the Hilbert pair carries the other
+    # half), per row: two sums of n_t terms and the transform error, doubled by the
+    # square, as in the Parseval property above.
+    power = np.sum(np.abs(analytic) ** 2, axis=-1)
+    assert_allclose(
+        power,
+        2.0 * np.sum(field**2, axis=-1),
+        rtol=2 * gamma(n_t) + 2 * bound,
+        atol=0.0,
+    )

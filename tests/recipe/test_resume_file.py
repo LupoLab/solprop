@@ -16,9 +16,9 @@ from solprop.cli import main
 from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError, OutputError
 from solprop.log import NullReporter
-from solprop.output import SCHEMA_VERSION, resumability
+from solprop.output import SCHEMA_VERSION, _writer_lock, resumability
 from solprop.output import resumable as resumable_module
-from solprop.output._writer_lock import WriterLock
+from solprop.output._writer_lock import WriterHeldError, WriterLock
 from solprop.output.hdf5 import open_file
 from solprop.recipe import Recipe, RecipeError, resume_file
 from solprop.stepper.multistep import Multistep
@@ -137,6 +137,30 @@ def test_a_live_writer_is_named(tmp_path):
     assert answer.reason == "a writer still holds the file"
 
 
+def test_a_held_writer_lock_raises_its_own_error_type(tmp_path):
+    path = tmp_path / "held.h5"
+    first = WriterLock(path)
+    first.acquire()
+    try:
+        with pytest.raises(WriterHeldError):
+            WriterLock(path).acquire()
+    finally:
+        first.release()
+
+
+def test_a_lock_failure_naming_another_writer_is_no_live_writer(tmp_path, monkeypatch):
+    # Regression: liveness was read from the error text, so a failure whose message
+    # quoted a path containing "another writer" was taken for a live writer.
+    directory = tmp_path / "another writer"
+    directory.mkdir()
+
+    def failed(*args, **kwargs):
+        raise OSError("lock unavailable")
+
+    monkeypatch.setattr(_writer_lock, "lock", failed)
+    assert not resumable_module._writer_alive(directory / "file.h5")
+
+
 def test_a_file_of_another_schema_is_named(tmp_path):
     path = tmp_path / "old.h5"
     _stopped(path)
@@ -156,9 +180,9 @@ def test_a_failure_before_any_plane_leaves_nothing_to_continue(tmp_path):
     assert answer.reason is not None and "no state" in answer.reason
 
 
-def test_a_file_of_an_earlier_build_s_flat_orders_is_named(tmp_path):
-    # An earlier development build of this schema wrote a Multistep run's orders one
-    # per step: the file is said not to continue, for that reason, before a resume.
+def test_a_file_whose_ledger_cannot_be_read_is_said_not_to_continue(tmp_path):
+    # A Multistep run's orders one per step rather than as [order, count] pairs: the
+    # file is said not to continue, for that reason, before a resume.
     path = tmp_path / "flat.h5"
     simulation = Simulation.from_gnlse(
         0.11, 0.05, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
@@ -180,7 +204,7 @@ def test_a_file_of_an_earlier_build_s_flat_orders_is_named(tmp_path):
     answer = resumability(path)
     assert not answer.resumable
     assert answer.reason is not None
-    assert "flat form an earlier development build wrote" in answer.reason
+    assert "orders must be [order, count] pairs" in answer.reason
 
 
 def test_an_interpolated_last_plane_needs_interpolated(tmp_path):

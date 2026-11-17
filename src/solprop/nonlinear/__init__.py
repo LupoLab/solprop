@@ -2,10 +2,27 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Nonlinear responses and their models.
+"""Nonlinear responses and their models (physics layer).
 
-Response definitions with declared traits, ionisation rates, Raman models, the
-GNLSE mapping and the normalisation prefactors (physics layer).
+The commonly used names of the submodules are re-exported here.
+
+- **Responses**: :mod:`~solprop.nonlinear.responses` (Kerr, plasma and SEP 6's
+  dispersive electronic response, with the declared traits the translation layer
+  compiles) and :mod:`~solprop.nonlinear.envelope_plasma` (cycle-averaged plasma sources
+  of an envelope).
+- **Raman**: :mod:`~solprop.nonlinear.raman` (the models and the reference evaluation)
+  and :mod:`~solprop.nonlinear.optmat_raman` (optmat's gas responses mapped onto them).
+- **Ionisation**: :mod:`~solprop.nonlinear.ionisation` (the rate protocol and
+  diagnostics) and :mod:`~solprop.nonlinear.optmat_rates` (optmat's rate models on it).
+- **Mixtures**: :mod:`~solprop.nonlinear.mixtures`, the responses of a mixture's
+  labelled populations under a material selection.
+- **The atomic response**: :mod:`~solprop.nonlinear.tdse`, the helium TDSE response
+  declarations.
+- **Mapping and normalisation**: :mod:`~solprop.nonlinear.gnlse` (the GNLSE as a
+  mode-averaged envelope problem) and :mod:`~solprop.nonlinear.normalisation` (the
+  prefactors from polarisation to field).
+
+The manual page is ``docs/guide/media/nonlinear.md``.
 """
 
 from solprop.nonlinear.envelope_plasma import (
@@ -26,6 +43,7 @@ from solprop.nonlinear.normalisation import (
     sqrtw_to_vm,
     uppe_prefactor,
 )
+from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.raman import (
     DampedOscillator,
     Dephasing,
@@ -77,6 +95,7 @@ __all__ = [
     "IntermediateBroadening",
     "KerrResponse",
     "MolecularOptions",
+    "OptmatRate",
     "PlasmaResponse",
     "Polarisation",
     "RamanModel",

@@ -301,7 +301,7 @@ FORMER_SILICA_TENSOR = LinAgrawalRaman(
 
 # A placeholder linear law: the species exists to carry its Raman constants to the
 # supplied molecular route, and no test here reads its index.
-_PLACEHOLDER_LAW_STATE = ReferenceState(pressure_bar=1.0, temperature=273.15)
+_PLACEHOLDER_LAW_STATE = ReferenceState(pressure=1.0, temperature=273.15)
 
 
 def supplied_species(raman: MolecularRaman) -> Species:

@@ -62,7 +62,6 @@ from modal_provider_cases import (
     make_provider,
 )
 from solprop import fourier
-from solprop.backends.numpy_ref.backend import _general_maps
 from solprop.backends.numpy_ref.general_modal import (
     GeneralMaps,
     delayed_polarisation,
@@ -70,14 +69,15 @@ from solprop.backends.numpy_ref.general_modal import (
     symmetric_cubic,
     symmetric_kerr_coefficients,
 )
+from solprop.backends.numpy_ref.source import _general_maps
 from solprop.constants import EPS0
 from solprop.grid import FieldGrid
 from solprop.modes.guide import ModalGuide
 from solprop.modes.material import MaterialKerr
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.general import general_modal_route
-from solprop.translate.problem import assemble
 from solprop.translate.responses import KerrForm
 
 LENGTH = 1e-3

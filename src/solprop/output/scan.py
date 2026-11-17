@@ -2,13 +2,22 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Commit independently completed points to one recoverable HDF5 scan file.
+"""A scan's collected HDF5 file, to which one controller commits completed points.
 
-Only the controller writes this file. Staged point groups are the recovery source;
-layout arrays and exact CSR statistics are rebuilt from committed groups at close.
+- :class:`PointResult` carries one worker's complete result, or its failure with the
+  provenance available, to the single writer; :func:`validate_result` checks it before
+  any committed data changes.
+- :class:`ScanWriter` owns the collected file for one controller session, under the
+  exclusive lock of ``solprop.output._scan_lock``: points are staged and flushed
+  before they are marked done, the staged groups are the recovery source, and the layout
+  arrays and the concatenated periodic statistics are rebuilt from them at close.
+- :func:`read_point` and :func:`grid_values` read committed points, masking unfinished
+  ones; :class:`solprop.processing.scans.ScanOutput` is the user's reader built on them.
+
+The manual page is ``docs/guide/workflows/scans.md`` ("Retention, reductions and
+reading").
 """
 
-import hashlib
 import json
 import logging
 from collections.abc import Mapping
@@ -20,17 +29,14 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from solprop._identity import canonical_json, text_digest
 from solprop.driver._scan_model import Scan
 from solprop.exceptions import OutputError, ProcessingError
 from solprop.output._scan_lock import read_scan, write_scan
 from solprop.output.hdf5 import _dataset, _group, write_recipe
-from solprop.output.schema import (
-    RecipeRecord,
-    RunMetadata,
-    _inlined,
-    _refuse_schema,
-    serialise,
-)
+from solprop.output.metadata import RunMetadata, _refuse_schema
+from solprop.output.records import RecipeRecord
+from solprop.output.serialisation import _inlined, serialise
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +50,7 @@ def _json(value: object) -> str:
     array keeps its values here, whatever its size. A run record's arrays go beside its
     text instead, through :attr:`PointResult.metadata_arrays`.
     """
-    return json.dumps(_inlined(serialise(value)), sort_keys=True, separators=(",", ":"))
-
-
-def _hash(text: str) -> str:
-    """Identify a serialised common record by its SHA-256 digest."""
-    return hashlib.sha256(text.encode()).hexdigest()
+    return canonical_json(_inlined(serialise(value)))
 
 
 _RECORD_ARRAYS = "record_arrays"
@@ -93,7 +94,7 @@ class PointResult:
         Complete run metadata, empty if construction failed.
     metadata_arrays : dict
         The arrays the metadata names
-        (:meth:`solprop.output.schema.RunMetadata.record_arrays`).
+        (:meth:`solprop.output.metadata.RunMetadata.record_arrays`).
     arrays : dict
         Named retained fields, statistics and reduction arrays.
     reductions : dict
@@ -234,7 +235,7 @@ class ScanWriter:
                 # The schema first: a scan of another release is refused by the
                 # output schema its records declare, not by its axes.
                 _refuse_other_schemas(self.file)
-                if self.file.attrs.get("identity") != _hash(description):
+                if self.file.attrs.get("identity") != text_digest(description):
                     raise OutputError(
                         "scan axes, root seed or retention contract changed"
                     )
@@ -254,7 +255,7 @@ class ScanWriter:
 
         Parameters
         ----------
-        record : solprop.output.schema.RecipeRecord or None
+        record : solprop.output.records.RecipeRecord or None
             The recipe; ``None``, a scan from a script, records none.
         """
         if record is not None and "recipe" not in self.file:
@@ -265,7 +266,7 @@ class ScanWriter:
         file = self.file
         file.attrs.update(
             scan_schema_version=1,
-            identity=_hash(description),
+            identity=text_digest(description),
             spectral_convention="optics",
         )
         group = file.create_group("scan")
@@ -380,10 +381,11 @@ class ScanWriter:
             return
         if result.status not in ("done", "failed"):
             raise OutputError(f"invalid point status {result.status!r}")
+        self._layouts_stale()
         if not 0 <= result.index < len(_dataset(self.file, "points/index")):
             raise OutputError("result index is outside the scan")
-        # A committed point is the only copy of its arrays on the Local, Pool and
-        # Batch routes. A failure reported for one is a failure of this attempt to
+        # A committed point is the only copy of its arrays on the Local and Pool
+        # routes. A failure reported for one is a failure of this attempt to
         # re-derive it -- a builder that now raises, a worker that died -- and must
         # never publish over it or delete its staged group.
         if result.status == "failed" and self.state(result.index)[0] == "done":
@@ -488,7 +490,7 @@ class ScanWriter:
             )
         point.attrs["array_units"] = _json(units)
         _dataset(file, "points/backend")[result.index] = _json(document.get("backend"))
-        layout = _hash(
+        layout = text_digest(
             _json(
                 {
                     name: [
@@ -518,7 +520,7 @@ class ScanWriter:
         ):
             return {key: self._common_record(value) for key, value in document.items()}
         text = _json(document)
-        digest = _hash(text)
+        digest = text_digest(text)
         if digest not in _group(self.file, "common"):
             _group(self.file, "common").create_dataset(
                 digest, data=text, dtype=h5py.string_dtype()
@@ -551,10 +553,24 @@ class ScanWriter:
         )
         self.file.flush()
 
+    def _layouts_stale(self) -> None:
+        """Mark the layouts out of date, durably, before a commit changes staging.
+
+        A rebuild that follows clears the mark; one that never comes (a crash, a
+        kill) leaves it for the next writer's close to see.
+        """
+        layouts = self.file.require_group("layouts")
+        if layouts.attrs.get("current", False):
+            layouts.attrs["current"] = False
+            self.file.flush()
+
     def close(self, *, consolidate: bool = True) -> None:
         """Build layout arrays and CSR statistics, then close the writer.
 
         A hard interruption before this point is readable from committed staging.
+        Layouts already current -- no point committed since they were built, as on a
+        rerun with every point done -- are kept rather than rebuilt: HDF5 does not
+        reclaim the space of a deleted group, so each rebuild grows the file.
 
         Parameters
         ----------
@@ -562,7 +578,11 @@ class ScanWriter:
             False closes an unchanged collection without rebuilding its layouts.
         """
         try:
-            if consolidate:
+            layouts = self.file.get("layouts")
+            current = isinstance(layouts, h5py.Group) and bool(
+                layouts.attrs.get("current", False)
+            )
+            if consolidate and not current:
                 self._collect_layouts()
         finally:
             # Closes the file, then releases the sidecar lock a waiting reader
@@ -616,6 +636,9 @@ class ScanWriter:
                         target[row] = _dataset(file, f"staged/{index}/{key}")[...]
         self._common_fields(done)
         self._rectangular(done, next(iter(by_layout)) if len(by_layout) == 1 else None)
+        # Only after the whole replacement is flushed, which _rectangular ends with.
+        layouts.attrs["current"] = True
+        file.flush()
 
     def _rectangular(self, done: np.ndarray, layout_name: str | None) -> None:
         """Expose uniform arrays over the complete global point axis.
@@ -745,7 +768,7 @@ def _refuse_other_schemas(file: h5py.File) -> None:
         )
         # Records are content-addressed, so every point of one release shares the
         # same reference and the common record is read once.
-        key = json.dumps(declared, sort_keys=True)
+        key = canonical_json(declared)
         if key not in accepted:
             _refuse_point_schema(file, int(name), document)
             accepted.add(key)

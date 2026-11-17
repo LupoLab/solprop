@@ -5,8 +5,8 @@
 """The native session's own transverse edge against solprop's, on recorded readings.
 
 SEP 47 sections 4.3 and 6.4 and the maintainer's decision 4 at its acceptance: the
-native session owns a free-space run's transverse edge (``transverse::Edge``,
-``solprop_native._core.TransverseEdge``) with every decision and record. Both edges are
+native session owns a free-space run's transverse edge (``transverse::Edge``, the
+private test module's ``TransverseEdge``) with every decision and record. Both edges are
 fed the same recorded readings -- the launch with its clip, noise and schedule, reads
 on and off their spacing, a collar's current at every step, a plane re-read, a resume
 -- and must make exactly the same decisions: every warning and stop, in order and in
@@ -25,10 +25,10 @@ is the same scalar sequence in both, and compared exactly on arbitrary readings.
 
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import math
 import warnings
-from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -36,6 +36,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from solprop.backends import records
 from solprop.backends.registry import available
 from solprop.boundaries import SpatialAbsorber, SpatialAbsorberDesign
 from solprop.exceptions import BoundaryError, BoundaryWarning
@@ -56,9 +57,33 @@ U = 2.0**-53
 
 def _modules() -> tuple[Any, Any]:
     return (
-        importlib.import_module("solprop_native._core"),
+        importlib.import_module("solprop_native._core")._testing,
         importlib.import_module("solprop_native._transverse"),
     )
+
+
+def _edge_config(config: records.EdgeConfig) -> dict[str, object]:
+    """Return an edge's configuration as the test module's edge reads it (a dict)."""
+    values = {one.name: getattr(config, one.name) for one in dataclasses.fields(config)}
+    values["faces"] = list(config.faces)
+    return values
+
+
+def _edge_resumption(held: records.EdgeResumption) -> dict[str, object]:
+    """Return an edge record's resumption as the test module's edge reads it."""
+    out: dict[str, object] = {"record": held.record}
+    if not held.record:
+        return out
+    out.update(held.numbers)
+    for name in ("edge_baseline", "edge_max", "edge_max_raw"):
+        values = getattr(held, name)
+        if values is not None:
+            out[name] = list(values)
+    if held.reads is not None:
+        out["reads"] = held.reads
+    if held.transverse_status is not None:
+        out["transverse_status"] = held.transverse_status
+    return out
 
 
 def _space(geometry: str) -> LineGrid | FreeGrid | RadialGrid:
@@ -100,7 +125,7 @@ def _design(
     )
 
 
-@dataclass
+@dataclasses.dataclass
 class Readings:
     """The arrays a drawn reading is made of, scaled by the launch energy."""
 
@@ -124,7 +149,6 @@ class Pair:
         budget: float = 1e-3,
         steps: np.ndarray | None = None,
         declared: bool = False,
-        reads: bool = True,
     ) -> None:
         core, transverse = _modules()
         self.transverse = transverse
@@ -133,13 +157,12 @@ class Pair:
             space, _design(space, design), budget, 10.0, 0.01, np.arange(1), K800
         )
         self.native = core.TransverseEdge(
-            transverse.config_of(
-                self.python, steps=steps, declared=declared, reads=reads
-            ).native()
+            _edge_config(
+                records.edge_config(self.python, steps=steps, declared=declared)
+            )
         )
         self.steps = steps
         self.declared = declared
-        self.reads = reads
         self.lines = len(self.python.reduction.lines)
         self.columns = int(np.asarray(space.spectral_weights).size)
         self.launch_energy = 1.0
@@ -223,8 +246,8 @@ class Pair:
     def _native_call(self, first: dict[str, object]) -> list[tuple[str, str]]:
         """Serve a native call's notices, each warning then the rest of its point."""
         out: list[tuple[str, str]] = []
-        notice = self.transverse.EdgeNotice.of(first)
-        while notice.kind != self.transverse.NoticeKind.NONE:
+        notice = self.transverse.edge_notice_of(first)
+        while notice.kind != records.EdgeNoticeKind.NONE:
             if notice.stop:
                 out.append(
                     ("stop", str(self.transverse.notice_error(self.python, notice)))
@@ -234,7 +257,7 @@ class Pair:
             warning = self.transverse.notice_warning(self.python, notice)
             assert type(warning) is BoundaryWarning
             out.append(("warn", str(warning)))
-            notice = self.transverse.EdgeNotice.of(self.native.proceed())
+            notice = self.transverse.edge_notice_of(self.native.proceed())
         return out
 
     def state(self, z: float, proposal: float) -> None:
@@ -244,7 +267,7 @@ class Pair:
         assert native.ceiling() == python.ceiling(z)
         assert native.every_step == python.every_step
         assert native.resumed == python.resumed
-        assert self.transverse.STATUSES[native.status] == python.status
+        assert records.STATUSES[native.status] == python.status
         for ahead in (0.0, proposal, 2 * proposal, python.ceiling(z)):
             if math.isfinite(ahead):
                 assert native.due(z, ahead) == python.due(z, ahead)
@@ -280,7 +303,6 @@ class Pair:
                 noise=noise,
                 clean_columns=clean_columns,
                 steps=self.steps,
-                reads=self.reads,
                 declared=self.declared,
             )
         )
@@ -426,7 +448,7 @@ def test_a_resume_continues_the_record_as_solprop_does(
     pair = Pair(geometry, design)
     faces = len(pair.python._faces)  # pyright: ignore[reportPrivateUsage]
     pair.python.resume(record)
-    pair.native.resume(pair.transverse.resumption(record, faces))
+    pair.native.resume(_edge_resumption(records.edge_resumption(record, faces)))
     pair.launch(launch, z)
     pair.state(z, 1e-4)
     pair.record()
@@ -505,17 +527,8 @@ def test_a_warning_the_caller_raises_leaves_the_rest_of_its_point_undone():
         with pytest.raises(BoundaryWarning):
             pair.python.read(python_reading, 2e-3)
     notice = pair.native.read(values, 2e-3, sums)
-    assert notice["kind"] == pair.transverse.NoticeKind.FACE and not notice["stop"]
+    assert notice["kind"] == records.EdgeNoticeKind.FACE and not notice["stop"]
     assert pair.native.pending
-    pair.record()
-
-
-def test_an_unread_edge_warns_once_and_records_why():
-    pair = Pair("line", "none", reads=False)
-    reported = pair.launch(Readings([0.0] * 4, [0.0] * 4, 0, 0, [1.0], [0.0], 0.0))
-    assert reported == [("warn", reported[0][1])]
-    assert "does not read the transverse edge" in reported[0][1]
-    pair.state(0.0, 1e-4)
     pair.record()
 
 
@@ -602,7 +615,7 @@ def test_a_record_solprop_s_resume_ignores_is_ignored_alike(record):
     # reads nothing more: the maxima and the reads are not converted, nor refused.
     pair = Pair("line", "none")
     pair.python.resume(record)
-    pair.native.resume(pair.transverse.resumption(record, 2))
+    pair.native.resume(_edge_resumption(records.edge_resumption(record, 2)))
     assert not pair.python.resumed and not pair.native.resumed
     pair.launch(Readings([0.0] * 4, [0.0] * 4, 0, 0, [1.0], [0.0], 0.0))
     pair.record()

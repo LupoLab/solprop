@@ -37,7 +37,6 @@ from solprop.spatial import (
     planar_fluence,
     planar_mode_energy,
 )
-from solprop.stats import default_spec
 from solprop.stepper import PIController
 
 started = perf_counter()
@@ -72,7 +71,6 @@ settings = SimulationSettings(
     dz_max=length / 10,
     dz_init=1e-3,
     absorber=absorber(grid, boundary_length=1.0),
-    stats=default_spec("free"),
 )
 output = prop_planar(
     grid,

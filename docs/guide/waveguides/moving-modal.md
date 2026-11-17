@@ -38,7 +38,10 @@ and with $dc/dz = -\Gamma c$ the flux norm obeys $d(c^{\mathsf H}Wc)/dz = 0$ exa
 **the connection alone moves no power**. For an orthogonal basis with diagonal $W$, the real diagonal part is
 $\operatorname{Re}\Gamma_{nn}=W'_{nn}/(2W_{nn})$, reducing to
 $\tfrac12 W'_{nn}$ where $W_{nn}=1$. It describes the change of power
-normalisation. The imaginary part describes the gauge's phase rate. For a
+normalisation. The imaginary part describes the gauge's phase rate, a geometric (Berry)
+connection that vanishes only in a gauge that parallel-transports the phase;
+{py:func}`~solprop.modes.tables.align_modal_sample` approximates that gauge to first order
+by making each knot's overlap with the previous one real and positive. For a
 dense metric, use the full matrix identity rather than this scalar formula. Neither is zero in general. Zeroing the diagonal, as
 the capillary's closed form correctly does for *its* basis, breaks the identity; for diagonal $W$ the resulting norm defect is
 $\sum_n|c_n|^2W'_{nn}$, which is why that formula is **not** transplanted to a
@@ -47,7 +50,7 @@ solid guide.
 {py:func}`~solprop.modes.connection.modal_connection` measures it from a provider:
 
 ```{code-block} python
-from solprop.modes import modal_connection
+from solprop.modes.connection import modal_connection
 
 link = modal_connection(provider, omega, z)
 link.matrix  # Gamma in 1/m
@@ -56,7 +59,9 @@ link.antisymmetry  # the certificate, in 1/m
 ```
 
 $\partial_z\boldsymbol\psi_n$ is a three-point Lagrange derivative of the provider's
-own solves, tracked into one gauge, on **one shared node set whose panels are split at
+own solves, tracked into one gauge, with a step
+({py:data}`~solprop.modes.connection.STEP_FRACTION`) that balances the difference's
+truncation, falling as $h^2$, against its round-off, growing as $1/h$, on **one shared node set whose panels are split at
 the union of every stencil position's declared edges**. That is not a detail. A rule
 built at one position and reused at another leaves its panel edge off the moving
 interface, and a Poynting integrand with a jump there is then integrated by a Gauss rule
@@ -177,8 +182,8 @@ Chebyshev-Lobatto points of one degree, starting at four and doubled until the e
 reproduces a **fresh** solve at the points the doubling adds to within `path_rtol`, which
 by default is the frequency interpolation's own measured profile error: sampling in z is
 then never the coarser of the two
-({py:class}`~solprop.modes.guide.ModalPath`,
-{py:func}`~solprop.translate.modal_path.sample_modal_path`). A relative error $e$ in a
+({py:class}`~solprop.modes.path.ModalPath`,
+{py:func}`~solprop.modes.path.sample_modal_path`). A relative error $e$ in a
 propagation constant costs a phase of about $e|\beta|L$ over a length $L$, so a run that
 needs the phase along a long guide should tighten `path_rtol`. On the graded-index taper
 above the first degree, four, already reproduces the held-out solves to 7.6e-8 against a
@@ -238,9 +243,8 @@ evaluates one of each.
 **Refused, by name**: a snapshot position other than the entrance, `sections=` or
 `path_rtol=` beside a guide whose geometry does not move, an entrance rule the provider
 would not build again, a run longer than the declared path, the `modified` noise model
-(the `input` draw is part of the launch and is admitted), the reference's lockstep
-batch (a native `Batch` group runs each member in its own session), a fixed
-schedule that straddles a kink, or no flow at all beside moving maps. Every backend executes the moving maps — `numpy_ref` and `native` on
+(the `input` draw is part of the launch and is admitted), a fixed schedule that
+straddles a kink, or no flow at all beside moving maps. Every backend executes the moving maps — `numpy_ref` and `native` on
 the CPU and on a GPU. A declared circular basis is honoured: the metric then stays
 the identity, the basis being unitary and the measured Gram departure unitarily
 invariant.

@@ -16,7 +16,7 @@ from solprop.constants import EPS0, C
 from solprop.modes import StepIndexMode
 from solprop.modes.collection import overlap
 from solprop.modes.quadrature import mode_matrix, quadrature_rule, transverse_quadrature
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 
 
 @dataclass(frozen=True, eq=False)

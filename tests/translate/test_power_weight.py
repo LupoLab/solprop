@@ -21,6 +21,7 @@ from solprop.noise import modified_noise
 from solprop.nonlinear.gnlse import SpecifiedMode, problem_from
 from solprop.profiles import Linear, PressureGradient
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.chebyshev import DEFAULT_TOL, build
 from solprop.translate.expansion import (
     append_endpoint_expansion,
@@ -38,7 +39,6 @@ from solprop.translate.linop import (
     power_weight_factors,
     with_power_weight,
 )
-from solprop.translate.problem import assemble
 
 
 @pytest.mark.parametrize("index", [0.0, -1.0, np.inf, np.nan])
@@ -104,7 +104,7 @@ def test_phi_gains_the_exact_log_term(representation):
         "Ar",
         PressureGradient.two_point(0.01, 20.0, 1.0),
         cladding=1.45,
-        loss=False,
+        loss_scale=0.0,
     )
     result = build_phi(
         mode, grid, Frame.comoving(grid), z_max=0.01, representation=representation
@@ -137,7 +137,7 @@ def test_the_log_term_resolves_on_a_tapered_gradients_parameter_box():
         Linear(100e-6, 80e-6, 0.1),
         "Ar",
         PressureGradient.two_point(0.1, 5.0, 0.2),
-        loss=False,
+        loss_scale=0.0,
     )
     result = build_phi(
         mode, grid, Frame.comoving(grid), z_max=0.1, representation="expansion"
@@ -351,7 +351,7 @@ def test_unitary_noise_drift_stays_below_three_tenths_percent():
         "Ar",
         PressureGradient.two_point(grid.length, 20.0, 1.0),
         cladding=1.45,
-        loss=False,
+        loss_scale=0.0,
     )
     omega = grid.omega[grid.active_mask]
     ratio = np.sqrt(
@@ -483,7 +483,7 @@ def test_the_gradient_phi_table_is_not_padded_to_one_degree():
         "Ar",
         PressureGradient.two_point(0.01, 20.0, 1.0),
         cladding=1.45,
-        loss=False,
+        loss_scale=0.0,
     )
     table = build_phi(
         mode, grid, Frame.comoving(grid), z_max=0.01, representation="table"

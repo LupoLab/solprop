@@ -76,8 +76,9 @@ for an editable checkout, and a wheel has no sources beside it to compare.
 ## Agree and implement a change
 
 Work on a topic branch and keep changes focused. New physics, numerical schemes,
-public-interface redesigns, and substantive contract changes require an accepted
-[enhancement proposal](seps/sep-0000-process.md). Other changes larger than a
+changed physics defaults or conventions, and substantive contract changes require an
+accepted [enhancement proposal](seps/sep-0000-process.md); an API fix or cleanup that
+changes no model or physics does not. Other changes larger than a
 focused fix start with an agreed issue or written plan.
 
 Keep the manual, docstrings, tests, and release-note fragments consistent with the

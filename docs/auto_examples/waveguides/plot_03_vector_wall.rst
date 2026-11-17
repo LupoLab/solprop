@@ -79,7 +79,7 @@ optmat's helium fit, qualified over the whole band (from 60 nm).
 Each family's own loss, across the band
 ---------------------------------------
 One channel of each family in a 100 um bore, the vector wall block evaluated on its
-own with :func:`~solprop.modes.capillary.vector_wall_operator` -- no run -- against
+own with :func:`~solprop.modes.wall.vector_wall_operator` -- no run -- against
 the Marcatili attenuation of the same channel. A negative azimuthal index is this
 package's spelling of the ``EH`` family. The "impedance-averaged" curve is what a
 wall with one impedance gives the transverse families: the hybrid cladding term in
@@ -413,7 +413,7 @@ Four complete one-metre runs of three or four coupled modes.
 
  .. code-block:: none
 
-    187 s; backend native, 18 threads
+    473 s; backend native, 16 threads
 
 
 
@@ -430,7 +430,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (3 minutes 6.803 seconds)
+   **Total running time of the script:** (7 minutes 52.845 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_03_vector_wall.py:

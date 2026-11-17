@@ -48,15 +48,15 @@ level, so a keyword added to solprop later can never collide with the format:
 | `[recipe]` | `format` and `route`, required; `title` and `solprop`, informative |
 | `[build]` | the keywords of the route's `Simulation.from_*` constructor, under their own names |
 | `[execution]` | `fields`, `field_planes` and `resume_history`: settings the run reads when it executes |
-| `[pins]` | values solved from a design target (a later release) |
-| `[scan]` | a scan over parameter paths (a later release) |
+| `[pins]` | values solved from a design target ([below](#pins)) |
+| `[scan]` | a scan over parameter paths ([below](#scans)) |
 
 The names in `[build]` are the keywords of
 {py:meth}`~solprop.driver.simulation.Simulation.from_capillary`,
 {py:meth}`~solprop.driver.simulation.Simulation.from_gnlse`,
 {py:meth}`~solprop.driver.simulation.Simulation.from_waveguide`,
-{py:meth}`~solprop.driver.simulation.Simulation.from_radial`,
-{py:meth}`~solprop.driver.simulation.Simulation.from_free` and
+{py:meth}`~solprop.driver.simulation.Simulation.from_free` (the `radial` and the `free`
+routes) and
 {py:meth}`~solprop.driver.simulation.Simulation.from_planar`, with their meanings and
 defaults. A keyword left out takes solprop's default when the recipe is built, so a recipe
 follows solprop's improvements; the output records what ran. Keys that choose files,
@@ -102,6 +102,33 @@ supplies them. An unknown key is refused with the nearest valid one.
   (`SpatialPulse`, `SpatialPulseSum`, `PlanarPulse`), `SimulationSettings`, `PIController`,
   `default_spec` and `SpatialAbsorber`. A recipe never imports a module or evaluates
   code.
+- **TOML's own types.** Every value is a string, a boolean, a 64-bit integer, a float, a
+  table or an array: TOML's dates and times are refused, and so is an integer outside 64
+  bits, which other TOML readers refuse too.
+
+**Units.** A unit is a product of factors with at most one solidus, as the SI brochure
+writes it: a numerator of factors joined by `*` or `·` (or the single factor `1`), then
+optionally `/` and one factor or a parenthesised product, as in `W/cm^2`, `fs^2/mm` or
+`J/(m*s)`; `a/b/c` and `a/b*c` are refused as ambiguous. A factor is an optional SI prefix
+(`q` to `Q`; `u`, `µ` and `μ` all read as micro), a symbol and an optional integer
+exponent `^n` or `^-n`. The symbols are `m`, `s`, `g`, `Hz`, `J`, `W`, `Pa`, `bar`, `K`,
+`rad` and `deg`; temperature is in kelvin only, with no Celsius or Fahrenheit. The space
+between the number and the unit is optional (`"800nm"` is read). Plane angle is a fifth
+base dimension beside length, time, mass and temperature, so an angular frequency in
+rad/s is never confused with a frequency in Hz (a factor of 2π); `rad` is therefore
+written only where the keyword's unit is an angle.
+
+The number is read as a decimal, multiplied exactly by the ratio of the two units'
+factors, and rounded once to the nearest double. Every unit but `deg` is a decimal
+multiple of an SI unit, so that ratio only shifts the decimal exponent. `deg` multiplies
+by π/180, which has no finite decimal; it is carried to 70 significant digits, so the
+one rounding gives the double nearest the exact angle unless that lies within 10⁻⁷⁰
+(relative) of a tie, which no recipe value does. `deg` therefore stands alone: it takes
+no prefix, no exponent and no other factor. A saved recipe writes each value in its
+keyword's display unit with the fewest digits that read back to the same double: for a
+decimal unit, the shortest round-tripping form of the double with its decimal point
+shifted, which is always exact; for `deg`, the fewest of up to 17 significant digits that
+read back, which always suffice.
 
 **Supplied modes.** On the `waveguide` route, and for the capillary's `modes`, a mode is
 a table of its geometry, cladding and loss. Its fill is the route's `gas`, `pressure` and
@@ -138,7 +165,11 @@ taken from that grid. `check()` on such a recipe costs one solve of the guide.
 
 **Parameter paths** name a value inside the recipe: the keyword, then `.name` for a
 keyword of an object, `[i]` for an element of a list and `["key"]` for a key of a mapping,
-as in `pressure`, `pulses[1].energy` or `betas[2]`. {py:meth}`Recipe.get
+as in `pressure`, `pulses[1].energy` or `betas[2]`. An index is a non-negative integer
+with no leading zero, and a key is a JSON string, so `["a\"b"]` is the key `a"b`. Since an
+object and a mapping are both tables in TOML, `.name` and `["name"]` reach the same
+entry, and the canonical text is the one
+{py:func}`~solprop.recipe.paths.format_path` writes. {py:meth}`Recipe.get
 <solprop.recipe.core.Recipe.get>` and {py:meth}`Recipe.set <solprop.recipe.core.Recipe.set>` take
 them, and so does every error a recipe or a route raises about a value, in its
 `parameter` attribute.
@@ -180,9 +211,19 @@ dz_max = "2 mm"
 stats = { type = "StatsSpec", names = ["energy"] }
 ```
 
+The settings' planes follow the rule of every route
+([the length and the saved planes](running.md#the-length-and-the-saved-planes)): the run
+ends at the grid's `length` and records its entrance and end, `n_save = 81` gives 81
+evenly spaced observations over the run, and `save_planes` lists positions inside it, so
+the table above could say `save_planes = []`. A bare integer, `save_planes = 80`, is
+refused by `Recipe.check()` and `build()` with "write `n_save = 80`", as are both
+selectors together, a position beyond the end and, on a keyword route, a `length` its
+`grid` disagrees with: each is a {py:class}`~solprop.recipe.errors.RecipeError` naming the
+keyword.
+
 A recipe holds the `from_*` form, so the temporal absorber and its scheme are keywords
 of the `settings` table, `absorber = { type = "absorber" }` built on the `grid`, and not
-of `[build]`, although `prop_radial`, `prop_free` and `prop_planar` take them as
+of `[build]`, although `prop_free` and `prop_planar` take them as
 keywords too. The settings table takes the stepping, the planes, the statistics, the
 absorber and the backend; `fields`, `field_planes` and `resume_history` stay in
 `[execution]`, and the fields a route's builder sets (the density, the
@@ -251,7 +292,7 @@ energy = {target = "soliton_order", order = 4}
 | `soliton_order` | `order` | a pulse's `energy` or `peak_power`, as `energy` or `pulses[0].energy` |
 
 A pin on the guide or fill needs `search`, the range its solver
-({py:func}`solprop.tools.solve_parameter`) samples, in the keyword's unit; it is solved
+({py:func}`solprop.tools.design.solve_parameter`) samples, in the keyword's unit; it is solved
 on the launch mode (the first) at the entrance. A soliton-order pin is closed form, on
 that mode with the fill's Kerr coefficient, after the guide's pin. So at most one
 parameter of the guide or fill is pinned, then the pulses; a pinned value is not also
@@ -260,7 +301,7 @@ pinned. `root` chooses among several roots: `"lowest"` (the default), `"highest"
 index.
 
 `recipe.resolve()` returns the recipe with each pin replaced by its value, and
-`recipe.pin_roots("pressure")` the solver's {py:class}`~solprop.tools.DesignRoots`: every
+`recipe.pin_roots("pressure")` the solver's {py:class}`~solprop.tools.design.DesignRoots`: every
 root, or none with the range the target does reach, for a front end to offer. A target
 not met in its range is an issue of `check()` on the pinned path. A build solves the pins
 (each scan point solves its own), a run records both the authored recipe and the
@@ -268,7 +309,7 @@ resolved one, and `to_python()` writes the solver calls
 ({py:func}`~solprop.recipe.pins.solve_pin`,
 {py:func}`~solprop.recipe.pins.solve_pulse`) before the route's. Solving a guide's pin
 costs a few hundred evaluations of one mode, about a second for a capillary. A design that
-sets two values at once, such as {py:func}`~solprop.tools.capillary_design`, is not a pin:
+sets two values at once, such as {py:func}`~solprop.tools.capillary.capillary_design`, is not a pin:
 call it and write its values in `[build]`.
 
 ## Previews
@@ -330,6 +371,11 @@ goes to each point's run.
 A simulation built by `recipe.build()` carries its recipe, and its first run records it
 in the output beside the run, as the recipe was written and as it resolved: the recipe
 that rebuilds the run, seed included ([the file's layout](../results/output.md#the-recipe-a-run-was-built-from)).
+The resolved recipe writes the run's planes as positions, ending at its length, where the
+route reads them (at the top level of a keyword route, in `[build.settings]` on an
+object route), and drops `n_save`; a route default, the TDSE capillary's two
+observations and natural steps included, is written out too, so a later change of a
+default cannot change the run it rebuilds.
 A change the recipe would not describe drops it with a warning, and the run then records
 none: `with_input`, `with_mixture`, or a new value of a setting other than `fields`,
 `field_planes` and `resume_history`.
@@ -433,3 +479,5 @@ its reason, in the test that holds the examples to the gallery, so the list stay
 
 This page documents the functionality proposed and implemented by
 [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+The saved planes follow
+[SEP 51](../../dev/seps/archive/sep-0051-save-planes.md).

@@ -31,7 +31,7 @@ import numpy as np
 import pytest
 
 from dispersive_kerr_oracle import direct_sum
-from solprop.backends.numpy_ref import passes
+from solprop.backends.numpy_ref.passes.responses import dispersive_kerr_polarisation
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation
 from solprop.exceptions import MaterialRangeWarning
@@ -344,7 +344,7 @@ def test_the_operator_is_within_the_measured_mixing_error_of_the_exact_sum(name)
     series = np.fft.irfft(spectrum, n=n_to)
     field = (5e9 / np.abs(series).max() * series)[None, None, :]
 
-    got = passes.dispersive_kerr_polarisation(field, leaf, densities, kind="field")
+    got = dispersive_kerr_polarisation(field, leaf, densities, kind="field")
     exact = exact_symmetric_sum(field, leaf, densities, kind="field")
     departure = np.abs(np.fft.rfft(got[0, 0] - exact[0, 0]))
     bound = np.abs(np.fft.rfft(exact[0, 0]))

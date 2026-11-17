@@ -16,12 +16,11 @@ the problem and the request alone:
 - :class:`StageCache`: a step's stage scalars
   (:func:`solprop.translate.stage.scalars_at`), the anchor hoisted once a step, kept
   until the next hoist.
-- :func:`collar_rests` and :func:`propagator_mode`: the run's quiet-collar rule (SEP 21
-  D15) and its flow treatment (SEP 24 section 4.3).
+- :func:`propagator_mode`: the run's flow treatment (SEP 24 section 4.3); the
+  quiet-collar rule is solprop's (:func:`solprop.backends.records.collar_rests`).
 
-Each is the reference's arithmetic (``solprop.backends.host.driver.HostDriver``),
-operation for operation, as the step driver the native backend inherited until SEP 47
-phase 5 had it; its runs are bitwise those of that driver.
+Each is the reference's arithmetic
+(``solprop.backends.numpy_ref.workspace.NumpyWorkspace``), operation for operation.
 """
 
 from __future__ import annotations
@@ -37,12 +36,9 @@ from solprop.exceptions import BackendError
 from solprop.noise import NoiseRealisation
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import replay_tolerance
+from solprop.stepper.settings import PropagatorMode, StepperSettings
 from solprop.translate.masks import noise_spectrum
-from solprop.translate.problem import (
-    PropagationProblem,
-    PropagatorMode,
-    StepperSettings,
-)
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import transverse_of
 from solprop.translate.stage import (
     StageScalars,
@@ -58,7 +54,6 @@ type RealArray = npt.NDArray[np.float64]
 __all__ = [
     "Loaded",
     "StageCache",
-    "collar_rests",
     "load",
     "propagator_mode",
     "schedule_index",
@@ -78,7 +73,7 @@ class Loaded:
         in the record a backend keeps once its native state holds it, so no host copy
         outlives the load.
     noise : numpy.ndarray or None
-        The ``modified`` model's realisation, shape ``(1, n_modes, n_pol, n_omega)``,
+        The ``modified`` model's realisation, shape ``(n_modes, n_pol, n_omega)``,
         which every stage adds; ``None`` under the other models.
     floor : numpy.ndarray or None
         The ``input`` model's draw, the same shape, which rides in the state; the
@@ -133,8 +128,6 @@ def load(
             f"{problem.shape} from the contract"
         )
         raise BackendError(msg)
-    # The kernels' layout, a leading axis of one (SEP 47 section 6.2).
-    values = values[np.newaxis]
     position = _checked_position(problem, float(z))
     drawn = _noise_field(problem, noise)
     model = problem.initial.noise_model
@@ -146,9 +139,7 @@ def load(
         and position == problem.initial.z
     ):
         if transverse_of(problem.route) is not None:
-            clean = _clean_launch_columns(
-                values[0], drawn[0], problem.grids.active_mask
-            )
+            clean = _clean_launch_columns(values, drawn, problem.grids.active_mask)
         values = values + drawn
     return Loaded(
         field=np.ascontiguousarray(values.reshape(-1)),
@@ -195,13 +186,12 @@ def _checked_position(problem: PropagationProblem, z: float) -> float:
 def _noise_field(
     problem: PropagationProblem, noise: NoiseRealisation | None
 ) -> ComplexArray | None:
-    """Return the realisation to carry with a leading axis of one, or ``None``."""
+    """Return the realisation to carry, or ``None``."""
     if problem.initial.noise_model == "none":
         return None
     if noise is not None:
-        return noise_spectrum(noise, problem.shape)[np.newaxis]
-    noise0 = problem.initial.noise0
-    return None if noise0 is None else noise0[np.newaxis]
+        return noise_spectrum(noise, problem.shape)
+    return problem.initial.noise0
 
 
 def _clean_launch_columns(
@@ -271,31 +261,6 @@ class StageCache:
             return kept
         held = self._anchor if self._anchor.z == z0 else None
         return scalars(self._problem, z0, z1, at=held, helpers=self._helpers)
-
-
-def collar_rests(problem: PropagationProblem, stepper: StepperSettings) -> bool:
-    """Return whether a run's stages may leave a quiet temporal collar out (SEP 21).
-
-    A modal or radial stage with the in-stage (``"nonlinear"``) scheme and a temporal
-    collar alone. The low-storage march, coupled flows, the general modal route, a
-    real-space collar sharing the term, and the Cartesian, line and planar routes keep
-    the collar in every stage (SEP 21 D15).
-
-    - Returns: True when the term may be left out while the collar is quiet.
-    """
-    responses = problem.responses
-    geometry = problem.transform.geometry
-    resting_geometry = geometry is None or (
-        geometry.kind == "radial" and not np.any(geometry.absorber_rate)
-    )
-    return (
-        not isinstance(stepper.integrator, LowStorageRungeKutta)
-        and responses.temporal_absorber is not None
-        and responses.absorber_scheme == "nonlinear"
-        and problem.linear.coupled_flow is None
-        and problem.transform.modal_tables is None
-        and resting_geometry
-    )
 
 
 def propagator_mode(

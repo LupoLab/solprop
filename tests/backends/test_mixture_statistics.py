@@ -13,9 +13,11 @@ import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
 from bounds import assert_within, gamma
+from builders import load_reference
 from mixture_cases import mixture_translation
 from sessions.runs import run as session_run
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.plasma import plasma_channel_fractions
 from solprop.backends.populations import population_statistics
 from solprop.exceptions import BackendError, OutputError
 from solprop.grid import FreeGrid, RadialGrid
@@ -89,7 +91,7 @@ def test_population_statistics_refuse_invalid_domains(quantity):
 def test_numpy_species_statistics_match_the_independent_node_scans():
     mixture, grid, _, _, (problem, run_request) = mixture_translation()
     backend = NumpyRefBackend(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
+    state = load_reference(backend)
     names = (
         "species_ionisation",
         "species_electron_density",
@@ -99,9 +101,11 @@ def test_numpy_species_statistics_match_the_independent_node_scans():
         "electron_density",
         "peak_ionisation_rate",
     )
-    values = backend.stats(StatsSpec(names=names, periodic=names[:2]))
-    nodes = backend._nodes_at(backend._require_state()[0])
-    rates, fractions = passes.plasma_channel_fractions(
+    values = backend.workspace.stats(
+        StatsSpec(names=names, periodic=names[:2]), problem.initial.z
+    )
+    nodes = backend.workspace.statistics._nodes_at(state, problem.initial.z)
+    rates, fractions = plasma_channel_fractions(
         nodes,
         problem.responses.plasma_channels,
         tuple(float(c.preionisation(0.0)) for c in problem.responses.plasma_channels),

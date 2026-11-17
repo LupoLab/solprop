@@ -37,7 +37,7 @@ right skip a band; one of them is the one import of P that [architecture.md
 §3](architecture.md) allows a backend: the grid, the modes and the profiles its
 statistics are handed at construction, types and constants and never a physics object.
 
-![The five layers of solprop, with every module in its band and the import edges between them](figures/layers.svg)
+![The six layers of solprop, with every module in its band and the import edges between them](figures/layers.svg)
 
 Layer letters and rules: [architecture.md §3](architecture.md) and
 [decisions.md](decisions.md) ADR-001. Package tree:
@@ -49,9 +49,9 @@ The spine on the left is the call sequence, from the convenience function down t
 plots; the column on the right is what each stage hands to the next, in the colour of the
 layer that owns it. The annotations between them are
 [architecture.md §5](architecture.md)'s own. The thing to notice is where the boundary
-falls: the outer driver visits save planes, while the step driver's `propagate_to` runs
-the Python step loop (the reference's `HostDriver`, or the native bridge's
-`StepDriver`, [SEP 47](seps/archive/sep-0047-run-ownership.md) phase 2). Reference passes, compiled kernels and library transforms,
+falls: the service loop serves a session's events, while the session runs the step loop
+(the reference's `HostSession` over its Python marches, or native's session over its
+compiled ones, [SEP 47](seps/archive/sep-0047-run-ownership.md), [SEP 52](seps/archive/sep-0052-backend-shape.md)). Reference passes, compiled kernels and library transforms,
 or one native trial do the numerical work behind that loop.
 
 ![One run of solprop, from prop_capillary through the kernel problem and the step driver to a saved plane](figures/one_run.svg)
@@ -76,7 +76,7 @@ Text: [kernel-contract.md §1](kernel-contract.md) to §8, the split in
 ## 4. One stage
 
 The seven numbered passes of one stage of the interaction-picture DOPRI5 step, each one
-pass over its data and each a named function in `backends/numpy_ref/passes.py`. The
+pass over its data and each a named function in `backends/numpy_ref/passes/`. The
 column beside pass 4 is `response_order`, the fused pass that is the whole reason the
 seam is drawn where it is; the panel on the right is the step the seven passes sit
 inside, and what runs once per step rather than once per stage.
@@ -91,14 +91,12 @@ Text: [architecture.md §8](architecture.md) for the passes,
 
 The seam at the top is the whole of what a backend is. Under it is the step loop no
 backend reimplements — the march, the replay, the landing, the controller, the history,
-the noise and the per-stage bundle all live in the reference's step driver,
-`backends/host/driver.py`, while the native backend's session marches natively
+the noise and the per-stage bundle all live in the reference's session and marches,
+`backends/numpy_ref/`, while the native backend's session marches natively
 ([SEP 47](seps/archive/sep-0047-run-ownership.md)) — and under that the
-the implemented backends: NumPy reference and native (built from `native/`). Each
+implemented backends: NumPy reference and native (built from `native/`). Each
 supplies trial/state operations and the relevant hooks; the loop's
-statistics channel and progress reporter call back through the seam. Fixed fibre
-batches extend this interface with independent member observations and metadata
-([kernel contract](kernel-contract.md)).
+statistics channel and progress reporter call back through the seam.
 
 ![The backend seam, the shared step driver, and the implemented backends](figures/backends.svg)
 
@@ -114,8 +112,8 @@ and what it deliberately leaves out is as much of the design as what it covers.
 
 ![A saved run's datasets and metadata, the resume digest, and the accessors that read them back](figures/output.svg)
 
-Text: [architecture.md §10](architecture.md), and `output/schema.py` for the record
-types.
+Text: [architecture.md §10](architecture.md), and `output/records.py` and
+`output/metadata.py` for the record types.
 
 The output layer also owns `output/snapshots.py`: coordinated suspension of both
 writers, immutable publication and verified restoration. This sits above the backend

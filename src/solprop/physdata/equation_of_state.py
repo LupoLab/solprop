@@ -4,21 +4,16 @@
 
 """Gas number density and pressure from the equation of state.
 
-Number densities are optmat's real-gas equations of state (SEP 3): CoolProp's
+:func:`density` is optmat's real-gas equation of state (SEP 3), CoolProp's
 Helmholtz-energy equations through ``optmat.gas.eos``, adapted by
-:class:`~solprop.physdata.species.OptmatGas`, whose exact inverse gives the pressure.
-An ideal-gas expression is available for comparison; the two agree to better than
-1e-3 relative below about 0.1 bar for every gas here.
+:class:`~solprop.physdata.species.OptmatGas`; :func:`pressure` is its exact inverse, and
+:func:`ideal_gas_density` the ideal-gas value for comparison.
 
-.. note::
-
-   Pressures in this module are in **bar**, the one documented departure from SI at
-   the user interface (``docs/dev/conventions.md`` section 1), because the field works
-   in bar. Everything else is SI: number densities are in m^-3, temperatures in K.
-
+Pressures are in **bar**, the one documented departure from SI at the user interface
+(``docs/dev/conventions.md`` §1); number densities are in m^-3 and temperatures in K.
 optmat imports CoolProp, which costs about a second, so the import happens inside the
-functions and ``import solprop`` stays cheap. Lookups are cached, and none is made at
-module load.
+functions and ``import solprop`` stays cheap; lookups are cached, and none is made at
+module load. The manual page is ``docs/guide/media/materials.md``, "Density".
 """
 
 import functools
@@ -35,10 +30,10 @@ logger = logging.getLogger(__name__)
 
 
 @functools.cache
-def _optmat_density(gas: Gas, pressure_bar: float, temperature: float) -> float:
+def _optmat_density(gas: Gas, pressure: float, temperature: float) -> float:
     """Return optmat's real-gas number density (cached).
 
-    - ``pressure_bar``: absolute pressure in bar, > 0.
+    - ``pressure``: absolute pressure in bar, > 0.
     - ``temperature``: temperature in K, > 0.
     - Returns: number density in m^-3.
     """
@@ -46,7 +41,7 @@ def _optmat_density(gas: Gas, pressure_bar: float, temperature: float) -> float:
     # where it is needed.
     from solprop.physdata.species import OptmatGas  # noqa: PLC0415 - a module cycle
 
-    return OptmatGas(gas).density(pressure_bar, temperature)
+    return OptmatGas(gas).density(pressure, temperature)
 
 
 @functools.cache
@@ -79,16 +74,14 @@ def _check_temperature(temperature: object) -> None:
         raise MaterialError(f"temperature must be positive, got {temperature} K")
 
 
-def ideal_gas_density(
-    pressure_bar: float, temperature: float = ROOM_TEMPERATURE
-) -> float:
+def ideal_gas_density(pressure: float, temperature: float = ROOM_TEMPERATURE) -> float:
     """Return the ideal-gas number density.
 
     ``rho = p / (k_B T)``. Independent of the species, so it takes no gas argument.
 
     Parameters
     ----------
-    pressure_bar : float
+    pressure : float
         Absolute pressure in **bar** (the documented non-SI user-interface unit), >= 0.
     temperature : float, optional
         Temperature in K, > 0. Defaults to 293.15 K.
@@ -111,15 +104,15 @@ def ideal_gas_density(
     >>> f"{ideal_gas_density(1.01325, 273.15):.6e}"
     '2.686780e+25'
     """
-    if pressure_bar < 0.0:
-        raise MaterialError(f"pressure must not be negative, got {pressure_bar} bar")
+    if pressure < 0.0:
+        raise MaterialError(f"pressure must not be negative, got {pressure} bar")
     _check_temperature(temperature)
-    return pressure_bar * BAR / (K_B * temperature)
+    return pressure * BAR / (K_B * temperature)
 
 
 def density(
     gas: Gas | str,
-    pressure_bar: float,
+    pressure: float,
     temperature: float = ROOM_TEMPERATURE,
     *,
     ideal: bool = False,
@@ -130,7 +123,7 @@ def density(
     ----------
     gas : Gas or str
         The species.
-    pressure_bar : float
+    pressure : float
         Absolute pressure in **bar** (the documented non-SI user-interface unit), >= 0.
         Zero returns zero without consulting the equation of state, which is undefined
         there; a pressure gradient terminating in vacuum needs this.
@@ -165,14 +158,14 @@ def density(
     0.0
     """
     species = as_gas(gas)
-    if pressure_bar < 0.0:
-        raise MaterialError(f"pressure must not be negative, got {pressure_bar} bar")
+    if pressure < 0.0:
+        raise MaterialError(f"pressure must not be negative, got {pressure} bar")
     _check_temperature(temperature)
-    if pressure_bar == 0.0:
+    if pressure == 0.0:
         return 0.0
     if ideal:
-        return ideal_gas_density(pressure_bar, temperature)
-    return _optmat_density(species, float(pressure_bar), float(temperature))
+        return ideal_gas_density(pressure, temperature)
+    return _optmat_density(species, float(pressure), float(temperature))
 
 
 def pressure(

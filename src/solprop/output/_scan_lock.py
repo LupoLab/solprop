@@ -2,7 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Serialise collected scan readers against the controller's HDF5 write session."""
+"""The advisory lock that serialises a collected scan's readers against its writer.
+
+:func:`write_scan` holds the exclusive lock on the sidecar ``<scan>.lock``
+(:func:`lock_path`) for one controller's write session in
+:class:`~solprop.output.scan.ScanWriter`; :func:`read_scan` takes the shared lock for
+:func:`~solprop.output.scan.read_point` and :mod:`solprop.processing.scans`, waiting
+for an active collector.
+"""
 
 import logging
 import os
@@ -12,7 +19,7 @@ from pathlib import Path
 
 import h5py
 
-from solprop.output._file_lock import lock, unlock
+from solprop._file_lock import lock, unlock
 
 logger = logging.getLogger(__name__)
 

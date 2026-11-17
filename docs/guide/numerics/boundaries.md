@@ -330,7 +330,8 @@ and nothing else. So:
   long drift through a narrow collar is better served by a wider window.
 
 A linear packet walking through this collar at the stated drift leaves `exp(−2Γ)` of its
-power, a millionth, to within the one sample the sizing's integral leaves out of the period.
+power, a millionth: the sizing sums the rate over the periodic axis, which is exact for this
+taper, and the measured exponent agrees with it to a few parts in `10⁹`.
 The sizing assumes a steady drift over the run, as `warn_walkoff` does. Walk-off that starts
 late, after fission or as a soliton decelerates, crosses faster than the mean and is absorbed
 less, so the [monitor](#watching-the-windows-edges) stays the measurement. The default
@@ -582,12 +583,27 @@ the spatial routes' default, and about half off the in-stage term, on the same g
 light can lose most of its band while the run's energy moves by `10⁻⁵`, and the band's loss is
 what says the window is too short. The rate is diagonal in `ω`, so each bin loses
 `α(ω) S(ω, z)`, with `S` the `beam_spectrum`, integrated in `z`. That statistic is taken at saved
-planes and not [between them](../results/statistics.md#between-the-planes), so the integral runs
-over the planes, with an error of about `(α Δz)²/12` of a bin's loss by the trapezoid. Dividing
-by what the band kept and lost together counts light the run generated part-way as well as
-light it launched. `absorbed_power` has the user's share as its `custom` channel, but over the
-whole beam: only this product reads it per band. A lossy medium's own absorption is a further
-channel: fused silica absorbs at these wavelengths, and what it takes appears in neither count.
+planes and not [between them](../results/statistics.md#between-the-planes), so the integral has
+to be read from the planes.
+
+- **Not by the trapezoid.** Its error, about `(a Δz)²/12` of a bin's loss for a bin falling at
+  the rate `a`, is small only while `a Δz` is. The bins this rate exists for have `a Δz` large:
+  light already in one is gone within a fraction of the interval, and the trapezoid charges it
+  at the plane's value over the whole of it. On a 5 µm slab of fused silica with a 1 fs launch
+  at 260 nm it overcounted a band's loss by 1.5 to 2 times, and converged slowly as planes
+  were added.
+- **Between two planes.** A bin obeys `dS/dz = G − a S`, with `a` every rate that drains it,
+  the absorber's and the medium's, and `G` whatever else feeds it. Taking `G` constant over the
+  interval, the two planes fix it:
+  `G Δz = x (S₁ − S₀ e⁻ˣ)/(1 − e⁻ˣ)` with `x = a Δz`, and the drains removed `G Δz − (S₁ − S₀)`.
+  That is exact for a bin that only decays and for one fed at a steady rate, and each rate takes
+  its share `α/a` of it.
+
+Dividing by what the band kept and lost together counts light the run generated part-way as
+well as light it launched. `absorbed_power` has the user's share as its `custom` channel, but
+over the whole beam: only this product reads it per band. A lossy medium's own absorption is a
+further channel: fused silica absorbs at these wavelengths, so its rate is one of the drains,
+and what it takes is its own share, in neither the walk-off's count nor the collar's.
 
 ```python
 planes = np.linspace(length / 32, length, 32)
@@ -611,14 +627,25 @@ output = Simulation.from_free(
 # (n_z, n_omega), J/(rad/s) per metre of y
 spectrum = np.asarray(output["stats/beam_spectrum"])
 z = np.asarray(output["z"])
-lost = np.trapezoid(walkoff_rate * spectrum, z, axis=0)
-collar_lost = np.trapezoid(
-    (boundary.spectral_rate - walkoff_rate) * spectrum, z, axis=0
-)
+glass = np.zeros(grid.n_omega)  # the medium's own power loss, 1/m
+glass[active] = 2 * grid.omega[active] * np.imag(medium.index(grid.omega[active])) / C
+drain = boundary.spectral_rate + glass  # every rate that drains a bin
+x = drain * np.diff(z)[:, np.newaxis]
+# x / (1 - exp(-x)), which is 1 where nothing drains
+weight = np.divide(x, -np.expm1(-x), out=np.ones_like(x), where=x > 0)
+fed = weight * (spectrum[1:] - np.exp(-x) * spectrum[:-1])  # G dz between the planes
+drained = np.sum(fed - np.diff(spectrum, axis=0), axis=0)
+per_rate = np.divide(drained, drain, out=np.zeros_like(drained), where=drain > 0)
+lost = walkoff_rate * per_rate
+collar_lost = (boundary.spectral_rate - walkoff_rate) * per_rate
+glass_lost = glass * per_rate
 wavelength = 2 * np.pi * C / np.where(grid.omega > 0, grid.omega, np.inf)
 band = (wavelength >= 150e-9) & (wavelength <= 190e-9)
 share = lost[band].sum() / (
-    lost[band].sum() + collar_lost[band].sum() + spectrum[-1, band].sum()
+    lost[band].sum()
+    + collar_lost[band].sum()
+    + glass_lost[band].sum()
+    + spectrum[-1, band].sum()
 )
 print(f"the walk-off rate took {share:.2f} of the 150-190 nm band")
 ```
@@ -662,7 +689,7 @@ its lengths: [transverse boundaries](../free-space/model.md#transverse-boundarie
 | entry point | absorber by default |
 |---|---|
 | `prop_capillary`, `prop_waveguide`, `prop_gnlse` and their `Simulation.from_*` builders | the grid's default collar, `absorber(grid)`: spectral and temporal, `boundary_N = 20`, applied in every stage |
-| `prop_radial`, `prop_free`, `prop_planar` and their builders, whose settings declare none | the same temporal and spectral collar, applied once per accepted step (`absorber_scheme="split_step"`) unless planes are interpolated; the transverse boundary is the safety ramp and the monitor's edge, with a real-space collar only on request (`spatial_absorber`, SEP 40) |
+| `prop_free`, `prop_planar` and their builders, whose settings declare none | the same temporal and spectral collar, applied once per accepted step (`absorber_scheme="split_step"`) unless planes are interpolated; the transverse boundary is the safety ramp and the monitor's edge, with a real-space collar only on request (`spatial_absorber`, SEP 40) |
 | a `Simulation` built directly with its own `SimulationSettings` | none unless `SimulationSettings(absorber=...)` is given |
 
 Every `prop_*` entry point takes `absorber=` and `absorber_scheme=`. Pass
@@ -698,7 +725,12 @@ the late edge.
 Every run watches its time window ({py:class}`solprop.monitor.BoundaryCheck`, on by default
 through `SimulationSettings.boundary_check`). At the launch and at every committed step it
 measures the share of the field's energy in the outer 5 % of the realised window at each
-edge, the guards, and in the collar:
+edge, the guards, and in the collar. The energy is the time-domain density summed over
+modes, polarisations and transverse columns with their quadrature weights, the proxy of
+[SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md) section 4.6: exact for
+modal true-power amplitudes, and on the spatial routes the quadrature-weighted field norm
+rather than the admittance-weighted flux. Every reading is a share, so the proxy's scale
+cancels.
 
 - from the launch on, a guard occupancy whose square root exceeds the field-error budget
   (`1e-3` by default, a millionth of the energy) warns once
@@ -714,7 +746,9 @@ edge, the guards, and in the collar:
 **How often, and what it saves.** While some guard or the collar holds more than a tenth
 of the budget (as a field amplitude), every committed step is checked. While the edges
 are quiet, a step is checked every eighth step or after `length / 256` of the guide,
-whichever comes first, and the state of every saved plane is checked regardless. The
+whichever comes first, and the state of every saved plane is checked regardless.
+`BoundaryCheck(interval=...)` sets that distance in metres instead, so that a run
+shortened to a window of a longer one keeps its checks where they were. The
 collar itself stays in every stage. On the native backend the Adams march takes these
 checks inside its compiled loop, so a busy monitor no longer costs a return to Python
 at every step; the record, the warning and a stop are the same, at the same step.
@@ -722,7 +756,10 @@ at every step; the record, the warning and a stop are the same, at the same step
 **The quiet collar, on request.** `BoundaryCheck(quiet_collar=True)` also leaves the
 in-stage temporal collar's term, whose transform is a stage's largest cost after the
 response's, out of the stages while the collar is quiet: while it held less than `1e-12`
-of the field's energy, the shot-noise floor included, at two checks in a row. A check
+of the field's energy, the shot-noise floor included, at two checks in a row. It is
+judged on the whole field because light below the floor is still light the collar would
+have absorbed: judged above the floor, the threshold became a few times the floor itself
+and dropped a term that moved the field by up to a percent. A check
 that finds light in it puts the term back at once. While the term is out no step is
 longer than `length / 256`, so light cannot cross into the collar unabsorbed within one
 long step, and the exponential Adams march no longer limits its order by the collar's
@@ -811,6 +848,26 @@ spacing and found nothing ([transverse boundaries](../free-space/model.md#transv
 `SimulationSettings(boundary_check=None)`, or `boundary_check=None` on any `prop_*`
 function or `Simulation.from_*` constructor, watches nothing; a `BoundaryCheck` with a
 larger `budget` or `stop_factor` relaxes it.
+
+**Comparing two windows.** Refining the window and comparing the runs, as the tutorial
+does, has an error floor of its own that is not the boundary's. Light the Kerr effect
+generates at the low-frequency edge of the band sits where the spectral collar and the
+band mask are sampled on frequency bins, and those bins move with the bin spacing, so
+two runs on different windows differ at first order in the window factor even when no
+light reaches an edge. [SEP 21's phase 0a](../../dev/seps/archive/sep-0021-absorbing-boundaries.md#phase-0a--decisions-and-interim-findings)
+measured it (figures not re-run since):
+
+- widening the band from 1.6 to 3.2 µm cut the energy at its edge from 2.5e-3 to 1.4e-6,
+  and the term about threefold;
+- it floors a comparison between requested windows at order 1e-5, 1.9e-5 on that
+  study's canonical case ([findings](../../dev/seps/archive/sep-0021-absorbing-boundaries.md#phase-0a-report--2026-10-25), item 1);
+- field errors near 1e-4 between smooth windows were this term, not the boundary.
+
+Under `fft_size="auto"` neighbouring requests realise different sizes
+([grids](../setup/grids.md#coarse-and-fine-sampling)), so the term enters any comparison
+between two windows. To test the boundary itself, compare a run with and without the
+temporal collar on the same grid, or extrapolate the references in the window's inverse,
+$2F(2M) - F(M)$ for a window factor $M$, as SEP 21 did.
 
 ## A worked example
 

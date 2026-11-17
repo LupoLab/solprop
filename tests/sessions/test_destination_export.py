@@ -37,13 +37,14 @@ from solprop._ownership import frozen_copy, is_held
 from solprop.backends import protocol
 from solprop.backends.events import ExportTicket, ObservationReady
 from solprop.backends.export import ExportRecipe, apply_recipe
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import available, select
+from solprop.driver.metadata import metadata_for
 from solprop.driver.run import run_problem
-from solprop.driver.simulation import metadata_for
 from solprop.log import NullReporter
 from solprop.output import CallbackOutput, HDF5Output, MemoryOutput, open_file
-from solprop.output.schema import Output, SavedPlane, StoredField, stored_spectrum
+from solprop.output.records import SavedPlane, StoredField
+from solprop.output.store import Output, stored_spectrum
 from solprop.stats import StatsSpec
 from solprop.translate.linop import power_weight_at
 
@@ -340,7 +341,7 @@ def _from_simulation(simulation: Any) -> tuple[Any, Any, dict[str, Any]]:
         "modes": simulation.modes,
         "profiles": simulation.profiles,
     }
-    return simulation.translate(), simulation._run_request(), context
+    return simulation.translate(), simulation.run_request(), context
 
 
 def _capillary() -> tuple[Any, Any, dict[str, Any]]:
@@ -369,7 +370,7 @@ def _line() -> tuple[Any, Any, dict[str, Any]]:
 
 
 def _planar() -> tuple[Any, Any, dict[str, Any]]:
-    from backends.test_planar_native import planar_case  # noqa: PLC0415
+    from backends.planar_plate_cases import planar_case  # noqa: PLC0415
 
     grid, _, problem, run_request = planar_case("envelope_kerr")
     return problem, run_request, {"grid": grid}
@@ -444,7 +445,7 @@ def _served(
 ) -> Any:
     """Serve a native session into `output`; return the session's status."""
     from solprop.driver.run import field_retention  # noqa: PLC0415
-    from solprop.driver.service import ServiceContext, serve  # noqa: PLC0415
+    from solprop.driver.session_loop import ServiceContext, serve  # noqa: PLC0415
     from solprop.log import resolve_reporter  # noqa: PLC0415
 
     request = run_request.for_run(stats=StatsSpec())

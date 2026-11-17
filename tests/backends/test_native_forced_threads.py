@@ -170,7 +170,7 @@ def _adams_free_bound(problem, run_request) -> float:
     """Bound a matched Adams run on the Cartesian route, relatively.
 
     The Cartesian ladder's ``32 eps`` per FFT level, per evaluation
-    (``test_free_ladders.py``), over every sample's weight in the step's predictor and
+    (``free_rows.py``), over every sample's weight in the step's predictor and
     corrector (:func:`bounds.step_evaluations`); and the exponent's ``2 eps k_max L``,
     the separable kinds' principal root, up to ``order + 1`` times in each of the two.
     """
@@ -279,7 +279,7 @@ def test_the_fused_dispersive_path_agrees_across_threads(tmp_path, evaluator, ra
         evaluator, gas="N2" if raman else "Ar", raman=raman, stepped=True
     )
     problem = simulation.translate()
-    run_request = fixed_order(simulation._run_request())
+    run_request = fixed_order(simulation.run_request())
     bound = 10 * step_evaluations(run_request) * dispersive_evaluation(problem)
     case = f"dispersive:{evaluator}-{'raman' if raman else 'plain'}"
     one = forced_run(case, 1, tmp_path)
@@ -527,13 +527,13 @@ def test_the_flow_with_its_source_agrees_on_forced_pools(tmp_path, name):
     The cases of ``test_the_flow_is_invariant_under_the_thread_count``, at its bound,
     with this module's width and its record of the runs' operations.
     """
-    from driver.test_native_coupled_flow import (  # noqa: PLC0415
+    from coupled_flow_cases import (  # noqa: PLC0415
         CASES as FLOWS,
     )
-    from driver.test_native_coupled_flow import (  # noqa: PLC0415
+    from coupled_flow_cases import (  # noqa: PLC0415
         parity_bound as flow_parity_bound,
     )
-    from driver.test_native_coupled_flow import reference_and_linear  # noqa: PLC0415
+    from coupled_flow_cases import reference_and_linear  # noqa: PLC0415
 
     case = FLOWS[name]()
     bound = flow_parity_bound(case, *reference_and_linear(case))

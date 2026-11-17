@@ -98,13 +98,12 @@ the guide for any radius path: the provider owns the path, and
 Chebyshev degree its own held-out check demands, as well as at the frequency
 knots.
 
-.. GENERATED FROM PYTHON SOURCE LINES 85-167
+.. GENERATED FROM PYTHON SOURCE LINES 85-164
 
 .. code-block:: Python
 
 
     import time
-    import warnings
 
     import matplotlib.pyplot as plt
     import numpy as np
@@ -112,7 +111,6 @@ knots.
 
     from solprop.constants import C
     from solprop.driver import Simulation, prop_gnlse, prop_waveguide
-    from solprop.exceptions import GeneralModalBasisWarning
     from solprop.grid import EnvelopeGrid, FieldGrid
     from solprop.modes import (
         GradedIndexProvider,
@@ -122,13 +120,12 @@ knots.
         PowerLawPermittivity,
     )
     from solprop.modes.connection import modal_connection
+    from solprop.modes.path import path_rule
     from solprop.nonlinear.gnlse import SpecifiedMode
     from solprop.processing import get_spectral_density
     from solprop.processing.modal import coordinate_intensity, reconstructed_flux
     from solprop.profiles import Linear, PiecewiseLinear
     from solprop.translate.coupled import advisory_step
-    from solprop.translate.general import general_modal_route
-    from solprop.translate.modal_path import path_rule
 
     ENTRANCE = 25e-6
     """Core radius at the entrance, m."""
@@ -209,7 +206,7 @@ knots.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 168-183
+.. GENERATED FROM PYTHON SOURCE LINES 165-180
 
 How fast is too fast
 --------------------
@@ -227,7 +224,7 @@ along a linear taper, and Love's ratio :math:`z_t/z_b` is
 fibre, with its cladding, is within a part in a thousand of both (the sign of
 :math:`\Gamma_{21}` is the provider's choice of the modes' signs).
 
-.. GENERATED FROM PYTHON SOURCE LINES 183-208
+.. GENERATED FROM PYTHON SOURCE LINES 180-205
 
 .. code-block:: Python
 
@@ -272,7 +269,7 @@ fibre, with its cladding, is within a part in a thousand of both (the sign of
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 209-228
+.. GENERATED FROM PYTHON SOURCE LINES 206-225
 
 The first-order estimate. Launched in ``LP_01``, the amplitude left in ``LP_02``
 after a taper of length :math:`L` is, while it is small,
@@ -294,7 +291,7 @@ that the field does not change at all, a splice, leaves
 in ``LP_02`` (the overlap of one Gaussian with the other's first radial
 Laguerre-Gauss mode).
 
-.. GENERATED FROM PYTHON SOURCE LINES 228-247
+.. GENERATED FROM PYTHON SOURCE LINES 225-244
 
 .. code-block:: Python
 
@@ -330,7 +327,7 @@ Laguerre-Gauss mode).
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 248-262
+.. GENERATED FROM PYTHON SOURCE LINES 245-259
 
 The linear conversion
 ---------------------
@@ -347,7 +344,7 @@ the taper's length, because the radius changes by the same amount whatever the
 length; the run prints it for the longest taper below. The two channels together
 keep the launched energy to about 1e-6 in every run.
 
-.. GENERATED FROM PYTHON SOURCE LINES 262-315
+.. GENERATED FROM PYTHON SOURCE LINES 259-312
 
 .. code-block:: Python
 
@@ -425,7 +422,7 @@ keep the launched energy to about 1e-6 in every run.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 316-325
+.. GENERATED FROM PYTHON SOURCE LINES 313-322
 
 The conversion at the exit against the taper's length. The dots are the runs;
 the line is the first-order estimate, with its oscillation, and the dotted line
@@ -437,7 +434,7 @@ in this case: at zero length it gives :math:`(\int\Gamma_{21}dz)^2 =
 (\ln(w_1/w_0))^2` = 0.065 against the sudden limit's 0.059, and the runs lie
 between the two, approaching the splice.
 
-.. GENERATED FROM PYTHON SOURCE LINES 325-351
+.. GENERATED FROM PYTHON SOURCE LINES 322-348
 
 .. code-block:: Python
 
@@ -479,7 +476,7 @@ between the two, approaching the splice.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 352-364
+.. GENERATED FROM PYTHON SOURCE LINES 349-361
 
 An abrupt and a slow taper
 --------------------------
@@ -494,7 +491,7 @@ narrows: the power swings between nothing and :math:`4(a'/(4\sqrt{2\Delta}))^2`
 = 5e-5 once per beat length, and the exit, where the slope returns to zero,
 keeps what it finds there. Every point of the run is on the estimate.
 
-.. GENERATED FROM PYTHON SOURCE LINES 364-388
+.. GENERATED FROM PYTHON SOURCE LINES 361-385
 
 .. code-block:: Python
 
@@ -534,7 +531,7 @@ keeps what it finds there. Every point of the run is on the estimate.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 389-404
+.. GENERATED FROM PYTHON SOURCE LINES 386-401
 
 The fields
 ----------
@@ -552,17 +549,12 @@ less the 3 % the taper moved out of it;
 narrowing left behind (at the entrance it is empty and off the scale). The grey
 line is the core's edge; the fields have fallen by four decades well inside it.
 
-.. GENERATED FROM PYTHON SOURCE LINES 404-450
+.. GENERATED FROM PYTHON SOURCE LINES 401-441
 
 .. code-block:: Python
 
 
     guide, grid, run = linear_runs[0.2e-3]
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", GeneralModalBasisWarning)
-        tables = general_modal_route(
-            guide, grid, z_max=0.2e-3, omega_reference=float(grid.omega0)
-        ).tables
     fig, axes = plt.subplots(1, 2, figsize=(9.0, 3.6), sharey=True)
     peak = None
     for ax, plane, title in (
@@ -574,11 +566,10 @@ line is the core's edge; the fields have fallen by four decades well inside it.
         radius = np.hypot(nodes.xy[:, 0], nodes.xy[:, 1])
         order = np.argsort(radius)
         total = np.max(
-            reconstructed_flux(run, tables, plane=plane, density=True, guide=guide), axis=-1
+            reconstructed_flux(run, plane=plane, density=True, guide=guide),
+            axis=-1,
         )
-        channels = np.max(
-            coordinate_intensity(run, tables, plane=plane, guide=guide), axis=-1
-        )
+        channels = np.max(coordinate_intensity(run, plane=plane, guide=guide), axis=-1)
         if peak is None:
             peak = float(np.max(total))
         ax.semilogy(radius[order] * 1e6, total[order] / peak, color="k", label="total")
@@ -614,7 +605,7 @@ line is the core's edge; the fields have fallen by four decades well inside it.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 451-475
+.. GENERATED FROM PYTHON SOURCE LINES 442-466
 
 Self-phase modulation in a taper's waist
 ----------------------------------------
@@ -641,7 +632,7 @@ mid-taper value checks that on the real fibre. The peak power is 9 % of the
 critical power for self-focusing, :math:`P_{cr} = \lambda^2/(2\pi n_0 n_2)` in
 the Gaussian-beam estimate (printed), which matters below.
 
-.. GENERATED FROM PYTHON SOURCE LINES 475-566
+.. GENERATED FROM PYTHON SOURCE LINES 466-557
 
 .. code-block:: Python
 
@@ -752,7 +743,7 @@ the Gaussian-beam estimate (printed), which matters below.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 567-587
+.. GENERATED FROM PYTHON SOURCE LINES 558-578
 
 The spectral width of ``LP_01`` along the fibre. The rms width of a Gaussian
 pulse's spectrum grows with the peak nonlinear phase :math:`\phi` as
@@ -775,7 +766,7 @@ model with one field shape, however it moves along z, cannot. The width is
 taken on ``LP_01`` alone, since an rms width weights far wings by the square of
 their distance.
 
-.. GENERATED FROM PYTHON SOURCE LINES 587-621
+.. GENERATED FROM PYTHON SOURCE LINES 578-612
 
 .. code-block:: Python
 
@@ -838,7 +829,7 @@ their distance.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 622-631
+.. GENERATED FROM PYTHON SOURCE LINES 613-622
 
 The spectra at the exit, in decibels below the ``LP_01`` peak of each run, with
 the two-channel runs' ``LP_02`` dashed. The ``LP_01`` spectra of the taper's
@@ -850,7 +841,7 @@ own. The taper by itself converts 2.5e-5 at this length (above); the printed
 ``LP_02`` share is fifty times that, and nearly the same in the fibre that does
 not taper at all.
 
-.. GENERATED FROM PYTHON SOURCE LINES 631-659
+.. GENERATED FROM PYTHON SOURCE LINES 622-650
 
 .. code-block:: Python
 
@@ -901,13 +892,13 @@ not taper at all.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 660-663
+.. GENERATED FROM PYTHON SOURCE LINES 651-654
 
 Runtime and reproducibility
 ---------------------------
 Twelve guides, eight linear runs on the moving guide and four nonlinear runs.
 
-.. GENERATED FROM PYTHON SOURCE LINES 663-670
+.. GENERATED FROM PYTHON SOURCE LINES 654-661
 
 .. code-block:: Python
 
@@ -926,12 +917,12 @@ Twelve guides, eight linear runs on the moving guide and four nonlinear runs.
 
  .. code-block:: none
 
-    1103 s; backend native, 18 threads
+    433 s; backend native, 16 threads
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 671-677
+.. GENERATED FROM PYTHON SOURCE LINES 662-668
 
 Related reading
 ---------------
@@ -943,7 +934,7 @@ For a paced introduction to propagation, start with the
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (18 minutes 23.474 seconds)
+   **Total running time of the script:** (7 minutes 12.609 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_05_moving_solid_guide.py:

@@ -4,10 +4,13 @@
 
 """Physical constants in SI units.
 
-Thin, named wrappers over :mod:`scipy.constants` (CODATA) so that the rest of the
-package never spells a constant by hand. All values are SI (m, s, kg, J, W, V/m, Pa, K)
-as fixed in ``docs/dev/conventions.md``; the two non-SI pressure units are provided as
-conversion factors because the user interface accepts pressures in bar.
+Named wrappers over :mod:`scipy.constants` (CODATA), so that the rest of the package
+never spells a constant by hand: the fundamental constants (``C``, ``EPS0``, ``HBAR``,
+``E_CHARGE``, ``M_E``, ``K_B``, ...), the atomic units (``AU_ENERGY``, ``AU_EFIELD``,
+``AU_TIME``, ...), the Loschmidt density ``AMAGAT`` and the default temperature
+``ROOM_TEMPERATURE``. All values are SI (``docs/dev/conventions.md`` §1); ``BAR`` and
+``STD_ATMOSPHERE`` are conversion factors to pascal, because the user interface takes
+pressures in bar.
 """
 
 from scipy import constants as _constants

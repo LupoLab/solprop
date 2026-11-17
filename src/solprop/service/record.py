@@ -4,24 +4,21 @@
 
 """A run's record in its folder: what a run says about itself (design 13.4).
 
-A run with a record writes, beside ``recipe.toml``, ``run.h5`` and ``run.log``:
+Beside ``recipe.toml``, ``run.h5`` and ``run.log`` a run writes ``job.json`` (how it
+was started: :class:`Job`, :func:`write_job`, :func:`read_job`), ``events.bin`` (every
+event it streams, appended as frames by :class:`EventLog` and read back by
+:func:`read_events`) and ``status.json`` (a small summary, :func:`read_status`), and it
+watches a ``stop`` file (:func:`request_stop`, :func:`stop_requested`,
+:func:`watch_stop`, :func:`clear_stop`). So a run needs no connection: whoever can read
+its folder can follow it, whoever can write there can stop it, and its state is read
+from these files, never kept by a daemon. :func:`set_aside` keeps a continued run's
+earlier record apart, :func:`write_json` replaces a file whole, and :func:`alive` says
+whether a run's process still lives.
 
-``job.json``
-    How it was started: where, as which process or Slurm job, when, with which
-    solprop. Written when it starts and again when it ends.
-``events.bin``
-    Every event it streams (its rows, progress, log, a scan's points and its ending),
-    appended as frames (:mod:`solprop.service.frames`). Progress is kept at most every
-    :data:`RECORD_PROGRESS_PERIOD` seconds; rows and endings are never dropped.
-``status.json``
-    A small summary, rewritten as the run goes and at least every
-    :data:`HEARTBEAT` seconds while it lives: the last progress, the scan's count,
-    and the ending.
-
-and reads ``stop``, a file whose appearance asks it to stop as the window's Stop
-does. So a run needs no connection to anything: whoever can read its folder can follow
-it, and whoever can write there can stop it. Its state is read from these files
-(:func:`summary`), never kept by a daemon.
+**The ending is recorded last**: the terminal event, then ``job.json``'s end, and only
+then ``status.json``, after which the run writes nothing more, so a reader acting on a
+run's end goes by the summary. The files, the periods and the ending's order are in
+``docs/dev/gui/design.md`` (13.4, "The record").
 """
 
 from __future__ import annotations
@@ -30,14 +27,14 @@ import contextlib
 import os
 import queue
 import socket
-import tempfile
 import threading
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
+from solprop._durable import write_atomic
 from solprop._process import process_stamp
 from solprop.service.frames import encode, split_frames
 from solprop.service.messages import TERMINAL, Event, ServiceError
@@ -89,9 +86,6 @@ RECORD_PROGRESS_PERIOD: Final = 2.0
 HEARTBEAT: Final = 30.0
 """The longest time between two rewrites of a living run's summary, s."""
 
-REPLACE_TRIES: Final = 50
-"""How many times a small file is put in place while a reader holds it (Windows)."""
-
 STOP_PERIOD: Final = 0.25
 """How often a run looks for its stop file, s."""
 
@@ -111,28 +105,7 @@ def write_json(path: Path, value: Mapping[str, object]) -> None:
     """
     import json  # noqa: PLC0415 - light, and only here
 
-    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(name)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            json.dump(value, stream, indent=1, sort_keys=True)
-            stream.flush()
-            os.fsync(stream.fileno())
-        # Windows refuses to replace a file another process has open (a reader of
-        # the summary): try again for a moment rather than leave it stale.
-        left = REPLACE_TRIES
-        while True:
-            try:
-                temporary.replace(path)
-            except PermissionError:
-                left -= 1
-                if not left:
-                    raise
-                time.sleep(0.02)
-            else:
-                return
-    finally:
-        temporary.unlink(missing_ok=True)
+    write_atomic(path, json.dumps(value, indent=1, sort_keys=True))
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -495,7 +468,8 @@ class EventLog:
     Attributes
     ----------
     job : Job or None
-        The run's ``job.json``, once the writer has written it.
+        The run's ``job.json``, once the writer has written it, with its end once
+        the ending is recorded.
 
     Examples
     --------
@@ -593,18 +567,48 @@ class EventLog:
             if event is None:
                 self._rewrite(force=True)
                 return
-            if self._kept(event):
-                try:
-                    self._stream.write(encode(_value(event)))
-                    self._stream.flush()
-                except OSError, ServiceError:
-                    # A full disk or an unwritable value costs the record, not the run.
-                    continue
+            if event.terminal:
+                self._end(event)
+                return
+            if self._kept(event) and not self._append(event):
+                continue
             self._summarise(event)
-            self._rewrite(force=event.terminal)
+            self._rewrite()
+
+    def _append(self, event: Event) -> bool:
+        """Append one event to ``events.bin``; return whether it was written."""
+        try:
+            self._stream.write(encode(_value(event)))
+            self._stream.flush()
+        except OSError, ServiceError:
+            # A full disk or an unwritable value costs the record, not the run.
+            return False
+        return True
+
+    def _end(self, event: Event) -> None:
+        """Record the run's ending, in the order the module describes, and stop.
+
+        The summary says the ending only once ``events.bin`` is closed and
+        ``job.json`` has its end, and nothing is rewritten after it: a run continued
+        the moment its ending is recorded sets aside a record no process holds, and
+        its fresh summary is never overwritten by this one.
+        """
+        self._append(event)
+        with contextlib.suppress(OSError):
+            self._stream.close()
+        if self.job is not None:
+            with contextlib.suppress(OSError, ValueError):
+                self.job = replace(self.job, ended=time.time())
+                write_job(self.folder, self.job)
+        self._summarise(event)
+        self._rewrite(force=True)
 
     def close(self) -> None:
-        """Write what is waiting, then close the record."""
+        """Write what is waiting, then close the record.
+
+        The record ends at its terminal event: an event handed over after it is not
+        kept.
+        """
         self._queue.put(None)
         self._thread.join(timeout=30.0)
         self._stream.close()

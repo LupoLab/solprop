@@ -2,14 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Resume legacy entrance-only files without treating the launch as interpolated."""
+"""Resume an entrance-only file without treating the launch as interpolated."""
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
 
 from solprop.driver import Simulation
 from solprop.output import MemoryOutput, open_file, resume
-from solprop.output.schema import INTERPOLATED_RESUMES_ANNOTATION
+from solprop.output.metadata import INTERPOLATED_RESUMES_ANNOTATION
 from solprop.stats import StatsSpec
 from solprop.stepper.multistep import Multistep
 
@@ -41,8 +41,7 @@ def test_entrance_without_terminal_checkpoint_resumes_dense_run_normally(tmp_pat
     entrance_only.open(reference.metadata)
     entrance_only.save(reference.planes()[0])
     path = tmp_path / "entrance-only.h5"
-    # Old files have regular planes but no explicit terminal checkpoint. Keep the
-    # current scientific identity: this is not a cross-schema resume conversion.
+    # A file written from a MemoryOutput has its planes but no terminal checkpoint.
     entrance_only.to_file(path)
     state = resume(path)
     assert state.n_saved == 1

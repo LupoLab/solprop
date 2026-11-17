@@ -2,7 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Emit and submit quoted Slurm array jobs with explicit controller resources."""
+"""Emit and submit quoted Slurm array jobs with explicit controller resources.
+
+:class:`Slurm` renders a Bash array script (:meth:`Slurm.render`) whose tasks each run
+``python -m solprop.scan`` controllers on the scan script, in queue mode (shared claims)
+or chunk mode (disjoint round-robin subsets), with CPUs, memory and devices divided
+across a task's instances; :meth:`Slurm.submit` hands it to ``sbatch``. Inside a task
+the same policy prepares a :class:`~solprop.driver.executors.queue.Queue` over the
+shared queue directory and drains it, and the submitting process collects that queue
+into the scan file. Quoting and resource export are in ``docs/dev/scans.md``.
+"""
 
 import hashlib
 import os
@@ -17,11 +26,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from solprop._process import THREAD_VARIABLES, batch_script
 from solprop.driver.executors._queue_state import atomic_json
 from solprop.driver.executors._request import ScanRequest
-from solprop.driver.executors.pool import _THREAD_VARIABLES, Pool
+from solprop.driver.executors.pool import Pool
 from solprop.driver.executors.queue import Queue
-from solprop.exceptions import DriverError
+from solprop.exceptions import DriverError, ExecutorError
 
 __all__ = ["Slurm"]
 
@@ -184,17 +194,10 @@ class Slurm:
             "cpus-per-task": str(self.cpus_per_task),
             "mem": self.mem,
             "time": self.time,
+            "partition": self.partition,
+            "gres": self.gres,
         }
-        if self.partition is not None:
-            directives["partition"] = self.partition
-        if self.gres is not None:
-            directives["gres"] = self.gres
         lines = [
-            "#!/usr/bin/env bash",
-            *[
-                f"#SBATCH --{key}={shlex.quote(value)}"
-                for key, value in directives.items()
-            ],
             "set -euo pipefail",
             f"cd -- {shlex.quote(str(directory))}",
             ': "${SLURM_ARRAY_TASK_ID:?set the Slurm array task ID}"',
@@ -237,7 +240,7 @@ class Slurm:
             lines.append('    export CUDA_VISIBLE_DEVICES="${devices[$instance]}"')
         # Each instance's controller keeps its whole share: SOLPROP_THREADS is the
         # budget its Pool workers are each spawned with, not the controller's own.
-        for variable in _THREAD_VARIABLES:
+        for variable in THREAD_VARIABLES:
             if variable != "SOLPROP_THREADS":
                 lines.append(f"    export {variable}={self.threads}")
         lines.append("    export SOLPROP_NATIVE_WAIT_REQUEST=passive")
@@ -275,7 +278,7 @@ class Slurm:
             "done",
             'exit "$status"',
         ]
-        return "\n".join(lines) + "\n"
+        return batch_script(directives, lines)
 
     def submit(self, destination: Path | str | None = None) -> str:
         """Write the script and submit it with sbatch.
@@ -313,7 +316,7 @@ class Slurm:
                 check=True,
             )
         except (FileNotFoundError, subprocess.CalledProcessError) as error:
-            raise DriverError(f"Slurm submission failed: {error}") from error
+            raise ExecutorError(f"Slurm submission failed: {error}") from error
         self.job_id = result.stdout.strip()
         reports = queue / "submissions"
         reports.mkdir(parents=True, exist_ok=True)

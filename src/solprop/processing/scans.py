@@ -2,10 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Read collected scans and declare reductions evaluated inside workers.
+"""Declare scan reductions evaluated inside workers, and read collected scans.
 
-All numerical definitions come from the ordinary output processing functions.
-Missing points are masked, never presented as successful zero-valued results.
+- :class:`Reduction` is a worker-side calculation with its storage contract: the
+  built-ins :func:`spectrum_in_band`, :func:`energy_in_band`, :func:`energy_in_window`,
+  :func:`peak_power`, :func:`mode_energies`, :func:`field_at_plane`,
+  :func:`on_axis_intensity` and :func:`beam_radius`, and :func:`custom` for one of your
+  own. Their numerical definitions are the ordinary processing functions.
+- :func:`open_scan` returns a :class:`ScanOutput`, which reads a collected file without
+  holding it open, under the shared lock of ``solprop.output._scan_lock``. Missing
+  points are masked, never presented as successful zero-valued results.
+
+The manual page is ``docs/guide/workflows/scans.md`` ("Retention, reductions and
+reading").
 """
 
 import hashlib
@@ -22,25 +31,22 @@ import numpy as np
 from jaxtyping import Float
 
 from solprop._display import Displayed, line, tail
+from solprop._identity import canonical_json, text_digest
 from solprop.constants import C
 from solprop.exceptions import ProcessingError
 from solprop.output._scan_lock import read_scan
 from solprop.output.capability import capability_of
 from solprop.output.hdf5 import _dataset, _group, read_recipe
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import GridRecord, RecipeRecord
 from solprop.output.scan import (
     _expand,
     _refuse_other_schemas,
     grid_values,
     read_point,
 )
-from solprop.output.schema import (
-    GridRecord,
-    JsonValue,
-    Output,
-    RecipeRecord,
-    RunMetadata,
-    _rebuild,
-)
+from solprop.output.serialisation import JsonValue, _rebuild
+from solprop.output.store import Output
 from solprop.processing.axes import band_mask, grid_from_record, spectral_axis
 from solprop.processing.fields import get_power, get_spectral_density
 from solprop.processing.time import energy
@@ -56,7 +62,7 @@ __all__ = [
     "field_at_plane",
     "mode_energies",
     "on_axis_intensity",
-    "open",
+    "open_scan",
     "peak_power",
     "spectrum_in_band",
 ]
@@ -546,7 +552,7 @@ def _provenance(
             f"{getattr(function, '__module__', '')}."
             f"{getattr(function, '__qualname__', '')}"
         ),
-        "source_hash": hashlib.sha256(source.encode()).hexdigest() if source else None,
+        "source_hash": text_digest(source) if source else None,
         "source_available": bool(source),
         "units": units,
         "dtype": str(reduction.dtype),
@@ -775,7 +781,7 @@ class ScanOutput(Displayed):
                 )
                 low, high = parameters["bounds"]
                 bounds = (float(low), float(high))
-                fingerprint = json.dumps([grid, bounds], sort_keys=True)
+                fingerprint = canonical_json([grid, bounds])
                 records[fingerprint] = (_rebuild(GridRecord, grid), bounds)
         if not records:
             where = "" if index is None else f" at point {index}"
@@ -822,7 +828,7 @@ class ScanOutput(Displayed):
             return np.flatnonzero(mask)
 
 
-def open(path: Path | str) -> ScanOutput:
+def open_scan(path: Path | str) -> ScanOutput:
     """Open a collected scan reader.
 
     Parameters

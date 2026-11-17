@@ -5,10 +5,10 @@
 """The readers that take a column for a mode refuse a spatial file by name.
 
 A radial, Cartesian, line or planar file stores fields in V m or V/m, or slab
-amplitudes, in its columns. The legacy energy, power and density readers and the plots
-drawn from them would read those columns as modal amplitudes in sqrt(W): a launch of
-3 nJ read back as 4.8e-15 J. Each refuses instead, names the spatial functional to use,
-and leaves the run's statistics and every modal file as they were.
+amplitudes, in its columns. The per-channel energy, power and density readers and the
+plots drawn from them would read those columns as modal amplitudes in sqrt(W): a launch
+of 3 nJ read back as 4.8e-15 J. Each refuses instead, names the spatial functional to
+use, and leaves the run's statistics and every modal file as they were.
 """
 
 import numpy as np
@@ -136,8 +136,7 @@ def _simulation(route: str) -> Simulation:
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=ENERGY), 6e-5
     )
-    build = Simulation.from_radial if route == "radial" else Simulation.from_free
-    return build(
+    return Simulation.from_free(
         grid,
         space,
         SpatialMedium("Ar", 1.0),
@@ -209,6 +208,7 @@ def test_a_plane_view_of_a_spatial_run_refuses_its_power_and_density(spatial_run
             OutputError, match=r"^get_spectral_density measures modal amplitudes"
         ):
             view.spectral_density()
+        assert set(view.quantities) == {"field"}
         assert view.spectrum()[1].shape[0] == output.fields().shape[1]
     finally:
         view._close()
@@ -271,10 +271,22 @@ def test_the_advice_names_only_what_works_on_the_route(spatial_run):
     assert on_axis_spectrum(stored, flux).shape == (simulation.grid.n_omega,)
 
 
+FIELD_UNITS = {
+    "radial": "V m",
+    "cartesian": "V/m",
+    "line": "V/m",
+    "planar": "sqrt(W/m)",
+}
+"""The unit each route stores its field in."""
+
+
 def test_the_file_statement_keeps_the_statistic_and_states_the_readers(spatial_run):
-    _, _, output = spatial_run
+    route, _, output = spatial_run
     statement = capabilities.output(output)
     assert statement.basis == "spatial"
+    # Only the field, in the stored unit: the modal flux readers refuse the file.
+    field = capabilities.Quantity("coordinate", FIELD_UNITS[route])
+    assert statement.quantities == {"field": field}
     # The energy statistic is the beam's physical flux, and stays admitted.
     assert statement.admits("energy") and statement.admits("peak_intensity")
     assert set(statement.refused_readers) == set(COLUMN_READINGS)
@@ -289,7 +301,7 @@ def test_a_modal_file_keeps_its_column_readers(build):
     output = build()
     metadata = output.metadata
     assert metadata is not None
-    # The general modal basis keeps refusing its two legacy metrics and the plot of
+    # The general modal basis keeps refusing its two per-channel metrics and the plot of
     # the energy, as before, and admits every other reader; the orthogonal basis
     # admits all of them.
     refused = {

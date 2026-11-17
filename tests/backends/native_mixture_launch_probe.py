@@ -26,6 +26,7 @@ import numpy as np
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
+from builders import load_reference
 from mixture_cases import mixture_translation
 from sessions.runs import launch_statistics as state_statistics
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -34,7 +35,7 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 
 NAMES = ("species_ionisation", "species_peak_ionisation_rate")
 PEAK = 3.6e10
@@ -70,10 +71,14 @@ def launch_case(kerr, n_pol):
     )
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)
-        state = reference._require_state()
-        peak = max(float(np.max(abs(one))) for one in reference._plasma_nodes(state[0]))
+        state = load_reference(reference)
+        reference.workspace.hoist(0.0)
+        peak = max(
+            float(np.max(abs(one)))
+            for one in reference.workspace.statistics.node_fields(
+                state, problem.initial.z
+            )
+        )
     finally:
         reference.close()
     assert peak > 0.0

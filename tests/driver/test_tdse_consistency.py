@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 from scipy.integrate import solve_ivp
 from tests.hacc_cases import (
+    FakeBuild,
     alpha_law,
     hacc_response,
     helium_alpha,
@@ -29,6 +30,7 @@ from tests.hacc_cases import (
     tiny_basis,
 )
 
+from solprop import _durable
 from solprop.constants import E_CHARGE, EPS0, M_E, C
 from solprop.driver import tdse, tdse_consistency
 from solprop.driver.tdse_consistency import (
@@ -61,7 +63,7 @@ from solprop.translate.tdse import TDSEDescriptor
 
 _LAMBDA = 800e-9
 _SUPPORT = (0.0, 2 * math.pi * C / 60e-9)
-_REVISION = tdse.pinned_revision()
+_REVISION = FakeBuild().source_revision  # the manufactured provider's
 
 
 def _reference(omega):
@@ -612,11 +614,11 @@ def test_cache_write_is_atomic(cache, monkeypatch):
     path = cache / f"{first.cache_key}.json"
     before = path.read_text(encoding="utf-8")
 
-    def interrupted(entry, stream, **kwargs):
-        stream.write('{"inputs": ')
+    def interrupted(descriptor):
+        # The entry is in the temporary file, not yet on the disk nor in place.
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(tdse_consistency.json, "dump", interrupted)
+    monkeypatch.setattr(_durable.os, "fsync", interrupted)
     with pytest.raises(KeyboardInterrupt):
         _check(source, refresh=True)
     # The reader never sees the partial file: the entry is unchanged and no

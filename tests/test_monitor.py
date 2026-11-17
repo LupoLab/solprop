@@ -29,11 +29,11 @@ from runtime_types import unchecked
 from solprop.backends.ledger import CallLedger
 from solprop.backends.registry import available
 from solprop.constants import C
-from solprop.driver import Simulation, SimulationSettings, _scan_batch, prop_gnlse
-from solprop.driver.executors import Batch, Local
-from solprop.driver.run import _earlier_execution
+from solprop.driver import Simulation, SimulationSettings, prop_gnlse
+from solprop.driver.executors import Local
 from solprop.driver.scan import Scan, ScanPoint, run_scan
-from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning, OutputError
+from solprop.driver.session_loop import _earlier_execution
+from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.log import NullReporter
 from solprop.monitor import (
@@ -45,16 +45,11 @@ from solprop.monitor import (
     BoundaryMonitor,
 )
 from solprop.nonlinear.responses import KerrResponse
-from solprop.output import MemoryOutput, open_file, schema
+from solprop.output import MemoryOutput, open_file, records
 from solprop.output.hdf5 import resume
+from solprop.output.records import RunOutcome, TerminalCheckpoint
 from solprop.output.scan import read_point
-from solprop.output.schema import (
-    CheckpointOutput,
-    Output,
-    PlaneStore,
-    RunOutcome,
-    TerminalCheckpoint,
-)
+from solprop.output.store import CheckpointOutput, Output, PlaneStore
 from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
@@ -139,6 +134,22 @@ def test_the_check_refuses_bad_thresholds() -> None:
     for edge in (0.0, math.inf):
         with pytest.raises(BoundaryError, match="transverse_budget"):
             BoundaryCheck(transverse_budget=edge)
+    for spacing in (0.0, -1.0, math.nan, math.inf):
+        with pytest.raises(BoundaryError, match="interval"):
+            BoundaryCheck(interval=spacing)
+
+
+def test_the_check_spacing_follows_the_length_unless_pinned() -> None:
+    grid = EnvelopeGrid.from_limits(0.5, 800e-9, (600e-9, 1.2e-6), 1e-12)
+    default = BoundaryMonitor.build(grid, None, BoundaryCheck())
+    assert default.interval == 0.5 / CHECKS
+    pinned = BoundaryMonitor.build(grid, None, BoundaryCheck(interval=0.1))
+    assert pinned.interval == 0.1
+    # A record says which spacing its checks used, the default's included.
+    assert default.check_record()["interval"] == 0.5 / CHECKS
+    assert pinned.check_record() == dataclasses.asdict(BoundaryCheck()) | {
+        "interval": 0.1
+    }
 
 
 def test_a_pulse_that_stays_clear_leaves_the_guards_empty() -> None:
@@ -229,7 +240,7 @@ def _split(
 def _radial_walker(backend: str, scheme: AbsorberScheme, dz_max: float) -> Simulation:
     """Return a 1 pJ radial pulse at 1150 nm whose group delay walks out of 400 fs."""
     grid = FieldGrid.from_limits(1.0, 800e-9, (500e-9, 1.3e-6), 400e-15)
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(1.2e-2, 16),
         SpatialMedium("Ar", 60.0),
@@ -447,14 +458,14 @@ def test_a_saved_plane_validates_its_record_once(
     # The driver builds the record once a plane, and the store amends it with what it
     # has already validated -- its earlier executions -- rather than checking the whole
     # record again: one JSON round trip a plane, not nine.
-    validate = schema._outcome_record
+    validate = records._outcome_record
     validated: list[Mapping[str, object]] = []
 
     def counted(record: Mapping[str, object]) -> dict[str, object]:
         validated.append(record)
         return validate(record)
 
-    monkeypatch.setattr(schema, "_outcome_record", counted)
+    monkeypatch.setattr(records, "_outcome_record", counted)
     output = _Recording()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)
@@ -536,7 +547,7 @@ def test_a_run_stopped_at_the_edge_resumes_without_a_launch_check(
     assert executions == 2
     assert len(record["resumed_at"]) == 1
     assert record["guard_high_max"] >= stopped["guard_high_max"]
-    check = dataclasses.asdict(BoundaryCheck())
+    check = dataclasses.asdict(BoundaryCheck()) | {"interval": LENGTH / CHECKS}
     assert {name: record[name] for name in check} == check
 
 
@@ -652,8 +663,8 @@ def test_only_the_quiet_collar_is_part_of_the_resume_key() -> None:
 def _walking_point(point: ScanPoint) -> Simulation:
     """Return a scan point whose pulse walks ``drift`` windows over the fibre.
 
-    On a fixed schedule, as a batch needs, and without a collar, so that light that
-    walks out of the window wraps into the opposite guard.
+    On a fixed schedule, and without a collar, so that light that walks out of the
+    window wraps into the opposite guard.
     """
     trange = 3 * TRANGE
     grid = EnvelopeGrid.from_limits(
@@ -674,53 +685,23 @@ def _walking_point(point: ScanPoint) -> Simulation:
     )  # fmt: skip
 
 
-def test_a_batched_scan_fails_the_point_a_lone_run_fails(tmp_path: Path) -> None:
-    # Each batch member watches its own window: the point whose pulse walks out is
-    # stopped and failed, the other completes, as the points run one by one.
-    scan = Scan("walk", drift=[0.0, 0.9])
-    for name, executor in (("local", Local()), ("batch", Batch(2))):
-        path = tmp_path / f"{name}.h5"
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", BoundaryWarning)
-            output = run_scan(
-                scan, _walking_point, executor=executor, output=path, progress="none"
-            )
-        assert output.status.tolist() == ["done", "failed"], name
-        error = str(read_point(path, 1)["error"])
-        assert "BoundaryError" in error, name
-        assert "could not be persisted" not in error, name
-
-
-def test_a_batched_point_keeps_its_first_failure_when_its_boundary_stops_it_later(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # The walking point's capture fails at its launch plane; its boundary stop later
-    # in the same group is a second failure, and the point keeps the first.
-    original = _scan_batch._Capture.save
-    order: list[int] = []
-
-    def capture(self: Any, plane: Any) -> None:
-        if id(self) not in order:
-            order.append(id(self))
-        if order.index(id(self)) == 1:
-            raise OutputError("member capture unavailable")
-        original(self, plane)
-
-    monkeypatch.setattr(_scan_batch._Capture, "save", capture)
-    path = tmp_path / "batch.h5"
+def test_a_scan_fails_the_point_whose_boundary_stops_it(tmp_path: Path) -> None:
+    # Each point watches its own window: the point whose pulse walks out is stopped
+    # and failed, and the other completes.
+    path = tmp_path / "local.h5"
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)
         output = run_scan(
             Scan("walk", drift=[0.0, 0.9]),
             _walking_point,
-            executor=Batch(2),
+            executor=Local(),
             output=path,
             progress="none",
         )
     assert output.status.tolist() == ["done", "failed"]
     error = str(read_point(path, 1)["error"])
-    assert "member capture unavailable" in error
-    assert "BoundaryError" not in error
+    assert "BoundaryError" in error
+    assert "could not be persisted" not in error
 
 
 def test_without_a_check_nothing_is_watched() -> None:
@@ -746,7 +727,7 @@ def _two_pulses(share: float, at: float) -> tuple[EnvelopeGrid, np.ndarray]:
         return np.exp(-(((t - centre) / 10e-15) ** 2)).astype(complex)
 
     state = math.sqrt(1.0 - share) * pulse(0.0) + math.sqrt(share) * pulse(at * t.max())
-    return grid, np.fft.fft(state)[None, None, None, :]
+    return grid, np.fft.fft(state)[None, None, :]
 
 
 def _launch_with(share: float, at: float) -> BoundaryMonitor:
@@ -823,16 +804,16 @@ def test_a_field_absorbed_to_nothing_is_not_judged() -> None:
     grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
     pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
-    monitor.launch(monitor.energies(np.fft.fft(pulse)[None, None, None, :]), 0.0)
+    monitor.launch(monitor.energies(np.fft.fft(pulse)[None, None, :]), 0.0)
     residue = np.full(grid.n_t, 1e-12, dtype=complex)
-    monitor.step(monitor.energies(np.fft.fft(residue)[None, None, None, :]), 0.1)
+    monitor.step(monitor.energies(np.fft.fft(residue)[None, None, :]), 0.1)
     assert monitor.summary()["guard_low_max"] == 0.0
 
 
 def test_a_launch_with_no_light_is_not_judged() -> None:
     grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
-    dark = np.zeros((1, 1, 1, grid.n_t), dtype=complex)
+    dark = np.zeros((1, 1, grid.n_t), dtype=complex)
     monitor.launch(monitor.energies(dark), 0.0)
     monitor.step(monitor.energies(dark), 0.1)
     summary = monitor.summary()
@@ -849,9 +830,9 @@ def _split_monitor(
     check = BoundaryCheck(budget=1.0, stop_factor=1.0)
     monitor = BoundaryMonitor.build(grid, rate, check, split=True)
     pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
-    spectrum = np.fft.fft(pulse)[None, None, None, :]
+    spectrum = np.fft.fft(pulse)[None, None, :]
     rng = np.random.default_rng(5)
-    draw = 1e-3 * np.exp(2j * np.pi * rng.random(grid.n_t))[None, None, None, :]
+    draw = 1e-3 * np.exp(2j * np.pi * rng.random(grid.n_t))[None, None, :]
     reading = monitor.energies(spectrum)
     monitor.launch(reading, 0.0, floor=draw if floor else None)
     # A step's reading carries what its split found: a centred pulse, clear of the
@@ -878,32 +859,28 @@ def test_the_split_s_removal_is_what_the_backend_took() -> None:
     assert summary["removed_fraction"] == summary["raw_removed_fraction"]
 
 
-def test_under_the_split_the_guards_are_judged_on_what_it_found() -> None:
-    # The state the split left shows empty guards; what it found holds a tenth of
-    # the energy in the high guard, which stops the run under the default check.
+@pytest.mark.parametrize(
+    "left_share",
+    [
+        # The state the split left shows empty guards; what it found holds a tenth of
+        # the energy in the high guard, which stops the run under the default check.
+        1.0,
+        # One energy for one verdict: the split took nearly everything, below the
+        # no-light floor of the state it left, but what it found filled the guard.
+        1e-15,
+    ],
+    ids=["guards", "emptied"],
+)
+def test_under_the_split_the_guards_are_judged_on_what_it_found(left_share) -> None:
     monitor, _, reading = _split_monitor()
     monitor.check = BoundaryCheck()
     left = BoundaryEnergies(
-        reading.total,
+        left_share * reading.total,
         np.zeros(4),
         found=reading.total * np.array([1.0, 0.0, 0.1, 0.2]),
     )
     with pytest.raises(BoundaryError, match="guards"):
         monitor.step(left, 0.1)
-
-
-def test_a_state_the_split_emptied_is_still_judged_on_what_it_found() -> None:
-    # One energy for one verdict: the split took nearly everything, below the
-    # no-light floor of the state it left, but what it found filled the guard.
-    monitor, _, reading = _split_monitor()
-    monitor.check = BoundaryCheck()
-    emptied = BoundaryEnergies(
-        1e-15 * reading.total,
-        np.zeros(4),
-        found=reading.total * np.array([1.0, 0.0, 0.1, 0.2]),
-    )
-    with pytest.raises(BoundaryError, match="guards"):
-        monitor.step(emptied, 0.1)
 
 
 def test_the_collar_share_is_of_what_the_split_found() -> None:
@@ -930,7 +907,7 @@ def test_the_in_stage_scheme_ignores_what_a_split_would_have_found() -> None:
         grid, np.full(grid.n_t, 10.0), BoundaryCheck(budget=1.0, stop_factor=1.0)
     )
     pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
-    reading = monitor.energies(np.fft.fft(pulse)[None, None, None, :])
+    reading = monitor.energies(np.fft.fft(pulse)[None, None, :])
     monitor.launch(reading, 0.0)
     found = reading.total * np.array([1.0, 0.0, 0.1, 0.2])
     monitor.step(dataclasses.replace(reading, found=found), 0.1)
@@ -968,7 +945,7 @@ def test_a_plane_is_recorded_once() -> None:
     grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
     pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
-    monitor.launch(monitor.energies(np.fft.fft(pulse)[None, None, None, :]), 0.0)
+    monitor.launch(monitor.energies(np.fft.fft(pulse)[None, None, :]), 0.0)
     monitor.plane(0.0)
     monitor.plane(0.0)
     planes = monitor.summary()["planes"]
@@ -1017,7 +994,7 @@ def test_with_noise_the_removed_fraction_is_still_the_signal_lost() -> None:
 def test_a_launch_of_the_floor_alone_is_not_judged() -> None:
     grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
     rng = np.random.default_rng(3)
-    draw = np.exp(2j * np.pi * rng.random(grid.n_t))[None, None, None, :]
+    draw = np.exp(2j * np.pi * rng.random(grid.n_t))[None, None, :]
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
     with warnings.catch_warnings():
         warnings.simplefilter("error", BoundaryWarning)
@@ -1160,7 +1137,7 @@ def test_a_check_is_due_every_step_while_light_is_near_an_edge() -> None:
     centred = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
     edge = np.exp(-(((grid.t - 0.97 * grid.t.max()) / 30e-15) ** 2)).astype(complex)
     spectrum = lambda samples: monitor.energies(  # noqa: E731
-        np.fft.fft(samples)[None, None, None, :]
+        np.fft.fft(samples)[None, None, :]
     )
     assert monitor.checked_at is None
     monitor.launch(spectrum(centred), 0.0)
@@ -1193,7 +1170,7 @@ def test_a_collar_returns_at_once_and_rests_again_only_after_quiet_checks() -> N
     # warning at this relaxed budget.
     near = 1e-3 * np.exp(-(((grid.t - 0.93 * grid.t.max()) / 30e-15) ** 2))
     spectrum = lambda samples: monitor.energies(  # noqa: E731
-        np.fft.fft(samples)[None, None, None, :]
+        np.fft.fft(samples)[None, None, :]
     )
     monitor.launch(spectrum(centred), 0.0)
     verdicts = []
@@ -1212,7 +1189,7 @@ def test_a_resting_collar_adds_no_removal() -> None:
     check = BoundaryCheck(budget=1.0, stop_factor=1.0)
     monitor = BoundaryMonitor.build(grid, rate, check)
     pulse = np.fft.fft(np.exp(-((grid.t / 50e-15) ** 2)).astype(complex))
-    state = pulse[None, None, None, :]
+    state = pulse[None, None, :]
     monitor.launch(monitor.energies(state), 0.0)
     monitor.note_collar(True)
     monitor.step(monitor.energies(state), 0.1)
@@ -1517,7 +1494,9 @@ def test_with_noise_a_pulse_clear_of_the_collar_reads_no_removal() -> None:
 # Routes whose stages keep the collar never rest it.
 
 
-@pytest.mark.parametrize("route", ["planar", "cartesian", "line"])
+@pytest.mark.parametrize(
+    "route", [pytest.param("planar", marks=pytest.mark.medium), "cartesian", "line"]
+)
 def test_a_quiet_collar_option_changes_nothing_where_the_stages_keep_it(
     route: str,
 ) -> None:
@@ -1585,50 +1564,39 @@ def test_a_scan_point_keeps_its_closing_monitor_record(
         pytest.skip(f"{backend} is not installed")
     scan = Scan("walk", drift=[0.0, 0.4, 1.2])
     build = functools.partial(_walking_watched_point, backend=backend)
-    for name, executor in (("local", Local()), ("batch", Batch(3))):
-        path = tmp_path / f"{name}.h5"
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", BoundaryWarning)
-            run_scan(
-                scan,
-                build,
-                executor=executor,
-                output=path,
-                progress="none",
-            )
-        for index in range(3):
-            found = read_point(path, index)
-            opened = cast("dict[str, Any]", found["metadata"])["backend"]
-            assert "boundary_monitor" not in opened.get("settings", {}), name
-            record = cast("dict[str, Any]", found["boundary_monitor"])
-            assert "planes" not in record, name
-            assert record["steps"] > 0, name
-        stopped = cast("dict[str, Any]", read_point(path, 2)["boundary_monitor"])
-        assert stopped["guard_high_max"] > 0.0 or stopped["guard_low_max"] > 0.0
+    path = tmp_path / "local.h5"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        run_scan(scan, build, executor=Local(), output=path, progress="none")
+    for index in range(3):
+        found = read_point(path, index)
+        opened = cast("dict[str, Any]", found["metadata"])["backend"]
+        assert "boundary_monitor" not in opened.get("settings", {})
+        record = cast("dict[str, Any]", found["boundary_monitor"])
+        assert "planes" not in record
+        assert record["steps"] > 0
+    stopped = cast("dict[str, Any]", read_point(path, 2)["boundary_monitor"])
+    assert stopped["guard_high_max"] > 0.0 or stopped["guard_low_max"] > 0.0
 
 
 def test_a_warning_raised_as_an_error_fails_its_own_point_alone(
     tmp_path: Path,
 ) -> None:
-    scan = Scan("walk", drift=[0.0, 0.4, 1.2])
-    statuses = {}
-    for name, executor in (("local", Local()), ("batch", Batch(3))):
-        path = tmp_path / f"{name}.h5"
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", BoundaryWarning)
-            output = run_scan(
-                scan,
-                _walking_watched_point,
-                executor=executor,
-                output=path,
-                progress="none",
-            )
-        statuses[name] = output.status.tolist()
-        assert statuses[name][0] == "done", name
-        for index in (1, 2):
-            if statuses[name][index] == "failed":
-                assert "Boundary" in str(read_point(path, index)["error"]), name
-    assert statuses["batch"] == statuses["local"]
+    path = tmp_path / "local.h5"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", BoundaryWarning)
+        output = run_scan(
+            Scan("walk", drift=[0.0, 0.4, 1.2]),
+            _walking_watched_point,
+            executor=Local(),
+            output=path,
+            progress="none",
+        )
+    statuses = output.status.tolist()
+    assert statuses[0] == "done"
+    for index in (1, 2):
+        if statuses[index] == "failed":
+            assert "Boundary" in str(read_point(path, index)["error"])
 
 
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])

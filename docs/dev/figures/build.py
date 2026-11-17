@@ -102,6 +102,8 @@ LIGHT = {
     "rule": "#c9d0da",
     "p-fill": "#e2f0e8",
     "p-edge": "#2c7a55",
+    "s-fill": "#ddf1f3",
+    "s-edge": "#1d7a86",
     "t-fill": "#fceedd",
     "t-edge": "#a96a15",
     "b-fill": "#e3ebfa",
@@ -120,6 +122,8 @@ DARK = {
     "rule": "#3a424e",
     "p-fill": "#16342a",
     "p-edge": "#5cb98a",
+    "s-fill": "#113236",
+    "s-edge": "#5fc2ce",
     "t-fill": "#3a2b15",
     "t-edge": "#e0a44f",
     "b-fill": "#17253f",
@@ -131,7 +135,7 @@ DARK = {
 }
 """The same palette on a dark ground, with exactly the same keys as :data:`LIGHT`."""
 
-LAYER_LETTERS = ("P", "T", "B", "D", "X")
+LAYER_LETTERS = ("P", "S", "T", "B", "D", "X")
 """The layer letters of ``architecture.md`` section 3, in the order imports flow."""
 
 
@@ -561,22 +565,24 @@ class Layer(NamedTuple):
 
 LAYERS = (
     Layer("P", "physics / convenience", "numpy, scipy, stdlib, other P modules"),
-    Layer("T", "translation", "P, numpy, scipy"),
-    Layer("B", "backends", "numpy; the native package in native/"),
-    Layer("D", "driver", "P, T, B through the seam, h5py"),
+    Layer("S", "run specification", "P, numpy, scipy"),
+    Layer("T", "translation", "P, S, numpy, scipy"),
+    Layer("B", "backends", "numpy; the native package in native/; S"),
+    Layer("D", "driver", "P, S, T, B through the seam, h5py"),
     Layer(
         "X",
         "processing / plotting",
         "numpy, scipy, matplotlib, D (outputs), T (table identities)",
     ),
 )
-"""The five layers of `architecture.md` section 3, in the order imports flow."""
+"""The six layers of `architecture.md` section 3, in the order imports flow."""
 
 PACKAGE_WIDE = (
     Module("__init__.py"),
     Module("exceptions.py"),
+    Module("log.py"),
 )
-"""The two modules `architecture.md` section 4 gives no layer letter."""
+"""The public modules beneath every layer (`architecture.md` section 3): no letter."""
 
 MODULES = {
     "P": (
@@ -597,7 +603,18 @@ MODULES = {
         Module("transverse_monitor.py"),
         Module("polarisation.py"),
         Module("optics.py"),
-        Module("tools.py"),
+        Module(
+            "tools/",
+            (
+                "pulse",
+                "soliton",
+                "beam",
+                "waveguide",
+                "phase_matching",
+                "design",
+                "capillary",
+            ),
+        ),
         Module(
             "coupling/",
             (
@@ -640,9 +657,13 @@ MODULES = {
                 "stepindex",
                 "material",
                 "vector",
+                "stepindex_vector",
                 "guide",
+                "tables",
+                "path",
                 "graded_index",
                 "connection",
+                "wall",
                 "rectangular",
                 "slab",
                 "collection",
@@ -665,11 +686,40 @@ MODULES = {
             ),
         ),
     ),
+    "S": (
+        Module(
+            "stepper/",
+            (
+                "tableau",
+                "runge_kutta",
+                "multistep",
+                "low_storage",
+                "controller",
+                "schedule",
+                "settings",
+            ),
+        ),
+        Module("stats/", ("definitions", "catalogue", "spec", "evaluation")),
+        Module(
+            "output/",
+            (
+                "serialisation",
+                "provenance",
+                "records",
+                "metadata",
+                "store",
+                "capability",
+            ),
+        ),
+    ),
     "T": (
         Module(
             "translate/",
             (
                 "problem",
+                "assembly",
+                "walls",
+                "validation",
                 "routes",
                 "stage",
                 "linop",
@@ -708,8 +758,11 @@ MODULES = {
             (
                 "protocol",
                 "registry",
+                "records",
+                "engines",
                 "spatial",
                 "populations",
+                "tdse_source",
                 "memory",
                 "node_chunk",
                 "ledger",
@@ -720,54 +773,40 @@ MODULES = {
                 "session",
                 "events",
                 "export",
-                "session_core",
                 "sessions",
-            ),
-        ),
-        Module(
-            "backends/host/",
-            (
-                "driver",
-                "adams",
-                "low_storage",
-                "group",
-                "session",
-                "group_session",
             ),
         ),
         Module(
             "backends/numpy_ref/",
             (
                 "backend",
-                "batch",
-                "passes",
+                "workspace",
+                "source",
+                "statistics",
+                "coupled_flow",
+                "engines",
+                "dense",
                 "multistep",
-                "populations",
-                "envelope_plasma",
+                "adams_kernels",
+                "adams_tables",
                 "general_modal",
-                "tdse",
+                "session",
+                "session_parts",
             ),
+        ),
+        Module(
+            "backends/numpy_ref/marches/",
+            ("host", "runge_kutta", "adams", "low_storage"),
+        ),
+        Module(
+            "backends/numpy_ref/passes/",
+            ("transforms", "responses", "plasma", "stepping"),
         ),
     ),
     "D": (
-        Module("log.py"),
-        Module("stats.py"),
-        Module(
-            "stepper/",
-            (
-                "tableau",
-                "runge_kutta",
-                "multistep",
-                "low_storage",
-                "controller",
-                "schedule",
-            ),
-        ),
         Module(
             "output/",
             (
-                "schema",
-                "capability",
                 "memory",
                 "callback",
                 "hdf5",
@@ -792,11 +831,21 @@ MODULES = {
                 "selection",
             ),
         ),
-        Module("driver/executors/", ("local", "pool", "queue", "slurm", "batch")),
+        Module("driver/executors/", ("local", "pool", "queue", "slurm")),
+        Module(
+            "driver/routes/",
+            ("gnlse", "hollow", "general", "spatial", "materials", "keywords"),
+        ),
         Module(
             "driver/",
             (
                 "simulation",
+                "settings",
+                "inputs",
+                "metadata",
+                "resume",
+                "runner",
+                "tdse_run",
                 "run",
                 "summary",
                 "interface",
@@ -806,11 +855,10 @@ MODULES = {
                 "tdse",
                 "tdse_consistency",
                 "scan",
-                "batch",
                 "defaults",
                 "estimate",
                 "plane_view",
-                "service",
+                "session_loop",
             ),
         ),
         Module(
@@ -827,6 +875,7 @@ MODULES = {
                 "provenance",
                 "quantity",
                 "registry",
+                "type_metadata",
             ),
         ),
         Module("cli.py"),
@@ -860,7 +909,6 @@ MODULES = {
             (
                 "agent",
                 "beam",
-                "beams",
                 "client",
                 "design",
                 "explore",
@@ -874,6 +922,7 @@ MODULES = {
                 "machines",
                 "messages",
                 "postprocess",
+                "radial_pages",
                 "recipes",
                 "record",
                 "reduce",
@@ -944,13 +993,13 @@ RUN_STAGES = (
             "the march, the replay, the landing, the controller,",
             "the history, the noise, the per-stage bundle",
         ),
-        "HostDriver for numpy_ref; native's session",
+        "HostSession for numpy_ref; native's session",
     ),
     Stage(
         "D",
         "run loop over save planes",
         (
-            "obs = backend.observe()        stats = backend.stats(spec)",
+            "event = session.advance()     field = session.export(ticket, recipe)",
             "output.save(SavedPlane(z, field, stats, step_history, step_stats))",
         ),
         "small host arrays, one fused pass",
@@ -1057,15 +1106,15 @@ CONTRACT_SECTIONS = (
         "translate.problem.Initial",
         ("pulses.py", "noise.py"),
         "P",
-        "set_initial once; the noise advances as N0 · exp(i Im Φ)",
+        "loaded once at the start; the noise advances as N0 · exp(i Im Φ)",
     ),
     Section(
         7,
         "stepper settings and schedule",
         ("split_crossing",),
-        "translate.problem.StepperSettings",
-        ("stepper/", "tableau · controller · schedule"),
-        "D",
+        "stepper.settings.StepperSettings",
+        ("stepper/", "tableau · controller · schedule · settings"),
+        "S",
         "the controller's decision, and the planes and kinks to land on",
         ("stepper",),
     ),
@@ -1075,7 +1124,7 @@ CONTRACT_SECTIONS = (
         (),
         "solprop.stats.StatsSpec",
         ("stats.py", "the catalogue and the energy windows"),
-        "D",
+        "S",
         "one fused pass per save plane, deterministic reductions",
         ("observation.stats",),
     ),
@@ -1156,6 +1205,7 @@ RESPONSE_COLUMN = (
         (
             "plasma_scan",
             "plasma_channel_fractions",
+            "envelope_populations",
             "plasma_integration_diagnostics",
             "plasma_integration_statistics",
         ),
@@ -1163,7 +1213,13 @@ RESPONSE_COLUMN = (
     (
         "plasma_current",
         "weighted currents; physical P retained for direct response evaluation",
-        ("plasma_current", "plasma_channels_polarisation"),
+        (
+            "plasma_total_current",
+            "plasma_channels_current",
+            "envelope_sources",
+            "plasma_current",
+            "plasma_channels_polarisation",
+        ),
     ),
     (
         "kerr",
@@ -1212,38 +1268,32 @@ TABLEAU = (
 
 SEAM_METHODS = (
     ("prepare", "bind a problem and its run request; each start opens a session"),
-    ("prepare_group", "bind compatible members; the start opens their group"),
     ("edge_memory", "what reading a grid's edge will hold, for an estimate"),
-    ("march_export_refusal", "why the march cannot carry its history, or None"),
     ("timing_probe", "single trials from a start, committing nothing, for timing"),
     ("metadata", "what the execution was: pools, plans, digests, propagator mode"),
     ("memory_ledger", "every named buffer and its size"),
-    ("available_device_memory", "free device bytes for batch admission; None on hosts"),
+    ("available_device_memory", "free device bytes for scan admission; None on hosts"),
     ("close", "idempotent"),
 )
-"""The methods of `backends.protocol.Backend`; the reference's stepping seam is
-`HostStepping`'s, which its session drives."""
+"""The methods of `backends.protocol.Backend`: a run is its session's, on every
+backend."""
 
 DRIVER_PARTS = (
-    ("the march and the landing", ("_march_to",)),
-    ("the replay", ("_replay_to", "_schedule_index_at")),
-    ("the history", ("_record", "observe")),
-    ("the progress reporter", ("set_progress",)),
-    ("the statistics channel", ("_take_step_stats", "stats")),
-    ("the noise", ("_noise_field", "_noise_at", "_noise_phase")),
-    (
-        "the per-stage bundle",
-        ("_hoist", "_stage_scalars", "_delta_phi", "_unitary_phase"),
-    ),
-    (
-        "what a backend supplies",
-        ("_trial_step", "_apply_mask", "_finish", "_begin_plane", "_on_accepted_step"),
-    ),
+    ("the planes and the halts", ("advance", "natural_stop", "request_snapshot")),
+    ("the load and the cursor", ("_load", "_restore_march")),
+    ("the history", ("record", "_observe")),
+    ("the dense observation", ("_after_march", "_here")),
+    ("the statistics channel", ("_account_step", "_observation")),
+    ("the boundary monitor", ("_attach", "absorb", "_energies", "_warning")),
+    ("the caps a march asks for", ("cap", "collar_quiet")),
+    ("the march, driven", ("_propagate", "stepped")),
+    ("the quadrature alarm", ("record", "_propagate")),
 )
-"""What `backends/host/driver.py` owns, and the `HostDriver` members of each part."""
+"""What `backends/numpy_ref/session.py` owns, and the `HostSession` members of each
+part."""
 
 CONTROLLER_PARTS = ("propose", "accepts", "rejection_factor", "equivalent_norm")
-"""The methods of `stepper.controller.PIController` the driver calls."""
+"""The methods of `stepper.controller.PIController` the marches call."""
 
 SCHEDULE_PARTS = ("landing", "discover", "calibrate", "replay")
 """The functions of `stepper.schedule` behind the landing and the fixed schedules."""
@@ -1258,7 +1308,7 @@ NUMPY_REF = (
 
 
 class Dataset(NamedTuple):
-    """One dataset or group of a saved run (`output/hdf5.py`, `output/schema.py`)."""
+    """One dataset or group of a saved run (`output/hdf5.py`, `output/records.py`)."""
 
     name: str
     """Its key in the file."""
@@ -1295,12 +1345,12 @@ OUTPUT_GROUPS = (
     Dataset(
         "step_history/",
         "one dataset per column, plus counts",
-        ("z, h, norm, accepted, wall_time  (schema.HISTORY_FIELDS)",),
+        ("z, h, norm, accepted, wall_time  (records.HISTORY_FIELDS)",),
     ),
     Dataset(
         "step_stats/",
         "the periodic subset between planes, plus counts",
-        ("z, step  (schema.STEP_STATS_INDEX), then one dataset per statistic",),
+        ("z, step  (records.STEP_STATS_INDEX), then one dataset per statistic",),
     ),
     Dataset(
         "meta/json",
@@ -1471,7 +1521,7 @@ def _rows(chips: Sequence[Chip], width: float) -> tuple[tuple[Chip, ...], ...]:
 HEADER_WIDTH = 262.0
 """Width of a band's header: the letter, the layer's name and what it may import."""
 
-GUTTER_WIDTH = 126.0
+GUTTER_WIDTH = 190.0
 """Width of the right-hand lane the import arrows run in."""
 
 BAND_PAD = 13.0
@@ -1664,7 +1714,8 @@ def layers() -> drawsvg.Drawing:
 
 
 ADJACENT_EDGES = (
-    ("T", "P", "physics objects"),
+    ("S", "P", "the grids, modes and profiles a statistic reads"),
+    ("T", "S", "the run request: stepper settings, statistics, field retention"),
     ("B", "T", "delta_phi, prefactor_at, the stage bundle"),
     ("D", "B", "backends.select, then the seam"),
     ("X", "D", "a saved run, through the Output protocol"),
@@ -1672,6 +1723,13 @@ ADJACENT_EDGES = (
 """Import edges between neighbouring bands, drawn in the gap between them."""
 
 DISTANT_EDGES = (
+    ("T", "P", "physics objects become the kernel problem"),
+    (
+        "B",
+        "S",
+        "the request's settings, the statistics catalogue and the record types a "
+        "session writes",
+    ),
     ("D", "T", "Simulation calls translate.assemble"),
     ("D", "P", "the driver builds the grid, the modes, the pulse and the responses"),
     (
@@ -2339,7 +2397,7 @@ def one_stage() -> drawsvg.Drawing:
     ]
     subtitle = (
         "architecture.md §8: each numbered line is one pass over its data, and each "
-        "is a named function in backends/numpy_ref/passes.py. stepper.md §2 is the "
+        "is a named function in backends/numpy_ref/passes/. stepper.md §2 is the "
         "step the seven passes sit inside."
     )
     tops: list[float] = []
@@ -2530,8 +2588,8 @@ def _step_panel(
             _text(drawing, line, x + PAD + 8, cursor, size=SMALL_SIZE, klass="dim")
 
 
-BACKEND_OVERRIDES = ("_trial_step", "_apply_mask", "_finish", "_observed_field")
-"""What a reference backend supplies to `HostDriver`, and nothing else of the loop."""
+BACKEND_OVERRIDES = ("NumpyWorkspace", "engines", "marches", "dense output")
+"""What the reference backend supplies to `HostSession`; nothing else of the loop."""
 
 DEVICE_SLOT = (
     "solprop-native distribution, native/",
@@ -2543,7 +2601,7 @@ DEVICE_SLOT = (
 
 
 def backends() -> drawsvg.Drawing:
-    """Draw figure 5: the seam, the shared driver, and the backends behind it.
+    """Draw figure 5: the seam, the reference's session, and the backends behind it.
 
     Returns
     -------
@@ -2591,7 +2649,7 @@ def backends() -> drawsvg.Drawing:
     )
     footer = (
         "Three things every backend owes beyond the methods: deterministic "
-        "reductions, the device form of the stage, and the driver's bookkeeping. The "
+        "reductions, the device form of the stage, and the session's bookkeeping. The "
         "error norm is control flow, so a sum whose association depends on the thread "
         "count forks the trajectory."
     )
@@ -2610,9 +2668,7 @@ def backends() -> drawsvg.Drawing:
     )
 
     drawing = _canvas(height)
-    _header(
-        drawing, "One seam, a shared driver, and the backends behind them", subtitle
-    )
+    _header(drawing, "One seam, a session, and the backends behind them", subtitle)
 
     y = top
     _table(
@@ -2635,7 +2691,7 @@ def backends() -> drawsvg.Drawing:
     _table(
         drawing,
         Slot(MARGIN, y, left_width),
-        "HostDriver (the reference's step loop)",
+        "HostSession (the reference's schedule)",
         driver_rows,
         168,
         Paint("fill-d", "ink-d"),
@@ -2704,7 +2760,7 @@ def output_side() -> drawsvg.Drawing:
     right_x = MARGIN + FILE_WIDTH + FILE_GAP
     right_width = WIDTH - MARGIN - right_x
     subtitle = (
-        "architecture.md §10 and output/schema.py. One save protocol and one metadata "
+        "architecture.md §10 and output/store.py. One save protocol and one metadata "
         "schema behind MemoryOutput and HDF5Output; the datasets below are the ones "
         "HDF5Output creates, in the order it creates them."
     )

@@ -104,7 +104,7 @@ so the approximation is recorded with the result.
                 wavelength=1030e-9,
                 fwhm=400e-15,
                 energy=5e-6,
-                loss=False,
+                loss_scale=0.0,
                 plasma=True,
                 raman=False,
                 trange=4e-12,
@@ -288,7 +288,7 @@ propagation tolerance; see :doc:`/guide/setup/grids`.
 
  .. code-block:: none
 
-    215 s for 8 shots; backend native
+    396 s for 8 shots; backend native
 
 
 
@@ -296,7 +296,7 @@ propagation tolerance; see :doc:`/guide/setup/grids`.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (3 minutes 34.780 seconds)
+   **Total running time of the script:** (6 minutes 35.717 seconds)
 
 
 .. _sphx_glr_download_auto_examples_supercontinuum_plot_03_modulational_instability_supercontinuum.py:

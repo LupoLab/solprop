@@ -5,9 +5,9 @@
 """The native backend's host vector maths against a 50-digit reference (ADR-059).
 
 The CPU kernels form their transcendentals in passes over blocks through one layer
-(``native/include/solprop_native/vmath.hpp``): SLEEF's u10 functions on x86-64 builds,
-the system libm on Arm. Either way each of ``exp``, ``log``, ``sin`` and ``cos`` is
-within 1.0 ulp of the correctly rounded value (SLEEF documents 1.0 ulp over each
+(``native/include/solprop_native/runtime/vmath.hpp``): SLEEF's u10 functions on x86-64
+builds, the system libm on Arm. Either way each of ``exp``, ``log``, ``sin`` and ``cos``
+is within 1.0 ulp of the correctly rounded value (SLEEF documents 1.0 ulp over each
 function's whole domain; glibc's and Apple's are within it), measured here against
 mpmath at 50 significant digits over the argument ranges the kernels form:
 
@@ -29,7 +29,7 @@ import numpy as np
 import pytest
 
 native = pytest.importorskip("solprop_native")
-core = native._core  # pyright: ignore[reportPrivateUsage] - the layer's test bindings
+core = native._core._testing  # pyright: ignore[reportPrivateUsage] - the layer's test bindings
 
 EPS = np.finfo(np.float64).eps
 TINY = np.finfo(np.float64).smallest_subnormal

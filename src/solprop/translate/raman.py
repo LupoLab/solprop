@@ -2,42 +2,27 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Sampling the Raman response kernel onto the doubled grid a backend convolves on.
+"""Sampling the Raman response kernel onto the doubled grid a backend convolves on.
 
 The physics layer (:mod:`solprop.nonlinear.raman`) says what the response *is*; this
-module turns it into the arrays a kernel consumes. Three things happen here.
+module turns it into the arrays a kernel consumes, so the contract carries paths and
+arrays and no physics object:
 
-**The grid is doubled.** The convolution is evaluated as a product of transforms, and a
-transform product is a *circular* convolution: without padding, the tail of the response
-wraps back onto the head of the drive. A rotational coherence in hydrogen lives for
-nanoseconds against a window of tens of picoseconds, so that wrapped tail is not a small
-error. Writing the response and the drive into the first half of an array of twice the
-length makes the product the linear convolution exactly. It costs one transform of
-``2 n_to`` in place of one of ``n_to``.
+- :func:`undamped_kernels` samples each independently damped term's undamped response
+  once per grid, causal, tapered by the grid's own temporal collar
+  (:func:`kernel_taper`) and zero-padded to twice the window, so the transform product
+  is the linear convolution exactly; :func:`sample_kernel` samples one damped kernel.
+- :func:`decay_rate_profiles` composes each term's decay rate along z from its
+  dephasing and the density path, capped by :data:`MAX_DECAY_EXPONENT`.
+- :func:`kernel_spectrum` transforms a sampled kernel with the convolution's ``dt``
+  folded in (an internal-convention array: never pass it to ``to_optics``);
+  :class:`RamanKernels` (:func:`build_raman_kernels`) holds the undamped rows and
+  memoises the damped spectrum whenever a rate changes.
 
-**The tail is tapered, by the grid's own collar.** Whatever the window, a coherence that
-outlives it has to be cut somewhere, and cutting it with a step puts a sinc ringing
-across the whole kernel spectrum. The taper's falling edge has the width of the grid's
-temporal collar, so the response is cut with the same profile, and over the same
-fraction of the window, as everything else the grid absorbs. A coherence that
-outlives the window is noted in the debug log. Padding prevents wraparound, but a
-pump-probe delay entering the taper collar samples an attenuated response even when
-both pulses lie inside the window. Extend the window until every relevant delay
-precedes the collar, and check window convergence separately from sample spacing.
-
-**The dephasing is applied per density.** This is the design decision the kernel
-contract needs, and it is set out in ``docs/guide/media/raman-numerics.md``: a single
-``raman_kernel``
-array cannot be right, because the dephasing depends on the density, which varies
-along a pressure gradient, and a molecular gas has *two* dephasing times -- its
-rotational and vibrational coherences decay 3.5 times (H2) to 17 times (N2) apart at one
-bar. So the expensive part, the undamped model responses, is sampled once per grid as
-an ``(n_terms, 2 n_to)`` array (the contract's ``raman_kernel_undamped``), the cheap
-part is one exponential per term at a decay rate that is a scalar path along ``z``
-(``raman_decay_rates``, from :func:`decay_rate_profiles`, so that the contract carries
-paths and arrays and no physics object), and the damped kernel spectrum is recomputed
-and memoised whenever the rate changes: one real transform of length ``2 n_to`` per
-change, against ``n_modes n_pol`` transforms of length ``n_to`` per stage.
+A pump-probe delay entering the taper collar samples an attenuated response even
+inside the window. The design, the doubled grid, the taper's bias and the per-density
+dephasing are ``docs/guide/media/raman-numerics.md``; the leaf is
+``docs/dev/kernel-contract.md`` section 5.
 """
 
 import logging

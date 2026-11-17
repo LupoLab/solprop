@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 from bounds import departure
+from builders import grid_at, held_collar
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_matched, simulation_bound
 from selected_backend import selected_backend
@@ -24,7 +25,8 @@ from solprop import fourier
 from solprop.backends.registry import select
 from solprop.constants import C
 from solprop.driver import Simulation, prop_gnlse
-from solprop.driver.simulation import _dispersion_table, _gnlse_mode, _shot_noise
+from solprop.driver.inputs import _shot_noise
+from solprop.driver.routes.gnlse import _dispersion_table, _gnlse_mode
 from solprop.exceptions import DriverError, ModeError
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import IndexTable, MarcatiliMode
@@ -36,7 +38,7 @@ from solprop.nonlinear.gnlse import (
     attenuation_from_db,
 )
 from solprop.output import HDF5Output, MemoryOutput
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.physdata import Mixture
 from solprop.profiles import Linear
 from solprop.stepper import FixedSchedule
@@ -156,7 +158,7 @@ def interface_and_backend(simulation):
     taken at the launch as the budget's propagation growth.
     """
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     handler = simulation.run()
     backend = select(
         simulation.settings.backend,
@@ -244,7 +246,10 @@ def test_the_sixth_order_soliton_runs_the_same_through_the_interface(
         stop,
         [0.0, 0.0, soliton.beta2],
         wavelength=soliton.wavelength,
-        grid=wide_grid,
+        # The run ends at its grid's length (SEP 51): the grid is the tenth it runs,
+        # with the collar the metre-long grid gave, so the problem is unchanged.
+        grid=grid_at(wide_grid, stop),
+        absorber=held_collar(grid_at(wide_grid, stop), wide_grid.length),
         width=soliton.tau0,
         peak_power=soliton.peak_power(6),
         shape="sech",
@@ -513,14 +518,21 @@ def test_a_field_grid_is_refused_by_name(soliton):
         cheap(grid=grid, wavelength_limits=None, trange=None)
 
 
-def test_a_gaussian_asked_for_by_its_natural_width_is_refused():
-    with pytest.raises(DriverError, match="intensity fwhm"):
-        cheap(shape="gauss", width=100e-15)
-
-
-def test_an_unknown_pulse_shape_is_refused():
-    with pytest.raises(DriverError, match="'gauss' or 'sech'"):
-        cheap(shape="lorentz", width=None, fwhm=100e-15)
+@pytest.mark.parametrize(
+    ("keywords", "message"),
+    [
+        ({"shape": "gauss", "width": 100e-15}, "intensity fwhm"),
+        ({"shape": "lorentz", "width": None, "fwhm": 100e-15}, "'gauss' or 'sech'"),
+        ({"betas": None}, "exactly one of betas"),
+        ({"beta": (np.zeros(4), np.zeros(4))}, "exactly one of betas"),
+        ({"wavelength_limits": None}, "wavelength_limits and trange"),
+        ({"n_save": 4, "save_planes": [SHORT]}, "not both"),
+        ({"n_save": 1}, "at least 2"),
+    ],
+)
+def test_the_gnlse_refuses_a_bad_request(keywords, message):
+    with pytest.raises(DriverError, match=message):
+        cheap(**keywords)
 
 
 def test_an_unknown_noise_model_is_refused(narrow_grid):
@@ -531,35 +543,10 @@ def test_an_unknown_noise_model_is_refused(narrow_grid):
         _shot_noise("thermal", narrow_grid, 3)
 
 
-@pytest.mark.parametrize(
-    "keywords",
-    [{"betas": None}, {"beta": (np.zeros(4), np.zeros(4))}],
-    ids=["neither", "both"],
-)
-def test_exactly_one_dispersion_must_be_given(keywords):
-    with pytest.raises(DriverError, match="exactly one of betas"):
-        cheap(**keywords)
-
-
 def test_a_dispersion_that_is_neither_a_table_nor_a_callable_is_refused(narrow_grid):
     # Through the helper directly, for the reason above.
     with pytest.raises(DriverError, match="pair of arrays or a callable"):
         _dispersion_table("beta", narrow_grid)
-
-
-def test_a_grid_cannot_be_left_unspecified():
-    with pytest.raises(DriverError, match="wavelength_limits and trange"):
-        cheap(wavelength_limits=None)
-
-
-def test_both_ways_of_asking_for_planes_at_once_are_refused():
-    with pytest.raises(DriverError, match="not both"):
-        cheap(n_save=4, save_planes=[SHORT])
-
-
-def test_a_run_must_store_more_than_the_entrance():
-    with pytest.raises(DriverError, match="at least 2"):
-        cheap(n_save=1)
 
 
 # ------------------------------------------------------------- the periodic progress
@@ -624,7 +611,7 @@ def solid_core_table(*, with_area=True):
     area = 1e-10
     coefficients = [1.45 * omega0 / C, 1.45 / C, -11.83e-27]
     mode = SpecifiedMode.from_taylor(
-        coefficients, omega0, loss=attenuation_from_db(0.2), aeff=area
+        coefficients, omega0, alpha=attenuation_from_db(0.2), aeff=area
     )
     omega = np.linspace(0.3e15, 4.5e15, 200)
     table = IndexTable(
@@ -675,7 +662,7 @@ def test_index_table_fibre_matches_taylor_mapping():
         - mode.dispersion_derivative(np.array([omega0]))[0]
     ) * (omega - omega0)
     operator_error = np.max(abs(phase)) + 0.5 * np.max(
-        abs(table.alpha(omega) - mode.alpha(omega))
+        abs(table.alpha(omega) - mode.attenuation(omega))
     )
     bound = (
         length * operator_error * np.exp(3 * 0.11 * 9.8 * length)

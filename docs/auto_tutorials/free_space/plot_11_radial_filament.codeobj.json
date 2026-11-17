@@ -262,7 +262,7 @@
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "solprop.driver.simulation",
+   "module": "solprop.driver.settings",
    "module_short": "solprop.driver",
    "name": "SimulationSettings"
   },
@@ -727,7 +727,7 @@
    "name": "subplots"
   }
  ],
- "prop_radial": [
+ "prop_free": [
   {
    "is_class": false,
    "is_explicit": false,
@@ -740,7 +740,7 @@
    "is_explicit": false,
    "module": "solprop.driver",
    "module_short": "solprop.driver",
-   "name": "prop_radial"
+   "name": "prop_free"
   }
  ],
  "pulse_peak_power": [
@@ -811,7 +811,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.driver.simulation",
+   "module": "solprop.driver.settings",
    "module_short": "solprop.driver",
    "name": "SimulationSettings"
   },
@@ -830,13 +830,13 @@
    "name": "SimulationSettings"
   }
  ],
- "solprop.driver.interface.prop_radial": [
+ "solprop.driver.interface.prop_free": [
   {
    "is_class": false,
    "is_explicit": true,
    "module": "solprop.driver.interface",
    "module_short": "solprop.driver",
-   "name": "prop_radial"
+   "name": "prop_free"
   }
  ],
  "space": [

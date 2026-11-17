@@ -2,68 +2,73 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""One convolution with independent Raman amplitudes and decay rates."""
+"""One convolution with independent Raman amplitudes and decay rates.
+
+The propagated field on native against the reference is the catalogue's row
+``mixture raman components`` (``backends/mixture_rows.py``); one cached kernel per run
+is held here.
+"""
 
 import dataclasses
+from typing import Any
 
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from mixture_cases import mixture_translation
+from mixture_cases import raman_mixture
 from sessions.runs import run as session_run
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.responses import (
+    mixture_raman_spectrum,
+    raman_polarisation,
+    raman_spectrum,
+)
 from solprop.exceptions import BackendError
-from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
 from solprop.stepper import FixedSchedule
-from solprop.translate.problem import Flags
-from solprop.translate.responses import compile_responses
 from solprop.translate.stage import scalars
 
 
+def _owner(backend) -> Any:
+    """Return what holds a backend's Raman kernel: the reference's stage source."""
+    workspace = getattr(backend, "workspace", None)
+    return backend if workspace is None else workspace.stage_source
+
+
 def raman_refreshes(backend):
-    """Read the selected backend's owned Raman kernel refresh counter."""
-    return backend._raman_transforms
+    """Read a backend's Raman kernel transforms: the reference workspace's own, or
+    the native workspace's (``raman_kernel_transforms``)."""
+    if backend.name == "native":
+        return backend._diagnostics()["raman_kernel_transforms"]
+    return _owner(backend)._raman_transforms
 
 
-def prepare_raman(backend, rates, densities):
-    """Exercise the actual cached Raman owner without a propagation."""
-    backend._raman_spectrum(rates, densities)
+def prepare_raman(backend, rates, densities=()):
+    """Prepare a backend's Raman kernel at `rates` and `densities`, without a step.
+
+    The reference workspace's memo returns its kernel; the native workspace prepares
+    its own (``_testing.prepare_raman``) and returns nothing, and a problem without a
+    Raman term has no kernel to prepare on either.
+    """
+    if backend.name != "native":
+        return _owner(backend)._raman_spectrum(
+            rates, *((densities,) if densities else ())
+        )
+    if not backend._problem.responses.raman_terms:
+        return None
+    _testing = pytest.importorskip("solprop_native._core")._testing
+
+    _testing.prepare_raman(
+        backend._workspace,
+        np.ascontiguousarray(rates, dtype=np.float64),
+        np.ascontiguousarray(densities, dtype=np.float64),
+    )
+    return None
 
 
 @pytest.fixture
 def case():
-    mixture, grid, mode, responses, (problem, run_request) = mixture_translation()
-    extra = tuple(
-        RamanResponse(
-            models=(
-                DampedOscillator((i + 1) * 1e-37, (i + 1) * 2e14, undamped_dephasing()),
-            ),
-            thg=False,
-            species=label,
-        )
-        for i, label in enumerate(mixture.labels)
-    )
-    compiled = compile_responses(
-        (*responses, *extra),
-        grid,
-        mode,
-        density=mode.density,
-        z_max=grid.length,
-        mixture=mixture,
-    )
-    problem = dataclasses.replace(problem, responses=compiled)
-    problem = dataclasses.replace(
-        problem,
-        flags=Flags.from_content(
-            shape=problem.shape,
-            linear=problem.linear,
-            transform=problem.transform,
-            responses=compiled,
-            initial=problem.initial,
-        ),
-    )
-    return grid, problem, run_request
+    return raman_mixture()
 
 
 def test_one_raman_convolution_matches_the_sum_of_component_convolutions(case):
@@ -83,25 +88,21 @@ def test_one_raman_convolution_matches_the_sum_of_component_convolutions(case):
     for term, density in zip(
         problem.responses.raman_terms, bundle.raman_densities, strict=True
     ):
-        kernel = passes.raman_spectrum(
+        kernel = raman_spectrum(
             term.undamped, (0.0,), term.fraction, problem.grids.dt_fine
         )
         separate.append(
-            passes.raman_polarisation(
-                field, kernel, kind="field", thg=False, density=density
-            )
+            raman_polarisation(field, kernel, kind="field", thg=False, density=density)
         )
     bound = rounding * sum(float(np.max(np.abs(value))) for value in separate)
     assert bound > 0
-    kernel = passes.mixture_raman_spectrum(
+    kernel = mixture_raman_spectrum(
         problem.responses.raman_terms,
         bundle.raman_rates,
         bundle.raman_densities,
         problem.grids.dt_fine,
     )
-    actual = passes.raman_polarisation(
-        field, kernel, kind="field", thg=False, density=1.0
-    )
+    actual = raman_polarisation(field, kernel, kind="field", thg=False, density=1.0)
     assert_allclose(actual, sum(separate), rtol=0, atol=bound)
 
 
@@ -109,37 +110,40 @@ def test_raman_cache_tracks_every_amplitude_and_decay_rate(case):
     grid, problem, run_request = case
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     bundle = scalars(problem, 0.0, 0.0)
-    first = backend._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
-    assert backend._raman_spectrum(bundle.raman_rates, bundle.raman_densities) is first
+    first = _owner(backend)._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
+    assert (
+        _owner(backend)._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
+        is first
+    )
     densities = list(bundle.raman_densities)
     for index in range(len(densities)):
         densities[index] *= 1.1
-        fresh = backend._raman_spectrum(bundle.raman_rates, tuple(densities))
+        fresh = _owner(backend)._raman_spectrum(bundle.raman_rates, tuple(densities))
         assert fresh is not first
         first = fresh
     rates = list(bundle.raman_rates)
     for index in range(len(rates)):
         rates[index] += 1e12
-        fresh = backend._raman_spectrum(tuple(rates), tuple(densities))
+        fresh = _owner(backend)._raman_spectrum(tuple(rates), tuple(densities))
         assert fresh is not first
         first = fresh
-    assert backend._raman_transforms == 5
+    assert _owner(backend)._raman_transforms == 5
     backend.close()
-    assert backend._raman_densities is None
+    assert _owner(backend)._raman_densities is None
 
 
 def test_raman_component_extents_are_checked(case):
     _, problem, _ = case
     bundle = scalars(problem, 0.0, 0.0)
     with pytest.raises(BackendError, match="Raman"):
-        passes.mixture_raman_spectrum(
+        mixture_raman_spectrum(
             problem.responses.raman_terms,
             (),
             bundle.raman_densities,
             problem.grids.dt_fine,
         )
     with pytest.raises(BackendError, match="Raman"):
-        passes.mixture_raman_spectrum(
+        mixture_raman_spectrum(
             problem.responses.raman_terms, bundle.raman_rates, (), problem.grids.dt_fine
         )
 
@@ -147,7 +151,7 @@ def test_raman_component_extents_are_checked(case):
 def test_multiple_raman_components_propagate_with_one_cached_kernel(
     case, equivalence_backend_class
 ):
-
+    """Sixteen fixed steps on each backend refresh the shared kernel once."""
     grid, problem, original_request = case
     steps = 16
     run_request = original_request.with_stepper(
@@ -156,12 +160,6 @@ def test_multiple_raman_components_propagate_with_one_cached_kernel(
             schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / steps),
         )
     )
-    # Each step has seven evaluations; two component kernels each carry one
-    # convolution and two plasma exposures. The same 64-eps/sample budget used
-    # by the channel ladder is summed over all four response components.
-    bound = 64 * grid.n_to * 4 * 7 * steps * np.finfo(float).eps
-    assert bound > 0.0
-    outputs = []
     for backend_type in (NumpyRefBackend, equivalence_backend_class):
         backend = backend_type(problem, run_request, grid=grid)
         try:
@@ -171,9 +169,6 @@ def test_multiple_raman_components_propagate_with_one_cached_kernel(
             assert raman_refreshes(backend) == 1
         finally:
             backend.close()
-        outputs.append(ran.final.field)
-    relative = np.linalg.norm(outputs[1] - outputs[0]) / np.linalg.norm(outputs[0])
-    assert relative < bound
 
 
 def test_compiled_raman_cache_keys_include_every_component(

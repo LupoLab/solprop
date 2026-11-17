@@ -65,7 +65,7 @@ def radial_run():
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 2.5e-5
     )
     medium = SpatialMedium("Ar", 1.0)
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid, RadialGrid(3e-4, 64), medium, [], pulse, settings=settings, noise=None
     )
     return simulation, simulation.run(progress="none")

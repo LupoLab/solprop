@@ -35,8 +35,8 @@ from solprop.nonlinear import EnvelopePlasmaResponse
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
-from solprop.translate.problem import assemble
 
 
 @dataclass(frozen=True)
@@ -85,7 +85,7 @@ def geometry_case(envelope_mixture, geometry, n_pol):
         mode = None
         kwargs = {"spatial_grid": space, "medium": medium}
     else:
-        mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
+        mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss_scale=0.0)
         initial = pulse.build(grid) * np.asarray(jones)[None, :, None]
     problem, run_request = assemble(
         grid,

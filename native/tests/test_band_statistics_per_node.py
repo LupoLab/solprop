@@ -122,7 +122,7 @@ def problem_for(
             simulation.settings, quadrature=None, components=None
         )
         problem = simulation.translate()
-    run_request = simulation._run_request()  # pyright: ignore[reportPrivateUsage]
+    run_request = simulation.run_request()
     spectrum = np.fft.rfft(launch(amplitude))[np.asarray(GRID.crop_index)]
     field = spectrum.reshape(problem.shape)
     unit = fields_of(problem, run_request, field)
@@ -142,12 +142,12 @@ def fields_of(
     """Return the reference's node fields for the state `field`."""
     reference = NumpyRefBackend(problem, run_request, grid=GRID)
     try:
-        reference.set_initial(field, None)
-        state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
+        reference.workspace.load(
+            np.ascontiguousarray(field, dtype=complex), None, z=0.0, resume=False
+        )
+        state = reference.workspace.committed()  # pyright: ignore[reportPrivateUsage]
         return np.real(
-            np.concatenate(
-                list(reference._plasma_nodes(state[0]))  # pyright: ignore[reportPrivateUsage]
-            )
+            np.concatenate(list(reference.workspace.statistics.node_fields(state, 0.0)))
         )
     finally:
         reference.close()
@@ -169,13 +169,16 @@ def node_fields_and_error(
     """Return the reference's launch node fields and their error between syntheses."""
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
-        reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
+        state = reference.workspace.committed()  # pyright: ignore[reportPrivateUsage]
+        reference.workspace.hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
         fields = np.real(
-            np.concatenate(
-                list(reference._plasma_nodes(state[0]))  # pyright: ignore[reportPrivateUsage]
-            )
+            np.concatenate(list(reference.workspace.statistics.node_fields(state, 0.0)))
         )
         return fields, node_field_error(reference, problem, fields)
     finally:

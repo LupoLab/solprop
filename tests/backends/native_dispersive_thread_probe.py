@@ -4,11 +4,11 @@
 
 """Save the field of ten dispersive steps per case on ``native``, at this thread count.
 
-Run by the thread-count tests of ``test_native_dispersive_kerr.py`` and
-``test_native_dispersive_routes.py`` in a subprocess, because the Kokkos runtime reads
-its thread count once per process (``backends/matched.py``). The first argument is the
-``.npz`` file to write; each further argument is an evaluator (the mode-averaged route)
-or ``route:evaluator`` with the route ``free``, ``planar`` or ``general``. Every case
+Run by the thread-count test of ``test_native_dispersive_kerr.py`` in a subprocess,
+because the Kokkos runtime reads its thread count once per process
+(``backends/matched.py``). The first argument is the ``.npz`` file to write; each
+further argument is an evaluator (the mode-averaged route) or ``route:evaluator`` with
+the route ``free``, ``planar`` or ``general``. Every case
 runs at a fixed order on its fixed schedule, so two thread counts take the same
 discrete method.
 """
@@ -52,7 +52,7 @@ if __name__ == "__main__":
     fields = {}
     for index, case in enumerate(sys.argv[2:]):
         if ":" in case:
-            from backends.test_native_dispersive_routes import (
+            from backends.dispersive_route_cases import (
                 route_case,
             )
 

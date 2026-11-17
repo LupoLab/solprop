@@ -4,11 +4,11 @@
 
 """SEP 16 phase 3b: the Adams history resident in Kokkos's engine (ADR-043).
 
-Kokkos builds its own engine (``NativeBackend._resident``) for either formulation on
-the modal routes when a native session starts its Adams march: the history's rows, the
-trial arithmetic, the norms, adoption, transport and dense observation stay in the
-native state. These tests pin
-that every case takes the resident engine, since SEP 47's phase 5 the only one native
+Kokkos builds its own engine (the workspace's method ``"adams"``) for either
+formulation on the modal routes when a native session starts its Adams march: the
+history's rows, the trial arithmetic, the norms, adoption, transport and dense
+observation stay in the native state. These tests pin that every case takes the
+resident engine, since SEP 47's phase 5 the only one native
 has (the host-engine comparisons went with the inherited driver's fallbacks), and hold
 its device-formed divisor to the reference's. The parity of
 either against the reference backend is the shared suites'
@@ -48,7 +48,7 @@ PLANES = list(np.linspace(SOLITON_PERIOD / 16, SOLITON_PERIOD / 2, 8))
 
 
 def engine_of(route: str, integrator: Multistep) -> str:
-    """Return the name of the engine Kokkos's march takes on a route."""
+    """Return the method of the engine Kokkos's march takes on a route."""
     simulation = ROUTES[route](None)
     simulation.settings = type(simulation.settings)(
         **{
@@ -60,7 +60,7 @@ def engine_of(route: str, integrator: Multistep) -> str:
         }
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NativeBackend(
         problem,
         run_request,
@@ -74,7 +74,7 @@ def engine_of(route: str, integrator: Multistep) -> str:
             backend, problem, run_request, entrance(problem), owns=False
         )
         try:
-            return type(backend._resident).__name__
+            return backend._diagnostics()["method"]
         finally:
             session.close()
     finally:
@@ -96,14 +96,14 @@ def engine_of(route: str, integrator: Multistep) -> str:
 )
 def test_both_formulations_are_resident_on_every_constant_route(route):
     # Every route here has a constant or separable operator.
-    assert engine_of(route, Multistep(formulation="interaction")) == "_ResidentAdams"
-    assert engine_of(route, Multistep(formulation="exponential")) == "_ResidentAdams"
+    assert engine_of(route, Multistep(formulation="interaction")) == "adams"
+    assert engine_of(route, Multistep(formulation="exponential")) == "adams"
 
 
 def test_a_varying_operator_is_resident_in_both_formulations():
     route = "capillary (pressure gradient)"
-    assert engine_of(route, Multistep(formulation="interaction")) == "_ResidentAdams"
-    assert engine_of(route, Multistep(formulation="exponential")) == "_ResidentAdams"
+    assert engine_of(route, Multistep(formulation="interaction")) == "adams"
+    assert engine_of(route, Multistep(formulation="exponential")) == "adams"
 
 
 def test_a_divisor_formed_on_the_host_takes_the_same_steps():
@@ -118,7 +118,7 @@ def test_a_divisor_formed_on_the_host_takes_the_same_steps():
         save_planes=list(np.linspace(LENGTH / 4, LENGTH, 4)), rtol=1e-7
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     assert type(run_request.stepper.controller) is PIController
 
     def march(implementation):
@@ -133,7 +133,7 @@ def test_a_divisor_formed_on_the_host_takes_the_same_steps():
             record: dict[str, object] = {}
             run = session_run(backend, problem, run_request, record=record)
             if implementation is NativeBackend:
-                assert type(backend._resident).__name__ == "_ResidentAdams"
+                assert backend._diagnostics()["method"] == "adams"
             calls = cast("dict[str, int]", record["response_calls"])
             total = calls["startup"] + calls["predictor"] + calls["corrected"]
             return np.array(run.fields), total, run.attempts

@@ -18,8 +18,8 @@ from solprop.modes import MarcatiliMode, StepIndexMode, transverse_quadrature
 from solprop.nonlinear.responses import KerrResponse
 from solprop.stepper import PIController
 from solprop.translate import stage
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import power_weight_at
-from solprop.translate.problem import assemble
 
 
 def true_watt_slope(problem, run_request, grid):
@@ -30,18 +30,17 @@ def true_watt_slope(problem, run_request, grid):
     )
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        # The backend's private hook keeps the state's leading axis of one.
-        state = np.zeros((1, *problem.shape), complex)
+        state = np.zeros(problem.shape, complex)
         carrier = int(np.argmin(abs(grid.omega - grid.omega0)))
         state[..., carrier] = grid.n_t / (2 if grid.kind == "field" else 1)
         state /= np.sqrt(power_weight_at(problem, 0.0))
-        derivative = backend._nonlinear(
+        derivative = backend.workspace.nonlinear(
             state,
             stage.scalars(problem, 0.0, 0.0),
-            np.ones((1, *problem.shape), complex),
+            np.ones(problem.shape, complex),
         )
-        amplitude = fourier.inverse(state[0, 0, 0], kind=grid.kind)
-        response = fourier.inverse(derivative[0, 0, 0], kind=grid.kind)
+        amplitude = fourier.inverse(state[0, 0], kind=grid.kind)
+        response = fourier.inverse(derivative[0, 0], kind=grid.kind)
         if grid.kind == "field":
             amplitude = fourier.analytic_signal(amplitude)
             response = fourier.analytic_signal(response)
@@ -58,7 +57,7 @@ def true_watt_slope(problem, run_request, grid):
 @pytest.mark.parametrize("pressure", [1.0, 20.0])
 def test_capillary_kerr_coefficient_per_true_watt(grid_class, resolved, pressure):
     grid = grid_class.from_limits(1e-3, 835e-9, (700e-9, 1e-6), 400e-15)
-    mode = MarcatiliMode(125e-6, "Ar", pressure, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, "Ar", pressure, cladding=1.45, loss_scale=0.0)
     chi3 = 2.2e-26  # Synthetic susceptibility; density=1 isolates the normalisation.
     problem, run_request = assemble(
         grid,
@@ -106,7 +105,7 @@ def test_gnlse_kerr_coefficient_per_true_watt(fibre):
         absorber=False,
         **({"noise": None, **({"fibre": mode, "n2": n2} if fibre else {})}),
     )
-    problem, run_request = simulation.translate(), simulation._run_request()
+    problem, run_request = simulation.translate(), simulation.run_request()
     measured, _ = true_watt_slope(problem, run_request, grid)
     bound = 256 * np.finfo(float).eps * (grid.n_omega + problem.transform.n_nodes)
     np.testing.assert_allclose(measured, gamma, rtol=bound, atol=0)

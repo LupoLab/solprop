@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from solprop import fourier, stats
+from solprop._validation import choice
 from solprop.exceptions import ModeError, OutputError, ProcessingError
 from solprop.output import MemoryOutput
 from solprop.processing import axes, fields
@@ -242,8 +243,11 @@ def test_the_spectral_phase_of_a_dispersed_pulse_is_the_expected_parabola(
 
 
 def test_get_field_refuses_an_unknown_representation():
-    with pytest.raises(ProcessingError, match="kind must be one of"):
-        axes._check_choice("power", fields.FIELD_KINDS, "kind")
+    with pytest.raises(
+        ProcessingError,
+        match="kind must be 'analytic', 'real' or 'envelope', got 'power'",
+    ):
+        choice("power", "kind", fields.FIELD_KINDS, ProcessingError)
 
 
 def test_get_field_refuses_an_oversampling_below_one(output):
@@ -320,6 +324,16 @@ def test_a_spectrogram_refuses_what_it_cannot_draw(output, synthetic):
     last = fields.get_spectrogram(output, positions=8)[2]
     nearest = fields.get_spectrogram(output, z=synthetic.length, positions=8)[2]
     assert np.array_equal(last, nearest)
+    with pytest.raises(ProcessingError, match="not both"):
+        fields.get_spectrogram(output, plane=0, z=synthetic.length)
+
+
+@pytest.mark.parametrize(
+    "reader", [fields.get_spectrum, fields.get_power, fields.get_spectral_density]
+)
+def test_a_reader_of_every_plane_refuses_a_plane_named_twice(output, reader):
+    with pytest.raises(ProcessingError, match="not both"):
+        reader(output, plane=-1, z=0.0)
 
 
 def test_a_spectrogram_on_a_narrow_envelope_grid_has_its_carrier(tmp_path):

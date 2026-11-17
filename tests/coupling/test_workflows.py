@@ -29,6 +29,7 @@ import pytest
 from scipy.integrate import quad
 from scipy.special import j0, jn_zeros, k0
 
+from builders import grid_at, held_collar
 from legacy_geometry import LEGACY_GRID
 from solprop import fourier
 from solprop.backends.registry import available
@@ -245,13 +246,17 @@ def test_a_kerr_prepared_radial_beam_into_a_capillary():
         dz_init=gap / 10,
         backend="numpy_ref",
     )
+    # The receiver ends at its grid's length (SEP 51): the gap's grid cut at the
+    # capillary's 2 mm, with the collar the gap's grid gave.
+    receiver_grid = grid_at(grid, 2e-3)
     receiver = Simulation.from_capillary(
         75e-6,
         2e-3,
         "Ar",
         PRESSURE,
         wavelength=800e-9,
-        grid=grid,
+        grid=receiver_grid,
+        absorber=held_collar(receiver_grid, gap),
         modes=4,
         plasma=False,
         thg=False,
@@ -268,7 +273,7 @@ def test_a_kerr_prepared_radial_beam_into_a_capillary():
         ("linear", []),
         ("kerr", [KerrResponse(gamma3("Ar", wavelength=800e-9), thg=False)]),
     ):
-        gas = Simulation.from_radial(
+        gas = Simulation.from_free(
             grid,
             RadialGrid(4e-4, 96),
             ARGON,
@@ -328,7 +333,7 @@ def test_a_field_grid_kerr_plasma_thg_entrance_is_transferred_with_its_harmonic(
         PlasmaResponse("Ar", OptmatRate("Ar", 800e-9)),
     ]
     medium = SpatialMedium("Ar", 1.0)
-    gas = Simulation.from_radial(
+    gas = Simulation.from_free(
         grid,
         RadialGrid(3e-4, 64),
         medium,
@@ -349,13 +354,17 @@ def test_a_field_grid_kerr_plasma_thg_entrance_is_transferred_with_its_harmonic(
         start.spectral_energy(), start.omega, *harmonic
     )
     assert 5e-8 < generated < 1.2e-7
+    # The receiver ends at its grid's length (SEP 51): the gap's grid cut at the
+    # capillary's millimetre, with the collar the gap's grid gave.
+    receiver_grid = grid_at(grid, 1e-3)
     receiver = Simulation.from_capillary(
         75e-6,
         1e-3,
         "Ar",
         1.0,
         wavelength=800e-9,
-        grid=grid,
+        grid=receiver_grid,
+        absorber=held_collar(receiver_grid, gap),
         modes=4,
         plasma=False,
         noise=None,
