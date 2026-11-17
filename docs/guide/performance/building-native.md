@@ -147,8 +147,7 @@ solprop-native` after a native change, with any build options in `CMAKE_ARGS`
 ([below](#passing-cmake-options)); a device build is made the same way. `uv run poe
 check-native` runs the native gate and `uv run poe check-all` both gates. A build stays
 valid across solprop changes until the sources under `native/` change, when `check_build()`
-refuses it and names that command, or until `check_build()` names a member the installed
-solprop lacks. Running solprop's test lanes
+refuses it and names that command. Running solprop's test lanes
 against the build is in the developer notes on
 [testing](../../dev/testing.md#tiers-and-backends), and the native package's own tests in
 `native/README.md`.
@@ -223,9 +222,8 @@ hand through `CXXFLAGS` appear in `compiler_flags`.
 
 `check_build()` raises `solprop.exceptions.BackendError` when an editable checkout's
 sources under `native/` are not the ones the extension was compiled from (it names
-`uv sync`; a wheel skips this); when the installed solprop lacks a driver member or bundle
-field the build relies on (it names them); when the build enables fast-math; when the execution-space record is inconsistent; when a GPU build sees no
-device; when the GEMM provider is unknown or its BLAS is unidentified; when
+`uv sync`; a wheel skips this); when the build enables fast-math; when the execution-space
+record is inconsistent; when a GPU build sees no device; when its BLAS is unidentified; when
 a reference build carries a vendor BLAS or machine-specific code, or a distribution
 build carries native code or no BLAS; and when a GPU build's BLAS is not the device's.
 Then, in solprop:

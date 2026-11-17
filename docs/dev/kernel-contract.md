@@ -153,9 +153,9 @@ took, as history. The tables of this document describe the contract as it stands
 change to it, to the descriptors or to the stage bundles of
 `translate/stage.py` rewrites the frozen tables in `tests/backends/test_driver.py` in the
 same commit and adds a release-note fragment. solprop and solprop-native are released
-together and pinned to one version; `check_build` looks up every member the native adapter
-relies on by name, and in an editable checkout compares the extension with its `native/`
-sources by digest (`BuildInfo.source_digest`). An added optional field leaves every problem
+together and pinned to one version (solprop requires solprop-native at exactly its own);
+`check_build` compares, in an editable checkout only, the extension with its `native/`
+sources by digest (`BuildInfo.source_digest`), and nothing about the solprop beside it. An added optional field leaves every problem
 that does not use it unchanged.
 
 **Device memory.** The protocol carries no device-memory query: a native device build reads

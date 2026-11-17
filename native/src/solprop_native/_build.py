@@ -42,8 +42,9 @@ class BuildInfo:
         with an editable checkout's sources.
     solprop_version_built_against
         The solprop version beside which CMake configured the extension, or
-        ``unknown``. Informational: the contract is the seam members
-        :func:`check_build` looks for, not a version string.
+        ``unknown``. Informational: :func:`check_build` does not compare it, and an
+        installed pair is held to one version by solprop's exact requirement on
+        ``solprop-native``.
     kokkos_version, kokkos_fft_version, kokkos_kernels_version, nanobind_version
         Native dependency versions.
     build_profile
@@ -411,8 +412,6 @@ def check_build() -> None:
         raise BackendError(
             f"the {info.device_backend} build has no visible accelerator device"
         )
-    if info.gemm_provider != "HYBRID":
-        raise BackendError(f"unknown compiled GEMM provider {info.gemm_provider!r}")
     if info.tpl_blas_enabled and info.blas_backend == "none":
         raise BackendError("the build enables a BLAS TPL but identifies no provider")
     if info.build_profile not in {"local", "distribution", "reference"}:

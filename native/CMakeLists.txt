@@ -191,9 +191,10 @@ if(SOLPROP_NATIVE_TREE_DIRTY)
 endif()
 # solprop and solprop-native are released together from one repository at one
 # version, so the solprop version this build belongs to is its own. The record is
-# provenance: check_build() compares an editable checkout's sources by digest and looks
-# the driver members it relies on up by name, which catches mismatched halves (an
-# editable checkout beside a stale extension, a local device build).
+# provenance, which nothing compares: check_build() compares only an editable
+# checkout's sources with the extension by digest (a stale extension beside newer
+# sources), and an installed pair is held to one version by solprop's exact
+# requirement on solprop-native (hatch_build.py).
 if(DEFINED SKBUILD_PROJECT_VERSION_FULL)
   set(SOLPROP_NATIVE_SOLPROP_BUILT_AGAINST "${SKBUILD_PROJECT_VERSION_FULL}")
 else()
