@@ -134,7 +134,7 @@ accuracy"). Where it is implemented:
   same column.
 - **`numba_cpu`.** `make_response_column` fuses the whole nonlinear term into one
   traversal of $t$ per node. It carries the three running sums as scalars, through the
-  shared increment `trapezoid` in {py:mod}`solprop.backends.bodies`, in the same order
+  shared increment `trapezoid` in `solprop.backends.bodies`, in the same order
   as SciPy, so it matches the oracle's multipass scan bit for bit.
 - **Kokkos.** The CPU build follows that traversal. The CUDA path evaluates the rate in
   parallel and then runs each running sum as a deterministic fixed-tree inclusive scan

@@ -44,11 +44,6 @@ os.environ.setdefault("SOLPROP_CALIBRATION", "off")
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
-# Initialise the reference backend through its package entry point before
-# autosummary visits its implementation modules in an arbitrary order. Importing
-# populations first encounters the package's existing circular initialisation.
-importlib.import_module("solprop.backends.numpy_ref")
-
 project = "solprop"
 author = "John C. Travers and contributors"
 copyright = "2026, John C. Travers and contributors"
@@ -145,8 +140,6 @@ intersphinx_timeout = 10
 nitpicky = True
 nitpick_ignore = [
     ("py:class", "logging.Logger"),
-    # Removed with numba_cpu (SEP 43); the Final SEP 18 keeps its reference as history.
-    ("py:mod", "solprop.backends.bodies"),
     # The private base of the two tabulated hollow modes. `show-inheritance`
     # emits it under "Bases:" for both subclasses; documenting it to satisfy the
     # reference would publish an underscore name in the API reference and its
