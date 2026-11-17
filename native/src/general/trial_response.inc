@@ -242,8 +242,8 @@ void GeneralWorkspace::response_impl(const std::size_t stage,
           }
         }
         // Cache contiguous pointwise addresses to avoid repeated View stride loads.
-        // Plasma retains its measured recurrence-loop layout; applying
-        // the same change there regresses HE plasma by 8-9% (kokkos-reopt report).
+        // Plasma keeps its measured recurrence-loop layout: the same change there made
+        // the helium plasma case slower.
         auto* const real_input = input_real.data();
         auto* const complex_input = input_complex.data();
         auto* const real_target = target_real.data();
@@ -278,7 +278,6 @@ void GeneralWorkspace::response_impl(const std::size_t stage,
               first_value * first_value +
               (Components == 2 ? second_value * second_value : Complex{});
           if constexpr (Plasma) {
-            // IntelLLVM's precise model retains an unused hypot outside this branch.
             const double magnitude =
                 Components == 2 ? Kokkos::hypot(first_value.real(), second_value.real())
                                 : Kokkos::abs(first_value.real());
