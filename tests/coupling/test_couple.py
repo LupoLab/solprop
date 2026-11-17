@@ -702,8 +702,8 @@ def test_two_polarisations_of_one_capillary_mode_count_once(port):
 
     The scalar fit keeps x and y apart, so 24 HE1m in two polarisations (48
     channels) are the 24 profiles the envelope was measured over. Counted as
-    channels they lay outside it. The profiles are built directly: a 48-channel
-    simulation spends minutes in its orthonormality gate.
+    channels they lay outside it. The profiles are built directly, without a
+    48-channel simulation and its orthonormality check.
     """
     modes = [MarcatiliMode(RADIUS, "Ar", PRESSURE, m=m) for m in range(1, 25)]
     profiles = ScalarModeBasis.from_modes(
