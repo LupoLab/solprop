@@ -1133,9 +1133,9 @@ def nonlinear_absorber_term(
     ``-alpha(t) E(t) / 2``: the derivative form of the same rate, and the reference
     implementation of the in-stage absorber scheme, the modal routes' default.
     Integrating it exactly over a step gives the ``"split_step"`` scheme's factor
-    ``exp(-alpha(t) h / 2)``; a Runge-Kutta stage integrates it to the order of the method, so the two agree to
-    first order in the step and differ at second, which is what the comparison of the
-    two schemes measures.
+    ``exp(-alpha(t) h / 2)``; a Runge-Kutta stage integrates it to the order of the
+    method, so the two agree to first order in the step and differ at second, which is
+    what the comparison of the two schemes measures.
 
     Parameters
     ----------
