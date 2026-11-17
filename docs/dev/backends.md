@@ -62,10 +62,11 @@ five live in `backends/numpy_ref/`, beside the reference's passes. The native ba
 `march::Engine`, its compiled marches and `session.cpp`, of which `HostSession` is the
 Python counterpart. The reference's session and marches are the Python statement of
 what `session.cpp` and the compiled marches do, and the decision traces hold the two to
-the same decisions, but native imports none of them. What the backends share is
-stateless: the controller cores (`adams_core`, `rk_core`), the engine protocols
-(`engines`), the low-storage method (`backends/low_storage.py`), the exponential
-coefficients and the preparation refusals. Both read the same run records (`solprop.backends.records`), built
+the same decisions, but native imports none of them: they live in `numpy_ref` because
+only the reference runs them. What stays in `solprop.backends` is shared and stateless:
+the controller cores (`adams_core`, `rk_core`), the engine protocols (`engines`) and the
+low-storage method (`backends/low_storage.py`), the interface native's compiled marches
+are traced against, and the exponential coefficients and the preparation refusals. Both read the same run records (`solprop.backends.records`), built
 once per run by shared code; native's cross the seam by field table (§4).
 
 The listing is abbreviated; `solprop/backends/protocol.py` holds the exact signatures and
@@ -340,11 +341,9 @@ store, or a store subclass that overrides `save`, is handed the consumer field
 exports nothing. The room is never recycled: no other plane is given it and nothing writes
 to it once the plane is stored, and an array a consumer retains is never written again.
 
-A device session fills the same host destination: the recipe runs where the state is, into
-the device's scratch, and one copy crosses into `out`; whether the conversion runs before or
-after the crossing is the device's to measure. The CPU-only session prototype refuses device
-builds, so this is phase 4's; the interface needs no change for it, and no device array
-crosses it.
+A device session (SEP 47 phase 4) fills the same host destination: the field crosses into
+`out` once and the recipe converts it there. The interface is the CPU build's, and no device
+array crosses it.
 
 ## 2. `numpy_ref`: the oracle
 
@@ -375,7 +374,7 @@ exponential and low-storage engines alike. The backend also owns the once-per-st
 (`workspace.py`) runs the passes on each route through its stage source (`source.py`)
 and forms the backend-owned statistics (`statistics.py`), and the engines are
 `engines.py`'s and `multistep.py`'s. It propagates a
-**single-member** problem on either grid — mode-averaged or multimode on the fixed
+problem on either grid — mode-averaged or multimode on the fixed
 transverse quadrature, scalar or vector-isotropic, or a spatial geometry (radial,
 Cartesian, planar) — with the Kerr term, the delayed Raman term and the plasma,
 using every march — IP-DOPRI5, the low-storage RK4 and both Adams formulations — with
@@ -544,9 +543,9 @@ drops a component the modes have on the axis, whose node scan lacks that row); t
 one-component scan of a field grid reads both rows' magnitude, `hypot(E_x, E_y)`; an envelope's scan
 reads the polarisation ellipse, so on a one-component transform whose modes have a y field on the
 axis the two rows go to a row of their own, which the envelope scan reads as a node of two components
-(`populations.envelope_populations` on the host's row). The native row
+(`numpy_ref.passes.plasma.envelope_populations` on the host's row). The native row
 agrees with the host's scan to the node scans' parity tolerance (`1e-10`), and is the same bits where
-both read a Radau rule's axis node. The three keyword arguments are what `stats()` needs and the kernel contract does not carry.
+both read a Radau rule's axis node. The three keyword arguments of `select` (`grid`, `modes`, `profiles`) are what the statistics need and the kernel contract does not carry.
 
 **Spatial statistics measure the medium's flux** ([SEP 34](seps/archive/sep-0034-medium-flux.md)).
 The shared spatial statistics, `backends.spatial.collect_spatial`, read the plane's
@@ -1761,8 +1760,7 @@ that order for the stage too. The state crosses the seam once
 at a load and once at an observation, straight between the memory space and the NumPy
 buffer.
 
-The constructor requires a one-member problem. The backend
-refuses scalar-only declarations on vector Raman problems, spectral responses other than
+The backend refuses scalar-only declarations on vector Raman problems, spectral responses other than
 the compiled envelope-plasma assembly, and, on a device build, z-tabulated operators or
 prefactors, before field-sized allocation (the CPU build runs them, §1). Supported mixture density, pre-ionisation and Raman decay paths
 cross as stage scalars; z dependence alone is not a refusal.
@@ -2078,7 +2076,7 @@ that execution space.
 | the native execution session (SEP 47) | its own session (`HostSession`) | every native run (phase 5: no other native executor) | admitted on CUDA and HIP as on the CPU build (SEP 47 phase 4): beyond the modal route with planes, rows, the temporal monitor and the Adams history (phase 3), the spatial routes (radial, Cartesian, line, planar) with their fluence widths, a transverse edge and a collar's current, the noise models, dense output, the low-storage replay, and a coupled flow wider than 16 channels or off its eigenbasis route; run on an NVIDIA A40 against the transitional bridge on the same device before phase 5 deleted it (bitwise, but for the bounded transverse sums and dense Runge-Kutta planes), not yet qualified on either vendor |
 | periodic statistics between planes | yes | yes | yes: the native session takes each row natively and keeps it in a resident buffer until the next observation, with no return to Python (SEP 47 §6.4) |
 | Adams snapshots and a resume that continues the history (`MarchSnapshot`) | yes | yes: the resident engine copies its rows (`store`, and `states`, `rates`, `applied` where kept) to the host at a kept save and back on a resume | compiles; not qualified |
-| field-free observation (`observe(field=False)`), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |
+| field-free observation (a plane without its field, SEP 22), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |
 | materials from optmat: gas Raman leaves of many rows on gradients, rate tables, optmat walls, the silica bundles | yes | yes | not qualified |
 | coupling between runs (`field_plane`, `regrid`, `couple`, `Outcouple`, `transport`, `with_input`; SEP 31) | host-side: any source and receiving backend | host-side | receiving runs not qualified |
 
@@ -2184,8 +2182,6 @@ Which backend and build to choose for a run is the user guide's
   projection's summation order), and the local and distribution native builds' answers agree
   with the reference build's to rounding: which is all any comparison requires
   ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)).
-- Batches are fixed-schedule only; adaptive and spatial batches, and batches carrying a
-  coupled flow, are refused.
 - No native build runs on Intel macOS, ppc64le, Arm below Neoverse N1 or Windows before 10
   version 2004, nor on x86-64 below x86-64-v2, and solprop doesn't support them. With no
   wheel the installer refuses; where a wheel installs, `auto` and `native` refuse on the
