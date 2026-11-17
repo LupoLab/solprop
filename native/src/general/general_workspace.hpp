@@ -889,7 +889,7 @@ public:
   RealView2 held_pack_;
   ComplexView2 held_pack_spectrum_;
   std::unique_ptr<ForwardRealPlan> held_pack_forward_;
-  // A device's forward rows of a stage, one buffer and its spectrum (`packs_forward`):
+  // The forward rows of a stage, one buffer and its spectrum (`packs_forward`):
   // the in-stage absorber's rows, then the projection's, then the held pack's, and the
   // plans of all of them and of the rows after the absorber's (a quiet collar's stage).
   RealView2 forward_pack_, forward_pack_tail_;

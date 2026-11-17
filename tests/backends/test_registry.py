@@ -143,7 +143,6 @@ def test_select_builds_the_reference_backend(linear_problem, narrow_grid, caplog
     assert isinstance(backend, NumpyRefBackend)
     assert isinstance(backend, Backend)
     assert backend.name == "numpy_ref"
-    assert backend.available_device_memory() is None
     backend.close()
     assert caplog.messages == ["Using numpy_ref backend"]
 
@@ -343,6 +342,11 @@ def install_native(
         "find_spec",
         lambda name: spec if name == "solprop_native" else real_find_spec(name),
     )
+    # A stand-in is never calibrated: the calibration would load its private copies
+    # of the package's modules from these files, and keep them after the test.
+    from solprop.calibration import first_use  # noqa: PLC0415
+
+    monkeypatch.setattr(first_use, "ensure", lambda: None)
     return package
 
 
@@ -537,6 +541,24 @@ def test_a_required_device_is_refused_before_anything_is_constructed(
     problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
     with pytest.raises(BackendError, match="this run is on numpy_ref"):
         select("numpy_ref", problem, run_request, grid=narrow_grid)
+    assert not built
+
+
+def test_a_required_device_is_refused_before_the_first_use_calibration(
+    linear_problem, narrow_grid, monkeypatch
+):
+    from solprop.calibration import first_use  # noqa: PLC0415
+
+    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
+    fake_build(monkeypatch, "none", 0)
+    monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, "cuda")
+    calibrated = []
+    monkeypatch.setattr(first_use, "ensure", lambda: calibrated.append(True))
+    built = []
+    monkeypatch.setattr(registry, "_construct", lambda *a, **k: built.append(a))
+    with pytest.raises(BackendError, match="device backend 'none'"):
+        select("native", problem, run_request, grid=narrow_grid)
+    assert not calibrated
     assert not built
 
 

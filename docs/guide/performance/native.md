@@ -95,10 +95,10 @@ python -c "import solprop_native as sn; sn.check_build()"
 ```
 
 `check_build()` raises if the build is inconsistent (for example a GPU build that sees
-no device) or does not fit the installed solprop: the two packages share a kernel
-contract, and `check_build()` names any solprop member the build relies on that is
-missing. In a checkout it also refuses an extension built from other sources than
-`native/`. Install the two at the same version, from one release or one checkout. The build
+no device). In a checkout it also refuses an extension built from other sources than
+`native/`. It does not compare the build with the installed solprop: solprop requires
+solprop-native at exactly its own version, so install the two at the same version, from
+one release or one checkout. The build
 record reports the profile (`build_profile`), the BLAS (`blas_selection`,
 `blas_library`), FFTW, the compiler flags, the thread counts and, on a GPU build, the
 device. Then, in Python:
@@ -129,7 +129,7 @@ itself: run `uv sync --reinstall-package solprop-native` after a native change.
 `uv run poe check-native` runs the native gate
 and a native change runs it after `uv run poe check`. A build stays valid across solprop
 changes until the sources under `native/` change, when `check_build()` refuses it and names that
-command, or until `check_build()` names a member the installed solprop lacks. Running solprop's test lanes against the build is described in
+command. Running solprop's test lanes against the build is described in
 the developer notes on [testing](../../dev/testing.md#tiers-and-backends).
 
 ## Running on a GPU
@@ -214,8 +214,9 @@ large run, for a scan of many runs and on a cluster.
 
 ## When something goes wrong
 
-- **`ImportError`, or `check_build()` naming a missing member.** The
-  installed solprop-native does not fit the installed solprop; install both at the same
+- **`ImportError`, or another error from inside `solprop_native`, after one package was
+  installed alone.** The installed solprop-native does not fit the installed solprop;
+  install both at the same
   version (`pip install --force-reinstall solprop`, or both from one checkout
   as in [Building the native backend](building-native.md)).
 - **`check_build()` saying the extension was built from other sources.** A checkout's

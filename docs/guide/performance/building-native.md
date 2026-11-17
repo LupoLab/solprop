@@ -22,7 +22,7 @@ the arithmetic is double precision throughout, and no build enables fast-math.
 
 | requirement | version and notes |
 |---|---|
-| Python | 3.14, with NumPy 2.3 or newer, and solprop at the same version installed in the same environment |
+| Python | 3.14, with NumPy 2.5 or newer, and solprop at the same version installed in the same environment |
 | CMake | 3.23 or newer (with build isolation, scikit-build-core fetches one from PyPI if none is found) |
 | build tool | Ninja is recommended; scikit-build-core uses it when available |
 | C++20 compiler, macOS | Clang 14 or newer; Homebrew LLVM is recommended and selected by default |
@@ -146,9 +146,8 @@ install does not rebuild itself: run `uv sync --reinstall-package
 solprop-native` after a native change, with any build options in `CMAKE_ARGS`
 ([below](#passing-cmake-options)); a device build is made the same way. `uv run poe
 check-native` runs the native gate, and a native change runs it after `uv run poe check`.
-A build stays valid across solprop changes until the sources under `native/` change, when `check_build()`
-refuses it and names that command, or until `check_build()` names a member the installed
-solprop lacks. Running solprop's test lanes
+A build stays valid across solprop changes until the sources under `native/` change, when
+`check_build()` refuses it and names that command. Running solprop's test lanes
 against the build is in the developer notes on
 [testing](../../dev/testing.md#tiers-and-backends), and the native package's own tests in
 `native/README.md`.
@@ -223,9 +222,8 @@ hand through `CXXFLAGS` appear in `compiler_flags`.
 
 `check_build()` raises `solprop.exceptions.BackendError` when an editable checkout's
 sources under `native/` are not the ones the extension was compiled from (it names
-`uv sync`; a wheel skips this); when the installed solprop lacks a driver member or bundle
-field the build relies on (it names them); when the build enables fast-math; when the execution-space record is inconsistent; when a GPU build sees no
-device; when the GEMM provider is unknown or its BLAS is unidentified; when
+`uv sync`; a wheel skips this); when the build enables fast-math; when the execution-space
+record is inconsistent; when a GPU build sees no device; when its BLAS is unidentified; when
 a reference build carries a vendor BLAS or machine-specific code, or a distribution
 build carries native code or no BLAS; and when a GPU build's BLAS is not the device's.
 Then, in solprop:
@@ -354,7 +352,7 @@ The options are read by `native/CMakeLists.txt` and the modules it includes from
 
 | option | default | values and effect |
 |---|---|---|
-| `SOLPROP_NATIVE_ENABLE_OPENMP` | `ON` | the OpenMP host execution space and threaded FFTW. `OFF` in GPU builds, whose host space is Serial |
+| `SOLPROP_NATIVE_ENABLE_OPENMP` | `ON` | the OpenMP host execution space and threaded FFTW: `ON` in every CPU build, `OFF` in GPU builds, whose host space is Serial; configuration refuses any other pairing |
 | `SOLPROP_NATIVE_ENABLE_CUDA` | `OFF` | the CUDA execution space with cuFFT (Linux, GNU host compiler) |
 | `SOLPROP_NATIVE_ENABLE_HIP` | `OFF` | the HIP execution space with rocFFT (Linux, ROCm Clang); exclusive with CUDA |
 | `SOLPROP_NATIVE_CUDA_ARCH` | `HOPPER90` | the Kokkos architecture suffix, `Kokkos_ARCH_<value>` ([CUDA](#cuda)) |
@@ -429,18 +427,20 @@ The CPU kernels form their transcendentals (the stage and step propagators, the
 exponential Adams method's flows, phi-functions and compensation, the ionisation rates
 and fractions) in passes over blocks of elements through one layer,
 `native/include/solprop_native/runtime/vmath.hpp` ([ADR-059](../../dev/decisions.md)). On x86-64
-it calls [SLEEF](https://sleef.org)'s vector functions, each within 1.0 ulp of the
-correctly rounded value over its whole domain: AVX2 where the build's target has it (the
-wheels' x86-64-v3 baseline and any local build on a processor from 2013 or later), SSE2
-otherwise. `SOLPROP_NATIVE_VECTOR_MATH_AVX512=ON` takes the AVX-512F functions on a
+and macOS arm64 it calls [SLEEF](https://sleef.org)'s vector functions, each within 1.0 ulp
+of the correctly rounded value over its whole domain: AVX2 where the build's target has it
+(the wheels' x86-64-v3 baseline and any local build on a processor from 2013 or later),
+SSE2 otherwise, and AdvSIMD on Arm. `SOLPROP_NATIVE_VECTOR_MATH_AVX512=ON` takes the AVX-512F functions on a
 target with AVX-512F: on one thread they ran the tracking cases about 4 % faster than
 the AVX2 ones on an AMD EPYC 9B45 (Zen 5) but 7 % slower on an Intel Xeon of the Ice
 Lake generation, whose cores lower their clock under 512-bit work. glibc's scalar `exp`, `cos` and `sin` cost a complex
 exponential 10 to 30 ns on an AMD EPYC 7763; SLEEF's AVX2 functions take it 3.3 to 3.6
 times faster at the same worst error on the kernels' own arguments. On Apple silicon
-the system libm is already about 3 ns, SLEEF's AdvSIMD functions gain nothing, and the
-build keeps the libm and each element's own calls (`SOLPROP_NATIVE_VECTOR_MATH=SLEEF`
-selects SLEEF there too). `build_info().vector_math` records the route, for example
+the system libm is already about 3 ns, but SLEEF's AdvSIMD functions over the gathered
+blocks, and the passes they enable, ran an Apple M5 Max's tracking cases faster
+(geometric mean 0.934 of the libm's time), so the build takes SLEEF there too. On Linux
+aarch64, where SLEEF measured level on a Neoverse V2, the build keeps the libm and each
+element's own calls (`SOLPROP_NATIVE_VECTOR_MATH=SLEEF` selects SLEEF there too). `build_info().vector_math` records the route, for example
 `"SLEEF 3.9.0 u10, AVX2"` or `"scalar libm"`. Results differ between the routes only
 by rounding (the functions' own ulp), within the backend's derived rounding budgets
 ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
@@ -614,7 +614,7 @@ evidence a change to this rule would start from. The `Wheels` workflow runs the 
 A wheel meant for other machines is built with `SOLPROP_NATIVE_PROFILE=DISTRIBUTION`.
 It carries its BLAS (on Linux and Windows the OpenMP OpenBLAS, BSD-3-Clause) with its
 licence, and the licence texts of Kokkos, Kokkos Kernels, Kokkos-FFT, nanobind,
-robin_map and, on x86-64, SLEEF (BSL-1.0), which are compiled in. FFTW and the OpenMP
+robin_map and, on x86-64 and macOS arm64, SLEEF (BSL-1.0), which are compiled in. FFTW and the OpenMP
 runtime are bundled by the wheel
 repair (`auditwheel repair` on Linux, `delocate` on macOS, `delvewheel` on Windows), and
 their licence texts by `SOLPROP_NATIVE_BUNDLED_LICENCES`; FFTW (GPL-2.0-or-later) is

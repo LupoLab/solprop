@@ -1,0 +1,1 @@
+`Backend.available_device_memory()` is gone from the backend protocol, `NumpyRefBackend` and `NativeBackend`: nothing in solprop called it. Read free device bytes with the module function `solprop_native.available_device_memory()`, which stays.

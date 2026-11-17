@@ -520,14 +520,14 @@ void GeneralWorkspace::allocate_transforms(const std::size_t columns,
   }
 }
 
-// The forward rows and spectra: the projection's, the absorber's, a device's pack and
+// The forward rows and spectra: the projection's, the absorber's, the forward pack and
 // the held plasma current's.
 void GeneralWorkspace::allocate_forward_rows(const std::size_t columns,
                                              const std::size_t chunk_rows,
                                              const std::size_t temporal_columns) {
-  // A device's packed forward rows (`packs_forward`): the absorber's, the projection's,
-  // the coarse projection's and the held pack's, in that order, carved from one buffer
-  // and one spectrum.
+  // The packed forward rows (`packs_forward`): the absorber's, the projection's, the
+  // coarse projection's and the held pack's, carved from one buffer and one spectrum,
+  // in the host's or the device's order below.
   const bool pack = packs_forward();
   const std::size_t absorber_rows =
       pack && problem_.absorber.in_stage ? temporal_columns : 0;

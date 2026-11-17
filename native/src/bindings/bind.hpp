@@ -28,8 +28,9 @@ namespace solprop_native::bindings {
 namespace nb = nanobind;
 namespace native = solprop_native;
 
-// A native object the runtime closes before Kokkos is finalised: a state or a
-// workspace, each of which closes the session that leases it first.
+// A native object the runtime closes before Kokkos is finalised: a workspace
+// (`BoundWorkspace`, module.hpp, the one implementer), which closes the session that
+// leases it first.
 class Owned {
 public:
   Owned() = default;

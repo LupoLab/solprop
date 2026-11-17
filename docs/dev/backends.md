@@ -43,7 +43,6 @@ class Backend(Protocol):
     def edge_memory(self, space: object) -> int: ...
     def metadata(self) -> dict[str, object]: ...  # what the execution was
     def memory_ledger(self) -> dict[str, int]: ...
-    def available_device_memory(self) -> int | None: ...
     def close(self) -> None: ...  # idempotent
     @property
     def closed(self) -> bool: ...  # a failure can close a backend
@@ -92,11 +91,10 @@ the reference as `solprop.backends.numpy_ref.NumpyRefBackend` and the native bac
 as `solprop_native.NativeBackend`, each called as
 `factory(problem, request, *, grid, modes, profiles, tdse_binding, options)`, importing
 each only when
-it is selected. Before a native construction it runs SEP 46's first-use calibration;
-`SOLPROP_REQUIRE_DEVICE` reads the installed native build's `build_info()` (the
-reference is refused a required device by name); and `statistics_refusal` reads the
-far-field statistics `NativeBackend.far_field_statistics` declares. `auto` is
-`registry.AUTO`, `native`, with no fallback.
+it is selected. `SOLPROP_REQUIRE_DEVICE` is checked first, against the installed
+native build's `build_info()` (the reference is refused a required device by name);
+only then, before a native construction, does it run SEP 46's first-use calibration.
+`auto` is `registry.AUTO`, `native`, with no fallback.
 
 **Periodic statistics are the session's.** Each session decides which accepted steps
 produce rows and keeps them between events: the reference's in a host buffer it drains at
@@ -117,9 +115,7 @@ through `warnings.warn` as before. Both sessions report their execution facts th
 interface. A fixed-schedule `Batch` executor and its groups (`GroupSession`,
 `prepare_group`, the reference's lockstep `HostGroup` and `NumpyBatchBackend`, and the
 native group session) were removed by SEP 52: on native a group built a complete backend
-per member and fused nothing. `available_device_memory()` returns free device bytes or
-`None` on hosts, so that a scan's admission needs no backend-specific array library in
-the driver.
+per member and fused nothing.
 
 **Three things every backend owes, beyond the protocol's members.**
 
@@ -1421,9 +1417,7 @@ The native `Problem` carries the stored axes `spatial_k_x` and `spatial_k_y` and
 the problem's own request (`spatial_far_field_slots`), which sizes the band partials at construction
 (`far_field_partials` in the ledger). The call carries the tables, `(n_apertures, 11 + n_omega)` rows
 of the host-formed constants and scale row and `(n_regions, 4)` boxes, which the native
-`far_field_tables` row holds with the axes and the packed output. A build declares the names it
-forms in `NativeBackend.far_field_statistics`; solprop's registry admits them by it and refuses them
-by name on an older build, before it is built (`registry.statistics_refusal`). The device path
+`far_field_tables` row holds with the axes and the packed output. The device path
 compiles but is not qualified: its partials live in global memory, not in registers. Measured cost:
 about 2.3–2.6 % of one Runge–Kutta step at the sizes of
 [benchmarks.md](benchmarks.md#far-field-statistics-pass), paid at save planes and periodic rows only.

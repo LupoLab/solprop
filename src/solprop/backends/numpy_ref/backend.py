@@ -479,16 +479,6 @@ class NumpyRefBackend:
         )
         return _TrialProbe(self, engine, position, cursor, low_storage=False)
 
-    def available_device_memory(self) -> int | None:
-        """Return None for host execution.
-
-        Returns
-        -------
-        int or None
-            None: the reference runs on the host.
-        """
-        return None
-
     def metadata(self) -> dict[str, object]:
         """Return what this execution was, for the run's record.
 

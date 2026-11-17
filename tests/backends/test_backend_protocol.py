@@ -409,9 +409,6 @@ class Stub:
     def memory_ledger(self):
         return {"state": 64}
 
-    def available_device_memory(self):
-        return None
-
     def close(self):
         return None
 
@@ -421,7 +418,6 @@ def test_a_minimal_backend_satisfies_the_protocol():
     assert isinstance(backend, Backend)
     assert backend.edge_memory(None) == 0
     assert backend.memory_ledger() == {"state": 64}
-    assert backend.available_device_memory() is None
     assert backend.metadata()["backend"] == "stub"
     assert backend.close() is None
 

@@ -23,7 +23,7 @@ import importlib
 import importlib.util
 import logging
 import os
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from types import ModuleType
 from typing import Final, cast
@@ -34,7 +34,6 @@ from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
-from solprop.spatial import FAR_FIELD_STATISTICS
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 from solprop.translate.tdse import TDSEBinding
@@ -46,7 +45,6 @@ __all__ = [
     "available",
     "resolve_name",
     "select",
-    "statistics_refusal",
 ]
 
 logger = logging.getLogger(__name__)
@@ -96,50 +94,6 @@ _REQUIRED_DEVICES: Final = {"cuda": {"cuda"}, "hip": {"hip"}, "any": {"cuda", "h
 def _native_installed() -> bool:
     """Return whether the native package can be found, without importing it."""
     return importlib.util.find_spec(_NATIVE_PACKAGE) is not None
-
-
-def statistics_refusal(name: str, names: Sequence[str]) -> str | None:
-    """Return why a backend cannot form some of the statistics named, or ``None``.
-
-    Asking about the native backend imports the installed package, as selecting it
-    would, to read the far-field statistics its class declares it forms.
-
-    Parameters
-    ----------
-    name : str
-        The resolved backend name.
-    names : collections.abc.Sequence of str
-        The statistics asked for.
-
-    Returns
-    -------
-    str or None
-        The refusal, naming the backend that forms them, or ``None`` when the backend
-        forms every one (or is not installed, which selecting it reports).
-
-    Examples
-    --------
-    >>> from solprop.backends.registry import statistics_refusal
-    >>> statistics_refusal("numpy_ref", ["energy", "beam_spectrum"]) is None
-    True
-    """
-    asked = [one for one in names if one in FAR_FIELD_STATISTICS]
-    # numpy_ref forms every far-field statistic.
-    if not asked or name != "native" or not _native_installed():
-        return None
-    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        NativeBackend,
-    )
-
-    formed = cast(Collection[str], NativeBackend.far_field_statistics)
-    missing = [one for one in asked if one not in formed]
-    if not missing:
-        return None
-    return (
-        f"the installed native backend does not form the far-field statistics "
-        f"{missing}; install a solprop-native build that does, or run them on "
-        "numpy_ref"
-    )
 
 
 def available() -> tuple[str, ...]:
@@ -379,19 +333,17 @@ def select(
     ('numpy_ref', 'native')
     """
     name = resolve_name(name)
+    _check_required_device(name)
     if name == "native":
+        if not _native_installed():
+            raise ImportError(_NATIVE_INSTALL)
         # SEP 46: a first native workspace in an allocation with no profile row runs
-        # the quick calibration first, before the extension's runtime starts if it
-        # has not yet.
+        # the quick calibration first, once every refusal above has passed, and before
+        # the extension's runtime starts if it has not yet. A required device that
+        # passed is a device build, which never calibrates.
         from solprop.calibration.first_use import ensure  # noqa: PLC0415 - layer above
 
         ensure()
-    _check_required_device(name)
-    refusal = statistics_refusal(name, request.observation.stats.names)
-    if refusal is not None:
-        raise BackendError(refusal)
-    if name == "native" and not _native_installed():
-        raise ImportError(_NATIVE_INSTALL)
     backend = _construct(
         name,
         problem,

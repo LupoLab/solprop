@@ -21,6 +21,7 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
 from solprop.driver import simulation as simulation_module
 from solprop.driver.simulation import Simulation
+from solprop.exceptions import TranslationError
 from solprop.gasflow import steady_fill
 from solprop.output.metadata import _example_metadata
 from solprop.output.records import StepLimits, StepperRecord
@@ -119,6 +120,39 @@ def test_a_coupled_flow_keeps_the_version_16_limits(narrow_grid, soliton_problem
     )
     assert settings.interval_cap is True
     assert settings.auto_init is False
+
+
+def test_the_adams_march_records_and_takes_its_own_interval_cap(
+    narrow_grid, soliton_problem
+):
+    # The Adams march caps by Multistep.interval_cap (ADR-037), so the run records that
+    # and refuses a stepper-wide request that would differ from it.
+    for method in (Multistep(), Multistep(interval_cap=True)):
+        _, run_request = soliton_problem(
+            narrow_grid, 1, save_planes=[LENGTH], integrator=method
+        )
+        assert run_request.stepper.interval_cap is method.interval_cap
+    with pytest.raises(TranslationError, match=r"Multistep\(interval_cap=True\)"):
+        soliton_problem(
+            narrow_grid,
+            1,
+            save_planes=[LENGTH],
+            integrator=Multistep(),
+            interval_cap=True,
+        )
+    with pytest.raises(TranslationError, match=r"Multistep\(interval_cap=False\)"):
+        soliton_problem(
+            narrow_grid,
+            1,
+            save_planes=[LENGTH],
+            integrator=Multistep(interval_cap=True),
+            interval_cap=False,
+        )
+    # Asking for what the method applies is no conflict.
+    same = soliton_problem(
+        narrow_grid, 1, save_planes=[LENGTH], integrator=Multistep(), interval_cap=False
+    )
+    assert same.request.stepper.interval_cap is False
 
 
 @pytest.mark.medium

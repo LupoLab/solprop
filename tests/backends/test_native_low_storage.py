@@ -119,9 +119,7 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
         "propagators": field if mode == "tabulate" else 0,
     }
     assert low_storage_stage_register(problem, "native") == collar
-    assert low_storage_flows(problem, run_request.stepper, "native") == (
-        mode == "tabulate"
-    )
+    assert low_storage_flows(problem, run_request.stepper) == (mode == "tabulate")
     assert sum(volumes.values()) == field * (3 + int(collar) + (mode == "tabulate"))
     for row in (*RUNGE_KUTTA_ROWS, "noise", "adams_history"):
         assert ledger[row] == 0, row
@@ -149,7 +147,7 @@ def test_a_varying_operator_holds_its_pair_tabulated_and_none_recomputed():
         field = 16 * math.prod(problem.shape)
         ledger = backend.memory_ledger()
         assert ledger["propagators"] == held * field
-        assert low_storage_flows(problem, run_request.stepper, "native") == held
+        assert low_storage_flows(problem, run_request.stepper) == held
         # The modal route holds C: its input is a padded fine spectrum.
         assert ledger["register_stage"] == field
         assert all(ledger[row] == 0 for row in RUNGE_KUTTA_ROWS)

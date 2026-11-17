@@ -256,6 +256,9 @@ _NO_FIELD = np.empty(0, dtype=np.complex128)
 """A load whose state crossed to the workspace keeps no host copy."""
 _NO_ORDERS = 1 << 62
 """An order index past any run's, to read the march's state without its orders."""
+_POWER_WEIGHTS_REFUSAL = "power weights"
+"""Text of the native export's refusal of malformed power weights (``session.cpp``),
+which the reference refuses with :class:`~solprop.exceptions.GridError`."""
 _LEDGER_COUNTERS = (
     "startup",
     "predictor",
@@ -1026,7 +1029,7 @@ class NativeSession:
         except _core.SessionLifecycleError as error:
             raise SessionError(str(error)) from None
         except ValueError as error:
-            if "power weights" in str(error):
+            if _POWER_WEIGHTS_REFUSAL in str(error):
                 raise GridError(str(error)) from None
             raise
         if (counters := _counters.active) is not None:

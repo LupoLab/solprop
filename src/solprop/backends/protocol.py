@@ -617,9 +617,9 @@ class Backend(Protocol):
     >>> from solprop.backends.protocol import Backend
     >>> names = [name for name in sorted(dir(Backend)) if not name.startswith("_")]
     >>> names[:4]
-    ['available_device_memory', 'close', 'closed', 'edge_memory']
+    ['close', 'closed', 'edge_memory', 'memory_ledger']
     >>> names[4:]
-    ['memory_ledger', 'metadata', 'prepare', 'request', 'timing_probe']
+    ['metadata', 'prepare', 'request', 'timing_probe']
     """
 
     name: str
@@ -707,17 +707,6 @@ class Backend(Protocol):
         -------
         TimingProbe
             The probe (SEP 47 section 6.6).
-        """
-        ...
-
-    def available_device_memory(self) -> int | None:
-        """Return currently free device bytes, or None for a host backend.
-
-        Returns
-        -------
-        int or None
-            Free device memory excluding live allocations and allocator reserves.
-            Host memory is admitted independently by the controller.
         """
         ...
 

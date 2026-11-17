@@ -102,11 +102,6 @@ REFUSED = [
         id="no visible device",
     ),
     pytest.param(
-        CPU | {"gemm_provider": "CUSTOM"},
-        "unknown compiled GEMM provider 'CUSTOM'",
-        id="unknown GEMM provider",
-    ),
-    pytest.param(
         CPU | {"blas_backend": "none"},
         "the build enables a BLAS TPL but identifies no provider",
         id="BLAS TPL with no provider",

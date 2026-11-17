@@ -33,7 +33,6 @@ import numpy as np
 from solprop._interrupts import handled
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import Backend, BackendHistory, Observation
-from solprop.backends.registry import statistics_refusal
 from solprop.backends.session import RunSession, Start, statistics_unavailable
 from solprop.exceptions import (
     BackendError,
@@ -440,11 +439,6 @@ def run_problem(
     _refuse_unrunnable(
         problem, prepared, spec, start_plane, planes.size, metadata=metadata
     )
-    # The backend's door for a spec handed here rather than the problem's own, which
-    # `select` already checked (SEP 23: a backend without a statistic refuses it).
-    refusal = statistics_refusal(backend.name, spec.names)
-    if refusal is not None:
-        raise DriverError(refusal)
     retention = field_retention(prepared, fields, field_planes)
     _check_retainable(output, retention)
     check_snapshot_request(prepared, output, snapshots, resume_history, fields)
