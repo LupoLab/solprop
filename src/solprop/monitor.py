@@ -357,7 +357,7 @@ class BoundaryMonitor:
         A free-space run's transverse edge (SEP 40 section 5.3), read on its own
         spacing; its record joins this monitor's under ``transverse``.
     crossing : solprop.boundaries.SplitCrossing or None
-        The split collar's crossing limit, set by the step driver when the monitor is
+        The split collar's crossing limit, set by the session when the monitor is
         attached to a split run: every reading then carries the state's occupancy,
         and the limit it gives caps the steps until the next check
         (:attr:`step_cap`).
