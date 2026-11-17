@@ -384,8 +384,6 @@ class GasFillMixin(Displayed):
                     scale * density * omega * np.imag(model.susceptibility(omega)) / C
                 )
             return result
-        if self.susceptibility is None:
-            return np.zeros((1, omega.size))
         # The single-gas slot carries a real GasSusceptibility. Absorbing supplied
         # optical tables belong to explicit Species components of a mixture.
         return np.zeros((1, omega.size))

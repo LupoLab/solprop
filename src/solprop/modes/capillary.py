@@ -145,7 +145,7 @@ class MarcatiliTerms:
     core_susceptibility : numpy.ndarray
         Per-particle susceptibility ``gamma(omega)`` in m^3, so that
         ``chi = gamma * rho``. Mixtures carry shape ``(n_species, n_omega)``;
-        the existing single-gas spelling retains its frequency vector. Values are
+        a single gas carries shape ``(n_omega,)``. Values are
         real for transparent built-in gases and complex for absorbing custom species.
     dcore_susceptibility_domega : numpy.ndarray
         Its analytic frequency derivative in m^3 s/rad.
@@ -413,7 +413,7 @@ class MarcatiliMode(GasFillMixin):
         """
         if self.mixture is not None:
             # A mode the run interfaces build carries its fill as a mixture and no
-            # `gas`; before this branch it printed as evacuated.
+            # `gas`, so the mixture names the fill.
             fill = "+".join(self.mixture.labels)
         else:
             fill = "evacuated" if self.gas is None else str(self.gas)
@@ -847,8 +847,8 @@ class MarcatiliMode(GasFillMixin):
         """Return ``n_eff - 1`` and ``dn_eff/domega`` before the loss specification.
 
         - ``radius``: core radius in m.
-        - ``density``: number density in m^-3, scalar for the existing gas spelling or
-          one entry per sampled mixture component.
+        - ``density``: number density in m^-3, scalar for a single gas or one entry
+          per sampled mixture component.
         - Returns: the refractivity and its derivative, with the model's own loss
           included.
         """
@@ -1430,7 +1430,7 @@ _SHARED_TERMS: ContextVar[
 
 Keyed by ``id(mode)`` with the mode itself held beside its terms, so an id cannot be
 reused by another mode while the scope lasts; ``None`` outside a scope, where every
-call samples afresh exactly as it always has."""
+call samples afresh."""
 
 
 @contextmanager
@@ -1443,7 +1443,7 @@ def shared_sampling() -> Iterator[None]:
     translation cost. Inside this scope
     :meth:`MarcatiliMode.sampled_terms` returns the terms it already built for the same
     mode and the same frequencies: the same function of the same inputs, so every array
-    built from them is bitwise what it was. The shared
+    built from them is bitwise the unshared one. The shared
     arrays are made read-only, so a caller that wrote into one would fail loudly rather
     than change what the next caller reads.
 

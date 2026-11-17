@@ -1148,8 +1148,7 @@ class ModalGuide(Displayed):
         then taken at the entrance, which is the provider's own z domain start, and
         each channel carries its index and area along the path
         (:class:`ModalPath`, :attr:`ProviderChannelMode.path`). A guide whose
-        geometry does not move is a **snapshot at one position** and is bitwise what
-        it was.
+        geometry does not move is a **snapshot at one position**, with no path.
 
         Parameters
         ----------
@@ -1185,14 +1184,14 @@ class ModalGuide(Displayed):
             name. The guide's channels then carry the declaration's labels --
             handedness rather than parity -- and its ``ProviderChannelMode`` rows
             carry the transformed channels' surrogate areas. ``None`` keeps the
-            provider's own coordinates, and the guide is then bitwise what it was.
+            provider's own coordinates and applies no transformation.
         beta_rtol : float, optional
             Budget on the two propagation-constant checks, default
             :data:`PROVIDER_BETA_RTOL`.
         sections : int, optional
             Sections each kink interval of a moving guide is divided into, positive;
-            one by default. Ignored by nothing: a snapshot refuses any other value,
-            because it has no path to divide.
+            one by default. A snapshot refuses any other value, because it has no
+            path to divide.
         path_rtol : float or None, optional
             Budget on a moving guide's held-out departure along z; ``None`` takes
             the frequency interpolation's own measured profile error, floored at

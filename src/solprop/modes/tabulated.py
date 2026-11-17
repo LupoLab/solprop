@@ -742,8 +742,8 @@ class TabulatedMode(_TableMode):
 class _SampledIndexTable(IndexTable):
     """Retain sampled dispersion derivatives and snapshot provenance.
 
-    ``repr=False``: a regenerated dataclass ``__repr__`` dumped 809 characters of
-    arrays and undid :class:`IndexTable`'s one-line description.
+    ``repr=False``: a generated dataclass ``__repr__`` would print the arrays in
+    place of :class:`IndexTable`'s one-line description.
 
     - ``omega``: positive finite angular frequencies in rad/s, shape ``(n_nodes,)``.
     - ``area``: positive finite effective areas in m^2 at the same samples.

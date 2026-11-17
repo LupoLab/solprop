@@ -377,7 +377,7 @@ def polarisation_pairs(modes: Sequence[Mode]) -> tuple[Mode, ...]:
     Raises
     ------
     ModeError
-        If a mode cannot say whether it has a partner, which every ported mode can.
+        If a mode cannot say whether it has a partner.
 
     Examples
     --------

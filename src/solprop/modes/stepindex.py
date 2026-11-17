@@ -1580,7 +1580,7 @@ class StepIndexMode(Displayed):
 
         omega, z = float(omega), float(z)
         # A public boundary owes its caller a ModeError, not the AttributeError a
-        # list of pairs used to raise on the first `.ndim` inside the field helper.
+        # list of pairs raises on the first `.ndim` inside the field helper.
         points = np.asarray(xy, dtype=float)
         if points.ndim != 2 or points.shape[1] != 2:
             raise ModeError(
