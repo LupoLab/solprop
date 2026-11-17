@@ -806,9 +806,11 @@ class PlaneBasis:
     ----------
     kind : {'modal', 'general_modal', 'radial', 'cartesian', 'planar'}
         The representation.
-    identity : str
+    identity : str or None
         :func:`basis_identity` of the basis: a plane and a port with the same
-        identity have the same columns.
+        identity have the same columns. None where it is not known -- an ordinary
+        mode set's plane read without its mode set (:meth:`of_run`), or a planar
+        basis -- which matches no port.
     labels : tuple of str, optional
         Channel labels of a modal basis, in column order.
     space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or None, optional
@@ -821,14 +823,14 @@ class PlaneBasis:
     """
 
     kind: PlaneKind
-    identity: str
+    identity: str | None
     labels: tuple[str, ...] = ()
     space: RadialGrid | FreeGrid | None = None
 
     def __post_init__(self) -> None:
         """Check the digest and the grid."""
-        if len(self.identity) != 64:
-            msg = "a basis identity is a SHA-256 hex digest"
+        if self.identity is not None and len(self.identity) != 64:
+            msg = "a basis identity is a SHA-256 hex digest, or None where not known"
             raise CouplingError(msg)
         if self.kind in ("radial", "cartesian") and self.space is None:
             msg = f"a {self.kind} basis carries its transverse grid"
@@ -851,6 +853,97 @@ class PlaneBasis:
         """
         kind: PlaneKind = "radial" if isinstance(space, RadialGrid) else "cartesian"
         return cls(kind, basis_identity(kind, space_record(space)), space=space)
+
+    @classmethod
+    def of_run(
+        cls,
+        kind: str,
+        *,
+        labels: Sequence[str] = (),
+        space: RadialGrid | FreeGrid | None = None,
+        modal: Mapping[str, object] | None = None,
+        modes: Sequence[Mode] | None = None,
+        grid: TimeGrid | None = None,
+        z: float = 0.0,
+    ) -> "PlaneBasis":
+        """Return the basis of a run's planes at one position, from what the run is.
+
+        The one place a plane read from a file and the port of a live simulation
+        derive their basis, so the two compare the same identity. A radial or
+        Cartesian basis is its transverse grid (:meth:`of_space`) and a general modal
+        one the reference its modal identity names, the same at every plane; an
+        ordinary mode set's is :func:`modal_basis_identity` at `z`, and unknown
+        without the mode set. A planar basis has no identity.
+
+        Parameters
+        ----------
+        kind : str
+            The run's kind, as
+            :attr:`solprop.output.metadata.RunMetadata.simulation_kind` records it:
+            ``'radial'``, ``'free'`` (Cartesian) or ``'slab'`` (planar) for a
+            spatial run, any other for a modal one.
+        labels : sequence of str, optional
+            Channel labels of a modal basis, in column order.
+        space : solprop.grid.RadialGrid or solprop.grid.FreeGrid or None, optional
+            The transverse grid of a radial or Cartesian run.
+        modal : collections.abc.Mapping or None, optional
+            The run's modal identity
+            (:attr:`~solprop.output.metadata.RunMetadata.modal`); one whose
+            ``basis`` is ``'general_modal'`` makes the basis a general modal one.
+        modes : sequence of solprop.modes.protocol.Mode or None, optional
+            An ordinary mode set, in state order; None when it is not at hand.
+        grid : solprop.grid.TimeGrid or None, optional
+            The temporal grid, sampled with `modes`.
+        z : float, optional
+            The plane's position along the guide, m, at which `modes` are sampled.
+
+        Returns
+        -------
+        PlaneBasis
+            The basis; its identity is None for a planar run, and for an ordinary
+            mode set without `modes` and `grid`.
+
+        Raises
+        ------
+        CouplingError
+            If a radial or Cartesian run comes without its grid.
+
+        Examples
+        --------
+        >>> from solprop.coupling import PlaneBasis
+        >>> from solprop.grid import RadialGrid
+        >>> PlaneBasis.of_run("radial", space=RadialGrid(1e-3, 64)).kind
+        'radial'
+        >>> PlaneBasis.of_run("multimode", labels=("HE11",)).identity is None
+        True
+        """
+        if kind in ("radial", "free"):
+            if space is None:
+                msg = f"a {kind} run's basis is its transverse grid, and none was given"
+                raise CouplingError(msg)
+            return cls.of_space(space)
+        if kind == "slab":
+            return cls("planar", None, tuple(labels))
+        if modal is not None and modal.get("basis") == "general_modal":
+            metric = cast("Mapping[str, object]", modal.get("metric") or {})
+            record = {
+                "channels": modal.get("channels"),
+                "tables": modal.get("tables"),
+                "guide": modal.get("guide"),
+                "metric": {
+                    "kind": metric.get("kind"),
+                    "gauge_id": metric.get("gauge_id"),
+                },
+            }
+            return cls(
+                "general_modal", basis_identity("general_modal", record), tuple(labels)
+            )
+        identity = (
+            None
+            if modes is None or grid is None
+            else modal_basis_identity(modes, grid, z)
+        )
+        return cls("modal", identity, tuple(labels))
 
 
 @dataclass(frozen=True, eq=False)
