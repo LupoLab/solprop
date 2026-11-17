@@ -214,13 +214,12 @@ repeatability tests pass on a data-centre NVIDIA GPU (CUDA) and an AMD Instinct 
 
 `backend="auto"`, the default, is `native`, and it **never falls back**: it refuses if the
 native package is missing or the processor is below its minimum, and a problem the native
-backend refuses is refused, by name, and you choose `numpy_ref` for it explicitly. Its one
-exception is the TDSE response, which it runs on `numpy_ref`
+backend refuses is refused, by name, and you choose `numpy_ref` for it explicitly
 ([which backend a run uses](../performance/backends.md#which-backend-a-run-uses)). Whether the native backend runs on the CPU or on a GPU
 is decided by how it was built. The [backends chapter](../performance/backends.md) compares the
 backends and budgets memory; [the native backend](../performance/native.md) says how to build it,
-locally or for a GPU; [performance](../performance/tuning.md) covers threads and tuning. Every
-compiled backend agrees with `numpy_ref`, the oracle, to a rounding bound derived before
+locally or for a GPU; [performance](../performance/tuning.md) covers threads and tuning. The
+native backend agrees with `numpy_ref`, the oracle, to a rounding bound derived before
 any measurement; the measured departures are a few units in the last place (the
 bounds are in the [backend design notes](../../dev/backends.md)).
 

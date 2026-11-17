@@ -12,7 +12,7 @@ native backend, which `"auto"` selects; `numpy_ref` is for the cases below.
 | backend | what it is | use it for |
 |---|---|---|
 | `native` | the [native backend](native.md), the solprop-native distribution built from the repository's `native/` directory and a required dependency of solprop: OpenMP, FFTW and a vendor BLAS on a CPU, or CUDA/HIP on a GPU | **the one to use**: what `"auto"` selects |
-| `numpy_ref` | plain NumPy, the numerical **reference**: every other backend is tested against it. It is unthreaded, and roughly 6 to 40 times slower than threaded native | checking a result, and [the features native does not run](#features-that-run-on-the-reference-backend). Also problems a GPU build refuses or runs slowly, in a process that has only that build |
+| `numpy_ref` | plain NumPy, the numerical **reference**: the native backend is tested against it. It is unthreaded, and roughly 6 to 40 times slower than threaded native | checking a result, and [problems a GPU build refuses](#features-that-run-on-the-reference-backend) or runs slowly, in a process that has only that build |
 
 ## Which backend a run uses
 
@@ -104,7 +104,7 @@ The settings of `numba_cpu` are gone too: `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMB
 ## Which backend to use
 
 Use the native backend. `numpy_ref` is unthreaded and roughly 6 to 40 times slower than
-threaded native, so it is for checking a result and for what only it runs; the
+threaded native, so it is for checking a result and for a problem a GPU build refuses; the
 [performance history](../../dev/benchmarking.md) records the native backend's own timings.
 The measurements behind the advice below are in the
 [indicative results](../../dev/benchmarks.md#indicative-results); time your own problem for

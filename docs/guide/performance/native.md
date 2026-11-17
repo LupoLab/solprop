@@ -18,7 +18,7 @@ It is the backend to use, and a required dependency: `pip install solprop` insta
 `backend="auto"` — the default of every entry point — selects it. `numpy_ref`, which is
 unthreaded and roughly 6 to 40 times slower than threaded native
 ([which backend to use](backends.md#which-backend-to-use)), remains the numerical
-reference, and runs [the few features native does not](backends.md#features-that-run-on-the-reference-backend).
+reference, and runs [a problem a GPU build refuses](backends.md#features-that-run-on-the-reference-backend).
 
 ## What it runs
 
@@ -191,8 +191,8 @@ It is an environment setting with no keyword, and scan workers inherit it. It is
 backend selection, before any state is allocated or a step taken, by reading the build's
 `build_info().device_backend` and `device_count`, never a version label. It refuses, with a
 `BackendError`, a CPU build, the wrong device backend and a device build that sees no device.
-It also refuses `numpy_ref`, by name or through `backend="auto"` for a TDSE run, because
-such a run would not meet the job's requirement; unset it for such a run.
+It also refuses `numpy_ref`, because such a run would not meet the job's requirement; unset
+it for such a run.
 
 ## Threads on the CPU build
 
