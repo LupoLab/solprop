@@ -41,8 +41,12 @@ Runs, in order: `ruff check --fix .` → `ruff format .` → `ruff check .` → 
 `numpydoc lint` (on `src/solprop` and the figure scripts) → `codespell` → `reuse lint` →
 `poe changelog-check` → `poe size-check` → `poe test`
 (fast and medium tiers, doctests included, under xdist) →
-`sphinx-build -b html -W -n --keep-going docs docs/_build/html`. CI runs exactly the same
-sequence plus `poe test-slow` and the CPU coverage lane; keep the two identical.
+`sphinx-build -b html -W -n --keep-going docs docs/_build/html`. CI runs the same checks,
+split across jobs ([CI](#ci)): **static** runs their non-mutating forms (`ruff check .`,
+`ruff format --check .`) and adds `uv lock --check`; the default lane runs as **test**
+and **coverage** shards; **docs** runs `poe docs` and executes the lessons and tutorials
+again. It also runs `poe test-slow` and the other lanes listed there. A check added to
+or removed from `poe check` is added to or removed from its CI job in the same commit.
 
 Other tasks: `poe test-medium` (the medium tier alone, timed against its budget),
 `poe test-slow`, `poe cov` (the default lane with coverage), `poe test-gpu` (the GPU
@@ -359,5 +363,5 @@ tag publishes solprop-native, then solprop, then solprop-gui
 `numpy_ref` in every job. GPU tests run by hand on a node with a device
 (`poe test-gpu`), at each release and on pull requests that change device code. The
 self-hosted `.github/workflows/cuda.yml`, started by hand, builds the CUDA extension and runs the
-native package's pytest suite and Compute Sanitizer on it. Keep the gate's steps identical to
-`poe check`; a change to one is a change to the other, in the same commit.
+native package's pytest suite and Compute Sanitizer on it. Keep CI's checks in step with
+`poe check` ([the gate](#the-gate-uv-run-poe-check)), in the same commit.

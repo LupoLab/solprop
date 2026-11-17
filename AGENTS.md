@@ -60,9 +60,9 @@ roadmap change, and `uv run poe docs` when Sphinx content or links change (`test
 with `--fix`, ruff format, ruff check, basedpyright) and the modules that exercise what
 changed (`uv run pytest -n auto <files>`). The full gate, slow and coverage lanes run in CI
 on the pull request, not locally; after a CI failure, rerun the failing modules, never the
-whole lane. `poe check` and CI run the same steps ([`tooling.md`](docs/dev/tooling.md)):
-change both in the same commit. Coverage is 100 % of statements and branches; a
-`# pragma: no cover` gives its reason on its line. `gui/` and `native/` add their own gates.
+whole lane. CI runs `poe check`'s checks, split across its jobs
+([`tooling.md`](docs/dev/tooling.md)): change both in the same commit. Coverage is 100 %
+of statements and branches; a `# pragma: no cover` gives its reason on its line. `gui/` and `native/` add their own gates.
 
 **Qualification scope:** `numpy_ref` and the native CPU build; GPU builds separately with
 `poe test-gpu` on a device. **No test, lane or timing runs a full-length propagation**
