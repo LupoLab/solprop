@@ -24,7 +24,7 @@ A solprop Enhancement Proposal (SEP) is a design document for one major change t
 a new physical model, route or numerical scheme, a changed default or convention, a
 redesigned public interface. It states what is proposed and why, sets out the theory with
 its references, discusses how the change could be implemented, and says how it will be
-shown to work. Once accepted it is implemented on branches, in phases, and each phase
+shown to work. Once accepted it is implemented on one branch, in phases, and each phase
 appends a report to the same document. When the work is complete the SEP is archived and
 the manual pages it produced link to it, so that every major feature carries the record of
 how it was specified, built and verified.
@@ -96,6 +96,10 @@ Any status ──► Superseded (by a later SEP)
 | Withdrawn | Abandoned by its author | `seps/archive/` | no |
 | Superseded | Replaced by a later SEP, named in the header | `seps/archive/` | no |
 | Active | A Process SEP in force | `seps/` | no |
+
+A SEP whose design a later decision record replaces, rather than a later SEP, keeps its
+status (a Final SEP stays Final), names the ADR in **Superseded-by** and carries a note
+under its header (*Completion*, §6).
 
 The folder, the [index](index.md) and the roadmap are kept consistent with the status in
 the header; `tests/test_seps.py` checks it. A SEP's tracking issue (ADR-062) stays open
@@ -293,8 +297,9 @@ and compares options; it is not a line-by-line plan, which belongs to the implem
   name, with an error saying which backend does support it; it never falls back silently.
   A SEP is Final only when the backends that run the feature agree within tolerances
   derived from summation bounds, as for every other feature ([testing.md](../testing.md)).
-- **The seam.** A change to the kernel problem, the stage bundles or the protected driver
-  surface rewrites the frozen tables and adds a release-note fragment, as `AGENTS.md`
+- **The seam.** A change to the kernel problem (`PropagationProblem`), the run request
+  (`RunRequest`) or the stage bundles rewrites the frozen tables of
+  `tests/backends/test_driver.py` and adds a release-note fragment, as `AGENTS.md`
   requires; the SEP says in which phase.
 - **Tests.** Unit, invariant, convergence and parity tests as [testing.md](../testing.md)
   sets out, against the analytic and independent references the SEP names; every
@@ -400,3 +405,8 @@ that edits this document and adds a line to its history.
   internal adapters are removed by Final, and its Implementation field lists the
   milestone branches and pull requests. The general rules are unchanged; this records
   the delivery exception, not acceptance of SEP 52.
+- 2026-11-17: Clarifications: a SEP whose design a later ADR replaces stays at its status
+  with the ADR as its Superseded-by note (as SEP 42 and ADR-066 have it, and now SEP 33
+  and ADR-077); the seam rule names the run request and drops the driver surface SEP 47
+  removed; a SEP is implemented on one branch, and the template's phase reports follow
+  that rule.

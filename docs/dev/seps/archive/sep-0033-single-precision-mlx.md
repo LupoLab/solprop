@@ -14,9 +14,12 @@
 | **Resolution** | Accepted 2026-10-24 by John Travers after his human review, the GPT-6 AI review and the revision answering it, recorded in Part III. Final 2026-10-25 with phase 4, its open questions moved to the roadmap (Part II, phase 4 report); merging its pull request is the maintainer's approval. |
 | **Requires** | [SEP 25](sep-0025-rounding-level-reproducibility.md) (the floating-point policy and the bound classes this extends to binary32) |
 | **Supersedes** | — |
-| **Superseded-by** | — |
+| **Superseded-by** | [ADR-077](../../decisions.md) |
 | **Implementation** | John Travers with Opus 5.5 (AI); phases 1–4 on `feature/sep-0033-single-precision`, one pull request |
 | **Manual pages** | Single precision (the page, retired by ADR-077); [Choosing a backend](../../../guide/performance/backends.md); the worked example Single precision (retired by ADR-077) |
+
+**Note:** [ADR-077](../../decisions.md) retired what this SEP built: solprop is binary64
+only, and the `mlx` backend is removed. This page records what was done at the time.
 
 ## Part I — Proposal
 
