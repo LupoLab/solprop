@@ -8,8 +8,9 @@
 the relative one (1e-12 and 1e-8), and many of the suite's quantities are far smaller:
 times of 1e-15 s, nonlinear indices of 1e-25 m^2/W, energies of 1e-16 J. Under such a
 default the comparison accepts any result. ``tests/conftest.py`` gives
-``pytest.approx`` no absolute tolerance when a test gives ``rel=`` alone, and every
-NumPy comparison states its ``atol`` (``docs/dev/testing.md`` section 3).
+``pytest.approx`` no absolute tolerance when a test gives ``rel=`` alone or compares
+with a nonzero number bare, and every NumPy comparison states its ``atol``
+(``docs/dev/testing.md`` section 3).
 ``numpy.testing.assert_allclose`` and ``math.isclose`` default to no absolute tolerance
 and need no rule.
 """
@@ -69,5 +70,10 @@ def test_a_relative_approx_has_no_absolute_tolerance():
     # 1e-12 would accept 5.45e-25, and any other value of that size.
     assert pytest.approx(3.6e-25, rel=0.02) == 3.6e-25 * 1.019
     assert pytest.approx(3.6e-25, rel=0.02) != 5.45e-25
-    # An absolute tolerance the test gives is kept.
+    # A bare approx of a nonzero number keeps pytest's relative 1e-6 and nothing else.
+    assert pytest.approx(1e-13) == 1e-13 * (1 + 5e-7)
+    assert pytest.approx(1e-13) != -1e-13
+    # A bare approx of zero keeps pytest's defaults, and an absolute tolerance the test
+    # gives is kept.
+    assert pytest.approx(0.0) == 1e-13
     assert pytest.approx(0.0, rel=1e-6, abs=1e-20) == 1e-21

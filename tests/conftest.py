@@ -14,6 +14,7 @@ worker installs its own hook (``docs/dev/testing.md`` section 2).
 
 import importlib
 import importlib.util
+import numbers
 import os
 import sys
 
@@ -94,6 +95,8 @@ if _NAMED_BACKEND and importlib.util.find_spec("solprop_native") is None:
 
 
 _PYTEST_APPROX = pytest.approx
+_PYTEST_REL = 1e-6
+"""pytest's default relative tolerance, which a bare ``approx`` of a number keeps."""
 
 
 def _approx(expected, rel=None, abs=None, nan_ok=False):
@@ -103,14 +106,28 @@ def _approx(expected, rel=None, abs=None, nan_ok=False):
     and accepts ``|actual - expected| <= max(rel |expected|, 1e-12)``. The suite's
     quantities are SI values, many of 1e-15 to 1e-53 (times, nonlinear indices,
     polarisabilities, energies), and for them that default accepts any result. So in
-    this suite a test that gives ``rel=`` and no ``abs=`` compares relatively only: the
-    absolute tolerance is zero. A test that needs an absolute tolerance, an expected
-    value of exactly zero among them, gives ``abs=`` (``docs/dev/testing.md``
-    section 3).
+    this suite the absolute tolerance is zero unless the test gives ``abs=``: with
+    ``rel=`` alone the comparison is relative only, and a bare ``approx(x)`` of a
+    nonzero number is relative to pytest's 1e-6 only. A bare ``approx`` of zero, or of
+    a sequence, array or mapping, keeps pytest's defaults. A test that needs an
+    absolute tolerance, an expected value of exactly zero among them, gives ``abs=``
+    (``docs/dev/testing.md`` section 3).
     """
-    if rel is not None and abs is None:
-        abs = 0.0
+    if abs is None:
+        if rel is not None:
+            abs = 0.0
+        elif _nonzero_number(expected):
+            rel, abs = _PYTEST_REL, 0.0
     return _PYTEST_APPROX(expected, rel=rel, abs=abs, nan_ok=nan_ok)
+
+
+def _nonzero_number(value) -> bool:
+    """Return whether `value` is a real or complex number, not a bool, other than 0."""
+    return (
+        isinstance(value, numbers.Complex)
+        and not isinstance(value, bool)
+        and value != 0
+    )
 
 
 pytest.approx = _approx
