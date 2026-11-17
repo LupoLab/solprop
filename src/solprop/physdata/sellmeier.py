@@ -765,7 +765,7 @@ class OptmatSusceptibility(GasSusceptibility):
             wavelength = wavelength[inside]
         state = f"{density:.6g} m^-3 and {temperature:g} K"
         # Beside a pole of the law 1 + chi can fall below zero, in optmat's refractivity
-        # and in the comparison below; the error there is NaN, as before, without a
+        # and in the comparison below; the error there is NaN, without a
         # RuntimeWarning at every sample of a pressure search.
         with (
             np.errstate(invalid="ignore"),
@@ -779,8 +779,7 @@ class OptmatSusceptibility(GasSusceptibility):
         ):
             # optmat's ideal-gas state of this density: its law then takes N = p /
             # (k_B T), which is `density` to one rounding, and the refractivity
-            # virial still enters. Its real-gas inverse is not needed (and before
-            # optmat 0.1.1 it failed for Ar, N2 and CH4 below about 255-284 K).
+            # virial still enters. Its real-gas inverse is not needed.
             ideal = State(density * K_B * temperature, temperature)
             exact = np.asarray(
                 model.refractivity(wavelength, ideal, ideal=True, warn=False)

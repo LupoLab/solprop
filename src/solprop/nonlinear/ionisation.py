@@ -233,8 +233,7 @@ def rate_energy(rate: EvaluableRate) -> tuple[str, float] | None:
     A rate that carries its own energy per event (SEP 3, D8: the loss uses the energy
     the rate's exponent uses, :class:`solprop.nonlinear.optmat_rates.OptmatRate`)
     declares it as ``plasma_energy`` beside its ``species_identity``. Every other rate
-    declares none, and its response takes the species' ionisation potential, as
-    before.
+    declares none, and its response takes the species' ionisation potential.
 
     Parameters
     ----------

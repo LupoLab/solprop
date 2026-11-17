@@ -774,7 +774,7 @@ class DispersiveKerrModel:
         :math:`\nu_c`, m^-1, positive.
     band_edge_linear : float or None
         The band edge for one linear polarisation, m^-1; ``None`` where optmat's
-        record leaves it undefined (CO2, CH4, SF6, N2O and O3 at optmat 0.4).
+        record leaves it undefined (CH4, SF6 and N2O among the built-in gases).
     band_edge_any : float or None
         The band edge for any polarisation, m^-1, or ``None``.
     material_records : tuple of MaterialRecord
