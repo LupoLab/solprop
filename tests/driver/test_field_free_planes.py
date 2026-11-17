@@ -501,7 +501,7 @@ def test_a_field_free_observation_crosses_no_field(monkeypatch):
     # The same replayed march: its history is one structure, observed either way.
     assert np.array_equal(histories[1].z, histories[0].z)
     assert np.array_equal(histories[1].dz, histories[0].dz)
-    with pytest.raises(BackendError, match=r"observe\(field=False\)"):
+    with pytest.raises(BackendError, match="carries no field"):
         free.require_field()
 
 
