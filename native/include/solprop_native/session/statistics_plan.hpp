@@ -19,8 +19,8 @@
 // packed values and assembles the schema.
 //
 // The one native implementation of each statistic: a native session takes its plane
-// statistics and its periodic rows through it, and `NativeBackend.stats` its plane
-// statistics, so coincident requests give the same bits.
+// statistics and its periodic rows through it, so coincident requests give the same
+// bits.
 //
 // Kokkos-free: the native passes are behind `GeneralState`, declared elsewhere.
 //
@@ -50,8 +50,7 @@ enum class Route : int { modal = 0, spatial = 1, general = 2 };
 
 /** Each statistic a plan can emit, by its solprop catalogue name, and the per-node
     channel populations (`node_populations`, final fraction and peak rate at each
-    node and channel), which the transitional session's host axis statistics reuse
-    (SEP 19). The values are the Python adapter's
+    node and channel, SEP 19). The values are the Python adapter's
     (`solprop_native._statistics.STATISTIC_IDS`). */
 enum class Stat : int {
   omega0 = 0,
@@ -162,7 +161,8 @@ struct Plan {
   std::vector<double> weight;
   RealTable weight_table;
   // The on-axis synthesis at the reference position, rows times modes, which the
-  // taper rescales (`NumpyWorkspace._on_axis_synthesis`), and the taper's table.
+  // taper rescales (`ReferenceStatistics._on_axis_synthesis`, numpy_ref/statistics.py),
+  // and the taper's table.
   std::vector<double> on_axis;
   RealTable taper;
   // The on-axis plasma statistics (solprop SEP 19): the pad scale their row carries
@@ -239,8 +239,8 @@ struct Plan {
 [[nodiscard]] std::vector<double> evaluate(GeneralState& state, const Plan& plan,
                                            double z);
 
-/** solprop's half-maximum width of a power trace (`_half_width` of the native
-    adapter, `solprop.stats._half_max_range`): the outer or the central crossings,
+/** solprop's half-maximum width of a power trace
+    (`solprop.stats.definitions._half_max_range`): the outer or the central crossings,
     NaN when undefined. Strict, as solprop's NumPy rounds it. */
 [[nodiscard]] double half_width(const double* t, const double* power, std::size_t n,
                                 bool outer);

@@ -398,7 +398,7 @@ Result run(const Policy& policy, State& state, Engine& engine,
           return out;
         }
         // A native session's: the extension from the state before the step, then
-        // the step finished and committed here (`_finish_crossing`'s order).
+        // the step finished and committed here (`RungeKuttaMarch.march_to`'s order).
         try {
           engine.extend(state.z, stop.dz);
         } catch (const std::exception& error) {

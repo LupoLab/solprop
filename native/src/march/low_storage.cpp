@@ -34,8 +34,7 @@ namespace {
 /** Python's `max(a, b)`. */
 double py_max(const double a, const double b) { return b > a ? b : a; }
 
-/** Append one stage's scalars, all but the increment, as `_trial_arrays` stacks a
-    bundle's: the order of `stage::rows`. */
+/** Append one stage's scalars, all but the increment, in `stage::rows`'s order. */
 void append(TrialScalars& out, const stage::Row& one) {
   out.phi_at.insert(out.phi_at.end(), one.phi_at.begin(), one.phi_at.end());
   out.prefactor.insert(out.prefactor.end(), one.prefactor.begin(), one.prefactor.end());
@@ -127,7 +126,7 @@ TrialScalars scalars(const stage::Tables& tables, stage::Anchor& anchor,
   const double half_step = 0.5 * dz;
   const double midpoint = z + half_step;
   const double end = z + dz;
-  // A z table's positions, loaded together as `_weight_rows` loads a step's.
+  // A z table's positions, the step's three, loaded together in one call.
   if (tables.phi == stage::Terms::table || tables.prefactor == stage::Terms::table)
     static_cast<void>(tables.z_slots->load(*tables.z_state, {z, midpoint, end}));
   // Each evaluation reads its position as its own anchor; the end's row pads the
@@ -191,7 +190,7 @@ ResidentLowStorage::ResidentLowStorage(GeneralState& state, const stage::Tables&
 
 double ResidentLowStorage::trial(const double z, const double dz) {
   // In flight from here to the finish: the state is overwritten in place
-  // (`HostLowStorage.in_flight`, set before the engine's step).
+  // (`NumpyLowStorage.in_flight`, set before the engine's step).
   in_flight_ = true;
   double key = std::numeric_limits<double>::quiet_NaN();
   bool rebuild = false;
@@ -214,8 +213,8 @@ double ResidentLowStorage::trial(const double z, const double dz) {
 
 void ResidentLowStorage::accept(const double dz) {
   inject(march::Stage::accept);
-  // The backend's finish, then the accepted-step hook (`_record`'s
-  // `_on_accepted_step`); the step commits only once both are done.
+  // The workspace's finish, then the reused stage promoted (`NumpyLowStorage.accept`
+  // finishes and installs); the step leaves flight only once both are done.
   state_.finish(dz);
   state_.promote_fsal();
   in_flight_ = false;

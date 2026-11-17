@@ -1293,8 +1293,7 @@ std::vector<double> GeneralWorkspace::plane_fluence_trace(
 
 // The field's spectrum at one physical point, the matrix `(n_rows, n_modes)` contracted
 // with the modal state: `(n_rows * n_pol, n_omega)` samples, each a real and an
-// imaginary part in turn. The transitional session's on-axis statistics scan this row
-// on the host (solprop SEP 19), so that it is all a plane's scan brings across; the
+// imaginary part in turn, reached through the testing bindings (solprop SEP 19); the
 // native session scans it in place (`axis_populations`).
 std::vector<Complex>
 GeneralWorkspace::axis_spectrum(const std::vector<double>& matrix) {
@@ -1386,7 +1385,7 @@ void GeneralWorkspace::statistics_modal_time() {
 // field's magnitude, `hypot(E_x, E_y)`, which is all a field grid's scan reads; an
 // envelope's scan reads their polarisation ellipse, so they go to a row of their own
 // and the envelope scan reads it as a node of two components
-// (`solprop.backends.populations.envelope_populations` on the host's row).
+// (solprop's `envelope_populations`, numpy_ref/passes/plasma.py, on the host's row).
 std::vector<double>
 GeneralWorkspace::axis_populations(const std::vector<double>& matrix,
                                    const std::vector<double>& channel_preionisation) {

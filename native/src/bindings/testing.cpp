@@ -1130,8 +1130,8 @@ void bind_testing(nb::module_& testing) {
         auto weights = exponential_weights(slots, predictor, corrector, rows);
         carrier_frame(weights, carrier, weights.width - 1);
         const auto rate_weights = real_vector(rate);
-        // A varying operator's compensation tables (solprop's
-        // backends.multistep.compensation_tables); empty for a constant one.
+        // A varying operator's compensation tables (solprop's `compensation_tables`,
+        // numpy_ref/adams_tables.py); empty for a constant one.
         weights.compensated = !rate_weights.empty();
         if (weights.compensated) {
           const auto span_values = real_vector(spans);

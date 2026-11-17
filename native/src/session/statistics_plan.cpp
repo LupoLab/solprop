@@ -282,9 +282,9 @@ void axis(GeneralState& state, const Plan& plan, const double z, const double ta
       peaks[c] = rows[2 * (node * n_channels + c) + 1];
     }
   } else {
-    // `axis_row_matrix(problem, NumpyWorkspace._on_axis_synthesis(modes))`: the matrix
-    // at the reference position times the taper at z, then the pad scale; a state with
-    // two polarisations takes the profile's magnitude.
+    // `axis_row_matrix(problem, ReferenceStatistics._on_axis_synthesis(modes, z))`: the
+    // matrix at the reference position times the taper at z, then the pad scale; a
+    // state with two polarisations takes the profile's magnitude.
     std::vector<double> scaled = plan.on_axis;
     for (double& value : scaled) {
       if (plan.taper.present())
@@ -403,8 +403,8 @@ void temporal(GeneralState& state, const Plan& plan, const double z, const doubl
         (flags & weighted) != 0U ? power_weight(plan, z) : std::vector<double>{};
     std::vector<double> on_axis;
     if ((flags & temporal_intensity) != 0U) {
-      // `NumpyWorkspace._on_axis_synthesis`: the matrix at the reference position times
-      // the taper at z.
+      // `ReferenceStatistics._on_axis_synthesis`: the matrix at the reference position
+      // times the taper at z.
       on_axis = plan.on_axis;
       if (plan.taper.present())
         for (double& value : on_axis)
@@ -549,7 +549,7 @@ void spatial(GeneralState& state, const Plan& plan, const double z,
 }
 
 /** A general modal basis's statistics: the temporal ones of the whitened columns
-    `c = W^(1/2) a` (`solprop.stats._whitened`). */
+    `c = W^(1/2) a` (`solprop.stats.definitions._whitened`). */
 void general(GeneralState& state, const Plan& plan, const double z,
              const Wanted& wanted, Results& results) {
   std::uint64_t flags = 0;

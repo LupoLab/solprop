@@ -91,7 +91,7 @@ private:
   bool compensated_;
   bool interpolate_;
   std::optional<MarchFault>& fault_;
-  /** The last trial's carrier rotations, `_trial_carrier`. */
+  /** The last trial's carrier rotations (`HostHistory.step_carrier`). */
   std::vector<double> carrier_;
 };
 

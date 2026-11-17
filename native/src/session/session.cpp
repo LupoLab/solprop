@@ -276,9 +276,9 @@ bool Session::poisoned() const noexcept {
 }
 
 std::uint64_t Session::host_step() const {
-  // The accepted steps to the driver's next work, the least of them: a periodic row
-  // and a step plane (each march's `_bounds`). A latched snapshot is the halt flag,
-  // which the march reads at every accepted endpoint.
+  // The accepted steps to the session's next work, the least of them: a periodic row
+  // and a step plane (`HostSession._account_step` and `_natural_stop`). A latched
+  // snapshot is the halt flag, which the march reads at every accepted endpoint.
   std::uint64_t steps = 0;
   const auto take = [&steps](const std::uint64_t value) {
     steps = steps == 0 ? value : std::min(steps, value);
@@ -363,7 +363,8 @@ void Session::publish() noexcept {
 }
 
 void Session::absorb(const march::Result& result, const Clock::time_point started) {
-  // `_record_attempt`: each row with the wall time since the previous observation.
+  // As `HostSession.record`: each row with the wall time since the previous
+  // observation.
   const double offset = std::chrono::duration<double>(started - clock_).count();
   const std::size_t n_rows = result.rows.size() / march::row_columns;
   for (std::size_t row = 0; row < n_rows; ++row) {
@@ -382,7 +383,7 @@ void Session::absorb(const march::Result& result, const Clock::time_point starte
       ++generation_;
     }
   }
-  // `_synchronise`: the call ledger's orders, one per accepted step.
+  // The call ledger's orders, one per accepted step, as `HostAdamsMarch` appends them.
   if (auto* adams = std::get_if<AdamsMethod>(&method_))
     for (const std::size_t order : result.orders)
       adams->orders.push_back(static_cast<std::uint8_t>(order));
@@ -390,10 +391,11 @@ void Session::absorb(const march::Result& result, const Clock::time_point starte
 }
 
 void Session::take_row() {
-  // `_record_step_stats`: the row of the step just committed, its attempt index the
-  // one `_record` has just appended, counted in the chunk: `-1` when a warning barrier
-  // delivered that attempt in the chunk before (a row the barrier's continuation
-  // takes), so that the assembled history indexes it exactly once.
+  // As `HostSession._account_step` takes its row: the row of the step just committed,
+  // its attempt index the one `record` has just appended, counted in the chunk: `-1`
+  // when a warning barrier delivered that attempt in the chunk before (a row the
+  // barrier's continuation takes), so that the assembled history indexes it exactly
+  // once.
   const double z = position();
   const auto values = resident_->statistics(plan_.row_statistics, z);
   if (row_width_ == 0)
@@ -613,7 +615,7 @@ bool Session::attach(Batch& batch) {
 bool Session::endpoint(Batch& batch, const double target, const bool edge) {
   // The event step after its monitor check: the transverse edge's read where due and
   // its collar's current, its statistics row, then the natural stop
-  // (`_take_step_stats`, `_natural_stop`).
+  // (`HostSession._account_step`, `_natural_stop`).
   if (edge && edge_ && edge_endpoint(batch))
     return true;
   if (plan_.period > 0) {
@@ -643,8 +645,8 @@ bool Session::endpoint(Batch& batch, const double target, const bool edge) {
 
 bool Session::observe_plane(Batch& batch, const Observation kind,
                             const std::int64_t plane, const bool next) {
-  // `_monitor_plane` before the observation: a plane's state is checked even when its
-  // last step was not (SEP 47 section 5.3, the requested plane).
+  // `HostSession._plane_checks` before the observation: a plane's state is checked
+  // even when its last step was not (SEP 47 section 5.3, the requested plane).
   continued_kind_ = kind;
   continued_plane_ = plane;
   continued_next_ = next;
@@ -677,7 +679,7 @@ bool Session::plane_rest(Batch& batch) {
 }
 
 bool Session::observe_inside(Batch& batch, const double target) {
-  // `_observe_inside` and the Adams march's observation: the state becomes the
+  // The dense observation (`HostSession._after_march`): the state becomes the
   // crossing step's interpolated field at the plane, the committed state held aside,
   // and the plane is observed there (SEP 47 section 5.3).
   dense_->observe(target);
@@ -796,7 +798,7 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
     }
     if (natural_due_ && !march::reached(position(), target, landing_ulps_)) {
       // The step that crossed the last plane ends before this one, and is observed
-      // first (`_natural_stop_due`).
+      // first (`HostSession._natural_due`).
       natural_due_ = false;
       observe_plane(batch, Observation::step, static_cast<std::int64_t>(next_plane_),
                     false);

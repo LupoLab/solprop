@@ -12,8 +12,9 @@ tables of the plasma density, each channel's preionisation, the species densitie
 taper, the effective area and the modal power weight (:meth:`~solprop.translate.
 chebyshev.PiecewiseChebyshev.packed`), read by the native Clenshaw recursion bit for bit
 as solprop evaluates them. A general modal basis's statistics read the square root of
-its flux metric (:func:`solprop.stats._whitened`), formed here from the metric's own
-values by the same ``eigh`` on each interval where the metric is constant.
+its flux metric (``solprop.stats.definitions._whitened``), formed here from the
+metric's own values by the same ``eigh`` on each interval where the metric is
+constant.
 
 A profile statistic (``density``, ``pressure``, ``core_radius``) reads its path from
 the representation the propagation already carries when one of the problem's scalar
@@ -93,8 +94,7 @@ __all__ = [
 
 NODE_POPULATIONS = "_node_populations"
 """The plan's per-node channel populations, ``(n_nodes, n_channels, 2)``: each node's
-final fraction and peak rate, which the transitional session's host on-axis statistics
-reuse on a Radau rule (SEP 19). Not a catalogue statistic."""
+final fraction and peak rate (SEP 19). Not a catalogue statistic."""
 
 STATISTIC_IDS: Mapping[str, int] = {
     name: index
@@ -422,7 +422,7 @@ def _table(table: PiecewiseChebyshev | None) -> dict[str, object] | None:
 
 
 def _root(metric: np.ndarray) -> np.ndarray:
-    """Return the metric's square root as :func:`solprop.stats._whitened` forms it.
+    """Return the metric's square root as ``solprop.stats.definitions._whitened`` does.
 
     ``W`` is ``(n_modes, n_modes, n_omega)``; ``W^(1/2)`` comes back frequency first,
     ``(n_omega, n_modes, n_modes)``.
@@ -676,8 +676,8 @@ def _shape(
 def _on_axis(modes: Sequence[Mode]) -> np.ndarray:
     """Return the mode set's synthesis on the axis at the reference position.
 
-    ``NumpyWorkspace._on_axis_synthesis`` before its taper: the single node ``r = 0`` of
-    :func:`~solprop.modes.quadrature.on_axis_rule`, rows x and y.
+    ``ReferenceStatistics._on_axis_synthesis`` before its taper: the single node
+    ``r = 0`` of :func:`~solprop.modes.quadrature.on_axis_rule`, rows x and y.
     """
     rule = on_axis_rule(modes[0].dimlimits(0.0)[0])
     return mode_matrix(modes, rule, 0.0, components=("x", "y")).synthesis
@@ -1056,8 +1056,8 @@ def lower(
     - ``apertures``: a spatial route's far-field tables packed for the native pass (the
       adapter's ``_aperture_payload``): the apertures, the regions and the exponent.
     - ``on_axis``: the mode set's synthesis on the axis at the reference position, when
-      the caller already built it (``NumpyWorkspace._on_axis_synthesis``); built here
-      otherwise.
+      the caller already built it (``ReferenceStatistics._on_axis_synthesis``); built
+      here otherwise.
     - ``z_end``: the run's last plane, m, which a profile statistic's table must reach.
     - ``planes``: every position the plane statistics will be taken at, when the run
       fixes them all before it starts; ``zdw`` is then searched exactly there

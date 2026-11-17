@@ -1110,8 +1110,8 @@ class NativeSession:
         The native session copies the march's state, the accepted field as the state
         holds it and every persistent history row once, losslessly, as solprop's host
         history lays them out
-        (:meth:`solprop.backends.numpy_ref.marches.adams.HostAdamsMarch.snapshot`; SEP
-        47 section 5.4).
+        (:meth:`solprop.backends.numpy_ref.marches.adams.HostAdamsMarch.snapshot_fields`;
+        SEP 47 section 5.4).
 
         Parameters
         ----------
@@ -1239,7 +1239,8 @@ class NativeSession:
         record["native_session"] = native
         monitor = self.monitor_record()
         if monitor is not None:
-            # Where the driver's record carries its monitor's (`HostSession.metadata`).
+            # Where the reference's record carries its monitor's
+            # (`HostSession.execution_record`).
             record["boundary_monitor"] = monitor
         return record
 
@@ -1723,8 +1724,8 @@ class NativeSession:
         """Return a host source's kept exception as the reference raises it.
 
         A reservation the atomic budget refused names the last accepted step and
-        carries its field, as `NumpyRefBackend._reserve_source_calls` does; any other
-        exception is returned unchanged.
+        carries its field, as the reference's Adams march raises it
+        (`HostAdamsMarch._afford`); any other exception is returned unchanged.
         """
         if not isinstance(kept, ResponseBudgetError):
             return kept

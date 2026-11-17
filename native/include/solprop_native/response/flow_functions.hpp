@@ -26,7 +26,7 @@
 // the exponential Adams formulation (solprop SEP 47 phase 4, section 6.3's coupled-flow
 // row).
 //
-// solprop's reference (`backends/numpy_ref/multistep.py`, `coupled_moments`) reads the
+// solprop's reference (`numpy_ref/adams_kernels.py`, `coupled_moments`) reads the
 // flow and the phi-functions of `X = shift I + h T`, `T` the bin's upper-triangular
 // Schur factor, off the first block row of the exponential of the augmented matrix
 //
@@ -36,7 +36,7 @@
 // `phi_1(X)`, ..., `phi_count(X)` (Higham, *Functions of Matrices*, section 10.7.4;
 // Al-Mohy and Higham 2011): the reference by SciPy's Pade `expm`, this engine by the
 // scaling, sixteen-term Taylor series and squaring of solprop's reference flow action
-// (`numpy_ref/workspace.py`, `_triangular_exponential`), the native
+// (`numpy_ref/coupled_flow.py`, `_triangular_exponential`), the native
 // `squared_series_action`.
 //
 // Every block row of `A` but the first is a scaled shift, so every power of `A / 2^s`,
