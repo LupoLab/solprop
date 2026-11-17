@@ -70,7 +70,8 @@ They come from the run's record on the machine, so nothing is lost while you are
 - A Slurm job waiting in the queue shows **queued**, with Slurm's reason (`Priority`,
   `Resources`).
 - **Stop** asks the run to stop at its next step. Its file can be resumed, as for a run
-  on your computer.
+  on your computer. A run stopped while it is queued or starting ends as soon as it
+  starts, before it computes anything.
 - A Slurm job is sent `SIGTERM` two minutes before its time limit, so solprop writes
   where the run stood. **Resume** then continues it as a new job.
 

@@ -490,7 +490,7 @@ class RunsWindow(QWidget):
         dialog.setMinimumDuration(300)
 
         def progress(have: int, total: int) -> None:
-            """Show how far the copy has got, on the window's thread.
+            """Show how far the copy has got.
 
             Parameters
             ----------
@@ -499,8 +499,7 @@ class RunsWindow(QWidget):
             total : int
                 The file's size, bytes.
             """
-            share = int(1000 * have / total) if total else 1000
-            QTimer.singleShot(0, lambda: dialog.setValue(share))
+            dialog.setValue(int(1000 * have / total) if total else 1000)
 
         def done(value: object, error: object) -> None:
             """Say what came of the request, and list again.

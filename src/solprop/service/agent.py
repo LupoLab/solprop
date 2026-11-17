@@ -47,6 +47,7 @@ __all__ = [
     "FOLLOW_PERIOD",
     "LIVENESS_PERIOD",
     "REQUESTS",
+    "SLURM_LIVENESS_PERIOD",
     "Agent",
     "hello",
     "main",
@@ -57,6 +58,11 @@ FOLLOW_PERIOD: Final = 0.5
 
 LIVENESS_PERIOD: Final = 2.0
 """How often a followed run with a quiet record is checked for having gone, s."""
+
+SLURM_LIVENESS_PERIOD: Final = 60.0
+"""How often a followed Slurm run with a quiet record is checked for having gone, s:
+each check asks the scheduler (``squeue``), which sites ask not to be polled often, and
+a queued job is quiet for as long as it waits."""
 
 FOLLOW_LIMITS: Final = (0.02, 5.0)
 """The shortest and longest period a window may ask a record to be read at, s."""
@@ -261,13 +267,17 @@ class Agent:
         A run that has gone without recording an ending (its process killed, out of
         memory, its job cancelled) is said ``lost``, from its state
         (:func:`~solprop.service.runs.summarise`) checked every
-        :data:`LIVENESS_PERIOD` seconds while its record stays quiet.
+        :data:`LIVENESS_PERIOD` seconds while its record stays quiet, or every
+        :data:`SLURM_LIVENESS_PERIOD` seconds for a Slurm run.
 
         The terminal event is sent only once the run's summary records its ending
         (:mod:`solprop.service.record`), so a window that hears a run has ended finds
         it ended in a list of runs and can continue it at once; a run that goes
         between the two has its terminal event sent as it wrote it.
         """
+        from solprop.service.runs import slurm_jobs  # noqa: PLC0415 - light
+
+        liveness = SLURM_LIVENESS_PERIOD if slurm_jobs([folder]) else LIVENESS_PERIOD
         checked = time.monotonic()
         while not done.is_set():
             try:
@@ -282,7 +292,7 @@ class Agent:
                 )
                 return
             held = any(e.terminal for e in events) and not _ending_recorded(folder)
-            if held and time.monotonic() - checked >= LIVENESS_PERIOD:
+            if held and time.monotonic() - checked >= liveness:
                 checked = time.monotonic()
                 held = _lost(folder) is None
             if held:
@@ -304,7 +314,7 @@ class Agent:
                 )
                 if any(event.terminal for event in events):
                     return
-            elif time.monotonic() - checked >= LIVENESS_PERIOD:
+            elif time.monotonic() - checked >= liveness:
                 checked = time.monotonic()
                 lost = _lost(folder)
                 if lost is not None:
@@ -312,7 +322,7 @@ class Agent:
                     lost_event = {
                         "run_id": folder.name,
                         "kind": "lost",
-                        "data": {"exitcode": None, "message": lost},
+                        "data": {"message": lost},
                     }
                     self.send(
                         {
@@ -364,8 +374,12 @@ class Agent:
         solprop.service.messages.ServiceError
             If the run has no job this machine can end.
         """
-        from solprop.service.launch import cancel_slurm  # noqa: PLC0415 - light
-        from solprop.service.record import alive, read_job  # noqa: PLC0415 - light
+        from solprop.service.launch import SUBMITTED, cancel_slurm  # noqa: PLC0415
+        from solprop.service.record import (  # noqa: PLC0415 - light
+            _read_json,
+            alive,
+            read_job,
+        )
         from solprop.service.runs import summarise  # noqa: PLC0415 - light
 
         folder = _folder(body)
@@ -374,10 +388,17 @@ class Agent:
             cancel_slurm(str(summary["slurm_job"]))
             return
         job = read_job(folder)
-        if job is not None and job.host == socket.gethostname():
-            if alive(job.pid, job.stamp):
+        if job is not None:
+            host, pid, stamp = job.host, job.pid, job.stamp
+        else:
+            # Started and not yet recorded: the process its launcher started.
+            submitted = _read_json(folder / SUBMITTED) or {}
+            host = submitted.get("host")
+            pid, stamp = int(submitted.get("pid", -1)), submitted.get("stamp")
+        if host == socket.gethostname():
+            if alive(pid, stamp):
                 hard = getattr(signal, "SIGKILL", signal.SIGTERM)
-                os.kill(job.pid, hard if body.get("force") else signal.SIGTERM)
+                os.kill(pid, hard if body.get("force") else signal.SIGTERM)
             return
         msg = f"{folder.name} has no process or job on this machine to end"
         raise ServiceError(msg)
@@ -575,8 +596,8 @@ def _ending_recorded(folder: Path) -> bool:
 def _lost(folder: Path) -> str | None:
     """Return why a run that recorded no ending has gone, or ``None`` while it lives.
 
-    - Returns: the reason, as the run's summary gives it; ``None`` for a run queued,
-      starting, running or ended with its own record.
+    - Returns: the reason, as the run's summary gives it (empty when it gives none);
+      ``None`` for a run queued, starting, running or ended with its own record.
     """
     from solprop.service.launch import slurm_states  # noqa: PLC0415 - light
     from solprop.service.runs import slurm_jobs, summarise  # noqa: PLC0415 - light
@@ -585,7 +606,7 @@ def _lost(folder: Path) -> str | None:
     with contextlib.suppress(ServiceError):
         summary = summarise(folder, slurm_states(jobs) if jobs else None)
         if summary["state"] == "lost":
-            return str(summary["detail"] or "its process ended without saying how")
+            return str(summary["detail"])
     return None
 
 

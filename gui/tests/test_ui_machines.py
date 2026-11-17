@@ -247,20 +247,27 @@ def test_a_copy_is_fetched_in_pieces_and_resumed(
     assert target.read_bytes() == source.read_bytes()
     # A file that changes while it is copied is not kept.
     growing: list[tuple[object, object]] = []
+    connection = hub.connections[LOCAL]
+    piece = connection.call
 
-    def grow(have: int, total: int) -> None:
-        if have < total:
+    def grow(kind: str, body: Any = None) -> Any:
+        """Answer as the helper does, the file growing after each piece."""
+        value = piece(kind, body)
+        if kind == "fetch":
             with source.open("ab") as stream:
                 stream.write(b"more")
+        return value
 
-    hub.fetch(
-        LOCAL,
-        str(source),
-        tmp_path / "copies" / "grown.h5",
-        grow,
-        lambda value, error: growing.append((value, error)),
-    )
-    qtbot.waitUntil(lambda: bool(growing), timeout=WAIT_MS)
+    with monkeypatch.context() as patched:
+        patched.setattr(connection, "call", grow)
+        hub.fetch(
+            LOCAL,
+            str(source),
+            tmp_path / "copies" / "grown.h5",
+            lambda have, total: None,
+            lambda value, error: growing.append((value, error)),
+        )
+        qtbot.waitUntil(lambda: bool(growing), timeout=WAIT_MS)
     assert growing[0][0] is None and "changed while it was copied" in str(growing[0][1])
     assert not (tmp_path / "copies" / "grown.h5").exists()
     missing: list[tuple[object, object]] = []
@@ -415,6 +422,50 @@ def test_files_are_copied_to_a_machine_before_its_request(
     )
     qtbot.waitUntil(lambda: len(copied) == 2, timeout=WAIT_MS)
     assert copied[1][0] is None
+    hub.close()
+
+
+def test_the_runs_window_shows_how_far_a_fetched_copy_has_got(
+    qtbot: QtBot, tmp_path: Path, run: str, monkeypatch
+):
+    import threading  # noqa: PLC0415 - only here
+
+    from solprop_gui.ui import machines_hub, runs_window  # noqa: PLC0415
+
+    monkeypatch.setattr(machines_hub, "CHUNK", 4096)  # a copy in many pieces
+    shown: list[tuple[int, bool]] = []
+
+    class Dialog(runs_window.QProgressDialog):
+        """The fetch's progress dialog, remembering each value and its thread."""
+
+        def setValue(self, value: int) -> None:  # noqa: N802 - Qt's name
+            here = threading.current_thread() is threading.main_thread()
+            shown.append((value, here))
+            super().setValue(value)
+
+    monkeypatch.setattr(runs_window, "QProgressDialog", Dialog)
+    workspace = tmp_path / "runs"
+    folder = workspace / "r1"
+    folder.mkdir(parents=True)
+    shutil.copy(run, folder / "run.h5")
+    (folder / "recipe.toml").write_text('[recipe]\ntitle = "Two modes"\n', "utf-8")
+    target = tmp_path / "copies" / "run.h5"
+    hub = MachineHub()
+    hub.ensure(Machine(LOCAL))
+    window = RunsWindow(
+        lambda: [Machine(LOCAL)], hub, lambda: workspace, lambda *_: target
+    )
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitUntil(lambda: window.table.rowCount() == 1, timeout=WAIT_MS)
+    window.table.selectRow(0)
+    with qtbot.waitSignal(window.fetched, timeout=WAIT_MS) as fetched:
+        window._fetch()
+    assert fetched.args == [str(target)]
+    assert target.read_bytes() == (folder / "run.h5").read_bytes()
+    assert len(shown) > 2 and shown[-1] == (1000, True)  # piece by piece, to the end
+    assert all(here for _, here in shown)  # every value set on the window's thread
+    window.hide()
     hub.close()
 
 

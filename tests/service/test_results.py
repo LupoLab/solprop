@@ -97,10 +97,14 @@ def test_the_spectrogram_and_figures(run: str, tmp_path: Path, monkeypatch):
     # On frequency the map starts at the transform's lowest, not the window's.
     assert gated["x"][0] < 1e14 < gated["x"][-1]
     assert np.all(np.abs(gated["t"]) <= 5e-14)
+    import matplotlib.pyplot as plt  # noqa: PLC0415 - only here
+
+    before = plt.get_fignums()
     for kind in ("prop_2d", "spec_1d", "time_1d", "spectrogram", "plot_stats"):
         file = tmp_path / f"{kind}.png"
         written = ask("result_figure", {"path": run, "file": str(file), "plot": kind})
         assert all(Path(path).stat().st_size > 1000 for path in written)
+        assert plt.get_fignums() == before  # drawn, written and let go
     with pytest.raises(ValueError, match="no plot"):
         ask(
             "result_figure", {"path": run, "file": str(tmp_path / "x.png"), "plot": "x"}
@@ -111,6 +115,31 @@ def test_the_spectrogram_and_figures(run: str, tmp_path: Path, monkeypatch):
         {"path": run, "file": str(tmp_path / "stats.pdf"), "plot": "plot_stats"},
     )
     assert [Path(path).name for path in many] == ["stats-1.pdf", "stats-2.pdf"]
+
+
+def test_a_spectrogram_reports_the_gate_solprop_used(run: str):
+    from solprop.processing import (  # noqa: PLC0415 - only here
+        get_spectrogram,
+        grid_of,
+        real_field_oversampling,
+        time_axis,
+    )
+
+    wide = [-1e-9, 1e-9]  # far wider than the time window: the gate's range is clipped
+    found = ask("spectrogram", {"path": run, "index": 2, "time_range": wide})
+    with open_file(run) as handler:
+        grid = grid_of(handler)
+        times = time_axis(grid, real_field_oversampling(grid))
+        _, _, values = get_spectrogram(
+            handler, "wavelength", plane=2, modes=0, gate_fwhm=found["gate_fwhm"]
+        )
+        _, _, by_default = get_spectrogram(
+            handler, "wavelength", plane=2, modes=0, time_range=tuple(wide)
+        )
+    window = float(times[-1] - times[0])
+    assert found["gate_fwhm"] == pytest.approx(window / 20.0, rel=1e-12)  # rounding
+    assert by_default.max() > 0.0
+    assert np.array_equal(values, by_default)  # the gate reported is the one used
 
 
 def test_a_file_says_its_planes_positions_and_modes(run: str, monkeypatch):
