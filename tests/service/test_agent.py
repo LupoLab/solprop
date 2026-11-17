@@ -342,7 +342,8 @@ def test_the_ssh_command_and_its_environment():
         askpass="/opt/askpass",
     )
     assert command[0] == "ssh" and command[command.index("-p") :][:2] == ["-p", "2222"]
-    assert command[-1] == "exec ~/env/bin/python -m solprop.service.agent"
+    assert command[-3:-1] == ["--", "me@lab"]  # a host is never read as an option
+    assert command[-1] == 'exec "$HOME"/env/bin/python -m solprop.service.agent'
     assert environment["SSH_ASKPASS"] == "/opt/askpass"
     assert environment["SSH_ASKPASS_REQUIRE"] == "force"
     local, _ = agent_command(Machine(LOCAL))
@@ -354,6 +355,38 @@ def test_the_ssh_command_and_its_environment():
     machine = Machine("lab", "me@lab", resources={"cpus": 4})
     value = {**machine.value(), "future": 1}
     assert Machine.from_value(value) == machine
+
+
+@pytest.mark.parametrize(
+    ("python", "remote"),
+    [
+        ("~/my envs/bin/python", "\"$HOME\"'/my envs/bin/python'"),
+        ("~", '"$HOME"'),
+        ("/opt/a b/python", "'/opt/a b/python'"),
+        ("python3", "python3"),
+        ("/env/bin/python; rm -rf ~", "'/env/bin/python; rm -rf ~'"),
+    ],
+)
+def test_the_helper_s_python_is_quoted_for_the_remote_shell(python, remote):
+    if sys.platform == "win32":
+        pytest.skip("the remote shell is POSIX; the check runs it here")
+    import subprocess  # noqa: PLC0415 - only here
+
+    command, _ = agent_command(Machine("lab", "-oProxyCommand=x", python=python))
+    assert command[-3:] == [
+        "--",
+        "-oProxyCommand=x",
+        f"exec {remote} -m solprop.service.agent",
+    ]
+    # The remote shell reads it back as the one path given, with ~ expanded.
+    said = subprocess.run(
+        ["sh", "-c", f"printf %s {remote}"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**os.environ, "HOME": "/home/me"},
+    ).stdout
+    assert said == python.replace("~", "/home/me", 1 if python.startswith("~") else 0)
 
 
 def test_hosts_are_read_from_the_ssh_configuration_and_its_includes(tmp_path: Path):
