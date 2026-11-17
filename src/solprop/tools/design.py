@@ -103,7 +103,7 @@ bracket's ends, for the change to be a root. Brent's method converges onto a pol
 readily as onto a zero; at a zero the residual it ends on is of the order of the slope
 times the tolerance, many orders below the ends, and at a pole it diverges past both.
 A parameter has no integral like ``beta1`` to test the change against (see
-:data:`~solprop.tools.waveguide._POLE_FACTOR`), so the residual's own size decides."""
+:func:`~solprop.modes.base._is_zero`), so the residual's own size decides."""
 
 
 def _pressure_root(

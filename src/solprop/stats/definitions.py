@@ -1041,6 +1041,7 @@ def zdw(
     z: float,
     *,
     wavelength_limits: tuple[float, float] = DEFAULT_ZDW_RANGE,
+    near: float | None = None,
 ) -> Float[np.ndarray, " n_modes"]:
     """Return the zero-dispersion wavelength of each mode at one position.
 
@@ -1060,6 +1061,11 @@ def zdw(
         nm to 3 um window; :func:`~solprop.stats.collect` narrows it to the grid's own
         band with :func:`inband_wavelengths`, which is where the answer means anything
         and where the material models are not extrapolating.
+    near : float, optional
+        Reference wavelength in m: of several zeros, return the one nearest it that
+        no resonance separates from it (:func:`solprop.modes.base.zdw`).
+        :func:`~solprop.stats.collect` passes the grid's reference wavelength.
+        ``None`` refuses several zeros.
 
     Returns
     -------
@@ -1069,10 +1075,12 @@ def zdw(
     Raises
     ------
     solprop.exceptions.NoZeroDispersionError
-        If a mode has no zero-dispersion point in the search window, rather than a
-        missing value that would propagate silently. :func:`~solprop.stats.collect`
-        records ``nan`` with a warning instead, so that a run is not stopped by its
-        band.
+        If the search finds no zero-dispersion point of a mode in the window, rather
+        than a missing value that would propagate silently.
+        :func:`~solprop.stats.collect` records ``nan`` with a warning instead, so that
+        a run is not stopped by its band.
+    solprop.exceptions.ModeError
+        If a mode has several zeros in the window and `near` is ``None``.
 
     Examples
     --------
@@ -1083,5 +1091,8 @@ def zdw(
     '376.7'
     """
     return np.asarray(
-        [modes_base.zdw(mode, z, wavelength_limits=wavelength_limits) for mode in modes]
+        [
+            modes_base.zdw(mode, z, wavelength_limits=wavelength_limits, near=near)
+            for mode in modes
+        ]
     )

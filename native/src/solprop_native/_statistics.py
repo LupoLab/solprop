@@ -815,7 +815,14 @@ def _plane_tables(
         values = np.empty(points.size)
         for slot, z in enumerate(points):
             try:
-                values[slot] = float(zdw(mode, float(z), wavelength_limits=window))
+                values[slot] = float(
+                    zdw(
+                        mode,
+                        float(z),
+                        wavelength_limits=window,
+                        near=grid.reference_wavelength,
+                    )
+                )
             except NoZeroDispersionError:
                 values[slot] = math.nan
         if np.any(np.isnan(values)):
@@ -830,9 +837,10 @@ def _plane_tables(
         )
     if missing:
         warnings.warn(
-            f"the 'zdw' statistic records nan for modes {missing}: beta_2 has one "
-            f"sign at both ends of the grid's {window[0] * 1e9:.4g}-"
-            f"{window[1] * 1e9:.4g} nm band at a plane",
+            f"the 'zdw' statistic records nan for modes {missing}: the search found "
+            f"no zero of beta_2 in the grid's {window[0] * 1e9:.4g}-"
+            f"{window[1] * 1e9:.4g} nm band that no resonance separates from its "
+            "reference wavelength, at a plane",
             SolpropWarning,
             stacklevel=4,
         )
@@ -897,7 +905,9 @@ def _lowered_zdw_tables(
 
     def root(mode: Mode, z: float) -> float:
         try:
-            return float(zdw(mode, z, wavelength_limits=window))
+            return float(
+                zdw(mode, z, wavelength_limits=window, near=grid.reference_wavelength)
+            )
         except NoZeroDispersionError:
             return math.nan
 
@@ -905,9 +915,10 @@ def _lowered_zdw_tables(
     missing = [index for index, value in enumerate(first) if math.isnan(value)]
     if missing:
         warnings.warn(
-            f"the 'zdw' statistic records nan for modes {missing}: beta_2 has one "
-            f"sign at both ends of the grid's {window[0] * 1e9:.4g}-"
-            f"{window[1] * 1e9:.4g} nm band",
+            f"the 'zdw' statistic records nan for modes {missing}: the search found "
+            f"no zero of beta_2 in the grid's {window[0] * 1e9:.4g}-"
+            f"{window[1] * 1e9:.4g} nm band that no resonance separates from its "
+            "reference wavelength",
             SolpropWarning,
             stacklevel=4,
         )

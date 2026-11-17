@@ -10,7 +10,7 @@ import pytest
 from witness_materials import borzsonyi
 
 from solprop.constants import C
-from solprop.exceptions import MaterialRangeWarning, ModeError
+from solprop.exceptions import MaterialRangeWarning, ModeError, NoZeroDispersionError
 from solprop.modes import MarcatiliMode
 from solprop.modes.base import (
     BETA2_RELATIVE_STEP,
@@ -25,6 +25,7 @@ from solprop.modes.base import (
     transmission,
     zdw,
 )
+from solprop.nonlinear.gnlse import SpecifiedMode
 from solprop.physdata.glasses import fused_silica
 from solprop.profiles import Linear, PressureGradient
 
@@ -209,6 +210,64 @@ def test_zdw_raises_when_there_is_no_root_in_the_window():
 def test_zdw_refuses_a_bad_window(mode, wavelength_range):
     with pytest.raises(ModeError, match="positive and ordered"):
         zdw(mode, wavelength_limits=wavelength_range)
+
+
+@pytest.mark.parametrize("near", [0.0, -800e-9, math.inf, math.nan])
+def test_zdw_refuses_a_bad_reference_wavelength(mode, near):
+    with pytest.raises(ModeError, match="near must be a positive"):
+        zdw(mode, wavelength_limits=(150e-9, 900e-9), near=near)
+
+
+def two_zero_mode():
+    """``beta2 = -1e-26 + 1e-54 (omega - 2e15)^2`` s^2/m: zeros at 1.9e15 and 2.1e15."""
+    omega0 = 2e15
+    return SpecifiedMode.from_taylor(
+        [omega0 / C, 1.0 / C, -1e-26, 0.0, 2e-54], omega0, aeff=1e-10
+    )
+
+
+TWO_ZERO_WINDOW = (2.0 * math.pi * C / 2.2e15, 2.0 * math.pi * C / 1.8e15)
+
+
+def test_zdw_names_every_zero_when_the_window_holds_several():
+    # The ends of the window have one sign, and both zeros are real.
+    with pytest.raises(ModeError, match=r"2 zeros .* 897\.0, 991\.4 nm"):
+        zdw(two_zero_mode(), wavelength_limits=TWO_ZERO_WINDOW)
+
+
+@pytest.mark.parametrize(("near", "omega"), [(900e-9, 2.1e15), (1000e-9, 1.9e15)])
+def test_zdw_returns_the_zero_nearest_a_reference(near, omega):
+    found = zdw(two_zero_mode(), wavelength_limits=TWO_ZERO_WINDOW, near=near)
+    # beta1 is a cubic, so the Richardson difference is exact but for rounding (1e-37
+    # s^2/m against a slope of 2e-40 s^3/m per rad/s): the root to 1e-12, read at 1e-9.
+    assert found == pytest.approx(2.0 * math.pi * C / omega, rel=1e-9)
+
+
+def krypton():
+    """A 14 um capillary at 15 bar of krypton: its resonances near 120 nm flip the
+    sign of the differenced ``beta2`` sixteen times between 100 and 124 nm."""
+    return MarcatiliMode(14e-6, "Kr", 15.0)
+
+
+def test_zdw_finds_a_zero_past_the_sign_changes_of_a_gas_resonance():
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MaterialRangeWarning)
+        found = zdw(krypton(), near=800e-9)
+    # The single zero of the qualified band (125 nm up), searched there alone.
+    reference = zdw(krypton(), wavelength_limits=(125e-9, 3e-6))
+    # Other samples, so other brackets: both stop on the noise of the differenced
+    # beta2 (5e-9, BETA2_RELATIVE_STEP).
+    assert found == pytest.approx(reference, rel=1e-8)
+    assert reference == pytest.approx(770.5167e-9, rel=1e-6)
+
+
+def test_zdw_does_not_report_a_resonance_artefact_as_a_zero():
+    # 121-125 nm holds the floored plateau above krypton's 123.6 nm line, where the
+    # differenced beta2 changes sign while the group delay is constant.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MaterialRangeWarning)
+        with pytest.raises(NoZeroDispersionError, match="none is a zero"):
+            zdw(krypton(), wavelength_limits=(121e-9, 125e-9))
 
 
 def test_the_default_window_is_lunas():

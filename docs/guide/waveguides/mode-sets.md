@@ -171,7 +171,31 @@ mode = MarcatiliMode(125e-6, "He", 0.4, model="reduced")
 zdw(mode)  # 3.767e-07 m
 ```
 
-{func}`~solprop.modes.base.zdw` brackets the root of $\beta_2$ and **raises** when there is
-none in the window, rather than returning a missing value that would propagate silently
-into later arithmetic: a mode with no zero-dispersion point is a fact the caller has to
-see.
+{func}`~solprop.modes.base.zdw` samples the sign of $\beta_2$ at 512 frequencies across the
+window and refines each change. A change is a zero only where the analytic group delay
+$\beta_1$ has an extremum that the difference behind $\beta_2$ resolves: its rise from
+the change grows quadratically over the difference's stencil, on both sides. A gas
+resonance in the vacuum ultraviolet gives the differenced $\beta_2$ sign changes that
+are not zeros (krypton has sixteen between 100 and 124 nm at 15 bar): through the
+line's pole, where $\beta_1$ diverges; where the stencil reaches a line, so $\beta_1$
+rises without an extremum; and on the evanescent floor above one, where $\beta_1$ is
+constant. Each fails that test and is dropped. Two limits of a sampled search remain: a
+zero and a pole inside one sample interval restore the sign and are both missed, and a
+sample that is not finite brackets nothing.
+
+A window can still hold several zeros: two zero-dispersion wavelengths, or the gas's own
+zeros between two of its lines. Without `near` the call refuses them by name; with a
+reference wavelength `near` (typically the pump) it returns the zero nearest it in
+frequency among those no resonance separates from it, since light at the reference
+cannot cross a line to reach the others:
+
+```{code-block} python
+krypton = MarcatiliMode(14e-6, "Kr", 15.0)
+zdw(krypton)  # ModeError: beta2 has 3 zeros over 100-3000 nm, at 108.9, 119.9, 770.5 nm
+zdw(krypton, near=800e-9)  # 7.705e-07 m
+```
+
+When the search finds no zero it **raises**
+{class}`~solprop.exceptions.NoZeroDispersionError`, rather than returning a missing value
+that would propagate silently into later arithmetic: a mode with no zero-dispersion point
+is a fact the caller has to see.

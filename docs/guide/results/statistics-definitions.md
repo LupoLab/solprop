@@ -89,8 +89,8 @@ contrast, raises.
 {py:class}`~solprop.profiles.ZProfile` paths at the plane's position; the catalogue gives
 each its own units.
 
-{py:func}`~solprop.stats.zdw` root-finds $\beta_2 = 0$ for each mode, which is why it is
-off by default. {py:func}`~solprop.stats.collect` narrows the search window to the grid's
+{py:func}`~solprop.stats.zdw` searches $\beta_2 = 0$ for each mode, which is why it is
+off by default; `collect` takes the zero nearest the grid's reference wavelength. {py:func}`~solprop.stats.collect` narrows the search window to the grid's
 own band with {py:func}`~solprop.stats.inband_wavelengths`, because a zero-dispersion
 point outside the simulated band says nothing about the run and hunting for one there
 drives every material model into extrapolation. Each call stands alone -- no search
