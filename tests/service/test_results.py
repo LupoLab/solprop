@@ -16,7 +16,7 @@ from matplotlib.figure import Figure
 from service.cases import STATS
 from solprop.exceptions import SolpropError
 from solprop.output import open_file
-from solprop.processing import get_power
+from solprop.processing import energy, fwhm_t, get_power
 from solprop.recipe import Recipe
 from solprop.service import handlers, results
 from solprop.service.reduce import TIME_OVERSAMPLING
@@ -257,6 +257,31 @@ def test_a_plane_gives_its_energy_and_a_band_its_share(finished_run: Path) -> No
     drawn = np.asarray(whole["power"]["t"])
     assert drawn.size == TIME_OVERSAMPLING * np.asarray(t).size
     assert drawn[0] == pytest.approx(t[0]) and drawn[-1] >= t[-1]
+
+
+def test_a_plane_reads_out_its_own_energy_and_width(finished_run: Path) -> None:
+    with open_file(str(finished_run)) as handler:
+        last = int(np.asarray(handler["z"]).size) - 1
+        expected = {
+            index: (
+                float(energy(handler, plane=index, modes="sum")),
+                float(fwhm_t(handler, plane=index, modes="sum")),
+            )
+            for index in (0, last)
+        }
+    # The fill's loss takes 0.7 % of the energy by the last plane and the width moves
+    # by 3 %, so a read-out of the wrong plane cannot pass.
+    assert expected[last][0] < 0.995 * expected[0][0]
+    assert abs(expected[last][1] / expected[0][1] - 1.0) > 0.01
+    path = str(finished_run)
+    for index, (plane_energy, width) in expected.items():
+        found: dict[str, Any] = results.plane({"path": path, "index": index})
+        # The same reductions of the same stored plane: equal to their rounding.
+        assert found["energy"] == pytest.approx(plane_energy, rel=1e-12)
+        assert found["fwhm"] == pytest.approx(width, rel=1e-12)
+    # The recipe launches 100 uJ, and the entrance plane holds it (to 1e-8 measured;
+    # 1e-6 leaves room for that and is far tighter than a wrong plane or unit).
+    assert expected[0][0] == pytest.approx(100e-6, rel=1e-6)
 
 
 def test_run_health_says_how_the_run_went(finished_run: Path) -> None:
