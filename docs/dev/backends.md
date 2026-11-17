@@ -76,11 +76,9 @@ buffers, layout and plans are private; the state is never a parameter of anythin
 session is asked; the numbers are the contract — a backend is correct when it reproduces the
 reference to the stated bound. Selection is by name (`backends.select(name, problem, request)`);
 availability is detected with `importlib.util.find_spec` (importing an accelerator package
-can initialise a device runtime), never cached; a name that is neither backend, a retired
-one's such as `numba_cpu` or `mlx` included, raises `BackendError` naming `native` and
-`numpy_ref` wherever a requested name is resolved, and `native` without its package raises
-`ImportError` saying what to install. A recorded name is not a request, so old output and
-snapshots that record a retired backend still load. `metadata()` says what the execution *was* — the name, the
+can initialise a device runtime), never cached; a name that is neither backend raises
+`BackendError` naming `native` and `numpy_ref` wherever a requested name is resolved, and
+`native` without its package raises `ImportError` saying what to install. `metadata()` says what the execution *was* — the name, the
 resolved propagator mode, and whatever pools, plans and digests the backend has — and the
 driver writes it into the run's `RunMetadata.backend`, outside the resume key.
 

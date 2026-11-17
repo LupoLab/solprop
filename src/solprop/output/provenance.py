@@ -77,9 +77,7 @@ class BackendRecord:
 
     A resumed file keeps the record it was opened with, creation time and all, so the
     backend it names is the one that **started** the run. That is append mode's rule
-    for the whole record and not a special case for this group. The name may be one this
-    package no longer has, such as ``numba_cpu``: a recorded name is not a request, so
-    an old file's record reads as it was written, in its backend's own vocabulary.
+    for the whole record and not a special case for this group.
 
     Attributes
     ----------
