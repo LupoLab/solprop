@@ -152,7 +152,7 @@ class FieldEnvelope:
     covers every field usefully, the coupling evaluates it for the field at hand and
     reports it as the ``field`` range parameter; the record holds the range the
     evaluation is qualified over, its numerical error and what it is checked
-    against. The same interface as :class:`PairEnvelope`.
+    against. The same interface as :class:`PairEnvelope` (ADR-081).
 
     Attributes
     ----------

@@ -19,7 +19,8 @@ same for both: a beam's energy on its plane, a capillary exit's modal power
 carry power :math:`|y|^2`; raw overlaps :math:`|\langle\hat v, f\rangle|^2` are not
 modal powers where the leaky profiles are not orthogonal. A capillary exit into an
 identical capillary launches the same amplitudes under both models, and this
-discrepancy is zero there. It bounds the change of the total launched power too.
+discrepancy is zero there. It bounds the change of the total launched power too
+(ADR-081).
 
 Every profile is a J0 on a disc, so every overlap has the closed form of Lommel's
 integral, for complex wavenumbers and different radii alike (:func:`disc_overlap`).

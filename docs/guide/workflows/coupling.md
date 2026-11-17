@@ -337,7 +337,9 @@ approximate models omit, measured by the test suite against independent physics:
   and structured beams on Cartesian and radial planes and for capillary exits of
   random amplitudes. The range covers radial orders up to $HE_{1,24}$ (the highest
   order present, not the count; two polarisations of one mode are one profile),
-  radius ratios 0.5--2 and $\delta \le 10^{-2}$.
+  radius ratios 0.5--2 and $\delta \le 10^{-2}$. Why an envelope may be evaluated
+  per field, and why it measures launched power, is
+  [ADR-081](../../dev/decisions.md).
 - *Step index.* The LP01 overlap against the full-vector flux overlap of the exact
   $HE_{11}$ fields: $3.0\times10^{-4}$ over contrasts to 0.01, V from 1.5 to 2.4 and
   radius ratios 0.7--1.43. V is checked at the profile wavelength and at every occupied
