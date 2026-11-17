@@ -15,8 +15,7 @@ module that held it before:
   ``test_envelope_plasma_geometries.py``);
 - the two-channel mixture (``mixture_cases.py``) on the radial and Cartesian routes,
   with and without the Kerr term's harmonic, one and two polarisations: the field after
-  eight fixed steps and every mixture statistic, at the launch and at the end (from
-  ``test_spatial_mixture_channels.py``);
+  eight fixed steps and every mixture statistic, at the launch and at the end;
 - the two channels' final fractions and peak rates at a radial launch of 3.6e10 V/m
   (``native_mixture_launch_probe.py``), on the real and the analytic column: ``launch``
   (from ``test_native_mixture_fractions.py``, which held native to the passes on the
