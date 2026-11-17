@@ -522,11 +522,10 @@ def test_a_required_device_passes_what_meets_it(monkeypatch, value, backend):
     registry._check_required_device("native")
 
 
-@pytest.mark.parametrize("name", ["numpy_ref"])
-def test_a_required_device_refuses_the_other_backends_by_name(monkeypatch, name):
+def test_a_required_device_refuses_the_reference_by_name(monkeypatch):
     monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, "any")
-    with pytest.raises(BackendError, match=f"this run is on {name}"):
-        registry._check_required_device(name)
+    with pytest.raises(BackendError, match="this run is on numpy_ref"):
+        registry._check_required_device("numpy_ref")
 
 
 def test_a_required_device_is_refused_before_anything_is_constructed(

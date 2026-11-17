@@ -555,10 +555,10 @@ def test_a_replayed_step_with_a_non_finite_norm_is_refused(
     backend.close()
 
 
-@pytest.fixture(params=[HostAdamsMarch], ids=["host"])
-def march_class(request):
+@pytest.fixture
+def march_class():
     """The reference's Adams march, whose decisions the native march's are held to."""
-    return request.param
+    return HostAdamsMarch
 
 
 def _chooser(march_class, method, collar_rate, *, quiet=False):
