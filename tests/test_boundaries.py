@@ -906,5 +906,5 @@ def test_the_walk_off_warning_names_the_line_outside_solprop(field_grid):
     # outside the package, where the walk would stop; a user's session has none.
     namespace = {"warn_walkoff": inspect.unwrap(warn_walkoff), "grid": field_grid}
     with pytest.warns(SolpropWarning, match="wrapping around") as caught:
-        exec(frame, namespace)  # noqa: S102 - a call placed inside the package
+        exec(frame, namespace)
     assert [w.filename for w in caught] == [__file__]
