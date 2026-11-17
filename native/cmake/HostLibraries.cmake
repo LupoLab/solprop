@@ -95,7 +95,7 @@ if(NOT SOLPROP_NATIVE_PROFILE STREQUAL "LOCAL")
   if(_native_request STREQUAL "ON")
     message(FATAL_ERROR
       "A ${SOLPROP_NATIVE_BUILD_PROFILE} build runs on other machines; it cannot be "
-      "combined with ENABLE_NATIVE_ARCH=ON.")
+      "combined with SOLPROP_NATIVE_HOST_ARCH=ON.")
   endif()
   if(NOT SOLPROP_NATIVE_BLAS_VENDOR STREQUAL "AUTO" OR SOLPROP_NATIVE_BLAS_LIBRARIES)
     message(FATAL_ERROR
@@ -179,7 +179,7 @@ if(NOT SOLPROP_NATIVE_CPU_BASELINE STREQUAL "none" AND
   if(SOLPROP_NATIVE_HOST_ARCH)
     message(FATAL_ERROR
       "SOLPROP_NATIVE_CPU_BASELINE=${SOLPROP_NATIVE_CPU_BASELINE} and "
-      "ENABLE_NATIVE_ARCH=ON both choose the architecture; set one.")
+      "SOLPROP_NATIVE_HOST_ARCH=ON both choose the architecture; set one.")
   endif()
   if(_x86_processor)
     set(SOLPROP_NATIVE_CPU_BASELINE_FLAG "-march=${SOLPROP_NATIVE_CPU_BASELINE}")
