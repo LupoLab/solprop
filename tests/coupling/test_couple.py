@@ -43,7 +43,7 @@ from solprop.coupling import (
 from solprop.coupling.coupler import (
     _contrast_items,
     _gain_item,
-    _profile_count,
+    _highest_order,
     _whitened_extremes,
 )
 from solprop.coupling.models import cone_angle, radial_rule
@@ -702,7 +702,7 @@ def test_two_polarisations_of_one_capillary_mode_count_once(port):
         ModeCollection.with_polarisations(modes), port.grid
     )
     assert profiles.n_modes == 48
-    assert _profile_count(profiles) == 24.0
+    assert _highest_order(profiles) == 24.0
     pair = {"radius_ratio": 1.0, "leaky": 0.0}
     assert CAPILLARY_ENVELOPE.covers({"modes": 24.0, **pair}) is None
     assert CAPILLARY_ENVELOPE.covers({"modes": 48.0, **pair}) is not None
@@ -710,21 +710,36 @@ def test_two_polarisations_of_one_capillary_mode_count_once(port):
 
 def test_two_polarisation_capillaries_couple_by_both_paths():
     """A circularly polarised beam, and a two-polarisation capillary exit read as a
-    modal plane, couple into two-polarisation HE1m ports."""
+    modal plane, couple into two-polarisation HE1m ports.
+
+    The leaky-field envelope sums its share changes over the channels, so the
+    circular beam's, split equally between x and y, is the linearly polarised beam's
+    into the one-polarisation port, to rounding.
+    """
     target = polarised_capillary(RADIUS, 3).input_port()
     assert target.shape[0] == 6
     pulse = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6)
-    beam = FieldPlane.from_pulse(
-        SpatialPulse(pulse, 0.64 * RADIUS, jones=(1.0 + 0.0j, 1.0j)),
-        target.grid,
-        PlaneGeometry(0.0),
-        space=RadialGrid(4 * RADIUS, 256),
-        medium=SpatialMedium("Ar", PRESSURE),
-    )
-    report = couple(beam, target, model=SCALAR).report
+
+    def beam(jones, grid):
+        return FieldPlane.from_pulse(
+            SpatialPulse(pulse, 0.64 * RADIUS, jones=jones),
+            grid,
+            PlaneGeometry(0.0),
+            space=RadialGrid(4 * RADIUS, 256),
+            medium=SpatialMedium("Ar", PRESSURE),
+        )
+
+    report = couple(beam((1.0 + 0.0j, 1.0j), target.grid), target, model=SCALAR).report
     # A 0.64a Gaussian couples about 98 % into HE11.
     assert report.launched_energy > 0.97 * report.incident_energy
-    assert any(item.name == "envelope" for item in report.items)
+    linear = capillary(modes=3).input_port()
+    single = couple(beam((1.0 + 0.0j,), linear.grid), linear, model=SCALAR).report
+    circular_item = next(item for item in report.items if item.name == "envelope")
+    linear_item = next(item for item in single.items if item.name == "envelope")
+    assert circular_item.value is not None
+    assert linear_item.value is not None
+    assert circular_item.value > 0.0
+    assert circular_item.value == pytest.approx(linear_item.value, rel=1e-9)
     first = polarised_capillary(RADIUS, 2)
     exit_plane = field_plane(first.run(progress="none"), source=first)
     wider = polarised_capillary(100e-6, 3).input_port()

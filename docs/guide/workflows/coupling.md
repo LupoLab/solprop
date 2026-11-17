@@ -269,7 +269,7 @@ these items, every one a relative energy discrepancy:
 | `source metric` | the common measure $M_0$ against the source's native metric | $\epsilon_m/8$ |
 | `closure` | $2\delta + \delta^2$ of the H-closure's field error $\delta$ (vector model) | $\epsilon_m/8$ |
 | `passivity` | the whitened certificate $C^\dagger Q_BC \preceq Q_A$: an apparent gain within the model's own defects is reported here, never rescaled or clipped; a larger one refuses | the total |
-| `envelope` | the recorded provider-pair envelope's allowance, plus the incident share of any bins outside its range | the total |
+| `envelope` | the recorded provider-pair envelope's allowance -- for a capillary, the discrepancy evaluated for this field -- plus the incident share of any bins outside its range | the total |
 | `numerical` | the source's content at its spectral edge, an analytic field's domain and resolution checks, the overlap quadrature (an amplitude error $\delta$ counted as $2\delta + \delta^2$) | the total |
 
 The counted items must sum to at most $\epsilon_m$. The
@@ -284,14 +284,28 @@ approximate models omit, measured by the test suite against independent physics:
 
 - *Capillary.* The scalar profile $J_0(u_mr/a)$ against Marcatili's leaky core field
   $J_0(u_m(1 - i\delta)r/a)$, $\delta = |\nu_n|c/(\omega a)$ with $\nu_n$ the wall
-  term (Marcatili and Schmeltzer 1964). Over waists 0.3a--1.0a, displacements to 0.2a,
-  tilts to $0.59/ka$, 1--24 $HE_{1m}$ modes (two polarisations of one mode count once)
-  and radius ratios 0.5--2 the captured shares differ by at most $3.05\times10^{-3}$ at
-  $\delta = 10^{-2}$, the range's top (an 18.8 µm silica capillary at 800 nm); the bound
-  is twice that, rounded up, $6.2\times10^{-3}$. The difference
-  falls at least linearly with $\delta$, so the reported allowance is the bound scaled
-  by the pair's energy-weighted $\delta$: about $1.5\times10^{-3}$ for a 75 µm
-  capillary at 800 nm.
+  term (Marcatili and Schmeltzer 1964). The discrepancy is the summed change of the
+  power launched into each mode, $\sum_c\bigl||y_{L,c}|^2 - |y_{S,c}|^2\bigr|/P$, with
+  $y = G^{-1}o$ each model's least-squares amplitudes and P the incident power: a
+  beam's energy on its plane, a capillary exit's modal power. Mode m departs from its
+  scalar profile by about $u_m\delta$, so the discrepancy depends on how the field
+  fills the modes: a Gaussian beam that is mostly $HE_{11}$ sees little of it (about
+  $5\times10^{-5}$ for a 0.5a waist into a 75 µm capillary at 800 nm), while a field
+  with energy in the higher orders sees far more (several $10^{-2}$ at
+  $\delta = 10^{-2}$, and $1$--$2\times10^{-2}$ at $\delta = 2.5\times10^{-3}$, for
+  structured beams and capillary exits of a few modes with arbitrary complex
+  amplitudes). No fixed bound covers both usefully, so this envelope is a
+  {py:class}`~solprop.coupling.envelopes.FieldEnvelope`: `couple` evaluates the
+  discrepancy for the field being coupled, at every bin, in closed form, and reports
+  its energy-weighted value (scope `field`). A capillary exit is a finite sum of
+  profiles and its discrepancy is exact -- zero into an identical capillary, which
+  launches the same amplitudes under both models; a beam's leaky overlaps come from
+  the Taylor series of the leaky profile in $\delta$, whose remainder is bounded. The
+  test suite recomputes it by independent quadrature for centred, displaced, tilted
+  and structured beams on Cartesian and radial planes and for capillary exits of
+  random amplitudes. The range covers radial orders up to $HE_{1,24}$ (the highest
+  order present, not the count; two polarisations of one mode are one profile),
+  radius ratios 0.5--2 and $\delta \le 10^{-2}$.
 - *Step index.* The LP01 overlap against the full-vector flux overlap of the exact
   $HE_{11}$ fields: $3.0\times10^{-4}$ over contrasts to 0.01, V from 1.5 to 2.4 and
   radius ratios 0.7--1.43. V is checked at the profile wavelength and at every occupied

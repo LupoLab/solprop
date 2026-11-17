@@ -8,8 +8,10 @@ Each recorded :class:`~solprop.coupling.envelopes.PairEnvelope` is recomputed he
 from an independent reference and held to its bound:
 
 - the capillary envelope: the scalar J0 profiles against Marcatili's leaky HE1m core
-  field :math:`J_0(u_m(1 - i\delta)r/a)`, the physics the scalar model omits, on an
-  independent polar Gauss--Legendre rule over the envelope's declared range. Beside
+  field :math:`J_0(u_m(1 - i\delta)r/a)`, the physics the scalar model omits. Its
+  discrepancy is evaluated for each field coupled, so the oracle recomputes it on an
+  independent polar Gauss--Legendre rule, field by field and bin by bin, for beams
+  and capillary exits, and compares it with the reported allowance. Beside
   it, two consistency checks hold the implementation (``couple`` on sampled planes,
   through the closed-form Hankel transforms) to the overlap of
   :meth:`~solprop.modes.MarcatiliMode.field` by quadrature. ``MarcatiliMode.field``
@@ -60,6 +62,8 @@ from solprop.coupling import (
     ScalarModeBasis,
     couple,
 )
+from solprop.coupling import _leaky as leaky_module
+from solprop.coupling.coupler import _highest_order
 from solprop.coupling.models import radial_rule
 from solprop.driver import Simulation
 from solprop.exceptions import CouplingError
@@ -281,12 +285,18 @@ def test_a_scalar_change_of_radius_matches_marcatili_fields_by_quadrature(ratio)
 
 
 # ------------------------------------------------------ the leaky-field oracle
+#
+# The scalar model omits the departure of Marcatili's leaky HE1m core field
+# J0(u_m (1 - i delta) r/a) from the scalar J0(u_m r/a). It depends on the field, so
+# the envelope evaluates it for each field coupled (solprop.coupling._leaky). These
+# tests recompute it independently, on a polar Gauss--Legendre rule from the analytic
+# field, bin by bin at each bin's delta, weighted by the incident energy the report
+# gives, and compare with the reported item. The measure is the summed change of the
+# power launched into each mode, |y|^2 with y = G^-1 o on unit profiles, relative to
+# the incident power: what the run receives.
 
 HE_ZEROS = jn_zeros(0, 24)
 """The first 24 J0 zeros, the HE1m core wavenumbers u_m."""
-
-LEAKY_WALL_TERM = 1.477
-"""|nu_n| of silica (index 1.45): (eps + 1)/(2 sqrt(eps - 1)), sizing k a only."""
 
 
 def polar_disc(radius, n_r, n_theta):
@@ -302,6 +312,22 @@ def polar_disc(radius, n_r, n_theta):
     )
 
 
+def split_radial(radii, n_r=300):
+    """Return a radial rule broken at each radius, with the area weights 2 pi r dr.
+
+    A capillary profile ends with a kink at its core; a rule across it converges
+    slowly (a single rule over two cores of ratio 0.6 is off by 0.6 %).
+    """
+    x, weights = np.polynomial.legendre.leggauss(n_r)
+    edges = [0.0, *sorted(radii)]
+    r, w = [], []
+    for low, high in itertools.pairwise(edges):
+        nodes = low + 0.5 * (high - low) * (x + 1)
+        r.append(nodes)
+        w.append(0.5 * (high - low) * weights * 2 * np.pi * nodes)
+    return np.concatenate(r), np.concatenate(w)
+
+
 def leaky_profiles(radius, delta, count, r):
     """Return Marcatili's HE1m core fields J0(u (1 - i delta) r / a), zero outside."""
     return np.array(
@@ -312,105 +338,258 @@ def leaky_profiles(radius, delta, count, r):
     )
 
 
-def projected_shares(profiles, field, weights, field_norm):
-    """Return the per-mode shares and the least-squares captured share of a field."""
-    gram = (profiles.conj() * weights) @ profiles.T
-    overlaps = (profiles.conj() * weights) @ field
-    per_mode = np.abs(overlaps) ** 2 / np.real(np.diag(gram)) / field_norm
-    total = np.real(overlaps.conj() @ np.linalg.solve(gram, overlaps)) / field_norm
-    return per_mode, total
+def launched_powers(profiles, field, weights):
+    """Return the power launched into each unit-normalised profile, |G^-1 o|^2."""
+    unit = profiles / np.sqrt(np.sum(weights * np.abs(profiles) ** 2, axis=1))[:, None]
+    gram = (unit.conj() * weights) @ unit.T
+    overlaps = (unit.conj() * weights) @ field
+    return np.abs(np.linalg.solve(gram, overlaps)) ** 2
 
 
-def discrepancy(scalar, leaky):
-    """Return the larger of the summed per-mode and the total share changes."""
-    return max(
-        float(np.sum(np.abs(leaky[0] - scalar[0]))), float(abs(leaky[1] - scalar[1]))
-    )
+def launch_change(scalar, leaky, power):
+    """Return the summed change of launched power per mode, relative to the incident."""
+    return float(np.sum(np.abs(leaky - scalar))) / power
 
 
-def beam_discrepancy(delta, beam, n_r=100, n_theta=32):
-    """Return a Gaussian beam's share discrepancy, leaky against scalar, a = 1.
+BEAMS = {
+    "centred": [(1.0, 0.5, 0.0, 0.0)],
+    "displaced and tilted": [(1.0, 0.3, 0.1, 1e-3)],
+    "displaced and tilted back": [(1.0, 0.3, 0.1, -1e-3)],
+    "wide and displaced": [(1.0, 0.7, 0.2, 5e-4)],
+    "structured": [
+        (1.0, 0.25, 0.05, 0.0),
+        (0.8j, 0.45, -0.1, 4e-4),
+        (-0.5, 0.15, 0.2, 0.0),
+    ],
+}
+"""Beams as sums of Gaussians: (coefficient, waist/a, displacement/a, tilt in rad).
+Displacement and tilt together break the mirror symmetry that hides the Fourier
+convention of the leaky overlaps; the structured beam puts energy into high orders."""
 
-    ``beam`` is (HE1m count, waist/a, displacement/a, tilt angle times k a).
-    """
-    count, waist, shift, tilt_ka = beam
-    r, t, w = polar_disc(1.0, n_r, n_theta)
+
+def beam(grid, terms):
+    """Return an x-polarised sum of Gaussians as an analytic plane field, a = RADIUS."""
+    spectral_width = 30e-15 / (2 * math.sqrt(math.log(2)))
+
+    def field(x, y, omega):
+        spectral = np.exp(-(((omega - grid.omega0) * spectral_width) ** 2) / 2)
+        total = 0.0
+        for coefficient, waist, shift, tilt in terms:
+            spatial = np.exp(
+                -((x - shift * RADIUS) ** 2 + y**2) / (waist * RADIUS) ** 2
+            )
+            phase = np.exp(1j * np.outer(x, omega / C) * tilt)
+            total = total + coefficient * spatial[:, None] * phase
+        return 1e-9 * total * spectral[None, :]
+
+    return field
+
+
+def beam_oracle(port, report, terms, count):
+    """Return the beam's leaky-field discrepancy by quadrature, energy-weighted."""
+    omega = port.grid.omega
+    profiles = port.profiles
+    assert profiles is not None
+    delta = profiles.leaky(omega)
+    assert delta is not None
+    incident = np.asarray(report.incident)
+    r, t, w = polar_disc(1.0, 200, 48)
     x, y = r * np.cos(t), r * np.sin(t)
-    field = np.exp(-((x - shift) ** 2 + y**2) / waist**2) * np.exp(1j * tilt_ka * x)
-    norm = math.pi * waist**2 / 2
-    return discrepancy(
-        projected_shares(leaky_profiles(1.0, 0.0, count, r), field, w, norm),
-        projected_shares(leaky_profiles(1.0, delta, count, r), field, w, norm),
-    )
+    total = 0.0
+    for k in np.flatnonzero(incident > 0):
+        ka = omega[k] / C * RADIUS
+        field = sum(
+            c * np.exp(-((x - s) ** 2 + y**2) / v**2) * np.exp(1j * tilt * ka * x)
+            for c, v, s, tilt in terms
+        )
+        # The whole plane's norm, in closed form: the Gaussians' cross terms included.
+        norm = float(
+            np.real(
+                sum(
+                    c1 * np.conj(c2) * gaussian_cross(v1, s1, t1, v2, s2, t2, ka)
+                    for c1, v1, s1, t1 in terms
+                    for c2, v2, s2, t2 in terms
+                )
+            )
+        )
+        scalar = launched_powers(leaky_profiles(1, 0, count, r), field, w)
+        leaky = launched_powers(leaky_profiles(1, delta[k], count, r), field, w)
+        total += launch_change(scalar, leaky, norm) * incident[k]
+    return total / incident.sum()
 
 
-def radius_discrepancy(delta, ratio, n_r=100, n_theta=32):
-    """Return a coherent three-mode exit's discrepancy into 24 modes at a ratio.
+def gaussian_cross(v1, s1, t1, v2, s2, t2, ka):
+    """Return int g1 conj(g2) over the plane of two tilted, displaced Gaussians.
 
-    ``delta`` is the larger of the two capillaries' parameters; it scales as 1/a.
+    Each g = exp(-((x - s)^2 + y^2)/v^2 + i t ka x), units of a.
     """
-    r, _, w = polar_disc(max(1.0, ratio), n_r, n_theta)
-    shares = []
-    for scale in (0.0, delta):
-        source_delta, target_delta = (
-            (scale, scale * ratio) if ratio < 1 else (scale / ratio, scale)
-        )
-        source = leaky_profiles(ratio, source_delta, 3, r)
-        source = source / np.sqrt(np.sum(w * np.abs(source) ** 2, axis=1))[:, None]
-        field = source.sum(axis=0)
-        norm = float(np.sum(w * np.abs(field) ** 2))
-        shares.append(
-            projected_shares(leaky_profiles(1.0, target_delta, 24, r), field, w, norm)
-        )
-    return discrepancy(*shares)
+    a = 1 / v1**2 + 1 / v2**2
+    b = 2 * s1 / v1**2 + 2 * s2 / v2**2 + 1j * (t1 - t2) * ka
+    c = s1**2 / v1**2 + s2**2 / v2**2
+    return complex(math.pi / a * np.exp(b * b / (4 * a) - c))
 
 
-BEAMS = [
-    (count, waist, shift, tilt)
-    for count in (1, 2, 4, 8, 16, 24)
-    for waist in (0.3, 0.5, 0.7, 1.0)
-    for shift in (0.0, 0.1, 0.2)
-    for tilt in (0.0, 0.59)
-]
-"""The envelope's beams: HE1m count, waist/a, displacement/a, tilt angle times k a."""
-
-RATIOS = (0.5, 0.8, 1.0, 1.25, 2.0)
-
-
-def worst_leaky_discrepancy(delta, **rule):
-    """Return the largest discrepancy over the envelope's beams and radius ratios."""
-    beams = max(beam_discrepancy(delta, case, **rule) for case in BEAMS)
-    radii = max(radius_discrepancy(delta, ratio, **rule) for ratio in RATIOS)
-    return beams, radii
+def envelope_value(report):
+    """Return a report's envelope item's value, which a capillary pair always has."""
+    item = next(item for item in report.items if item.name == "envelope")
+    assert item.value is not None
+    assert item.scope == "field"
+    return item.value
 
 
 @pytest.mark.medium
-def test_the_capillary_envelope_bounds_the_leaky_core_field():
-    """The scalar J0 model against Marcatili's leaky HE1m field, over the range.
+@pytest.mark.parametrize("count", [4, 24])
+@pytest.mark.parametrize("name", list(BEAMS))
+def test_the_beam_envelope_is_the_fields_leaky_discrepancy(count, name):
+    """The reported allowance is the field's own leaky-field discrepancy.
 
-    At the range's top, delta = 1e-2 (a 37.5 um silica capillary at 1.6 um, or
-    18.8 um at 800 nm), the largest discrepancy is 3.05e-3 (equal radii: the leaky
-    modes are not orthogonal) and 2.0e-3 for the beams, both at 24 modes (2.9e-3 and
-    1.8e-3 at 8: the discrepancy grows slowly with the count); the recorded bound is
-    twice the largest, rounded up. Halving delta halves the beam cases (first order,
-    from the tilt and displacement) and quarters the radius cases, which is what lets
-    the allowance scale linearly with delta. The quadrature's numerical error is
-    estimated by refining the rule.
+    Against the polar quadrature of the analytic beam, to 1e-3 relative: the plane's
+    sampling of the beam and the oracle's rule, not the evaluation, set the
+    agreement (the closed forms are good to 1e-9, tests/coupling/test_leaky.py).
     """
-    top = CAPILLARY_ENVELOPE.ranges["leaky"][1]
-    beams, radii = worst_leaky_discrepancy(top)
-    measured = max(beams, radii)
-    assert measured == pytest.approx(3.05e-3, rel=0.05)
-    assert 2 * measured <= CAPILLARY_ENVELOPE.bound
-    fine_beams, fine_radii = worst_leaky_discrepancy(top, n_r=200, n_theta=48)
-    assert abs(max(fine_beams, fine_radii) - measured) <= CAPILLARY_ENVELOPE.numerical
-    half_beams, half_radii = worst_leaky_discrepancy(0.5 * top)
-    # At most linear below the top: the allowance's scaling is conservative there.
-    assert half_beams <= 0.55 * beams
-    assert half_radii <= 0.3 * radii
-    assert CAPILLARY_ENVELOPE.allowance({"leaky": 0.5 * top}) >= 2 * max(
-        half_beams, half_radii
+    port = capillary_simulation(RADIUS, count, GRID).input_port()
+    plane = FieldPlane.from_analytic(
+        port.grid,
+        PlaneGeometry(0.0),
+        beam(port.grid, BEAMS[name]),
+        space=FreeGrid(6 * RADIUS, 96, 6 * RADIUS, 96),
+        medium=SpatialMedium("Ar", PRESSURE),
     )
+    report = couple(
+        plane, port, model=CouplingModel("scalar_paraxial", model_error=0.5)
+    ).report
+    expected = beam_oracle(port, report, BEAMS[name], count)
+    computed = envelope_value(report) - CAPILLARY_ENVELOPE.numerical
+    assert computed == pytest.approx(expected, rel=1e-3)
+
+
+RADIAL_BEAM = [(1.0, 0.25, 0.0, 0.0), (0.8j, 0.45, 0.0, 0.0), (-0.5, 0.15, 0.0, 0.0)]
+"""A centred, structured beam: a radial plane holds axisymmetric fields."""
+
+
+@pytest.mark.medium
+def test_the_beam_envelope_on_a_radial_plane():
+    """The same evaluation through a radial plane's Hankel columns."""
+    port = capillary_simulation(RADIUS, 8, GRID).input_port()
+    spectral_width = 30e-15 / (2 * math.sqrt(math.log(2)))
+
+    def field(r, omega):
+        spectral = np.exp(-(((omega - port.grid.omega0) * spectral_width) ** 2) / 2)
+        spatial = np.zeros(np.shape(r), dtype=complex)
+        for c, v, _, _ in RADIAL_BEAM:
+            spatial += c * np.exp(-(r**2) / (v * RADIUS) ** 2)
+        return 1e-9 * spatial[:, None] * spectral[None, :]
+
+    plane = FieldPlane.from_analytic(
+        port.grid,
+        PlaneGeometry(0.0),
+        field,
+        space=RadialGrid(4 * RADIUS, 256),
+        medium=SpatialMedium("Ar", PRESSURE),
+    )
+    report = couple(
+        plane, port, model=CouplingModel("scalar_paraxial", model_error=0.5)
+    ).report
+    expected = beam_oracle(port, report, RADIAL_BEAM, 8)
+    computed = envelope_value(report) - CAPILLARY_ENVELOPE.numerical
+    assert computed == pytest.approx(expected, rel=1e-3)
+
+
+@pytest.mark.medium
+def test_a_truncated_series_still_bounds_the_discrepancy(monkeypatch):
+    """With few Taylor terms the remainder's bound widens the allowance, never below
+    the discrepancy the full series gives."""
+    port = capillary_simulation(RADIUS, 24, GRID).input_port()
+    plane = FieldPlane.from_analytic(
+        port.grid,
+        PlaneGeometry(0.0),
+        beam(port.grid, BEAMS["structured"]),
+        space=FreeGrid(6 * RADIUS, 96, 6 * RADIUS, 96),
+        medium=SpatialMedium("Ar", PRESSURE),
+    )
+    model = CouplingModel("scalar_paraxial", model_error=0.5)
+    exact = envelope_value(couple(plane, port, model=model).report)
+    monkeypatch.setattr(leaky_module, "TAYLOR_TOLERANCE", 1e-3)
+    truncated = envelope_value(couple(plane, port, model=model).report)
+    assert truncated >= exact
+    assert truncated <= exact + 0.05
+
+
+def modal_plane(simulation, coefficients):
+    """Return a capillary exit of given complex coefficients, with its profiles."""
+    grid = simulation.grid
+    profiles = ScalarModeBasis.from_modes(simulation.modes, grid)
+    samples = np.zeros((profiles.n_modes, 1, grid.n_omega), dtype=complex)
+    width = 30e-15 / (2 * math.sqrt(math.log(2)))
+    envelope = np.exp(-(((grid.omega - grid.omega0) * width) ** 2) / 2)
+    samples[:, 0, :] = np.asarray(coefficients)[:, None] * (envelope * grid.active_mask)
+    plane = FieldPlane.from_samples(
+        samples,
+        grid,
+        PlaneGeometry(0.0),
+        exterior="zero",
+        basis=PlaneBasis("modal", "0" * 64, profiles.labels),
+        profiles=profiles,
+    )
+    return plane, profiles
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize(
+    ("ratio", "sources", "targets"),
+    [(0.6, 3, 4), (1.0, 3, 24), (1.6, 8, 24), (1.0, 24, 24), (0.5, 8, 8)],
+)
+def test_the_modal_envelope_is_exact_for_any_capillary_exit(ratio, sources, targets):
+    """A capillary exit of random complex amplitudes, into another capillary.
+
+    The source is a finite sum of profiles, so the evaluation is exact: it meets the
+    oracle (broken at both cores) to 1e-5 of its value, the oracle's own rule. The
+    incident power is the exit's modal power, the same for both models. An exit into
+    an identical capillary (ratio 1) launches the same amplitudes under both, and its
+    discrepancy is zero to rounding; across radii these exits reach 1e-2 to 2e-2 at
+    delta = 2.5e-3, against the 1.6e-3 the recorded envelope allowed there.
+    """
+    source = capillary_simulation(ratio * RADIUS, sources, GRID)
+    port = capillary_simulation(RADIUS, targets, GRID).input_port()
+    rng = np.random.default_rng(sources * 100 + targets)
+    coefficients = rng.normal(size=sources) + 1j * rng.normal(size=sources)
+    plane, source_profiles = modal_plane(source, coefficients)
+    report = couple(
+        plane, port, model=CouplingModel("scalar_paraxial", model_error=0.5)
+    ).report
+    value = envelope_value(report)
+    omega = port.grid.omega
+    target_profiles = port.profiles
+    assert target_profiles is not None
+    delta_t = target_profiles.leaky(omega)
+    delta_s = source_profiles.leaky(omega)
+    assert delta_t is not None
+    assert delta_s is not None
+    incident = np.asarray(report.incident)
+    r, w = split_radial((ratio, 1.0) if ratio != 1.0 else (1.0,))
+    total = 0.0
+    for k in np.flatnonzero(incident > 0):
+        # The coefficient of each unit profile: the true-power one over sqrt(n_eff).
+        c = coefficients / np.sqrt(source_profiles.effective_index[:, k])
+        launched = []
+        for d_s, d_t in ((0.0, 0.0), (delta_s[k], delta_t[k])):
+            profiles = leaky_profiles(ratio, d_s, sources, r)
+            profiles = (
+                profiles / np.sqrt(np.sum(w * np.abs(profiles) ** 2, axis=1))[:, None]
+            )
+            launched.append(
+                launched_powers(leaky_profiles(1.0, d_t, targets, r), c @ profiles, w)
+            )
+        power = float(np.sum(np.abs(c) ** 2))
+        total += launch_change(launched[0], launched[1], power) * incident[k]
+    expected = total / incident.sum()
+    computed = value - CAPILLARY_ENVELOPE.numerical
+    if ratio == 1.0:
+        assert expected < 1e-9
+        assert abs(computed) < 1e-9
+    else:
+        assert expected > 1e-3
+        assert computed == pytest.approx(expected, rel=1e-5)
 
 
 def test_a_capillary_beyond_the_leaky_range_is_refused():
@@ -435,7 +614,7 @@ def test_a_capillary_beyond_the_leaky_range_is_refused():
 
 
 def test_a_capillary_beyond_the_mode_range_is_refused():
-    """A 25th HE1m mode lies outside the envelope's measured count, and is refused."""
+    """The 25th HE1m order lies outside the envelope's range, and is refused."""
     assert CAPILLARY_ENVELOPE.ranges["modes"] == (1.0, 24.0)
     port = capillary_simulation(RADIUS, 25, GRID).input_port()
     plane = FieldPlane.from_analytic(
@@ -449,31 +628,14 @@ def test_a_capillary_beyond_the_mode_range_is_refused():
         couple(plane, port, model=CouplingModel("scalar_paraxial", model_error=0.1))
 
 
-def test_the_capillary_envelope_item_scales_with_the_pair(capillary_port):
-    """The reported envelope item is the bound scaled by the energy-weighted delta."""
-    port = capillary_port
-    plane = FieldPlane.from_analytic(
-        port.grid,
-        PlaneGeometry(0.0),
-        gaussian_field(port.grid, 0.5 * RADIUS),
-        space=FreeGrid(4 * RADIUS, 64, 4 * RADIUS, 64),
-        medium=SpatialMedium("Ar", PRESSURE),
-    )
-    report = couple(
-        plane, port, model=CouplingModel("scalar_paraxial", model_error=0.1)
-    ).report
-    profiles = port.profiles
-    assert profiles is not None
-    delta = profiles.leaky(port.grid.omega)
-    assert delta is not None
-    weighted = float(np.sum(delta * report.incident) / np.sum(report.incident))
-    # A 75 um silica capillary at 800 nm: 1.475 c/(omega a) = 2.5e-3.
-    assert weighted == pytest.approx(2.5e-3, rel=0.02)
-    item = next(item for item in report.items if item.name == "envelope")
-    # The same weighted sum, formed in another order: rounding only.
-    assert item.value == pytest.approx(
-        CAPILLARY_ENVELOPE.allowance({"leaky": weighted}), rel=1e-12
-    )
+def test_the_mode_range_bounds_the_highest_order_not_the_count():
+    """Nine profiles HE1,25 to HE1,33 are beyond the range, whatever their number."""
+    modes = [MarcatiliMode(RADIUS, "Ar", PRESSURE, m=m) for m in range(25, 34)]
+    grid = EnvelopeGrid.from_limits(1e-4, WAVELENGTH, (700e-9, 920e-9), 200e-15)
+    profiles = ScalarModeBasis.from_modes(modes, grid)
+    assert _highest_order(profiles) == 33.0
+    pair = {"radius_ratio": 1.0, "leaky": 0.0, "modes": _highest_order(profiles)}
+    assert CAPILLARY_ENVELOPE.covers(pair) is not None
 
 
 def lp01_overlap(source, target):

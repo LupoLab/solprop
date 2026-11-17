@@ -13,9 +13,11 @@ recorded bounds; the manual page ``docs/guide/workflows/coupling.md`` describes 
 
 - :data:`CAPILLARY_ENVELOPE`: the scalar J0 profile the model projects onto against
   Marcatili's leaky HE1m core field :math:`J_0(u_m(1 - i\delta)r/a)`,
-  :math:`\delta = |\nu_n|c/(\omega a)`, the physics the scalar model omits, swept
-  over centred, displaced and tilted Gaussian beams and changes of capillary radius.
-  Its bound scales linearly with the pair's :math:`\delta`.
+  :math:`\delta = |\nu_n|c/(\omega a)`, the physics the scalar model omits. Its
+  discrepancy depends on the field (mode m departs by about :math:`u_m\delta`), so
+  no fixed bound covers every field usefully: a :class:`FieldEnvelope`, evaluated
+  for the field coupled, in closed form (``solprop.coupling._leaky``), with its
+  range and numerical error recorded.
 - :data:`STEP_INDEX_ENVELOPE`: the weak-guidance LP01 overlap of two step-index
   fibres of one material pair and different radii against the full-vector flux
   overlap of their exact bound HE11 fields
@@ -43,8 +45,25 @@ __all__ = [
     "STEP_INDEX_BEAM_ENVELOPE",
     "STEP_INDEX_ENVELOPE",
     "VECTOR_STEP_INDEX_ENVELOPE",
+    "FieldEnvelope",
     "PairEnvelope",
 ]
+
+
+def _outside(
+    identity: str,
+    ranges: Mapping[str, tuple[float, float]],
+    parameters: Mapping[str, float],
+) -> str | None:
+    """Return the first range parameter outside its interval, named, or None."""
+    for name, (low, high) in ranges.items():
+        value = parameters.get(name)
+        if value is None or not low <= value <= high:
+            return (
+                f"{name} = {value!r} lies outside the envelope "
+                f"{identity}'s range [{low:.6g}, {high:.6g}]"
+            )
+    return None
 
 
 @dataclass(frozen=True)
@@ -103,14 +122,7 @@ class PairEnvelope:
             The first parameter outside its range, named with its value; None when
             every parameter is inside.
         """
-        for name, (low, high) in self.ranges.items():
-            value = parameters.get(name)
-            if value is None or not low <= value <= high:
-                return (
-                    f"{name} = {value!r} lies outside the envelope "
-                    f"{self.identity}'s range [{low:.6g}, {high:.6g}]"
-                )
-        return None
+        return _outside(self.identity, self.ranges, parameters)
 
     def allowance(self, parameters: Mapping[str, float]) -> float:
         """Return the envelope's energy allowance for a covered pair.
@@ -127,9 +139,9 @@ class PairEnvelope:
 
         Examples
         --------
-        >>> from solprop.coupling import CAPILLARY_ENVELOPE as envelope
-        >>> high = envelope.ranges["leaky"][1]
-        >>> envelope.allowance({"leaky": 0.5 * high}) == 0.5 * envelope.bound
+        >>> from solprop.coupling import STEP_INDEX_BEAM_ENVELOPE as envelope
+        >>> high = envelope.ranges["contrast"][1]
+        >>> envelope.allowance({"contrast": 0.5 * high}) == 0.5 * envelope.bound
         True
         """
         if self.scaled_by is None:
@@ -137,33 +149,104 @@ class PairEnvelope:
         return self.bound * parameters[self.scaled_by] / self.ranges[self.scaled_by][1]
 
 
-CAPILLARY_ENVELOPE = PairEnvelope(
-    identity="capillary-he1m-scalar-vs-leaky-marcatili-2026-11",
+@dataclass(frozen=True)
+class FieldEnvelope:
+    """An approximate model's omitted physics, evaluated for each field coupled.
+
+    Where the discrepancy depends so strongly on the field that no recorded bound
+    covers every field usefully, the coupling evaluates it for the field at hand and
+    reports it as the ``field`` range parameter; the record holds the range the
+    evaluation is qualified over, its numerical error and what it is checked
+    against. The same interface as :class:`PairEnvelope`.
+
+    Attributes
+    ----------
+    identity : str
+        The envelope's name, recorded in a coupling report.
+    family : {'capillary'}
+        The profile family of the pair's guided members.
+    ranges : collections.abc.Mapping
+        Each range parameter's closed interval ``(low, high)``; a pair outside any
+        one is not covered.
+    numerical : float
+        The evaluation's numerical error, dimensionless, added to the allowance.
+    reference : str
+        What the evaluation computes and what it is checked against.
+    """
+
+    identity: str
+    family: str
+    ranges: Mapping[str, tuple[float, float]]
+    numerical: float
+    reference: str
+
+    def __post_init__(self) -> None:
+        """Hold the ranges read-only."""
+        object.__setattr__(self, "ranges", MappingProxyType(dict(self.ranges)))
+
+    def covers(self, parameters: Mapping[str, float]) -> str | None:
+        """Return why a pair lies outside the envelope, or None if it is covered.
+
+        Parameters
+        ----------
+        parameters : collections.abc.Mapping
+            The pair's value of each range parameter.
+
+        Returns
+        -------
+        str or None
+            The first parameter outside its range, named with its value; None when
+            every parameter is inside.
+        """
+        return _outside(self.identity, self.ranges, parameters)
+
+    def allowance(self, parameters: Mapping[str, float]) -> float:
+        """Return the envelope's energy allowance for a covered field.
+
+        Parameters
+        ----------
+        parameters : collections.abc.Mapping
+            The pair's range parameters and ``field``, the evaluated discrepancy.
+
+        Returns
+        -------
+        float
+            Dimensionless: ``field`` plus `numerical`.
+
+        Examples
+        --------
+        >>> from solprop.coupling import CAPILLARY_ENVELOPE as envelope
+        >>> envelope.allowance({"field": 2e-3}) == 2e-3 + envelope.numerical
+        True
+        """
+        return parameters["field"] + self.numerical
+
+
+CAPILLARY_ENVELOPE = FieldEnvelope(
+    identity="capillary-he1m-scalar-vs-leaky-marcatili-field-2026-11",
     family="capillary",
     ranges={"modes": (1.0, 24.0), "radius_ratio": (0.5, 2.0), "leaky": (0.0, 1e-2)},
-    bound=6.2e-3,
-    numerical=1e-10,
+    numerical=1e-8,
     reference=(
         "Marcatili's leaky HE1m core field J0(u_m (1 - i delta) r/a), delta = "
-        "|nu_n| c/(omega a), against the scalar J0 profile, both overlapped on an "
-        "independent polar Gauss-Legendre rule at delta = 1e-2 (the larger of a "
-        "pair's two capillaries): Gaussian beams of waist 0.3a to 1.0a, displaced to "
-        "0.2a, tilted to 0.59/(k a) (1 mrad at a = 75 um and 800 nm), 1, 2, 4, 8, 16 "
-        "and 24 HE1m modes, and coherent three-mode capillary exits into 24 modes at "
-        "radius ratios 0.5 to 2. The discrepancy is the larger of the summed per-mode "
-        "share changes and the least-squares captured share change: largest 3.05e-3, "
-        "at equal radii and 24 modes (the leaky modes' nonorthogonality; 2.9e-3 at 8 "
-        "modes); bound twice that, rounded up. It "
-        "falls at least linearly with delta (halving delta halves the beam cases and "
-        "quarters the radius cases), so the allowance is scaled by delta/1e-2"
+        "|nu_n| c/(omega a), against the scalar J0 profile, evaluated for the field "
+        "coupled at every bin: the summed change of the power launched into each "
+        "channel, |G^-1 o|^2 on unit profiles, relative to the incident power (a "
+        "beam's energy on its plane, a capillary exit's modal power). Closed-form "
+        "Lommel overlaps; a beam's leaky overlaps from the Taylor series of the leaky "
+        "profile in delta, its remainder bounded; a capillary exit's exactly. "
+        "Numerical error below 1e-8: Lommel's midpoint branch, 2e-9 relative. "
+        "Checked against an independent polar Gauss-Legendre quadrature for centred, "
+        "displaced, tilted and structured beams on Cartesian and radial planes into "
+        "4 to 24 HE1m, and capillary exits of random complex amplitudes at radius "
+        "ratios 0.5 to 1.6 into up to 24 HE1m"
     ),
-    scaled_by="leaky",
 )
-"""The capillary HE1m envelope; ``radius_ratio`` is source over target radius (1 for
-an incident beam), ``modes`` the larger HE1m count of the pair (two polarisations
-of one mode count once), ``leaky`` the larger
-:meth:`~solprop.coupling.models.ScalarModeBasis.leaky` of the pair over the occupied
-bins (about 5.0e-3 for a 37.5 um silica capillary at 800 nm)."""
+"""The capillary HE1m envelope, evaluated per field; ``radius_ratio`` is source over
+target radius (1 for an incident beam), ``modes`` the highest HE1m radial order of the
+pair, ``leaky`` the larger :meth:`~solprop.coupling.models.ScalarModeBasis.leaky` of
+the pair over the occupied bins (about 5.0e-3 for a 37.5 um silica capillary at
+800 nm), ``field`` the field's evaluated discrepancy weighted by incident energy."""
 
 
 STEP_INDEX_ENVELOPE = PairEnvelope(
