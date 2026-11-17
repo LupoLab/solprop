@@ -81,6 +81,18 @@ def test_radially_distinct_modes_are_orthogonal():
             assert overlap(modes[first], modes[second]) == pytest.approx(0.0, abs=1e-9)
 
 
+def test_a_high_order_mode_of_a_narrow_capillary_overlaps_converged():
+    """The adaptive rule converges where the unnormalised integral is tiny.
+
+    A 75 um capillary's HE1,24 has N = 2e-13 in SI units, below dblquad's default
+    absolute tolerance: integrated unscaled, the rule stopped unconverged and
+    silently, at 0.959 for the mode with itself and -1.1e-2 against HE1,23.
+    """
+    narrow = [MarcatiliMode(75e-6, "Ar", 3.0, m=m) for m in (23, 24)]
+    assert overlap(narrow[1], narrow[1]) == pytest.approx(1.0, rel=1e-9)
+    assert overlap(narrow[0], narrow[1]) == pytest.approx(0.0, abs=1e-9)
+
+
 def test_the_two_polarisations_of_a_mode_are_orthogonal():
     mode = MarcatiliMode(RADIUS, "He", 1.0)
     partner = mode.orthogonal_polarisation
