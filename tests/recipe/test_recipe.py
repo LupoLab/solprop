@@ -649,6 +649,16 @@ def test_the_command_line_forwards_scan(monkeypatch):
     assert calls == [["script.py", "--local"]]
 
 
+def test_a_failed_scan_command_reports_one_line_and_exits_two(tmp_path, capsys):
+    # As every other command does: no traceback, the message and exit status 2.
+    missing = tmp_path / "missing.py"
+    assert main(["scan", str(missing), "--local"]) == 2
+    error = capsys.readouterr().err
+    assert error.startswith("solprop: ")
+    assert str(missing) in error
+    assert "Traceback" not in error
+
+
 def test_a_mode_takes_its_geometry_and_not_the_fill_the_route_sets():
     with pytest.raises(RecipeError, match="expected one of") as caught:
         build_object(
