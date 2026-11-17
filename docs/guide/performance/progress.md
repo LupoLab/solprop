@@ -199,8 +199,9 @@ against a fill that reaches exactly zero, closes at a ratio of `1.6e-01`.
 Progress goes through one {py:class}`~solprop.log.ProgressReporter` protocol of six
 calls: `summary(text)` with the start-of-run block before the first step (and the
 `resources` line after `finished`), `started(z_start, z_end, n_planes)` once,
-`step(z, dz, accepted)` once per **attempted** step from inside the backend's own loop,
-`plane(z, summary)` once per saved plane, and at the end `finished(total)`, or
+`step(z, dz, accepted)` once per **attempted** step, in order, delivered in batches as
+the run returns them (at each saved plane, and in between after at most 256 attempts or
+0.1 s), `plane(z, summary)` once per saved plane, and at the end `finished(total)`, or
 `interrupted(z, error)` when the loop raises, `KeyboardInterrupt` included, before the
 error propagates -- it is how the bar gives the terminal back. Subclass
 {py:class}`~solprop.log.NullReporter` (or the protocol itself) and override the calls you
@@ -218,9 +219,12 @@ prop_capillary(..., progress=Bar())
 ```
 
 Pass it as `progress=` and `progress_period` becomes your reporter's business. `step` is
-called from inside the step loop, thousands of times a second on a small problem, so
-anything it does must be cheap or be put on a clock of its own — the line reporter's
-own `step` costs about 100 ns, five times the bare cost of the call.
+called once per attempt, thousands of times a second on a small problem and up to 256
+times in a row when a batch arrives, so anything it does must be cheap or be put on a
+clock of its own — the line reporter's own `step` costs about 100 ns, five times the
+bare cost of the call. Because the attempts arrive a batch at a time, a stop flag that a
+reporter sets lands up to one batch later, at most 256 attempts or 0.1 s, on either
+backend.
 Nothing a reporter does may change the run: the calls are observers made after each step
 is decided, and a run with a reporter is the same computation as a run without one.
 
