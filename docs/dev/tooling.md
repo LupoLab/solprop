@@ -57,9 +57,10 @@ gallery scripts and refresh their committed output).
 The native package has a gate of its own, `uv run poe check-native`
 (`native/scripts/check.sh`, bash, so Linux and macOS): its ruff and strict pyright,
 clang-format, clang-tidy, the native tests, ASan and UBSan, its pytest suite on an
-editable build, and the distribution wheel's build and isolated smoke test. `uv run poe
-check-all` runs `check` and then `check-native`; a change that touches `native/` runs it.
-Its rules are in `native/AGENTS.md`.
+editable build, and the distribution wheel's build and isolated smoke test. A change that
+touches `native/` runs `check` and `check-native`, and follows `native/AGENTS.md`.
+`uv run poe check-all` runs three gates, `check`, `check-native` and the front end's
+`check-gui`, so it needs `uv sync --extra gui --group gui-test`.
 
 ## ruff
 

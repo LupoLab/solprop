@@ -19,8 +19,8 @@ uv sync
 The native backend lives in `native/` in the same repository and is a second distribution,
 solprop-native, at the same version and a required dependency. A plain `uv sync` therefore
 builds it and installs it editable into the same environment, which needs its C++
-toolchain, and `uv run poe check-all` runs solprop's gate and then the native gate; a change
-that touches `native/` runs both and follows `native/AGENTS.md`.
+toolchain. A change that touches `native/` runs solprop's gate and the native gate,
+`uv run poe check` and `uv run poe check-native`, and follows `native/AGENTS.md`.
 [Building the native backend](../guide/performance/building-native.md)
 covers its builds; the [architecture](architecture.md) and
 [kernel contract](kernel-contract.md) describe the boundary between the two packages.

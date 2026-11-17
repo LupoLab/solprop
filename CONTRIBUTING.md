@@ -112,8 +112,11 @@ git clone https://github.com/LupoLab/solprop.git
 cd solprop
 uv sync                 # the package and native/, both editable, with the development tools
 uv run poe check        # the full gate: lint, format, types, docstrings, spelling, tests, docs
-uv run poe check-all    # solprop's gate, then the native gate (`poe check-native`)
+uv run poe check-native # the native gate
 ```
+
+`uv run poe check-all` runs both and the front end's gate, `poe check-gui`, which needs
+`uv sync --extra gui --group gui-test`.
 
 The material models come from [optmat](https://github.com/LupoLab/optmat), installed as
 an ordinary dependency.
@@ -136,8 +139,8 @@ setting, builds it. There `backend="auto"` refuses, so scripts name `backend="nu
 tests that need native skip. [Contributing](docs/dev/contributing.md) has the details, and
 `poe fetch-wheel`, which installs the wheel CI built when it fits your tree.
 
-A change that touches `native/` runs `poe check-all` and follows the native rules in
-[`native/AGENTS.md`](native/AGENTS.md).
+A change that touches `native/` runs `poe check` and `poe check-native` and follows the
+native rules in [`native/AGENTS.md`](native/AGENTS.md).
 
 ## Making a change
 

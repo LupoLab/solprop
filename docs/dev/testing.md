@@ -153,8 +153,9 @@ For native development, a plain `uv sync` builds `native/` and installs it
 editable into the repository's environment before a lane runs; how, and when a build
 must be rebuilt, is
 [Building the native backend](../guide/performance/building-native.md#a-development-build).
-`uv run poe check-native` runs the native package's own gate and `uv run poe check-all`
-both gates. What the backend does not support it refuses by name
+`uv run poe check-native` runs the native package's own gate, and a native change runs it
+after `uv run poe check` ([tooling](tooling.md#the-gate-uv-run-poe-check)). What the
+backend does not support it refuses by name
 ([backends.md](backends.md)).
 The `gpu` lane checks build coherence, one complete device step and same-card
 repeats within a rounding bound on an accelerator build; host thread-count tests skip on a

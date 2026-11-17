@@ -82,7 +82,7 @@ The native gate runs from the repository root:
 
 ```console
 uv run poe check-native   # native/scripts/check.sh
-uv run poe check-all      # solprop's gate (poe check), then the native gate
+uv run poe check-all      # solprop's, the native and the front end's gates (gui extra)
 uv run poe fmt-native     # clang-format every tracked C++ file in place
 uv run poe tidy-native    # clang-tidy the C++ files changed from main (or those named)
 ```
@@ -91,8 +91,8 @@ uv run poe tidy-native    # clang-tidy the C++ files changed from main (or those
 clang-tidy and warnings, native tests, ASan+UBSan native tests, an editable build with
 pytest, a distribution wheel build and a clean wheel smoke test; per-file copyright and
 licence (`reuse lint`) is in solprop's `poe check`, which covers `native/` too. A change
-under `native/` is finished when `poe check-all` is green, so that solprop's test suite
-has passed with this backend freshly built. Report the compiler, build type, execution
+under `native/` is finished when `poe check` and `poe check-native` are green, so that
+solprop's test suite has passed with this backend freshly built. Report the compiler, build type, execution
 space, thread settings and any check that was not run.
 
 CI (the repository's `.github/workflows/ci.yml`) runs on every push and pull request:

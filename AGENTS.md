@@ -36,7 +36,7 @@ physics or numerics rather than style, ask rather than guess.
 |---|---|
 | Sync environment | `uv sync` (builds native editable; needs a C++20 compiler). `--extra gui --group gui-test` adds the front end. No compiler: the lightweight setup and `poe fetch-wheel` ([`docs/dev/contributing.md`](docs/dev/contributing.md)) |
 | Full gate | `uv run poe check` |
-| Native gate | `uv run poe check-native`; `uv run poe check-all` runs the three gates |
+| Native gate | `uv run poe check-native`; `uv run poe check-all` runs the three gates (the front end's needs its extra, below) |
 | Front-end gate | `uv run poe check-gui` (needs `--extra gui --group gui-test`) |
 | Lint, format, types | `uv run ruff check --fix .`, `uv run ruff format .`, `uv run basedpyright` |
 | Docstrings, spelling, licences | `uv run poe docstrings`, `uv run codespell`, `uv run poe reuse` |
