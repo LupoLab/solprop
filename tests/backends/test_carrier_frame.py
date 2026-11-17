@@ -48,7 +48,6 @@ from solprop.backends.exponential import (
     phi_functions,
     refuse_carrier_frame,
 )
-from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.adams_kernels import (
@@ -56,6 +55,7 @@ from solprop.backends.numpy_ref.adams_kernels import (
     ExponentialKernels,
     coupled_moments,
 )
+from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
 from solprop.backends.numpy_ref.multistep import HostHistory
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session

@@ -18,7 +18,7 @@ from solprop.backends import (
     StepSummary,
     protocol,
 )
-from solprop.backends.host.session import HostPrepared
+from solprop.backends.numpy_ref.session import HostPrepared
 from solprop.exceptions import BackendError
 from solprop.translate.run_request import RunRequest
 

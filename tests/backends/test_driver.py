@@ -4,8 +4,8 @@
 
 """The reference's step control, driven through a stage evaluation that is scripted.
 
-The reference's session (:class:`solprop.backends.host.session.HostSession`) schedules
-a run and drives its march; here the march's engine is a script
+The reference's session (:class:`solprop.backends.numpy_ref.session.HostSession`)
+schedules a run and drives its march; here the march's engine is a script
 (:class:`scripted_driver.HostScriptedDriver`), so every claim is about the *step
 control* -- landing, acceptance, the controller's state, the history, the noise models,
 the guards, the statistics rows -- and none of them depends on any physics being
@@ -28,9 +28,9 @@ from scripted_driver import HostScriptedDriver
 from sessions.executors import IDENTITY, Started, drive
 from sessions.runs import run
 from solprop.backends.events import ObservationReady
-from solprop.backends.host.session import INITIAL_STEP_STATS_CAPACITY
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.dense import RungeKuttaDense
+from solprop.backends.numpy_ref.session import INITIAL_STEP_STATS_CAPACITY
 from solprop.backends.protocol import Backend
 from solprop.backends.session import Start
 from solprop.exceptions import BackendError

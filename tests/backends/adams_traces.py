@@ -5,7 +5,7 @@
 """Decision traces of the Adams march on scripted norms (SEP 39 section 7.1).
 
 The real march is driven over a stub engine and a stub session that hosts it with the
-session's own cap (:func:`~solprop.backends.host.session.step_cap`) and dense
+session's own cap (:func:`~solprop.backends.numpy_ref.session.step_cap`) and dense
 observation's rule. The engine returns, for each attempt, the norms a scenario
 prescribes, so every decision the march makes -- acceptance, the next order and
 proposal, the landing, a restart, the call ledger -- is a function of the scenario's
@@ -36,9 +36,9 @@ import numpy as np
 from solprop._helpers import PLAIN
 from solprop.backends.engines import AcceptRecord
 from solprop.backends.exponential import CarrierChord, CarrierReference
-from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.host.marches import MarchState
-from solprop.backends.host.session import step_cap
+from solprop.backends.numpy_ref.marches import MarchState
+from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
+from solprop.backends.numpy_ref.session import step_cap
 from solprop.backends.records import adams_policy
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.stepper.multistep import Formulation, Multistep
@@ -353,7 +353,7 @@ class _Scripted:
     """A stub session: what the Adams marches ask of it, recording it.
 
     The reference's march asks through
-    :class:`~solprop.backends.host.marches.MarchHost` (:class:`_HostHarness`); the
+    :class:`~solprop.backends.numpy_ref.marches.MarchHost` (:class:`_HostHarness`); the
     native march's call-by-call adapter (``native_trace_marches.TraceAdamsMarch``)
     reads the members set here, in the names the reference's step driver had, so that
     the native march's decision traces are held to the reference's

@@ -25,7 +25,7 @@ import solprop.driver.session_loop as session_loop_module
 from driver.test_abandoned_step import built as low_storage
 from driver.test_resume import run_until
 from driver.test_resume_history import AFRESH, soliton
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.session import SessionError
 from solprop.exceptions import SolpropWarning
 from solprop.output import (

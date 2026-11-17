@@ -59,7 +59,7 @@ from sessions.test_native_session_transverse import (
     _compare,
 )
 from solprop.backends.events import ObservationReady
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session

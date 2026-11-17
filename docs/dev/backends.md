@@ -56,10 +56,16 @@ five parts behind it: a lowering, a workspace that holds the state and does ever
 state-sized operation, the engines a march asks of it, the marches, and the session
 (§1, point 3). The NumPy reference's are `NumpyRefBackend`'s constructor tables,
 `NumpyWorkspace`, the engines of `solprop.backends.engines`, the marches of
-`backends/host/` and `HostSession`; the native backend's are its lowering into
+`backends/numpy_ref/marches/` and `HostSession` (`backends/numpy_ref/session.py`): all
+five live in `backends/numpy_ref/`, beside the reference's passes. The native backend's are its lowering into
 `_core.Problem`, `_core.Workspace` over its resident state, `rk::Engine` and
 `march::Engine`, its compiled marches and `session.cpp`, of which `HostSession` is the
-Python counterpart. Both read the same run records (`solprop.backends.records`), built
+Python counterpart. The reference's session and marches are the Python statement of
+what `session.cpp` and the compiled marches do, and the decision traces hold the two to
+the same decisions, but native imports none of them. What the backends share is
+stateless: the controller cores (`adams_core`, `rk_core`), the engine protocols
+(`engines`), the low-storage method (`backends/low_storage.py`), the exponential
+coefficients and the preparation refusals. Both read the same run records (`solprop.backends.records`), built
 once per run by shared code; native's cross the seam by field table (§4).
 
 The listing is abbreviated; `solprop/backends/protocol.py` holds the exact signatures and
@@ -190,11 +196,11 @@ translation, and a native z-table run of each march with the plain forms
 forbidden.
 
 **3. One shape, two implementations: the marches.** Every reference run is its session's,
-`HostSession` (`backends/host/session.py`), which drives the run's march directly; every
+`HostSession` (`backends/numpy_ref/session.py`), which drives the run's march directly; every
 native run is its native session's (`solprop_native.session`, over `session.cpp`), whose
 compiled marches advance to an event from one policy record and hand back the events
 (SEP 47). Each reference march keeps its position, proposal, replay cursor and accepted
-norms in its own `MarchState` (`backends/host/marches.py`), asks the session only through
+norms in its own `MarchState` (`backends/numpy_ref/marches/__init__.py`), asks the session only through
 the narrow `MarchHost`, and hands every state-sized operation to an engine of
 `solprop.backends.engines` over the reference's workspace, `NumpyWorkspace`
 (`backends/numpy_ref/workspace.py`), which holds the state and does every state-sized
@@ -203,11 +209,11 @@ operation (SEP 52 §5.1). The backend builds a fresh march and engines for each 
 
 | Loop | Steps | Where its state-sized work runs |
 |---|---|---|
-| `RungeKuttaMarch.march_to`, in `backends/host/runge_kutta.py` | adaptive Runge-Kutta | a `RungeKuttaEngine`: `NumpyRungeKutta` (`backends/numpy_ref/engines.py`) |
+| `RungeKuttaMarch.march_to`, in `backends/numpy_ref/marches/runge_kutta.py` | adaptive Runge-Kutta | a `RungeKuttaEngine`: `NumpyRungeKutta` (`backends/numpy_ref/engines.py`) |
 | `RungeKuttaMarch.replay_to` | Runge-Kutta on a fixed schedule | the same engine |
-| `HostAdamsMarch.march_to`, in `backends/host/adams.py` | adaptive Adams | an `AdamsEngine`: `HostHistory` |
+| `HostAdamsMarch.march_to`, in `backends/numpy_ref/marches/adams.py` | adaptive Adams | an `AdamsEngine`: `HostHistory` |
 | `HostAdamsMarch._replay_to` | Adams on a fixed schedule | the same engine |
-| `HostLowStorageMarch.replay_to`, in `backends/host/low_storage.py` | low-storage, always on a schedule | a `RungeKuttaEngine` with a destructive trial: `NumpyLowStorage` |
+| `HostLowStorageMarch.replay_to`, in `backends/numpy_ref/marches/low_storage.py` | low-storage, always on a schedule | a `RungeKuttaEngine` with a destructive trial: `NumpyLowStorage` |
 | the native session's Adams march, `native/src/march/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine (`engines::ResidentEngine`, a `march::Engine`), the march's state from the run record (`_NativeAdamsMarch.start_state`) |
 | the native session's Runge-Kutta march, `native/src/march/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)) | the staged trial and native norm |
 | the native session's low-storage replay | low-storage, always on a schedule | one in-place native step a schedule step |
@@ -217,7 +223,7 @@ which holds to it through kernel contract §12 (ADR-069), and for the march's bo
 `HostAdamsMarch` is the reference for the compiled Adams march, which holds to it through
 kernel contract §11 (ADR-060). The decision-trace tests drive each reference march over a
 scripted engine and a stub session that applies the session's rules
-(`host.session.step_cap`, `host.session.natural_stop`), and each compiled march a call at
+(`numpy_ref.session.step_cap`, `numpy_ref.session.natural_stop`), and each compiled march a call at
 a time over the same stub (`tests/backends/native_trace_marches.py`), and hold the two to
 the same decisions on the same readings. A new compiled loop needs a
 contract that specifies it in full and a reference to compare it with.
@@ -501,15 +507,16 @@ modes, profiles)` builds one, for the problem and the request it is run with: th
 request's method, error control, itinerary and planes are lowered once, here (the native
 session lowers its statistics as it starts, from profile tables cached per problem), and
 a run's session serves that request adapted to one run (`RunRequest.for_run`); a
-preparation refuses any other request by name (`session_core.foreign_request`). A run
+preparation refuses any other request by name (`session.foreign_request`). A run
 starts through the backend's own preparation shape (SEP 47 §5.2):
 `backend.prepare(problem, request)` returns a `PreparedExecution` whose
 `start(start, *, listener, started, stop, owns)` opens the backend's session, and
 `backends.sessions.start_session` does nothing else, so a backend chooses its session
-without the run layer naming it. The reference's (`backends.host.session.HostPrepared`)
-opens `HostSession`, which composes the parts the Python sessions share
-(`backends.session_core`: the attempt counter, yield check, snapshot latch, shared
-observation and preparation refusals) and imports nothing of the native backend's; the
+without the run layer naming it. The reference's (`backends.numpy_ref.session.HostPrepared`)
+opens `HostSession`, which composes its own parts (`backends.numpy_ref.session_parts`:
+the lifecycle ledger, attempt counter, yield check, snapshot latch and shared
+observation) with the preparation refusals both backends make
+(`backends.session.check_preparation`), and imports nothing of the native backend's; the
 native backend's (`solprop_native.session.NativePrepared`) opens `NativeSession`, the only
 native executor since SEP 47 phase 5, which refuses by name what it does not run, and
 refuses a `NativeBackend` subclass, whose overrides it would not call. Statistics the problem does not
@@ -983,10 +990,10 @@ must end finite and within ten times the run's relative tolerance of the base's 
 
 ### 3.5 The session's march: Python first, compiled when measured
 
-**One session per backend, the same shape.** `backends/host/session.py` is the
+**One session per backend, the same shape.** `backends/numpy_ref/session.py` is the
 reference's schedule -- the planes, halts, history, statistics rows, dense observation and
-boundary checks -- over its marches (`backends/host/runge_kutta.py`, `adams.py`,
-`low_storage.py`), which own their state; the native backend's session marches natively
+boundary checks -- over its marches (`backends/numpy_ref/marches/runge_kutta.py`,
+`adams.py`, `low_storage.py`), which own their state; the native backend's session marches natively
 (§1, point 3, lists the marches). Per stage a backend asks the translation layer for one bundle of host
 scalars and combines the terms it holds over them (§1); an engine applies the boundary
 treatments of the workspace's `finish` only to a step it accepts, so a rejected step does not pay the temporal

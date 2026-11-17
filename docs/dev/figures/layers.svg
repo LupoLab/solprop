@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     width="1200" height="2269.0" viewBox="0 0 1200 2269.0">
+     width="1200" height="2222.5" viewBox="0 0 1200 2222.5">
 <defs>
 </defs>
 <style>
@@ -76,7 +76,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 .edge-x { stroke: var(--x-edge); }
 .ink-x { fill: var(--x-edge); }
 </style>
-<rect x="0" y="0" width="1200" height="2269.0" class="ground" />
+<rect x="0" y="0" width="1200" height="2222.5" class="ground" />
 <text x="32" y="44.0" font-size="21" class="bold">The layers of solprop, and every module in each</text>
 <text x="32" y="64.0" font-size="12" class="dim">Bands and colours from architecture.md §3 and decisions.md ADR-001; modules from src/solprop. Arrows point from the layer that imports to the layer it imports.</text>
 <rect x="32" y="75.5" width="16" height="16" rx="7" ry="7" class="fill-p" />
@@ -203,114 +203,113 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="317.0" y="990.5" font-size="12" class="dim">plasma_integration · plasma_source</text>
 <text x="317.0" y="1006.0" font-size="12" class="dim">envelope_plasma · raman · masks</text>
 <text x="317.0" y="1021.5" font-size="12" class="dim">tdse · tdse_source · run_request</text>
-<rect x="32" y="1093.5" width="946.0" height="276.5" rx="7" ry="7" class="plain" />
-<rect x="46" y="1214.75" width="34" height="34" rx="7" ry="7" class="fill-b" />
-<text x="63" y="1237.75" font-size="19" class="bold mid ink-b">B</text>
-<text x="90" y="1229.75" font-size="15" class="bold ink-b">backends</text>
-<text x="90" y="1247.25" font-size="12" class="dim">may import</text>
-<text x="168" y="1247.25" font-size="12" class="dim">numpy; the native package in native/; S</text>
-<rect x="307.0" y="1106.5" width="251.00000000000003" height="143.5" rx="7" ry="7" class="fill-b" />
+<rect x="32" y="1093.5" width="946.0" height="230.0" rx="7" ry="7" class="plain" />
+<rect x="46" y="1191.5" width="34" height="34" rx="7" ry="7" class="fill-b" />
+<text x="63" y="1214.5" font-size="19" class="bold mid ink-b">B</text>
+<text x="90" y="1206.5" font-size="15" class="bold ink-b">backends</text>
+<text x="90" y="1224.0" font-size="12" class="dim">may import</text>
+<text x="168" y="1224.0" font-size="12" class="dim">numpy; the native package in native/; S</text>
+<rect x="307.0" y="1106.5" width="251.00000000000003" height="128.0" rx="7" ry="7" class="fill-b" />
 <text x="317.0" y="1128.5" font-size="15" class="bold ink-b">backends/</text>
 <text x="317.0" y="1144.0" font-size="12" class="dim">protocol · registry · records</text>
 <text x="317.0" y="1159.5" font-size="12" class="dim">engines · spatial · populations</text>
 <text x="317.0" y="1175.0" font-size="12" class="dim">tdse_source · memory · node_chunk</text>
 <text x="317.0" y="1190.5" font-size="12" class="dim">ledger · adams_core · rk_core</text>
 <text x="317.0" y="1206.0" font-size="12" class="dim">exponential · low_storage · session</text>
-<text x="317.0" y="1221.5" font-size="12" class="dim">events · export · session_core</text>
-<text x="317.0" y="1237.0" font-size="12" class="dim">sessions</text>
-<rect x="568.0" y="1106.5" width="224.60000000000002" height="143.5" rx="7" ry="7" class="fill-b" />
-<text x="578.0" y="1128.5" font-size="15" class="bold ink-b">backends/host/</text>
-<text x="578.0" y="1144.0" font-size="12" class="dim">session · marches · runge_kutta</text>
-<text x="578.0" y="1159.5" font-size="12" class="dim">adams · low_storage</text>
-<rect x="307.0" y="1260.0" width="251.00000000000003" height="97.0" rx="7" ry="7" class="fill-b" />
-<text x="317.0" y="1282.0" font-size="15" class="bold ink-b">backends/numpy_ref/</text>
-<text x="317.0" y="1297.5" font-size="12" class="dim">backend · workspace · source</text>
-<text x="317.0" y="1313.0" font-size="12" class="dim">statistics · coupled_flow · engines</text>
-<text x="317.0" y="1328.5" font-size="12" class="dim">dense · multistep · adams_kernels</text>
-<text x="317.0" y="1344.0" font-size="12" class="dim">adams_tables · general_modal</text>
-<rect x="568.0" y="1260.0" width="234.50000000000003" height="97.0" rx="7" ry="7" class="fill-b" />
-<text x="578.0" y="1282.0" font-size="15" class="bold ink-b">backends/numpy_ref/passes/</text>
-<text x="578.0" y="1297.5" font-size="12" class="dim">transforms · responses · plasma</text>
-<text x="578.0" y="1313.0" font-size="12" class="dim">stepping</text>
-<rect x="32" y="1416.0" width="946.0" height="352.5" rx="7" ry="7" class="plain" />
-<rect x="46" y="1575.25" width="34" height="34" rx="7" ry="7" class="fill-d" />
-<text x="63" y="1598.25" font-size="19" class="bold mid ink-d">D</text>
-<text x="90" y="1582.5" font-size="15" class="bold ink-d">driver</text>
-<text x="90" y="1600.0" font-size="12" class="dim">may import</text>
-<text x="168" y="1600.0" font-size="12" class="dim">P, S, T</text>
-<text x="168" y="1615.5" font-size="12" class="dim">B through the seam, h5py</text>
-<rect x="307.0" y="1429.0" width="224.60000000000002" height="81.5" rx="7" ry="7" class="fill-d" />
-<text x="317.0" y="1451.0" font-size="15" class="bold ink-d">output/</text>
-<text x="317.0" y="1466.5" font-size="12" class="dim">memory · callback · hdf5</text>
-<text x="317.0" y="1482.0" font-size="12" class="dim">tdse_archive · snapshots · scan</text>
-<text x="317.0" y="1497.5" font-size="12" class="dim">scan_artifacts · resumable</text>
-<rect x="541.6" y="1429.0" width="77.75" height="81.5" rx="7" ry="7" class="fill-d" />
-<text x="551.6" y="1451.0" font-size="15" class="bold ink-d">scan.py</text>
-<rect x="629.35" y="1429.0" width="237.8" height="81.5" rx="7" ry="7" class="fill-d" />
-<text x="639.35" y="1451.0" font-size="15" class="bold ink-d">calibration/</text>
-<text x="639.35" y="1466.5" font-size="12" class="dim">command · controller · first_use</text>
-<text x="639.35" y="1482.0" font-size="12" class="dim">child · grain · problems · refine</text>
-<text x="639.35" y="1497.5" font-size="12" class="dim">selection</text>
-<rect x="307.0" y="1520.5" width="204.8" height="66.0" rx="7" ry="7" class="fill-d" />
-<text x="317.0" y="1542.5" font-size="15" class="bold ink-d">driver/executors/</text>
-<text x="317.0" y="1558.0" font-size="12" class="dim">local · pool · queue · slurm</text>
-<rect x="521.8" y="1520.5" width="244.4" height="66.0" rx="7" ry="7" class="fill-d" />
-<text x="531.8" y="1542.5" font-size="15" class="bold ink-d">driver/routes/</text>
-<text x="531.8" y="1558.0" font-size="12" class="dim">gnlse · hollow · general · spatial</text>
-<text x="531.8" y="1573.5" font-size="12" class="dim">materials · keywords</text>
-<rect x="307.0" y="1596.5" width="244.4" height="159.0" rx="7" ry="7" class="fill-d" />
-<text x="317.0" y="1618.5" font-size="15" class="bold ink-d">driver/</text>
-<text x="317.0" y="1634.0" font-size="12" class="dim">simulation · settings · inputs</text>
-<text x="317.0" y="1649.5" font-size="12" class="dim">metadata · resume · runner</text>
-<text x="317.0" y="1665.0" font-size="12" class="dim">tdse_run · run · summary</text>
-<text x="317.0" y="1680.5" font-size="12" class="dim">interface · scaffold · mixtures</text>
-<text x="317.0" y="1696.0" font-size="12" class="dim">material_output · tdse</text>
-<text x="317.0" y="1711.5" font-size="12" class="dim">tdse_consistency · scan · defaults</text>
-<text x="317.0" y="1727.0" font-size="12" class="dim">estimate · plane_view</text>
-<text x="317.0" y="1742.5" font-size="12" class="dim">session_loop</text>
-<rect x="561.4" y="1596.5" width="237.8" height="159.0" rx="7" ry="7" class="fill-d" />
-<text x="571.4" y="1618.5" font-size="15" class="bold ink-d">recipe/</text>
-<text x="571.4" y="1634.0" font-size="12" class="dim">core · document · errors · export</text>
-<text x="571.4" y="1649.5" font-size="12" class="dim">metadata · paths · pins · preview</text>
-<text x="571.4" y="1665.0" font-size="12" class="dim">provenance · quantity · registry</text>
-<text x="571.4" y="1680.5" font-size="12" class="dim">type_metadata</text>
-<rect x="809.2" y="1596.5" width="69.5" height="159.0" rx="7" ry="7" class="fill-d" />
-<text x="819.2" y="1618.5" font-size="15" class="bold ink-d">cli.py</text>
-<rect x="32" y="1814.5" width="946.0" height="292.0" rx="7" ry="7" class="plain" />
-<rect x="46" y="1943.5" width="34" height="34" rx="7" ry="7" class="fill-x" />
-<text x="63" y="1966.5" font-size="19" class="bold mid ink-x">X</text>
-<text x="90" y="1943.0" font-size="15" class="bold ink-x">processing / plotting</text>
-<text x="90" y="1960.5" font-size="12" class="dim">may import</text>
-<text x="168" y="1960.5" font-size="12" class="dim">numpy, scipy</text>
-<text x="168" y="1976.0" font-size="12" class="dim">matplotlib, D (outputs)</text>
-<text x="168" y="1991.5" font-size="12" class="dim">T (table identities)</text>
-<rect x="307.0" y="1827.5" width="224.60000000000002" height="97.0" rx="7" ry="7" class="fill-x" />
-<text x="317.0" y="1849.5" font-size="15" class="bold ink-x">processing/</text>
-<text x="317.0" y="1865.0" font-size="12" class="dim">beams · axes · fields · spectra</text>
-<text x="317.0" y="1880.5" font-size="12" class="dim">time · coherence · compression</text>
-<text x="317.0" y="1896.0" font-size="12" class="dim">mixtures · modal · planes</text>
-<text x="317.0" y="1911.5" font-size="12" class="dim">plane_file · scans</text>
-<rect x="541.6" y="1827.5" width="224.60000000000002" height="97.0" rx="7" ry="7" class="fill-x" />
-<text x="551.6" y="1849.5" font-size="15" class="bold ink-x">plotting/</text>
-<text x="551.6" y="1865.0" font-size="12" class="dim">propagation · statistics</text>
-<text x="551.6" y="1880.5" font-size="12" class="dim">spectrograms · style · geometry</text>
-<rect x="776.2" y="1827.5" width="69.5" height="97.0" rx="7" ry="7" class="fill-x" />
-<text x="786.2" y="1849.5" font-size="15" class="bold ink-x">sol.py</text>
-<rect x="307.0" y="1934.5" width="143.75" height="159.0" rx="7" ry="7" class="fill-x" />
-<text x="317.0" y="1956.5" font-size="15" class="bold ink-x">capabilities.py</text>
-<rect x="460.75" y="1934.5" width="251.00000000000003" height="159.0" rx="7" ry="7" class="fill-x" />
-<text x="470.75" y="1956.5" font-size="15" class="bold ink-x">service/</text>
-<text x="470.75" y="1972.0" font-size="12" class="dim">agent · beam · client · design</text>
-<text x="470.75" y="1987.5" font-size="12" class="dim">explore · figures · frames</text>
-<text x="470.75" y="2003.0" font-size="12" class="dim">handlers · install · job · kernel</text>
-<text x="470.75" y="2018.5" font-size="12" class="dim">launch · machines · messages</text>
-<text x="470.75" y="2034.0" font-size="12" class="dim">postprocess · radial_pages</text>
-<text x="470.75" y="2049.5" font-size="12" class="dim">recipes · record · reduce · results</text>
-<text x="470.75" y="2065.0" font-size="12" class="dim">run · runs · scan_reductions</text>
-<text x="470.75" y="2080.5" font-size="12" class="dim">sheet · states · waveguide · worker</text>
-<rect x="721.75" y="1934.5" width="110.75000000000001" height="159.0" rx="7" ry="7" class="planned" />
-<text x="731.75" y="1956.5" font-size="15" class="bold dim">processing/</text>
-<text x="731.75" y="1972.0" font-size="12" class="dim">windows</text>
+<text x="317.0" y="1221.5" font-size="12" class="dim">events · export · sessions</text>
+<rect x="568.0" y="1106.5" width="251.00000000000003" height="128.0" rx="7" ry="7" class="fill-b" />
+<text x="578.0" y="1128.5" font-size="15" class="bold ink-b">backends/numpy_ref/</text>
+<text x="578.0" y="1144.0" font-size="12" class="dim">backend · workspace · source</text>
+<text x="578.0" y="1159.5" font-size="12" class="dim">statistics · coupled_flow · engines</text>
+<text x="578.0" y="1175.0" font-size="12" class="dim">dense · multistep · adams_kernels</text>
+<text x="578.0" y="1190.5" font-size="12" class="dim">adams_tables · general_modal</text>
+<text x="578.0" y="1206.0" font-size="12" class="dim">session · session_parts</text>
+<rect x="307.0" y="1244.5" width="242.75000000000003" height="66.0" rx="7" ry="7" class="fill-b" />
+<text x="317.0" y="1266.5" font-size="15" class="bold ink-b">backends/numpy_ref/marches/</text>
+<text x="317.0" y="1282.0" font-size="12" class="dim">runge_kutta · adams · low_storage</text>
+<rect x="559.75" y="1244.5" width="234.50000000000003" height="66.0" rx="7" ry="7" class="fill-b" />
+<text x="569.75" y="1266.5" font-size="15" class="bold ink-b">backends/numpy_ref/passes/</text>
+<text x="569.75" y="1282.0" font-size="12" class="dim">transforms · responses · plasma</text>
+<text x="569.75" y="1297.5" font-size="12" class="dim">stepping</text>
+<rect x="32" y="1369.5" width="946.0" height="352.5" rx="7" ry="7" class="plain" />
+<rect x="46" y="1528.75" width="34" height="34" rx="7" ry="7" class="fill-d" />
+<text x="63" y="1551.75" font-size="19" class="bold mid ink-d">D</text>
+<text x="90" y="1536.0" font-size="15" class="bold ink-d">driver</text>
+<text x="90" y="1553.5" font-size="12" class="dim">may import</text>
+<text x="168" y="1553.5" font-size="12" class="dim">P, S, T</text>
+<text x="168" y="1569.0" font-size="12" class="dim">B through the seam, h5py</text>
+<rect x="307.0" y="1382.5" width="224.60000000000002" height="81.5" rx="7" ry="7" class="fill-d" />
+<text x="317.0" y="1404.5" font-size="15" class="bold ink-d">output/</text>
+<text x="317.0" y="1420.0" font-size="12" class="dim">memory · callback · hdf5</text>
+<text x="317.0" y="1435.5" font-size="12" class="dim">tdse_archive · snapshots · scan</text>
+<text x="317.0" y="1451.0" font-size="12" class="dim">scan_artifacts · resumable</text>
+<rect x="541.6" y="1382.5" width="77.75" height="81.5" rx="7" ry="7" class="fill-d" />
+<text x="551.6" y="1404.5" font-size="15" class="bold ink-d">scan.py</text>
+<rect x="629.35" y="1382.5" width="237.8" height="81.5" rx="7" ry="7" class="fill-d" />
+<text x="639.35" y="1404.5" font-size="15" class="bold ink-d">calibration/</text>
+<text x="639.35" y="1420.0" font-size="12" class="dim">command · controller · first_use</text>
+<text x="639.35" y="1435.5" font-size="12" class="dim">child · grain · problems · refine</text>
+<text x="639.35" y="1451.0" font-size="12" class="dim">selection</text>
+<rect x="307.0" y="1474.0" width="204.8" height="66.0" rx="7" ry="7" class="fill-d" />
+<text x="317.0" y="1496.0" font-size="15" class="bold ink-d">driver/executors/</text>
+<text x="317.0" y="1511.5" font-size="12" class="dim">local · pool · queue · slurm</text>
+<rect x="521.8" y="1474.0" width="244.4" height="66.0" rx="7" ry="7" class="fill-d" />
+<text x="531.8" y="1496.0" font-size="15" class="bold ink-d">driver/routes/</text>
+<text x="531.8" y="1511.5" font-size="12" class="dim">gnlse · hollow · general · spatial</text>
+<text x="531.8" y="1527.0" font-size="12" class="dim">materials · keywords</text>
+<rect x="307.0" y="1550.0" width="244.4" height="159.0" rx="7" ry="7" class="fill-d" />
+<text x="317.0" y="1572.0" font-size="15" class="bold ink-d">driver/</text>
+<text x="317.0" y="1587.5" font-size="12" class="dim">simulation · settings · inputs</text>
+<text x="317.0" y="1603.0" font-size="12" class="dim">metadata · resume · runner</text>
+<text x="317.0" y="1618.5" font-size="12" class="dim">tdse_run · run · summary</text>
+<text x="317.0" y="1634.0" font-size="12" class="dim">interface · scaffold · mixtures</text>
+<text x="317.0" y="1649.5" font-size="12" class="dim">material_output · tdse</text>
+<text x="317.0" y="1665.0" font-size="12" class="dim">tdse_consistency · scan · defaults</text>
+<text x="317.0" y="1680.5" font-size="12" class="dim">estimate · plane_view</text>
+<text x="317.0" y="1696.0" font-size="12" class="dim">session_loop</text>
+<rect x="561.4" y="1550.0" width="237.8" height="159.0" rx="7" ry="7" class="fill-d" />
+<text x="571.4" y="1572.0" font-size="15" class="bold ink-d">recipe/</text>
+<text x="571.4" y="1587.5" font-size="12" class="dim">core · document · errors · export</text>
+<text x="571.4" y="1603.0" font-size="12" class="dim">metadata · paths · pins · preview</text>
+<text x="571.4" y="1618.5" font-size="12" class="dim">provenance · quantity · registry</text>
+<text x="571.4" y="1634.0" font-size="12" class="dim">type_metadata</text>
+<rect x="809.2" y="1550.0" width="69.5" height="159.0" rx="7" ry="7" class="fill-d" />
+<text x="819.2" y="1572.0" font-size="15" class="bold ink-d">cli.py</text>
+<rect x="32" y="1768.0" width="946.0" height="292.0" rx="7" ry="7" class="plain" />
+<rect x="46" y="1897.0" width="34" height="34" rx="7" ry="7" class="fill-x" />
+<text x="63" y="1920.0" font-size="19" class="bold mid ink-x">X</text>
+<text x="90" y="1896.5" font-size="15" class="bold ink-x">processing / plotting</text>
+<text x="90" y="1914.0" font-size="12" class="dim">may import</text>
+<text x="168" y="1914.0" font-size="12" class="dim">numpy, scipy</text>
+<text x="168" y="1929.5" font-size="12" class="dim">matplotlib, D (outputs)</text>
+<text x="168" y="1945.0" font-size="12" class="dim">T (table identities)</text>
+<rect x="307.0" y="1781.0" width="224.60000000000002" height="97.0" rx="7" ry="7" class="fill-x" />
+<text x="317.0" y="1803.0" font-size="15" class="bold ink-x">processing/</text>
+<text x="317.0" y="1818.5" font-size="12" class="dim">beams · axes · fields · spectra</text>
+<text x="317.0" y="1834.0" font-size="12" class="dim">time · coherence · compression</text>
+<text x="317.0" y="1849.5" font-size="12" class="dim">mixtures · modal · planes</text>
+<text x="317.0" y="1865.0" font-size="12" class="dim">plane_file · scans</text>
+<rect x="541.6" y="1781.0" width="224.60000000000002" height="97.0" rx="7" ry="7" class="fill-x" />
+<text x="551.6" y="1803.0" font-size="15" class="bold ink-x">plotting/</text>
+<text x="551.6" y="1818.5" font-size="12" class="dim">propagation · statistics</text>
+<text x="551.6" y="1834.0" font-size="12" class="dim">spectrograms · style · geometry</text>
+<rect x="776.2" y="1781.0" width="69.5" height="97.0" rx="7" ry="7" class="fill-x" />
+<text x="786.2" y="1803.0" font-size="15" class="bold ink-x">sol.py</text>
+<rect x="307.0" y="1888.0" width="143.75" height="159.0" rx="7" ry="7" class="fill-x" />
+<text x="317.0" y="1910.0" font-size="15" class="bold ink-x">capabilities.py</text>
+<rect x="460.75" y="1888.0" width="251.00000000000003" height="159.0" rx="7" ry="7" class="fill-x" />
+<text x="470.75" y="1910.0" font-size="15" class="bold ink-x">service/</text>
+<text x="470.75" y="1925.5" font-size="12" class="dim">agent · beam · client · design</text>
+<text x="470.75" y="1941.0" font-size="12" class="dim">explore · figures · frames</text>
+<text x="470.75" y="1956.5" font-size="12" class="dim">handlers · install · job · kernel</text>
+<text x="470.75" y="1972.0" font-size="12" class="dim">launch · machines · messages</text>
+<text x="470.75" y="1987.5" font-size="12" class="dim">postprocess · radial_pages</text>
+<text x="470.75" y="2003.0" font-size="12" class="dim">recipes · record · reduce · results</text>
+<text x="470.75" y="2018.5" font-size="12" class="dim">run · runs · scan_reductions</text>
+<text x="470.75" y="2034.0" font-size="12" class="dim">sheet · states · waveguide · worker</text>
+<rect x="721.75" y="1888.0" width="110.75000000000001" height="159.0" rx="7" ry="7" class="planned" />
+<text x="731.75" y="1910.0" font-size="15" class="bold dim">processing/</text>
+<text x="731.75" y="1925.5" font-size="12" class="dim">windows</text>
 <path d="M326.0,657.5 L326.0,621.5" class="arrow" />
 <path d="M326.0,621.5 L329.6,630.5 L322.4,630.5 Z" class="head" />
 <text x="338.0" y="643.5" font-size="12" class="dim">S → P   the grids, modes and profiles a statistic reads</text>
@@ -320,41 +319,41 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <path d="M342.0,1088.5 L342.0,1052.5" class="arrow" />
 <path d="M342.0,1052.5 L345.6,1061.5 L338.4,1061.5 Z" class="head" />
 <text x="354.0" y="1074.5" font-size="12" class="dim">B → T   delta_phi, prefactor_at, the stage bundle</text>
-<path d="M350.0,1411.0 L350.0,1375.0" class="arrow" />
-<path d="M350.0,1375.0 L353.6,1384.0 L346.4,1384.0 Z" class="head" />
-<text x="362.0" y="1397.0" font-size="12" class="dim">D → B   backends.select, then the seam</text>
-<path d="M358.0,1809.5 L358.0,1773.5" class="arrow" />
-<path d="M358.0,1773.5 L361.6,1782.5 L354.4,1782.5 Z" class="head" />
-<text x="370.0" y="1795.5" font-size="12" class="dim">X → D   a saved run, through the Output protocol</text>
+<path d="M350.0,1364.5 L350.0,1328.5" class="arrow" />
+<path d="M350.0,1328.5 L353.6,1337.5 L346.4,1337.5 Z" class="head" />
+<text x="362.0" y="1350.5" font-size="12" class="dim">D → B   backends.select, then the seam</text>
+<path d="M358.0,1763.0 L358.0,1727.0" class="arrow" />
+<path d="M358.0,1727.0 L361.6,1736.0 L354.4,1736.0 Z" class="head" />
+<text x="370.0" y="1749.0" font-size="12" class="dim">X → D   a saved run, through the Output protocol</text>
 <path d="M982.0,931.75 L1004.0,931.75 L1004.0,365.0 L984.0,365.0" class="arrow" />
 <path d="M984.0,365.0 L993.0,361.4 L993.0,368.6 Z" class="head" />
 <rect x="995.0" y="639.375" width="18" height="18" rx="7" ry="7" class="card" />
 <text x="1004.0" y="652.375" font-size="12" class="bold mid dim">1</text>
-<path d="M982.0,1231.75 L1036.0,1231.75 L1036.0,716.25 L984.0,716.25" class="arrow" />
+<path d="M982.0,1208.5 L1036.0,1208.5 L1036.0,716.25 L984.0,716.25" class="arrow" />
 <path d="M984.0,716.25 L993.0,712.65 L993.0,719.85 Z" class="head" />
-<rect x="1027.0" y="965.0" width="18" height="18" rx="7" ry="7" class="card" />
-<text x="1036.0" y="978.0" font-size="12" class="bold mid dim">2</text>
-<path d="M982.0,1592.25 L1068.0,1592.25 L1068.0,931.75 L984.0,931.75" class="arrow" />
+<rect x="1027.0" y="953.375" width="18" height="18" rx="7" ry="7" class="card" />
+<text x="1036.0" y="966.375" font-size="12" class="bold mid dim">2</text>
+<path d="M982.0,1545.75 L1068.0,1545.75 L1068.0,931.75 L984.0,931.75" class="arrow" />
 <path d="M984.0,931.75 L993.0,928.15 L993.0,935.35 Z" class="head" />
-<rect x="1059.0" y="1253.0" width="18" height="18" rx="7" ry="7" class="card" />
-<text x="1068.0" y="1266.0" font-size="12" class="bold mid dim">3</text>
-<path d="M982.0,1592.25 L1100.0,1592.25 L1100.0,365.0 L984.0,365.0" class="arrow" />
+<rect x="1059.0" y="1229.75" width="18" height="18" rx="7" ry="7" class="card" />
+<text x="1068.0" y="1242.75" font-size="12" class="bold mid dim">3</text>
+<path d="M982.0,1545.75 L1100.0,1545.75 L1100.0,365.0 L984.0,365.0" class="arrow" />
 <path d="M984.0,365.0 L993.0,361.4 L993.0,368.6 Z" class="head" />
-<rect x="1091.0" y="969.625" width="18" height="18" rx="7" ry="7" class="card" />
-<text x="1100.0" y="982.625" font-size="12" class="bold mid dim">4</text>
-<path d="M982.0,1231.75 L1132.0,1231.75 L1132.0,365.0 L984.0,365.0" class="arrow" />
+<rect x="1091.0" y="946.375" width="18" height="18" rx="7" ry="7" class="card" />
+<text x="1100.0" y="959.375" font-size="12" class="bold mid dim">4</text>
+<path d="M982.0,1208.5 L1132.0,1208.5 L1132.0,365.0 L984.0,365.0" class="arrow" />
 <path d="M984.0,365.0 L993.0,361.4 L993.0,368.6 Z" class="head" />
-<rect x="1123.0" y="789.375" width="18" height="18" rx="7" ry="7" class="card" />
-<text x="1132.0" y="802.375" font-size="12" class="bold mid dim">5</text>
-<path d="M982.0,1960.5 L1164.0,1960.5 L1164.0,931.75 L984.0,931.75" class="arrow" />
+<rect x="1123.0" y="777.75" width="18" height="18" rx="7" ry="7" class="card" />
+<text x="1132.0" y="790.75" font-size="12" class="bold mid dim">5</text>
+<path d="M982.0,1914.0 L1164.0,1914.0 L1164.0,931.75 L984.0,931.75" class="arrow" />
 <path d="M984.0,931.75 L993.0,928.15 L993.0,935.35 Z" class="head" />
-<rect x="1155.0" y="1437.125" width="18" height="18" rx="7" ry="7" class="card" />
-<text x="1164.0" y="1450.125" font-size="12" class="bold mid dim">6</text>
-<text x="32" y="2144.0" font-size="12" class="dim">1   physics objects become the kernel problem</text>
-<text x="32" y="2159.5" font-size="12" class="dim">2   the request's settings, the statistics catalogue and the record types a session writes</text>
-<text x="32" y="2175.0" font-size="12" class="dim">3   Simulation calls translate.assemble</text>
-<text x="32" y="2190.5" font-size="12" class="dim">4   the driver builds the grid, the modes, the pulse and the responses</text>
-<text x="32" y="2206.0" font-size="12" class="dim">5   the statistics path: a backend is handed grid, modes and profiles at construction: the one import of P that architecture.md §3 allows B, types and constants, never a physics object</text>
-<text x="32" y="2221.5" font-size="12" class="dim">6   processing.modal takes the run's own ModalTransformTables beside the handler: a general modal file records what its reference is and not the arrays, so the reference is rebuilt in T and read in X</text>
-<text x="32" y="2237.0" font-size="12" class="dim">The package-wide modules carry no layer letter:  __init__.py  ·  exceptions.py  ·  log.py</text>
+<rect x="1155.0" y="1413.875" width="18" height="18" rx="7" ry="7" class="card" />
+<text x="1164.0" y="1426.875" font-size="12" class="bold mid dim">6</text>
+<text x="32" y="2097.5" font-size="12" class="dim">1   physics objects become the kernel problem</text>
+<text x="32" y="2113.0" font-size="12" class="dim">2   the request's settings, the statistics catalogue and the record types a session writes</text>
+<text x="32" y="2128.5" font-size="12" class="dim">3   Simulation calls translate.assemble</text>
+<text x="32" y="2144.0" font-size="12" class="dim">4   the driver builds the grid, the modes, the pulse and the responses</text>
+<text x="32" y="2159.5" font-size="12" class="dim">5   the statistics path: a backend is handed grid, modes and profiles at construction: the one import of P that architecture.md §3 allows B, types and constants, never a physics object</text>
+<text x="32" y="2175.0" font-size="12" class="dim">6   processing.modal takes the run's own ModalTransformTables beside the handler: a general modal file records what its reference is and not the arrays, so the reference is rebuilt in T and read in X</text>
+<text x="32" y="2190.5" font-size="12" class="dim">The package-wide modules carry no layer letter:  __init__.py  ·  exceptions.py  ·  log.py</text>
 </svg>

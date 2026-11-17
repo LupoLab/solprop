@@ -429,7 +429,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
     """Advance a session to its end, servicing every event it reports.
 
     Any :class:`~solprop.backends.session.RunSession` is served -- the reference's
-    :class:`~solprop.backends.host.session.HostSession` or the native backend's --
+    :class:`~solprop.backends.numpy_ref.session.HostSession` or the native backend's --
     through its protocol alone (:class:`~solprop.driver.run.SessionFacts`).
 
     Parameters

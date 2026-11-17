@@ -15,8 +15,8 @@ from tests.driver.test_resume import run_until
 from tests.driver.test_run import NullBackend
 
 from builders import load_reference
-from solprop.backends.host.session import HostSession
 from solprop.backends.ledger import CallLedger
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.registry import select
 from solprop.backends.session import Start

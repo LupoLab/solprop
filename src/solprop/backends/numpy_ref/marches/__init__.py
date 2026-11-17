@@ -4,13 +4,13 @@
 
 """What every reference march holds, and what it asks of its session (SEP 52).
 
-A march -- :class:`~solprop.backends.host.runge_kutta.RungeKuttaMarch`,
-:class:`~solprop.backends.host.adams.HostAdamsMarch` or
-:class:`~solprop.backends.host.low_storage.HostLowStorageMarch` -- keeps its
-position, proposal, replay cursor and accepted norms in a :class:`MarchState` of its
-own, hands every state-sized operation to its engine
-(:mod:`solprop.backends.engines`) and asks the session that schedules it
-(:class:`~solprop.backends.host.session.HostSession`) only through the narrow
+A march -- :class:`~solprop.backends.numpy_ref.marches.runge_kutta.RungeKuttaMarch`,
+:class:`~solprop.backends.numpy_ref.marches.adams.HostAdamsMarch` or
+:class:`~solprop.backends.numpy_ref.marches.low_storage.HostLowStorageMarch` -- keeps
+its position, proposal, replay cursor and accepted norms in a :class:`MarchState` of its
+own, hands every state-sized operation to its engine (:mod:`solprop.backends.engines`)
+and asks the session that schedules it
+(:class:`~solprop.backends.numpy_ref.session.HostSession`) only through the narrow
 :class:`MarchHost`: whether to stop, how far a step may go, and what to record when an
 attempt ends. It touches no other object's fields; the session reads its state, and
 holds the dense observation of a plane a step crossed (SEP 52 section 5.2).
@@ -69,7 +69,7 @@ class MarchHost(Protocol):
     """What a march asks of the session that schedules it.
 
     The reference's session implements it
-    (:class:`~solprop.backends.host.session.HostSession`); a decision-trace harness
+    (:class:`~solprop.backends.numpy_ref.session.HostSession`); a decision-trace harness
     scripts it.
     """
 

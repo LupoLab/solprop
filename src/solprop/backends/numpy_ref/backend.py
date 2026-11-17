@@ -4,8 +4,8 @@
 
 """The reference backend: its lowering, its marches and the refusals (SEP 52).
 
-One :class:`NumpyRefBackend` steps one problem in plain NumPy. It builds the
-workspace that holds the state and does every state-sized operation
+One :class:`NumpyRefBackend` steps one problem in plain NumPy. It builds the workspace
+that holds the state and does every state-sized operation
 (:class:`~solprop.backends.numpy_ref.workspace.NumpyWorkspace`) and, for each run, the
 engines a march asks of it
 (:class:`~solprop.backends.numpy_ref.engines.NumpyRungeKutta`,
@@ -13,11 +13,11 @@ engines a march asks of it
 :class:`~solprop.backends.numpy_ref.engines.NumpyLowStorage`), the run's march and its
 dense output (:meth:`NumpyRefBackend.method`); it keeps ``prepare``, the metadata, the
 memory ledger, the timing probe and ``close``. Every run is the reference's own
-session's (:class:`~solprop.backends.host.session.HostSession`), which schedules it.
-The step control follows ``docs/dev/stepper.md`` section 3 exactly: the controller's
-*proposal* is its state, the executed step's own norm decides acceptance and is what
-the history records, and the equivalent norm of the proposal is what the controller
-and a rejection see.
+session's (:class:`~solprop.backends.numpy_ref.session.HostSession`), which schedules
+it. The step control follows ``docs/dev/stepper.md`` section 3 exactly: the controller's
+*proposal* is its state, the executed step's own norm decides acceptance and is what the
+history records, and the equivalent norm of the proposal is what the controller and a
+rejection see.
 """
 
 import logging
@@ -28,19 +28,19 @@ import numpy as np
 from jaxtyping import Complex
 
 from solprop.backends.exponential import CarrierReference, refuse_adams
-from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.host.low_storage import HostLowStorageMarch
-from solprop.backends.host.runge_kutta import RungeKuttaMarch
-from solprop.backends.host.session import HostMethod, HostPrepared, start_position
 from solprop.backends.ledger import CallLedger
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.numpy_ref.dense import AdamsDense, RungeKuttaDense
 from solprop.backends.numpy_ref.engines import NumpyLowStorage, NumpyRungeKutta
+from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
+from solprop.backends.numpy_ref.marches.low_storage import HostLowStorageMarch
+from solprop.backends.numpy_ref.marches.runge_kutta import RungeKuttaMarch
 from solprop.backends.numpy_ref.multistep import (
     ExponentialHistory,
     HostHistory,
     InteractionHistory,
 )
+from solprop.backends.numpy_ref.session import HostMethod, HostPrepared, start_position
 from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.protocol import TimingProbe
 from solprop.backends.records import adams_policy, runge_kutta_policy
@@ -246,12 +246,12 @@ class NumpyRefBackend:
         ----------
         host : object
             The run's session, the march's
-            :class:`~solprop.backends.host.marches.MarchHost`; ``None`` for a march
+            :class:`~solprop.backends.numpy_ref.marches.MarchHost`; ``None`` for a march
             that never steps.
 
         Returns
         -------
-        solprop.backends.host.session.HostMethod
+        solprop.backends.numpy_ref.session.HostMethod
             The march, with its dense output when the run interpolates its planes and
             the Adams history's rows.
         """
@@ -419,7 +419,7 @@ class NumpyRefBackend:
         request a run serves -- this backend's own, or one run's adaptation of it
         (:meth:`~solprop.translate.run_request.RunRequest.for_run`) -- and each start
         of the result opens the reference's own session
-        (:class:`~solprop.backends.host.session.HostSession`).
+        (:class:`~solprop.backends.numpy_ref.session.HostSession`).
 
         Parameters
         ----------

@@ -34,8 +34,8 @@ from flow_parity import build as flow_case
 from march_bounds import TIGHTER, assert_in_envelope
 from solprop.backends import available
 from solprop.backends.events import ObservationReady
-from solprop.backends.host.session import HostSession
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.registry import select
 from solprop.backends.session import Start

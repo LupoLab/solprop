@@ -43,7 +43,7 @@ from sessions.executors import (
 )
 from sessions.test_native_session_monitor import IDENTITY, Served, _serve
 from solprop.backends.events import ObservationReady, Outcome, ServiceRequired
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.driver import Simulation

@@ -206,7 +206,7 @@ the engine under the real march and the real session ([SEP 52](seps/archive/sep-
   failures, and `ScriptedSession` a warning barrier at a chosen endpoint.
 - The decision traces (`tests/backends/rk_traces.py`, `adams_traces.py`) run each
   reference march over a scripted engine and a stub session that applies the session's
-  own rules (`host.session.step_cap`, `natural_stop`), and the native marches over the same
+  own rules (`numpy_ref.session.step_cap`, `natural_stop`), and the native marches over the same
   stub (`tests/backends/native_trace_marches.py`); the stored corpora
   (`tests/data/*_traces.json.gz`) hold both to the same decisions and are regenerated only
   under SEP 52 §4's rule. Native's marches run over its own scripted engines

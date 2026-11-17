@@ -56,7 +56,7 @@ from solprop.backends.events import (
     emit_warning,
 )
 from solprop.backends.export import ExportRecipe
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.constants import C

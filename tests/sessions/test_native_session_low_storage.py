@@ -37,8 +37,8 @@ from sessions.executors import (
     window,
 )
 from solprop.backends.events import Eligibility, Outcome
-from solprop.backends.host.low_storage import HostLowStorageMarch
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.marches.low_storage import HostLowStorageMarch
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import select
 from solprop.exceptions import ConvergenceError
 from solprop.pulses import SechPulse
@@ -189,7 +189,7 @@ def _reference(
 
     Returns
     -------
-    solprop.backends.host.session.HostSession
+    solprop.backends.numpy_ref.session.HostSession
         The session.
     """
     driver = select(

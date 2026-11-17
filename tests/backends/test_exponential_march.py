@@ -27,8 +27,6 @@ from legacy_geometry import LEGACY_GRID
 from sessions.runs import bare
 from sessions.runs import run as session_run
 from solprop._helpers import PLAIN
-from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.host.marches import MarchState
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.adams_tables import (
     compensation_tables,
@@ -36,6 +34,8 @@ from solprop.backends.numpy_ref.adams_tables import (
     fused_tables,
     trial_tables,
 )
+from solprop.backends.numpy_ref.marches import MarchState
+from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
 from solprop.exceptions import (
     BackendError,
     ConvergenceError,

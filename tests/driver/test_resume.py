@@ -19,8 +19,8 @@ from march_bounds import FIXED_ORDER, assert_in_envelope, assert_matched, march_
 from sessions.executors import IDENTITY
 from sessions.runs import bare
 from solprop.backends.events import ObservationReady
-from solprop.backends.host.session import HostSession
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session

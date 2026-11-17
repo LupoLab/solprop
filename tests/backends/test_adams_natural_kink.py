@@ -14,7 +14,7 @@ from numpy.testing import assert_allclose
 from sessions.runs import run
 from solprop.backends import available
 from solprop.backends.events import ObservationReady
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import select
 from solprop.stepper.multistep import Multistep
 from solprop.translate.linop import constant_phi, delta_phi
@@ -100,8 +100,9 @@ def _march(session: Any) -> tuple[dict[str, int], int, list[int]]:
     """Return a session's Adams march: four of its counters, its history's length and
     the order of every accepted step.
 
-    The reference's march is its session's own (:class:`~solprop.backends.host.session.
-    HostSession`); the native session's is the native march's state.
+    The reference's march is its session's own
+    (:class:`~solprop.backends.numpy_ref.session.HostSession`); the native session's is
+    the native march's state.
     """
     names = ("accepted_steps", "rejected_steps", "restarts", "startup")
     if isinstance(session, HostSession):

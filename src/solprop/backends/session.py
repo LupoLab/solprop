@@ -40,14 +40,13 @@ Control requests travel separately from the immutable request: a thread-safe
 :meth:`RunSession.request_snapshot` latches a snapshot for the next eligible accepted
 endpoint (SEP 47 section 5.5).
 
-:class:`SessionLedger` is the lifecycle bookkeeping every Python session shares:
-receipts, the pending barrier, closing and poisoning. It holds no numerical state.
+:func:`foreign_request` and :func:`check_preparation` are the refusals a preparation
+makes before any session starts (section 5.2), on both backends.
 """
 
 from __future__ import annotations
 
 import enum
-import itertools
 import operator
 import threading
 from collections.abc import Callable, Mapping, Sequence
@@ -72,20 +71,23 @@ from solprop.noise import NoiseRealisation
 from solprop.output.records import MarchSnapshot
 from solprop.stats import CATALOGUE, PLASMA_INTEGRATION_STATISTICS
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.run_request import RunRequest
 
 __all__ = [
     "DEFAULT_DEADLINE",
     "DEFAULT_WORK_LIMIT",
+    "AttemptListener",
     "ExecutionOptions",
     "PreparedExecution",
     "RunSession",
     "SessionError",
-    "SessionLedger",
     "SessionState",
     "SessionStatus",
     "SnapshotReceipt",
     "Start",
     "StopToken",
+    "check_preparation",
+    "foreign_request",
     "positive_count",
     "statistics_unavailable",
 ]
@@ -99,6 +101,10 @@ long run interruptible (SEP 47 section 5.5).
 
 DEFAULT_DEADLINE = 0.1
 """Host seconds after which ``advance`` yields at its next safe boundary, s."""
+
+
+AttemptListener = Callable[[float, float, bool], None]
+"""Called with each attempt's end, length and acceptance, for a progress reporter."""
 
 
 class SessionError(BackendError):
@@ -778,165 +784,83 @@ class PreparedExecution(Protocol):
         ...
 
 
-_SESSION_IDS = itertools.count(1)
+def foreign_request(own: RunRequest, request: RunRequest) -> str | None:
+    """Return why `request` is not a run of `own`, or ``None`` when it is.
 
+    A backend lowers its method, error control, replay and itinerary where it is
+    built (SEP 47 section 5.2), so a run it serves may differ from its own request
+    only where :meth:`~solprop.translate.run_request.RunRequest.for_run` changes it:
+    the start, retention, statistics, monitor, history and snapshots. ``for_run``
+    keeps the other sections by identity, which is what is checked.
 
-class SessionLedger:
-    """The lifecycle bookkeeping of a Python session; no numerical state.
+    Parameters
+    ----------
+    own : solprop.translate.run_request.RunRequest
+        The request the backend was built for.
+    request : solprop.translate.run_request.RunRequest
+        The request one run asks it to serve.
 
-    It issues receipts, records the pending barrier, refuses stale or foreign
-    receipts and advancing across an unacknowledged barrier, and remembers whether the
-    session finished, failed or closed.
+    Returns
+    -------
+    str or None
+        The first section that differs, named, or ``None``.
 
     Examples
     --------
-    >>> from solprop.backends.session import SessionLedger
-    >>> ledger = SessionLedger()
-    >>> receipt = ledger.issue()
-    >>> ledger.ticket_valid(receipt)
+    >>> from solprop.stepper import DOPRI5, PIController
+    >>> from solprop.translate.problem import StepperSettings
+    >>> from solprop.translate.run_request import describe_run
+    >>> settings = StepperSettings(DOPRI5, PIController(rtol=1e-8, atol=1e-14),
+    ...                            1e-9, 0.1, 1e-3, 1.1, None, [0.5, 1.0], "auto")
+    >>> own = describe_run(settings)
+    >>> foreign_request(own, own.for_run(start_plane=1)) is None
     True
-    >>> ledger.acknowledge(receipt)
-    >>> ledger.ticket_valid(receipt)
-    False
+    >>> foreign_request(own, describe_run(settings))
+    "the run's integration is not the backend's own"
     """
+    sections = (
+        ("integration", own.integration, request.integration),
+        ("error control", own.error_control, request.error_control),
+        ("replay", own.replay, request.replay),
+        ("planes", own.observation.save_planes, request.observation.save_planes),
+    )
+    for name, mine, theirs in sections:
+        if mine is not theirs:
+            return f"the run's {name} is not the backend's own"
+    return None
 
-    def __init__(self) -> None:
-        """Start a ready session's ledger."""
-        self.session = next(_SESSION_IDS)
-        self._sequence = 0
-        self._pending: Receipt | None = None
-        self.state = SessionState.READY
-        self.outcome: Outcome | None = None
 
-    def check_advance(self) -> None:
-        """Refuse to advance a session that is pending, finished or closed.
+def check_preparation(
+    name: str, own: RunRequest, problem: PropagationProblem, request: RunRequest
+) -> None:
+    """Refuse a run a constructed backend cannot prepare, by name (SEP 47 5.2).
 
-        Raises
-        ------
-        SessionError
-            Naming the state that forbids it.
-        """
-        if self.state is SessionState.PENDING:
-            msg = "acknowledge the pending batch before advancing the session again"
-            raise SessionError(msg)
-        if self.state is SessionState.FINISHED:
-            msg = "the session has ended and cannot advance"
-            raise SessionError(msg)
-        self.check_open()
+    Parameters
+    ----------
+    name : str
+        The backend's registered name, for the message.
+    own : solprop.translate.run_request.RunRequest
+        The request the backend was built for.
+    problem : solprop.translate.problem.PropagationProblem
+        The run's problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's request.
 
-    def check_open(self) -> None:
-        """Refuse a closed session.
-
-        Raises
-        ------
-        SessionError
-            If the session was closed.
-        """
-        if self.state is SessionState.CLOSED:
-            msg = "the session is closed"
-            raise SessionError(msg)
-
-    def issue(self, *, outcome: Outcome | None = None) -> Receipt:
-        """Issue the receipt of a new pending batch.
-
-        Parameters
-        ----------
-        outcome : solprop.backends.events.Outcome or None, optional
-            The batch's terminal outcome, when it ends the session.
-
-        Returns
-        -------
-        solprop.backends.events.Receipt
-            The batch's receipt.
-        """
-        self._sequence += 1
-        receipt = Receipt(self.session, self._sequence)
-        self._pending = receipt
-        self.state = SessionState.PENDING
-        if outcome is not None:
-            self.outcome = outcome
-        return receipt
-
-    def acknowledge(self, receipt: Receipt) -> None:
-        """Accept the pending batch's receipt.
-
-        Parameters
-        ----------
-        receipt : solprop.backends.events.Receipt
-            The receipt to acknowledge.
-
-        Raises
-        ------
-        SessionError
-            If the receipt is not the pending one: foreign, stale or repeated.
-        """
-        self.check_open()
-        if receipt != self._pending:
-            msg = (
-                f"receipt {receipt} is not the pending batch's "
-                f"({self._pending}): a foreign, stale or repeated acknowledgment"
-            )
-            raise SessionError(msg)
-        self._pending = None
-        self.state = (
-            SessionState.FINISHED if self.outcome is not None else SessionState.READY
-        )
-
-    def ticket_valid(self, receipt: Receipt) -> bool:
-        """Return whether tickets of a batch can still be exported.
-
-        Parameters
-        ----------
-        receipt : solprop.backends.events.Receipt
-            The batch's receipt.
-
-        Returns
-        -------
-        bool
-            True while that batch is the pending one.
-        """
-        return self.state is not SessionState.CLOSED and receipt == self._pending
-
-    def check_ticket(self, ticket: ExportTicket) -> None:
-        """Refuse an export with an expired or foreign ticket.
-
-        Parameters
-        ----------
-        ticket : solprop.backends.events.ExportTicket
-            The ticket presented.
-
-        Raises
-        ------
-        SessionError
-            If its batch is no longer pending.
-        """
-        if not self.ticket_valid(ticket.receipt):
-            msg = (
-                f"the export ticket for z = {ticket.z!r} m has expired: its batch was "
-                "acknowledged, or it belongs to another session"
-            )
-            raise SessionError(msg)
-
-    def close(self) -> bool:
-        """Mark the session closed.
-
-        Returns
-        -------
-        bool
-            True the first time, False when it was already closed.
-        """
-        if self.state is SessionState.CLOSED:
-            return False
-        self.state = SessionState.CLOSED
-        self._pending = None
-        return True
-
-    @property
-    def pending(self) -> Receipt | None:  # numpydoc ignore=RT01
-        """Pending batch's receipt, or ``None``."""
-        return self._pending
-
-    @property
-    def finished(self) -> bool:  # numpydoc ignore=RT01
-        """Whether a terminal batch was issued."""
-        return self.outcome is not None
+    Raises
+    ------
+    solprop.backends.session.SessionError
+        If the request is not one run of the backend's own (:func:`foreign_request`).
+    solprop.exceptions.BackendError
+        If the request asks for statistics the problem does not carry
+        (:func:`~solprop.backends.session.statistics_unavailable`).
+    """
+    foreign = foreign_request(own, request)
+    if foreign is not None:
+        msg = f"{name} cannot prepare this run: {foreign}"
+        raise SessionError(msg)
+    stats = request.observation.stats
+    unavailable = statistics_unavailable(problem, (*stats.names, *stats.periodic))
+    if unavailable is not None:
+        # Refused by name before any session starts, on every executor.
+        msg = f"{name} cannot prepare this run: {unavailable}"
+        raise BackendError(msg)

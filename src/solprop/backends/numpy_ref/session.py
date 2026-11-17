@@ -13,7 +13,7 @@ crossed (through the backend's :class:`Dense`), the periodic statistics rows, th
 boundary monitor's and the transverse edge's checks with the split collar's sums, the
 quadrature alarm's report, the load of the start with its noise, the events and the
 exports. It drives the run's march directly (:class:`HostMethod`), as the march's
-:class:`~solprop.backends.host.marches.MarchHost`; the state and every state-sized
+:class:`~solprop.backends.numpy_ref.marches.MarchHost`; the state and every state-sized
 operation are the backend's workspace's
 (:class:`~solprop.backends.numpy_ref.workspace.NumpyWorkspace`).
 
@@ -27,9 +27,11 @@ once, as native's session does.
 
 :class:`HostPrepared` is the prepared execution (SEP 47 section 5.2) a reference backend
 returns from ``prepare``; each of its starts opens one session. The session composes the
-parts every Python session shares (:mod:`solprop.backends.session_core`) with the
-lifecycle ledger (:class:`~solprop.backends.session.SessionLedger`). It imports nothing
-of the native backend's.
+parts of :mod:`~solprop.backends.numpy_ref.session_parts`, the lifecycle ledger
+(:class:`~solprop.backends.numpy_ref.session_parts.SessionLedger`) among them, and
+makes the preparation refusals both backends make
+(:func:`~solprop.backends.session.check_preparation`). It imports nothing of the native
+backend's.
 """
 
 from __future__ import annotations
@@ -64,10 +66,20 @@ from solprop.backends.events import (
     join_attempts,
 )
 from solprop.backends.export import ExportRecipe
-from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.host.low_storage import HostLowStorageMarch
-from solprop.backends.host.marches import MarchState, in_flight_refusal
-from solprop.backends.host.runge_kutta import RungeKuttaMarch
+from solprop.backends.numpy_ref.marches import MarchState, in_flight_refusal
+from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
+from solprop.backends.numpy_ref.marches.low_storage import HostLowStorageMarch
+from solprop.backends.numpy_ref.marches.runge_kutta import RungeKuttaMarch
+from solprop.backends.numpy_ref.session_parts import (
+    EMPTY_SUMMARY,
+    AttemptCounter,
+    ObservedField,
+    SessionLedger,
+    SnapshotLatch,
+    YieldDue,
+    bind,
+    merge_summaries,
+)
 from solprop.backends.protocol import (
     BackendHistory,
     Observation,
@@ -78,24 +90,14 @@ from solprop.backends.records import collar_rests, plane_plan
 from solprop.backends.session import (
     DEFAULT_DEADLINE,
     DEFAULT_WORK_LIMIT,
+    AttemptListener,
     RunSession,
     SessionError,
-    SessionLedger,
     SessionState,
     SessionStatus,
     SnapshotReceipt,
     Start,
-)
-from solprop.backends.session_core import (
-    EMPTY_SUMMARY,
-    AttemptCounter,
-    AttemptListener,
-    ObservedField,
-    SnapshotLatch,
-    YieldDue,
-    bind,
     check_preparation,
-    merge_summaries,
 )
 from solprop.exceptions import BackendError, BoundaryError, StopRequested
 from solprop.log import NOT_ESTIMATED, StopFlag
@@ -115,14 +117,12 @@ if TYPE_CHECKING:
     # check a refused export destination's shape before the session refuses it.
     from jaxtyping import Complex
 
-    from solprop.backends.numpy_ref.workspace import NumpyWorkspace
     from solprop.backends.protocol import Backend
 
 __all__ = [
     "INITIAL_STEP_STATS_CAPACITY",
     "Dense",
     "HistoryRows",
-    "HostBackend",
     "HostMethod",
     "HostPrepared",
     "HostSession",
@@ -221,10 +221,11 @@ class HostMethod:
     Attributes
     ----------
     march : object
-        The march: a :class:`~solprop.backends.host.runge_kutta.RungeKuttaMarch`,
-        :class:`~solprop.backends.host.adams.HostAdamsMarch` or
-        :class:`~solprop.backends.host.low_storage.HostLowStorageMarch`, its session
-        the march's host.
+        The march: a
+        :class:`~solprop.backends.numpy_ref.marches.runge_kutta.RungeKuttaMarch`,
+        :class:`~solprop.backends.numpy_ref.marches.adams.HostAdamsMarch` or
+        :class:`~solprop.backends.numpy_ref.marches.low_storage.HostLowStorageMarch`,
+        its session the march's host.
     dense : Dense or None
         Its dense output when the run interpolates its planes; ``None`` otherwise.
     rows : HistoryRows or None
@@ -234,74 +235,6 @@ class HostMethod:
     march: RungeKuttaMarch | HostAdamsMarch | HostLowStorageMarch
     dense: Dense | None = None
     rows: HistoryRows | None = None
-
-
-@runtime_checkable
-class HostBackend(Protocol):
-    """What the reference's session reads of its backend.
-
-    Attributes
-    ----------
-    name : str
-        The registry name.
-    """
-
-    name: str
-
-    @property
-    def request(self) -> RunRequest:  # numpydoc ignore=RT01
-        """Request the backend was built for."""
-        ...
-
-    @property
-    def workspace(self) -> NumpyWorkspace:  # numpydoc ignore=RT01
-        """Workspace that holds the state."""
-        ...
-
-    @property
-    def closed(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the backend has released its buffers."""
-        ...
-
-    def method(self, host: object) -> HostMethod:
-        """Return a fresh march, and its dense output and rows, reporting to `host`.
-
-        Parameters
-        ----------
-        host : object
-            The session, as the march's
-            :class:`~solprop.backends.host.marches.MarchHost`.
-
-        Returns
-        -------
-        HostMethod
-            The method.
-        """
-        ...
-
-    def metadata(self) -> dict[str, object]:
-        """Return the execution's facts.
-
-        Returns
-        -------
-        dict
-            The record.
-        """
-        ...
-
-    def memory_ledger(self) -> dict[str, int]:
-        """Return every retained buffer by name, bytes.
-
-        Returns
-        -------
-        dict
-            The ledger.
-        """
-        ...
-
-    def close(self) -> None:
-        """Release the buffers."""
-        ...
 
 
 def start_position(
@@ -511,10 +444,12 @@ class HostSession:
     Parameters
     ----------
     backend : solprop.backends.protocol.Backend
-        The reference backend (a :class:`HostBackend`), constructed for `problem`. A
-        backend reused from an earlier run is loaded again from `start`; the session
-        builds its own march (:meth:`HostBackend.method`), and closes the backend with
-        itself when `owns` is set.
+        The reference backend
+        (:class:`~solprop.backends.numpy_ref.backend.NumpyRefBackend`), constructed for
+        `problem`. A backend reused from an earlier run is loaded again from `start`;
+        the session builds its own march
+        (:meth:`~solprop.backends.numpy_ref.backend.NumpyRefBackend.method`), and closes
+        the backend with itself when `owns` is set.
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     request : solprop.translate.run_request.RunRequest
@@ -554,7 +489,10 @@ class HostSession:
         owns: bool = True,
     ) -> None:
         """Refuse a backend that is not the reference's, and load the starting state."""
-        if not isinstance(backend, HostBackend):
+        # Here, not at module scope: the backend's module imports this one.
+        from solprop.backends.numpy_ref.backend import NumpyRefBackend  # noqa: PLC0415
+
+        if not isinstance(backend, NumpyRefBackend):
             msg = (
                 f"the reference session serves a reference backend, not "
                 f"{type(backend).__name__}"
@@ -1990,7 +1928,7 @@ class HostPrepared:
     ------
     solprop.backends.session.SessionError
         If the request is not one run of the backend's own
-        (:func:`~solprop.backends.session_core.foreign_request`).
+        (:func:`~solprop.backends.session.foreign_request`).
     solprop.exceptions.BackendError
         If the request asks for statistics the problem does not carry
         (:func:`~solprop.backends.session.statistics_unavailable`).

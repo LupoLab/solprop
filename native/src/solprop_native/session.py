@@ -114,9 +114,9 @@ from solprop.backends.session import (
     SessionState,
     SessionStatus,
     SnapshotReceipt,
+    check_preparation,
     statistics_unavailable,
 )
-from solprop.backends.session_core import check_preparation
 from solprop.backends.spatial import FarFieldTables
 from solprop.exceptions import (
     BackendError,
@@ -1108,10 +1108,10 @@ class NativeSession:
         """Return the Adams method history at a pending ticket's committed state.
 
         The native session copies the march's state, the accepted field as the state
-        holds it and every persistent history row once, losslessly, as
-        solprop's host history lays them out
-        (:meth:`solprop.backends.host.adams.HostAdamsMarch.snapshot`; SEP 47 section
-        5.4).
+        holds it and every persistent history row once, losslessly, as solprop's host
+        history lays them out
+        (:meth:`solprop.backends.numpy_ref.marches.adams.HostAdamsMarch.snapshot`; SEP
+        47 section 5.4).
 
         Parameters
         ----------
@@ -1400,7 +1400,7 @@ class NativeSession:
         when none is, after an acknowledgment, the native session issues a failed
         terminal batch at its committed state, so that the state can be exported for a
         terminal checkpoint and nothing advances again, as the reference's
-        :meth:`solprop.backends.host.session.HostSession.pending_ticket` does. The
+        :meth:`solprop.backends.numpy_ref.session.HostSession.pending_ticket` does. The
         service loop's fallback for a failure between batches (a service failure, a
         signal); a session that never issued a batch has nothing to bind it to.
 
@@ -1956,7 +1956,7 @@ class NativePrepared:
         ------
         solprop.backends.session.SessionError
             If the request is not one run of the backend's own
-            (:func:`~solprop.backends.session_core.foreign_request`).
+            (:func:`~solprop.backends.session.foreign_request`).
         solprop.exceptions.BackendError
             If the request asks for statistics the problem does not carry
             (:func:`~solprop.backends.session.statistics_unavailable`), or naming a

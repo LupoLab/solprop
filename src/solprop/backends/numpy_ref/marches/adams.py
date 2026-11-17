@@ -7,11 +7,11 @@
 The controller, history, ledger and lifecycle of :class:`HostAdamsMarch`, over the
 engine protocol (:class:`solprop.backends.engines.AdamsEngine`) that native's
 ``march::Engine`` mirrors: the reference's engine is
-:class:`solprop.backends.numpy_ref.multistep.HostHistory`. The march holds its own
-state -- position, proposal, replay cursor and accepted norms
-(:class:`~solprop.backends.host.marches.MarchState`), the history's entries, the order,
-the rejections and the call ledger -- and asks its session only through
-:class:`~solprop.backends.host.marches.MarchHost`. The decisions are
+:class:`solprop.backends.numpy_ref.multistep.HostHistory`. The march holds its own state
+-- position, proposal, replay cursor and accepted norms
+(:class:`~solprop.backends.numpy_ref.marches.MarchState`), the history's entries, the
+order, the rejections and the call ledger -- and asks its session only through
+:class:`~solprop.backends.numpy_ref.marches.MarchHost`. The decisions are
 :mod:`solprop.backends.adams_core`'s functions of one policy record.
 
 The method, its lifecycle and its numbers are those of
@@ -30,8 +30,8 @@ import numpy as np
 from solprop._interrupts import committing
 from solprop.backends import adams_core
 from solprop.backends.engines import AdamsEngine, AttemptOutcome, HistoryEntry
-from solprop.backends.host.marches import MarchHost, MarchState
 from solprop.backends.ledger import CallLedger
+from solprop.backends.numpy_ref.marches import MarchHost, MarchState
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.output.records import MarchSnapshot
 from solprop.stepper.controller import limit_step
@@ -81,7 +81,7 @@ class HostAdamsMarch:
         The engine that holds the history's rows.
     method : solprop.stepper.multistep.Multistep
         The method.
-    host : solprop.backends.host.marches.MarchHost
+    host : solprop.backends.numpy_ref.marches.MarchHost
         The session the march reports to.
     policy : solprop.stepper.multistep.MarchPolicy
         Every number the controller and the landings read (SEP 39 section 4.2).
@@ -104,7 +104,7 @@ class HostAdamsMarch:
 
     Attributes
     ----------
-    state : solprop.backends.host.marches.MarchState
+    state : solprop.backends.numpy_ref.marches.MarchState
         The march's position, proposal, cursor and accepted norms.
     ledger : solprop.backends.ledger.CallLedger
         The run's call counts.
