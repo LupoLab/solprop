@@ -2,28 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The second review's details: a failed run's dialog, a route's words, cross-hairs."""
+"""A plot readout's cross-hairs, offscreen."""
 
 import numpy as np
 import pyqtgraph as pg
 from pytestqt.qtbot import QtBot
 
-from solprop_gui.registry.pages import PAGES
-from solprop_gui.ui.pages import ParameterPage
 from solprop_gui.views.plotting import HoverLayout, curve_lookup, figure_spec
 from test_ui import private_settings  # noqa: F401 - a fixture
-
-
-def test_a_free_space_route_words_the_geometry_step(qtbot: QtBot):
-    geometry = next(page for page in PAGES if page.key == "geometry")
-    page = ParameterPage(geometry)
-    qtbot.addWidget(page)
-    page.set_route("free")
-    assert "transverse grid" in page.help.text()
-    assert page.sections["geometry"].header.text() == "Beam and grid"
-    page.set_route("capillary")
-    assert page.help.text() == geometry.help
-    assert page.sections["geometry"].header.text() == "Waveguide"
 
 
 def test_a_readout_has_cross_hairs_left_out_of_a_figure(qtbot: QtBot):

@@ -1559,5 +1559,5 @@ def _class_of(model: RecipeModel) -> ProblemClass:
     found = class_of(model.route, build)
     if found is not None:
         return found
-    card = card_of(model.route, build, enabled_only=False)
+    card = card_of(model.route, build)
     return other_class(model.route, model.route if card is None else card.title, build)

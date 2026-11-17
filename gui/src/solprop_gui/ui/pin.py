@@ -7,8 +7,8 @@
 A pinnable keyword's row offers "pinned" beside its value. Pinned, the keyword is set
 by solprop from a target (a zero-dispersion wavelength, a dispersive-wave wavelength
 or a soliton order) within a search range, and the editor writes the recipe's
-``[pins]`` entry; the value solprop solves for is shown beside it, and "Roots" asks
-for every root in the range, so another can be chosen than the lowest.
+``[pins]`` entry, with the root it takes (the lowest or the highest in the range);
+the value solprop solves for is shown beside it.
 """
 
 from collections.abc import Mapping, Sequence
@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QLabel,
     QStackedWidget,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -56,15 +55,12 @@ class PinField(QWidget):
         Emitted with the ``[pins]`` entry when it is complete and changed.
     refused : Signal
         Emitted with the reason a part of it does not read.
-    roots_wanted : Signal
-        Emitted when the user asks for every root.
     """
 
     changed = Signal(object)
     refused = Signal(str)
-    roots_wanted = Signal()
 
-    def __init__(  # noqa: PLR0915 - one field per target key
+    def __init__(
         self,
         name: str,
         targets: Sequence[Mapping[str, object]],
@@ -107,12 +103,6 @@ class PinField(QWidget):
         for text, value in _ROOTS:
             self.root.addItem(text, value)
         self.root.currentIndexChanged.connect(self._changed)
-        self.find_button = QToolButton()
-        self.find_button.setText("Roots")
-        self.find_button.setToolTip(
-            "Find every value in the search range that meets the target."
-        )
-        self.find_button.clicked.connect(self.roots_wanted)
         self.solved = QLabel("")
         self.solved.setObjectName(f"pin-solved-{name}")
         self.solved.setWordWrap(True)
@@ -122,7 +112,6 @@ class PinField(QWidget):
         grid.addWidget(self.search_label, 0, 0)
         grid.addWidget(self.search, 0, 1, 1, 2)
         grid.addWidget(self.root, 1, 1)
-        grid.addWidget(self.find_button, 1, 2)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
@@ -154,7 +143,7 @@ class PinField(QWidget):
         """
         self.keys.setCurrentIndex(max(index, 0))
         guide = self._current()["stage"] == "guide"
-        for widget in (self.search_label, self.search, self.root, self.find_button):
+        for widget in (self.search_label, self.search, self.root):
             widget.setVisible(guide)
         if guide and self.search.read() is None and self.name in PIN_SEARCH:
             self.search.set_value(PIN_SEARCH[self.name])
@@ -236,7 +225,7 @@ class PinField(QWidget):
             self._updating = False
         self._entry = dict(entry)
         guide = self._current()["stage"] == "guide"
-        for widget in (self.search_label, self.search, self.root, self.find_button):
+        for widget in (self.search_label, self.search, self.root):
             widget.setVisible(guide)
 
     def set_solved(self, value: object, unit: str | None) -> None:
@@ -254,33 +243,3 @@ class PinField(QWidget):
             return
         text = f"{value:.6g}" if isinstance(value, float) else inline(value)
         self.solved.setText(f"Solved: {text} {unit or ''}".rstrip())
-
-    def set_roots(self, found: Mapping[str, object], unit: str | None) -> None:
-        """Offer every root solprop found, or say what the range reaches.
-
-        Parameters
-        ----------
-        found : Mapping
-            The kernel's ``pin_roots`` reply: ``roots``, ``quantity`` and
-            ``attainable``.
-        unit : str or None
-            The keyword's unit.
-        """
-        roots: list[float] = list(found.get("roots") or [])  # pyright: ignore[reportArgumentType]
-        self._updating = True
-        try:
-            while self.root.count() > len(_ROOTS):
-                self.root.removeItem(self.root.count() - 1)
-            for index, root in enumerate(roots):
-                self.root.addItem(f"root {index}: {root:.6g} {unit or ''}", index)
-        finally:
-            self._updating = False
-        if roots:
-            self.solved.setText(f"{len(roots)} root(s) in the search range.")
-        else:
-            reach = found.get("attainable")
-            self.solved.setText(
-                f"No root: the {found.get('quantity')} reaches {reach} in this range."
-                if reach
-                else "No root, and the target is not reached in this range."
-            )

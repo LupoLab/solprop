@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The scan editor, the scan browser and a scan run from its stage, offscreen."""
+"""The scan editor and a scan run from its stage, offscreen."""
 
 from pathlib import Path
 
@@ -17,7 +17,6 @@ from solprop_gui.model.recipe import RecipeModel
 from solprop_gui.ui.scan_editor import ScanEditor
 from solprop_gui.ui.scan_stage import ScanStage
 from solprop_gui.ui.workflow_window import WorkflowWindow
-from solprop_gui.views.scan_browser import ScanView
 from test_design import SCAN
 from test_ui import WAIT_MS, private_settings, shot  # noqa: F401 - a fixture
 
@@ -66,44 +65,6 @@ def test_the_scan_editor_writes_the_scan_table(qtbot: QtBot):
     editor.set_value(None)
     assert not editor.enabled.isChecked() and editor.table() is None
     editor.enabled.setChecked(False)
-
-
-def test_the_scan_browser_draws_a_line_or_a_map(qtbot: QtBot, tmp_path: Path):
-    view = ScanView()
-    qtbot.addWidget(view)
-    view.resize(700, 450)
-    line = {
-        "variables": [{"name": "pressure", "values": [0.5, 1.0, 1.5]}],
-        "shape": [3],
-        "status": ["done", "failed", "done"],
-        "results": {
-            "stats/energy": {
-                "summary": "Energy.",
-                "units": "J",
-                "values": np.array([1e-4, np.nan, 0.9e-4]),
-            }
-        },
-    }
-    view.set_scan(line)
-    assert "1 failed" in view.status.text()
-    xs = np.asarray(view.failed.getData()[0], dtype=float)
-    assert list(xs) == [1.0]
-    shot(view, tmp_path, "scan-line")
-    grid = {
-        "variables": [
-            {"name": "pressure", "values": [0.5, 1.0]},
-            {"name": "energy", "values": [1e-4, 2e-4, 3e-4]},
-        ],
-        "shape": [2, 3],
-        "status": [["done"] * 3] * 2,
-        "results": {
-            "stats/energy": {"summary": "", "units": "J", "values": np.ones((2, 3))}
-        },
-    }
-    view.set_scan(grid)
-    assert view.image.isVisible()
-    view.show_error("no scan")
-    assert view.status.text() == "no scan" and view.result.count() == 0
 
 
 def test_a_scan_set_up_on_its_stage_runs_and_shows_its_results(  # noqa: PLR0915 - one story

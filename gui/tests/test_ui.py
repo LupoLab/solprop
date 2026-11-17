@@ -17,7 +17,6 @@ from solprop_gui.model.plot_options import PlotOptions
 from solprop_gui.model.recipe import MISSING
 from solprop_gui.ui.fields import ParameterRow
 from solprop_gui.ui.icons import DRAWINGS, icon
-from solprop_gui.views.compare import CompareView
 from solprop_gui.views.live import OverviewView, decibels
 
 WAIT_MS = 120_000
@@ -296,20 +295,6 @@ def test_the_overview_draws_rows_and_follows_the_newest(qtbot: QtBot, tmp_path: 
 def test_decibels_are_relative_to_the_reference():
     assert decibels(np.array([1.0, 0.1]), 1.0).tolist() == pytest.approx([0.0, -10.0])
     assert decibels(np.array([0.0]), 0.0)[0] == pytest.approx(-300.0)
-
-
-def test_compare_shares_one_reference(qtbot: QtBot, tmp_path: Path):
-    view = CompareView()
-    qtbot.addWidget(view)
-    view.add_run("a", AXES, [row_data(1, 0.5), row_data(0, 2.0)])
-    view.add_run("b", AXES, [row_data(0, 1.0)])
-    view.add_run("empty", AXES, [])
-    assert list(view.runs) == ["a", "b"]
-    peak = float(np.max(np.asarray(row_data(0, 2.0)["density"]["wavelength"])))  # pyright: ignore[reportIndexIssue]
-    assert view.reference() == pytest.approx(peak)  # the highest first plane
-    shot(view, tmp_path, "compare")
-    view.clear()
-    assert view.reference() == 0.0
 
 
 def test_every_drawing_makes_an_icon_with_each_badge(qtbot: QtBot):

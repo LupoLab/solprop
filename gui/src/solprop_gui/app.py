@@ -31,9 +31,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         prog="solprop-gui", description="A desktop front end for solprop."
     )
     parser.add_argument("--version", action="version", version=__version__)
-    # Accepted, and no longer needed: the workflow window is the only one.
-    parser.add_argument("--workflow", action="store_true", help=argparse.SUPPRESS)
-    options = parser.parse_args(argv)
+    parser.parse_args(argv)
 
     # Qt is imported here, after the arguments: `--version` and `--help` answer without
     # loading it.
@@ -54,7 +52,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     set_windows_app_id()
     application = QApplication.instance() or QApplication(sys.argv[:1])
     apply_identity(application)  # pyright: ignore[reportArgumentType]
-    del options
     # Garbage is collected on a timer, between events, never by Python in the middle of
     # one: a plot dropped while its scene still had an event queued was otherwise freed
     # inside that event's handler, deleting the scene under Qt's feet.

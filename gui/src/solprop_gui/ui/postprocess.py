@@ -2,12 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The Post-process step: a compressor after the run, built and searched.
+"""The Compress page's chain: a compressor after the run, built and searched.
 
 The page builds a chain of :class:`~solprop_gui.model.compressor.Stage` elements --
 a Taylor phase, a material (a glass, or a gas such as an air path), chirped mirrors
 with optional wedges, a prism pair, a grating pair -- each fixed or searched ("auto")
-by solprop, and asks the kernel to apply it to the plane the Results step shows
+by solprop, and asks the kernel to apply it to the plane Analyse is on
 (:mod:`solprop.service.postprocess`). The pulse before, after and at the transform
 limit is drawn by :class:`~solprop_gui.views.compression.CompressionView`; the values
 an auto stage found can be taken into the chain, to change by hand.
@@ -46,7 +46,6 @@ from solprop_gui.model.plot_options import parse_limit
 from solprop_gui.ui.analysis import AnalysisSession
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.pages import Section
-from solprop_gui.ui.results import ResultsPage
 from solprop_gui.views.compression import CompressionView
 
 __all__ = ["PostprocessPage", "StageEditor"]
@@ -235,14 +234,15 @@ class StageEditor(QWidget):
 
 
 class PostprocessPage(QWidget):
-    """The Post-process step's panel: the compressor's elements, and its search.
+    """The compressor's panel: its elements, and its search.
 
     Parameters
     ----------
     bridge : solprop_gui.ui.bridge.ServiceBridge
         The service.
-    results : solprop_gui.ui.results.ResultsPage
-        The Results step, whose file, plane and mode selection are compressed.
+    results : solprop_gui.ui.analysis.AnalysisSession
+        The results file open in Analyse, whose plane and mode selection are
+        compressed.
     parent : PySide6.QtWidgets.QWidget or None, optional
         The owner.
 
@@ -257,7 +257,7 @@ class PostprocessPage(QWidget):
     def __init__(  # noqa: PLR0915 - the page's layout
         self,
         bridge: ServiceBridge,
-        results: ResultsPage | AnalysisSession,
+        results: AnalysisSession,
         parent: QWidget | None = None,
     ) -> None:
         """Make the page, with an empty compressor."""
