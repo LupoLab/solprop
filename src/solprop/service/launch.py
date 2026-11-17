@@ -307,7 +307,7 @@ def slurm_script(
     >>> resources = SlurmResources(cpus=4)
     >>> script = slurm_script(Path("/runs/r1"), "/env/bin/python", resources)
     >>> "#SBATCH --cpus-per-task=4" in script, script.splitlines()[-1]
-    (True, 'exec /env/bin/python -m solprop.service.job /runs/r1')
+    (True, 'exec /env/bin/python -m solprop.service.job --slurm /runs/r1')
     """
     name = re.sub(r"[^A-Za-z0-9_.-]", "_", folder.name)[:40]
     posix = folder.as_posix()  # a cluster's path, whatever this computer writes
@@ -328,7 +328,7 @@ def slurm_script(
         *(line for line in resources.setup if line.strip()),
     ]
     budget = str(threads) if threads is not None else "${SLURM_CPUS_PER_TASK:-1}"
-    command = shlex.join([python, "-m", "solprop.service.job", posix])
+    command = shlex.join([python, "-m", "solprop.service.job", "--slurm", posix])
     return batch_script(
         directives, [f"export SOLPROP_THREADS={budget}", f"exec {command}"], site=site
     )

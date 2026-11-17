@@ -114,7 +114,7 @@ def test_the_batch_script_asks_for_what_the_template_says(tmp_path):
     ):
         assert wanted in lines
     assert "#SBATCH --job-name=solprop-a_run" in lines
-    assert lines[-1].startswith("exec /env/bin/python -m solprop.service.job '")
+    assert lines[-1].startswith("exec /env/bin/python -m solprop.service.job --slurm '")
     assert resources.brief == "gpu · 8 CPUs · 16G · gpu:1 · 1-00:00:00"
     plain = slurm_script(tmp_path, "python", SlurmResources())
     assert "export SOLPROP_THREADS=${SLURM_CPUS_PER_TASK:-1}" in plain
@@ -279,6 +279,7 @@ def test_a_direct_run_stops_on_its_stop_file(tmp_path):
 
 def test_the_job_command_needs_a_folder_with_a_spec(tmp_path, capsys):
     assert job_main([]) == 2
+    assert job_main(["--slurm"]) == 2
     assert job_main([str(tmp_path)]) == 2
     assert "no run to start" in capsys.readouterr().err
     (tmp_path / SPEC).write_text('{"run_id": "r1", "nonsense": 1}', encoding="utf-8")
@@ -289,11 +290,28 @@ def test_the_job_command_runs_in_this_process(tmp_path, monkeypatch):
     folder = prepare(RunSpec("r1", str(tmp_path / "r1"), recipe=TINY, threads=1))
     monkeypatch.setenv("SLURM_JOB_ID", "77")
     monkeypatch.setenv("SOLPROP_THREADS", "2")  # restored after the test
-    assert job_main([str(folder)]) == 0
+    assert job_main(["--slurm", str(folder)]) == 0
     assert os.environ["SOLPROP_THREADS"] == "1"
     job = json.loads((folder / JOB).read_text(encoding="utf-8"))
     assert (job["launcher"], job["slurm_job"]) == ("slurm", "77")
     assert summarise(folder)["state"] == "finished"
+
+
+def test_a_job_started_inside_an_allocation_is_not_that_allocation(
+    tmp_path, monkeypatch
+):
+    """Only the batch script solprop submits makes a run its Slurm job's own."""
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    seen = []
+    monkeypatch.setattr(run_module, "execute", seen.append)
+    monkeypatch.setenv("SLURM_JOB_ID", "77")
+    folder = prepare(RunSpec("r1", str(tmp_path / "r1"), recipe=TINY))
+    assert job_main([str(folder)]) == 0
+    assert job_main(["--slurm", str(folder)]) == 0
+    assert [spec.launcher for spec in seen] == ["direct", "slurm"]
+    assert Job.here("r1", "direct").slurm_job is None
+    assert Job.here("r1", "slurm").slurm_job == "77"
 
 
 def test_a_start_that_fails_says_why(tmp_path, monkeypatch):

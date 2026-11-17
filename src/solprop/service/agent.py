@@ -360,9 +360,11 @@ class Agent:
     def cancel(self, body: Mapping[str, Any]) -> None:
         """End a run's job: ``scancel``, or ``SIGTERM`` to its process (``cancel``).
 
-        Either way solprop writes where the run stood, so it can be resumed. With
-        ``force``, a process of this machine is killed outright (``SIGKILL``), for a run
-        that does not end on ``SIGTERM``; its file may then hold no restart state.
+        Only the Slurm job solprop submitted the run as is cancelled; a run started
+        directly is signalled, even inside a Slurm allocation, which goes on. Either
+        way solprop writes where the run stood, so it can be resumed. With ``force``, a
+        process of this machine is killed outright (``SIGKILL``), for a run that does
+        not end on ``SIGTERM``; its file may then hold no restart state.
 
         Parameters
         ----------
