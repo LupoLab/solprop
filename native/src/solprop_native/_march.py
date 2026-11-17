@@ -359,7 +359,8 @@ class _NativeAdamsMarch:
             "collar_was_quiet": self._collar_was_quiet,
             "cursor": int(cursor),
             "history": [
-                (entry.z, entry.identity, entry.slot) for entry in self._history
+                {"z": entry.z, "identity": entry.identity, "row": entry.slot}
+                for entry in self._history
             ],
             "ledger": {name: getattr(ledger, name) for name in _MARCH_COUNTERS},
             "watch": dict(FRESH_WATCH),

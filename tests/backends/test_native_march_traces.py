@@ -114,7 +114,7 @@ class _Runner:
         bounds = {**bounds, "max_attempts": harness.max_attempts}
         result = self.scripted.run(state, bounds)
         log = self.scripted.log()
-        held = [slot for _, _, slot in state["history"]] or [0]
+        held = [entry["row"] for entry in state["history"]] or [0]
         for event in log[self.seen :]:
             if "start" in event:
                 harness.events.append(dict(event))

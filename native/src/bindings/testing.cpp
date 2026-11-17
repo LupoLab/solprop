@@ -257,7 +257,7 @@ public:
         norms_(real_vector(norms)), h0_(h0),
         schedule_{.steps = real_vector(steps), .edges = real_vector(edges)} {}
   nb::dict run(const nb::dict state_values, const nb::dict bounds_values) {
-    auto state = rk_state_from(state_values);
+    auto state = native::records::read<native::rk::State>(state_values, "state");
     const auto bounds = march_bounds_from(bounds_values);
     native::engines::ScriptedRungeKutta engine(norms_, next_, h0_, policy_.power, log_);
     const auto result = native::rk::run(policy_, state, engine, bounds, schedule_);
@@ -413,7 +413,7 @@ public:
   [[nodiscard]] nb::dict rk_march_run(const nb::dict state_values,
                                       const nb::dict bounds_values) const {
     workspace_->require_unleased();
-    auto state = rk_state_from(state_values);
+    auto state = native::records::read<native::rk::State>(state_values, "state");
     const auto bounds = march_bounds_from(bounds_values);
     native::rk::Result result;
     {

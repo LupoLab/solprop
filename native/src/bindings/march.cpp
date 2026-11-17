@@ -6,9 +6,10 @@
 // Adams march's policy, state, bounds and result (solprop SEP 39 phase 2), the
 // Runge-Kutta march's state and result, and the boundary watch's policy, state,
 // configuration, record and judgement (solprop SEP 45 phase 1, SEP 47 section 6.4).
-// The policies and the watch's state and configuration go through their field tables
-// (`records.hpp`) and the march's validation; the march states, bounds and results and
-// the watch's record and judgement are converted key by key.
+// The policies, the march states and the watch's state and configuration go through
+// their field tables (`records.hpp`) and the march's validation; the bounds and the
+// results, and the watch's record and judgement, which have no field table, are
+// converted key by key.
 
 #include "march.hpp"
 
@@ -119,23 +120,6 @@ nb::dict watch_judgement_to(const native::watch::Judgement& judgement) {
   return out;
 }
 
-native::rk::State rk_state_from(const nb::dict values) {
-  native::rk::State state;
-  try {
-    state.z = nb::cast<double>(values["z"]);
-    state.proposal = nb::cast<double>(values["proposal"]);
-    for (const auto value : nb::cast<nb::list>(values["norms"]))
-      state.norms.push_back(nb::cast<double>(value));
-    if (values.contains("watch"))
-      state.watch = watch_state_from(nb::cast<nb::dict>(values["watch"]));
-    if (values.contains("cursor"))
-      state.cursor = nb::cast<std::uint64_t>(values["cursor"]);
-  } catch (const nb::cast_error&) {
-    throw std::invalid_argument("the Runge-Kutta march's state has the wrong types");
-  }
-  return state;
-}
-
 nb::dict rk_result_to(const native::rk::Result& out, const native::rk::State& state) {
   const auto& result = out.march;
   nb::dict values;
@@ -160,75 +144,14 @@ nb::dict rk_result_to(const native::rk::Result& out, const native::rk::State& st
                            : nb::cast(real_output(std::move(readings), n_readings));
   values["reading_rows"] = result.reading_rows;
   values["verdict"] = static_cast<int>(result.verdict);
-  nb::dict held;
-  held["z"] = state.z;
-  held["proposal"] = state.proposal;
-  held["norms"] = std::vector<double>(state.norms.begin(), state.norms.end());
-  held["watch"] = watch_state_to(state.watch);
-  held["cursor"] = state.cursor;
-  values["state"] = held;
+  values["state"] = native::records::write_record(state);
   return values;
 }
 
 march::State march_state_from(const nb::dict values) {
-  march::State state;
-  try {
-    state.z = nb::cast<double>(values["z"]);
-    state.proposal = nb::cast<double>(values["proposal"]);
-    state.order = nb::cast<std::size_t>(values["order"]);
-    state.rejections = nb::cast<std::size_t>(values["rejections"]);
-    state.last_rejected = nb::cast<bool>(values["last_rejected"]);
-    state.collar_was_quiet = nb::cast<bool>(values["collar_was_quiet"]);
-    state.cursor = nb::cast<std::size_t>(values["cursor"]);
-    for (const auto entry : nb::cast<nb::list>(values["history"]))
-      state.history.push_back(
-          native::records::read<march::Entry>(entry, "state.history"));
-    const auto ledger = nb::cast<nb::dict>(values["ledger"]);
-    state.ledger.startup = nb::cast<std::uint64_t>(ledger["startup"]);
-    state.ledger.predictor = nb::cast<std::uint64_t>(ledger["predictor"]);
-    state.ledger.rejected = nb::cast<std::uint64_t>(ledger["rejected"]);
-    state.ledger.accepted_steps = nb::cast<std::uint64_t>(ledger["accepted_steps"]);
-    state.ledger.rejected_steps = nb::cast<std::uint64_t>(ledger["rejected_steps"]);
-    state.ledger.restarts = nb::cast<std::uint64_t>(ledger["restarts"]);
-    state.ledger.failure_restarts = nb::cast<std::uint64_t>(ledger["failure_restarts"]);
-    state.ledger.dense_observations =
-        nb::cast<std::uint64_t>(ledger["dense_observations"]);
-    if (values.contains("watch"))
-      state.watch = watch_state_from(nb::cast<nb::dict>(values["watch"]));
-  } catch (const nb::cast_error&) {
-    throw std::invalid_argument("the Adams march's state has the wrong types");
-  }
-  if (state.history.size() > march::max_history)
-    throw std::invalid_argument("the Adams march's history is too long");
+  auto state = native::records::read<march::State>(values, "state");
+  march::validate(state);
   return state;
-}
-
-nb::dict march_state_to(const march::State& state) {
-  nb::dict out;
-  out["z"] = state.z;
-  out["proposal"] = state.proposal;
-  out["order"] = state.order;
-  out["rejections"] = state.rejections;
-  out["last_rejected"] = state.last_rejected;
-  out["collar_was_quiet"] = state.collar_was_quiet;
-  out["cursor"] = state.cursor;
-  nb::list history;
-  for (const auto& entry : state.history)
-    history.append(nb::make_tuple(entry.z, native::records::write_value(entry.identity),
-                                  entry.row));
-  out["history"] = history;
-  nb::dict ledger;
-  ledger["startup"] = state.ledger.startup;
-  ledger["predictor"] = state.ledger.predictor;
-  ledger["rejected"] = state.ledger.rejected;
-  ledger["accepted_steps"] = state.ledger.accepted_steps;
-  ledger["rejected_steps"] = state.ledger.rejected_steps;
-  ledger["restarts"] = state.ledger.restarts;
-  ledger["failure_restarts"] = state.ledger.failure_restarts;
-  ledger["dense_observations"] = state.ledger.dense_observations;
-  out["ledger"] = ledger;
-  out["watch"] = watch_state_to(state.watch);
-  return out;
 }
 
 march::Bounds march_bounds_from(const nb::dict values) {
@@ -298,7 +221,7 @@ nb::dict march_result_to(const march::Result& result, const march::State& state)
                         : nb::cast(real_output(std::move(readings), n_readings));
   out["reading_rows"] = result.reading_rows;
   out["verdict"] = static_cast<int>(result.verdict);
-  out["state"] = march_state_to(state);
+  out["state"] = native::records::write_record(state);
   return out;
 }
 

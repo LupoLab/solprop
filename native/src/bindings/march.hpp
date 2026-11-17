@@ -29,10 +29,8 @@ nb::dict watch_state_to(const native::watch::State& state);
 native::watch::Config watch_config_from(nb::handle values);
 nb::dict watch_record_to(const native::watch::Record& record);
 nb::dict watch_judgement_to(const native::watch::Judgement& judgement);
-native::rk::State rk_state_from(nb::dict values);
 nb::dict rk_result_to(const native::rk::Result& out, const native::rk::State& state);
 native::march::State march_state_from(nb::dict values);
-nb::dict march_state_to(const native::march::State& state);
 native::march::Bounds march_bounds_from(nb::dict values);
 nb::dict march_result_to(const native::march::Result& result,
                          const native::march::State& state);
