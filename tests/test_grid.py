@@ -524,6 +524,36 @@ def test_from_limits_rejects_bad_keywords(factory, keywords, message):
         factory.from_limits(**RDW, **keywords)
 
 
+@pytest.mark.parametrize("ffac", [2.0, 2.1, 2.19])
+def test_a_field_grid_refuses_an_ffac_that_leaves_its_nyquist_bin_live(ffac):
+    # Below 2.2 the fine Nyquist frequency, ffac omega_max / 2, falls short of the
+    # collar's foot at 1.1 omega_max, so the coarse Nyquist bin would keep field.
+    with pytest.raises(GridError, match=r"ffac must be at least 2\.2") as caught:
+        FieldGrid.from_limits(**RDW, ffac=ffac)
+    assert caught.value.parameter == "ffac"
+    assert "Nyquist" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("limits", "trange"),
+    [
+        (RDW["wavelength_limits"], RDW["trange"]),
+        # Limits where, at ffac = 2.2, rounding leaves the fine Nyquist frequency an
+        # ulp below 1.1 omega_max, so the taper there would be about 1e-305, not zero.
+        ((90e-9, 1e-6), 1e-12),
+        ((100e-9, 2e-6), 40e-15),
+    ],
+)
+def test_the_smallest_admitted_ffac_zeroes_both_end_bins(limits, trange):
+    grid = FieldGrid.from_limits(1.0, 800e-9, limits, trange, ffac=2.2)
+    assert grid.n_t == grid.n_to  # the coarse grid is the whole fine grid
+    # Exactly zero, as every Fourier identity on the stored spectrum assumes.
+    assert grid.omega_window[0] == 0.0
+    assert grid.omega_window[-1] == 0.0
+    assert not grid.active_mask[0]
+    assert not grid.active_mask[-1]
+
+
 @pytest.mark.parametrize("factory", [FieldGrid, EnvelopeGrid])
 @pytest.mark.parametrize(
     ("limits", "message"),
@@ -570,6 +600,21 @@ def test_validate_catches_a_corrupted_grid(changes, message):
     grid = FieldGrid.from_limits(1.0, 800e-9, (400e-9, 2e-6), 40e-15)
     with pytest.raises(GridError, match=message):
         corrupt(grid, **changes).validate()
+
+
+@pytest.mark.parametrize("end", ["zero frequency", "Nyquist"])
+def test_validate_catches_a_collar_that_leaves_an_end_bin_live(end):
+    grid = FieldGrid.from_limits(1.0, 800e-9, (400e-9, 2e-6), 40e-15)
+    collar = grid.omega_collar
+    if end == "Nyquist":
+        wider = dataclasses.replace(collar, zero_high=1.1 * grid.omega[-1])
+    else:
+        wider = dataclasses.replace(collar, zero_low=-collar.one_low)
+    # dataclasses.replace rebuilds the grid without validating it.
+    rebuilt = dataclasses.replace(grid, omega_collar=wider)
+    assert rebuilt.omega_window[0 if end == "zero frequency" else -1] > 0.0
+    with pytest.raises(GridError, match=f"vanish at the {end} bin"):
+        rebuilt.validate()
 
 
 def test_validate_catches_a_fine_grid_that_is_not_a_multiple_of_the_coarse_one():
@@ -628,7 +673,7 @@ def test_the_base_grid_has_no_layout_of_its_own():
     wavelength_low=st.floats(min_value=90e-9, max_value=700e-9),
     span=st.floats(min_value=2.0, max_value=40.0),
     trange=st.floats(min_value=20e-15, max_value=800e-15),
-    ffac=st.sampled_from([2.0, 4.0, 6.0]),
+    ffac=st.floats(min_value=2.2, max_value=6.0),
     fft_size=st.sampled_from(["pow2", "smooth"]),
     collar_fraction=st.floats(min_value=0.01, max_value=0.45),
 )
@@ -659,10 +704,15 @@ def test_every_grid_satisfies_its_invariants(
     assert grid.t_collar.width_low > 0.0
     assert grid.t_collar.width_high > 0.0
     # The coarse grid reaches the apodised window edge, or as near it as the fine grid
-    # allows: at ffac = 2 the fine Nyquist is omega_max itself, below the collar's foot.
+    # allows.
     reach = min(grid.omega_max_window, grid.omega_fine.max())
     assert grid.omega.max() >= reach - grid.d_omega
     assert grid.active_mask.any()
+    if factory is FieldGrid:
+        # A field grid's end bins carry no field: its Nyquist bin is at or past the
+        # collar's foot.
+        assert grid.omega[-1] >= grid.omega_max_window
+        assert grid.omega_window[0] == grid.omega_window[-1] == 0.0
 
 
 @given(

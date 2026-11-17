@@ -141,7 +141,10 @@ from the wavelength limits `(λ_min, λ_max)` and the requested window `trange` 
 - `ω_min = 2πc/λ_max`, `ω_max = 2πc/λ_min`, `ω_max_win = 1.1 ω_max`;
 - the **fine** grid is sampled at `ffac × f_max` (`δt_fine = 1/(ffac f_max)`, or the user's
   `δt` if finer); `ffac = 6` by default so that a cubic response (`E³`, reaching `3ω_max`)
-  is resolved; `ffac = 4` suffices for a response without third harmonic; `ffac ≥ 2`;
+  is resolved; `ffac = 4` suffices for a response without third harmonic; `ffac ≥ 2.2`,
+  so that the fine Nyquist frequency `ffac ω_max/2` reaches `ω_max_win` and the coarse
+  Nyquist bin lies at or past it (where rounding leaves it an ulp short at the minimum,
+  `ω_max_win` is moved onto it);
 - `n_to` = the transform size ≥ `trange/((1 − 2 collar_fraction) δt_fine)`, room for the
   temporal collar outside the request (`collar_fraction = 0.1` by default; `trange/δt_fine`
   under `collar_placement="inside"`); the realised window is `trange_even = n_to δt_fine` and
@@ -149,8 +152,9 @@ from the wavelength limits `(λ_min, λ_max)` and the requested window `trange` 
 - the coarse grid keeps the fine bins up to the first `ω > ω_max_win`, its size `n_t` rounded
   up to the smallest even divisor of `n_to` (so `2^k + 1` bins on a power-of-two grid; clamped
   to the fine grid); `δt = π/ω[−1]`, `n_t = 2 (n_omega − 1)`;
-- invariants (asserted): `δt/δt_fine = n_to/n_t = ω_fine[−1]/ω[−1]`, and the coarse time
-  samples coincide with fine samples.
+- invariants (asserted): `δt/δt_fine = n_to/n_t = ω_fine[−1]/ω[−1]`, the coarse time
+  samples coincide with fine samples, and the spectral window is exactly zero at the
+  zero-frequency and Nyquist bins, which the analytic signal does not double.
 
 Note that `ffac` changes the whole grid (δω, window length, `n_omega`), not only the fine one.
 

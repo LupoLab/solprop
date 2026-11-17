@@ -243,9 +243,9 @@ def test_mixed_rules_in_one_problem_are_refused_by_name():
 
 
 def test_a_band_edge_at_nyquist_is_refused():
-    """``ffac = 2`` puts 1.1 omega_max above the fine grid's Nyquist frequency."""
+    """``ffac = 2.2``, the least on a field grid, puts 1.1 omega_max at Nyquist."""
     with pytest.raises(TranslationError, match="Nyquist"):
-        design_running_integral(ladder_grid(2.0), "band")
+        design_running_integral(ladder_grid(2.2), "band")
 
 
 def test_an_ill_conditioned_fit_is_refused(monkeypatch):
