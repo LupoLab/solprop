@@ -291,14 +291,9 @@ public:
                       const std::vector<double>& cosines,
                       const std::vector<double>& sines);
   /**
-   * The modal state's spectrum at one physical point: `matrix`, one or two rows of
-   * `n_modes` columns, contracted with the modes, as `(n_rows * n_pol, n_omega)`
-   * samples. What an on-axis scan needs of the state.
-   */
-  [[nodiscard]] std::vector<Complex> axis_spectrum(const std::vector<double>& matrix);
-  /**
    * solprop SEP 19's on-axis plasma populations of the accepted state: `matrix`'s row
-   * (as `axis_spectrum` takes it, the pad scale and the taper in it) on the fine time
+   * (one or two rows of `n_modes` columns contracted with the modes, the pad scale and
+   * the taper in it) on the fine time
    * grid, scanned by the node scan with each channel's preionisation. Returns each
    * channel's final ionised fraction and peak rate, `(n_channels, 2)`.
    */

@@ -26,7 +26,7 @@ from bounds import assert_within, device_backend, fft_bound, gamma, rate_log_sen
 from builders import load_reference
 from rate_oracles import adk_oracle
 from sessions.executors import IDENTITY
-from sessions.runs import launched, load_native, run
+from sessions.runs import launched, run
 from solprop.backends import select
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.populations import axis_node
@@ -547,28 +547,6 @@ def test_the_native_axis_row_leaves_the_state_on_the_device(grid, table, radial_
         assert native.status().exports == 1, "the count sees a crossing"
         assert to_host() > 0, "the state's count sees a crossing"
     assert np.all(values["on_axis_peak_ionisation_rate"] > 0)
-
-
-def test_the_native_row_refuses_a_matrix_that_is_not_one_or_two_rows(grid, table):
-    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
-        _testing,
-    )
-
-    pytest.importorskip("solprop_native")
-    mode = argon()
-    rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
-    problem, run_request = problem_on(grid, table, [mode], rule)
-    with closing(
-        select("native", problem, run_request, grid=grid, modes=[mode])
-    ) as backend:
-        state = backend._workspace  # pyright: ignore[reportAttributeAccessIssue]
-        with pytest.raises(RuntimeError, match="no initial field"):
-            _testing.axis_spectrum(state, np.ones((1, 1)))
-        load_native(backend, problem.initial.field0)
-        with pytest.raises(ValueError, match="at most two rows"):
-            _testing.axis_spectrum(state, np.ones((3, 1)))
-        with pytest.raises(ValueError, match="two-dimensional"):
-            _testing.axis_spectrum(state, np.ones(1))
 
 
 def test_they_are_saved_plane_statistics_and_tdse_never_defines_them():

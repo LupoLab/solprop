@@ -116,7 +116,6 @@ public:
                                           std::size_t n_radii,
                                           const std::vector<double>& cosines,
                                           const std::vector<double>& sines);
-  std::vector<Complex> axis_spectrum(const std::vector<double>& matrix);
   std::vector<double>
   axis_populations(const std::vector<double>& matrix,
                    const std::vector<double>& channel_preionisation);

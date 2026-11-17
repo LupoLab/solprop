@@ -232,9 +232,6 @@ def aperture_statistics(
     regions: npt.NDArray[np.float64],
     intensity_factor: float,
 ) -> npt.NDArray[np.float64]: ...
-def axis_spectrum(
-    workspace: Workspace, matrix: npt.NDArray[np.float64]
-) -> npt.NDArray[np.complex128]: ...
 def basis_rows(
     points: npt.NDArray[np.float64],
     upper: float,
