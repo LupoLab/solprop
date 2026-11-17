@@ -350,7 +350,9 @@ def test_a_taper_s_source_at_z_is_the_local_radius_s_source(grid):
     straight, _ = built(float(taper(np.array([z]))[0]))
     try:
         state = load_reference(straight)
-        scale = float(tapered.workspace.problem.transform.taper_scale(z))
+        taper_scale = tapered.workspace.problem.transform.taper_scale
+        assert taper_scale is not None
+        scale = float(taper_scale(z))
         expected = straight.workspace.lab_source(state, 0.0)
         found = tapered.workspace.lab_source(state, z)
     finally:
