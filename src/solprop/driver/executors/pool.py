@@ -62,7 +62,7 @@ STOP = "stop"
 PROGRESS = "progress"
 
 
-class _WorkerError(DriverError):
+class _WorkerError(ExecutorError):
     """Report an abnormal child exit separately from an invalid resource budget."""
 
 
@@ -619,7 +619,10 @@ class Pool:
         Raises
         ------
         DriverError
-            If resource admission fails or a worker exits abnormally.
+            If resource admission fails.
+        ExecutorError
+            If a worker exits abnormally or fails, and the work has no ``failure``
+            hook to record it.
         """
         self.validate(work)
         iterator = iter(points)

@@ -295,7 +295,7 @@ class Slurm:
 
         Raises
         ------
-        DriverError
+        ExecutorError
             If sbatch is unavailable or refuses the submission.
         """
         queue = (
