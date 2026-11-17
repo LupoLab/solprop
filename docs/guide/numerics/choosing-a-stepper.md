@@ -168,7 +168,7 @@ the Adams method pays it for each call, and adds its history's arithmetic. When 
 dominates — a multimode transform pair, an ionisation rate, a Raman convolution, a
 transverse transform — fewer calls is less time, nearly in proportion. When a call is
 a few fast Fourier transforms of a single mode, the step's own work weighs as much, and
-three times fewer calls can be slower. The compiled backends make calls cheap, which is
+three times fewer calls can be slower. The native backend makes calls cheap, which is
 why the ranking is measured per backend rather than read off the call count.
 
 **How complicated the nonlinearity is.** A richer response costs more per call, which

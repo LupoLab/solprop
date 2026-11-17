@@ -52,7 +52,7 @@ of an HDF5 output that keeps the resume history, and for each periodic snapshot.
 resume installs them again and continues the history ([resuming](../results/resuming.md)).
 A frozen-residual coupled flow's history is kept in a native form (each sample's
 generator applied to its state), so a snapshot of it continues only on the native
-backend, and a host engine's snapshot of it only on `numpy_ref`; a
+backend, and a `numpy_ref` snapshot of it only on `numpy_ref`; a
 mismatch starts the history afresh and says why. Other histories cross between backends.
 
 The planar guide resolved in y is built into the GPU builds but has not been qualified

@@ -614,7 +614,7 @@ SEP 13 counted the calls of the interaction formulation on the canonical helium
 capillary (4.2 m, steady fill peaking at 0.2 bar, 6 fs and 1 mJ at 800 nm, compressing
 to 1.25 fs, 50 save planes), in full-length runs scored at every plane against a
 converged reference. They are the method's call economy; run time, the exponential
-formulation and the compiled backends are in [choosing a stepper](choosing-a-stepper.md).
+formulation and the native backend are in [choosing a stepper](choosing-a-stepper.md).
 
 | Method | `rtol` | source calls | field error in the window | peak power | UV-band field |
 |---|---|---|---|---|---|
@@ -643,7 +643,7 @@ times at loose and medium accuracy, falling to about two at the tightest:
 - 443 calls (PEC3/4) against 1001 (IP-DOPRI5) for a window error near 3e-3;
 - 594 calls (PEC4/5) against 1176 for 5e-4.
 
-On a cheap source, calls are not run time. On the compiled backends one source
+On a cheap source, calls are not run time. On the native backend one source
 evaluation can cost less than a Runge–Kutta step's own linear work, and the Adams march
 takes more steps, so the call saving shrinks in wall time or disappears: a
 single-mode capillary, a coupled wall. On `native` the `Multistep()` controller runs
@@ -663,8 +663,8 @@ gives the measured ranking by regime, on the native backend's CPU build and on d
   replayed, on every route it admits, and what it does not step is refused by name
   before the run starts. It takes the same steps as solprop's reference march.
 - **Resume across backends.** A frozen-residual coupled flow's history is kept in a
-  native form on `native` and as per-sample weights on the host engines, so its snapshot
-  continues only on a backend of the same kind; a resume elsewhere starts the history
+  native form on `native` and as per-sample weights on `numpy_ref`, so its snapshot
+  continues only on the backend that wrote it; a resume elsewhere starts the history
   afresh and says why. Every other history crosses between backends.
 - **Memory.** The history holds from seven (`numpy_ref`, constant operator) to about
   sixty (`native`, a varying operator) further copies of the state. On a capillary the
