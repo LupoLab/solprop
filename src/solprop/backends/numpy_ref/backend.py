@@ -516,10 +516,9 @@ class NumpyRefBackend:
         not recorded is not reproducible. The record is the name, the resolved
         propagator mode and the node chunk; for an Adams run the latest run's
         cumulative logical source calls, and otherwise its physical
-        ``source_evaluations`` (SEP 24 section 5); and the workspace's facts: the
-        benchmark-gated plasma source and a host source's ledger, execution and last
-        evaluation. A PEC predictor is explicitly labelled and is never reported as an
-        accepted-field diagnostic.
+        ``source_evaluations`` (SEP 24 section 5); and the workspace's facts: a host
+        source's ledger, execution and last evaluation. A PEC predictor is explicitly
+        labelled and is never reported as an accepted-field diagnostic.
 
         Returns
         -------

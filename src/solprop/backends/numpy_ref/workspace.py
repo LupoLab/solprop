@@ -516,13 +516,10 @@ class NumpyWorkspace:
         Returns
         -------
         dict
-            The benchmark-gated plasma source's form and, with a host source, its
-            ledger, execution and last evaluation; JSON-serialisable.
+            With a host source, its ledger, execution and last evaluation; empty
+            otherwise. JSON-serialisable.
         """
         record: dict[str, object] = {}
-        if self.stage_source.gated_plasma:
-            record["_benchmark_plasma_source"] = "gated_nonresumable"
-            record["plasma_source"] = {"form": "gated_benchmark", "resumable": False}
         if self._tdse_binding is not None:
             record["atomic_calls"] = dataclasses.asdict(self._tdse_binding.ledger)
             record["tdse_execution"] = dict(self._tdse_binding.metadata())
@@ -1275,7 +1272,7 @@ class NumpyWorkspace:
             tables = problem.transform.modal_tables
             assert tables is not None
             general = general_memory(maps, tables, problem.grids.n_to)
-        ledger = adams_memory(problem, self._stepper) | {
+        return adams_memory(problem, self._stepper) | {
             # The rows' one definition, in `solprop.backends.memory`.
             **reference_base_memory(
                 problem,
@@ -1320,14 +1317,6 @@ class NumpyWorkspace:
                 }
             ),
         }
-        if self.stage_source.gated_plasma:
-            for name in ledger:
-                if (
-                    name.startswith("held_current_")
-                    and name != "held_current_derivative"
-                ):
-                    ledger[name] = 0
-        return ledger
 
     def close(self) -> None:
         """Release the buffers. Idempotent."""

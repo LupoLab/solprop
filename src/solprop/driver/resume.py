@@ -351,8 +351,6 @@ def _open_output(
     The resume gate (ADR-066): the file's configuration hash must equal `metadata`'s.
     Whether work is left is decided by :func:`_continues`.
     """
-    if resume and metadata.configuration.get("_benchmark_plasma_source"):
-        raise DriverError("gated plasma benchmark output cannot be resumed")
     if isinstance(output, Path | str):
         path = Path(output)
         if resume and check_cache(path, metadata):
