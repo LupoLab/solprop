@@ -28,11 +28,7 @@ import numpy as np
 from jaxtyping import Complex
 
 from solprop._helpers import PLAIN, Helpers
-from solprop.backends.exponential import (
-    CarrierReference,
-    refuse_carrier_frame,
-    refuse_formulation,
-)
+from solprop.backends.exponential import CarrierReference, refuse_adams
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.host.runge_kutta import RungeKuttaMarch
@@ -676,43 +672,6 @@ class _TrialProbe:
         return np.array(finished)
 
 
-def _refuse_adams(problem: PropagationProblem, stepper: StepperSettings) -> None:
-    """Refuse what the Adams march does not execute (SEP 13 sections 2 and 6.2).
-
-    The interaction formulation's history is of source samples transported along a
-    diagonal flow, so a coupled flow is refused by name rather than transported through
-    inverse actions; the exponential formulation refuses the coupled-flow sections it
-    does not step (:func:`solprop.backends.exponential.refuse_formulation`) and the
-    carrier frames it does not deliver. The ``modified`` noise is
-    admitted for both formulations (SEP 16 section 4.4): its draw is fixed for the run
-    and added to each sample's field at that sample's own position, never to the
-    propagating state, so conditional on the draw the source is a deterministic,
-    nonautonomous function of position that the history interpolates. The split-step
-    temporal collar is admitted: it changes
-    the state only inside the collar, where its first-order splitting error already
-    lies (``docs/dev/stepper.md`` section 6), and it removes the collar's stability
-    limit, which binds the Adams methods long before Runge-Kutta's (SEP 13 phase 2).
-    """
-    integrator = stepper.integrator
-    if not isinstance(integrator, Multistep):
-        return
-    if (
-        problem.linear.coupled_flow is not None
-        and integrator.formulation != "exponential"
-    ):
-        # SEP 16 Q3: only the exponential formulation steps a coupled flow; the
-        # interaction one would transport its history through inverse actions.
-        msg = (
-            f"the {integrator.name} integrator does not step a problem with a "
-            "coupled linear flow; use Multistep(formulation='exponential') or the "
-            "Runge-Kutta march"
-        )
-        raise BackendError(msg)
-    refuse_formulation(problem, stepper, "numpy_ref")
-    # SEP 35: the scalar shift, on the guided routes.
-    refuse_carrier_frame(problem, stepper, "numpy_ref", delivered=frozenset({"scalar"}))
-
-
 def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -> None:
     """Refuse, by name, every problem this backend does not execute."""
     # The route first, by its variant (SEP 47 section 6.2): the reference executes
@@ -727,7 +686,8 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
         case route:
             msg = f"numpy_ref does not execute the {route_name(route)} route"
             raise BackendError(msg)
-    _refuse_adams(problem, stepper)
+    # SEP 35: the scalar carrier shift, on the guided routes.
+    refuse_adams(problem, stepper, "numpy_ref", delivered=frozenset({"scalar"}))
     if (
         problem.flags.has_raman
         and problem.transform.n_pol * problem.shape[1] > 1

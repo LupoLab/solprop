@@ -350,7 +350,7 @@ take the matrix functions from the flow actions' eigenbasis (`CoupledBlock.basis
 compensation below,
 formed from each sample's flow weights against the step's own section. The lab-frame
 source runs without the flow's pipeline on every backend. The interaction formulation
-is refused by name (`backends.exponential.refuse_formulation`).
+is refused by name (`backends.exponential.refuse_adams`).
 
 **The carrier frame** ([SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md),
 `Multistep.carrier_frame`, opt-in) changes what an exponential trial interpolates and
