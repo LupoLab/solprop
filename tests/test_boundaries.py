@@ -18,12 +18,9 @@ from solprop.boundaries import (
     Absorber,
     SpatialAbsorber,
     absorber,
-    apply_band_mask,
-    apply_split_step,
     collar_rate,
     custom_absorber,
     nonlinear_absorber_term,
-    split_step_factor,
     temporal_collar_rate,
     warn_walkoff,
 )
@@ -118,50 +115,6 @@ def test_a_profile_outside_the_unit_interval_is_rejected(bad):
         collar_rate(bad, 0.1)
 
 
-# ------------------------------------------------------------- rate semantics
-
-
-@pytest.mark.parametrize("n_steps", [1, 10, 100, 1000])
-def test_the_absorption_depends_on_the_distance_and_not_on_the_subdivision(n_steps):
-    # The property the whole scheme exists for. A fixed profile multiplied in once per
-    # accepted step would give a total of W^n with n set by rtol.
-    alpha = collar_rate(np.array([1.0, 0.9, 0.5, 1e-3]), 0.075)
-    total = 0.3
-    rng = np.random.default_rng(20260905)
-    steps = rng.random(n_steps)
-    steps *= total / steps.sum()
-    product = np.ones_like(alpha)
-    for step in steps:
-        product = product * split_step_factor(alpha, float(step))
-    once = split_step_factor(alpha, total)
-    # n multiplications of doubles, each with half an ulp of rounding, give at worst
-    # n * eps; at n = 1000 that is 2e-13.
-    assert np.allclose(product, once, rtol=n_steps * EPS)
-
-
-def test_the_split_factor_is_the_field_factor_not_the_power_factor():
-    # alpha is a power coefficient, so the field carries alpha/2. Getting this wrong
-    # would make the temporal absorber twice as strong as the spectral one built from
-    # the same profile.
-    alpha = collar_rate(np.array([0.5]), 0.075)
-    factor = float(split_step_factor(alpha, 0.075)[0])
-    assert factor == pytest.approx(0.5, rel=8 * EPS)
-    assert factor**2 == pytest.approx(math.exp(-float(alpha[0]) * 0.075), rel=8 * EPS)
-
-
-def test_a_zero_step_leaves_the_field_alone():
-    alpha = collar_rate(np.array([1.0, 0.5]), 0.075)
-    field = np.array([[1.0 + 2.0j, 3.0 - 1.0j]])
-    # An explicitly exact no-op: a zero step multiplies by exp(0) = 1.
-    assert np.array_equal(apply_split_step(field, alpha, 0.0), field)
-
-
-@pytest.mark.parametrize("bad", [-1e-3, math.inf, math.nan])
-def test_a_bad_step_is_rejected(bad):
-    with pytest.raises(GridError, match="step must be non-negative"):
-        split_step_factor(collar_rate(np.array([0.5]), 0.075), bad)
-
-
 # ------------------------------------------- the two ADR-025 applications
 
 
@@ -175,7 +128,7 @@ def test_the_two_temporal_applications_agree_to_first_order_in_the_step():
     field = np.array([1.0, 1.0, 1.0])
 
     def deviation(step):
-        exact = apply_split_step(field, alpha, step)
+        exact = field * np.exp(-0.5 * alpha * step)
         euler = field + step * nonlinear_absorber_term(field, alpha)
         return float(np.max(np.abs(exact - euler)))
 
@@ -192,33 +145,14 @@ def test_the_in_term_is_the_derivative_of_the_split_factor():
     alpha = collar_rate(np.array([0.9, 0.5]), 0.075)
     field = np.array([2.0 + 1.0j, -1.0 + 0.5j])
     step = 1e-9
-    numerical = (apply_split_step(field, alpha, step) - field) / step
+    numerical = (field * np.exp(-0.5 * alpha * step) - field) / step
     assert np.allclose(numerical, nonlinear_absorber_term(field, alpha), rtol=1e-6)
 
 
-def test_both_applications_broadcast_over_the_leading_axes():
+def test_the_in_term_broadcasts_over_the_leading_axes():
     alpha = collar_rate(np.linspace(0.2, 1.0, 8), 0.075)
     field = np.ones((2, 3, 8), dtype=complex)
-    assert apply_split_step(field, alpha, 0.01).shape == (2, 3, 8)
     assert nonlinear_absorber_term(field, alpha).shape == (2, 3, 8)
-    assert np.allclose(
-        apply_split_step(field, alpha, 0.01)[0, 0], split_step_factor(alpha, 0.01)
-    )
-
-
-# ---------------------------------------------------------------- the hard mask
-
-
-def test_the_hard_band_mask_is_idempotent():
-    # Why it stays a per-step 0/1 multiply rather than becoming a rate: applying it any
-    # number of times gives the same answer, exactly (a hard mask, a structural zero).
-    rng = np.random.default_rng(11)
-    spectrum = rng.normal(size=(2, 16)) + 1j * rng.normal(size=(2, 16))
-    mask = rng.random(16) > 0.4
-    once = apply_band_mask(spectrum, mask)
-    assert np.array_equal(apply_band_mask(once, mask), once)
-    assert np.array_equal(once[:, ~mask], np.zeros((2, int(np.sum(~mask)))))
-    assert np.array_equal(once[:, mask], spectrum[:, mask])
 
 
 # ------------------------------------------------------------- from a grid

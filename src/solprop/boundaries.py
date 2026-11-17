@@ -17,11 +17,11 @@ depend on how many steps the controller takes.
   (:data:`DEFAULT_BOUNDARY_N`) and an optional separate collar length or walk-off.
 - The spectral rate is folded into the linear operator. The temporal rate is applied
   inside every stage (:func:`nonlinear_absorber_term`, bounded by :func:`stable_step`)
-  or as a split factor after each accepted step (:func:`split_step_factor`,
-  :func:`apply_split_step`, with the walk-off step limit of :class:`SplitCrossing`,
+  or, by the backends, as the split factor ``exp(-alpha(t) h / 2)`` after each
+  accepted step, with the walk-off step limit of :class:`SplitCrossing`,
   :func:`split_crossing_step`, :func:`split_rate_buckets` and
-  :func:`split_bucket_rates`). :func:`apply_band_mask` is the idempotent hard band
-  limit, and :func:`warn_walkoff` says when the absorber is too weak for the run.
+  :func:`split_bucket_rates`. :func:`warn_walkoff` says when the absorber is too weak
+  for the run.
 - :class:`SpatialAbsorber` and :class:`SpatialAbsorberDesign`, a free-space run's
   transverse boundary, are re-exported from :mod:`solprop.spatial_absorber`.
 
@@ -64,8 +64,6 @@ __all__ = [
     "SpatialAbsorberDesign",
     "SplitCrossing",
     "absorber",
-    "apply_band_mask",
-    "apply_split_step",
     "collar_rate",
     "custom_absorber",
     "no_absorber",
@@ -73,7 +71,6 @@ __all__ = [
     "split_bucket_rates",
     "split_crossing_step",
     "split_rate_buckets",
-    "split_step_factor",
     "stable_step",
     "temporal_collar_rate",
     "warn_walkoff",
@@ -1085,8 +1082,8 @@ def stable_step(temporal_rate: Float[np.ndarray, " n_t"]) -> float:
     The ``"nonlinear"`` absorber scheme adds ``-alpha(t) E(t) / 2`` to the derivative,
     so the collar's largest rate becomes an eigenvalue of the linearised problem and an
     explicit Runge-Kutta method must keep ``h alpha / 2`` inside its stability region.
-    The split factor of :func:`split_step_factor` integrates the same term *exactly* and
-    is unconditionally stable, which is the one thing it is better at.
+    The ``"split_step"`` scheme's factor ``exp(-alpha h / 2)`` integrates the same term
+    *exactly* and is unconditionally stable, which is the one thing it is better at.
 
     DOPRI5's and Tsit5's stability region reaches :data:`STABILITY_RADIUS` along the
     negative real axis, so the limit is ``2 R / max(alpha)``. Measured on the 1 mm
@@ -1127,90 +1124,6 @@ def stable_step(temporal_rate: Float[np.ndarray, " n_t"]) -> float:
     return 2.0 * STABILITY_RADIUS / largest
 
 
-def split_step_factor(
-    temporal_rate: Float[np.ndarray, " n_t"], step: float
-) -> Float[np.ndarray, " n_t"]:
-    """Return the factor the temporal absorber multiplies the field by over one step.
-
-    ``exp(-alpha(t) h / 2)``: the field, not the power, because that is what the state
-    holds, and ``alpha`` is a power coefficient. Successive factors telescope exactly to
-    ``exp(-alpha(t) L / 2)`` however the solver subdivides the propagation, which is the
-    whole point of rate semantics -- and the property the tests assert.
-
-    The factor of one half is required: ``exp(-alpha(t) h)`` could not be right
-    alongside the ``-alpha(t) E(t) / 2`` of the alternative scheme, or alongside
-    ``alpha = -2 log W / ell``: with it, one reference length would apply the collar
-    profile to the field twice, and the two schemes would differ at first order in the
-    step rather than agreeing there.
-
-    Parameters
-    ----------
-    temporal_rate : numpy.ndarray
-        Power absorption coefficient on the time axis, 1/m, shape ``(n_t,)``.
-    step : float
-        Distance travelled in metres, non-negative.
-
-    Returns
-    -------
-    numpy.ndarray
-        Multiplicative factor in ``(0, 1]``, shape ``(n_t,)``.
-
-    Raises
-    ------
-    GridError
-        If the step is negative or not finite.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop.boundaries import collar_rate, split_step_factor
-    >>> alpha = collar_rate(np.array([1.0, 0.5]), 0.1)
-    >>> np.round(split_step_factor(alpha, 0.1), 6).tolist()
-    [1.0, 0.5]
-    """
-    if not (math.isfinite(step) and step >= 0.0):
-        msg = f"step must be non-negative and finite, got {step!r}"
-        raise GridError(msg)
-    return np.exp(-0.5 * temporal_rate * step)
-
-
-def apply_split_step(
-    field: Inexact[np.ndarray, "*batch n_t"],
-    temporal_rate: Float[np.ndarray, " n_t"],
-    step: float,
-) -> Inexact[np.ndarray, "*batch n_t"]:
-    """Apply the temporal absorber to a time-domain field over one accepted step.
-
-    The reference implementation of the split-step absorber scheme, the alternative to
-    the in-stage term of :func:`nonlinear_absorber_term`, and what that term is
-    measured against.
-
-    Parameters
-    ----------
-    field : numpy.ndarray
-        Time-domain field, shape ``(..., n_t)``; real on a field grid, complex on an
-        envelope grid.
-    temporal_rate : numpy.ndarray
-        Power absorption coefficient on the time axis, 1/m, shape ``(n_t,)``.
-    step : float
-        Distance travelled in metres.
-
-    Returns
-    -------
-    numpy.ndarray
-        The attenuated field, with the shape of ``field``.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop.boundaries import apply_split_step, collar_rate
-    >>> alpha = collar_rate(np.array([1.0, 0.5]), 0.1)
-    >>> np.round(apply_split_step(np.ones((1, 2)), alpha, 0.1), 6).tolist()
-    [[1.0, 0.5]]
-    """
-    return field * split_step_factor(temporal_rate, step)
-
-
 def nonlinear_absorber_term(
     field: Inexact[np.ndarray, "*batch n_t"],
     temporal_rate: Float[np.ndarray, " n_t"],
@@ -1219,8 +1132,8 @@ def nonlinear_absorber_term(
 
     ``-alpha(t) E(t) / 2``: the derivative form of the same rate, and the reference
     implementation of the in-stage absorber scheme, the modal routes' default.
-    Integrating it exactly over a step would give :func:`apply_split_step`; a
-    Runge-Kutta stage integrates it to the order of the method, so the two agree to
+    Integrating it exactly over a step gives the ``"split_step"`` scheme's factor
+    ``exp(-alpha(t) h / 2)``; a Runge-Kutta stage integrates it to the order of the method, so the two agree to
     first order in the step and differ at second, which is what the comparison of the
     two schemes measures.
 
@@ -1245,39 +1158,6 @@ def nonlinear_absorber_term(
     [-2.231436, -6.931472]
     """
     return -0.5 * temporal_rate * field
-
-
-def apply_band_mask(
-    spectrum: Inexact[np.ndarray, "*batch n_omega"],
-    band_mask: Bool[np.ndarray, " n_omega"],
-) -> Inexact[np.ndarray, "*batch n_omega"]:
-    """Zero a spectrum outside the active band.
-
-    The hard part of the boundary, kept as a 0/1 multiply rather than made a rate: it is
-    idempotent, so applying it once per accepted step never accumulates, and it is the
-    definition of the band the equation is solved on rather than an absorber.
-
-    Parameters
-    ----------
-    spectrum : numpy.ndarray
-        Spectral amplitudes, shape ``(..., n_omega)``.
-    band_mask : numpy.ndarray
-        True where the physics lives, shape ``(n_omega,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The masked spectrum, with the shape of ``spectrum``.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop.boundaries import apply_band_mask
-    >>> mask = np.array([True, False, True])
-    >>> apply_band_mask(np.array([1.0, 2.0, 3.0]), mask).tolist()
-    [1.0, 0.0, 3.0]
-    """
-    return np.where(band_mask, spectrum, 0.0)
 
 
 def warn_walkoff(
