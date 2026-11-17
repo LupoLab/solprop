@@ -169,9 +169,7 @@ def _low_storage_flows(
     """
     if not isinstance(stepper.integrator, LowStorageRungeKutta):
         return None
-    return _resident_flows(
-        low_storage_flows(problem, stepper, "native"), stepper, device=device
-    )
+    return _resident_flows(low_storage_flows(problem, stepper), stepper, device=device)
 
 
 def _resident_flows(flows: int, stepper: StepperSettings, *, device: bool) -> int:

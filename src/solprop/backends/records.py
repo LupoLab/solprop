@@ -363,7 +363,7 @@ def low_storage_settings(
     if not isinstance(stepper.integrator, LowStorageRungeKutta):
         return None
     return LowStorageSettings(
-        flows=low_storage_flows(problem, stepper, "native"),
+        flows=low_storage_flows(problem, stepper),
         separable=problem.linear.separable is not None,
         origin=float(problem.linear.z_span[0]),
     )
