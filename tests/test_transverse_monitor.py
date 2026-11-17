@@ -181,14 +181,11 @@ def test_a_spectrum_without_reach_keeps_the_backstop_at_its_start():
 
 @pytest.mark.skipif("native" not in available(), reason="native is not installed")
 def test_native_reads_the_edge_as_numpy_ref_does() -> None:
-    # A backend that does not read it is tested in tests/backends/
-    # test_transverse_backends.py, with numpy_ref's reading switched off.
     records = []
     for backend in ("numpy_ref", "native"):
         simulation = suite(1.5, None)
         simulation.settings = dataclasses.replace(simulation.settings, backend=backend)
-        output, messages = quietly(simulation)
-        assert not any("does not read the transverse edge" in one for one in messages)
+        output, _ = quietly(simulation)
         records.append(edge_record(output))
     reference, found = records
     assert found["transverse_status"] == reference["transverse_status"]
@@ -305,7 +302,6 @@ def test_a_resume_restores_a_collars_totals_and_continues_its_current() -> None:
     options: dict[str, Any] = {
         "noise": None,
         "steps": None,
-        "reads": True,
         "declared": False,
     }
     with warnings.catch_warnings():
@@ -419,7 +415,7 @@ def test_the_strip_reads_inward_flow_and_not_outward() -> None:
     # inward reads most of itself.
     edge, space = _line_edge()
     launch = _packet(space, 0.0, 0.0)
-    _launch(edge, launch, 0.0, noise=None, steps=None, reads=True, declared=False)
+    _launch(edge, launch, 0.0, noise=None, steps=None, declared=False)
     # solprop propagates as exp(-i k_z z): a packet exp(i kappa x) travels to -x.
     outward, _ = edge._strip_shares(edge.reduction.strip(_packet(space, 230e-6, -1e6)))  # pyright: ignore[reportPrivateUsage]
     inward, _ = edge._strip_shares(edge.reduction.strip(_packet(space, 230e-6, 1e6)))  # pyright: ignore[reportPrivateUsage]
@@ -435,7 +431,6 @@ def test_the_onset_current_counts_inward_flow_only() -> None:
         0.0,
         noise=None,
         steps=None,
-        reads=True,
         declared=False,
     )
     leaving = _current(edge, _packet(space, 200e-6, -1e6))  # pyright: ignore[reportPrivateUsage]
@@ -458,7 +453,7 @@ def test_the_ramp_s_removal_stops_a_run_at_ten_budgets() -> None:
         space, design, 1e-3, 10.0, 0.01, np.arange(1), 2 * math.pi / 800e-9
     )
     clean = _packet(space, 0.0, 0.0)
-    _launch(edge, clean, 0.0, noise=None, steps=None, reads=True, declared=False)
+    _launch(edge, clean, 0.0, noise=None, steps=None, declared=False)
     filament = clean.copy()
     top = int(np.argmax(np.abs(np.asarray(space.k_x))))
     filament[top] = 0.05 * float(np.max(np.abs(clean)))  # content generated at the edge
@@ -508,7 +503,6 @@ def _launched(edge: TransverseEdge, state: np.ndarray, **options: Any) -> None:
     arguments: dict[str, Any] = {
         "noise": None,
         "steps": None,
-        "reads": True,
         "declared": False,
     }
     _launch(edge, state, 0.0, **(arguments | options))
@@ -634,12 +628,6 @@ def test_a_resume_restores_the_record_and_takes_the_state_unjudged() -> None:
     _launched(stopped, 2 * beam, noise=noise)
     assert stopped.status == "clear"
     assert stopped.summary()["launch_energy"] == record["launch_energy"]
-    # A resume on a backend that does not read the edge is unwatched from there.
-    unread = _edge(space, None)
-    unread.resume(record)
-    _launched(unread, beam + noise, noise=noise, reads=False)
-    assert unread.status == "unwatched"
-    assert unread.ceiling(0.0) == math.inf
 
 
 def test_a_stop_on_a_slab_names_a_y_half_width() -> None:

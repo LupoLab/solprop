@@ -487,8 +487,8 @@ def test_an_edged_run_carries_its_edge_s_configuration():
     assert edge.warn == transverse.budget**2
     assert edge.stop == (transverse.stop_factor * transverse.budget) ** 2
     assert edge.length == transverse.length
-    # An adaptive run has no longest fixed step; the edge is read.
-    assert (edge.longest_step, edge.reads_edge) == (None, True)
+    # An adaptive run has no longest fixed step.
+    assert edge.longest_step is None
     assert edge.declared is declared(problem)
     assert edge.design is (transverse.design is not None)
     assert edge.kappa_order.dtype == np.uint64

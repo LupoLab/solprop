@@ -123,7 +123,6 @@ STATUSES: tuple["TransverseStatus", ...] = (
     "stopped",
     "insensitive",
     "coarse",
-    "unwatched",
 )
 """The transverse statuses in the native order (``transverse::Status``)."""
 
@@ -613,8 +612,6 @@ class EdgeConfig:
         Whether the design has a collar, and a collar rate.
     declared : bool
         Whether the run declares content above ``discard_above`` (:func:`declared`).
-    reads_edge : bool
-        Whether the backend reads the edge.
     longest_step : float or None
         A fixed schedule's longest step, m; ``None`` without one.
     noise_share : float
@@ -642,7 +639,6 @@ class EdgeConfig:
     collar: bool
     collar_rate: bool
     declared: bool
-    reads_edge: bool
     longest_step: float | None
     noise_share: float
     noise_modes: float
@@ -670,7 +666,6 @@ def edge_config(
     *,
     steps: Float[np.ndarray, " n_steps"] | None,
     declared: bool,
-    reads: bool = True,
 ) -> EdgeConfig:
     """Return a fresh transverse edge's configuration for its launch's arguments.
 
@@ -682,8 +677,6 @@ def edge_config(
         A fixed schedule's steps, m; ``None`` for an adaptive run.
     declared : bool
         Whether the run declares content above ``discard_above``.
-    reads : bool, optional
-        Whether the backend reads the edge.
 
     Returns
     -------
@@ -726,7 +719,6 @@ def edge_config(
         collar=design is not None and design.has_collar,
         collar_rate=design is not None and design.collar_rate is not None,
         declared=bool(declared),
-        reads_edge=bool(reads),
         longest_step=float(np.max(steps)) if steps is not None and steps.size else None,
         noise_share=float(np.sum(weights[first])) / float(np.sum(weights)),
         noise_modes=float(modes),
@@ -1124,8 +1116,6 @@ class EdgeNoticeKind(enum.IntEnum):
         No notice.
     RAMP_BAND : int
         The launch's share in the safety ramp's band.
-    UNWATCHED : int
-        The backend does not read the edge.
     CLIP : int
         A face's clip of the launch.
     INSENSITIVE : int
@@ -1142,13 +1132,12 @@ class EdgeNoticeKind(enum.IntEnum):
 
     NONE = 0
     RAMP_BAND = 1
-    UNWATCHED = 2
-    CLIP = 3
-    INSENSITIVE = 4
-    COARSE = 5
-    FACE = 6
-    RETURNED = 7
-    RAMP_REMOVAL = 8
+    CLIP = 2
+    INSENSITIVE = 3
+    COARSE = 4
+    FACE = 5
+    RETURNED = 6
+    RAMP_REMOVAL = 7
 
 
 @dataclass(frozen=True)

@@ -46,10 +46,10 @@ from coupled_flow_cases import (
     varying,
     vector_modes,
 )
-from legacy_entry_cases import (
-    legacy_capillary,
-    legacy_gnlse,
-    legacy_simulation,
+from entry_point_cases import (
+    capillary_run,
+    entry_simulation,
+    gnlse_run,
 )
 from march_bounds import FIXED_ORDER
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
@@ -1318,9 +1318,9 @@ def test_the_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path):
         ).run(path, resume=True)
 
 
-# ------------------------------------------------------- the legacy entry points
+# ------------------------------------------------------- the prop_* entry points
 
-# The legacy runs' final planes were byte digests, recorded on one platform and
+# The entry points' final planes were byte digests, recorded on one platform and
 # re-recorded at each deliberate change (the Multistep default, SEP 3's optmat helium
 # and silica wall, the rationalised refractivity root, the 293.15 K default
 # temperature); the git history keeps them. They are now stored final planes of the
@@ -1333,10 +1333,8 @@ def test_the_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path):
 @pytest.mark.medium
 @pytest.mark.parametrize("entry", ["prop_capillary", "prop_gnlse"])
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])
-def test_the_legacy_entry_points_are_what_they_were(
-    entry, backend, ndarrays_regression
-):
-    """Ten steps of each legacy route are the run they were, on every backend here.
+def test_the_prop_entry_points_are_what_they_were(entry, backend, ndarrays_regression):
+    """Ten steps of each entry point are the run they were, on every backend here.
 
     A wall is an **opt-in** leaf, so a run that declares none must be the run it was
     before the leaf existed. The final plane matches its record within the matched
@@ -1351,15 +1349,15 @@ def test_the_legacy_entry_points_are_what_they_were(
     Kokkos, whose local and distribution builds (vendor BLAS, CPU target) move last
     bits, has no record of its own. Its two runs agreeing is a repeatability check only,
     a build against itself, which a wrong operator passes; what holds its answer is the
-    reference's field within ``legacy_entry_cases.legacy_parity_bound``, looser than the
-    record's: the catalogue's rows ``legacy entry ...`` (``backends/driver_rows.py``).
+    reference's field within ``entry_point_cases.entry_parity_bound``, looser than the
+    record's: the catalogue's rows ``entry point ...`` (``backends/driver_rows.py``).
     """
     if backend not in available():
         pytest.skip(f"the {backend} backend is not installed")
-    build = legacy_capillary if entry == "prop_capillary" else legacy_gnlse
+    build = capillary_run if entry == "prop_capillary" else gnlse_run
     handler = cast("MemoryOutput", build(backend))
     field = kept(handler.planes()[-1].field)
-    bound = record_bound(legacy_simulation(entry), field)
+    bound = record_bound(entry_simulation(entry), field)
     if backend != "native":
         check_state(ndarrays_regression, field, bound)
         return

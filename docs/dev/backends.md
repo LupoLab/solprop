@@ -581,8 +581,6 @@ an adaptive step is capped at the spacing, and the call returns at the committed
 position from which the next step would pass the read, so the host reads the state
 there. With a collar the host step is one, so the march returns at every committed step.
 A saved plane reads the edge unless the step that reached it already did (`TransverseEdge.wants_read`), as a second read at one position records nothing.
-An edge launched as unread (`TransverseEdge.launch(reads=False)`) reports `unwatched`; no
-backend launches one.
 
 **Under the native execution session the judgement is native too** ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.4).
 `NativeSession` hands no reading to a Python edge: `transverse::Edge`

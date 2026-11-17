@@ -149,7 +149,6 @@ class Pair:
         budget: float = 1e-3,
         steps: np.ndarray | None = None,
         declared: bool = False,
-        reads: bool = True,
     ) -> None:
         core, transverse = _modules()
         self.transverse = transverse
@@ -159,14 +158,11 @@ class Pair:
         )
         self.native = core.TransverseEdge(
             _edge_config(
-                records.edge_config(
-                    self.python, steps=steps, declared=declared, reads=reads
-                )
+                records.edge_config(self.python, steps=steps, declared=declared)
             )
         )
         self.steps = steps
         self.declared = declared
-        self.reads = reads
         self.lines = len(self.python.reduction.lines)
         self.columns = int(np.asarray(space.spectral_weights).size)
         self.launch_energy = 1.0
@@ -307,7 +303,6 @@ class Pair:
                 noise=noise,
                 clean_columns=clean_columns,
                 steps=self.steps,
-                reads=self.reads,
                 declared=self.declared,
             )
         )
@@ -534,15 +529,6 @@ def test_a_warning_the_caller_raises_leaves_the_rest_of_its_point_undone():
     notice = pair.native.read(values, 2e-3, sums)
     assert notice["kind"] == records.EdgeNoticeKind.FACE and not notice["stop"]
     assert pair.native.pending
-    pair.record()
-
-
-def test_an_unread_edge_warns_once_and_records_why():
-    pair = Pair("line", "none", reads=False)
-    reported = pair.launch(Readings([0.0] * 4, [0.0] * 4, 0, 0, [1.0], [0.0], 0.0))
-    assert reported == [("warn", reported[0][1])]
-    assert "does not read the transverse edge" in reported[0][1]
-    pair.state(0.0, 1e-4)
     pair.record()
 
 

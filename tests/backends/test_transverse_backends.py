@@ -29,7 +29,6 @@ from solprop.output.store import PlaneStore
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
-from solprop.transverse_monitor import TransverseEdge
 from test_transverse_reads import (
     MISS,
     REREVIEW,
@@ -198,25 +197,3 @@ def test_a_requested_collar_runs_as_on_numpy_ref(
     assert math.isclose(
         second["current"], first["current"], rel_tol=1e-8, abs_tol=FLOOR
     )
-
-
-def test_an_edge_launched_unread_runs_unwatched(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Section 6: an edge a backend does not read. Every backend reads it, so the
-    # monitor's own launch is told it is unread on numpy_ref. The run warns before its
-    # first step, is not stopped by the packet on the wrap, and records that it was
-    # unwatched.
-    launch = TransverseEdge.launch
-
-    def unread(edge: TransverseEdge, *args: Any, **kwargs: Any) -> None:
-        launch(edge, *args, **{**kwargs, "reads": False})
-
-    monkeypatch.setattr(TransverseEdge, "launch", unread)
-    simulation = on(packet_run(REREVIEW, integrator=Multistep()), "numpy_ref")
-    with pytest.warns(BoundaryWarning, match="does not read the transverse edge"):
-        output = simulation.run(progress="none")
-    assert isinstance(output, PlaneStore)
-    record = edge_record(output)
-    assert record["transverse_status"] == "unwatched"
-    assert record["reads"] == 0
