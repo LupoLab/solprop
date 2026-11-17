@@ -41,7 +41,7 @@ from solprop.service.messages import TERMINAL, Event, ServiceError
 
 if TYPE_CHECKING:
     # Only named here: this module stays light (no propagation imports), and the
-    # worker that runs the propagation makes the token.
+    # run's process, which runs the propagation, makes the token.
     from solprop.backends.session import StopToken
 
 __all__ = [
@@ -157,8 +157,7 @@ class Job:
     run_id : str
         The run, its folder's name.
     launcher : str
-        ``"window"`` (a window's own worker), ``"direct"`` (a detached process) or
-        ``"slurm"``.
+        ``"direct"`` (a detached process) or ``"slurm"``.
     host : str
         The machine the run's process runs on.
     pid : int

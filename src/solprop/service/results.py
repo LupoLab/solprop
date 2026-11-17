@@ -27,6 +27,7 @@ import numpy as np
 from matplotlib.figure import Figure
 
 from solprop import capabilities, plotting
+from solprop.constants import C
 from solprop.driver import Simulation
 from solprop.exceptions import OutputError, SolpropError
 from solprop.grid import FreeGrid, LineGrid, RadialGrid
@@ -63,9 +64,6 @@ from solprop.spatial import SpatialFlux, spatial_power
 from solprop.stats import CATALOGUE
 
 __all__ = ["RESULTS_HANDLERS", "band_of", "spatial_plane"]
-
-
-C = 299_792_458.0
 
 
 def _modes(payload: Payload) -> ModeSelection:

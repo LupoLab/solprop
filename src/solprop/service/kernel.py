@@ -138,7 +138,7 @@ def serve(
         The handlers, by kind; ``None`` imports solprop's
         (:data:`solprop.service.handlers.HANDLERS`).
     """
-    # What a run would get: a run's worker starts from the window's environment.
+    # What a run would get: a run's process starts from the window's environment.
     os.environ[RUN_THREADS] = os.environ.get("SOLPROP_THREADS", "")
     os.environ.setdefault("SOLPROP_THREADS", KERNEL_THREADS)
     # solprop's check reports a material out of its range on the Ready line; the

@@ -4,9 +4,9 @@
 
 """A run with no window: ``python -m solprop.service.job FOLDER`` (design 13.4).
 
-What a window's worker does over pipes, this does from a folder alone. It reads the
-run's spec from ``spec.json`` (:data:`~solprop.service.worker.SPEC`), runs it with its
-record (:mod:`solprop.service.record`), and exits. It is how a run starts directly on a
+Every run is this process, and needs nothing but its folder. It reads the run's spec
+from ``spec.json`` (:data:`~solprop.service.worker.SPEC`), runs it with its record
+(:mod:`solprop.service.record`), and exits. It is how a run starts directly on a
 machine, as a detached process, and inside a Slurm job; it outlives whoever started it,
 and anyone who can read the folder can follow it.
 """

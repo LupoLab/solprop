@@ -12,9 +12,9 @@ and hands the row to the record, whose own thread writes it; :class:`ScanObserve
 turns a scan's progress into events and :class:`EventHandler` forwards log records.
 The run's stop file sets its stop token (:class:`solprop.backends.session.StopToken`).
 
-Whether a run *stopped* comes from the worker's own flag and the run's clean return,
-never from solprop's outcome, which records a stop as a failure. This module imports
-solprop and runs only in a worker process.
+Whether a run *stopped* comes from its own stop flag and its clean return, never from
+solprop's outcome, which records a stop as a failure. This module imports solprop and
+runs only in a run's process.
 """
 
 import logging
@@ -302,7 +302,7 @@ class ScanObserver(ScanReporter):
         )
 
     def scan_finished(self) -> None:
-        """Do nothing: the scan's terminal event is the worker's."""
+        """Do nothing: the scan's terminal event is the run's own (:func:`execute`)."""
 
 
 class EventHandler(logging.Handler):

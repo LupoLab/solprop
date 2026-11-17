@@ -80,7 +80,7 @@ def advance(state: ExecutionState, event: str) -> ExecutionState:
     state : ExecutionState
         The run's state.
     event : str
-        A worker event's kind (``"started"``, ``"stopped"``, ``"finished"``,
+        A run's event kind (``"started"``, ``"stopped"``, ``"finished"``,
         ``"failed"``, ``"lost"``) or a window action (``"launch"``, ``"stop"``).
         Any other event (progress, rows, logs) leaves the state as it is.
 
