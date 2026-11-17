@@ -6,6 +6,7 @@
 
 import dataclasses
 import json
+import re
 import signal
 import subprocess
 import sys
@@ -1343,9 +1344,9 @@ def test_a_plane_whose_channel_changes_its_statistics_is_refused(grid, metadata)
 
 
 def test_a_run_record_declares_the_current_output_schema(metadata):
-    """Schema 4 is schema 1, the first released layout, plus three changes."""
-    assert SCHEMA_VERSION == 4
-    assert metadata.schema_version == 4
+    """Schema 3 is schema 1, the first released layout, plus three changes."""
+    assert SCHEMA_VERSION == 3
+    assert metadata.schema_version == 3
 
 
 def test_five_columns_continue_as_before(grid, metadata, tmp_path):
@@ -1359,7 +1360,7 @@ def test_five_columns_continue_as_before(grid, metadata, tmp_path):
     assert hdf5_module.check_cache(path, metadata)
 
 
-@pytest.mark.parametrize("declared", [1, 10, 28, SCHEMA_VERSION + 1])
+@pytest.mark.parametrize("declared", [1, 2, 10, 28, SCHEMA_VERSION + 1])
 def test_a_file_of_another_output_schema_is_refused_by_name(
     grid, metadata, tmp_path, declared
 ):
@@ -1381,7 +1382,16 @@ def test_a_file_of_another_output_schema_is_refused_by_name(
             "meta/json", data=json.dumps(document), dtype=h5py.string_dtype()
         )
         file.attrs["schema_version"] = declared
-    refusal = rf"schema_version {declared}.*reads output schema 4 only"
+    # Every door names the file, and the refusal the release that wrote a released one.
+    refusal = (
+        rf"^{re.escape(str(path))}: this record declares output schema_version "
+        rf"{declared}.*reads output schema 3 only.*"
+        + (
+            rf"solprop 0\.{declared}\.x's"
+            if declared in {1, 2}
+            else "version that wrote"
+        )
+    )
     with pytest.raises(OutputError, match=refusal):
         hdf5_module.open_file(path)
     with pytest.raises(OutputError, match=refusal):

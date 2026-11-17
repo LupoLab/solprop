@@ -97,7 +97,7 @@ A saved result needs the grid, field convention, material models, response choic
        strength, and a collar's strength, band, threshold and step limit; ``None``
        without a transverse boundary.
    * - ``schema_version``, ``spectral_convention``, ``field_layout``
-     - The version of this record layout (currently 4), the sign convention of the
+     - The version of this record layout (currently 3), the sign convention of the
        stored field (always ``"optics"``) and the axis order of the stored field.
 ```
 

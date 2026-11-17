@@ -8,6 +8,7 @@ import dataclasses
 import json
 import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -286,7 +287,10 @@ def test_scan_of_another_output_schema_is_refused_by_every_route(tmp_path):
     writer.commit(dataclasses.replace(result(1), status="failed", arrays={}))
     writer.close()
     _declare_schema(path, 1, 1)
-    refusal = "scan point 1: this record declares output schema_version 1, and this"
+    refusal = (
+        rf"{re.escape(str(path))}, scan point 1: this record declares output "
+        r"schema_version 1, and this.*solprop 0\.1\.x's"
+    )
     with pytest.raises(OutputError, match=refusal):
         ScanOutput(path)
     with pytest.raises(OutputError, match=refusal):
@@ -298,7 +302,7 @@ def test_scan_of_another_output_schema_is_refused_by_every_route(tmp_path):
         status = np.asarray(_dataset(file, "points/status").asstr()[...])
     assert status.tolist() == ["done", "failed", "todo"]
     # The point of this release's schema is still read alone.
-    assert cast(Mapping, read_point(path, 0)["metadata"])["schema_version"] == 4
+    assert cast(Mapping, read_point(path, 0)["metadata"])["schema_version"] == 3
 
 
 def test_scan_of_this_output_schema_reads_as_before(tmp_path):

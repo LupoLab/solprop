@@ -426,11 +426,19 @@ def _write_record(file: h5py.File, metadata: RunMetadata) -> None:
 
 
 def _read_record(file: h5py.File) -> RunMetadata:
-    """Return the run record of an open file, with the arrays beside it."""
+    """Return the run record of an open file, with the arrays beside it.
+
+    A record that cannot be read, or declares another output schema, is refused with the
+    file's name.
+    """
+    text = _read_json(file)
     held = file.get(_RECORD_ARRAYS_KEY)
-    return RunMetadata.from_json(
-        _read_json(file), held if isinstance(held, h5py.Group) else None
-    )
+    try:
+        return RunMetadata.from_json(
+            text, held if isinstance(held, h5py.Group) else None
+        )
+    except OutputError as error:
+        raise OutputError(f"{file.filename}: {error}") from error
 
 
 _RECIPE_KEY = "recipe"

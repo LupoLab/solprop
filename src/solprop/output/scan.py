@@ -750,7 +750,7 @@ def _refuse_point_schema(file: h5py.File, index: int, document: object) -> None:
     try:
         _refuse_schema(_expand(file, declared))
     except OutputError as error:
-        raise OutputError(f"scan point {index}: {error}") from None
+        raise OutputError(f"{file.filename}, scan point {index}: {error}") from None
 
 
 def _refuse_other_schemas(file: h5py.File) -> None:
