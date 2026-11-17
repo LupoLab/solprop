@@ -102,6 +102,11 @@ $\mathrm{TE}_{0m}$ and $\mathrm{TM}_{0m}$ are different modes, not two states of
 {func}`~solprop.modes.collection.overlap` integrates adaptively with
 {func}`scipy.integrate.dblquad`, deliberately *not* on the fixed rule, so that the rule's
 orthonormality can be checked against something independent rather than against itself.
+{meth}`~solprop.modes.collection.ModeCollection.orthonormality`, which a simulation runs
+on every mode set it is given, integrates the whole matrix in one pass instead: adaptively
+in $r$ (or $x$) with {func}`scipy.integrate.quad_vec`, every mode evaluated once per
+point, and on a rule in $\theta$ (or $y$) doubled until no entry changes by more than
+$10^{-12}$. It agrees with `overlap` pair by pair and takes seconds for 48 modes.
 
 ## A capillary worked example
 
