@@ -100,10 +100,12 @@ port uses too), so a run that is never coupled computes none. A spatial plane's 
 transverse grid, read from the file, and a general modal plane's the reference identities
 the file records. An ordinary mode set's is its value at the plane, which needs the
 modes: those of the `source=` simulation, or of the simulation the file's recorded recipe
-rebuilds, for a run built from a recipe. A plane of a run from a script read without
-`source=`, like `plane` above, has no basis identity (`plane.basis.identity` is `None`);
-it can still be moved and saved, but `same_basis` refuses to copy it, since there is
-nothing to check the port's basis against.
+rebuilds, for a run built from a recipe. That simulation is built only when the identity
+is first read, which only coupling does, so reading planes for their fields builds
+nothing. A plane of a run from a script read without `source=`, like `plane` above, has
+no basis identity (`plane.basis.identity` is `None`); it can still be moved and saved,
+but `same_basis` refuses to copy it, since there is nothing to check the port's basis
+against.
 
 ## Moving a plane between grids
 

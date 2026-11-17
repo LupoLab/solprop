@@ -315,6 +315,19 @@ def test_a_run_s_basis_is_derived_from_its_kind_and_what_is_at_hand():
     assert known.identity == modal_basis_identity(modes, grid, 0.1)
     unknown = PlaneBasis.of_run("multimode", modal={"basis": "capillary HE_1m"})
     assert (unknown.kind, unknown.identity) == ("modal", None)
+    # A mode set costly to rebuild is rebuilt when the identity is first read, once.
+    calls: list[int] = []
+
+    def rebuilt(found=modes):
+        calls.append(1)
+        return found
+
+    deferred = PlaneBasis.of_run("multimode", modes=rebuilt, grid=grid, z=0.1)
+    assert deferred.kind == "modal" and calls == []
+    assert deferred.identity == known.identity
+    assert deferred.identity == known.identity and calls == [1]
+    nothing = PlaneBasis.of_run("multimode", modes=lambda: None, grid=grid)
+    assert nothing.identity is None
 
 
 def test_provenance_appends_its_history():

@@ -115,6 +115,14 @@ def _frozen(
     return array
 
 
+def _digest(identity: str | None) -> str | None:
+    """Return a basis identity once it is checked to be a digest, or None."""
+    if identity is not None and len(identity) != 64:
+        msg = "a basis identity is a SHA-256 hex digest, or None where not known"
+        raise CouplingError(msg)
+    return identity
+
+
 def basis_identity(route: PlaneKind, record: Mapping[str, object]) -> str:
     """Return the identity of a plane's basis: a digest of its route and record.
 
@@ -798,11 +806,11 @@ class PlaneMetric:
         )
 
 
-@dataclass(frozen=True, eq=False)
+@dataclass(frozen=True, eq=False, init=False)
 class PlaneBasis:
     """What the columns of a plane are, and the identity they are checked by.
 
-    Attributes
+    Parameters
     ----------
     kind : {'modal', 'general_modal', 'radial', 'cartesian', 'planar'}
         The representation.
@@ -811,9 +819,21 @@ class PlaneBasis:
         identity have the same columns. None where it is not known -- an ordinary
         mode set's plane read without its mode set (:meth:`of_run`), or a planar
         basis -- which matches no port.
-    labels : tuple of str, optional
+    labels : sequence of str, optional
         Channel labels of a modal basis, in column order.
     space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or None, optional
+        The transverse grid of a spatial basis.
+
+    Attributes
+    ----------
+    kind : {'modal', 'general_modal', 'radial', 'cartesian', 'planar'}
+        The representation.
+    identity : str or None
+        The identity; a basis :meth:`of_run` derives from a mode set it rebuilds
+        computes it the first time it is read, and keeps it.
+    labels : tuple of str
+        Channel labels, in column order.
+    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or None
         The transverse grid of a spatial basis.
 
     Raises
@@ -823,19 +843,46 @@ class PlaneBasis:
     """
 
     kind: PlaneKind
-    identity: str | None
-    labels: tuple[str, ...] = ()
-    space: RadialGrid | FreeGrid | None = None
+    labels: tuple[str, ...]
+    space: RadialGrid | FreeGrid | None
+    _identity: str | None = field(repr=False)
+    _resolve: Callable[[], str | None] | None = field(repr=False)
 
-    def __post_init__(self) -> None:
+    def __init__(
+        self,
+        kind: PlaneKind,
+        identity: str | None,
+        labels: Sequence[str] = (),
+        space: RadialGrid | FreeGrid | None = None,
+    ) -> None:
         """Check the digest and the grid."""
-        if self.identity is not None and len(self.identity) != 64:
-            msg = "a basis identity is a SHA-256 hex digest, or None where not known"
+        if kind in ("radial", "cartesian") and space is None:
+            msg = f"a {kind} basis carries its transverse grid"
             raise CouplingError(msg)
-        if self.kind in ("radial", "cartesian") and self.space is None:
-            msg = f"a {self.kind} basis carries its transverse grid"
-            raise CouplingError(msg)
-        object.__setattr__(self, "labels", tuple(self.labels))
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "labels", tuple(labels))
+        object.__setattr__(self, "space", space)
+        object.__setattr__(self, "_identity", _digest(identity))
+        object.__setattr__(self, "_resolve", None)
+
+    @classmethod
+    def _deferred(
+        cls, kind: PlaneKind, labels: Sequence[str], resolve: Callable[[], str | None]
+    ) -> "PlaneBasis":
+        """Return a basis whose identity `resolve` computes when it is first read."""
+        basis = cls(kind, None, labels)
+        object.__setattr__(basis, "_resolve", resolve)
+        return basis
+
+    @property
+    def identity(self) -> str | None:  # numpydoc ignore=RT01
+        """The basis identity, a SHA-256 hex digest, or None where it is not known."""
+        resolve = self._resolve
+        if resolve is not None:
+            # Computed once, on the first read: only coupling reads it.
+            object.__setattr__(self, "_identity", _digest(resolve()))
+            object.__setattr__(self, "_resolve", None)
+        return self._identity
 
     @classmethod
     def of_space(cls, space: RadialGrid | FreeGrid) -> "PlaneBasis":
@@ -862,7 +909,7 @@ class PlaneBasis:
         labels: Sequence[str] = (),
         space: RadialGrid | FreeGrid | None = None,
         modal: Mapping[str, object] | None = None,
-        modes: Sequence[Mode] | None = None,
+        modes: Sequence[Mode] | Callable[[], Sequence[Mode] | None] | None = None,
         grid: TimeGrid | None = None,
         z: float = 0.0,
     ) -> "PlaneBasis":
@@ -890,8 +937,11 @@ class PlaneBasis:
             The run's modal identity
             (:attr:`~solprop.output.metadata.RunMetadata.modal`); one whose
             ``basis`` is ``'general_modal'`` makes the basis a general modal one.
-        modes : sequence of solprop.modes.protocol.Mode or None, optional
-            An ordinary mode set, in state order; None when it is not at hand.
+        modes : sequence of solprop.modes.protocol.Mode, callable or None, optional
+            An ordinary mode set, in state order; or a callable returning one, or
+            None, called the first time the basis identity is read and not at all
+            otherwise, for a mode set that is costly to rebuild; None when it is not
+            at hand.
         grid : solprop.grid.TimeGrid or None, optional
             The temporal grid, sampled with `modes`.
         z : float, optional
@@ -938,6 +988,16 @@ class PlaneBasis:
             return cls(
                 "general_modal", basis_identity("general_modal", record), tuple(labels)
             )
+        if callable(modes):
+            rebuild = modes
+
+            def _resolve() -> str | None:
+                rebuilt = rebuild()
+                if rebuilt is None or grid is None:
+                    return None
+                return modal_basis_identity(rebuilt, grid, z)
+
+            return cls._deferred("modal", labels, _resolve)
         identity = (
             None
             if modes is None or grid is None

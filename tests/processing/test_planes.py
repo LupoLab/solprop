@@ -11,7 +11,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from solprop.adiabatic import AdiabaticAdmission
-from solprop.coupling import modal_basis_identity, reference_at
+from solprop.coupling import CouplingModel, couple, modal_basis_identity, reference_at
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import CouplingError, OutputError, ProcessingError
 from solprop.fourier import spectrum_to_internal, spectrum_to_optics
@@ -410,30 +410,80 @@ def test_a_modal_plane_s_basis_is_its_mode_set_s_at_its_own_position():
     assert middle.basis.identity != simulation.input_port().basis.identity
 
 
+@pytest.fixture(scope="module")
+def recipe_run(tmp_path_factory):
+    """A soliton recipe's simulation, its file and its output in memory."""
+    recipe = Recipe.example("soliton")
+    recipe.set("n_save", 3)
+    recipe.set("length", "1 cm")
+    recipe.set("grid.length", "1 cm")
+    path = tmp_path_factory.mktemp("recipe") / "soliton.h5"
+    simulation = recipe.build()
+    simulation.run(path, progress="none")
+    return simulation, path, simulation.run(progress="none")
+
+
+def _counted_builds(monkeypatch) -> list[Recipe]:
+    """Count the simulations recipes build from here on."""
+    built: list[Recipe] = []
+    real = Recipe.build
+
+    def counting(recipe):
+        built.append(recipe)
+        return real(recipe)
+
+    monkeypatch.setattr(Recipe, "build", counting)
+    return built
+
+
 def test_a_modal_plane_from_a_recipe_s_file_takes_its_basis_from_the_recipe(
-    tmp_path,
+    recipe_run, monkeypatch
 ):
     """The recorded recipe rebuilds the mode set, so no source is needed.
 
     The basis is the one the recipe's simulation gives the same plane with it as
     source, and its fibre's modes do not vary, so it is its port's at the entrance.
+    The recipe is built when the identity is first read, and once.
     """
-    recipe = Recipe.example("soliton")
-    recipe.set("n_save", 3)
-    recipe.set("length", "1 cm")
-    recipe.set("grid.length", "1 cm")
-    path = tmp_path / "soliton.h5"
-    simulation = recipe.build()
-    simulation.run(path, progress="none")
+    simulation, path, memory = recipe_run
+    built = _counted_builds(monkeypatch)
     with open_file(path) as stored:
         plane = field_plane(stored)
         sourced = field_plane(stored, source=simulation)
+    assert built == []
     assert plane.basis.identity is not None
     assert plane.basis.identity == sourced.basis.identity
+    assert len(built) == 1
     # A run's output in memory keeps its recipe too.
-    memory = simulation.run(progress="none")
     assert field_plane(memory).basis.identity == plane.basis.identity
-    assert plane.basis.identity == simulation.input_port().basis.identity
+    assert len(built) == 2
+    port = simulation.input_port()
+    assert plane.basis.identity == port.basis.identity
+    launch = couple(plane, port, model=CouplingModel("same_basis")).launch
+    assert np.array_equal(launch.samples, plane.samples)
+    assert len(built) == 2
+
+
+def test_reading_a_recipe_s_planes_for_their_field_builds_nothing(
+    recipe_run, monkeypatch
+):
+    """Only coupling reads a plane's basis identity, so only coupling builds.
+
+    The front end reads each plane's spectral energy (``service/results.py``); a
+    recipe built per plane there would be a simulation per plane.
+    """
+    _, path, memory = recipe_run
+
+    def refused(recipe):
+        raise AssertionError("a plane read for its field built its recipe")
+
+    monkeypatch.setattr(Recipe, "build", refused)
+    with open_file(path) as stored:
+        for output in (stored, memory):
+            for index in range(3):
+                plane = field_plane(output, index)
+                assert plane.spectral_energy().shape == (plane.grid.n_omega,)
+                assert plane.basis.kind == "modal"
 
 
 @pytest.fixture(scope="module")

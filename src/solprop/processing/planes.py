@@ -17,8 +17,8 @@ A file records the identities of a general guide's reference, not its arrays, so
 general modal plane's physical E/H and a dense basis Gram are read with the simulation
 that ran it (``source=``), checked against the file through
 :mod:`solprop.processing.modal`. It records no basis identity: a plane's is derived
-when it is read, an ordinary mode set's from the source's modes or the recorded
-recipe's. The manual page is
+when it is read, an ordinary mode set's from the source's modes or, when coupling first
+reads it, the recorded recipe's. The manual page is
 ``docs/guide/workflows/coupling.md``.
 """
 
@@ -283,28 +283,36 @@ def _lineage(metadata: RunMetadata) -> tuple[str, ...]:
     return (*earlier, cast("str", record["source"]))
 
 
-def _plane_modes(
-    output: Output, metadata: RunMetadata, source: object | None
-) -> Sequence[Mode] | None:
-    """Return an ordinary modal run's mode set, to derive a plane's basis from.
+def _source_modes(metadata: RunMetadata, source: object) -> Sequence[Mode]:
+    """Return the source simulation's mode set, checked by configuration hash."""
+    record = cast(
+        "RunMetadata",
+        cast("Callable[[], object]", _source_part(source, "metadata"))(),
+    )
+    _check_source(metadata, record)
+    return cast("Sequence[Mode]", _source_part(source, "modes"))
 
-    A file records no basis identity, so a plane read from one takes it from the mode
-    set: the source simulation's, checked by configuration hash, or the one the
-    output's recorded recipe rebuilds.
 
-    - Returns: the modes; None for a run from a script read without its source, whose
-      planes' basis is then not known.
+def _recipe_modes(output: Output) -> Callable[[], Sequence[Mode] | None]:
+    """Return how to rebuild an output's mode set from the recipe it records.
+
+    A callable, so that the simulation is built only when a plane's basis identity is
+    read -- when the plane is coupled -- and not for a plane read for its field.
+
+    - Returns: the callable; it returns None for a run from a script, whose planes'
+      basis is then not known.
     """
-    if source is not None:
-        record = cast(
-            "RunMetadata",
-            cast("Callable[[], object]", _source_part(source, "metadata"))(),
-        )
-        _check_source(metadata, record)
-        return cast("Sequence[Mode]", _source_part(source, "modes"))
-    if isinstance(output, PlaneStore) and output.recipe is not None:
-        return Recipe.from_output(output, resolved=True).build().modes
-    return None
+    # A store keeps the recipe it read when it was opened, so this outlives the file.
+    store = (
+        output if isinstance(output, PlaneStore) and output.recipe is not None else None
+    )
+
+    def _rebuilt() -> Sequence[Mode] | None:
+        if store is None:
+            return None
+        return Recipe.from_output(store, resolved=True).build().modes
+
+    return _rebuilt
 
 
 def _spatial_metric(
@@ -461,11 +469,12 @@ def field_plane(
     basis is derived here, since a file records none
     (:meth:`~solprop.coupling.plane.PlaneBasis.of_run`): a spatial or general modal
     one from the file, an ordinary mode set's from its modes at the plane -- the
-    source's, or those the output's recorded recipe rebuilds -- and unknown (None)
-    for a run from a script read without its source, which ``same_basis`` then
-    refuses to copy. Radial, Cartesian, ordinary modal and general modal runs are
-    read; a hybrid planar run is refused by name, and so is a run with the modified
-    noise model, whose auxiliary noise phase is not reconstructed into the plane.
+    source's, or those the output's recorded recipe rebuilds, built only when the
+    identity is first read, which only coupling does -- and unknown (None) for a run
+    from a script read without its source, which ``same_basis`` then refuses to copy.
+    Radial, Cartesian, ordinary modal and general modal runs are read; a hybrid
+    planar run is refused by name, and so is a run with the modified noise model,
+    whose auxiliary noise phase is not reconstructed into the plane.
 
     Parameters
     ----------
@@ -578,12 +587,14 @@ def field_plane(
         if mode.label is not None
     )
     general = capability_of(metadata) == "general_modal"
-    modes = None if general else _plane_modes(output, metadata, source)
+    # The source is in hand and checked, so its modes are read now; a recipe is built
+    # only if the basis identity is read, which only coupling does.
+    modes = None if general or source is None else _source_modes(metadata, source)
     basis = PlaneBasis.of_run(
         metadata.simulation_kind,
         labels=labels,
         modal=metadata.modal,
-        modes=modes,
+        modes=_recipe_modes(output) if modes is None and not general else modes,
         grid=grid,
         z=position,
     )
