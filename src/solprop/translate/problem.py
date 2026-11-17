@@ -2013,7 +2013,7 @@ def _walk_tables(problem: PropagationProblem) -> list[tuple[str, PiecewiseChebys
         ("responses.density", problem.responses.density),
         ("responses.prefactor", problem.responses.prefactor),
         (
-            "responses.prefactor.weights",
+            "responses.prefactor_expansion.weights",
             None
             if problem.responses.prefactor_expansion is None
             else problem.responses.prefactor_expansion.weights,
