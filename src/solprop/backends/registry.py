@@ -62,8 +62,7 @@ _NATIVE_PACKAGE: Final = "solprop_native"
 
 _UNKNOWN: Final = (
     "the backends are backend='native', the solprop-native package, and "
-    "backend='numpy_ref', the reference, which is unthreaded and far slower. Output "
-    "and snapshots that record another backend still load"
+    "backend='numpy_ref', the reference, which is unthreaded and far slower"
 )
 """What a name that is neither backend is told to use instead."""
 
