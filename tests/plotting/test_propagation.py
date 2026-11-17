@@ -6,6 +6,7 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from matplotlib.collections import QuadMesh
 
 from solprop._validation import choice
 from solprop.constants import C
@@ -155,6 +156,7 @@ CARRIER = 800e-9
 def test_prop_2d_draws_the_light_where_its_spectrum_is(single, axis, carrier):
     ax = propagation.prop_2d(single, axis)[0].axes[0]
     mesh = ax.collections[0]
+    assert isinstance(mesh, QuadMesh)
     edges = np.asarray(mesh.get_coordinates())[0, :, 0]
     centres = 0.5 * (edges[:-1] + edges[1:])
     decibels = np.asarray(mesh.get_array()).reshape(-1, centres.size)
