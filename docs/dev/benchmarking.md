@@ -328,60 +328,37 @@ fields at production sizes (`radial_filament_512`, `cartesian_filament_256`).
 repetition after the timed ones with the native adapter's counters on, reported as the
 receipt's `counted` and, in `ab`'s summary, per arm; counting therefore costs no timed
 repetition anything. With counting off, the adapter's path is the one before the
-counters except for a single attribute test per native call (a march call, a plane, a
-statistics call, an edge read, a field crossing or load, a low-storage step, a
-native session's `advance` or export): the per-attempt hooks are installed only while
-counting, and nothing else is computed, so no ledger entry was taken for them.
+counters except for a single attribute test per native session `advance`, export,
+snapshot or load, and nothing per attempt, so no ledger entry was taken for them.
 
 A native run is served by the native execution session
-(`solprop_native.session.NativeSession`), the only native executor since SEP 47 phase
-5. The record keeps the keys the transitional bridge's runs were counted under, so that
-an arm measured before phase 5 can be compared key for key with one after; the
-session's own keys start `session_`. The record (`solprop_native._counters`, private to
+(`solprop_native.session.NativeSession`), which steps, observes and reads its edges
+natively; its keys start `session_`. The record (`solprop_native._counters`, private to
 the harness) holds:
 
-- `native_returns`: every return to Python, by cause. For a native march called from
-  Python (the backend's own march, which no run takes since phase 5), a call's reason (`reached`, `monitor` for a boundary-monitor check by distance, `bound`
-  for its attempt or time limit, `watch`, `capacity` and the errors), with `host_step`
-  split by the driver's work due on its last step: `statistics`, `step_planes`,
-  `monitor` (the check by steps), `transverse` (a collar's per-step current) or
-  `transverse_read`, joined with `+` when several fall due together; then
-  `host_attempt` for each attempt solprop's own loop steps, `low_storage_step` for the
-  low-storage march.
-  A native session returns once per `advance`, by its batch's event:
+- `native_returns`: every return to Python, once per `advance`, by its batch's event:
   `session_observation`, `session_snapshot` (a requested snapshot serviced),
   `session_warning`, `session_terminal`, or `session_progress` with its cause,
   `session_progress:buffer` (the attempt or row buffer filled),
   `session_progress:work_limit` (the caller's attempt bound) or
-  `session_progress:deadline` (its time bound). A periodic row, a collar check, an edge read or a
-  low-storage step is never a session return (SEP 47 section 7.3);
-- `march_calls`: native march calls by march, `adams_march` and `rk_march` from Python
-  on the bridge, and the native session's own calls inside its `advance`, read from its
-  status, as `session_adams`, `session_runge_kutta` or `session_low_storage`;
-- `attempts` and `accepted` (native march, native session and host attempts together;
-  a session's from its delivered chunks), `march_attempts`, `host_attempts` and
-  `low_storage_steps`;
-- `planes` (calls of `propagate_to` on the bridge, observations after the launch in a
-  session), `statistics_rows` (periodic rows, wherever taken) and
-  `statistics_evaluations` (rows and plane statistics together), and
-  `transverse_reads` (reads of the edge's faces or a collar's current made through
-  Python: a native session reads its edge natively, so none);
-- `field_crossings` with `field_bytes`: fields copied to the host, by where. On the
-  bridge at a plane (`plane`), at every accepted step of a host Adams engine (`step`)
-  or at its load (`load`); in a session, each observation's field exported into its
-  destination in one native pass (`export`; a recipe asked again for the same batch is
-  served from the first and not counted) and an Adams march's state and history copied
-  for a snapshot (`snapshot`);
+  `session_progress:deadline` (its time bound). A periodic row, a collar check, an edge
+  read or a low-storage step is never a session return (SEP 47 section 7.3);
+- `march_calls`: the native session's own march calls inside its `advance`, read from
+  its status, as `session_adams`, `session_runge_kutta` or `session_low_storage`;
+- `attempts` and `accepted`, from the session's delivered chunks;
+- `planes` (observations after the launch), `statistics_rows` (periodic rows) and
+  `statistics_evaluations` (rows and plane statistics together);
+- `field_crossings` with `field_bytes`: fields copied to the host, by where: each
+  observation's field exported into its destination in one native pass (`export`; a
+  recipe asked again for the same batch is served from the first and not counted) and
+  an Adams march's state and history copied for a snapshot (`snapshot`);
 - `field_loads` with `load_bytes`: host fields loaded into the native state, by where:
-  `start` (a run's start or resume, on either path) and `restore` (the Adams march's
-  reload after a dense observation or at a method history's restore). solprop's host
-  Adams engine reloads its masked state at every step, which is not counted; its `step`
-  crossings mark that route.
+  `start` (a run's start or resume) and `restore` (the Adams march's history restored
+  at a resume).
 
 The run's own record adds the planes saved and, for a snapshot case, the snapshots
-published; the peak resident memory is the worker's, as for every row. A host attempt
-makes several native calls, which are not counted one by one; and a device's launches,
-transfers and allocations are not counted: they need a profiler. Counts explain a
+published; the peak resident memory is the worker's, as for every row. A device's
+launches, transfers and allocations are not counted: they need a profiler. Counts explain a
 timing and do not replace it; check that both arms hold the same events before
 comparing their times (SEP 47 section 7.2).
 
