@@ -26,7 +26,7 @@ In scripts and library code, import from the home modules listed below.
 | {mod}`solprop.profiles` | quantities that vary along z: radius, pressure and temperature profiles such as `PiecewiseLinear` and `PressureGradient` |
 | {mod}`solprop.gasflow` | the steady gas flow of a pressure gradient: `steady_fill`, choked ends, `flow_report` |
 | {mod}`solprop.boundaries` | absorbing boundaries in time and frequency |
-| {mod}`solprop.stepper` | the Runge–Kutta tableaux, the low-call Adams methods (`multistep`), the step-size controller and fixed step schedules (`FixedSchedule`) |
+| {mod}`solprop.stepper` | the Runge–Kutta tableaux, the low-call Adams methods (`multistep`), the step-size controller, fixed step schedules (`FixedSchedule`) and the stepper section a run request carries (`StepperSettings`) |
 | {mod}`solprop.noise` | shot-noise realisations |
 | {mod}`solprop.recipe` | recipes: a run written as TOML (`Recipe`, with `check`, `build`, `run`, `save` and `to_python`), values pinned to a design target (`solprop.recipe.pins`, `Recipe.resolve`, `Recipe.pin_roots`), the parameter metadata a front end reads (`parameters`), and the quantity parser and formatter (`solprop.recipe.quantity`) ([recipes and the command line](../guide/setup/recipes.md)) |
 | {mod}`solprop.driver.defaults` | the route defaults in one table (`ROUTE_DEFAULTS`): integrators, tolerances, noise and collar schemes, and the functions that resolve them |
