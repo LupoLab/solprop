@@ -329,10 +329,13 @@ class RunRequest:
     def with_stepper(self, stepper: StepperSettings) -> RunRequest:
         """Return this request with another stepper section, its other policies kept.
 
-        The statistics, retention, start, monitor, history and snapshot policy stay;
-        the method, the error control, the itinerary and the planes are `stepper`'s.
+        The statistics, monitor, history and snapshot policy stay; the method, the
+        error control, the itinerary and the planes are `stepper`'s.
         :meth:`solprop.driver.simulation.Simulation.with_input` uses it for the planes
-        left beyond an interior launch.
+        left beyond an interior launch. It takes a fresh request only: a field
+        retention or a start plane is resolved against the planes, which the new
+        section replaces, so a request that keeps every field from the entrance is
+        the only one it accepts. Adapt the result to a run with :meth:`for_run`.
 
         Parameters
         ----------
@@ -347,7 +350,8 @@ class RunRequest:
         Raises
         ------
         TranslationError
-            If this request's start plane is not a plane of the new section.
+            If this request keeps other than every field, or starts beyond the
+            entrance (:meth:`for_run` has adapted it to a run).
 
         Examples
         --------
@@ -362,13 +366,24 @@ class RunRequest:
         >>> later = request.with_stepper(shorter)
         >>> later.observation.save_planes.tolist()
         [1.0]
+        >>> request.for_run(start_plane=1).with_stepper(shorter)  # doctest: +ELLIPSIS
+        Traceback (most recent call last):
+            ...
+        solprop.exceptions.TranslationError: with_stepper takes a fresh request, ...
         """
         observation = self.observation
+        if observation.retention != FieldRetention() or observation.start_plane != 0:
+            msg = (
+                "with_stepper takes a fresh request, which keeps every field from the "
+                f"entrance; this one keeps {observation.retention} from save plane "
+                f"{observation.start_plane}, resolved against the planes the new "
+                "stepper section replaces. Call with_stepper on the request before "
+                "for_run adapts it to a run"
+            )
+            raise TranslationError(msg)
         return describe_run(
             stepper,
             stats=observation.stats,
-            retention=observation.retention,
-            start_plane=observation.start_plane,
             monitor=self.boundary.monitor,
             history=self.history,
             snapshots=self.snapshots,
