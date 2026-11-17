@@ -266,7 +266,6 @@ _SPECIES = frozenset(
 _TRANSLATED: tuple[tuple[str, type[SolpropError]], ...] = (
     ("species statistics require", OutputError),
     ("is outside a statistics table's span", TranslationError),
-    ("a metric-weighted statistic needs", OutputError),
     ("need a nonnegative fluence profile", BackendError),
     ("fluence widths require", GridError),
     ("fluence axes must be uniformly increasing", GridError),
@@ -275,10 +274,11 @@ _TRANSLATED: tuple[tuple[str, type[SolpropError]], ...] = (
 )
 """Native refusals and the exceptions the reference raises for the same condition:
 the species reduction's domain (``species_statistics``), a position outside a table
-(``PiecewiseChebyshev.interval_containing``), a metric with no root, and the fluence
-widths' refusals (:func:`solprop.backends.spatial.signed_fluence_widths`,
+(``PiecewiseChebyshev.interval_containing``), the fluence widths' refusals
+(:func:`solprop.backends.spatial.signed_fluence_widths`,
 :func:`solprop.spatial.radial_fluence_widths`, ``cartesian_fluence_widths``) and the
-axis populations' domain (:func:`solprop.backends.populations.axis_statistics`)."""
+axis populations' domain (:func:`solprop.backends.populations.axis_statistics`). Each
+marker is text the C++ raises, which ``native/tests/test_session_failure.py`` holds."""
 
 
 def translated(error: BaseException) -> BaseException:
