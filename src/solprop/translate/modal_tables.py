@@ -282,9 +282,8 @@ class ModalTransformTables(Displayed):
         """
         positions, nodes, components, modes, frequencies = np.shape(self.electric)
         factors = self.factors
-        # A moving guide's maps add their sections and degree,
-        # written only where the maps move so that every snapshot record keeps the
-        # identity it was stamped with.
+        # A moving guide's maps add their sections and degree, written only where the
+        # maps move, so that a snapshot record's identity carries no section entry.
         synthesis = self.synthesis
         moving: dict[str, JsonValue] = (
             {

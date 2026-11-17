@@ -1982,7 +1982,7 @@ def _walk_arrays(
                     if run is not None:
                         visit("stepper", run.stepper)
                         visit("stats_spec", run.stats)
-                    # The route's leaves keep the names they have always had:
+                    # The route's leaves are named without the route prefix:
                     # ``transform.synthesis``, ``flux.base.kperp_sq``.
                     visit(prefix, getattr(node, entry.name))
                     continue

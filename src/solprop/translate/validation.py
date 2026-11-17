@@ -259,12 +259,6 @@ def validate_coupled_flow(
     solprop.exceptions.SolpropWarning
         Naming the step that exceeds the limit, with the term, the section, the
         frequency, ``K``, the conditioning factor and the limit.
-
-    Examples
-    --------
-    >>> from solprop.translate.validation import validate_coupled_flow
-    >>> validate_coupled_flow.__name__
-    'validate_coupled_flow'
     """
     flow = problem.linear.coupled_flow
     if flow is None:
@@ -351,12 +345,11 @@ def _refuse_a_wall_off_the_capillary_route(
 ) -> None:
     """Refuse a coherent wall declared beside a route that cannot carry it.
 
-    The **first** door of the route, before anything is assembled, because it is the
-    one a wall silently fell through: :func:`assemble` reads ``wall`` only in its
-    modal branch, so a general modal or spatial run carrying one used to translate
-    with ``linear.coupled_flow`` absent, no ``modal.flow`` key on its record and no
-    word said. The other two doors are the mode set's
-    (:func:`solprop.modes.wall.wall_operator`) and the backend's.
+    The **first** door of the route, before anything is assembled: :func:`assemble`
+    reads ``wall`` only in its modal branch, so without this check a general modal or
+    spatial run carrying one would translate with ``linear.coupled_flow`` absent, no
+    ``modal.flow`` key on its record and no word said. The other two doors are the
+    mode set's (:func:`solprop.modes.wall.wall_operator`) and the backend's.
     """
     if wall is not None and not taper_coupling:
         msg = (

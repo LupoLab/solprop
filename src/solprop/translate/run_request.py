@@ -293,7 +293,7 @@ class RunRequest:
         into :class:`~solprop.stepper.settings.StepperSettings` for the code that
         reads them together: the march drivers, the request-aware checks
         (:func:`solprop.translate.problem.validate_run`) and the run's configuration
-        record, whose hash they enter exactly as before.
+        record, whose hash they enter.
 
         The record, built once per request.
 
