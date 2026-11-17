@@ -167,7 +167,7 @@ jobs:
           uv run --no-project --python ../coexist python -I native/ci/coexistence.py
       # The default lane's peak memory with four test workers is at the edge of a 16 GB
       # runner (the aarch64 runner shut down mid-suite, as CI's did): swap on Linux and
-      # three workers, as in CI's native-suite job.
+      # three workers, as in CI's coverage job.
       # A safeguard only: with three workers no lane used any swap when measured. Keep it
       # small, because some runners have 13 GB of free disk and 12 GB of swap filled them,
       # which kills the job with its log.

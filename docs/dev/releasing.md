@@ -115,7 +115,7 @@ runs on a Penryn (no SSE4.2). It runs when the repository variables `SDE_URL` an
 unit-tested with stand-in processors in `native/tests/test_cpu_baseline.py`; no CI job
 runs them on a processor below the baseline.
 
-**macOS and pyFFTW.** solprop no longer uses pyFFTW, but a script or another package may.
+**macOS and pyFFTW.** solprop does not use pyFFTW, but a script or another package may.
 pyFFTW's macOS wheel carries its own `libomp`, which it initialises
 when it is imported. LLVM's OpenMP runtime refuses, or crashes on, a second initialised
 copy, so the native package raises at import when pyFFTW is already loaded

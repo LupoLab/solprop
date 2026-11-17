@@ -41,8 +41,7 @@ Changelog = "https://github.com/LupoLab/solprop/blob/main/CHANGELOG.md"
 
 # The `gui` extra, pinned by hatch_build.py, installs the desktop front end, the
 # distribution solprop-gui built from gui/, at solprop's own version:
-# `pip install solprop[gui]`, then `solprop-gui`. Until it is published, the TDSE provider
-# Pyroraptor is installed separately (docs/guide/media/tdse.md).
+# `pip install solprop[gui]`, then `solprop-gui`.
 
 [dependency-groups]
 dev = [
@@ -156,8 +155,6 @@ exclude = [
     ".hypothesis",
     ".pytest_cache",
     ".coverage*",
-    "*.nbi",
-    "*.nbc",
     "*.fftw_wisdom",
     ".DS_Store",
     "/docs/_build",
@@ -250,7 +247,6 @@ max-positional-args = 5           # past this, parameters are keyword-only
 "docs/introduction/tutorials/**" = ["D", "ANN", "T20", "E402"]  # the same gallery cell conventions
 "docs/tutorials/**" = ["D", "ANN", "T20", "E402"]   # gallery scripts: cells and prints
 "docs/examples/**" = ["D", "ANN", "T20", "E402"]    # worked examples: the same
-"docs/auto_examples/**" = ["D", "ANN", "T20", "E402"]   # their committed copies
 
 # -------------------------------------------------------------------------- type check
 [tool.basedpyright]               # basedpyright also reads [tool.pyright]
