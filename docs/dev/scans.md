@@ -62,6 +62,12 @@ Different output layouts have their own arrays and global-index mappings. A poin
 results are staged and checked before its status becomes done; failed and unfinished
 points are masked by readers. Periodic statistics use exact CSR values and offsets.
 
+A `Local` or `Pool` controller holds the scan file's exclusive lock for its whole
+session, so a `running` mark it finds was left by a controller that has gone: it claims
+that point at once, with no lease age. Whatever ends a scan early (a stop, a refused
+admission, a conflict, an interrupt), the controller gives every point it claimed but
+did not commit back as it was, so a rerun computes it.
+
 Queue ownership follows the refreshed per-point leases of
 [Luna PR 441](https://github.com/LupoLab/Luna.jl/pull/441): elapsed run duration alone
 does not establish abandonment. An ownership token prevents a late worker from

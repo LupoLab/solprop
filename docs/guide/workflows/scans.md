@@ -374,9 +374,10 @@ its own objects, so its optmat models and policies are frozen for that run and d
 depend on what another point resolved. A model whose numbers changed, a changed policy
 or another optmat version is refused by name
 ([output](../results/provenance.md#the-material-manifest)). Failed points require
-`retry_failed=True`. A stale `running` point becomes eligible after `stale_age` seconds
-(600 by default). Queue ownership protection uses the live-owner and refreshed-lease rules
-described below.
+`retry_failed=True`. A point an earlier scan left `running`, because it was stopped,
+interrupted or ended by an error, is computed again: one controller holds the file at a
+time, so no other can still be running it. Queue ownership protection uses the
+live-owner and refreshed-lease rules described below.
 
 Uniform scans expose rectangular `stats/`, `reduced/` and optional `fields/` datasets.
 Different shapes have separate `layouts/<digest>/` groups with global-point mappings.
@@ -433,8 +434,10 @@ Artifacts are JSON and numerical HDF5 datasets, never executable pickle payloads
 Failed artifacts keep their error and available provenance; collection rejects
 numerical arrays attached to a failed artifact.
 
-A controller refreshes each active claim's lease. A live local PID with matching
-creation identity remains protected even after `stale_age`; a remote owner remains
+A controller refreshes each active claim's lease, `Queue(stale_age=...)` seconds long
+(600 by default; `--stale-age` on the command line, which a Slurm submission passes to
+its tasks). A live local PID with matching creation identity remains protected even
+after its lease has expired; a remote owner remains
 protected while its lease is refreshed. A dead local owner or expired remote lease
 can be replaced. Unique claim tokens reject late results from superseded workers.
 Failed points require `retry_failed=True` in the script. `.nowork` means the invocation
@@ -445,9 +448,7 @@ a live lock file would create a second lock inode and defeat mutual exclusion.
 ```{note}
 Recovery has known limits. A live but wedged owner on the same host holds its point
 indefinitely, because the lease age is not consulted while its process is alive: stop
-that process to release the point. A `Local` or `Pool` scan interrupted by a signal or a
-crash, rather than stopped by its `stop=` flag, skips its `running` points for
-`stale_age` seconds on restart. A rerun that commits no point leaves the consolidated
+that process to release the point. A rerun that commits no point leaves the consolidated
 `layouts` as they are, and adds only its row to `executions`, a few kilobytes. A rerun
 that commits points rebuilds `layouts`, a copy of every completed point's arrays, and
 HDF5 does not reclaim the space of the copy it replaces, so the file grows by about the

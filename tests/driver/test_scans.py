@@ -384,8 +384,9 @@ def test_periodic_statistics_equal_single_run(tmp_path):
         )
 
 
-def test_scan_reclaims_stale_running_and_leaves_recent_claim(tmp_path):
-
+def test_scan_reclaims_a_running_point_whatever_its_age(tmp_path):
+    # The controller holds the file's lock for its whole session, so a `running`
+    # mark it finds was left by a controller that has gone, however recent.
     scan = Scan("scan", power=[1.0, 2.0])
     path = tmp_path / "scan.h5"
     output = run_scan(scan.subset([0]), build_point, output=path, progress="none")
@@ -393,9 +394,28 @@ def test_scan_reclaims_stale_running_and_leaves_recent_claim(tmp_path):
         _dataset(file, "points/status")[1] = "running"
         _dataset(file, "points/updated")[1] = time.time()
     run_scan(scan, build_point, output=path, progress="none")
-    assert output.status.tolist() == ["done", "running"]
-    with h5py.File(path, "a") as file:
-        _dataset(file, "points/updated")[1] = 0.0
+    assert output.status.tolist() == ["done", "done"]
+
+
+class ClaimThenFail:
+    """An executor that claims every point and then fails before running any."""
+
+    def run(self, points, work):
+        claimed = list(points)
+        assert claimed
+        raise RuntimeError("deliberate executor failure")
+        yield  # a generator, as an executor's run is
+
+
+def test_a_failed_executor_gives_its_claimed_points_back(tmp_path):
+    scan = Scan("scan", power=[1.0, 2.0])
+    path = tmp_path / "scan.h5"
+    with pytest.raises(RuntimeError, match="deliberate executor failure"):
+        run_scan(
+            scan, build_point, output=path, executor=ClaimThenFail(), progress="none"
+        )
+    output = scans.ScanOutput(path)
+    assert output.status.tolist() == ["todo", "todo"]
     run_scan(scan, build_point, output=path, progress="none")
     assert output.status.tolist() == ["done", "done"]
 
@@ -445,7 +465,6 @@ def test_pool_rejects_unpickleable_builder_before_output(tmp_path):
     [
         {"fields": "planes"},
         {"fields": "none", "field_planes": [0]},
-        {"stale_age": 0.0},
         {"stats": "energy"},
         {"reductions": [scans.peak_power(), scans.peak_power()]},
     ],

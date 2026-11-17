@@ -14,6 +14,7 @@ into the scan file. Quoting and resource export are in ``docs/dev/scans.md``.
 """
 
 import hashlib
+import math
 import os
 import re
 import shlex
@@ -84,6 +85,9 @@ class Slurm:
         Whether every point uses a fresh process.
     workdir : pathlib.Path, str or None
         Shared working directory; defaults to the submitting process's directory.
+    stale_age : float
+        Positive remote lease duration of the tasks' shared queue, s, as for
+        :class:`~solprop.driver.executors.queue.Queue`.
     job_id : str or None
         Scheduler identifier after a successful submission.
     """
@@ -102,6 +106,7 @@ class Slurm:
     threads: int = 1
     fresh: bool = False
     workdir: Path | str | None = None
+    stale_age: float = 600.0
     job_id: str | None = field(init=False, default=None)
     _queue: Queue | None = field(init=False, default=None, repr=False)
 
@@ -119,6 +124,8 @@ class Slurm:
             )
         if self.workers is not None and self.workers < 1:
             raise DriverError("Slurm workers must be positive")
+        if not math.isfinite(self.stale_age) or self.stale_age <= 0:
+            raise DriverError("Slurm stale_age must be positive and finite")
         _memory_bytes(self.mem)
         for value in (str(self.script), self.time, self.partition, self.gres):
             if value is not None and any(char in value for char in "\r\n\x00"):
@@ -168,7 +175,9 @@ class Slurm:
             threads=self.threads,
             fresh=self.fresh,
         )
-        self._queue = Queue(self.queue_path, pool=pool, chunk=chunk)
+        self._queue = Queue(
+            self.queue_path, stale_age=self.stale_age, pool=pool, chunk=chunk
+        )
         self._queue.prepare(request)
 
     def render(self) -> str:
@@ -255,6 +264,8 @@ class Slurm:
             str(self.threads),
             "--memory-limit",
             str(_memory_bytes(self.mem) // count),
+            "--stale-age",
+            str(self.stale_age),
         ]
         workers = self.workers or (1 if self._has_gpu else None)
         if workers is not None:

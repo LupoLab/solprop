@@ -104,7 +104,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--memory-limit", type=int)
     parser.add_argument("--fresh", action="store_true")
-    parser.add_argument("--stale-age", type=float, default=600.0)
+    parser.add_argument("--stale-age", type=float)
     parser.add_argument("--ntasks", type=int, default=1)
     parser.add_argument("--cpus-per-task", type=int, default=1)
     parser.add_argument("--mem", default="4G")
@@ -129,6 +129,12 @@ def _policy(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Execut
         parser.error("--local cannot be combined with queue, chunk or Slurm modes")
     if args.local and worker_controls:
         parser.error("--local cannot use process-pool resource controls")
+    queued = args.queue is not None or args.chunk is not None
+    if args.stale_age is not None and not (queued or slurm):
+        parser.error(
+            "--stale-age is a queue lease: use it with --queue, --chunk or Slurm"
+        )
+    lease = {} if args.stale_age is None else {"stale_age": args.stale_age}
     if slurm:
         if args.memory_limit is not None:
             parser.error("use --mem for a Slurm allocation")
@@ -148,6 +154,7 @@ def _policy(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Execut
             workers=args.workers,
             threads=args.threads,
             fresh=args.fresh,
+            **lease,
         )
     chunk = None
     if args.chunk is not None:
@@ -156,10 +163,10 @@ def _policy(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Execut
             chunk = (int(k), int(n))
         except ValueError as error:
             parser.error(f"chunk must be zero-based k/n: {error}")
-    if args.queue is not None or chunk is not None:
+    if queued:
         return Queue(
             args.queue,
-            stale_age=args.stale_age,
+            **lease,
             pool=Pool(
                 workers=args.workers,
                 memory_limit=args.memory_limit,

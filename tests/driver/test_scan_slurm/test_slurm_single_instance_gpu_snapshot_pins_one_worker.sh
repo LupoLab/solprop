@@ -21,7 +21,7 @@ for (( instance=0; instance<1; instance++ )); do
     export MKL_NUM_THREADS=2
     export VECLIB_MAXIMUM_THREADS=2
     export SOLPROP_NATIVE_WAIT_REQUEST=passive
-    exec /python -m solprop.scan /shared/scan/single.py --queue '/shared/scan/single queue' --threads 2 --memory-limit 4294967296 --workers 1
+    exec /python -m solprop.scan /shared/scan/single.py --queue '/shared/scan/single queue' --threads 2 --memory-limit 4294967296 --stale-age 600.0 --workers 1
   ) &
   pids+=("$!")
 done
