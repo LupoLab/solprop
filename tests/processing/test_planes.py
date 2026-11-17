@@ -11,7 +11,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from solprop.adiabatic import AdiabaticAdmission
-from solprop.coupling import basis_identity, reference_at
+from solprop.coupling import modal_basis_identity, reference_at
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import CouplingError, OutputError, ProcessingError
 from solprop.fourier import spectrum_to_internal, spectrum_to_optics
@@ -24,6 +24,7 @@ from solprop.modes import (
     ModalGuide,
     PowerLawPermittivity,
 )
+from solprop.output import SCHEMA_VERSION
 from solprop.output.hdf5 import open_file
 from solprop.output.memory import MemoryOutput
 from solprop.output.records import SavedPlane, StepHistory
@@ -37,6 +38,7 @@ from solprop.processing import (
 )
 from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.recipe import Recipe
 from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy, spatial_fluence
 from solprop.stats import analytic_field
 from solprop.stepper import PIController
@@ -51,7 +53,9 @@ pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarn
 EPS = np.finfo(float).eps
 
 
-def capillary(length=2e-3, n_save=3, **changes):
+def capillary(
+    length=2e-3, n_save=3, pressure: float | PressureGradient = 1.0, **changes
+):
     arguments = {
         "wavelength": 800e-9,
         "wavelength_limits": (400e-9, 1.6e-6),
@@ -66,7 +70,7 @@ def capillary(length=2e-3, n_save=3, **changes):
         **changes,
     }
     return Simulation.from_capillary(
-        100e-6, length, "Ar", 1.0, **{"noise": None, **arguments}
+        100e-6, length, "Ar", pressure, **{"noise": None, **arguments}
     )
 
 
@@ -116,7 +120,11 @@ def test_a_modal_plane_is_the_stored_spectrum_in_its_rebuilt_reference(capillary
     assert plane.basis.labels == tuple(
         mode.channel_label.display_label for mode in simulation.modes
     )
-    assert plane.basis.identity == simulation.input_port().basis.identity
+    # A run from a script records no recipe, so its basis is known only with its
+    # source, which rebuilds it at the plane as the port does at its entrance.
+    assert plane.basis.identity is None
+    sourced = field_plane(output, source=simulation)
+    assert sourced.basis.identity == simulation.input_port().basis.identity
     provenance = plane.provenance
     assert provenance.source == output.metadata.configuration_hash()
     assert (provenance.plane, provenance.z, provenance.lineage) == (2, 2e-3, ())
@@ -154,8 +162,9 @@ def test_the_record_survives_a_file(capillary_run, tmp_path):
     simulation.run(path, progress="none")
     with open_file(path) as stored:
         assert stored.metadata is not None and memory.metadata is not None
-        assert stored.metadata.schema_version == 3
+        assert stored.metadata.schema_version == SCHEMA_VERSION
         assert stored.metadata.reference == memory.metadata.reference
+        assert "basis" not in (stored.metadata.reference or {})
         assert (
             stored.metadata.configuration_hash() == memory.metadata.configuration_hash()
         )
@@ -299,14 +308,11 @@ def test_a_general_plane_reads_its_fields_with_its_source(general_run):
         field_plane(output, source=capillary())
 
 
-def test_planar_runs_are_refused_by_name(capillary_run):
-    _, output = capillary_run
-    reference = dict(output.metadata.reference)
-    reference["basis"] = {**reference["basis"], "route": "planar"}
+def test_planar_runs_are_refused_by_name(radial_run):
     planar = MemoryOutput()
-    planar.open(dataclasses.replace(output.metadata, reference=reference))
-    for plane in output.fields():
-        planar.save(dataclasses.replace(_saved(output), field=_internal(plane)))
+    planar.open(dataclasses.replace(radial_run.metadata, simulation_kind="slab"))
+    for plane in radial_run.fields():
+        planar.save(dataclasses.replace(_saved(radial_run), field=_internal(plane)))
     with pytest.raises(ProcessingError, match="planar"):
         field_plane(planar)
 
@@ -388,17 +394,46 @@ def test_a_parent_record_without_its_plane_gives_no_lineage(capillary_run):
     assert plane.provenance.lineage == ()
 
 
-def test_a_modal_plane_saved_off_the_planned_positions_has_an_unrecorded_basis(
-    capillary_run,
+def test_a_modal_plane_s_basis_is_its_mode_set_s_at_its_own_position():
+    """Evaluated where the plane lies, so any saved plane has one, planned or not.
+
+    A pressure gradient varies the modes along z: the middle plane's basis is the
+    port's at that interior entrance, and not the launch's.
+    """
+    simulation = capillary(pressure=PressureGradient.two_point(2e-3, 1.0, 2.0))
+    output = simulation.run(progress="none")
+    middle = field_plane(output, z=1e-3, source=simulation)
+    assert middle.basis.identity == modal_basis_identity(
+        simulation.modes, simulation.grid, 1e-3
+    )
+    assert middle.basis.identity == simulation.input_port(1e-3).basis.identity
+    assert middle.basis.identity != simulation.input_port().basis.identity
+
+
+def test_a_modal_plane_from_a_recipe_s_file_takes_its_basis_from_the_recipe(
+    tmp_path,
 ):
-    simulation, output = capillary_run
-    reference = dict(output.metadata.reference)
-    bases = reference["basis"]
-    # Every planned position moved a tenth of a millimetre: no saved plane is one.
-    reference["basis"] = {**bases, "z": [one + 1e-4 for one in bases["z"]]}
-    plane = field_plane(rewritten(output, reference=reference))
-    assert plane.basis.identity == basis_identity("modal", {"unrecorded at": 2e-3})
-    assert plane.basis.identity != simulation.input_port().basis.identity
+    """The recorded recipe rebuilds the mode set, so no source is needed.
+
+    The basis is the one the recipe's simulation gives the same plane with it as
+    source, and its fibre's modes do not vary, so it is its port's at the entrance.
+    """
+    recipe = Recipe.example("soliton")
+    recipe.set("n_save", 3)
+    recipe.set("length", "1 cm")
+    recipe.set("grid.length", "1 cm")
+    path = tmp_path / "soliton.h5"
+    simulation = recipe.build()
+    simulation.run(path, progress="none")
+    with open_file(path) as stored:
+        plane = field_plane(stored)
+        sourced = field_plane(stored, source=simulation)
+    assert plane.basis.identity is not None
+    assert plane.basis.identity == sourced.basis.identity
+    # A run's output in memory keeps its recipe too.
+    memory = simulation.run(progress="none")
+    assert field_plane(memory).basis.identity == plane.basis.identity
+    assert plane.basis.identity == simulation.input_port().basis.identity
 
 
 @pytest.fixture(scope="module")

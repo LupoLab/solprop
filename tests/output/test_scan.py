@@ -298,7 +298,7 @@ def test_scan_of_another_output_schema_is_refused_by_every_route(tmp_path):
         status = np.asarray(_dataset(file, "points/status").asstr()[...])
     assert status.tolist() == ["done", "failed", "todo"]
     # The point of this release's schema is still read alone.
-    assert cast(Mapping, read_point(path, 0)["metadata"])["schema_version"] == 3
+    assert cast(Mapping, read_point(path, 0)["metadata"])["schema_version"] == 4
 
 
 def test_scan_of_this_output_schema_reads_as_before(tmp_path):

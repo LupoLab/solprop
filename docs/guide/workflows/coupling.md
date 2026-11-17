@@ -94,6 +94,17 @@ into a plane, so the stored samples alone would drop it in the next stage. A sou
 meant for coupling uses the default `noise="input"`, whose background travels in the
 saved field, or `noise=None`.
 
+A file records no basis identity either: a plane's basis is derived when it is read
+({py:meth}`~solprop.coupling.plane.PlaneBasis.of_run`, which a receiving simulation's
+port uses too), so a run that is never coupled computes none. A spatial plane's is its
+transverse grid, read from the file, and a general modal plane's the reference identities
+the file records. An ordinary mode set's is its value at the plane, which needs the
+modes: those of the `source=` simulation, or of the simulation the file's recorded recipe
+rebuilds, for a run built from a recipe. A plane of a run from a script read without
+`source=`, like `plane` above, has no basis identity (`plane.basis.identity` is `None`);
+it can still be moved and saved, but `same_basis` refuses to copy it, since there is
+nothing to check the port's basis against.
+
 ## Moving a plane between grids
 
 {py:func}`~solprop.coupling.remap.regrid` puts a plane on another temporal grid -- a longer
@@ -203,7 +214,9 @@ second = Simulation.from_capillary(
     noise=None,
 )
 relaunch = couple(
-    field_plane(run), second.input_port(), model=CouplingModel("same_basis")
+    field_plane(run, source=simulation),  # the modes give the plane its basis
+    second.input_port(),
+    model=CouplingModel("same_basis"),
 )
 continued = second.with_input(relaunch.launch).run(progress="none")
 print(field_plane(continued).reference.delay)  # the whole 2 mm path's
@@ -215,7 +228,8 @@ tests hold it to the tolerance's level between the two CPU backends. The
 basis of an ordinary mode set is its value at the plane -- each mode's class, label,
 effective area and effective index on the active band -- so the exit of one capillary
 and the entrance of an identical one of another length are the same basis, and a
-different radius is not. A simulation can also continue from inside its own path:
+different radius is not. It is evaluated when the plane is read, at the plane's own
+position, so any saved plane has one, whether it was planned or saved at a natural step. A simulation can also continue from inside its own path:
 `simulation.input_port(z)` is an interior entrance of a modal run.
 
 `same_basis` also takes a declared invertible change of basis or gauge,
