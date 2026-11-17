@@ -1198,7 +1198,7 @@ def _planning(
         Each capture takes its share of the stage's time, so that the timing in the
         step still has the rest (SEP 46 section 6.7).
 
-        - ``effort``: ``"measure"`` or ``"patient"``.
+        - ``effort``: the FFTW planning effort, ``"measure"``.
         """
         budget = max(0.0, plan.deadline.remaining() - until) * share
         return cast(
