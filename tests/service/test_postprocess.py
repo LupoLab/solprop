@@ -108,7 +108,7 @@ def test_fixed_elements_are_applied_in_order(run: str):
     assert pulses["limit"]["peak"] >= pulses["before"]["peak"] * 0.999
     assert math.isclose(found["wavelength"], 8e-7, rel_tol=1e-3)
     empty = chain(run)  # no elements: after is before
-    assert np.allclose(empty["after"], empty["before"])
+    assert np.allclose(empty["after"], empty["before"], atol=0.0)
 
 
 def test_an_auto_stage_finds_what_the_compressor_finds_on_the_file(run: str):

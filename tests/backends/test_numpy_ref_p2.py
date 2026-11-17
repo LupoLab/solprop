@@ -255,7 +255,7 @@ def test_the_parameters_are_the_ones_the_design_note_records():
         * np.exp(-smooth_loss_integral(probe))
         / dispersion
     )
-    assert np.allclose(ratio, 1.0)
+    assert np.allclose(ratio, 1.0, atol=0.0)
     # And alpha, whose integral the reference uses, is the one that was written down.
     step = 1e-6
     numerical = (

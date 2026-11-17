@@ -148,7 +148,7 @@ def test_helium_differs_from_luna_by_exactly_the_reference_state():
     ours, _ = susceptibility(HE_ERMOLOV, omega_for(key))
     theirs = stored("refractive_index", key) ** 2 - 1.0
     expected = HE_ERMOLOV.reference_density / density(Gas.He, 1.0, 273.15, **REAL_GAS)
-    assert np.allclose(theirs / ours, expected, rtol=1e-9)
+    assert np.allclose(theirs / ours, expected, rtol=1e-9, atol=0.0)
     assert expected == pytest.approx(1.01324, rel=1e-4)
 
 
@@ -167,7 +167,7 @@ def test_quanfu_he_models_differ_from_luna_by_the_missing_square(gas):
     theirs = stored("refractive_index", key)
     ratio = (theirs**2 - 1.0) / ours
     expected = (1.0 + published) / (published * (2.0 + published))
-    assert np.allclose(ratio, expected, rtol=1e-9)
+    assert np.allclose(ratio, expected, rtol=1e-9, atol=0.0)
     assert np.all(expected > 500.0)
     # And the visible consequence: Luna reports a glass-like index for a gas.
     assert np.all(theirs > 1.4)

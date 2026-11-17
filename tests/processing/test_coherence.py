@@ -31,7 +31,7 @@ def test_two_known_realisations_match_the_definition():
     # With two realisations the definition is |2 Re(E1* E2)| / (|E1|^2 + |E2|^2), which
     # is 1 where they agree and 1 where they are exactly out of phase: the modulus of
     # the cross term, not its sign, is what g12 reports.
-    assert np.allclose(coherence.g12(np.stack([first, second])), [1.0, 1.0])
+    assert np.allclose(coherence.g12(np.stack([first, second])), [1.0, 1.0], atol=0.0)
     third = np.array([1.0 + 0.0j, 1.0j])
     # Orthogonal phasors have no cross term at all.
     assert coherence.g12(np.stack([first, third]))[1] == pytest.approx(0.0, abs=1e-15)

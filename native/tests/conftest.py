@@ -31,6 +31,24 @@ os.environ.setdefault("SOLPROP_CALIBRATION", "off")
 # Trigger the documented macOS runtime ordering without adding an unused binding.
 __import__("solprop_native")
 
+_PYTEST_APPROX = pytest.approx
+
+
+def _approx(expected, rel=None, abs=None, nan_ok=False):
+    """Return ``pytest.approx`` with no absolute tolerance unless the test gives one.
+
+    The rule of solprop's ``tests/conftest.py``: pytest keeps an absolute tolerance of
+    1e-12 beside any ``rel``, which accepts any result for a quantity far below it (a
+    trial's error norm, a time in seconds). A test that gives ``rel=`` and no ``abs=``
+    compares relatively only; one that needs an absolute tolerance gives ``abs=``.
+    """
+    if rel is not None and abs is None:
+        abs = 0.0
+    return _PYTEST_APPROX(expected, rel=rel, abs=abs, nan_ok=nan_ok)
+
+
+pytest.approx = _approx
+
 type PhaseACase = tuple[PropagationProblem, RunRequest, EnvelopeGrid]
 type RamanCase = tuple[PropagationProblem, RunRequest, EnvelopeGrid]
 type ComplexArray = npt.NDArray[np.complex128]

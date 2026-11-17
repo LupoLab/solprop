@@ -693,7 +693,9 @@ def test_a_runner_carries_a_replaced_realisation_of_its_noise_model():
         kept = stored(runner.run(field, progress="none"))
     assert_within(reused["field"], fresh["field"], replay_bound(simulation))
     # The kept realisation is the constructed one: another draw, another field.
-    assert not np.allclose(kept["field"], fresh["field"])
+    assert not np.allclose(
+        kept["field"], fresh["field"], atol=1e-5 * np.max(np.abs(fresh["field"]))
+    )
 
 
 def test_a_runner_runs_an_input_without_noise_when_it_has_none():

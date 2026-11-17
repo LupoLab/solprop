@@ -50,7 +50,7 @@ class AfterStep(NullReporter):
             accepted
             and not self.done
             and z > self.planes[1]
-            and not any(np.isclose(z, one) for one in self.planes)
+            and not any(np.isclose(z, one, atol=0.0) for one in self.planes)
         ):
             self.done = True
             self.action()

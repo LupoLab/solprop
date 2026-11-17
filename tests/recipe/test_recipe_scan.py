@@ -92,7 +92,9 @@ def test_a_range_is_spaced_as_asked(spacing, expected):
             },
         }
     ).scan()
-    assert np.allclose(scan.scan.variables["peak_power"], expected, rtol=1e-15)
+    assert np.allclose(
+        scan.scan.variables["peak_power"], expected, rtol=1e-15, atol=0.0
+    )
 
 
 def test_a_scan_without_a_name_or_table_or_with_a_wrong_path_is_refused():

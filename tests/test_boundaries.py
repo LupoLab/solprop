@@ -80,7 +80,7 @@ def test_the_rate_reproduces_the_collar_over_one_reference_length():
     alpha = collar_rate(window, length)
     # Nothing here is near the cap, so the round trip is exact to the rounding of a
     # logarithm and an exponential: a few units in the last place.
-    assert np.allclose(np.exp(-alpha * length / 2.0), window, rtol=8 * EPS)
+    assert np.allclose(np.exp(-alpha * length / 2.0), window, rtol=8 * EPS, atol=0.0)
 
 
 def test_the_rate_is_exactly_zero_in_the_flat_region():
@@ -136,7 +136,7 @@ def test_the_absorption_depends_on_the_distance_and_not_on_the_subdivision(n_ste
     once = split_step_factor(alpha, total)
     # n multiplications of doubles, each with half an ulp of rounding, give at worst
     # n * eps; at n = 1000 that is 2e-13.
-    assert np.allclose(product, once, rtol=n_steps * EPS)
+    assert np.allclose(product, once, rtol=n_steps * EPS, atol=0.0)
 
 
 def test_the_split_factor_is_the_field_factor_not_the_power_factor():
@@ -193,7 +193,9 @@ def test_the_in_term_is_the_derivative_of_the_split_factor():
     field = np.array([2.0 + 1.0j, -1.0 + 0.5j])
     step = 1e-9
     numerical = (apply_split_step(field, alpha, step) - field) / step
-    assert np.allclose(numerical, nonlinear_absorber_term(field, alpha), rtol=1e-6)
+    assert np.allclose(
+        numerical, nonlinear_absorber_term(field, alpha), rtol=1e-6, atol=0.0
+    )
 
 
 def test_both_applications_broadcast_over_the_leading_axes():
@@ -202,7 +204,9 @@ def test_both_applications_broadcast_over_the_leading_axes():
     assert apply_split_step(field, alpha, 0.01).shape == (2, 3, 8)
     assert nonlinear_absorber_term(field, alpha).shape == (2, 3, 8)
     assert np.allclose(
-        apply_split_step(field, alpha, 0.01)[0, 0], split_step_factor(alpha, 0.01)
+        apply_split_step(field, alpha, 0.01)[0, 0],
+        split_step_factor(alpha, 0.01),
+        atol=0.0,
     )
 
 
@@ -237,7 +241,10 @@ def test_the_absorber_reproduces_the_collars_over_one_reference_length(
     # logarithm; the tests below say what they are.
     unclamped = (window > math.exp(-MAX_ALPHA_LENGTH / 2.0)) & (rate > 0.0)
     assert np.allclose(
-        np.exp(-rate[unclamped] * length / 2.0), window[unclamped], rtol=8 * EPS
+        np.exp(-rate[unclamped] * length / 2.0),
+        window[unclamped],
+        rtol=8 * EPS,
+        atol=0.0,
     )
 
 

@@ -204,7 +204,9 @@ def test_a_run_stopped_between_planes_continues_from_its_checkpoint(
         # The first call after a step accepted strictly between two planes past the
         # first: the run stops there, with no plane to resume from.
         last = positions[-1] if positions else 0.0
-        if last > planes[1] and not any(np.isclose(last, one) for one in planes):
+        if last > planes[1] and not any(
+            np.isclose(last, one, atol=0.0) for one in planes
+        ):
             raise CrashError("the source failed")
         positions.append(position)
         return original(self, field, position, *args, **keywords)

@@ -93,6 +93,29 @@ if _NAMED_BACKEND and importlib.util.find_spec("solprop_native") is None:
     driver_settings.resolve_name = _resolve_for_tests
 
 
+_PYTEST_APPROX = pytest.approx
+
+
+def _approx(expected, rel=None, abs=None, nan_ok=False):
+    """Return ``pytest.approx`` with no absolute tolerance unless the test gives one.
+
+    pytest's ``approx`` keeps a default absolute tolerance of 1e-12 beside any ``rel``,
+    and accepts ``|actual - expected| <= max(rel |expected|, 1e-12)``. The suite's
+    quantities are SI values, many of 1e-15 to 1e-53 (times, nonlinear indices,
+    polarisabilities, energies), and for them that default accepts any result. So in
+    this suite a test that gives ``rel=`` and no ``abs=`` compares relatively only: the
+    absolute tolerance is zero. A test that needs an absolute tolerance, an expected
+    value of exactly zero among them, gives ``abs=`` (``docs/dev/testing.md``
+    section 3).
+    """
+    if rel is not None and abs is None:
+        abs = 0.0
+    return _PYTEST_APPROX(expected, rel=rel, abs=abs, nan_ok=nan_ok)
+
+
+pytest.approx = _approx
+
+
 @pytest.fixture(autouse=True)
 def _keep_the_real_auto(request, monkeypatch):
     """Give a ``real_auto`` test the refusal that the session otherwise replaces."""

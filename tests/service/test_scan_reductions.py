@@ -72,7 +72,7 @@ def test_each_reduction_is_recorded_at_every_point(recorded: str) -> None:
 def test_the_axes_are_even_and_cover_the_run_s_window() -> None:
     recipe = Recipe.loads(TINY)
     wavelength = reduction_axis(recipe, "spectrum")
-    assert np.allclose(np.diff(wavelength), np.diff(wavelength)[0])
+    assert np.allclose(np.diff(wavelength), np.diff(wavelength)[0], atol=0.0)
     assert wavelength[0] < 800e-9 < wavelength[-1]
     t = reduction_axis(recipe, "pulse")
     assert t[0] < 0 < t[-1]

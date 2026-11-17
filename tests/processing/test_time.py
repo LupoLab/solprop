@@ -101,12 +101,12 @@ def test_the_duration_follows_the_dispersion_law(output, synthetic):
     # The closed form of a Gaussian under pure group-velocity dispersion; the sampled
     # trace resolves the width with dt/tau of a few per cent, so the crossing is found
     # to second order in that.
-    assert np.allclose(widths, expected, rtol=2e-3)
+    assert np.allclose(widths, expected, rtol=2e-3, atol=0.0)
 
 
 def test_energy_is_conserved_by_pure_dispersion(output):
     values = time.energy(output)
-    assert np.allclose(values, values[0], rtol=1e-12)
+    assert np.allclose(values, values[0], rtol=1e-12, atol=0.0)
 
 
 def test_the_peak_power_falls_as_the_pulse_broadens(output):

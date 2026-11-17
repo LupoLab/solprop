@@ -313,6 +313,14 @@ the observed margin. A result that is mathematically zero but reached through in
 arithmetic gets a justified absolute tolerance; a zero that is a structural contract
 (a hard mask, a disabled term) stays exact.
 
+**No default absolute tolerance.** Many of the suite's quantities are SI values far below
+pytest's default absolute tolerance of 1e-12 or NumPy's 1e-8 (times of 1e-15 s, nonlinear
+indices of 1e-25 m²/W), which would accept any result for them. So in the suite
+`pytest.approx(x, rel=r)` with no `abs=` has an absolute tolerance of zero (the test
+conftests wrap `pytest.approx`), and every `np.allclose` or `np.isclose` states its `atol`,
+0.0 for a relative comparison (`tests/test_tolerance_defaults.py` checks). A test that
+needs an absolute tolerance, an expected zero among them, gives it explicitly.
+
 **Accuracy envelopes** (class T) are set per case, in a comment: the run's error against
 a reference at a tighter tolerance, or against an existing stored converged reference,
 times a safety factor fixed before the candidate is measured (`AccuracyEnvelope`). Each

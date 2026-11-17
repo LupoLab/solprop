@@ -268,7 +268,7 @@ def test_a_built_table_is_frozen_before_anyone_holds_it(use_cache):
 def test_the_knots_are_uniform_in_the_logarithm_of_the_field():
     table = build_rate_table(adk_oracle(Gas.Ar), default_range(Gas.Ar))
     spacing = np.diff(table.log_field)
-    assert np.allclose(spacing, table.d_log_field, rtol=1e-12)
+    assert np.allclose(spacing, table.d_log_field, rtol=1e-12, atol=0.0)
     assert table.field[0] == pytest.approx(table.field_min, rel=1e-12)
     assert table.field[-1] == pytest.approx(table.field_max, rel=1e-12)
     assert table.n_knots == table.coefficients.shape[1] + 1
