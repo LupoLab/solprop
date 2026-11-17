@@ -49,7 +49,7 @@ from solprop.backends.events import (
     join_attempts,
 )
 from solprop.backends.export import ExportRecipe
-from solprop.backends.protocol import Backend, BackendHistory
+from solprop.backends.protocol import BackendHistory
 from solprop.backends.protocol import StepStats as BackendRows
 from solprop.backends.session import RunSession
 from solprop.driver.plane_view import PlaneWatch
@@ -62,7 +62,6 @@ from solprop.driver.run import (
 )
 from solprop.driver.summary import resources, run_summary
 from solprop.exceptions import (
-    BackendError,
     OutputError,
     ResponseBudgetError,
     RunTerminated,
@@ -99,7 +98,6 @@ from solprop.output.tdse_archive import TDSEArchiveWriter
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import PropagationProblem
-from solprop.translate.routes import transverse_of
 from solprop.translate.run_request import MARCH_SNAPSHOT_AUTO_BYTES, RunRequest
 from solprop.translate.tdse import TDSEBinding
 
@@ -467,7 +465,6 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
     reached, missing_current_save = _resume_position(
         output, checkpoint_output, problem, context.request
     )
-    _refuse_unread_collar(problem, backend)
     # The request's own monitor: its thresholds; the session owns its state.
     monitor = context.request.boundary.monitor
     # Read before this execution's first record replaces the earlier one's.
@@ -824,7 +821,7 @@ def _persist_failure(  # noqa: PLR0917 - the failure's whole context
     if ticket is None:
         # The loop's own session is open, and a state left in flight is recorded
         # above: the committed state always has a ticket.
-        ticket = _fallback_ticket(session)
+        ticket = session.failure_ticket()
         assert ticket is not None
     problem = context.problem
     reached = None
@@ -912,26 +909,6 @@ def _persist_failure(  # noqa: PLR0917 - the failure's whole context
     return reached
 
 
-def _fallback_ticket(session: RunSession) -> ExportTicket | None:
-    """Return a ticket for the committed state after a failure outside the session.
-
-    A service failure -- an output error, a signal during a commit -- leaves the
-    session's batch pending, so its state is still where the batch left it. When
-    nothing is pending, the session issues a failed terminal batch whose ticket exports
-    the committed state (``HostSession.pending_ticket``).
-
-    - Returns: a ticket for the committed state, or ``None`` when the session is closed
-      or its state was left in flight.
-    """
-    # A session that can end itself at its committed state for the checkpoint says
-    # so (`NativeSession.failure_ticket`); the reference session's pending ticket
-    # already does.
-    issue = getattr(session, "failure_ticket", None)
-    if callable(issue):
-        return cast("ExportTicket | None", issue())
-    return session.pending_ticket()
-
-
 def _facts(session: RunSession) -> SessionFacts:
     """Return what the service loop's records read as the session's backend.
 
@@ -944,7 +921,7 @@ def _facts(session: RunSession) -> SessionFacts:
 def _announce(  # noqa: PLR0917 - called positionally
     problem: PropagationProblem,
     metadata: RunMetadata,
-    backend: Backend | SessionFacts,
+    backend: SessionFacts,
     output: Output,
     reporter: ProgressReporter,
     start: tuple[int, float],
@@ -1038,29 +1015,6 @@ def _resume_position(
         and (output.n_saved == 0 or float(output["z"][-1]) < reached)
     )
     return reached, missing_current_save
-
-
-def _refuse_unread_collar(
-    problem: PropagationProblem, backend: Backend | SessionFacts
-) -> None:
-    """Refuse a requested collar on a backend that does not read its return (SEP 40).
-
-    A requested real-space collar is judged by what it returns, which the monitor's
-    transverse edge reads; a backend that does not read it refuses the collar by name
-    before the first step (SEP 40 section 6). Its in-stage rate is not the reason:
-    the backends compute it alike.
-    """
-    design = transverse_of(problem.route)
-    if design is None or not design.has_collar:
-        return
-    if backend.reads_transverse_edge:
-        return
-    msg = (
-        f"the {backend.name} backend does not carry a requested real-space collar "
-        "(SpatialAbsorber with real_space=True): run it on one of solprop's own "
-        "backends, or ask for the safety ramp alone"
-    )
-    raise BackendError(msg)
 
 
 def _earlier_execution(
@@ -1281,7 +1235,7 @@ class _MarchKeeper:
 
 
 def _record_abandoned_step(
-    backend: Backend | SessionFacts,
+    backend: SessionFacts,
     output: CheckpointOutput,
     binding: TDSEBinding | None,
     failure: _FailedObservation,
@@ -1378,7 +1332,7 @@ class _Status:
 
 def _record_execution(
     output: CheckpointOutput | None,
-    backend: Backend | SessionFacts,
+    backend: SessionFacts,
     binding: TDSEBinding | None,
     status: _Status,
     *,

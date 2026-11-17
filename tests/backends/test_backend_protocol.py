@@ -387,7 +387,6 @@ class Stub:
     """The smallest object that satisfies the seam: SEP 52 section 5.1's members."""
 
     name = "stub"
-    reads_transverse_edge = False
     closed = False
 
     @property

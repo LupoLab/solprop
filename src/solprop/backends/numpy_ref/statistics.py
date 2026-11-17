@@ -71,7 +71,6 @@ from solprop.translate.linop import power_weight_at
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import flux_of
 from solprop.translate.run_request import RunRequest
-from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
 
 __all__ = ["ReferenceStatistics"]
 
@@ -98,9 +97,6 @@ class ReferenceStatistics:
         The propagated modes, in state order, for the on-axis statistics.
     profiles : collections.abc.Mapping or None
         The z-profiles keyed by statistic name.
-    tdse : bool
-        Whether a host TDSE response is bound, which defines none of the legacy
-        plasma statistics.
     name : str
         The backend's name, for messages.
 
@@ -120,7 +116,6 @@ class ReferenceStatistics:
         grid: TimeGrid | None,
         modes: Sequence[Mode] | None,
         profiles: Mapping[str, ZProfile] | None,
-        tdse: bool,
         name: str,
     ) -> None:
         """Form the tables; refuse a geometry the far-field statistics refuse."""
@@ -130,7 +125,6 @@ class ReferenceStatistics:
         self._grid = grid
         self._modes = modes
         self._profiles = profiles
-        self._tdse = tdse
         self.name = name
         self._power_weight = np.empty(
             problem.shape if problem.transform.geometry is None else (0,)
@@ -187,12 +181,6 @@ class ReferenceStatistics:
             Small host arrays keyed by statistic name.
         """
         grid = self._require_grid()
-        if self._tdse:
-            unavailable = TDSE_UNAVAILABLE_STATISTICS.intersection(spec.names)
-            if unavailable:
-                raise BackendError(
-                    f"TDSE does not define legacy statistics {sorted(unavailable)}"
-                )
         # Before the spatial branch: a spatial run asked for a
         # general name would otherwise reach `collect_spatial` and be answered from a
         # geometry that carries no certified metric at all.

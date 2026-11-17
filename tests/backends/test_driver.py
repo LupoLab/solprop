@@ -957,8 +957,8 @@ BACKEND_MEMBERS = (
     "timing_probe",
 )
 """The :class:`~solprop.backends.protocol.Backend` protocol's methods and properties,
-complete (SEP 52 section 5.1): its attributes are ``name`` and
-``reads_transverse_edge``. A change here changes the seam, in the same commit."""
+complete (SEP 52 section 5.1): its one attribute is ``name``. A change here changes the
+seam, in the same commit."""
 
 RETIRED_MEMBERS = (
     "attach_monitor",
@@ -969,6 +969,7 @@ RETIRED_MEMBERS = (
     "march_snapshot_nbytes",
     "observe",
     "propagate_to",
+    "reads_transverse_edge",
     "request_halt",
     "restore_call_ledgers",
     "restore_march",
@@ -978,23 +979,17 @@ RETIRED_MEMBERS = (
     "set_stop",
     "stats",
 )
-"""The host stepping seam SEP 52 deleted: every run is a session's, which schedules it
-and reads the state through the workspace."""
+"""The members the seam dropped: the host stepping seam SEP 52 deleted, every run
+being a session's, which schedules it and reads the state through the workspace, and
+the answers every backend gave alike."""
 
-REFERENCE_ATTRIBUTES = (
-    "helpers",
-    "name",
-    "propagator_default",
-    "reads_transverse_edge",
-)
+REFERENCE_ATTRIBUTES = ("name",)
 """The class attributes the NumPy reference backend sets."""
 
 
 def test_the_backend_surface_the_reference_implements_is_frozen():
     members = {
-        name
-        for name in dir(Backend)
-        if not name.startswith("_") and name not in {"name", "reads_transverse_edge"}
+        name for name in dir(Backend) if not name.startswith("_") and name != "name"
     }
     assert members == set(BACKEND_MEMBERS)
     assert isinstance(NumpyRefBackend.__dict__["request"], property)

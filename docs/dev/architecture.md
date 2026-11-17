@@ -643,7 +643,6 @@ propagated state*, never at the array-namespace level
 ```python
 class Backend(Protocol):
     name: str
-    reads_transverse_edge: bool
 
     def prepare(self, problem, request) -> PreparedExecution: ...  # a run's session
     def timing_probe(self, start) -> TimingProbe: ...  # an estimate's trial

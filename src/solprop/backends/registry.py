@@ -432,16 +432,15 @@ def _construct(
 
         factory = cast("Callable[..., Backend]", NativeBackend)
     else:
-        from solprop.backends.numpy_ref import construct  # noqa: PLC0415
+        from solprop.backends.numpy_ref import NumpyRefBackend  # noqa: PLC0415
 
-        factory = construct
-    host = {} if tdse_binding is None else {"tdse_binding": tdse_binding}
+        factory = NumpyRefBackend
     return factory(
         problem,
         request,
         grid=grid,
         modes=modes,
         profiles=profiles,
+        tdse_binding=tdse_binding,
         options=options,
-        **host,
     )

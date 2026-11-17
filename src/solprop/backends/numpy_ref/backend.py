@@ -27,7 +27,6 @@ from typing import TYPE_CHECKING, Literal, cast
 import numpy as np
 from jaxtyping import Complex
 
-from solprop._helpers import PLAIN, Helpers
 from solprop.backends.exponential import CarrierReference, refuse_adams
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.host.low_storage import HostLowStorageMarch
@@ -54,7 +53,6 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate.plasma_source import plasma_source_record
 from solprop.translate.problem import (
-    MAX_N_POL,
     PropagationProblem,
     PropagatorMode,
     StepperSettings,
@@ -132,11 +130,6 @@ class NumpyRefBackend:
     ----------
     name : str
         The registry name, ``"numpy_ref"``.
-    reads_transverse_edge : bool
-        True: the reference reads a free-space run's transverse edge on the host.
-    helpers : solprop._helpers.Helpers
-        The uncompiled stage-table and Adams-basis evaluations, ``PLAIN``: the oracle
-        never runs the compiled code it exists to check (SEP 29 section 6.6).
 
     Raises
     ------
@@ -177,14 +170,7 @@ class NumpyRefBackend:
     >>> session.close()
     """
 
-    reads_transverse_edge: bool = True
-
     name: str = "numpy_ref"
-    helpers: Helpers = PLAIN
-    # The reference forms `exp(+dPhi)` and `exp(-dPhi)` afresh at every stage, so
-    # keeping the six distinct exponents of a step is worth its memory here where it is
-    # not on a backend that takes both signs from one transcendental.
-    propagator_default: PropagatorMode = "tabulate"
 
     def __init__(
         self,
@@ -418,7 +404,10 @@ class NumpyRefBackend:
             return "tabulate" if self._problem.flags.constant_linop else "recompute"
         if asked == "auto" and self._problem.linear.separable is not None:
             return "recompute"
-        return self.propagator_default if asked == "auto" else asked
+        # The reference forms `exp(+dPhi)` and `exp(-dPhi)` afresh at every stage, so
+        # keeping the six distinct exponents of a step is worth its memory here where
+        # it is not on a backend that takes both signs from one transcendental.
+        return "tabulate" if asked == "auto" else asked
 
     def prepare(
         self, problem: PropagationProblem, request: RunRequest
@@ -688,22 +677,3 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
             raise BackendError(msg)
     # SEP 35: the scalar carrier shift, on the guided routes.
     refuse_adams(problem, stepper, "numpy_ref", delivered=frozenset({"scalar"}))
-    if (
-        problem.flags.has_raman
-        and problem.transform.n_pol * problem.shape[1] > 1
-        and (
-            not problem.responses.raman_terms
-            or not all(term.tensor_capable for term in problem.responses.raman_terms)
-        )
-    ):
-        raise BackendError(
-            "vector Raman requires tensor-capable terms; found scalar_only"
-        )
-    _, n_pol, _ = problem.shape
-    if problem.transform.n_pol * n_pol > MAX_N_POL:
-        msg = (
-            f"the transform resolves {problem.transform.n_pol} transverse components "
-            f"and the state carries {n_pol}; the components belong to one of the two "
-            "and not to both, so this problem would count them twice"
-        )
-        raise BackendError(msg)

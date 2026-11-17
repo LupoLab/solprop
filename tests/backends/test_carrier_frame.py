@@ -34,6 +34,7 @@ import flow_parity
 from backends.carrier_frame_cases import WINDOW, capillary, gradient
 from backends.conftest import EQUIVALENCE_BACKENDS
 from bounds import EPS, assert_within, carrier_increment_budget
+from builders import stage_helpers
 from sessions.executors import IDENTITY, Started, drive
 from sessions.runs import adams_ledger, bare, final_field, run
 from solprop.backends.events import ObservationKind, ObservationReady
@@ -1206,7 +1207,7 @@ def test_the_chord_is_the_engine_s_exponent_at_the_reference(backend_name, opera
         for z1, z2 in ((0.0, 1e-4), (1e-3, 1.7e-3)):
             # The stage's scalars as either backend's march forms them, and the
             # backend's own exponent of them.
-            bundle = scalars(problem, z1, z2, helpers=backend.helpers)
+            bundle = scalars(problem, z1, z2, helpers=stage_helpers(backend))
             owner = getattr(backend, "workspace", None)
             full = (
                 backend._delta_phi(bundle) if owner is None else owner.delta_phi(bundle)

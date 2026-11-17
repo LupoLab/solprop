@@ -190,14 +190,13 @@ def plane_from_observation(
 
 
 class SessionFacts:
-    """A session's execution facts, as the service loop's records read a backend's.
+    """A session's execution facts, as the service loop's records read them.
 
-    The transitional output and record helpers (:mod:`solprop.driver.run`) read a
-    backend: its name, metadata, method history and in-flight state. A session that
-    owns its backend answers them through its protocol: its execution record, its
-    method-history size, and the in-place step a failure left in flight, which a
-    session that steps in place reports as ``in_flight`` (the native session's
-    low-storage replay, SEP 47 section 5.5); any other leaves none.
+    The output and record helpers (:mod:`solprop.driver.run`) read the run's name,
+    metadata, method history and in-flight state, which the session answers through
+    its protocol: its execution record, its method-history snapshot and size, and the
+    in-place step a failure left in flight (``in_flight``, a low-storage step's, SEP 47
+    section 5.5).
 
     Parameters
     ----------
@@ -210,9 +209,6 @@ class SessionFacts:
         self._session = session
         record = session.execution_record()
         self.name = str(record.get("backend", type(session).__name__))
-        self.reads_transverse_edge = bool(
-            getattr(session, "reads_transverse_edge", False)
-        )
 
     @property
     def in_flight(self) -> tuple[float, float] | None:  # numpydoc ignore=RT01
@@ -220,7 +216,7 @@ class SessionFacts:
 
         Where the step started and its length, m, as the session reports it.
         """
-        return getattr(self._session, "in_flight", None)
+        return self._session.in_flight
 
     def metadata(self) -> dict[str, object]:
         """Return the session's execution record.
@@ -509,9 +505,7 @@ def run_problem(
     )
     try:
         if march is not None and restoration is not None:
-            restoration = _restored(
-                march, restoration, getattr(session, "march_refusal", None)
-            )
+            restoration = _restored(march, restoration, session.march_refusal)
         serve(
             session,
             output,

@@ -44,6 +44,7 @@ from solprop.modes.quadrature import TransverseQuadrature
 from solprop.modes.slab import PlanarGrid
 from solprop.modes.wall import CoherentWall, taper_coupling_block
 from solprop.noise import NoiseRealisation
+from solprop.nonlinear.responses import MAX_N_POL
 from solprop.physdata import Gas
 from solprop.physdata.mixtures import Mixture
 from solprop.profiles import FromCallable, ZProfile
@@ -95,7 +96,6 @@ from solprop.translate.problem import (
     DEFAULT_COMPONENTS,
     DEFAULT_STRETCH,
     LOG_DBL_MAX,
-    MAX_N_POL,
     Flags,
     Initial,
     PropagationProblem,

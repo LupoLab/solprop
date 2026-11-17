@@ -611,9 +611,6 @@ class Backend(Protocol):
     ----------
     name : str
         The registry name, for example ``"numpy_ref"``.
-    reads_transverse_edge : bool
-        Whether it reads a free-space run's transverse edge (SEP 40 section 5.3), which
-        a run with a requested real-space collar needs.
 
     Examples
     --------
@@ -626,7 +623,6 @@ class Backend(Protocol):
     """
 
     name: str
-    reads_transverse_edge: bool
 
     @property
     def request(self) -> "RunRequest":  # numpydoc ignore=RT01

@@ -1430,11 +1430,6 @@ class NativeSession:
         """
         return self._abandoned
 
-    @property
-    def reads_transverse_edge(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the backend reads a transverse edge (SEP 40): always, natively."""
-        return NativeBackend.reads_transverse_edge
-
     def close(self) -> None:
         """Release the native session and its backend; idempotent."""
         if self._detach is not None:

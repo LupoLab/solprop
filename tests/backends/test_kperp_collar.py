@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 
 from bounds import EPS, gamma
+from builders import stage_helpers
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.boundaries import SpatialAbsorber
 from solprop.driver import Simulation, SimulationSettings
@@ -123,7 +124,7 @@ def test_the_rate_never_reaches_the_noise_phase(backend):
         try:
             # The stage's scalars as either backend's march forms them, and the
             # backend's own unitary phase of them.
-            bundle = scalars(problem, 0.0, 7e-4, helpers=selected.helpers)
+            bundle = scalars(problem, 0.0, 7e-4, helpers=stage_helpers(selected))
             owner = getattr(selected, "workspace", None)
             phase = (
                 selected._unitary_phase(bundle)

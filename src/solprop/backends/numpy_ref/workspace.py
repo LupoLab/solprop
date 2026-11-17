@@ -186,7 +186,6 @@ class NumpyWorkspace:
             grid=grid,
             modes=modes,
             profiles=profiles,
-            tdse=tdse_binding is not None,
             name=name,
         )
         self.stage_source = StageSource(

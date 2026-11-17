@@ -7,8 +7,8 @@
 Python constructs and validates the scientific problem
 (:class:`solprop.translate.problem.PropagationProblem`) and resolves every run policy
 into an immutable :class:`solprop.translate.run_request.RunRequest`. A backend prepares
-them once (:meth:`SessionBackend.prepare`, which every backend offers as
-``Backend.prepare``), and the prepared execution starts one
+them once (:meth:`solprop.backends.protocol.Backend.prepare`), and the prepared
+execution starts one
 :class:`RunSession` per trajectory. The session is the only owner of that trajectory's
 mutable numerical state: the field, the method's history, the controller and monitor,
 the counters and cursors, and the pending events. Python's session loop
@@ -51,7 +51,7 @@ import itertools
 import operator
 import threading
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from types import TracebackType
 from typing import Protocol, SupportsIndex, cast, runtime_checkable
 
@@ -72,7 +72,6 @@ from solprop.noise import NoiseRealisation
 from solprop.output.records import MarchSnapshot
 from solprop.stats import CATALOGUE, PLASMA_INTEGRATION_STATISTICS
 from solprop.translate.problem import PropagationProblem
-from solprop.translate.run_request import RunRequest
 
 __all__ = [
     "DEFAULT_DEADLINE",
@@ -80,7 +79,6 @@ __all__ = [
     "ExecutionOptions",
     "PreparedExecution",
     "RunSession",
-    "SessionBackend",
     "SessionError",
     "SessionLedger",
     "SessionState",
@@ -210,9 +208,6 @@ class ExecutionOptions:
         budget and the automatic choice: a measurement's or a test's control, not a user
         setting. A backend takes at most every node, and on the planar kind whole
         transverse rows.
-    backend_options : collections.abc.Mapping
-        Backend-specific execution options, passed through untouched (for example a
-        native CPU execution record).
 
     Raises
     ------
@@ -228,7 +223,6 @@ class ExecutionOptions:
 
     node_budget: int | SupportsIndex | None = None
     node_chunk: int | SupportsIndex | None = None
-    backend_options: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Hold an integral budget or chunk as an ``int``; refuse any other value.
@@ -630,6 +624,35 @@ class RunSession(Protocol):
         """Return the size a method-history snapshot would have, without making it."""
         ...
 
+    @property
+    def march_refusal(self) -> str | None:  # numpydoc ignore=RT01
+        """Why the start's method history could not be installed.
+
+        The reason, or ``None`` when it was installed or the start carried none.
+        """
+        ...
+
+    @property
+    def in_flight(self) -> tuple[float, float] | None:  # numpydoc ignore=RT01
+        """In-place step a failure left in flight, or ``None``.
+
+        Its start and length, m, while the state is neither of the step's ends: a
+        low-storage step overwrites the state in place (SEP 47 section 5.5).
+        """
+        ...
+
+    def failure_ticket(self) -> ExportTicket | None:
+        """Return a ticket for the committed state after a failure outside the session.
+
+        A service failure -- an output error, a signal during a commit -- leaves the
+        session's batch pending, and the ticket is bound to it; when none is pending,
+        the session issues a failed terminal batch at its committed state, so that the
+        state can be exported for a terminal checkpoint and nothing advances again.
+        ``None`` once the session closed, its state was poisoned or left in flight, or
+        before it issued a batch it could bind the ticket to.
+        """
+        ...
+
     def execution_record(self) -> Mapping[str, object]:
         """Return the session's execution facts for the run's execution record."""
         ...
@@ -752,33 +775,6 @@ class PreparedExecution(Protocol):
 
     def close(self) -> None:
         """Release the prepared resources; idempotent."""
-        ...
-
-
-class SessionBackend(Protocol):
-    """A backend that prepares executions (SEP 47 section 6.1).
-
-    Every :class:`~solprop.backends.protocol.Backend` is one: it is built for a problem
-    and a request (:func:`solprop.backends.registry.select`), and ``prepare`` binds the
-    problem and the request one run serves.
-    """
-
-    name: str
-
-    def prepare(
-        self,
-        problem: PropagationProblem,
-        request: RunRequest,
-    ) -> PreparedExecution:
-        """Lower a problem and request; refuse an unsupported one before allocating.
-
-        Parameters
-        ----------
-        problem : solprop.translate.problem.PropagationProblem
-            The translated problem.
-        request : solprop.translate.run_request.RunRequest
-            What the run asks of the backend.
-        """
         ...
 
 

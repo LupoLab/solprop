@@ -84,7 +84,6 @@ from solprop.translate.stage import (
     terms,
 )
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding
-from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
 from solprop.transverse_monitor import (
     TransverseEdge,
     _transverse_edge_bytes,  # pyright: ignore[reportPrivateUsage] - released together
@@ -187,9 +186,6 @@ class NativeBackend:
     solprop's registry admits them on this backend by this attribute and refuses
     them, by name, on a build without it.
     """
-    reads_transverse_edge = True
-    """The transverse edge is read from the native state where it lives (solprop SEP 40
-    section 5.3, SEP 44), by the native session at each read."""
 
     def __init__(
         self,
@@ -211,7 +207,7 @@ class NativeBackend:
         self._gated_plasma = _BENCHMARK_GATED.get()
         stepper = request.stepper
         _refuse_unsupported(problem, stepper)
-        _refuse_tdse(problem, request, tdse_binding)
+        _refuse_tdse(problem, tdse_binding)
         if self._gated_plasma:
             _refuse_gated_route(problem)
         validate_run(problem, request)
@@ -1167,26 +1163,10 @@ def host_rows_refusal(problem: PropagationProblem) -> str | None:
     )
 
 
-def _refuse_tdse(
-    problem: PropagationProblem, request: RunRequest, binding: TDSEBinding | None
-) -> None:
-    """Refuse a TDSE problem without its binding, or a binding without one.
-
-    And the legacy statistics the TDSE response does not define, by name, as the
-    reference refuses them, before anything is allocated.
-    """
+def _refuse_tdse(problem: PropagationProblem, binding: TDSEBinding | None) -> None:
+    """Refuse a TDSE problem without its binding, or a binding without one."""
     if (tdse_descriptor(problem.route) is None) != (binding is None):
         raise BackendError("TDSE problems require an explicit host response binding")
-    if binding is None:
-        return
-    stats = request.observation.stats
-    unavailable = TDSE_UNAVAILABLE_STATISTICS.intersection(
-        (*stats.names, *stats.periodic)
-    )
-    if unavailable:
-        raise BackendError(
-            f"TDSE does not define legacy statistics {sorted(unavailable)}"
-        )
 
 
 def _refuse_unknown_method(stepper: StepperSettings) -> None:
@@ -1258,25 +1238,6 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
         "native (device build)" if device else "native",
         delivered=frozenset() if device else frozenset({"scalar"}),
     )
-    flags = problem.flags
-    if problem.transform.n_pol * problem.shape[1] > 2:
-        raise BackendError(
-            "the polarisation components must belong to one of the two supported "
-            "representations; Kokkos supports at most two effective node "
-            "components, but the transform and state request "
-            f"{problem.transform.n_pol * problem.shape[1]}"
-        )
-    if (
-        flags.has_raman
-        and problem.transform.n_pol * problem.shape[1] != 1
-        and (
-            not problem.responses.raman_terms
-            or not all(term.tensor_capable for term in problem.responses.raman_terms)
-        )
-    ):
-        raise BackendError(
-            "vector Raman requires tensor-capable terms; found scalar_only"
-        )
 
 
 @dataclasses.dataclass(frozen=True)

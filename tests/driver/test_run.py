@@ -136,7 +136,6 @@ class NullBackend:
 
     name = "null"
 
-    reads_transverse_edge = False
     in_flight = None
     closed = False
 

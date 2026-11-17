@@ -35,7 +35,6 @@ statistic), and that structure is precisely what a fast backend exists to change
 ```python
 class Backend(Protocol):
     name: str
-    reads_transverse_edge: bool  # whether a requested real-space collar can run on it
 
     @property
     def request(self) -> RunRequest: ...  # the run request it was built for
@@ -50,8 +49,7 @@ class Backend(Protocol):
     def closed(self) -> bool: ...  # a failure can close a backend
 ```
 
-Each backend also sets the class attribute `helpers` (SEP 29). That is the whole
-protocol ([SEP 52](seps/archive/sep-0052-backend-shape.md) §5.1): a run goes through the backend's session
+That is the whole protocol ([SEP 52](seps/archive/sep-0052-backend-shape.md) §5.1): a run goes through the backend's session
 (`prepare(...).start(...)`, SEP 47 §5.2), which loads the start, schedules the run,
 reports its events and exports its fields, on both backends. Each backend has the same
 five parts behind it: a lowering, a workspace that holds the state and does every
@@ -85,9 +83,10 @@ driver writes it into the run's `RunMetadata.backend`, outside the resume key.
 
 **The two backends.** There are exactly two (ADR-077), `registry.BACKEND_NAMES`:
 `numpy_ref` and `native`, with no plugin rows and no other backend. `select` constructs
-the reference through `solprop.backends.numpy_ref.construct` and the native backend
-through `solprop_native.NativeBackend`, each called as
-`factory(problem, request, *, grid, modes, profiles, options)`, importing each only when
+the reference as `solprop.backends.numpy_ref.NumpyRefBackend` and the native backend
+as `solprop_native.NativeBackend`, each called as
+`factory(problem, request, *, grid, modes, profiles, tdse_binding, options)`, importing
+each only when
 it is selected. Before a native construction it runs SEP 46's first-use calibration;
 `SOLPROP_REQUIRE_DEVICE` reads the installed native build's `build_info()` (the
 reference is refused a required device by name); and `statistics_refusal` reads the
@@ -168,12 +167,11 @@ positions (`translate.stage.anchor`, `scalars` and `scalars_at`, through
 and `rate_weights`) and the Lagrange basis of an Adams formula on its actual nodes
 (`stepper.multistep.integrated_weights` and `lagrange_coefficients`). The shared code
 takes the implementation from the backend that runs the stage, never from a
-process-wide switch or from what is installed (SEP 29 section 6.6, R16): each
-backend sets the class attribute `helpers` (kernel schema 34), a
-`solprop._helpers.Helpers` record of the two operations, and the reference's session, its
-Adams march and its engines pass it down. `numpy_ref` takes
-`PLAIN`, the uncompiled Python forms, so the oracle never runs the compiled code it
-checks; `native` takes its own `NATIVE`, the C++ transcription of the Chebyshev rows
+process-wide switch or from what is installed (SEP 29 section 6.6, R16): a
+`solprop._helpers.Helpers` record of the two operations. `numpy_ref`'s Adams engine
+and tables pass `PLAIN`, the uncompiled Python forms, so the oracle never runs the
+compiled code it checks; `native` sets the class attribute `helpers` (kernel schema 34)
+to its own `NATIVE`, the C++ transcription of the Chebyshev rows
 (`native/include/solprop_native/march/chebyshev.hpp`), which its adapter still evaluates for
 the stage scalars at a plane. Both perform the same operations in the same order under
 strict arithmetic, so the rows a table keeps for its last positions are shared whichever
@@ -557,8 +555,7 @@ as one; its end-of-plane log is retired, and the boundary monitor's transverse e
 (SEP 40) judges the boundary instead. A backend whose own statistics do not apply this measure refuses the problem.
 
 **The transverse edge is read where the state lives** ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md), [SEP 44](seps/archive/sep-0044-native-edge-read.md)).
-A backend whose `reads_transverse_edge` is set hands the monitor's
-`TransverseEdge` an `_EdgeReading` from `NumpyWorkspace.edge_reading` at the edge's reads, at saved planes, and with a
+Every backend reads the edge: it hands the monitor's `TransverseEdge` an `_EdgeReading` from `NumpyWorkspace.edge_reading` at the edge's reads, at saved planes, and with a
 requested collar at every committed step. The reading is numbers and never the field: region sums, each
 column's energy and any collar's strip and current. The default forms them with `_HostEdgeReduction` on a host copy,
 the reference, which `numpy_ref` uses. `native` forms them on its own state against
@@ -573,15 +570,15 @@ a step is not made to land on a read: the edge is read at the last committed pos
 from which the next step, a replay's scheduled one or else the controller's proposal, would
 carry past the next read (`TransverseEdge.due`), so
 reads stay at most a spacing apart without shortening the steps between them (landing on
-each read cost 10-35 % more steps on the suite's line and planar cases). Every solprop
-backend sets it; `numpy_ref` keeps its state on the host and steps from there, under the
-session's ceiling. The native Adams march
+each read cost 10-35 % more steps on the suite's line and planar cases). `numpy_ref`
+keeps its state on the host and steps from there, under the session's ceiling. The native Adams march
 takes the next read and the spacing as the call's `read_at` and `read_spacing` bounds:
 an adaptive step is capped at the spacing, and the call returns at the committed
 position from which the next step would pass the read, so the host reads the state
 there. With a collar the host step is one, so the march returns at every committed step.
 A saved plane reads the edge unless the step that reached it already did (`TransverseEdge.wants_read`), as a second read at one position records nothing.
-A backend that does not set it reports `unwatched` and refuses a requested collar by name.
+An edge launched as unread (`TransverseEdge.launch(reads=False)`) reports `unwatched`; no
+backend launches one.
 
 **Under the native execution session the judgement is native too** ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.4).
 `NativeSession` hands no reading to a Python edge: `transverse::Edge`
@@ -1027,7 +1024,7 @@ builds, the system libm, with each element's own calls, on Arm and on devices
 the stage that formed them — the forward in pass 1 and the inverse in pass 7 — so
 recomputing evaluates `ΔΦ` exactly as often as tabulating does and the table buys residency
 and nothing else (a step within 2 %, measured on the retired `numba_cpu` backend). The flag's
-default is therefore `"auto"` and the choice is the backend's (`NumpyRefBackend.propagator_default`):
+default is therefore `"auto"` and the choice is the backend's:
 `numpy_ref` resolves it to `tabulate`, because it forms two complex exponentials per stage and
 the table saves five of them, and implements both paths; `native` resolves it to `recompute`,
 because both signs come from one `exp` and a `sincos` in the stage that consumes them

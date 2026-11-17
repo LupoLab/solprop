@@ -90,7 +90,7 @@ def test_a_runge_kutta_session_reports_no_method_history(start, executor):
     assert session.march_snapshot(plane.ticket) is None
     assert session.march_snapshot_nbytes() is None
     # The driver-facing answers the run layer reads, which every executor gives.
-    assert session.march_refusal is None  # pyright: ignore[reportAttributeAccessIssue]
+    assert session.march_refusal is None
     record = session.execution_record()
     assert isinstance(record, Mapping)
     assert record

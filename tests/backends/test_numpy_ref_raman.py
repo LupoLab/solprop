@@ -32,7 +32,7 @@ import numpy as np
 import pytest
 
 from bounds import assert_within, fft_bound
-from builders import load_reference
+from builders import load_reference, stage_helpers
 from former_raman import FORMER_H2, FORMER_N2, former_response
 from legacy_geometry import LEGACY_GRID
 from sessions.runs import run as session_run
@@ -53,7 +53,7 @@ from solprop.backends.numpy_ref.passes.transforms import (
 )
 from solprop.constants import AMAGAT, EPS0
 from solprop.driver import prop_gnlse
-from solprop.exceptions import BackendError, MaterialRangeWarning
+from solprop.exceptions import BackendError, MaterialRangeWarning, TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import transverse_quadrature
 from solprop.modes.capillary import MarcatiliMode
@@ -472,7 +472,7 @@ def test_the_kernel_is_transformed_once_per_change_of_the_decay_rates(
     problem, run_request, _, _ = raman_capillary(responses)
     backend = backend_class(problem, run_request)
     for z in (0.0, 0.05, 0.05, 0.15, 0.15):
-        rates = scalars(problem, 0.0, z, helpers=backend.helpers).raman_rates
+        rates = scalars(problem, 0.0, z, helpers=stage_helpers(backend)).raman_rates
         prepare_raman(backend, rates)
     transforms = raman_refreshes(backend)
     backend.close()
@@ -484,7 +484,7 @@ def test_a_problem_without_a_raman_kernel_has_no_spectrum(
 ):
     problem, run_request, _, _ = raman_capillary([KerrResponse(chi3=1.0e-51, thg=True)])
     backend = backend_class(problem, run_request)
-    rates = scalars(problem, 0.0, 0.0, helpers=backend.helpers).raman_rates
+    rates = scalars(problem, 0.0, 0.0, helpers=stage_helpers(backend)).raman_rates
     assert prepare_raman(backend, rates) is None
     backend.close()
 
@@ -925,23 +925,19 @@ def test_the_shock_term_conserves_photon_number_and_raman_costs_energy(
 # ------------------------------------------------------------------------- the refusals
 
 
-def test_a_vector_state_with_a_raman_kernel_is_refused_by_name(
+def test_a_raman_flag_without_a_kernel_is_refused_by_name(
     backend_class, soliton_problem, narrow_grid, substitute
 ):
-    """The vector form needs a tensor kernel that no backend can consume.
+    """A flag declared by hand that no Raman term backs is refused before allocation.
 
-    The translation layer refuses it first, so the flags have to be declared by hand
-    here -- which is exactly the case a backend's own refusal exists for.
+    Translation derives the flag from the terms, so it has to be declared by hand;
+    ``validate_run`` refuses it on every backend.
     """
     base, run_request = soliton_problem(narrow_grid, 1, save_planes=[0.01])
-    two = dataclasses.replace(base.transform, _n_pol=2, kind="modal")
     problem = substitute(
-        base,
-        flags=dataclasses.replace(base.flags, has_raman=True),
-        validate=False,
-        route=dataclasses.replace(base.route, transform=two),
+        base, flags=dataclasses.replace(base.flags, has_raman=True), validate=False
     )
-    with pytest.raises(BackendError, match="tensor-capable"):
+    with pytest.raises(TranslationError, match=r"flags\.has_raman is True"):
         backend_class(problem, run_request)
 
 

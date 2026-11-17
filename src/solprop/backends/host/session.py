@@ -244,12 +244,9 @@ class HostBackend(Protocol):
     ----------
     name : str
         The registry name.
-    reads_transverse_edge : bool
-        Whether a free-space run's transverse edge is read (SEP 40 section 5.3).
     """
 
     name: str
-    reads_transverse_edge: bool
 
     @property
     def request(self) -> RunRequest:  # numpydoc ignore=RT01
@@ -536,11 +533,6 @@ class HostSession:
         Whether closing the session closes the backend. A caller that reuses its
         backend for later runs (a runner, a scan) keeps it open.
 
-    Attributes
-    ----------
-    reads_transverse_edge : bool
-        The backend's (SEP 40 section 5.3), which the service loop reads.
-
     Raises
     ------
     solprop.exceptions.BackendError
@@ -576,7 +568,6 @@ class HostSession:
         self._request = request
         self._stepper = request.stepper
         self._name = backend.name
-        self.reads_transverse_edge = bool(backend.reads_transverse_edge)
         self._ledger = SessionLedger()
         # The run's plane plan (SEP 52 section 5.1): its planes, the first beyond the
         # start, whether the start's own plane is owed, and the step planes.
@@ -808,6 +799,18 @@ class HostSession:
         receipt = self._ledger.pending
         assert receipt is not None
         return ExportTicket(receipt, self._generation, self._here())
+
+    def failure_ticket(self) -> ExportTicket | None:
+        """Return a ticket for the committed state after a failure outside the session.
+
+        The reference's pending ticket already is one (:meth:`pending_ticket`).
+
+        Returns
+        -------
+        solprop.backends.events.ExportTicket or None
+            The ticket, or ``None`` when the session is closed or its state poisoned.
+        """
+        return self.pending_ticket()
 
     def request_snapshot(self) -> SnapshotReceipt:
         """Latch a snapshot for the next eligible accepted endpoint.
@@ -1450,7 +1453,7 @@ class HostSession:
                 noise=None if floor is None else np.asarray(floor),
                 clean_columns=workspace.clean_columns(edge),
                 steps=None if schedule is None else np.asarray(schedule.steps),
-                reads=self.reads_transverse_edge,
+                reads=True,
                 declared=_declared_discard(self._problem),
             )
             yield from self._drained()
