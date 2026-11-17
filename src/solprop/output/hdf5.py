@@ -1133,7 +1133,9 @@ class HDF5Output(PlaneStore):
 
         A finished handler opens its file read-only for the one read and closes it
         again, so a closed run stays readable without holding a handle; a suspended
-        writer keeps refusing, because its run still owns the file.
+        writer keeps refusing, because its run still owns the file. A file that no
+        longer holds the run as the handler closed it is refused, since its counts
+        and record would describe another file's rows.
         """
         if self._file is not None or not self._closed:
             yield self._require_file()
@@ -1144,7 +1146,27 @@ class HDF5Output(PlaneStore):
             msg = f"cannot read the output file {self._path}: {error}"
             raise OutputError(msg) from error
         with file:
+            self._refuse_changed(file)
             yield file
+
+    def _refuse_changed(self, file: h5py.File) -> None:
+        """Refuse a file another run replaced, or continued, since this one closed."""
+        metadata = self._require_metadata()
+        # A run's record keeps its creation time across a resume, so the time and the
+        # hash name the run, and the counts how much of it the file holds.
+        if (
+            str(file.attrs.get("created", "")) == metadata.created
+            and str(file.attrs.get("configuration_hash", ""))
+            == metadata.configuration_hash()
+            and (_stored_counts(file) if "z" in file else (0, 0, 0))
+            == (self._n_saved, self._history_length, self._step_stats_length)
+        ):
+            return
+        msg = (
+            f"{self._path} has changed since this handler closed: another run wrote "
+            "it or continued the run in it; open it again with open_file to read it"
+        )
+        raise OutputError(msg)
 
     def _write_metadata(self, metadata: RunMetadata) -> None:
         """Open the file if it is not open yet, and write the run record.

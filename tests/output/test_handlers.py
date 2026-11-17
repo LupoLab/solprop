@@ -653,6 +653,31 @@ def test_a_closed_file_handler_names_a_missing_file(grid, metadata, tmp_path):
         handler["field"]
 
 
+@pytest.mark.parametrize("change", ["another run", "a continuation"])
+def test_a_closed_file_handler_refuses_a_file_that_changed(
+    grid, metadata, schedule, tmp_path, change
+):
+    # A second run into the same path, or a continuation of the run there, leaves a
+    # file the closed handler's counts and record no longer describe.
+    path = tmp_path / "run.h5"
+    first = HDF5Output(path)
+    run_into(first, grid, metadata, 2)
+    first.close()
+    if change == "another run":
+        other = make_metadata(grid, schedule, configuration={"gamma": 0.22})
+        with HDF5Output(path) as second:
+            run_into(second, grid, other, 3)
+    else:
+        with HDF5Output(path, append=True) as second:
+            second.open(metadata)
+            second.save(make_plane(grid, 2))
+    with pytest.raises(OutputError, match=rf"{re.escape(str(path))} has changed"):
+        first["field"]
+    # The file itself reads, through a handler of its own.
+    with hdf5_module.open_file(path) as current:
+        assert current.n_saved == 3
+
+
 def test_a_suspended_file_handler_refuses_to_read(grid, metadata, tmp_path):
     handler = HDF5Output(tmp_path / "run.h5")
     run_into(handler, grid, metadata, 1)
