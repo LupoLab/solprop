@@ -169,7 +169,7 @@ def _plane(record: Mapping[str, object]) -> FieldPlane:
         cast("str", record["units"]),
         PlaneBasis(
             cast("str", basis["kind"]),  # pyright: ignore[reportArgumentType] - checked
-            cast("str", basis["identity"]),
+            cast("str | None", basis["identity"]),
             tuple(cast("Sequence[str]", basis["labels"])),
             None if space is None else _space_from_record(space),
         ),

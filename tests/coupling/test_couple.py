@@ -487,6 +487,12 @@ def cast_profiles(plane):
     return plane.profiles
 
 
+def identity_of(plane):
+    """Return a plane's basis identity, asserting it is known."""
+    assert plane.basis.identity is not None
+    return plane.basis.identity
+
+
 def test_a_declared_basis_change_relabels_without_changing_energy(port):
     """``same_basis`` relabels with a unitary change and refuses a non-unitary one."""
     grid = port.grid
@@ -503,7 +509,7 @@ def test_a_declared_basis_change_relabels_without_changing_energy(port):
     ) * np.exp(0.2j)
     model = CouplingModel(
         "same_basis",
-        basis_change=BasisChange(unitary, plane.basis.identity, target_identity),
+        basis_change=BasisChange(unitary, identity_of(plane), target_identity),
     )
     result = couple(plane, target, model=model)
     assert result.report.launched_energy == pytest.approx(
@@ -514,7 +520,7 @@ def test_a_declared_basis_change_relabels_without_changing_energy(port):
     )
     stretched = CouplingModel(
         "same_basis",
-        basis_change=BasisChange(1.01 * unitary, plane.basis.identity, target_identity),
+        basis_change=BasisChange(1.01 * unitary, identity_of(plane), target_identity),
     )
     with pytest.raises(CouplingError, match="does not preserve energy"):
         couple(plane, target, model=stretched)
@@ -548,7 +554,9 @@ def test_a_declared_change_per_bin_relabels_and_one_of_another_shape_is_refused(
     gauge = np.zeros((2, 2, grid.n_omega), dtype=complex)
     gauge[0, 0], gauge[1, 1] = phase, phase.conj()
 
-    def declared(matrix, source_identity=plane.basis.identity):
+    known = identity_of(plane)
+
+    def declared(matrix, source_identity=known):
         return CouplingModel(
             "same_basis",
             basis_change=BasisChange(matrix, source_identity, target_identity),
@@ -580,7 +588,7 @@ def test_a_declared_change_per_bin_relabels_and_one_of_another_shape_is_refused(
     columns[:, :4] = np.eye(4)
     relabel = CouplingModel(
         "same_basis",
-        basis_change=BasisChange(columns, beam.basis.identity, port.basis.identity),
+        basis_change=BasisChange(columns, identity_of(beam), port.basis.identity),
     )
     with pytest.raises(CouplingError, match="identity or dense, got admittance"):
         couple(beam, port, model=relabel)

@@ -82,14 +82,16 @@ _ELEMENT_INDICES = re.compile(r"(?:\[\d+\])+$")
 _ARRAY_PART = re.compile(r"\.__(?:ndarray|imaginary)__$")
 """The key of an array record's real or imaginary part, dropped from its stem."""
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 """Version of the saved-output layout; incremented when a stored field changes meaning.
 
 Schema 1 is the first released layout, 0.1.0's: the record types of this module, written
 by :class:`solprop.output.memory.MemoryOutput` and
 :class:`solprop.output.hdf5.HDF5Output` as ``docs/guide/results/output.md`` describes
 them. Schema 2 records ``DataPulse.spectral_phase``. Schema 3 stores a march snapshot's
-state and engine rows without the leading axis of one they kept before. A record that
+state and engine rows without the leading axis of one they kept before. Schema 4 records
+no basis identities in the plane reference: a plane's basis is derived when it is read.
+A record that
 declares any other version is refused by name (:class:`RunMetadata`): files written by
 an earlier release or by development versions of solprop before 0.1.0, which declared
 output schemas up to 28, are not read, and nor is a file from a later release. Read such
@@ -500,10 +502,11 @@ class RunMetadata(Displayed):
         run launched from one; ``parent``, that parent's provenance or ``None``;
         ``frame``, the frame integral of
         :func:`solprop.translate.coupling.frame_record`, or ``None`` for an operator
-        supplied without frame tables; and ``basis``, the route and the basis
-        identity (:func:`solprop.coupling.plane.basis_identity`) at each planned plane
-        ``z``, the launch plane first. :func:`solprop.coupling.plane.reference_at`
-        rebuilds any saved plane's reference from it. Derived numbers, so outside
+        supplied without frame tables. It holds no basis identity: a plane's basis is
+        derived when the plane is read
+        (:meth:`solprop.coupling.plane.PlaneBasis.of_run`).
+        :func:`solprop.coupling.plane.reference_at` rebuilds any saved plane's
+        reference from it. Derived numbers, so outside
         the hash; the inherited origin enters it through
         ``configuration["coupling"]``. Every run records one; ``None`` on a record
         built without it, as by hand, whose planes cannot be exchanged

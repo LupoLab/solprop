@@ -5,26 +5,21 @@
 """The record that says what produced a run, and whether it may be resumed.
 
 :func:`metadata_for` builds a run's :class:`solprop.output.metadata.RunMetadata`: its
-grid, modes, configuration, stepper, plane bases and recipe, whose configuration hash
-is the resume key. :class:`RecipeSource` is what the driver needs of the recipe that
-built a simulation: the record its output keeps. The manual pages are
+grid, modes, configuration, stepper, plane reference and recipe, whose configuration
+hash is the resume key. :class:`RecipeSource` is what the driver needs of the recipe
+that built a simulation: the record its output keeps. The manual pages are
 ``docs/guide/setup/running.md`` and ``docs/guide/results/resuming.md``.
 """
 
 import dataclasses
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
 import numpy as np
 
-from solprop.coupling import (
-    PlaneReference,
-    basis_identity,
-    modal_basis_identity,
-    space_record,
-)
+from solprop.coupling import PlaneReference
 from solprop.driver.material_output import material_record, processing_record
-from solprop.grid import FreeGrid, RadialGrid, TimeGrid
+from solprop.grid import TimeGrid
 from solprop.linear import Frame, frame_origin
 from solprop.modes.collection import transverse_measure
 from solprop.modes.material import JsonValue
@@ -297,9 +292,7 @@ def metadata_for(
     tdse_record = None if descriptor is None else dataclasses.asdict(descriptor)
     design = transverse_of(problem.route)
     return RunMetadata(
-        reference=_plane_reference_record(
-            problem, request, grid, record, frame=frame, modes=modes, modal=modal
-        ),
+        reference=_plane_reference_record(problem, grid, record, frame=frame),
         transverse=None if design is None else design.record(),
         grid=GridRecord.from_grid(grid),
         modes=tuple(ModeRecord.from_mode(mode) for mode in modes),
@@ -349,29 +342,23 @@ def _frame_follows_the_electronic_rule(
 
 def _plane_reference_record(
     problem: PropagationProblem,
-    request: RunRequest,
     grid: TimeGrid,
     configuration: Mapping[str, object],
     *,
     frame: Frame | None,
-    modes: Sequence[Mode],
-    modal: Mapping[str, JsonValue] | None,
 ) -> dict[str, object]:
     """Return the plane-reference record of a run (SEP 31).
 
+    A plane's basis is not recorded: it is derived when the plane is read
+    (:meth:`solprop.coupling.plane.PlaneBasis.of_run`), so a run that is never
+    coupled computes no basis identity.
+
     - ``configuration``: the run's configuration; a ``coupling`` entry supplies the
-      inherited origin and the parent's provenance, and a ``spatial_grid`` the
-      transverse basis.
+      inherited origin and the parent's provenance.
     - ``frame``: the run's frame, or ``None`` for the co-moving one.
-    - Returns: ``carrier``, ``origin``, ``parent``, ``frame`` and ``basis``, as
+    - Returns: ``carrier``, ``origin``, ``parent`` and ``frame``, as
       :attr:`solprop.output.metadata.RunMetadata.reference` documents them.
     """
-    # The co-moving frame keeps the carrier phase exactly when a harmonic term is
-    # present, and then measures its delay from zero frequency (`frame_origin`).
-    # `assemble` chose it from the declared responses and checked that choice against
-    # the compiled carrier, so reading the compiled one here records the same frame.
-    if frame is None:
-        frame = Frame.comoving(grid, thg=problem.responses.harmonic_carrier)
     coupling = configuration.get("coupling")
     origin: object = PlaneReference().record()
     parent: object = None
@@ -383,64 +370,22 @@ def _plane_reference_record(
         "carrier": float(grid.omega0),
         "origin": origin,
         "parent": parent,
-        "frame": frame_record(problem.linear, frame_origin(frame, grid.kind)),
-        "basis": _plane_bases(problem, request, grid, configuration, modes, modal),
+        "frame": _plane_frame(problem, grid, frame),
     }
 
 
-def _plane_bases(  # noqa: PLR0917 - called positionally
-    problem: PropagationProblem,
-    request: RunRequest,
-    grid: TimeGrid,
-    configuration: Mapping[str, object],
-    modes: Sequence[Mode],
-    modal: Mapping[str, JsonValue] | None,
-) -> dict[str, object]:
-    """Return a run's route and its basis identity at each planned plane.
+def _plane_frame(
+    problem: PropagationProblem, grid: TimeGrid, frame: Frame | None
+) -> dict[str, object] | None:
+    """Return the record of the frame a run's planes are referenced to (SEP 31).
 
-    A spatial basis is its transverse grid and a general one its checked reference,
-    the same at every plane; an ordinary mode set's basis is evaluated at each plane
-    (:func:`solprop.coupling.plane.modal_basis_identity`), because a guide may vary,
-    and once for a set whose every mode is ``z_constant``.
-
-    - ``configuration``: the run's configuration, carrying a spatial run's
-      ``spatial_grid``.
-    - Returns: ``route``, ``z`` (the launch plane first, then the save planes, m) and
-      ``identity`` (one digest per plane, ``None`` on a planar run).
+    - ``frame``: the run's frame, or ``None`` for the co-moving one.
+    - Returns: the record, or ``None`` for an operator supplied without frame tables.
     """
-    planes = [
-        float(problem.initial.z),
-        *map(float, request.observation.save_planes),
-    ]
-    geometry = problem.transform.geometry
-    identity: str | None
-    if geometry is not None:
-        route = {"radial": "radial", "free": "cartesian", "slab": "planar"}[
-            geometry.kind
-        ]
-        space = configuration.get("spatial_grid")
-        identity = (
-            basis_identity(cast("Literal['radial']", route), space_record(space))
-            if isinstance(space, RadialGrid | FreeGrid)
-            else None
-        )
-        identities = [identity] * len(planes)
-    elif modal is not None and modal.get("basis") == "general_modal":
-        route = "general_modal"
-        metric = cast("Mapping[str, JsonValue]", modal.get("metric") or {})
-        record = {
-            "channels": modal.get("channels"),
-            "tables": modal.get("tables"),
-            "guide": modal.get("guide"),
-            "metric": {"kind": metric.get("kind"), "gauge_id": metric.get("gauge_id")},
-        }
-        identities = [basis_identity("general_modal", record)] * len(planes)
-    elif all(mode.z_constant for mode in modes):
-        # A guide that is the same at every plane has one basis there: evaluated once,
-        # since a solved mode (a step-index fibre's) costs a mode solve per evaluation.
-        route = "modal"
-        identities = [modal_basis_identity(modes, grid, planes[0])] * len(planes)
-    else:
-        route = "modal"
-        identities = [modal_basis_identity(modes, grid, z) for z in planes]
-    return {"route": route, "z": planes, "identity": identities}
+    # The co-moving frame keeps the carrier phase exactly when a harmonic term is
+    # present, and then measures its delay from zero frequency (`frame_origin`).
+    # `assemble` chose it from the declared responses and checked that choice against
+    # the compiled carrier, so reading the compiled one here records the same frame.
+    if frame is None:
+        frame = Frame.comoving(grid, thg=problem.responses.harmonic_carrier)
+    return frame_record(problem.linear, frame_origin(frame, grid.kind))
