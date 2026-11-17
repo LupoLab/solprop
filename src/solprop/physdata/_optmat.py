@@ -195,15 +195,20 @@ def material_context(log: MaterialLog | None = None) -> Iterator[MaterialLog]:
         _LOGS.reset(token)
 
 
-_TRACKER_IDS: Final = re.compile(r"\s*\(TC-\d+(?:,\s*TC-\d+)*\)")
-"""A parenthesis holding only optmat's internal tracker ids, ``(TC-527, TC-688)``."""
+_TRACKER_IDS: Final = re.compile(
+    r"\s*\(TC-\d+(?:,\s*TC-\d+)*\)"  # a parenthesis of ids only: (TC-1, TC-2)
+    r"|[;,]\s*TC-\d+(?:,\s*TC-\d+)*(?=\))"  # ids closing one: (a stopgap, TC-1)
+    r"|(?<=\()TC-\d+(?:,\s*TC-\d+)*[;,]\s*"  # ids opening one: (TC-1; a source)
+)
+"""optmat's internal tracker ids, with the parenthesis or separator that holds them."""
 
 
 def optmat_text(message: Warning | str) -> str:
-    """Return the text of an optmat warning without its internal tracker ids.
+    """Return the text of an optmat warning or status reason without its tracker ids.
 
-    optmat cites its development tracker in some warnings, a reference a solprop
-    user cannot look up (issue #166); the rest of the text is kept as it is.
+    optmat cites its development tracker in some warnings and status reasons, a
+    reference a solprop user cannot look up (issue #166); the rest of the text is kept
+    as it is.
     """
     return _TRACKER_IDS.sub("", str(message))
 
@@ -256,10 +261,11 @@ def check_status(model: object, material: str) -> MaterialRecord:
     """
     entry = record(model)
     if entry.status in _FLAGGED:
+        reason = entry.status_reason.rstrip(".")
         warn_once(
             ("status", entry.digest),
             f"{material}: optmat's {entry.kind} model {entry.name} is {entry.status}"
-            f" ({entry.status_reason}); it is used as selected, and recorded",
+            f" ({reason}); it is used as selected, and recorded",
             MaterialStatusWarning,
         )
     return entry

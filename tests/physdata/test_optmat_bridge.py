@@ -5,9 +5,11 @@
 """The optmat bridge: records, units, the warning and error policy, lazy import."""
 
 import math
+import re
 import subprocess
 import sys
 import warnings
+from typing import cast
 
 import numpy as np
 import pytest
@@ -17,19 +19,24 @@ from optmat.gas.eos import equation_of_state
 from optmat.gas.models.registry import default_model, model
 from optmat.gas.transport import transport_model
 
+from solprop.capabilities import species
 from solprop.constants import BAR, C
 from solprop.exceptions import (
     MaterialError,
     MaterialRangeWarning,
     MaterialStatusWarning,
 )
-from solprop.physdata import _optmat
+from solprop.nonlinear.optmat_raman import gas_raman, raman_status
+from solprop.nonlinear.optmat_rates import OptmatRate
+from solprop.physdata import Gas, _optmat, glass, glass_names
+from solprop.physdata.glasses import OptmatGlass
 from solprop.physdata.selection import (
     DiluteScalingCheck,
     MaterialRecord,
     MaterialSelection,
     _choice,
 )
+from solprop.physdata.species import default_species
 
 ARGON = default_model("Ar")
 
@@ -267,11 +274,15 @@ def test_translated_converts_optmat_warnings(message, category, expected, match)
 @pytest.mark.parametrize(
     ("message", "expected"),
     [
-        ("capped at the Doppler widths (TC-688)", "capped at the Doppler widths"),
-        ("not modelled (TC-527, TC-688)", "not modelled"),
+        ("capped at the Doppler widths (TC-1)", "capped at the Doppler widths"),
+        ("not modelled (TC-1, TC-23)", "not modelled"),
         ("between (TC-1) words", "between words"),
+        ("test it against (TC-1, TC-2).", "test it against."),
+        ("(a declared stopgap, TC-1)", "(a declared stopgap)"),
+        ("(the guide; TC-1, TC-2)", "(the guide)"),
+        ("(TC-1, TC-2; a source)", "(a source)"),
         # Parentheses that are not tracker ids stay.
-        ("of H2 Q (100-300 K) (TC-688)", "of H2 Q (100-300 K)"),
+        ("of H2 Q (100-300 K) (TC-1)", "of H2 Q (100-300 K)"),
         ("the HOMO (HOMO-1) orbital", "the HOMO (HOMO-1) orbital"),
         ("no ids here", "no ids here"),
     ],
@@ -281,12 +292,68 @@ def test_optmat_text_drops_only_optmats_tracker_ids(message, expected):
     assert _optmat.optmat_text(ModelRangeWarning(message)) == expected
 
 
+_REGISTER_ID = re.compile(r"[A-Z]{2,}-\d+")
+"""What a development-register id looks like: ``TC-1``."""
+
+_CITED_NAMES = frozenset({"CIPM-2007", "TIE-29"})
+"""Published names that look like register ids: an air standard, a Schott note."""
+
+
+def _default_material_reasons() -> list[str]:
+    """Return the status reasons of every built-in gas's and glass's default models.
+
+    Each gas's linear, equation-of-state, transport and Kerr models, its recommended
+    ionisation rate (and the reason of each rate model the capabilities list), its
+    Raman response where optmat has one, and every glass.
+    """
+    records: list[MaterialRecord] = []
+    listed: list[str] = []
+    for gas in Gas:
+        records.extend(default_species(gas).material_records)
+        if gas is not Gas.Air:
+            records.extend(OptmatRate(gas.value, 800e-9).material_records)
+            listed.extend(form.reason for form in species(gas).ionisation)
+        status = raman_status(gas.value)
+        if status in {"validated", "provisional"}:
+            policy = "recommended" if status == "validated" else status
+            selection = MaterialSelection(raman=policy)
+            records.extend(
+                gas_raman(
+                    gas.value, selection=selection, density=2.5e25, wavelength=800e-9
+                ).material_records
+            )
+    for name in glass_names():
+        try:
+            material = glass(name)
+        except MaterialError:  # a uniaxial crystal names its ray
+            material = glass(name, axis="o")
+        records.extend(cast("OptmatGlass", material).material_records)
+    return [*(record.status_reason for record in records), *listed]
+
+
+def test_no_default_material_passes_on_optmats_tracker_ids():
+    # optmat's status reasons cite its development tracker, which a solprop user
+    # cannot look up (issue #166): neither a record nor a status warning keeps them.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with _optmat.material_context():
+            reasons = _default_material_reasons()
+    texts = [*reasons, *(str(one.message) for one in caught)]
+    # Non-vacuity: the defaults have reasons, and some warn on their status.
+    assert len(reasons) > 50
+    assert sum(bool(reason) for reason in reasons) > 20
+    assert any(issubclass(one.category, MaterialStatusWarning) for one in caught)
+    found = {match for text in texts for match in _REGISTER_ID.findall(text)}
+    assert found - _CITED_NAMES == set()
+    assert not [text for text in texts if ".)" in text]
+
+
 def test_translated_drops_optmats_tracker_ids():
     with (
         pytest.warns(MaterialRangeWarning) as raised,
         _optmat.translated(ARGON, "polarizability", material="Ar"),
     ):
-        warnings.warn("outside (TC-688)", ModelRangeWarning, stacklevel=1)
+        warnings.warn("outside (TC-1)", ModelRangeWarning, stacklevel=1)
     (message,) = [str(w.message) for w in raised]
     assert message.endswith("optmat: outside")
 
