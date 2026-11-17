@@ -6,8 +6,7 @@
 
 A problem class decides what is on screen, so nothing here asks which class it is
 drawing. The window holds a :class:`~solprop_gui.ui.document.SetupDocument` for the open
-setup and moves between the stages; each stage only shows. It is built beside the step
-window, which stays runnable until every route has moved here.
+setup and moves between the stages; each stage only shows.
 """
 
 import contextlib
@@ -1571,7 +1570,7 @@ _NOTICE_MS = 20_000
 
 
 def _class_of(model: RecipeModel) -> ProblemClass:
-    """Return a recipe's class: one of the four, or Other geometry's for its route.
+    """Return a recipe's class: a catalogued one, or Other geometry's for its route.
 
     Parameters
     ----------

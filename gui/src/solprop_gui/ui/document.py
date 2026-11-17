@@ -4,7 +4,7 @@
 
 """The open setup: its recipe, undo, checks and files, apart from any window.
 
-Both windows hold one of these. It owns the recipe model, the undo stack, the kernel's
+The window holds one of these. It owns the recipe model, the undo stack, the kernel's
 check and summary of each revision, the route's description, saving and the recovery
 copy, and says what happened through signals, so a window only shows the result.
 """

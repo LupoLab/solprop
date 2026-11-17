@@ -135,7 +135,7 @@ class MachineStore:
 
 
 class MachineRun:
-    """A run on a machine, as a run panel holds a worker's handle.
+    """A run on a machine, as a run panel follows it.
 
     Stop writes the run's stop file; Kill ends its job (``scancel``, or ``SIGTERM``),
     which still leaves a resumable file.
