@@ -12,7 +12,7 @@ import math
 import weakref
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, ClassVar, Literal, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -49,7 +49,6 @@ from solprop.modes.protocol import Mode
 from solprop.monitor import BoundaryMonitor
 from solprop.noise import NoiseRealisation
 from solprop.profiles import ZProfile
-from solprop.spatial import FAR_FIELD_STATISTICS
 from solprop.stats import StatsSpec
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
@@ -178,12 +177,6 @@ class NativeBackend:
 
     name = "native"
     helpers = NATIVE
-    far_field_statistics: ClassVar[frozenset[str]] = frozenset(FAR_FIELD_STATISTICS)
-    """The far-field statistics of solprop SEP 23 this build forms natively.
-
-    solprop's registry admits them on this backend by this attribute and refuses
-    them, by name, on a build without it.
-    """
 
     def __init__(
         self,
