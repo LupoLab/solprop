@@ -39,6 +39,7 @@ from solprop.output.records import (
     GridRecord,
     NoiseRecord,
     RecipeRecord,
+    RunOutcome,
     SavedPlane,
     StepHistory,
     StepLimits,
@@ -437,6 +438,51 @@ def test_open_file_reads_a_finished_run_through_the_protocol(grid, metadata, tmp
     assert stored.closed
     # Closed, it reads the file again for each read rather than holding it.
     assert np.array_equal(stored["field"], memory["field"])
+
+
+def _restamp_outcome(path, change):
+    """Rewrite a file's stored execution status as `change` edits its JSON."""
+    with h5py.File(path, "r+") as file:
+        record = json.loads(item(file, "meta", "outcome")[()].decode("utf-8"))
+        change(record)
+        del file["meta/outcome"]
+        file.create_dataset(
+            "meta/outcome", data=json.dumps(record), dtype=h5py.string_dtype()
+        )
+
+
+def test_an_outcome_from_another_build_reads_tolerantly(grid, metadata, tmp_path):
+    # As the record does: an entry this build lacks is dropped, an absent one defaults.
+    path = tmp_path / "run.h5"
+    with HDF5Output(path) as handler:
+        run_into(handler, grid, metadata, 1)
+        handler.record_outcome(RunOutcome("complete", 0.25, message="done"))
+
+    def change(record):
+        record["entry_of_a_later_build"] = 1
+        del record["message"]
+
+    _restamp_outcome(path, change)
+    with open_file(path) as stored:
+        assert stored.outcome == RunOutcome("complete", 0.25)
+
+
+def test_an_unreadable_outcome_is_refused_by_name_and_releases_the_file(
+    grid, metadata, tmp_path
+):
+    path = tmp_path / "run.h5"
+    with HDF5Output(path) as handler:
+        run_into(handler, grid, metadata, 1)
+        handler.record_outcome(RunOutcome("complete", 0.25))
+    _restamp_outcome(path, lambda record: record.pop("status"))
+    with pytest.raises(
+        OutputError, match=rf"{re.escape(str(path))}: .*outcome\.status"
+    ) as refused:
+        open_file(path)
+    # Closed by the refusal itself: the traceback still holds the half-built
+    # handler, so collecting it is not what releases the file.
+    assert refused.tb is not None
+    assert str(path) not in _open_paths()
 
 
 def test_open_file_refuses_what_is_not_a_run(tmp_path):

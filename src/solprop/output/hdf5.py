@@ -53,7 +53,7 @@ from solprop.output.records import (
     StoredField,
     TerminalCheckpoint,
 )
-from solprop.output.serialisation import JsonValue
+from solprop.output.serialisation import JsonValue, _rebuild
 from solprop.output.store import (
     FieldRetention,
     FieldsChoice,
@@ -101,15 +101,23 @@ _MARCH_KEY = "march_snapshot"
 def _read_outcome(file: h5py.File) -> RunOutcome | None:
     """Read the execution status a file records, if it records one.
 
+    Read as the record is (:func:`~solprop.output.serialisation._rebuild`), so that
+    another build's status reads: an entry this build lacks is dropped and an absent
+    one takes its default.
+
     - Returns: validated execution status; ``None`` when the file records none.
     """
     if _OUTCOME_KEY not in file:
         return None
-    stored = _dataset(file, _OUTCOME_KEY)[()]
-    text = stored.decode("utf-8") if isinstance(stored, bytes) else str(stored)
-    record = json.loads(text)
-    record["previous_executions"] = tuple(record["previous_executions"])
-    return RunOutcome(**record)
+    try:
+        record = json.loads(_text(_dataset(file, _OUTCOME_KEY)[()]))
+        if not isinstance(record, dict):
+            raise OutputError("it is not a JSON object")
+        record["previous_executions"] = tuple(record.get("previous_executions", ()))
+        return _rebuild(RunOutcome, record, ("outcome",))
+    except (ValueError, TypeError, OutputError) as error:
+        msg = f"{file.filename}: cannot read the execution status it records: {error}"
+        raise OutputError(msg) from error
 
 
 def _overwrite(group: h5py.Group, name: str, data: np.ndarray) -> None:
@@ -941,13 +949,13 @@ class HDF5Output(PlaneStore):
             raise OutputError(msg) from error
         try:
             self._metadata = _read_record(file)
-        except OutputError:
+            self._adopt_state(file)
+            self._annotations = _read_annotations(file)
+            self._recipe = read_recipe(file)
+        except BaseException:
             file.close()
             raise
         self._file = file
-        self._adopt_state(file)
-        self._annotations = _read_annotations(file)
-        self._recipe = read_recipe(file)
 
     def _open_file(self) -> h5py.File:
         """Open the file once: fresh, or read-write to continue what it holds."""
