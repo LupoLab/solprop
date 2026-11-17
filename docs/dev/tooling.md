@@ -275,9 +275,12 @@ the test lanes below are skipped. A push to `main` that merges a pull request ru
 further jobs when its tree is the pull request head's tree and CI passed on that head:
 the pull request was up to date with `main`, so its run tested exactly what was merged.
 A pull request that was behind `main` merges to a new tree, which runs in full. A change
-confined to the front end (`gui/`, with `docs/` and Markdown files) runs static, docs and
-**gui** only. Any other change, or a push whose base is unknown, runs every job except
-docs-tests, gui included, so a change to solprop is checked against the front end.
+confined to the front end (`gui/`, with `docs/` and Markdown files), or one that touches
+its chapter of the user guide (`docs/guide/front-end/`, which its tests read), runs
+static, docs, docs-tests and **gui** only. Any other change, `gui/pyproject.toml`
+included (solprop's release tests read it), or a push whose base is unknown, runs every
+job except docs-tests, gui included, so a change to solprop is checked against the front
+end.
 
 The long lanes run as **shards**, parallel jobs that each take whole modules:
 `SOLPROP_TEST_SHARD=i/n` keeps shard *i* of *n* (`tests/shards.py`, ADR-053). The shards
