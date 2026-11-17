@@ -138,7 +138,10 @@ is evaluated only on target bins inside the source lattice's own span: beyond it
 samples spaced $\Delta t$ repeats with period $2\pi/\Delta t$ and returns aliases of the
 record, not light. It is evaluated in bounded chunks of target bins, and its one
 acceleration is the identical lattice in an unchanged reference, where the map is the
-identity and the samples are copied (checked against the direct sum by the tests).
+identity: the samples inside the target's band are copied and those outside it zeroed,
+as the sum leaves them (checked against the direct sum by the tests). The band is not
+part of the lattice, so two grids with the same `dt` and window but different
+wavelength limits share a lattice and still differ in what they can hold.
 
 ```python
 from solprop.coupling import regrid

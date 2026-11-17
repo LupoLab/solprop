@@ -11,12 +11,16 @@ import pytest
 from numpy.testing import assert_allclose
 
 from solprop.coupling import (
+    CouplingModel,
     FieldPlane,
+    InputPort,
+    NodalField,
     PlaneBasis,
     PlaneGeometry,
     PlaneMetric,
     PlaneReference,
     basis_identity,
+    couple,
     regrid,
 )
 from solprop.exceptions import CouplingError
@@ -98,8 +102,11 @@ def test_an_identical_lattice_copies_and_the_direct_sum_agrees():
     plane = plane_of(gaussian(), envelope())
     copied, report = regrid(plane, plane.grid)
     assert report.method == "copy"
-    # The identity map is an exact structural contract.
-    assert np.array_equal(copied.samples, plane.samples)
+    # The identity map is an exact structural contract inside the band; the tails
+    # outside it are zeroed, as the direct sum leaves them.
+    band = plane.grid.active_mask
+    assert np.array_equal(copied.samples[..., band], plane.samples[..., band])
+    assert not np.any(copied.samples[..., ~band])
     direct, report = regrid(plane, plane.grid, method="direct")
     assert report.method == "direct"
     assert_allclose(
@@ -232,6 +239,66 @@ def test_an_occupied_band_the_target_cannot_hold_is_refused_or_reported():
     assert report.energy_out is not None and report.energy_in is not None
     assert report.energy_out < report.energy_in * (1 - 0.5 * report.band_loss)
     assert moved.energy() == report.energy_out
+
+
+def test_a_band_crop_on_the_same_lattice_removes_what_it_reports():
+    source = envelope(limits=(500e-9, 1.6e-6))
+    # Equal dt and window, a different short-wavelength limit: one lattice whose
+    # active band no longer holds the pulse's blue wing.
+    target = EnvelopeGrid.from_limits(
+        1.0, 800e-9, (850e-9, 1.6e-6), 1e-12, dt=source.dt
+    )
+    assert np.array_equal(target.omega, source.omega)
+    plane = plane_of(gaussian(), source)
+    moved, report = regrid(plane, target, crop_band=True)
+    assert report.method == "copy"
+    assert report.band_loss > 0.01
+    outside = ~target.active_mask
+    assert not np.any(moved.samples[..., outside])
+    # Inside the band the identity map is an exact structural contract.
+    assert np.array_equal(moved.samples[..., ~outside], plane.samples[..., ~outside])
+    # The ledger closes: the share reported outside the band is the energy that left,
+    # to the rounding of two sums over the same few hundred bins.
+    assert report.energy_in is not None and report.energy_out is not None
+    assert report.energy_out == pytest.approx(
+        report.energy_in * (1.0 - report.band_loss), rel=1e-12
+    )
+    port = InputPort(
+        "modal",
+        target,
+        plane.basis,
+        (1, 1, target.n_omega),
+        PlaneGeometry(0.0),
+        PlaneReference(),
+        PlaneMetric("identity"),
+    )
+    launch = couple(moved, port, model=CouplingModel("same_basis")).launch
+    assert np.array_equal(launch.samples, moved.samples)
+
+
+@pytest.mark.parametrize("magnetic", [False, True], ids=["electric", "both"])
+def test_a_band_crop_on_the_same_lattice_zeroes_the_nodal_fields_too(magnetic):
+    source = envelope(limits=(500e-9, 1.6e-6))
+    target = EnvelopeGrid.from_limits(
+        1.0, 800e-9, (850e-9, 1.6e-6), 1e-12, dt=source.dt
+    )
+    spectra = np.ones((2, 3, source.n_omega), complex)
+    nodal = NodalField(
+        np.zeros((2, 2)), np.ones(2), spectra, spectra.copy() if magnetic else None
+    )
+    plane = dataclasses.replace(plane_of(gaussian(), source), nodal=nodal)
+    moved, report = regrid(plane, target, crop_band=True)
+    assert report.method == "copy" and moved.nodal is not None
+    band = target.active_mask
+    fields = [moved.nodal.electric]
+    if magnetic:
+        assert moved.nodal.magnetic is not None
+        fields.append(moved.nodal.magnetic)
+    else:
+        assert moved.nodal.magnetic is None
+    for one in fields:
+        assert np.array_equal(one[..., band], spectra[..., band])
+        assert not np.any(one[..., ~band])
 
 
 def test_a_window_that_cannot_hold_the_record_is_refused_or_cut():
