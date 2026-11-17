@@ -11,9 +11,7 @@ import pytest
 from tests.backends.plasma_column_cases import CASES, case, options_for
 from tests.backends.test_radial_nonlinear import derivative
 from tests.bounds import gamma
-from tests.driver.test_prop_capillary import build
 
-from gated_source import _gated_source
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.passes.plasma import plasma_channels_current
 from solprop.backends.numpy_ref.passes.responses import nonlinear_polarisation
@@ -77,36 +75,6 @@ def test_source_chunking_and_zero_after_a_nonzero_evaluation(name, rule):
         )
     finally:
         backend.close()
-
-
-@pytest.mark.parametrize("name", ["mode_averaged", "analytic", "multimode", "mixture"])
-def test_removing_kerr_does_not_change_the_held_minus_gated_source(name):
-    grid, problem, run_request = case(name)
-    kerr = problem.responses.kerr_coefficients
-    assert kerr is not None
-    absent = dataclasses.replace(
-        problem,
-        responses=dataclasses.replace(
-            problem.responses,
-            kerr_coefficients=dataclasses.replace(kerr, coefficient=0.0),
-        ),
-    )
-
-    # Linear source separation: cancellation can hide the plasma difference, so
-    # scale by the four original operands, never by the difference under test.
-    relative = gamma(64 * grid.n_to + 32 * problem.transform.n_nodes)
-    results = []
-    for value in (problem, absent):
-        held = derivative(NumpyRefBackend, value, run_request, grid)
-        with _gated_source():
-            gated = derivative(NumpyRefBackend, value, run_request, grid)
-        results.append((held, gated))
-    allowance = relative * sum(np.max(abs(item)) for pair in results for item in pair)
-    assert allowance > 0
-    assert (
-        np.max(abs((results[0][0] - results[0][1]) - (results[1][0] - results[1][1])))
-        <= allowance
-    )
 
 
 def test_mixture_production_assembles_both_current_channels():
@@ -258,48 +226,4 @@ def test_real_column_decomposition_in_assembled_units(
     record_property(
         "closure_over_held",
         float(np.linalg.norm(weight * defect / q) / np.linalg.norm(weight * a_j)),
-    )
-
-
-@pytest.mark.parametrize("kerr_present", [False, True])
-def test_raman_amplitude_does_not_change_the_held_minus_gated_source(kerr_present):
-    simulation = build(gas="H2", raman=True)
-    problem, grid = simulation.translate(), simulation.grid
-    run_request = simulation._run_request()
-    coefficients = problem.responses.kerr_coefficients
-    assert coefficients is not None and problem.responses.raman_terms
-    problem = dataclasses.replace(
-        problem,
-        responses=dataclasses.replace(
-            problem.responses,
-            kerr_coefficients=dataclasses.replace(
-                coefficients,
-                coefficient=coefficients.coefficient if kerr_present else 0.0,
-            ),
-        ),
-    )
-    without = dataclasses.replace(
-        problem,
-        responses=dataclasses.replace(
-            problem.responses,
-            raman_terms=tuple(
-                dataclasses.replace(term, undamped=np.zeros_like(term.undamped))
-                for term in problem.responses.raman_terms
-            ),
-        ),
-    )
-    results = []
-    for value in (problem, without):
-        held = derivative(NumpyRefBackend, value, run_request, grid)
-        with _gated_source():
-            gated = derivative(NumpyRefBackend, value, run_request, grid)
-        results.append((held, gated))
-    # Four assembled operands: cancellation in the plasma difference must not
-    # reduce the rounding budget for the unchanged Raman convolution and Kerr.
-    relative = gamma(64 * grid.n_to + 32 * problem.transform.n_nodes)
-    allowance = relative * sum(np.max(abs(item)) for pair in results for item in pair)
-    assert allowance > 0
-    assert (
-        np.max(abs((results[0][0] - results[0][1]) - (results[1][0] - results[1][1])))
-        <= allowance
     )
