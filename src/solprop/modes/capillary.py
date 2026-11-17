@@ -1142,10 +1142,10 @@ class MarcatiliMode(GasFillMixin):
         ``W = (u s)^2 (1 - i v s)^2``, ``s = c/(omega a)``, so that
         ``dW/da = -(2 u^2 s^2/a)(1 - i v s)(1 - 2 i v s)`` and
         ``dn/dz = (sum_s gamma_s rho_s' - (dW/da) a')/(2 n)``; the reduced model
-        differentiates its own polynomial. The loss specification acts on the
-        imaginary part exactly as it does on the index: ``False`` drops it, a float
-        scales it, a measured curve ``alpha(omega)`` does not depend on ``z`` and
-        contributes nothing, where the no-gain clamp binds the imaginary part's slope
+        differentiates its own polynomial. The loss declaration acts on the
+        imaginary part exactly as it does on the index: ``loss_scale`` scales it (0
+        drops it), and an ``alpha`` replaces it and, having no ``z``, contributes
+        nothing; where the no-gain clamp binds the imaginary part's slope
         is zero, and where the evanescent floor binds the whole slope is zero, as
         :meth:`dneff_domega`'s is. What the coherent wall
         route reads is the real part, the slope of the power weight

@@ -1,0 +1,1 @@
+The printed form of `TabulatedMode` and `TabulatedHollowMode` now says what their loss is (`loss=model`, `loss=none`, ...) and names the fill as the other hollow modes do (`Ar 1 bar`, `evacuated`), and `IndexTable`'s printed form calls its interpolation rule `loss_interpolation=` rather than `loss=`.
