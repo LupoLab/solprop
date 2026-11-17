@@ -1114,8 +1114,9 @@ class RamanResponse:
     Parameters
     ----------
     models : tuple of RamanModel or None, optional
-        Legacy scalar-only kernels, in summation order. Supply exactly one nonempty
-        route: ``models`` or keyword-only ``tensor_terms``.
+        Scalar-only kernels, in summation order: the shorthand for
+        ``tensor_terms=(RamanTensorTerm(m, "scalar_only"), ...)``. Supply exactly one
+        of ``models`` and keyword-only ``tensor_terms``, nonempty.
     fraction : float or None, optional
         Overall Raman share in ``(0, 1]``, or ``None`` for absolute kernels.
     thg : bool, optional
@@ -1128,11 +1129,11 @@ class RamanResponse:
     Attributes
     ----------
     tensor_terms : tuple of RamanTensorTerm
-        The canonical immutable declaration. Supply this keyword or legacy
-        ``models``, exactly one nonempty route. Legacy models become scalar-only
-        terms. Each term retains its own dephasing and explicit tensor assignment.
+        The declaration: ``models=`` given to the constructor becomes one
+        scalar-only term per model. Each term retains its own dephasing and explicit
+        tensor assignment.
     models : tuple of RamanModel
-        Derived compatibility view of the declared models, in their original order.
+        The models of the terms, in declaration order.
     fraction : float or None, optional
         The Raman fraction ``f_R``, in ``(0, 1]``, multiplying the whole response, or
         ``None`` when the models are already absolute -- which every molecular model
@@ -1202,9 +1203,9 @@ class RamanResponse:
 
     @property
     def models(self) -> tuple[RamanModel, ...]:  # numpydoc ignore=RT01
-        """Scalar models in declaration order.
+        """The models of the terms, in declaration order.
 
-        A derived compatibility view; replace ``tensor_terms`` to update models.
+        Read from ``tensor_terms``; replace those to change the models.
         """
         return tuple(term.model for term in self.tensor_terms)
 
