@@ -445,9 +445,7 @@ class StepIndexProvider(Displayed):
             If the channels or material ownership are inconsistent.
         """
         ModeCollection(self.modes)
-        if any(
-            not ModeCollection(self.modes)._same_stepindex_guide(m) for m in self.modes
-        ):
+        if any(not self.modes[0].same_guide(mode) for mode in self.modes):
             raise ModeError("step-index channels must share one physical guide")
         if len(self.regions) != 2 or self.regions[-1].outer_radius is not None:
             raise ModeError("step-index provider requires core and unbounded cladding")

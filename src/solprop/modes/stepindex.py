@@ -22,7 +22,7 @@ from collections.abc import Mapping
 from dataclasses import KW_ONLY, dataclass, field, replace
 from functools import cache, cached_property
 from types import MappingProxyType
-from typing import Literal
+from typing import Literal, cast
 
 import numpy as np
 from jaxtyping import Complex, Float
@@ -646,10 +646,28 @@ def _cutoff(kind: _Kind, n: int, m: int, ratio: float) -> float:
 
 @dataclass(frozen=True, eq=False, kw_only=True)
 class _ApertureIndex(GlassIndex):
-    """Implement the numerical-aperture core index and its material slope."""
+    """Implement the numerical-aperture core index and its material slope.
+
+    Compared by the index it computes, its cladding law and aperture, so that two
+    channels built for one fibre share a guide (:meth:`StepIndexMode.same_guide`).
+    """
 
     cladding: GlassIndex | float
     numerical_aperture: float
+
+    def __eq__(self, other: object) -> bool:
+        """Compare two aperture indices by cladding law and numerical aperture."""
+        if type(other) is not type(self):
+            return NotImplemented
+        aperture = cast("_ApertureIndex", other)
+        return (self.cladding, self.numerical_aperture) == (
+            aperture.cladding,
+            aperture.numerical_aperture,
+        )
+
+    def __hash__(self) -> int:
+        """Hash as :meth:`__eq__` compares."""
+        return hash((self.cladding, self.numerical_aperture))
 
     def _index_and_derivative(
         self, omega: Float[np.ndarray, "*shape"]
@@ -942,6 +960,44 @@ class StepIndexMode(Displayed):
             parity=parity,
             profile_wavelength=profile_wavelength,
             alpha=alpha,
+        )
+
+    def same_guide(self, other: object) -> bool:
+        """Return whether another mode is a channel of this mode's physical guide.
+
+        Each channel bounds the cladding at its own outer radius, where its evanescent
+        field has decayed, so two channels of one fibre have different
+        ``dimlimits``; one guide means the same core radius and the same core and
+        cladding index laws. A set of such channels shares the widest of their discs
+        (:meth:`solprop.modes.collection.ModeCollection.dimlimits`).
+
+        Parameters
+        ----------
+        other : object
+            Another mode.
+
+        Returns
+        -------
+        bool
+            Whether `other` is a :class:`StepIndexMode` of the same radius, core and
+            cladding.
+
+        Examples
+        --------
+        >>> from solprop.modes import StepIndexMode
+        >>> one, two = (
+        ...     StepIndexMode(10e-6, core=1.46, cladding=1.44, m=m,
+        ...                   profile_wavelength=1e-6)
+        ...     for m in (1, 2)
+        ... )
+        >>> one.same_guide(two)
+        True
+        """
+        return (
+            isinstance(other, StepIndexMode)
+            and (self.radius is other.radius or self.radius == other.radius)
+            and self._core == other._core
+            and self._cladding == other._cladding
         )
 
     def _radius(self, z: float) -> float:

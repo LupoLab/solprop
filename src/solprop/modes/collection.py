@@ -11,26 +11,24 @@ coordinate has to be resolved and to what order, and expands a spatial set into 
 polarisation partners (:func:`polarisation_pairs`). :func:`transverse_measure` names
 the measure a set is integrated over.
 
-:func:`overlap` integrates adaptively (:func:`scipy.integrate.dblquad`, or
-:func:`scipy.integrate.quad` over x alone, per metre of y, for a slab set), and
-:func:`orthonormality` integrates the whole matrix in one pass, adaptively in the first
-coordinate with :func:`scipy.integrate.quad_vec` and on a rule refined to convergence
-in the second -- both deliberately *not* on the fixed rule whose orthonormality they
-check. They use the package normalisation (``docs/dev/conventions.md`` section 4),
+:func:`orthonormality` integrates the whole matrix in one pass, adaptively in the
+first coordinate with :func:`scipy.integrate.quad_vec` and on a rule refined to
+convergence in the second, and :func:`overlap` is its entry for one pair --
+deliberately *not* on the fixed rule whose orthonormality they check. They use the
+package normalisation (``docs/dev/conventions.md`` section 4),
 :math:`\langle m_1|m_2\rangle = \tfrac12\sqrt{\varepsilon_0/\mu_0}\int e_1^*\cdot
 e_2\,\mathrm{d}A / \sqrt{N_1N_2}`, so a mode overlaps itself by one. The manual page is
 ``docs/guide/waveguides/mode-sets.md``.
 """
 
 import logging
-import math
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import cast
 
 import numpy as np
 from jaxtyping import Float
-from scipy.integrate import dblquad, quad, quad_vec
+from scipy.integrate import quad_vec
 
 from solprop._display import Displayed
 from solprop.constants import EPS0, C
@@ -48,8 +46,8 @@ from solprop.modes.protocol import (
     Mode,
     TransverseMeasure,
 )
+from solprop.modes.quadrature import _shared_limits
 from solprop.modes.slab import SlabMode, SlabPolarisation
-from solprop.modes.stepindex import StepIndexMode
 from solprop.physdata.gases import Gas
 from solprop.physdata.glasses import GlassIndex
 from solprop.physdata.mixtures import Mixture
@@ -108,15 +106,16 @@ def overlap(first: Mode, second: Mode, z: float = 0.0) -> float:
     Returns
     -------
     float
-        ``1`` for a mode with itself and ``0`` for an orthogonal pair. Integrated
-        adaptively, not on the transform's fixed rule, so that the rule can be
-        checked against it.
+        ``1`` for a mode with itself and ``0`` for an orthogonal pair: the
+        off-diagonal entry of the pair's :func:`orthonormality`, to about ``1e-12``.
+        Integrated adaptively, not on the transform's fixed rule, so that the rule
+        can be checked against it.
 
     Raises
     ------
     ModeError
-        If the modes do not share a cross-section, or either has no closed-form
-        normalisation.
+        If the modes do not share a cross-section, either has no closed-form
+        normalisation, or the integration does not converge.
 
     Examples
     --------
@@ -126,62 +125,7 @@ def overlap(first: Mode, second: Mode, z: float = 0.0) -> float:
     >>> f"{overlap(mode, mode):.9f}"
     '1.000000000'
     """
-    limits = first.dimlimits(z)
-    if second.dimlimits(z) != limits:
-        raise ModeError(
-            f"an overlap needs one cross-section; {limits} and "
-            f"{second.dimlimits(z)} differ"
-        )
-    kind, lower, upper = limits
-    # The scale goes inside the integrands: the integrals are then of order one, so
-    # the adaptive rules' default absolute tolerance is small against them. Outside,
-    # an unnormalised integral (2e-13 for a 75 um capillary's HE1,24) lies below
-    # that tolerance and the rule stops unconverged, without a warning.
-    scale = (
-        0.5 * EPS0 * C / math.sqrt(_normalisation(first, z) * _normalisation(second, z))
-    )
-
-    def _integrand(inner: float, outer: float) -> float:
-        """Return the scaled product of the two profiles times the area element.
-
-        - ``inner``: the first cross-section coordinate, ``r`` or ``x`` in m. dblquad
-          passes the *inner* variable first, which is why the order looks reversed.
-        - ``outer``: the second coordinate, ``theta`` in rad or ``y`` in m.
-        """
-        point = np.array([[inner, outer]])
-        product = scale * float(np.sum(first.field(point, z) * second.field(point, z)))
-        return product * inner if kind == "polar" else product
-
-    if kind == "slab":
-        # Uniform in y: the overlap is per metre of y, over x alone, as N is.
-        return _overlap_along_x(first, second, (lower[0], upper[0]), z, scale)
-    # The outer variable is the second coordinate and the inner the first, with the
-    # polar Jacobian r folded into the integrand above.
-    value, _ = dblquad(_integrand, lower[1], upper[1], lower[0], upper[0])
-    return value
-
-
-def _overlap_along_x(
-    first: Mode, second: Mode, limits: tuple[float, float], z: float, scale: float
-) -> float:
-    """Return the scaled integral over x of two slab profiles' product, per metre of y.
-
-    - ``limits``: the gap's edges in m.
-    - ``z``: position along the waveguide, m.
-    - ``scale``: the overlap's normalisation, multiplied into the integrand.
-    - Returns: ``scale * int e_1 . e_2 dx``, integrated adaptively.
-    """
-
-    def along_x(x: float) -> float:
-        """Return the product of the two slab profiles at one x.
-
-        - ``x``: transverse coordinate in m.
-        """
-        point = np.array([[x, 0.0]])
-        return scale * float(np.sum(first.field(point, z) * second.field(point, z)))
-
-    value, _ = quad(along_x, limits[0], limits[1], limit=200)
-    return value
+    return float(orthonormality([first, second], z)[0, 1])
 
 
 def orthonormality(
@@ -232,14 +176,7 @@ def orthonormality(
     """
     if not modes:
         raise ModeError("orthonormality needs at least one mode")
-    limits = modes[0].dimlimits(z)
-    for mode in modes[1:]:
-        if mode.dimlimits(z) != limits:
-            raise ModeError(
-                f"an overlap needs one cross-section; {limits} and "
-                f"{mode.dimlimits(z)} differ"
-            )
-    kind, lower, upper = limits
+    kind, lower, upper = _shared_limits(modes, z)
     # Each mode's share of the overlap's normalisation, inside the integrand: the
     # integrals are then of order one, as the absolute tolerance assumes.
     scale = np.sqrt(0.5 * EPS0 * C / np.array([_normalisation(m, z) for m in modes]))
@@ -497,30 +434,13 @@ class ModeCollection(Displayed, Sequence[Mode]):
             raise ModeError("a mode collection needs at least one mode")
         transverse_measure(self.modes)
         self._validate_channels()
-        limits = self.modes[0].dimlimits(0.0)
-        for index, mode in enumerate(self.modes[1:], start=1):
-            if mode.dimlimits(0.0) != limits and not self._same_stepindex_guide(mode):
-                raise ModeError(
-                    f"every mode in a collection must share a cross-section; mode "
-                    f"{index} has {mode.dimlimits(0.0)} against {limits}"
-                )
+        limits = _shared_limits(self.modes, 0.0)
         logger.debug(
             "mode collection of %d modes, %s, azimuthal order %d, full rule %s",
             len(self.modes),
             limits[0],
             self.azimuthal_order,
             self.needs_full_rule,
-        )
-
-    def _same_stepindex_guide(self, mode: Mode) -> bool:
-        """Check whether a channel shares the first physical guide."""
-        first = self.modes[0]
-        return (
-            isinstance(first, StepIndexMode)
-            and isinstance(mode, StepIndexMode)
-            and (first.radius is mode.radius or first.radius == mode.radius)
-            and first._core == mode._core
-            and first._cladding == mode._cladding
         )
 
     def _validate_channels(self) -> None:
@@ -1042,21 +962,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         >>> ModeCollection([MarcatiliMode(125e-6, "He", 1.0)]).dimlimits()[0]
         'polar'
         """
-        limits = self.modes[0].dimlimits(z)
-        for index, mode in enumerate(self.modes[1:], start=1):
-            if mode.dimlimits(z) != limits and self._same_stepindex_guide(mode):
-                other = mode.dimlimits(z)
-                limits = (
-                    limits[0],
-                    limits[1],
-                    (max(limits[2][0], other[2][0]), limits[2][1]),
-                )
-            elif mode.dimlimits(z) != limits:
-                raise ModeError(
-                    f"the modes disagree about the cross-section at z = {z}: mode "
-                    f"{index} has {mode.dimlimits(z)} against {limits}"
-                )
-        return limits
+        return _shared_limits(self.modes, z)
 
     @property
     def azimuthal_order(self) -> int:  # numpydoc ignore=RT01

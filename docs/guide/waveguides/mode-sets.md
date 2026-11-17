@@ -99,14 +99,16 @@ quarter turn from $x$ towards $y$ and so exchanges the two Cartesian components:
 pair runs $x$ then $y$ for $\mathrm{HE}_{1m}$. A transverse mode is carried once —
 $\mathrm{TE}_{0m}$ and $\mathrm{TM}_{0m}$ are different modes, not two states of one.
 
-{func}`~solprop.modes.collection.overlap` integrates adaptively with
-{func}`scipy.integrate.dblquad`, deliberately *not* on the fixed rule, so that the rule's
-orthonormality can be checked against something independent rather than against itself.
 {meth}`~solprop.modes.collection.ModeCollection.orthonormality`, which a simulation runs
-on every mode set it is given, integrates the whole matrix in one pass instead: adaptively
-in $r$ (or $x$) with {func}`scipy.integrate.quad_vec`, every mode evaluated once per
-point, and on a rule in $\theta$ (or $y$) doubled until no entry changes by more than
-$10^{-12}$. It agrees with `overlap` pair by pair and takes seconds for 48 modes.
+on every mode set it is given, integrates adaptively, deliberately *not* on the fixed
+rule, so that the rule's orthonormality is checked against something independent rather
+than against itself. It integrates the whole matrix in one pass: adaptively in $r$ (or
+$x$) with {func}`scipy.integrate.quad_vec`, every mode evaluated once per point, and on
+a rule in $\theta$ (or $y$) doubled until no entry changes by more than $10^{-12}$; it
+refuses a set on which either coordinate does not converge, and takes seconds for 48
+modes. {func}`~solprop.modes.collection.overlap` is its entry for one pair. Step-index
+channels of one fibre each bound the cladding at their own outer radius; their set is
+integrated over the widest of those discs.
 
 ## A capillary worked example
 
