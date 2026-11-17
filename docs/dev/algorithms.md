@@ -591,9 +591,10 @@ mask stays a 0/1 mask, idempotent, and never had the problem.
 **Where.** {py:func}`solprop.boundaries.collar_rate`,
 {py:func}`solprop.boundaries.temporal_collar_rate` and
 {py:func}`solprop.boundaries.absorber`;
-{py:func}`solprop.boundaries.nonlinear_absorber_term` and
-{py:func}`solprop.boundaries.split_step_factor` are the two temporal applications;
-{py:func}`solprop.boundaries.stable_step`; {py:func}`solprop.boundaries.apply_band_mask`.
+{py:func}`solprop.boundaries.nonlinear_absorber_term` is the in-stage temporal
+application, and the reference backend's `apply_temporal_rate`
+(`backends/numpy_ref/passes/stepping.py`) the split-step one;
+{py:func}`solprop.boundaries.stable_step`.
 
 **Why a rate.** A per-step multiplicative window gives total absorption $W^n$ for however
 many steps the controller happened to take, so the physics becomes a function of `rtol`:

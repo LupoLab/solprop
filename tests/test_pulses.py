@@ -15,6 +15,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from numpy.testing import assert_allclose
 
+from runtime_types import unchecked
 from solprop import _process, fourier
 from solprop.constants import C
 from solprop.exceptions import PulseError
@@ -1349,3 +1350,55 @@ def test_a_large_launch_is_the_same_on_any_number_of_threads(
     budget = dataclasses.replace(_process.thread_budget(), threads=workers)
     monkeypatch.setattr(_process, "thread_budget", lambda: budget)
     assert pulse.build(grid, space, medium=medium).tobytes() == serial.tobytes()
+
+
+@pytest.mark.parametrize("m", [1.5, True, 2.0], ids=["fraction", "bool", "float"])
+def test_a_gaussian_pulse_refuses_an_order_that_is_not_an_integer(m):
+    # The same integer check as SpatialPulse's, naming the same parameter. The test
+    # session's annotation check would refuse a float before the constructor's own
+    # check runs; a user's session has none, so the constructor is called past it.
+    pulse = object.__new__(GaussianPulse)
+    with pytest.raises(PulseError, match="m must be a super-Gaussian order") as caught:
+        unchecked(GaussianPulse.__init__)(
+            pulse, wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, m=m
+        )
+    assert caught.value.parameter == "m"
+
+
+def test_a_pulse_sum_refuses_a_beam_as_a_temporal_member():
+    from solprop.pulses import PulseSum, SpatialPulse, SpatialPulseSum  # noqa: PLC0415
+
+    temporal = GaussianPulse(wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY)
+    beam = SpatialPulse(temporal, 1e-3)
+    for member in (beam, SpatialPulseSum((beam,))):
+        with pytest.raises(PulseError, match="member 1 of the PulseSum is a"):
+            PulseSum((temporal, member))  # pyright: ignore[reportArgumentType]
+
+
+def test_a_spatial_pulse_refuses_a_beam_as_its_temporal_pulse():
+    from solprop.pulses import SpatialPulse, SpatialPulseSum  # noqa: PLC0415
+
+    temporal = GaussianPulse(wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY)
+    beam = SpatialPulse(temporal, 1e-3)
+    for inner in (beam, SpatialPulseSum((beam,))):
+        with pytest.raises(PulseError, match="temporal pulse") as caught:
+            SpatialPulse(inner, 1e-3)  # pyright: ignore[reportArgumentType]
+        assert caught.value.parameter == "temporal"
+
+
+def test_a_planar_launch_is_described_by_its_real_keywords():
+    # The keyword is waist, as PlanarPulse(temporal, waist, waist_x=...) takes it.
+    from solprop.modes import PlanarGrid, SlabMode  # noqa: PLC0415
+    from solprop.pulses import PlanarPulse, SpatialPulse  # noqa: PLC0415
+    from solprop.spatial import SpatialMedium  # noqa: PLC0415
+
+    temporal = GaussianPulse(wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY)
+    planar = PlanarPulse(temporal, 400e-6, waist_x=40e-6)
+    assert "waist=400 um" in repr(planar)
+    assert "waist_y" not in repr(planar)
+    grid = EnvelopeGrid.from_limits(1e-4, WAVELENGTH, LIMITS, TRANGE)
+    space = PlanarGrid([SlabMode(63.5e-6, "Ar", 1.0)], 1e-3, 8)
+    with pytest.raises(PulseError, match=r"PlanarPulse\(temporal, waist, waist_x="):
+        SpatialPulse(temporal, 400e-6).build(
+            grid, space, medium=SpatialMedium("Ar", 1.0)
+        )

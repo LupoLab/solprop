@@ -869,7 +869,7 @@ def _general_prefactor(
     Re n_eff)`` with the crop scale folded in. On the general route that factor is
     replaced by the record's own ``source_frequency_factor`` and by the reciprocal
     normalisation inside Q, so what is left for this row is the crop scale
-    ``n_t / n_to`` -- which stays here, where it has always been, because the
+    ``n_t / n_to`` -- which stays here, as on every other route, because the
     projection is frequency dependent and folding a grid convention into it would
     hide it. It is real, and it is exactly zero outside the
     active band as every other route's prefactor is, so no unnormalised
@@ -938,8 +938,7 @@ def _stepper_settings(
 
     SEP 14 phase 1 relaxes the step limits on the diagonal-flow routes only. A coupled
     flow's error lies outside the embedded estimate, and a reject-free run cannot undo
-    an overshoot, so both keep the version-16 policy: the interval cap and no start-up
-    rule.
+    an overshoot, so both keep the interval cap and no start-up rule.
 
     - ``interval_cap``: the interval cap asked for; ``None`` takes the route's. The
       Adams march caps by its method's own ``interval_cap`` (ADR-037), which is what
@@ -1450,7 +1449,7 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
         grids=build_masks(
             grid,
             polarisation_taper=polarisation_taper,
-            region=getattr(settings.controller, "region", "active"),
+            region=settings.controller.region,
             harmonic_carrier=compiled.harmonic_carrier,
         ),
         linear=linear,

@@ -17,9 +17,10 @@ reported by the driver, never from inside compiled kernels (``docs/dev/architect
 - **Scan reporters**: :class:`ScanReporter` and :class:`NullScanReporter`.
 - **Helpers**: :class:`StopFlag`, :func:`is_interactive` and :func:`format_duration`.
 
-The module imports nothing from the rest of the package: ``import solprop`` imports it
-eagerly, and reaching the seam would pull NumPy and jaxtyping into that import and take
-it from 0.06 s to 0.6 s, past the budget ``tests/test_package.py`` holds. Hence
+The module imports nothing from the rest of the package but the exception hierarchy,
+which imports nothing itself: ``import solprop`` imports it eagerly, and reaching the
+seam would pull NumPy and jaxtyping into that import and take it from 0.06 s to 0.6 s,
+past the budget ``tests/test_package.py`` holds. Hence
 :class:`PlaneSummary`, the structural half of
 :class:`solprop.backends.protocol.StepSummary` that a reporter reads.
 """
@@ -39,6 +40,8 @@ from datetime import timedelta
 from pathlib import Path
 from statistics import median
 from typing import Any, Literal, Protocol, runtime_checkable
+
+from solprop.exceptions import DriverError
 
 __all__ = [
     "BAR_FORMAT",
@@ -158,7 +161,7 @@ def configure_logging(
             handler.close()
     handler: logging.Handler
     handler = (
-        logging.FileHandler(file)
+        logging.FileHandler(file, encoding="utf-8")
         if file is not None
         else logging.StreamHandler(sys.stderr)
     )
@@ -182,7 +185,7 @@ def set_default_progress(choice: ProgressChoice) -> None:
 
     Raises
     ------
-    ValueError
+    solprop.exceptions.DriverError
         If the choice is not one of the four names.
 
     Examples
@@ -194,7 +197,8 @@ def set_default_progress(choice: ProgressChoice) -> None:
     >>> set_default_progress("auto")
     """
     if choice not in _PROGRESS_CHOICES:
-        raise ValueError(f"progress must be one of {_PROGRESS_CHOICES}, got {choice!r}")
+        msg = f"progress must be one of {_PROGRESS_CHOICES}, got {choice!r}"
+        raise DriverError(msg)
     _DEFAULTS["progress"] = choice
 
 
@@ -1126,7 +1130,7 @@ class BarReporter(LogReporter):
 
     Raises
     ------
-    ValueError
+    solprop.exceptions.DriverError
         If the period is not positive and finite.
 
     Examples
@@ -1158,10 +1162,11 @@ class BarReporter(LogReporter):
         echo: bool = True,
     ) -> None:
         if not (math.isfinite(period) and period > 0.0):
-            raise ValueError(
+            msg = (
                 "a progress bar redraws every `period` seconds, which must be "
                 f"positive and finite; got {period!r}"
             )
+            raise DriverError(msg)
         super().__init__(
             period=period,
             logger=logger,
@@ -1383,7 +1388,7 @@ def default_reporter(
 
     Raises
     ------
-    ValueError
+    solprop.exceptions.DriverError
         If the choice is not one of the four names.
 
     Examples
@@ -1395,16 +1400,18 @@ def default_reporter(
     """
     selected = default_progress() if choice is None else choice
     if selected not in _PROGRESS_CHOICES:
-        raise ValueError(
+        msg = (
             f"progress must be one of {_PROGRESS_CHOICES} or a reporter, got "
             f"{selected!r}"
         )
+        raise DriverError(msg)
     if selected == "auto":
         selected = "bar" if is_interactive(stream) else "log"
         if selected == "bar" and not _tqdm_available():
-            # An environment that has solprop but not its newest dependency: say so
-            # once and log lines rather than fail the run. An explicit "bar" still
-            # raises, because it was asked for.
+            # Deliberately kept: an environment without tqdm, a required dependency
+            # (a broken install, or a kernel started from another environment), is
+            # told once and logs lines rather than failing the run. An explicit "bar"
+            # still raises, because it was asked for.
             warnings.warn(
                 f"{TQDM_MISSING}; logging progress lines instead",
                 RuntimeWarning,

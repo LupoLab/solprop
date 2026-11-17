@@ -1672,3 +1672,37 @@ def test_validate_pairs_the_plane_measure_with_spatial_geometry(
             ),
             radial_request,
         )
+
+
+def test_every_table_along_z_is_named_by_its_own_leaf():
+    """A span refusal names the leaf a reader can find on the problem.
+
+    A pressure gradient carries both the operator and the prefactor as parameter
+    expansions, so every optional weight table is present.
+    """
+    from solprop.translate.problem import _walk_tables  # noqa: PLC0415
+
+    grid = FieldGrid.from_limits(0.2, 800e-9, (200e-9, 4e-6), 100e-15)
+    mode = MarcatiliMode(
+        125e-6, "He", PressureGradient.two_point(0.2, 2.0, 0.2), cladding=1.45
+    )
+    start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-6).build(grid)
+    problem, _ = assemble(
+        grid,
+        mode,
+        [KerrResponse(chi3=2.2e-52, thg=True)],
+        start,
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[0.1, 0.2],
+        dz_max=0.01,
+        dz_init=1e-4,
+    )
+    assert problem.responses.prefactor_expansion is not None
+    for name, table in _walk_tables(problem):
+        found: object = problem
+        for part in name.split("."):
+            attribute, _, index = part.partition("[")
+            found = getattr(found, attribute)
+            if index:
+                found = found[int(index.rstrip("]"))]  # pyright: ignore[reportIndexIssue]
+        assert found is table, name

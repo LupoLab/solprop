@@ -275,8 +275,8 @@ class KerrCoefficients:
         Whether the polarisation is the real part of the result. True on a field grid.
     density : PiecewiseChebyshev or None
         The scale multiplying coefficient at each z. A composite uses sum(rho*gamma3)
-        with coefficient=eps0; a single response retains its original coefficient and
-        density operation order. None is used only by the standalone leaf builder.
+        with coefficient=eps0; a single response keeps its own coefficient, scaled by
+        its density. None is used only by the standalone leaf builder.
 
     Examples
     --------
@@ -677,6 +677,11 @@ def dispersive_terms(
             "dispersive Kerr responses must agree on their evaluator; one run takes "
             "one electronic law"
         )
+    if len({one.thg for one in responses}) != 1:
+        raise TranslationError(
+            "dispersive Kerr responses must agree on thg; one leaf carries one cubic "
+            "sector"
+        )
     envelope = grid.kind == "envelope"
     if envelope and first.thg and grid.ffac < THG_OVERSAMPLING:
         msg = (
@@ -1030,11 +1035,11 @@ class RamanCoefficients:
     """The delayed response of a Raman-active medium, as a fused pass needs it.
 
     A leaf of section 5 of the kernel contract, like :class:`PlasmaCoefficients`, so
-    its fields are not rows of that document. It replaces the three separate rows of
-    contract version 2 and carries the drive form, which they had nowhere to put:
-    which real quadratic form drives the coherence on a *field* grid -- ``E^2``, or the
-    cycle-averaged ``|E_a|^2/2`` -- is a property of the problem, and the translation
-    layer checks that the declared Kerr and Raman responses agree about it.
+    its fields are not rows of that document. It carries the kernels, the decay rates
+    and the drive form together: which real quadratic form drives the coherence on a
+    *field* grid -- ``E^2``, or the cycle-averaged ``|E_a|^2/2`` -- is a property of
+    the problem, and the translation layer checks that the declared Kerr and Raman
+    responses agree about it.
 
     Attributes
     ----------
@@ -1975,7 +1980,7 @@ class CompiledResponses:
 
     @property
     def plasma_coefficients(self) -> PlasmaChannel | None:  # numpydoc ignore=RT01
-        """One-channel leaf for the original specialised execution path.
+        """One-channel leaf, for the reference's one-channel plasma pass.
 
         The sole channel, or ``None`` when there are zero or multiple channels.
         """
@@ -1983,7 +1988,7 @@ class CompiledResponses:
 
     @property
     def raman_coefficients(self) -> RamanCoefficients | None:  # numpydoc ignore=RT01
-        """One-component Raman leaf for its original arithmetic.
+        """One-component Raman leaf, for the reference's one-component Raman pass.
 
         The sole component, or ``None`` when there are zero or multiple terms.
         """
@@ -2304,7 +2309,7 @@ def _log_prefactor(compiled: "CompiledResponses", z_max: float) -> None:
 
     The swing is measured from the representation rather than from the physics, so the
     report is free: it is the largest departure from the entrance value over the run,
-    which is exactly what freezing the prefactor at ``z = 0`` used to discard.
+    which is what freezing the prefactor at ``z = 0`` would discard.
 
     - ``z_max``: length the run covers, m.
     """
@@ -2405,7 +2410,7 @@ class _ResponseBuild:
 def _material_profiles(
     modes: tuple[Mode, ...], mixture: Mixture | None, profile: ZProfile
 ) -> _MaterialProfiles:
-    """Resolve component profiles while preserving the original single path.
+    """Resolve component profiles, keeping one material on its single path.
 
     - ``mixture``: ordered component populations; None keeps the single-material path.
     - ``profile``: total density path in m^-3, or the single material's nonlinear
@@ -2797,10 +2802,11 @@ def compile_responses(
 ) -> CompiledResponses:
     """Compile a set of responses into the nonlinear term a kernel executes.
 
-    The instantaneous Kerr response, the delayed Raman response and the plasma response
-    are compiled. A response of any other kind raises rather than being silently
-    dropped, because a problem that reaches a backend missing a term it declared would
-    run, converge and be wrong.
+    The instantaneous and the dispersive Kerr responses, the delayed Raman response and
+    the field and envelope plasma responses are compiled, one of each kind per
+    population (species label). A response of any other kind raises rather than being
+    silently dropped, because a problem that reaches a backend missing a term it
+    declared would run, converge and be wrong.
 
     A plasma response carries its own ionisation rate, so it supplies the run's
     `ionisation_table`; without one there is no rate table.
@@ -2808,8 +2814,8 @@ def compile_responses(
     A Raman response fills the three rows of section 5 from
     :func:`solprop.translate.raman.build_raman_kernels` and
     :func:`solprop.translate.raman.decay_rate_profiles`, and adds ``raman_drive`` to
-    `response_order` after ``kerr``. It is refused on a two-component problem, which
-    would need a tensor kernel no backend can consume, and on a
+    `response_order` after ``kerr``. On a two-component problem it is refused unless
+    every term declares a tensor contraction (``tensor_capable``), and on a
     field grid it is refused without a Kerr response beside it, or beside one that
     disagrees about ``thg``: the drive form is a property of the problem and reaches a
     backend through the Kerr row.
@@ -2817,10 +2823,12 @@ def compile_responses(
     Parameters
     ----------
     responses : sequence
-        The declared responses: at most one
-        :class:`solprop.nonlinear.responses.KerrResponse`, at most one
+        The declared responses, each defined on this grid: per population, at most one
+        electronic response (a :class:`solprop.nonlinear.responses.KerrResponse` or a
+        :class:`solprop.nonlinear.responses.DispersiveKerrResponse`), at most one
         :class:`solprop.nonlinear.raman.RamanResponse` and at most one
-        :class:`solprop.nonlinear.responses.PlasmaResponse`, each defined on this grid.
+        :class:`solprop.nonlinear.responses.PlasmaResponse` or
+        :class:`solprop.nonlinear.envelope_plasma.EnvelopePlasmaResponse`.
     grid : solprop.grid.TimeGrid
         The grid; decides the cubic form and supplies the crop scale.
     mode : Mode or sequence of Mode

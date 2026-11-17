@@ -17,7 +17,8 @@ arrays and no physics object:
 - :func:`kernel_spectrum` transforms a sampled kernel with the convolution's ``dt``
   folded in (an internal-convention array: never pass it to ``to_optics``);
   :class:`RamanKernels` (:func:`build_raman_kernels`) holds the undamped rows and
-  memoises the damped spectrum whenever a rate changes.
+  memoises the damped spectrum whenever a rate changes, the reference the backend
+  tests compare the backends' own damping and transform against.
 
 A pump-probe delay entering the taper collar samples an attenuated response even
 inside the window. The design, the doubled grid, the taper's bias and the per-density
@@ -398,14 +399,14 @@ class RamanKernels:
     """The Raman kernel of one response on one grid, with its spectrum cached on rho.
 
     The two arrays the kernel contract needs, kept together with the transform that
-    joins them. :attr:`undamped` is sampled once; :meth:`spectrum` applies the
-    dephasings, transforms, and remembers the result, so that a propagation at constant
-    density transforms the kernel once and one along a pressure gradient transforms it
-    once per density the stepper asks for.
+    joins them. A run carries only :attr:`undamped` (``raman_kernel_undamped``), and
+    each backend damps and transforms it itself; :meth:`spectrum` applies the
+    dephasings and transforms here, and is the reference arithmetic the backend tests
+    compare the backends' damped spectra against.
 
-    Only the most recent density is remembered, which is the right behaviour here: a
-    gradient presents a new density at every stage, so a growing cache would hold
-    thousands of spectra and hit none of them.
+    Only the most recent density is remembered: a gradient presents a new density at
+    every stage, so a growing cache would hold thousands of spectra and hit none of
+    them.
 
     Build one with :func:`build_raman_kernels`.
 
@@ -636,7 +637,7 @@ def decay_rate_profiles(
 
 
 def build_raman_kernels(response: RamanResponse, grid: TimeGrid) -> RamanKernels:
-    """Sample a Raman response onto a grid, ready for a backend to convolve with.
+    """Sample a Raman response onto a grid, with the damped spectrum tests compare to.
 
     Parameters
     ----------

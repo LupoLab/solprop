@@ -158,11 +158,15 @@ the operator.
 
 ## The flags are derived, never declared
 
-The eight booleans of section 1 — `single_mode`, `has_raman`, `constant_linop` and the rest —
-are computed by {meth}`solprop.translate.problem.Flags.from_content` from the arrays that
-were actually built. A caller cannot set them, so a flag cannot disagree with what it
-describes, which is the failure mode a kernel specialising on them would find hardest to
-debug.
+The eight booleans and two counts of section 1 — `single_mode`, `has_raman`,
+`constant_linop` and the rest — are computed by
+{meth}`solprop.translate.problem.Flags.from_content` from the arrays that were actually
+built: by `assemble`, and again wherever solprop changes a problem's content (the
+driver's noise redraw), so a flag does not disagree with what it describes, which is the
+failure mode a kernel specialising on them would find hardest to debug. The problem's
+constructor and `validate` do not re-derive them, so a problem built by hand keeps them
+consistent itself; the backend tests use that to declare content no compiler builds yet,
+which a backend must refuse.
 
 ## Validation is the backend's defence
 

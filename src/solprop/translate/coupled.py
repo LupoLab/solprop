@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The metric and the coupled-flow representation of a general modal guide.
+"""The flux metric and coupled flow of a general modal guide, capillary wall or taper.
 
 Two leaves of section 3 of ``docs/dev/kernel-contract.md``. Units are SI throughout
 (``omega`` in rad/s, ``z_edges`` in m, generators in 1/m, metric entries, errors and

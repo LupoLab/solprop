@@ -83,12 +83,12 @@ def spatial_kind(geometry: SpatialGeometry) -> SpatialKind:
 
 @dataclass(frozen=True, eq=False)
 class TDSESource:
-    """The TDSE response: the modal route's reference-only extension (SEP 26).
+    """The TDSE response: the modal route's extension (SEP 26).
 
-    Only the NumPy reference executes it; every other backend refuses it by name
-    (``docs/dev/kernel-contract.md`` section 6). The atomic binding itself is an
-    execution resource, owned by the driver and handed to the backend explicitly; this
-    record is its immutable scientific identity.
+    The NumPy reference and the native CPU build execute it; a native device build
+    refuses it by name (``docs/dev/kernel-contract.md`` section 6). The atomic binding
+    itself is an execution resource, owned by the driver and handed to the backend
+    explicitly; this record is its immutable scientific identity.
 
     Attributes
     ----------
@@ -154,7 +154,8 @@ class ModalRoute:
     transform : solprop.translate.modal.Transform
         Synthesis and projection, of kind ``"mode_averaged"`` or ``"modal"``.
     tdse : TDSESource or None, optional
-        The TDSE response, the reference's alone; ``None`` without one.
+        The TDSE response, executed by the reference and the native CPU build;
+        ``None`` without one.
 
     Raises
     ------

@@ -271,8 +271,6 @@ def radial_operators(
         dispersion,
         lambda model, z: longitudinal_root(_material(model, z))[:2],
         paths,
-        kinks,
-        span,
         n_pol,
     )
     if len(paths) > MAX_PARAMETERS:
@@ -478,17 +476,17 @@ class _AdiabaticAmplitude:
     - ``roots``: ``(model, z) -> (k_z, propagating)``, each ``(n_r, n_omega)``, from the
       one root evaluation the operator uses
       (:func:`solprop.translate.spatial.longitudinal_root`).
-    - ``kinks``: breakpoints of those paths, m.
-    - ``span``: end of the tabulated range, m.
+
+    The adiabatic certificate (:mod:`solprop.adiabatic`) has already refused a path
+    crossing a cutoff, and every sample the builders take is checked again by
+    :meth:`_admitted`, so the paths' breakpoints need no check of their own.
     """
 
-    def __init__(  # noqa: PLR0917 - called positionally
+    def __init__(
         self,
         dispersion: SpatialDispersion,
         roots: Callable[[SpatialDispersion, float], tuple[np.ndarray, np.ndarray]],
         paths: Mapping[str, ZProfile],
-        kinks: np.ndarray,
-        span: float,
         n_pol: int,
     ) -> None:
         self._dispersion = dispersion
@@ -498,9 +496,6 @@ class _AdiabaticAmplitude:
         root, propagating = roots(dispersion, 0.0)
         self._mask = propagating & dispersion.grid.active_mask[None, :]
         self._reference = np.where(self._mask, np.real(root), 1.0)
-        # The adiabatic certificate (solprop.adiabatic) has already refused a path
-        # crossing a cutoff; every sample the builders take is checked again below.
-        del kinks, span
 
     def _admitted(self, model: SpatialDispersion, z: float) -> np.ndarray:
         """Return ``Re k_z`` where the term applies, refusing a cutoff crossing.

@@ -108,7 +108,7 @@ represent it as a rate:
 - {py:func}`solprop.boundaries.nonlinear_absorber_term` — add `−α(t)E(t)/2` inside every
   stage, with its own modal transform, masked to the active band. **This is the default on
   the modal routes** (capillary, waveguide and GNLSE).
-- {py:func}`solprop.boundaries.apply_split_step` — multiply the modal time-domain field by
+- the split step — the backend multiplies the modal time-domain field by
   `exp(−α(t)h/2)` once per accepted step, followed by the hard band limit, because the
   product in time spreads content into every bin (on a field grid, chiefly the DC). One
   batched transform pair per step; the factors telescope, so the total is a rate
@@ -345,7 +345,7 @@ strength stays what it is for that reason: weak light that walks far needs its m
    import numpy as np
    import matplotlib.pyplot as plt
 
-   from solprop.boundaries import absorber, split_step_factor
+   from solprop.boundaries import absorber
    from solprop.grid import FieldGrid
 
    grid = FieldGrid.from_limits(1.5, 800e-9, (90e-9, 4e-6), 400e-15)
@@ -379,7 +379,7 @@ strength stays what it is for that reason: weak light that walks far needs its m
    distance = 0.3
    counts = np.array([1, 2, 5, 10, 20, 50, 100, 200, 500, 1000])
    as_a_rate = [
-       float(np.prod(split_step_factor(np.array([alpha]), distance / n) ** n))
+       float(np.exp(-0.5 * alpha * distance / n) ** n)
        for n in counts
    ]
    ax_steps.loglog(counts, as_a_rate, "o-", label="as a rate")
@@ -873,7 +873,7 @@ $2F(2M) - F(M)$ for a window factor $M$, as SEP 21 did.
 
 ```{code-block} python
 import numpy as np
-from solprop.boundaries import absorber, apply_band_mask, apply_split_step, warn_walkoff
+from solprop.boundaries import absorber, warn_walkoff
 from solprop.grid import FieldGrid
 
 grid = FieldGrid.from_limits(1.5, 800e-9, (90e-9, 4e-6), 400e-15)
@@ -883,10 +883,10 @@ boundary = absorber(grid, boundary_N=20)
 # is applied to the time-domain field once per accepted step: the `split_step` scheme,
 # which `absorber_scheme="split_step"` selects (the default applies it in every stage).
 field = np.ones((1, 1, grid.n_t))
-field = apply_split_step(field, boundary.temporal_rate, step=0.01)
+field = field * np.exp(-0.5 * boundary.temporal_rate * 0.01)
 
 # The hard band limit is a separate, idempotent multiply on the spectrum.
-spectrum = apply_band_mask(np.ones((1, 1, grid.n_omega)), boundary.band_mask)
+spectrum = np.where(boundary.band_mask, np.ones((1, 1, grid.n_omega)), 0.0)
 
 # And the run says so if the absorber is too weak for the walk-off it will produce.
 warn_walkoff(grid, group_delay_span=1e-12)   # SolpropWarning: widen trange, or ...

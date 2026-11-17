@@ -208,8 +208,10 @@ class Flags:
     """Static booleans a kernel specialises on at compile time.
 
     Section 1 of the kernel contract. They are *derived* from the content of the problem
-    by :meth:`from_content` and never passed in, so a flag cannot disagree with the
-    arrays it describes.
+    by :meth:`from_content`, which every solprop path that builds or changes a problem
+    calls, so that a flag agrees with the arrays it describes. The problem's
+    constructor and :func:`validate` do not re-derive them: a problem built by hand
+    keeps them consistent itself.
 
     Attributes
     ----------
@@ -1980,7 +1982,7 @@ def _walk_arrays(
                     if run is not None:
                         visit("stepper", run.stepper)
                         visit("stats_spec", run.stats)
-                    # The route's leaves keep the names they have always had:
+                    # The route's leaves are named without the route prefix:
                     # ``transform.synthesis``, ``flux.base.kperp_sq``.
                     visit(prefix, getattr(node, entry.name))
                     continue
@@ -2011,7 +2013,7 @@ def _walk_tables(problem: PropagationProblem) -> list[tuple[str, PiecewiseChebys
         ("responses.density", problem.responses.density),
         ("responses.prefactor", problem.responses.prefactor),
         (
-            "responses.prefactor.weights",
+            "responses.prefactor_expansion.weights",
             None
             if problem.responses.prefactor_expansion is None
             else problem.responses.prefactor_expansion.weights,
