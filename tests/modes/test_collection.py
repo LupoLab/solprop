@@ -9,7 +9,8 @@ import numpy as np
 import pytest
 
 from solprop.exceptions import ModeError
-from solprop.modes import ChannelLabel, CrossSection, MarcatiliMode
+from solprop.modes import ChannelLabel, CrossSection, MarcatiliMode, RectMode
+from solprop.modes import collection as collection_module
 from solprop.modes.collection import (
     ModeCollection,
     orthonormality,
@@ -17,6 +18,7 @@ from solprop.modes.collection import (
     polarisation_pairs,
 )
 from solprop.modes.quadrature import mode_matrix, transverse_quadrature
+from solprop.modes.slab import SlabMode
 from solprop.profiles import Linear
 
 RADIUS = 125e-6
@@ -127,6 +129,70 @@ def test_orthonormality_is_symmetric():
 def test_orthonormality_needs_a_mode():
     with pytest.raises(ModeError, match="at least one mode"):
         orthonormality([])
+
+
+def pairwise(modes):
+    """Return the overlap matrix pair by pair, the adaptive reference."""
+    return np.array([[overlap(first, second) for second in modes] for first in modes])
+
+
+def test_the_matrix_is_the_pairwise_overlaps_on_a_polar_set():
+    """HE, EH-like hybrid, TE and TM modes and a polarisation partner: the one-pass
+    matrix against dblquad pair by pair, to dblquad's accuracy on these products."""
+    modes = [
+        *he_modes(2),
+        MarcatiliMode(RADIUS, "He", 1.0, n=2),
+        MarcatiliMode(RADIUS, "He", 1.0, kind="TE", n=0),
+        MarcatiliMode(RADIUS, "He", 1.0, kind="TM", n=0),
+    ]
+    partner = modes[0].orthogonal_polarisation
+    assert partner is not None
+    modes.append(partner)
+    np.testing.assert_allclose(
+        orthonormality(modes), pairwise(modes), rtol=0.0, atol=1e-9
+    )
+
+
+def test_the_matrix_is_the_pairwise_overlaps_on_cartesian_and_slab_sets():
+    """A rectangular guide's two polarisations of four orders, and four slab orders."""
+    rectangular = [
+        RectMode(50e-6, 12.5e-6, n=n, m=m, polarisation=polarisation)
+        for n, m in ((1, 1), (1, 2), (2, 1), (2, 2))
+        for polarisation in ("x", "y")
+    ]
+    slab = [SlabMode(63.5e-6, order=order) for order in range(1, 5)]
+    for modes in (rectangular, slab):
+        np.testing.assert_allclose(
+            orthonormality(modes), pairwise(modes), rtol=0.0, atol=1e-9
+        )
+
+
+@pytest.mark.medium
+def test_many_high_order_capillary_modes_are_orthonormal():
+    """24 HE1m in two polarisations of a 75 um capillary, in seconds.
+
+    Pair by pair this took minutes, and before the normalisation went inside the
+    integrand it refused the set: its HE1,24 integral, 2e-13 in SI units, was below
+    dblquad's absolute tolerance. 1e-12 is the matrix's own tolerance.
+    """
+    modes = ModeCollection.with_polarisations(
+        [MarcatiliMode(75e-6, "Ar", 3.0, m=m) for m in range(1, 25)]
+    )
+    np.testing.assert_allclose(modes.orthonormality(), np.eye(48), rtol=0.0, atol=1e-12)
+
+
+def test_orthonormality_needs_one_cross_section():
+    with pytest.raises(ModeError, match="needs one cross-section"):
+        orthonormality(
+            [MarcatiliMode(RADIUS, "He", 1.0), MarcatiliMode(2 * RADIUS, "He", 1.0)]
+        )
+
+
+def test_orthonormality_refuses_a_rule_that_does_not_converge(monkeypatch):
+    """With no room to double the azimuthal rule, there is no convergence to show."""
+    monkeypatch.setattr(collection_module, "_MAX_NODES", 16)
+    with pytest.raises(ModeError, match="did not converge"):
+        orthonormality(he_modes(2))
 
 
 def test_the_fixed_rule_reproduces_the_adaptive_overlaps():
