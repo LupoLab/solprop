@@ -7,6 +7,7 @@ from typing import cast
 
 import numpy as np
 import pytest
+from scipy.integrate import quad_vec
 
 from solprop.exceptions import ModeError
 from solprop.modes import ChannelLabel, CrossSection, MarcatiliMode, RectMode
@@ -170,6 +171,17 @@ def test_orthonormality_refuses_a_rule_that_does_not_converge(monkeypatch):
     """With no room to double the azimuthal rule, there is no convergence to show."""
     monkeypatch.setattr(collection_module, "_MAX_NODES", 16)
     with pytest.raises(ModeError, match="did not converge"):
+        orthonormality(he_modes(2))
+
+
+def test_orthonormality_refuses_an_unconverged_first_coordinate(monkeypatch):
+    """quad_vec stops short silently; the matrix it returns is refused, not used."""
+
+    def starved(*args, **kwargs):
+        return quad_vec(*args, **kwargs, limit=1)
+
+    monkeypatch.setattr(collection_module, "quad_vec", starved)
+    with pytest.raises(ModeError, match="first coordinate"):
         orthonormality(he_modes(2))
 
 

@@ -199,8 +199,8 @@ def orthonormality(
     ------
     ModeError
         If `modes` is empty, the modes do not share a cross-section or one has no
-        closed-form normalisation, or the rule in the second coordinate does not
-        converge.
+        closed-form normalisation, or the integration does not converge in either
+        coordinate.
 
     Notes
     -----
@@ -301,9 +301,22 @@ def _gram(
         matrix = np.einsum("mpc,p,npc->mn", fields, weights, fields)
         return matrix * first if polar else matrix
 
-    matrix, _ = quad_vec(
-        _line, limits[0], limits[1], epsabs=_GRAM_TOLERANCE, epsrel=0.0, norm="max"
+    matrix, _, info = quad_vec(
+        _line,
+        limits[0],
+        limits[1],
+        epsabs=_GRAM_TOLERANCE,
+        epsrel=0.0,
+        norm="max",
+        full_output=True,
     )
+    # quad_vec returns its best estimate without a warning when it stops short of the
+    # tolerance; an unconverged matrix must not pass as an orthonormality check.
+    if info.status != 0:
+        raise ModeError(
+            "the overlaps of this mode set did not converge in the first coordinate: "
+            f"{info.message}"
+        )
     matrix = np.asarray(matrix)
     # Symmetric by construction up to the summation order; made exactly so.
     return 0.5 * (matrix + matrix.T)
