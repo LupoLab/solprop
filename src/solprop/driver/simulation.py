@@ -2030,9 +2030,11 @@ class Simulation(Displayed):
                     interpolated_resume=state is not None and _interpolated(state),
                 )
             except StopRequested as error:
-                failure = error
-                # A stop raised by another run's flag is that run's to catch.
+                # A stop raised by another run's flag is that run's to catch. The run's
+                # own stop is not an error, so a resource that fails to close after it
+                # is raised rather than noted on a stop nobody sees.
                 if error.flag is not stop:
+                    failure = error
                     raise
             except BaseException as error:
                 failure = error

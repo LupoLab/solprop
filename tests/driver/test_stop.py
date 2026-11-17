@@ -19,6 +19,7 @@ from solprop.exceptions import StopRequested
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
 from solprop.output.hdf5 import open_file
+from solprop.output.memory import MemoryOutput
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep, RungeKutta
 
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
@@ -330,3 +331,21 @@ def test_another_run_s_flag_is_not_caught_here(build_simulation, tmp_path):
         _scheduled(build_simulation).run(
             tmp_path / "foreign.h5", progress=Foreign(), stop=threading.Event()
         )
+
+
+class FailingClose(MemoryOutput):
+    """An in-memory output whose close fails, after it has finished the run."""
+
+    def close(self):
+        super().close()
+        raise OSError("deliberate close failure")
+
+
+def test_a_close_failure_after_the_run_s_own_stop_is_raised(build_simulation):
+    # The stop is not an error, but a resource the stopped run could not close is.
+    flag = threading.Event()
+    flag.set()
+    output = FailingClose()
+    with pytest.raises(OSError, match="deliberate close failure"):
+        _scheduled(build_simulation).run(output, stop=flag)
+    assert output.n_saved == 1
