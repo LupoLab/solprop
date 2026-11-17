@@ -379,19 +379,20 @@ def select(
     ('numpy_ref', 'native')
     """
     name = resolve_name(name)
-    if name == "native":
-        # SEP 46: a first native workspace in an allocation with no profile row runs
-        # the quick calibration first, before the extension's runtime starts if it
-        # has not yet.
-        from solprop.calibration.first_use import ensure  # noqa: PLC0415 - layer above
-
-        ensure()
     _check_required_device(name)
     refusal = statistics_refusal(name, request.observation.stats.names)
     if refusal is not None:
         raise BackendError(refusal)
-    if name == "native" and not _native_installed():
-        raise ImportError(_NATIVE_INSTALL)
+    if name == "native":
+        if not _native_installed():
+            raise ImportError(_NATIVE_INSTALL)
+        # SEP 46: a first native workspace in an allocation with no profile row runs
+        # the quick calibration first, once every refusal above has passed, and before
+        # the extension's runtime starts if it has not yet. A required device that
+        # passed is a device build, which never calibrates.
+        from solprop.calibration.first_use import ensure  # noqa: PLC0415 - layer above
+
+        ensure()
     backend = _construct(
         name,
         problem,

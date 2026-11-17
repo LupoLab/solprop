@@ -236,13 +236,20 @@ def test_selecting_native_and_admitting_a_scan_ask_for_a_calibration(
     class StopError(Exception):
         pass
 
-    def stop(*args: object) -> None:
+    def stop(*args: object, **kwargs: object) -> None:
         raise StopError
 
+    simulation = problems.build("gnlse")
+    problem, request = simulation.translate(), simulation.run_request()
+    # A refusal of the required device comes first, and nothing is calibrated for it.
     monkeypatch.setattr(registry, "_check_required_device", stop)
     with pytest.raises(StopError):
-        simulation = problems.build("gnlse")
-        registry.select("native", simulation.translate(), simulation.run_request())
+        registry.select("native", problem, request)
+    assert asked == []
+    monkeypatch.setattr(registry, "_check_required_device", lambda name: None)
+    monkeypatch.setattr(registry, "_construct", stop)
+    with pytest.raises(StopError):
+        registry.select("native", problem, request)
     assert asked == ["ensure"]
     monkeypatch.setattr(first_use, "for_workers", lambda cpus: asked.append("workers"))
     monkeypatch.setattr(pool, "_spawn", stop)
