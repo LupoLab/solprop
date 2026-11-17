@@ -31,9 +31,9 @@ backend is validated against what it produces.
 | 1 | `stage_input` | `u = exp(ΔΦ_i) (y + h Σ_j a_ij k_j) + N₀ exp(i Im Φ(z_i))` |
 | 2 | `to_time` | zero-pad onto the fine grid and inverse transform every modal column |
 | 3 | `synthesise` | `E_ip(t) = τ(z) Σ_m S_ip,m a_m(t)` on a chunk of quadrature nodes, in V/m |
-| 4 | `nonlinear_polarisation` | `P(t)` from the compiled responses, times the temporal collar |
+| 4 | `nonlinear_sources` | the collared local polarisation `P(t)` from the compiled responses and, with field plasma, the ungated plasma current `J(t)`, held separately ([SEP 27](seps/archive/sep-0027-held-plasma-current.md)) |
 | 5 | `project` | `P_m(t) = Σ_ip W_m,ip P_ip(t) / τ(z)`, accumulated over the chunks |
-| 6 | `to_frequency` | forward transform every modal column and crop to the coarse grid |
+| 6 | `to_frequency` | forward transform every modal column and crop to the coarse grid; a held current's streams join here (`held_plasma_spectrum`) |
 | 7 | `stage_output` | `k_i = exp(−ΔΦ_i) p(ω, z) W(ω) P̃` |
 | 8 | `accumulate` | `acc += b_i k_i`, and the embedded difference into its own accumulator |
 
@@ -122,7 +122,7 @@ output multipliers and is added after:
 |---|---|---|
 | `intensity`, `ionisation_rate` | `ionisation_rate` | `W(abs(E))` from the table; `hypot(E_x, E_y)` for two components |
 | `plasma_scan` | `plasma_scan` | `f = 1 − (1 − f₀) exp(−∫W dt)` and `J_free = (e²/m_e) ∫ f E dt` |
-| `plasma_current` | `plasma_current` | `J_loss = I_p W (1 − f) E / abs(E)²`, then `P = ρ ∫ (J_free + J_loss) dt` |
+| `plasma_current` | `plasma_total_current` | `J = ρ (J_free + J_loss)` with `J_loss = I_p W (1 − f) E / abs(E)²`, held for pass 6 rather than integrated in time (`plasma_current`'s `P = ρ ∫ J dt` is the oracles' form, `nonlinear_polarisation`) |
 | `kerr` | `kerr_polarisation` | the two cubic forms of `solprop.translate.responses.KerrCoefficients` |
 | `dispersive_kerr` | `dispersive_kerr_polarisation` | per polynomial channel, or per symmetric group under its mixture filter, `P = ε₀ γ₀ ρ` times the filtered cubic of `solprop.nonlinear.responses.dispersive_cubic` on the multipliers of `solprop.translate.responses.DispersiveKerrTerms`, `G[w (G E)³]` with the collar `w` inside |
 | `raman_drive` | `raman_polarisation` | `P = ε₀ ρ E(t) irfft[H̃ · rfft(D)]` on the doubled grid, with `D` the real drive of the grid |
@@ -158,7 +158,13 @@ depend on the field. A rule with no embedded pair reports `nan` rather than the 
 difference with itself would give. Measured on a three-mode set: 1.6e-1, 2.1e-2, 4.1e-5,
 7.2e-9 and 1.2e-15 at `n_r = 8, 16, 24, 32` and 48.
 
-## 2. Scheme: IP-DOPRI5 (IP-Tsit5 available)
+## 2. Schemes: IP-DOPRI5 (IP-Tsit5 available), low-storage RK4IP and the Adams methods
+
+Each route's default integrator is in `solprop.driver.defaults.ROUTE_DEFAULTS` (SEP 37):
+`Multistep()`, the exponential Adams method of *Low-call Adams methods* below, on the
+capillary (with or without the TDSE response), radial and planar routes and for settings
+built by hand; `RungeKutta()`, the interaction-picture DOPRI5 march of this section's
+first part, on the GNLSE, waveguide, slab and Cartesian and line free-space routes.
 
 The pairs, their orders and their tableau theory are
 [algorithms.md §2](algorithms.md#2-the-rungekutta-pairs). The evidence for choosing them:
@@ -342,11 +348,12 @@ the transported formulation's; so is the order choice, but for the in-stage coll
 stability, which it weighs (`adams_core.order_weight`): each order's
 step factor is capped at `COLLAR_STABILITY` times PEC's negative-real interval over
 `h max(α) / 2`, the step itself left to the chosen order's defect. **Beside a coupled flow** (ADR-044) the workspace's `coupled_block` returns the frozen block of the step's
-section (`CoupledBlock`); `coupled_moments` forms the trial's flow and moments as
-matrix functions of `(ΔΦ/h) I + G_s` on the block's bins, `CoupledExponentialKernels`
-applies them -- on the native backend in its kernels, which
-take the matrix functions from the flow actions' eigenbasis (`CoupledBlock.basis`;
-`numpy_ref` keeps the augmented exponential as the reference) -- and a frozen-residual section's residual joins the
+section (`CoupledBlock`); `coupled_moments` forms the trial's flow and moments
+(`MatrixMoments`) as matrix functions of `(ΔΦ/h) I + G_s` on the block's bins, and
+`ExponentialKernels` applies them -- on the native backend in its kernels, which
+take the matrix functions from the flow actions' eigenbasis
+(`solprop.translate.coupled.schur_eigenbasis`; `numpy_ref` keeps the augmented
+exponential as the reference) -- and a frozen-residual section's residual joins the
 compensation below,
 formed from each sample's flow weights against the step's own section. The lab-frame
 source runs without the flow's pipeline on every backend. The interaction formulation
@@ -392,13 +399,15 @@ structurally absent source (`source_absent`) takes the chord alone.
 
 **The engine** (ADR-043): the march keeps the controller -- the
 stencil, the orders, rejection, restarts, the budget and the ledger -- and hands every
-state-sized operation of the fused and exponential paths to an `AdamsEngine`: the
-startup sample, a trial's predictor, source, corrector and scored norms (held until the
-decision), the adoption and transport of an accepted step, holding the accepted state
-across a dense observation, and the observation. `HostHistory` is the host engine,
-whose passes are the kernels above; a backend may return its own from the hook
-`_adams_engine`, as `native` does to keep the history resident in its
-native state, always -- beside a coupled flow too, whose block functions, coupled predictor,
+state-sized operation of the fused and exponential paths to an `AdamsEngine`
+(`backends/engines.py`, the Python statement of native's `march::Engine`): the startup
+sample, a trial's predictor, source, corrector and scored norms (held until the
+decision), and the adoption and transport of an accepted step. The dense hold and
+observation and the snapshot rows are the session's (`backends/numpy_ref/dense.py` on
+the reference); no engine holds, restores or observes (the commit contract of
+`backends/engines.py`). `HostHistory` is the reference's engine, whose passes are the
+kernels above; native's compiled Adams march runs on its own resident engine, which keeps
+the history resident in its native state, always -- beside a coupled flow too, whose block functions, coupled predictor,
 corrector, carry and defect norms are native passes over its resident eigenbasis, a
 frozen-residual flow's generator applied once per sample.
 
@@ -408,11 +417,11 @@ frozen-residual flow's generator applied once per sample.
 (`tests/data/rk_traces.json.gz`), and `native` executes them (`native/src/march/rk_march.cpp`) on
 its staged trial and native norm, a call of attempts at a time, returning only at a host
 event and taking the boundary checks itself; the kernel contract's section 12 is the
-interface. It covers interpolated planes (the step across a plane returns to solprop, which
-holds its extension; in SEP 47's native session the march holds it through its engine,
-`rk::Engine::extend`, finishes the step itself and the session observes the plane where the
-state lives, `native/src/march/dense.cpp`), a replayed schedule, a coupled flow (its guards transcribed), a z table
-the transverse edge (read on the host, as the Adams march reads it) and a weighted norm
+interface. It covers interpolated planes (the march holds the crossing step's extension through its
+engine, `rk::Engine::extend`, finishes the step itself, and the native session observes the
+plane where the state lives, `native/src/march/dense.cpp`), a replayed schedule, a coupled
+flow (its guards transcribed), a z table, the transverse edge (read by the native session
+where the march returns to it, as for the Adams march) and a weighted norm
 (reduced natively in both loops), on CPU and device builds alike. `PIController` is final
 (ADR-077): defining a subclass raises `StepperError`, so its decisions and its norm are the
 only ones either backend takes.
@@ -483,7 +492,11 @@ deliberate:
 
 The norm, the PI controller, landing and the equivalent norm are defined in
 [algorithms.md §3](algorithms.md#3-step-control); this section is the design choices and
-the measurements behind them.
+the measurements behind them. The error estimate and the PI controller below are the
+Runge–Kutta march's (`RungeKutta()`); the Adams march scores its own defect and takes the
+factor `safety · norm^(−1/(order+1))` of the order it chose, capped by its own
+`max_growth` (default 2) and floored by `min_factor` (`factor` in `backends/adams_core.py`;
+*Low-call Adams methods* above). The landings, the floor and the stretch are shared.
 
 - **Error estimate**: the embedded pair, order 4, observed order 4.03 (DOPRI5) / 3.99 (Tsit5)
   against the analytic local error in the prototype study, and 4.02 / 4.03 on solprop's own
@@ -544,8 +557,9 @@ the measurements behind them.
   Landing on genuine kinks matters for splitting schemes (order 2.8 vs 6.3) and is harmless
   for IP-RK; landing on save planes replaces dense output (ADR-009) unless
   `interpolate_planes=True` asks for DOPRI5's continuous extension (ADR-039): then the save planes leave the landing targets, the accepted step that
-  crosses a plane is contracted into its five extension coefficients (driver hook
-  `_dense_stages`), and the plane is evaluated and carried there by the exact flow while
+  crosses a plane is contracted into its five extension coefficients
+  (`solprop.stepper.tableau.extension_coefficients`, applied by the engine's `extend`),
+  and the plane is evaluated and carried there by the exact flow while
   the march's own state is held ahead. A session keeps the two positions apart: a
   snapshot latched while a plane's field is held waits for the next accepted endpoint,
   every plane its step crossed observed first -- the end of that step itself when the
@@ -815,7 +829,7 @@ blocks the current solver.
 | rung | problem | truth | asserts |
 |---|---|---|---|
 | P0 | linear only, nasty D(ω, z) (pressure step, taper, absorbing edge) | `quad_vec` per ω to machine precision | Φ table 1e-14; right-endpoint rule reproduces `(h/2)ΔD` as a regression witness |
-| P1 | N-soliton recurrence, constant D, N = 3…8 | analytic, phase-resolved | observed order 5 above the floor; phase `π/4`; error at ×4 steps ~1e-10 |
+| P1 | N-soliton recurrence, constant D, N = 3 and 6 (`tests/backends/test_numpy_ref_soliton.py`) | analytic, phase-resolved | observed order 5 above the floor; phase `π/4`; error at ×4 steps ~1e-10 |
 | P2 | N-soliton with arbitrary z-varying d(z) and α(z), γ = d·e^Γ | analytic | dissipative, z-varying, exact; step-function α (P2b); out-of-band absorber (P2a) |
 | P3 | full UPPE: Kerr → shock → plasma → Raman; RDW parameters | three-level Richardson with order gate; cross-scheme reference | efficiency at matched error; weak-bin metric |
 | targets | RDW VUV 4-mode gradient; CtC H₂ 6-mode | stored Luna results and solprop's own converged references | regression within stated tolerance; convergence ladder |

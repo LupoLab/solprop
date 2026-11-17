@@ -76,8 +76,9 @@ A scalar helium `TDSEGasResponse` owns
 the gas nonlinearity. Its immutable specification becomes a `TDSEDescriptor`;
 the driver lazily owns native plans and stable radial chunks and passes a narrow
 host binding explicitly to NumPy. The optical march uses Adams. Atomic device
-execution is independent of the optical backend. The native backend refuses this
-response by name. The kernel schema includes separate polarisation and current
+execution is independent of the optical backend. The native CPU build executes this
+response ([SEP 49](seps/archive/sep-0049-tdse-on-native.md)); native device builds
+refuse it by name. The kernel schema includes separate polarisation and current
 factors: current enters with `-1/(2 epsilon_0 c Re(n_eff))`, without division by
 frequency. The provider's raw discrete shadows are subtracted before density
 and calibration. Native retention subtracts only the first-order current and
@@ -369,7 +370,8 @@ driver does not do is as much a part of the design as what it does:
 - It **never conjugates a spectrum**. The backend works in the FFT convention, the output
   layer's recipe converts on the way to disk -- applied by the session as it exports a kept
   field into the store ([backends.md §1](backends.md#1-the-seam), "Export into a
-  destination") -- and those are the only two places a sign changes.
+  destination"). Where the sign changes is listed once, in
+  [conventions.md §2](conventions.md#2-fourier-transform-and-the-sign-of-propagation-adr-017).
 - It **never touches the state between planes**. Everything between two save planes
   happens inside the backend's march.
 - It **never computes physics**. The mapping from `gamma` to a susceptibility is
@@ -393,9 +395,9 @@ ModalProvider  ->  DenseModalTable  ->  ModalTransformTables  ->  PropagationPro
 
 `FieldGrid` and `EnvelopeGrid` implement one protocol: time axis `t` (`n_t` points, spacing
 `δt`), coarse frequency axis `omega` (`n_omega`: `n_t/2+1` for the field grid, `n_t` for the
-envelope grid in FFT order), the oversampled fine axes `t_fine`/`omega_fine` (factor `ffac`:
-6 for a cubic field response with third-harmonic content, 4 for `|E|²E`, 1 or 2 for
-envelopes), the in-band mask (physical frequencies inside the wavelength limits), the
+envelope grid in FFT order), the oversampled fine axes `t_fine`/`omega_fine` (factor `ffac`,
+at least 2: by default 6 on the field grid, and on the envelope grid 6 with third-harmonic
+content and 2 without), the in-band mask (physical frequencies inside the wavelength limits), the
 spectral and temporal collar profiles, and the reference frequency `ω₀`. The temporal collar
 lies outside the requested window: the realised window is at least
 `trange / (1 − 2 collar_fraction)`, `collar_fraction` 0.1 by default (ADR-057). Sizes are even
@@ -414,7 +416,8 @@ model allows; a validated finite-difference fallback otherwise, ADR-006), `field
 (transverse field components at points), `dimlimits(z)`, `aeff(z)`, and the traits
 `z_constant`, `scale_invariant`, `azimuthal_order`. Derived quantities (β, α, β₁, β₂, ZDW,
 loss length) are protocol-level functions. `MarcatiliMode` (hollow capillary, full and reduced
-models, loss as a Boolean, scale factor or callable of ω) shares gas-fill machinery
+models, its own loss scaled by `loss_scale` or replaced by an absolute `alpha`, a number or
+a callable of ω) shares gas-fill machinery
 with the tabulated and rectangular hollow modes; the core index is a
 `ZProfile`-aware object so gradients and tapers are ordinary cases. `n_eff − 1` is computed
 directly, never as `(1 + x) − 1`.
@@ -428,8 +431,9 @@ exact on pieces certified monotone. An arbitrary callable must declare its turni
 points to have one; sampling is not an enclosure. The adiabatic certificate
 (`adiabatic.py`, SEP 34 §4.5) builds on it. Pressure gradients use the steady-flow
 profile `p(z) = sqrt(p₀² + (z/L)(p₁² − p₀²))`; fills must not start or end at exactly zero
-pressure (a vacuum-terminated fill caps every scheme at order ~3, [stepper.md](stepper.md)
-§10; the interface substitutes a small floor and logs it). A steady-flow fill of a
+pressure (a vacuum-terminated fill caps every scheme at low order, 1.4 to 1.6 measured,
+[accuracy.md §5](accuracy.md#5-milestone-m2-the-rdw-example-four-modes-15-m-gradient) and
+[stepper.md](stepper.md) §10; the interface substitutes a small floor and logs it). A steady-flow fill of a
 hollow fibre (`gasflow.py`) follows the bore and chokes at its vacuum end (ADR-032).
 
 `modes/quadrature.py` builds the fixed transverse rules (Gauss–Legendre radial with Kronrod
@@ -579,7 +583,14 @@ changes.
 
 ## 8. The solver, in one page
 
-Details and evidence are in [stepper.md](stepper.md). The anatomy of one stage `i` of the
+Details and evidence are in [stepper.md](stepper.md). There are three integrators
+([stepper.md §2](stepper.md)): `Multistep()`, the exponential Adams method, one source
+evaluation per accepted step, the default on the capillary, radial and planar routes and
+for settings built by hand; `RungeKutta()`, interaction-picture DOPRI5, the default on the
+GNLSE, waveguide, slab and Cartesian and line free-space routes
+(`solprop.driver.defaults.ROUTE_DEFAULTS`); and the replay-only `LowStorageRungeKutta()`.
+Every one evaluates the same source passes (2 to 6 below); the Adams and low-storage
+engines evaluate them at a lab-frame field. The anatomy of one stage `i` of the
 interaction-picture DOPRI5 step from anchor `z_n`, for a multimode field-grid problem, as the
 backend executes it (each numbered line is one pass over its data; the FFT counts are the
 cost metric):
@@ -601,7 +612,7 @@ and their buffer budgets are part of [SEP 27](seps/archive/sep-0027-held-plasma-
 
 These are passes over data, not launches.
 
-Per step: six new nonlinear evaluations with FSAL (seven without it), with the modal
+Per Runge–Kutta step: six new nonlinear evaluations with FSAL (seven without it), with the modal
 batched transforms above plus the doubled-grid pairs for Raman, 6 `exp(ΔΦ_i)`
 evaluations (or 5 with FSAL and memoisation), one controller decision (lagged, with rejection allowed by default;
 `reject_free` is explicit), one accept pass (`y ← exp(ΔΦ)·(y + h·acc_sol)` — the stages live in the interaction variable anchored at the step start, so the whole sum is carried by one exponential, and the embedded difference takes the same factor — rebase the FSAL stage, apply
@@ -649,12 +660,17 @@ propagated state*, never at the array-namespace level
 class Backend(Protocol):
     name: str
 
+    @property
+    def request(self) -> RunRequest: ...  # the run request it was built for
     def prepare(self, problem, request) -> PreparedExecution: ...  # a run's session
-    def timing_probe(self, start) -> TimingProbe: ...  # an estimate's trial
     def metadata(self) -> dict[str, object]: ...  # what the execution was
+    def edge_memory(self, space) -> int: ...
+    def timing_probe(self, start) -> TimingProbe: ...  # an estimate's trial
     def available_device_memory(self) -> int | None: ...
     def memory_ledger(self) -> dict[str, int]: ...
     def close(self) -> None: ...
+    @property
+    def closed(self) -> bool: ...
 
     # Nothing else: a run is its session's on both backends (SEP 52). Behind the
     # protocol each backend has a lowering, a workspace, engines, marches and a
@@ -667,14 +683,15 @@ class Backend(Protocol):
 - `native` (the `solprop-native` distribution, `native/`): C++20/Kokkos kernels and persistent Kokkos-FFT plans
   behind nanobind. It runs mode-averaged and multimode scalar/two-component problems,
   Kerr, plasma and declared tensor Raman, weighted control, embedded quadrature and
-  backend-owned statistics with one native call per trial, and on its CPU build also the
-  general modal route and the coupled flow. Raman uses doubled-grid plans, actual-width
+  backend-owned statistics with one native call per trial, and also the general modal
+  route and the coupled flow, on its CPU and device builds
+  ([backends.md §9](backends.md#9-what-runs-where)). Raman uses doubled-grid plans, actual-width
   tails and memoisation by decay rates and mixture amplitude densities. KokkosKernels
   supplies the portable GEMM seam; measured local builds may dispatch eligible whole
   transforms to Accelerate, OpenBLAS or cuBLAS. The CUDA build uses time-parallel
   response teams, deterministic plasma scans and device reductions and is qualified on
-  data-centre NVIDIA GPUs; the HIP build is qualified on AMD Instinct GPUs, with the HIP
-  sanitizer run still outstanding. The private state is read only by the backend's own
+  data-centre NVIDIA GPUs, with the CUDA sanitizers clean; the HIP build is qualified on AMD
+  Instinct GPUs, for which ROCm ships no device sanitizer. The private state is read only by the backend's own
   session and timing probe. The binding is small (SEP 52, ADR-079): a `_core.Workspace`
   built from one `_core.Problem`, a run started from one run record (`start(run)`), the
   probe (`probe(start)`) and one `diagnostics()` record; every record crosses by its
@@ -902,8 +919,8 @@ section of the operator table's breakpoints, in one of two ways:
   the generator — its z variation and the connection — as an explicit residual that the
   Runge–Kutta source carries, so the embedded pair sees its error.
 
-The coupled flow runs on `numpy_ref` and the native CPU build, which forms
-the per-bin flow actions in its own kernels and agrees with the reference to a derived
+The coupled flow runs on `numpy_ref` and on native, whose CPU and device builds form
+the per-bin flow actions in their own kernels and agree with the reference to a derived
 rounding bound; a certificate records each flow's conditioning. A multimode capillary
 taper carries the taper coupling by default; `taper_coupling=False` is the explicit
 opt-out to the adiabatic route
