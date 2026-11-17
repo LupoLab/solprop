@@ -215,8 +215,7 @@ class Absorber:
         strength, whose largest rate is ``12.6 / ell_c``; it also sets the temporal
         rates' ceiling, ``60 / ell_c``. A free-space run's real-space collar is
         designed separately (:class:`SpatialAbsorber`, SEP 40). ``None``, the
-        default, means
-        `reference_length`, as for every absorber before SEP 22; a value equal to
+        default, means `reference_length`; a value equal to
         `reference_length` is stored as ``None``, so that the record carries it only
         where the two differ. Left out of the run record at ``None``.
     temporal : bool
