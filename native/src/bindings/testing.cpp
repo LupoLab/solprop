@@ -27,6 +27,7 @@
 #include "solprop_native/march/rk_march.hpp"
 #include "solprop_native/march/stage_tables.hpp"
 #include "solprop_native/problem/problem.hpp"
+#include "solprop_native/response/flow_functions.hpp"
 #include "solprop_native/runtime/cpu_execution.hpp"
 #include "solprop_native/runtime/crossing.hpp"
 #include "solprop_native/runtime/execution.hpp"
@@ -753,6 +754,11 @@ void bind_testing(nb::module_& testing) {
         return out;
       },
       "policy"_a, "state"_a, "reading"_a, "z"_a);
+  // The coupled flow's series constants compiled into the kernels no `FlowGuard`
+  // reaches, which a test holds to solprop's (`solprop.backends.exponential`).
+  testing.attr("flow_taylor_order") = native::flow_functions::taylor_order;
+  testing.attr("flow_taylor_scale") = native::flow_functions::taylor_scale;
+  testing.attr("flow_max_squarings") = native::flow_functions::max_squarings;
   // solprop SEP 47: the native half-maximum width the statistics plan finishes with.
   testing.def(
       "half_width",

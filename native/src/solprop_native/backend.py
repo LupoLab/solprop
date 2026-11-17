@@ -18,7 +18,12 @@ import numpy as np
 import numpy.typing as npt
 from solprop._process import acquire_host_blas, thread_budget
 from solprop.backends import tdse_source
-from solprop.backends.exponential import carrier_reference, refuse_adams
+from solprop.backends.exponential import (
+    FLOW_MAX_SQUARINGS,
+    FLOW_TAYLOR_SCALE,
+    carrier_reference,
+    refuse_adams,
+)
 from solprop.backends.ledger import source_absent
 from solprop.backends.node_chunk import (
     NodeChunkPlan,
@@ -1170,8 +1175,6 @@ def _refuse_unknown_method(stepper: StepperSettings) -> None:
         )
 
 
-
-
 def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -> None:
     _refuse_unknown_method(stepper)
     # The route by its variant (solprop SEP 47 section 6.2), refused by name before
@@ -1281,13 +1284,6 @@ def _decomposed_flow(problem: PropagationProblem) -> _HostFlow | None:
     )
 
 
-_TAYLOR_SCALE = 0.5
-"""Row-sum norm solprop's reference scales an exponent below before its series."""
-
-_MAX_FLOW_SQUARINGS = 30
-"""Largest number of squarings a flow action may need before it is refused."""
-
-
 def _flow_allowance(modes: int) -> float:
     """Return the rounding allowance on two spectral norms of `modes` channels."""
     return 1.0 + 64.0 * modes * float(np.finfo(float).eps)
@@ -1296,9 +1292,10 @@ def _flow_allowance(modes: int) -> float:
 def _flow_guard(flow: _HostFlow | None) -> dict[str, object] | None:
     """Return a coupled flow's certificate and the guard's constants, or ``None``.
 
-    Each section's row-sum norm and conditioning bound per active bin, with the scale
-    solprop's reference reduces an exponent below, the most squarings and the
-    rounding allowance on two spectral norms (solprop SEP 45 phase 4).
+    Each section's row-sum norm and conditioning bound per active bin, with solprop's
+    shared flow constants (:mod:`solprop.backends.exponential`: the scale an exponent
+    is reduced below and the most squarings) and the rounding allowance on two
+    spectral norms (solprop SEP 45 phase 4).
     """
     if flow is None:
         return None
@@ -1308,8 +1305,8 @@ def _flow_guard(flow: _HostFlow | None) -> dict[str, object] | None:
         "condition_bound": np.ascontiguousarray(
             flow.condition_bound, dtype=np.float64
         ).reshape(row_sum.size, -1),
-        "taylor_scale": _TAYLOR_SCALE,
-        "max_squarings": _MAX_FLOW_SQUARINGS,
+        "taylor_scale": FLOW_TAYLOR_SCALE,
+        "max_squarings": FLOW_MAX_SQUARINGS,
         "allowance": _flow_allowance(int(flow.vectors.shape[-1])),
     }
 

@@ -101,8 +101,8 @@ eigenbasis_actions(const double length, const std::size_t section,
 // (`numpy_ref/coupled_flow.py`: `_triangular_exponential` and `flow_action`), with the
 // bin's own squaring count. The series degree and the row-sum norm the exponent is
 // scaled below are flow_functions.hpp's `taylor_order` and `taylor_scale`, solprop's
-// reference `_TAYLOR_ORDER` and `_TAYLOR_SCALE`; the host refuses a length needing
-// more than 30 squarings first.
+// `FLOW_TAYLOR_ORDER` and `FLOW_TAYLOR_SCALE`; the workspace's guard refuses a length
+// needing more squarings than its `FlowGuard` admits first (`Workspace::guard_flow`).
 KOKKOS_INLINE_FUNCTION void
 squared_series_action(const double length, const std::size_t fallback,
                       const std::size_t modes, const ComplexView3& vectors,

@@ -32,6 +32,13 @@ Both are checked against augmented matrix exponentials and independent quadratur
 ``tests/backends/test_exponential_weights.py``, on both sides of the join. This module
 is the reference the native backend's moment kernels are checked against.
 
+A coupled flow's matrix exponentials -- its actions and, for the exponential Adams
+formulation, the augmented exponentials of its moments -- are formed by scaling, a
+Taylor series and squaring in both backends, with the one set of constants here
+(:data:`FLOW_TAYLOR_ORDER`, :data:`FLOW_TAYLOR_SCALE`, :data:`FLOW_MAX_SQUARINGS`): the
+reference reads them, and the native adapter hands the scale and the squaring cap to
+its workspace's flow guard.
+
 References
 ----------
 .. [1] S. M. Cox and P. C. Matthews, "Exponential time differencing for stiff
@@ -62,6 +69,9 @@ from solprop.translate.linop import LinearOperator
 from solprop.translate.problem import PropagationProblem, StepperSettings
 
 __all__ = [
+    "FLOW_MAX_SQUARINGS",
+    "FLOW_TAYLOR_ORDER",
+    "FLOW_TAYLOR_SCALE",
     "MAX_PHI_ORDER",
     "PHI_JOIN",
     "CarrierChord",
@@ -87,6 +97,26 @@ augmented exponentials. Above it the scaled series would need more than three
 doublings. Three keeps both sides within the witnesses' 256 ulp with a margin and
 bounds the doublings, the most expensive part of the near branch (SEP 16 phase 3;
 eight, the SEP 15 study's join, cost up to four)."""
+
+FLOW_TAYLOR_ORDER = 16
+"""Degree of the Taylor series a coupled flow's scaled exponential is summed to.
+
+Scaling brings the row-sum norm below :data:`FLOW_TAYLOR_SCALE`, so the truncated tail
+is at most ``FLOW_TAYLOR_SCALE**(n+1)/(n+1)!``, which is 2.1e-20 at this degree --
+below the rounding of the squarings that follow it and of the two unitary products
+around it. The alternative, a Pade approximant, buys a lower degree at the cost of a
+solve per frequency; the reference takes the series (``docs/dev/architecture.md``
+section 3: physics and reference code carry no performance tricks)."""
+
+FLOW_TAYLOR_SCALE = 0.5
+"""Row-sum norm a coupled flow's exponent is scaled below before its series."""
+
+FLOW_MAX_SQUARINGS = 30
+"""Largest number of squarings a coupled flow's exponential may need before refusal.
+
+``2**30`` times the scale is a step whose own generator spans 21 orders of magnitude in
+the exponent; a problem that needs it has not been certified by anything the
+translation layer measured."""
 
 _SERIES_TERMS = 24
 """Taylor terms of the highest phi function at ``|y| <= 1/2``.

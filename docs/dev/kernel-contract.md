@@ -1439,8 +1439,9 @@ flow:* the stage rows carry the anchor's section and each stage's residual weigh
 state forms the step's actions for one (section, step) at a time behind
 the reference's `_flow_squarings` and `check_flow_conditioning`
 (`backends/numpy_ref/coupled_flow.py`), transcribed, with the Taylor scale, the
-squarings admitted, the sections' row sums, the certificate and the rounding allowance in
-a record; a refusal returns as `BackendError`. *A z table:* the state loads the stages'
+squarings admitted (solprop's `solprop.backends.exponential.FLOW_TAYLOR_SCALE` and
+`FLOW_MAX_SQUARINGS`, which the reference reads too), the sections' row sums, the
+certificate and the rounding allowance in a record; a refusal returns as `BackendError`. *A z table:* the state loads the stages'
 positions into the one slot cache. *The transverse edge:* its ceiling caps every candidate
 after the quiet interval and before the split cap, the call returns before a step would
 carry past the next read, and solprop takes the monitor's checks by its distance test. *A

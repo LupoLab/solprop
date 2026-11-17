@@ -15,7 +15,10 @@
 // squarings, or flags the bin for refusal; `augmented_blocks` sizes a bin's rows and
 // scratch; `augmented_row` forms the first block row by scaling, the sixteen-term
 // Taylor series and squaring. The constants (`taylor_order`, `taylor_scale`,
-// `max_squarings`) are solprop's reference's.
+// `max_squarings`) are solprop's (`solprop.backends.exponential`'s `FLOW_*`), compiled
+// in where no `FlowGuard` reaches: the device kernels and the Adams march's refusal.
+// The workspace's guard reads the scale and the cap from its `FlowGuard`, which the
+// adapter fills from solprop's, and a test holds these to solprop's through `_testing`.
 
 #include "solprop_native/general/general_state.hpp"
 #include "solprop_native/runtime/execution.hpp"
@@ -51,12 +54,11 @@
 // factor's own lower entries, zero in a Schur form, are not read either.
 namespace solprop_native::flow_functions {
 
-/** solprop's reference `_TAYLOR_ORDER`: the series degree. */
+/** solprop's `FLOW_TAYLOR_ORDER`: the series degree. */
 inline constexpr int taylor_order = 16;
-/** solprop's reference `_TAYLOR_SCALE`: the row-sum norm the scaled matrix stays below.
- */
+/** solprop's `FLOW_TAYLOR_SCALE`: the row-sum norm the scaled matrix stays below. */
 inline constexpr double taylor_scale = 0.5;
-/** solprop's reference `_MAX_FLOW_SQUARINGS`: the most squarings a bin may need. */
+/** solprop's `FLOW_MAX_SQUARINGS`: the most squarings a bin may need. */
 inline constexpr int max_squarings = 30;
 /** What `augmented_squarings` returns for an exponent that is not finite. */
 inline constexpr int non_finite = max_squarings + 2;

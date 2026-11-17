@@ -24,6 +24,11 @@ from dataclasses import dataclass
 import numpy as np
 from jaxtyping import Bool, Complex, Float
 
+from solprop.backends.exponential import (
+    FLOW_MAX_SQUARINGS,
+    FLOW_TAYLOR_ORDER,
+    FLOW_TAYLOR_SCALE,
+)
 from solprop.exceptions import BackendError
 from solprop.translate.coupled import CoupledFlowFactors, coupled_flow_factors
 from solprop.translate.problem import PropagationProblem
@@ -120,45 +125,22 @@ def held_flow(problem: PropagationProblem) -> HeldFlow | None:
     return held
 
 
-_TAYLOR_ORDER = 16
-"""Degree of the Taylor series a scaled triangular exponential is summed to.
-
-Scaling brings the row-sum norm below :data:`_TAYLOR_SCALE`, so the truncated tail is
-at most ``_TAYLOR_SCALE**(n+1)/(n+1)!``, which is 2.1e-20 at this degree -- below the
-rounding of the squarings that follow it and of the two unitary products around it.
-The alternative, a Pade approximant, buys a lower degree at the cost of a solve per
-frequency; the oracle takes the series (``docs/dev/architecture.md`` section 3:
-physics and reference code carry no performance tricks).
-"""
-
-
-_TAYLOR_SCALE = 0.5
-"""Row-sum norm a block is scaled below before the series is summed."""
-
-
-_MAX_FLOW_SQUARINGS = 30
-"""Largest number of squarings a flow action may need before it is refused.
-
-``2**30`` times the scale is a step whose own generator spans 21 orders of magnitude
-in the exponent; a problem that needs it has not been certified by anything the
-translation layer measured.
-"""
-
-
 def _flow_squarings(largest: float) -> int:
     """Return how many squarings an exponent of this row-sum norm needs, or refuse.
 
-    The count brings the norm below :data:`_TAYLOR_SCALE`; past
-    :data:`_MAX_FLOW_SQUARINGS` the step is refused, as native refuses it.
+    The count brings the norm below
+    :data:`~solprop.backends.exponential.FLOW_TAYLOR_SCALE`; past
+    :data:`~solprop.backends.exponential.FLOW_MAX_SQUARINGS` the step is refused, as
+    native refuses it.
     """
     squarings = 0
-    if largest > _TAYLOR_SCALE:
-        squarings = math.ceil(math.log2(largest / _TAYLOR_SCALE))
-    if squarings > _MAX_FLOW_SQUARINGS:
+    if largest > FLOW_TAYLOR_SCALE:
+        squarings = math.ceil(math.log2(largest / FLOW_TAYLOR_SCALE))
+    if squarings > FLOW_MAX_SQUARINGS:
         msg = (
             "numpy_ref cannot take a coupled flow action whose exponent has row-sum "
             f"norm {largest:.4g}: it would need {squarings} squarings, above the "
-            f"{_MAX_FLOW_SQUARINGS} this backend admits. Cap dz_max"
+            f"{FLOW_MAX_SQUARINGS} this backend admits. Cap dz_max"
         )
         raise BackendError(msg)
     return squarings
@@ -178,7 +160,7 @@ def _triangular_exponential(
         np.eye(blocks.shape[1], dtype=np.complex128), blocks.shape
     )
     series = identity.copy()
-    for term in range(_TAYLOR_ORDER, 0, -1):
+    for term in range(FLOW_TAYLOR_ORDER, 0, -1):
         series = identity + scaled @ series / term
     for _ in range(squarings):
         series = series @ series
