@@ -4,16 +4,16 @@
 
 """Know which arrays solprop holds: freeze its own in place, copy everyone else's.
 
-Every array that crosses the seam, and every array a value type keeps, is read-only.
-Freezing is done one way: an array solprop has just made is frozen where it stands
-and marked as held (:func:`hold`); anything else is copied first
-(:func:`frozen_copy`). The mark, not the write flag, says which is which: the owner of
-an array can make it writeable again, so a read-only array a caller hands in is
-copied all the same, while one solprop already holds is taken as it stands, however
-many times it is handed on.
+Every array that crosses the seam, and every array a value type keeps, is read-only. An
+array solprop has just made is frozen where it stands and marked as held (:func:`hold`,
+or :func:`hold_view` for a view of fresh memory); anything else is copied first
+(:func:`frozen_copy`), and :func:`borrow` takes a view of memory solprop does not own as
+held. The mark, not the write flag, says which is which (:func:`is_held`): the owner of
+an array can make it writeable again, so a read-only array a caller hands in is copied
+all the same, while one solprop already holds is taken as it stands, however many times
+it is handed on.
 
-This module imports nothing from the rest of the package, so that any layer may use
-it.
+This module imports nothing from the rest of the package, so that any layer may use it.
 """
 
 import weakref

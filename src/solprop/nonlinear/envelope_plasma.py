@@ -4,11 +4,15 @@
 
 """Cycle-averaged plasma sources for scalar and Cartesian vector envelopes.
 
-The physical envelope is in V/m. This independent oracle integrates the real
-Cartesian field around an optical cycle with adaptive quadrature. It does not
-use the ellipse rules or tables compiled for a backend. The two returned current
-sources have different frequency factors; neither is a time-domain polarisation.
-See ``docs/guide/media/ionisation.md`` for the derivation and the frozen-cycle regime.
+:class:`EnvelopePlasmaResponse` averages an instantaneous isotropic ionisation rate
+around the optical cycle of a physical envelope (in V/m) and returns the population and
+its two current sources as :class:`EnvelopePlasmaSources`; the sources have different
+frequency factors, and neither is a time-domain polarisation.
+:func:`linear_cycle_average` and :func:`linear_cycle_averages` average a rate around one
+linearly polarised cycle. This is an independent oracle: it integrates the real
+Cartesian field around a cycle by adaptive quadrature and uses none of the ellipse rules
+or tables compiled for a backend. ``docs/guide/media/ionisation.md`` derives it and
+states the frozen-cycle regime.
 """
 
 import itertools

@@ -356,7 +356,13 @@ with $\hat p$ the affine map of the path's range onto $[-1, 1]$. The only approx
 the truncation in the parameters, because the $I_{jk}$ are built by the same adaptive
 machinery on the same declared edges and integrated exactly in the same Chebyshev basis.
 The hard structure has not gone anywhere; it has moved from arrays of the state's size into
-scalar tables of 8 bytes per term per coefficient.
+scalar tables of 8 bytes per term per coefficient. The memory of the kernel contract's
+section 3 falls from `n_intervals × n_deg × state` to `n_terms × state`, and an evaluation
+from two Clenshaw passes over the state to one over `n_terms` scalars followed by one
+linear combination. The same {class}`~solprop.translate.expansion.ParameterExpansion`
+serves the prefactor, whose weights are the basis products
+$T_j(\hat\rho(z))\,T_k(\hat a(z))$ themselves rather than their integrals, because the
+prefactor is a value at z and not a cumulative one.
 
 ### What it costs
 

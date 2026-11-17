@@ -100,12 +100,12 @@ from solprop.modes import (
     PowerLawPermittivity,
 )
 from solprop.modes.connection import modal_connection
+from solprop.modes.path import path_rule
 from solprop.nonlinear.gnlse import SpecifiedMode
 from solprop.processing import get_spectral_density
 from solprop.processing.modal import coordinate_intensity, reconstructed_flux
 from solprop.profiles import Linear, PiecewiseLinear
 from solprop.translate.coupled import advisory_step
-from solprop.translate.modal_path import path_rule
 
 ENTRANCE = 25e-6
 """Core radius at the entrance, m."""

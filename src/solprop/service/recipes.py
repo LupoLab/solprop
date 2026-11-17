@@ -4,8 +4,10 @@
 
 """Read and trim a recipe's text, for the service and the window alike.
 
-These helpers import only the light parts of :mod:`solprop.recipe` (its document and
-nothing that builds), so the window's process may use them as freely as the kernel.
+:func:`split`, :func:`without_table` and :func:`data_files` work on a recipe's TOML,
+and :data:`BEAM_ROUTES` names the free-space routes. They import only the light parts
+of :mod:`solprop.recipe` (its document and nothing that builds), so the window's process
+may use them as freely as the kernel.
 """
 
 import re

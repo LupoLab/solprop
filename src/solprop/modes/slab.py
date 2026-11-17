@@ -4,48 +4,25 @@
 
 r"""Model the hollow planar (slab) waveguide: two plates, a gas-filled gap, uniform y.
 
-Two parallel dielectric or metal plates at :math:`x = \pm a` guide light in x and
-leave it free in y. This module models the guide **uniform in y**: the field is a plane
-wave in y, the mode is the one-wall-pair limit :math:`b \to \infty` of the rectangular
-guide of :mod:`solprop.modes.rectangular`, and every integral over the cross-section
-is an integral over x **per metre of y**. A run on these modes reports power in W/m
-and energy in J/m (``transverse_measure = "per_unit_width"``); intensities stay W/m².
+:class:`SlabMode` is one mode of two parallel dielectric or metal plates at
+:math:`x = \pm a`, uniform in y: the one-wall-pair limit :math:`b \to \infty` of the
+rectangular guide of :mod:`solprop.modes.rectangular` (Laakmann and Steier's eq. (5),
+which is Miyagi, Hongo and Kawakami's eq. (19) and Arnold et al.'s eqs. (2)-(3)),
+whose wall-pair terms it shares. :data:`SlabPolarisation` names the family: **TE** has
+E along y, parallel to the plates, and **TM** along x. Every integral over the
+cross-section is over x **per metre of y**, so a run on these modes reports power in
+W/m and energy in J/m (the ``transverse_measure`` ``"per_unit_width"``); intensities
+stay W/m².
 
-The model is Laakmann and Steier's eq. (5) [1]_ with :math:`b \to \infty`, which is
-Miyagi, Hongo and Kawakami's eq. (19) [2]_ and Arnold et al.'s eqs. (2)-(3) [3]_:
+- :func:`gaussian_coupling` and :func:`gaussian_projection` project a Gaussian beam
+  in x onto a slab set; :func:`per_unit_width_to_gaussian` and
+  :func:`gaussian_to_per_unit_width` convert a per-unit-width quantity to and from a
+  Gaussian beam in y.
+- :class:`PlanarGrid` is the hybrid planar transverse grid: slab modes in x, samples
+  in y, which resolves the free direction a uniform slab cannot show.
 
-.. math::
-
-   \kappa_p = \frac{p\pi}{2a}\Big(1 - \frac{i\,q}{k a}\Big),\qquad
-   n_{\rm eff}^2 = \epsilon_{\rm co} - \frac{\kappa_p^2}{k^2},\qquad
-   q_{\rm TE} = \frac{1}{s},\quad
-   q_{\rm TM} = \frac{\epsilon_{\rm cl}}{\epsilon_{\rm co}\, s},
-
-with :math:`s = \sqrt{\epsilon_{\rm cl} - \epsilon_{\rm co}}` the filled-core
-contrast and :math:`\epsilon_{\rm cl}/\epsilon_{\rm co}` the TM-like permittivity
-ratio of a filled core, both shared with the rectangular guide rather than restated.
-To first order the field attenuation is
-:math:`\alpha_p = (1/a)(p\lambda/4a)^2\,\mathrm{Re}\,q`, so the loss goes as
-:math:`p^2` and :math:`a^{-3}`, and TM/TE is :math:`\epsilon_{\rm cl}/\epsilon_{\rm co}`
-for glass and about :math:`n^2 + \kappa^2` for a metal (Miyagi eq. 36). **TE** has its
-electric field along y, parallel to the plates -- the low-loss polarisation every
-planar compressor uses; **TM** has it along x, normal to them.
-
-**What a slab uniform in y cannot show.** Whole-beam self-focusing, filamentation and
-the modulational instability in the free direction set the energy limit of real
-planar compressors (Arnold et al. 2009, stable to :math:`B \approx 15.5`). A field
-uniform in y has no y structure to focus or break up, so none of that appears here.
-The manual page is ``docs/guide/waveguides/planar.md`` (section "Hollow planar
-waveguides").
-
-References
-----------
-.. [1] K. D. Laakmann and W. H. Steier, Appl. Opt. 15, 1334-1340 (1976),
-       doi:10.1364/AO.15.001334.
-.. [2] M. Miyagi, A. Hongo and S. Kawakami, IEEE J. Quantum Electron. QE-19,
-       136-145 (1983), doi:10.1109/JQE.1983.1071837.
-.. [3] C. L. Arnold et al., New J. Phys. 12, 073015 (2010),
-       doi:10.1088/1367-2630/12/7/073015.
+The model, its loss, its validity and the references are in
+``docs/guide/waveguides/planar.md``.
 """
 
 import math
@@ -118,8 +95,8 @@ class SlabMode(_WallPairFill):
     The plates are at ``x = +-a`` and y is free. The profile is ``cos(p pi x / 2a)``
     for odd ``p`` and ``sin(p pi x / 2a)`` for even ``p`` inside the gap and zero
     outside; the effective index is Laakmann and Steier's one-wall-pair form with
-    the filled-core contrast (module docstring). Everything the mode integrates is
-    **per metre of y** (:attr:`transverse_measure`).
+    the filled-core contrast (``docs/guide/waveguides/planar.md``). Everything the
+    mode integrates is **per metre of y** (:attr:`transverse_measure`).
 
     Attributes
     ----------

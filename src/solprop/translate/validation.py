@@ -36,9 +36,9 @@ from solprop.exceptions import (
 )
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame, LossPolicy
-from solprop.modes.capillary import CoherentWall
 from solprop.modes.quadrature import TransverseQuadrature
 from solprop.modes.slab import PlanarGrid
+from solprop.modes.wall import CoherentWall
 from solprop.profiles import ZProfile
 from solprop.spatial import SpatialMedium
 from solprop.spatial_absorber import SpatialAbsorber
@@ -201,7 +201,7 @@ DEFAULT_FLOW_CONDITION_LIMIT: float = 1.0e4
 """Largest inverse conditioning a general modal coupled flow is admitted at.
 
 Dimensionless, and the same number
-:attr:`solprop.modes.capillary.CoherentWall.condition_limit` defaults to, because it
+:attr:`solprop.modes.wall.CoherentWall.condition_limit` defaults to, because it
 bounds the same thing: how far the interaction picture's inverse action may amplify
 the nonlinear source over one step. A general guide's block is far below it -- a
 unitary rotation of a lossless split block has an exactly Hermitian-free part and
@@ -355,7 +355,7 @@ def _refuse_a_wall_off_the_capillary_route(
     modal branch, so a general modal or spatial run carrying one used to translate
     with ``linear.coupled_flow`` absent, no ``modal.flow`` key on its record and no
     word said. The other two doors are the mode set's
-    (:func:`solprop.modes.capillary.wall_operator`) and the backend's.
+    (:func:`solprop.modes.wall.wall_operator`) and the backend's.
     """
     if wall is not None and not taper_coupling:
         msg = (

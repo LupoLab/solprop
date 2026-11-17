@@ -2774,8 +2774,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.translate.modal_path",
-   "module_short": "solprop.translate.modal_path",
+   "module": "solprop.modes.path",
+   "module_short": "solprop.modes.path",
    "name": "path_rule"
   }
  ],

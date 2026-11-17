@@ -4,87 +4,29 @@
 
 r"""Derive the connection of a basis whose material interfaces move along z.
 
-A guide whose transverse profile moves is written in a **moving basis**, and a
-moving basis costs a term. With the field expanded on the local modes at every
-position, :math:`E(r, z) = \sum_n c_n(z)\,\psi_n(r; z)`, the coefficients obey
+A field expanded on the local modes of a moving guide obeys
+:math:`dc/dz = (\text{local generator})\,c - \Gamma c`, with :math:`\Gamma = W^{-1}S`
+and :math:`S_{mn} = \langle\psi_m|\partial_z\psi_n\rangle` on the package's flux
+metric (:func:`solprop.modes.vector.flux_product`), whose Gram matrix :math:`W` is the
+one the source projection is built from. The flux self-terms are **kept**:
+:math:`W\Gamma + \Gamma^{H}W = W'`, so the connection alone moves no power, which is
+why the capillary's zero-diagonal :func:`solprop.modes.wall.wall_connection` is not
+transplanted here.
 
-.. math::
-   \frac{dc}{dz} = \bigl(\text{the local generator}\bigr) c - \Gamma c ,
-   \qquad \Gamma = W^{-1} S , \qquad
-   S_{mn} = \langle \psi_m \mid \partial_z \psi_n \rangle ,
+- :func:`modal_connection` measures :math:`\Gamma` from a provider at one position as
+  a :class:`ModalConnection`, whose ``antisymmetry`` (1/m) is the residual of that
+  identity; :func:`band_connection` does so over a band of frequencies.
+- :func:`connection_nodes` builds the one node set the three-point stencil shares,
+  its panels split at every stencil position's interfaces: a rule reused across
+  positions leaves an edge off the moving interface and errs at first order in the step.
+- :func:`basis_connection` is the :math:`T^{H}T'` a declared z-varying change of
+  coordinates adds. :data:`STEP_FRACTION`, :data:`MAX_STENCIL_SPAN`,
+  :data:`CERTIFICATE_WARNING_RTOL` and :data:`NEGLIGIBLE_CONVERSION` set the step,
+  the stencil span and the thresholds.
 
-where :math:`\langle\cdot\mid\cdot\rangle` is **this package's own flux metric**
--- the Hermitian Poynting pairing of :func:`solprop.modes.vector.flux_product` --
-and :math:`W` is that pairing's Gram matrix, the same
-:attr:`~solprop.modes.vector.ModalSample.flux_metric` the source projection map
-``Q`` is built from. Using one pairing for the dual, the projection and the
-connection is what makes the three consistent; the bilinear reciprocity pairing
-never enters, exactly as for the source path.
-
-**The flux self-terms are kept**, and this module exists because they must be.
-Differentiating the Gram matrix gives the one identity the whole certificate rests
-on:
-
-.. math::
-   W' = \frac{dW}{dz} = \langle \partial_z\psi_m \mid \psi_n\rangle
-        + \langle \psi_m \mid \partial_z\psi_n\rangle = S^{H} + S ,
-   \qquad\text{equivalently}\qquad
-   W\Gamma + \Gamma^{H} W = W' .
-
-So :math:`\Gamma` is anti-Hermitian **with respect to the flux metric**, up to that
-metric's own drift, and the consequence is exact: with
-:math:`dc/dz = -\Gamma c` the flux norm obeys
-:math:`d(c^{H} W c)/dz = c^{H}(W' - W\Gamma - \Gamma^{H}W)c = 0`. The connection
-alone moves no power. Zeroing the diagonal -- which the Bessel formula for the
-capillary does, correctly, for *its* basis -- breaks that identity. For diagonal
-:math:`W`, the resulting norm defect is
-:math:`\sum_n |c_n|^2 W'_{nn}`, which is why
-:func:`solprop.modes.capillary.wall_connection`'s formula is **not** transplanted
-here.
-
-The diagonal splits into the two pieces the identity names:
-
-* for diagonal :math:`W`, its real part is :math:`W'_{nn}/(2W_{nn})`, reducing
-  to :math:`\tfrac12 W'_{nn}` where :math:`W_{nn}=1`. This flux self-term
-  describes the rate of change of the mode's power normalisation. For a dense
-  metric the full matrix identity must be used;
-* its imaginary part is the **gauge phase rate**, a geometric (Berry) connection.
-  It vanishes only in a gauge that parallel-transports the phase, which is what
-  :func:`solprop.translate.modal_tables.align_modal_sample` does to first order by
-  making the overlap with the previous knot real and positive.
-
-Neither is zero in general for a moving interface, and a declared z-varying change
-of coordinates :math:`c = T(z) d` adds :math:`T^{H}T'` to the connection (and
-its negative to the generator) in the
-declared basis, whose diagonal is pure imaginary and is
-exactly the second piece.
-
-**How it is computed.** :math:`\partial_z\psi_n` is a three-point Lagrange
-derivative of the provider's own solves, tracked into one gauge, on **one shared
-node set whose panel edges land on every stencil position's interfaces**
-(:func:`connection_nodes`). That last point is not a detail: a rule built at one
-position and reused at another leaves its panel edge off the moving interface, and
-the quadrature of a Poynting integrand with a jump at the interface is then wrong
-by a term first order in the displacement -- which is first order in the step and
-therefore survives the difference undiminished. Measured on a step-index taper it
-puts a spurious ``0.98`` 1/m on the diagonal and reads ``|W'| = 2.8`` 1/m where the
-true value is below ``1e-8``. Splitting the panels at
-every stencil radius restores piecewise-smooth quadrature. Finite quadrature,
-mode-solve and derivative errors remain and require independent refinement.
-
-The step is chosen so that the difference's truncation, which falls as ``h^2``, and
-its round-off, which grows as ``1/h``, are balanced (:data:`STEP_FRACTION`). The
-measured :attr:`ModalConnection.antisymmetry` is the certificate, and it is the
-residual of the identity above with ``W'`` differenced independently of the pairing,
-in 1/m.
-
-**What this is not.** The connection describes the basis the provider retains. What
-lies outside the retained set does not vanish at a material interface while every
-retained basis function's expansion of it converges only in :math:`L^2`, so a
-propagated coefficient departs from the direct projection of the same frozen field
-at **second order in the total contraction** -- as the capillary's wall connection
-does in the stated comparisons. This observed scaling is not a general error
-bound for arbitrary taper shapes or contractions.
+The derivation, its sampling and what a retained basis cannot describe are in
+``docs/guide/waveguides/moving-modal.md``, section "The connection of a basis that
+moves along z".
 """
 
 import math
@@ -97,9 +39,15 @@ from jaxtyping import Complex, Float
 
 from solprop._display import Displayed, engineering, line
 from solprop.exceptions import GeneralModalBasisWarning, ModeError
-from solprop.modes.guide import ChannelBasis, radial_node_rule
 from solprop.modes.material import JsonValue
-from solprop.modes.vector import ModalNodeRule, ModalProvider, ModalSample
+from solprop.modes.tables import align_modal_sample, apply_channel_basis
+from solprop.modes.vector import (
+    ChannelBasis,
+    ModalNodeRule,
+    ModalProvider,
+    ModalSample,
+    radial_node_rule,
+)
 from solprop.profiles import as_profile
 
 __all__ = [
@@ -331,7 +279,8 @@ def basis_connection(
     that is :math:`T^{H}T'`, which needs no inverse and is exactly anti-Hermitian
     because differentiating :math:`T^{H}T = I` gives
     :math:`T^{H}T' + (T^{H}T')^{H} = 0`. Its diagonal is therefore pure imaginary
-    and is the gauge phase rate of this module's opening derivation: a *relabelling*
+    and is the gauge phase rate of the connection's derivation
+    (``docs/guide/waveguides/moving-modal.md``): a *relabelling*
     that produces no physical conversion, which is the pure change-of-basis test.
 
     Parameters
@@ -395,8 +344,8 @@ def connection_nodes(
     only in ``region_index``, which each position computes from its own material
     radii. The radial panels are split at the union of **every position's own declared
     panel edges**, so each solve's integrand is smooth on every panel and quadrature can
-    converge on its smooth pieces, which a single frozen rule cannot ensure (see this
-    module's own docstring for what a frozen rule costs).
+    converge on its smooth pieces, which a single frozen rule cannot ensure (see
+    ``docs/guide/waveguides/moving-modal.md`` for what a frozen rule costs).
 
     Taking the union of the declared edges rather than of the material radii alone
     is what makes this work for a discretised provider: a graded-index sector is a
@@ -536,13 +485,13 @@ def modal_connection(
 ) -> ModalConnection:
     r"""Measure the moving-basis connection of a provider at one point.
 
-    The derivation is this module's own docstring: ``Gamma = W^-1 S`` with
-    ``S_mn = <psi_m | d_z psi_n>`` on the package's flux metric, with the flux
+    The derivation is in ``docs/guide/waveguides/moving-modal.md``: ``Gamma = W^-1 S``
+    with ``S_mn = <psi_m | d_z psi_n>`` on the package's flux metric, with the flux
     self-terms kept. The three samples of the difference stencil are put in **one
-    gauge** by :func:`solprop.translate.modal_tables.align_modal_sample` against the
-    centre, so the phase the derivative measures is the parallel-transported one and
-    not the solver's arbitrary one, and a declared `basis` is applied after it in the
-    same fixed order the tables compose.
+    gauge** by :func:`solprop.modes.tables.align_modal_sample` against the centre, so
+    the phase the derivative measures is the parallel-transported one and not the
+    solver's arbitrary one, and a declared `basis` is applied after it in the same fixed
+    order the tables compose.
 
     The stencil is centred where it fits and shifted where it does not, at the ends
     of the provider's z domain and against a declared kink; the derivative weights
@@ -566,7 +515,7 @@ def modal_connection(
         kinks `z` lies between.
     degenerate_blocks : sequence of sequence of int, optional
         Channel blocks the tracking may rotate inside, as
-        :func:`solprop.translate.modal_tables.sample_modal_table` takes them.
+        :func:`solprop.modes.tables.sample_modal_table` takes them.
     basis : solprop.modes.guide.ChannelBasis or None, optional
         A declared unitary change of the channel coordinates, applied after the
         tracking gauge. It is a **constant** declaration: a transform that varies
@@ -738,13 +687,6 @@ def _measured_connection(
     - ``stencil``: the three positions in m, the step in m and one rule per position,
       from :func:`_stencil` and :func:`connection_nodes`.
     """
-    # Imported here: solprop.translate imports solprop.modes, so a module-level
-    # import of the tracking would close a cycle through the translate package body.
-    from solprop.translate.modal_tables import (  # noqa: PLC0415
-        align_modal_sample,
-        apply_channel_basis,
-    )
-
     at, span, rules = stencil
     middle = int(np.argmin(np.abs(np.asarray(at) - float(z))))
     solved = [

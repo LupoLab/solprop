@@ -4,10 +4,12 @@
 
 """The interaction-picture Runge-Kutta march as a run's integrator.
 
-A run is stepped by one of two integrators: :class:`RungeKutta`, the embedded explicit
-Runge-Kutta pair in the interaction picture (IP-DOPRI5 by default), or
-:class:`solprop.stepper.multistep.Multistep`, the low-call Adams method, which is the
-default. ``docs/guide/numerics/choosing-a-stepper.md`` compares them.
+:class:`RungeKutta` is the embedded explicit Runge-Kutta pair in the interaction picture
+(IP-DOPRI5 by default), one of three integrators beside
+:class:`solprop.stepper.multistep.Multistep`, the low-call Adams method, and
+:class:`solprop.stepper.low_storage.LowStorageRungeKutta`, the fixed-schedule replay.
+Which one a run takes by default depends on the interface;
+``docs/guide/numerics/choosing-a-stepper.md`` compares them.
 """
 
 from dataclasses import dataclass

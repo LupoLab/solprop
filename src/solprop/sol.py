@@ -14,27 +14,14 @@ For a terminal or a notebook, **not** for library code::
     sol.prop_2d(run)
     sol.compress_taylor(run)
 
-This is the one module of the package whose import has side effects, which is its whole
-purpose. Importing it calls :func:`start_session`, which
-
-1. configures logging at ``INFO`` through :func:`solprop.log.configure_logging`, so
-   that a run reports its set-up and draws its progress bar; and
-2. silences :class:`~solprop.exceptions.MaterialRangeWarning`. Every capillary run asks
-   its gas and its cladding for an index over a band wider than any published fit
-   covers, so at a prompt the notice is noise. A script that imports from the home
-   modules keeps it: the library's default is unchanged, and
-   :func:`material_warnings` turns it back on here.
-
-Both are idempotent, and :func:`end_session` undoes them. Nothing is printed, and
-matplotlib's backend and interactive mode are left alone.
-
-The names are flat and explicit. Where two home modules use one name, the processing
-function keeps it and the plot takes a ``plot_`` prefix: ``energy`` measures,
-``plot_energy`` draws; likewise ``plot_stats``. The names are this package's snake
-case, such as ``prop_2d``; ``docs/guide/workflows/interactive.md`` has the table.
-``numpy`` and
-``matplotlib.pyplot`` are deliberately not re-exported, so a star import never shadows
-your own ``np`` and ``plt``.
+The one module whose import has side effects: :func:`start_session` (called on import,
+idempotent) configures logging at ``INFO`` and silences
+:class:`~solprop.exceptions.MaterialRangeWarning`; :func:`end_session` undoes both,
+:func:`material_warnings` turns the warning back on and :func:`set_log_level` changes
+the level. The names are flat, a plot taking a ``plot_`` prefix where it shares a name
+with a processing function (``energy`` measures, ``plot_energy`` draws), and ``numpy``
+and ``matplotlib.pyplot`` are deliberately not re-exported. The manual page, with the
+table of names, is ``docs/guide/workflows/interactive.md``.
 """
 
 import logging

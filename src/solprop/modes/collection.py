@@ -4,28 +4,20 @@
 
 r"""Ordered, validated sets of modes, and the overlaps between them.
 
-A multimode simulation propagates a *set* of modes through one transverse quadrature
-rule and one pair of transform matrices, which only works if they share a
-cross-section. :class:`ModeCollection` is that set: ordered, because the mode axis of
-the kernel state is, and validated once at construction rather than at every use.
+:class:`ModeCollection` is the set of modes a multimode run propagates through one
+transverse rule and one pair of transform matrices: ordered, because the kernel's mode
+axis is, and validated once to share a cross-section. It reports whether the azimuthal
+coordinate has to be resolved and to what order, and expands a spatial set into its
+polarisation partners (:func:`polarisation_pairs`). :func:`transverse_measure` names
+the measure a set is integrated over.
 
-It also answers the two questions the translation layer asks of a mode set --
-whether the azimuthal coordinate has to be resolved, and to what order -- and offers
-the overlaps that say whether the set is orthonormal at all.
-
-:func:`overlap` integrates adaptively with :func:`scipy.integrate.dblquad`,
-deliberately *not* on the fixed rule. The fixed rule's orthonormality is the thing
-being checked in ``tests/modes/test_quadrature.py``; if the check used the same rule it
-would be true by construction and would say nothing.
-
-Overlaps use the package normalisation (``docs/dev/conventions.md`` section 4),
-
-.. math:: \langle m_1 | m_2 \rangle
-   = \tfrac12 \sqrt{\varepsilon_0/\mu_0} \int e_1^* \cdot e_2 \, \mathrm{d}A
-   \Big/ \sqrt{N_1 N_2},
-
-so a mode overlaps itself by one. For a slab set (:mod:`solprop.modes.slab`) the
-integral is over x alone, per metre of y, with :func:`scipy.integrate.quad`.
+:func:`overlap` and :func:`orthonormality` integrate adaptively
+(:func:`scipy.integrate.dblquad`, or :func:`scipy.integrate.quad` over x alone, per
+metre of y, for a slab set), deliberately *not* on the fixed rule whose orthonormality
+they check. They use the package normalisation (``docs/dev/conventions.md`` section
+4), :math:`\langle m_1|m_2\rangle = \tfrac12\sqrt{\varepsilon_0/\mu_0}\int e_1^*\cdot
+e_2\,\mathrm{d}A / \sqrt{N_1N_2}`, so a mode overlaps itself by one. The manual page is
+``docs/guide/waveguides/mode-sets.md``.
 """
 
 import logging

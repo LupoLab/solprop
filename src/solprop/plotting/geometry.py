@@ -4,25 +4,21 @@
 
 """Draw the cross-section of a guide or a free-space grid.
 
-The drawing is the **outline** of a cross-section: a hollow guide's wall and gas-filled
-bore, an antiresonant fibre's tubes and jacket, a solid fibre's core and cladding, a
-planar guide's plates, and a free-space grid's medium with its absorbing collar. Mode
-fields, node sets and labels are not drawn: they belong to the figure that shows them.
+The drawing is the **outline** of a cross-section -- a guide's wall, bore, tubes, core,
+cladding or plates, or a free-space grid's medium with its absorbing collar -- not its
+mode fields, node sets or labels, which belong to the figure that shows them.
 
-The geometry is computed once, by :func:`outline`, as a tuple of plain shapes in
-metres (:class:`Disc`, :class:`Ring`, :class:`Box`), each naming the region it fills.
-:func:`draw` paints those shapes into a Matplotlib axes, and :func:`thumbnail` makes a
-small figure of a route's representative guide for a front end's route picker. The user
-guide's cross-section figures draw the same shapes as SVG, so the guide and the library
-show one geometry. Colours come from an explicit :class:`Palette` of ``#rrggbb``
-strings, which Matplotlib, SVG viewers and Qt all read the same way; :data:`LIGHT` and
-:data:`DARK` are the two built in.
+- :func:`outline` computes the geometry once, as a tuple of plain shapes in metres
+  (:class:`Disc`, :class:`Ring`, :class:`Box`), each naming the region it fills; the
+  user guide's SVG cross-sections draw the same shapes.
+- :func:`draw` paints them into a Matplotlib axes, and :func:`thumbnail` makes a small
+  figure of a route's representative guide for a front end's route picker.
+- :class:`Palette` holds the ``#rrggbb`` colours, with :data:`LIGHT` and :data:`DARK`
+  built in.
 
-What a model does not describe is drawn to a stated convention, never inferred: a
-hollow guide's wall, and an antiresonant fibre's jacket, are :data:`WALL_FRACTION` of
-the guide's size thick, and a direction a geometry leaves unbounded (a fibre's cladding,
-a planar guide's or a line grid's y) is drawn to an ``extent`` the caller may choose.
-Everything else is to scale. The manual page is ``docs/guide/results/plotting.md``.
+What a model does not describe is drawn to a stated convention, never inferred (a wall
+:data:`WALL_FRACTION` of the guide's size thick, an unbounded direction to ``extent``);
+everything else is to scale. The manual page is ``docs/guide/results/plotting.md``.
 """
 
 import functools
@@ -43,10 +39,11 @@ from solprop.modes.antiresonant import TubeLattice, VincettiMode
 from solprop.modes.capillary import MarcatiliMode
 from solprop.modes.collection import ModeCollection
 from solprop.modes.graded_index import GradedIndexProvider
-from solprop.modes.guide import ModalGuide, StepIndexProvider
+from solprop.modes.guide import ModalGuide
 from solprop.modes.rectangular import RectMode
 from solprop.modes.slab import PlanarGrid, SlabMode
 from solprop.modes.stepindex import StepIndexMode
+from solprop.modes.stepindex_vector import StepIndexProvider
 from solprop.profiles import ZProfile, as_profile
 
 __all__ = [

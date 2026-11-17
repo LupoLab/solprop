@@ -4,23 +4,28 @@
 
 """The general modal route: the seam leaves of one guide, and their certificates.
 
-A general modal guide reaches a backend as three of the four optional leaves kernel
-schema 12 added -- the E/H reference and its execution
-maps (``transform.modal_tables``), the basis metric (``linear.modal_metric``) and the
-per-region response (``responses.regional_responses``) -- plus the ordinary diagonal
-linear operator every modal route has. :class:`GeneralModalRoute` is what
-:func:`solprop.translate.assembly.assemble` is handed: the leaves that were built
-together, with the certificate that binds them.
+A general modal guide reaches a backend as the E/H reference and its execution maps
+(``transform.modal_tables``), the basis metric (``linear.modal_metric``) and the
+per-region response (``responses.regional_responses``), beside the ordinary diagonal
+linear operator every modal route has. ``linear.coupled_flow`` is filled only for a
+declared unitary basis of a split block, where the channels genuinely beat:
+:func:`coupled_block` gives the generator relative to one reference channel and
+:func:`solprop.translate.assembly.assemble` turns it into the leaf.
 
-The fourth leaf, ``linear.coupled_flow``, is filled for exactly one case: a
-**declared unitary basis of a split block**,
-where ``U.H diag(beta) U`` is not diagonal and the channels genuinely beat. The
-route carries the transformed generator relative to one reference channel
-(:func:`coupled_block`) and :func:`solprop.translate.assembly.assemble` turns it into
-the leaf with its certificate, because the largest step the flow's conditioning is
-declared over is the assembly's to know. A guide in the provider's own coordinates,
-and a declared basis of an exactly degenerate block, leave it ``None`` and propagate
-through the diagonal flow alone.
+- :class:`GeneralModalRoute` (:func:`general_modal_route`): the leaves built together,
+  with the certificate that binds them; :func:`reference_tables` rebuilds the
+  reference tables a run was executed against.
+- The basis gate: :func:`metric_departure` (within
+  :data:`MAX_DENSE_METRIC_DEPARTURE`), :func:`interpolated_gram`,
+  :func:`occupancy_weight` and :func:`check_noise_basis`.
+- Per-region responses: :func:`check_regional_responses`, :func:`node_kerr_tensor`,
+  :func:`node_kerr_form` and :func:`node_delayed_maps`.
+- :func:`guide_identity` and :func:`modal_identity`: what a run records and a resume
+  compares.
+
+The manual pages are ``docs/guide/waveguides/general-modal.md`` and
+``docs/guide/waveguides/modal-bases.md``; the leaves are
+``docs/dev/kernel-contract.md`` sections 3 to 5.
 """
 
 import dataclasses
@@ -29,7 +34,7 @@ import math
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final, cast
+from typing import Final, cast
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int32
@@ -52,7 +57,9 @@ from solprop.modes.material import (
     MaterialRegion,
     quantised_measurement,
 )
+from solprop.modes.path import ModalPathTable, sample_modal_path
 from solprop.modes.protocol import ChannelLabel
+from solprop.modes.tables import DEFAULT_GRAM_ATOL, DenseModalTable, sample_modal_table
 from solprop.nonlinear.mixtures import electronic_response
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.nonlinear.responses import DispersiveKerrResponse, KerrResponse
@@ -64,17 +71,18 @@ from solprop.stats import GENERAL_MODAL_ACCESSORS, WITHHELD_WITH_A_FLOW
 from solprop.translate.coupled import (
     CoupledFlowTables,
     ModalMetricTables,
+    coefficient_tail,
     dense_metric,
     orthonormal_metric,
 )
 from solprop.translate.linop import DEFAULT_MARGIN, profile_table
-from solprop.translate.modal_tables import (
-    DEFAULT_GRAM_ATOL,
-    DenseModalTable,
-    ModalTransformTables,
-    modal_transform_tables,
-    sample_modal_table,
+from solprop.translate.modal_path import (
+    in_frequency,
+    path_connections,
+    path_transform_tables,
+    section_coefficients,
 )
+from solprop.translate.modal_tables import ModalTransformTables, modal_transform_tables
 from solprop.translate.responses import (
     DELAYED_MODEL_ID,
     KERR_MODEL_FORMS,
@@ -105,9 +113,6 @@ __all__ = [
     "reference_tables",
 ]
 
-if TYPE_CHECKING:
-    from solprop.translate.modal_path import ModalPathTable
-
 logger = logging.getLogger(__name__)
 
 MAX_DENSE_METRIC_DEPARTURE: Final[float] = 1e-3
@@ -122,7 +127,7 @@ and a nonunitary transform does not.
 
 **The number.** The quantity is measured on the run's own coarse grid, **between**
 the table's knots, where an interpolated basis is further from orthonormal than at
-the knots :data:`solprop.translate.modal_tables.DEFAULT_GRAM_ATOL` gates: the weakly
+the knots :data:`solprop.modes.tables.DEFAULT_GRAM_ATOL` gates: the weakly
 guiding fixture of ``tests/driver/test_general_modal.py``, whose knot defect is
 6.97e-8, reaches 1.136e-4 there at 13 knots -- three orders apart. So this budget
 cannot be the knot budget.
@@ -146,8 +151,8 @@ departure a provider here produces; it is a factor of a few above a poorly sampl
 one and three orders below the order-one departure a nonunitary transform produces,
 which is the departure it exists to catch. It is the loosest of the three gates a
 declared basis passes -- the declaration's own 1e-12 unitarity budget
-(:data:`solprop.modes.guide.BASIS_UNITARY_ATOL`), which the per-knot invariance
-check of :func:`solprop.translate.modal_tables.apply_channel_basis` takes as its own
+(:data:`solprop.modes.vector.BASIS_UNITARY_ATOL`), which the per-knot invariance
+check of :func:`solprop.modes.tables.apply_channel_basis` takes as its own
 floor, is the tight one -- and it is the one a **backend** can apply, since it sees
 the stored block and not the declaration.
 """
@@ -187,7 +192,7 @@ class GeneralModalRoute(Displayed):
     **The metric is the identity unless a basis is declared.** A guide built in the
     provider's own coordinates is a Poynting-normalised orthogonal basis whose
     sampled Gram passed the construction gate of
-    :class:`solprop.translate.modal_tables.DenseModalTable`, so ``W = I`` to within
+    :class:`solprop.modes.tables.DenseModalTable`, so ``W = I`` to within
     `gram_defect` and the route declares the identity. A guide that declares a
     unitary change of basis (:class:`solprop.modes.guide.ChannelBasis`) carries the
     **dense** metric `metric_tables` instead: ``W' = U.H W U`` is the identity in
@@ -237,9 +242,9 @@ class GeneralModalRoute(Displayed):
         whether it will. Zero on a record assembled by hand.
     gram_atol : float
         Largest defect this route will call the identity, dimensionless and
-        positive; :data:`solprop.translate.modal_tables.DEFAULT_GRAM_ATOL` by
+        positive; :data:`solprop.modes.tables.DEFAULT_GRAM_ATOL` by
         default, which is the budget
-        :class:`~solprop.translate.modal_tables.DenseModalTable` gates its own
+        :class:`~solprop.modes.tables.DenseModalTable` gates its own
         sampling with. A defect above it is refused here rather than propagated: the
         route **is** the statement ``W = I``, and on a continuous wave the resulting
         error in ``da/dz`` is ``|1/W_00 - 1|``, which is the defect itself to first
@@ -900,17 +905,12 @@ def _snapshot_reference(
 
 def _path_reference(
     guide: ModalGuide, grid: TimeGrid, *, z_end: float, gram_atol: float
-) -> tuple["ModalPathTable", ModalTransformTables]:
+) -> tuple[ModalPathTable, ModalTransformTables]:
     """Sample a moving guide's path and expand its maps on a run's grids.
 
     - ``z_end``: where the run ends, m; the tables keep every section up to it.
     - Returns: the sampled path and the tables.
     """
-    from solprop.translate.modal_path import (  # noqa: PLC0415
-        path_transform_tables,
-        sample_modal_path,
-    )
-
     sampling = guide.sampling
     assert sampling is not None and sampling.path is not None
     path = sampling.path
@@ -1025,16 +1025,6 @@ def _moving_route(
 
     - ``z_max``: where the run ends, m.
     """
-    # Imported here: modal_path imports this module's siblings only, but keeping the
-    # moving machinery out of the snapshot route's import path keeps that route's
-    # import graph what it was.
-    from solprop.translate.coupled import _coefficient_tail  # noqa: PLC0415
-    from solprop.translate.modal_path import (  # noqa: PLC0415
-        in_frequency,
-        path_connections,
-        section_coefficients,
-    )
-
     sampling = guide.sampling
     assert sampling is not None and sampling.path is not None
     path = sampling.path
@@ -1109,7 +1099,7 @@ def _moving_route(
     error = max(
         float(path.z_error),
         *(
-            _coefficient_tail(expansion[section])
+            coefficient_tail(expansion[section])
             for expansion in (generator, connection)
             for section in range(kept)
         ),
@@ -1153,7 +1143,7 @@ def coupled_block(
     flow and this returns ``None``: the ordinary route, untouched. A declared
     unitary basis of a **split** block does not, because ``U.H diag(beta) U`` is
     diagonal only where the block's propagation constants are equal
-    (:func:`solprop.translate.modal_tables.apply_channel_basis`), and then what the
+    (:func:`solprop.modes.tables.apply_channel_basis`), and then what the
     run propagates is a matrix flow.
 
     What is returned is the whole generator **less** ``reference``'s own diagonal
@@ -1170,7 +1160,7 @@ def coupled_block(
 
     Parameters
     ----------
-    table : solprop.translate.modal_tables.DenseModalTable
+    table : solprop.modes.tables.DenseModalTable
         The tracked reference, in whatever basis was declared on it.
     grid : solprop.grid.TimeGrid
         The run's field grid, whose coarse bins the block is tabulated on.
@@ -1195,7 +1185,7 @@ def coupled_block(
     >>> import numpy as np
     >>> from solprop.grid import FieldGrid
     >>> from solprop.translate.general import coupled_block
-    >>> from solprop.translate.modal_tables import sample_modal_table
+    >>> from solprop.modes.tables import sample_modal_table
     >>> from solprop.modes.guide import ModalGuide
     >>> from solprop.modes.stepindex import StepIndexMode
     >>> from solprop.modes.material import IndexMaterial, MaterialRegion
@@ -1444,7 +1434,7 @@ def interpolated_gram(
 
     Parameters
     ----------
-    table : solprop.translate.modal_tables.DenseModalTable
+    table : solprop.modes.tables.DenseModalTable
         The tracked reference, in whatever basis it was built in.
     tables : solprop.translate.modal_tables.ModalTransformTables
         The flat record, whose coarse grid the block is sampled on.
@@ -1686,7 +1676,7 @@ def modal_identity(
     declared susceptibility of each region; **which guide**, by provider,
     sampling and materials; the shared co-moving frame; the run's active band;
     the basis the noise was drawn in; and which accessors the basis admits
-    (:data:`solprop.stats.GENERAL_MODAL_ACCESSORS`, which
+    (:data:`solprop.stats.catalogue.GENERAL_MODAL_ACCESSORS`, which
     :mod:`solprop.output.capability` gates with).
 
     It goes into :attr:`solprop.output.metadata.RunMetadata.modal`, which is inside

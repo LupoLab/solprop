@@ -6,18 +6,24 @@
 
 A saved run says what code produced it (``RunMetadata.versions`` and ``.git``) and how
 the backend sized its pools (``BackendRecord``). This module adds the rest of what is
-needed to inspect a case afterwards: the architecture, the CPU model, the CPU counts,
-the memory and the operating system (:func:`machine`), and the wall time, CPU time and
-peak resident memory since a :class:`RunClock` started (:func:`usage`). The driver
-writes both into each execution's record (:class:`solprop.output.records.RunOutcome`),
-so a resume on another machine keeps its own.
+needed to inspect a case afterwards, which the driver writes into each execution's
+record (:class:`solprop.output.records.RunOutcome`), so a resume on another machine
+keeps its own.
 
-Neither costs a run anything measurable: :func:`machine` is asked once per process (at
-most one bounded subprocess, for the CPU model) and :func:`usage` is one ``getrusage``
-call per save plane. No host name is recorded: a file is shared, and the CPU model and
-counts are what identify the hardware.
+- **The machine**: :func:`machine` (architecture, CPU model, CPU counts, memory and
+  operating system), asked once per process, with :func:`cpu_model` and
+  :func:`lscpu_model` behind it (at most one bounded subprocess).
+- **The spend**: :func:`usage`, the wall time, CPU time and peak resident memory since a
+  :class:`RunClock` started, one peak-memory query per save plane;
+  :class:`ObserverSpend`, what a run's plane observer cost it.
+- **Memory probes**: :func:`peak_rss` and :func:`physical_memory`, on POSIX and Windows,
+  which the scan pool also reads to size its workers.
+
+No host name is recorded: a file is shared, and the CPU model and counts are what
+identify the hardware.
 """
 
+import ctypes
 import dataclasses
 import functools
 import os
@@ -31,7 +37,16 @@ from pathlib import Path
 
 from solprop._process import allowed_cpus
 
-__all__ = ["ObserverSpend", "RunClock", "cpu_model", "lscpu_model", "machine", "usage"]
+__all__ = [
+    "ObserverSpend",
+    "RunClock",
+    "cpu_model",
+    "lscpu_model",
+    "machine",
+    "peak_rss",
+    "physical_memory",
+    "usage",
+]
 
 # A probe that hangs must not stall a run that is otherwise ready to start.
 _TIMEOUT = 5.0
@@ -119,16 +134,110 @@ def cpu_model() -> str | None:
     return None
 
 
-def _memory_bytes() -> int | None:
+class _ProcessMemoryCounters(ctypes.Structure):
+    """Mirror Win32 ``PROCESS_MEMORY_COUNTERS`` for ``K32GetProcessMemoryInfo``."""
+
+    _fields_ = [
+        ("cb", ctypes.c_uint32),
+        ("PageFaultCount", ctypes.c_uint32),
+        ("PeakWorkingSetSize", ctypes.c_size_t),
+        ("WorkingSetSize", ctypes.c_size_t),
+        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+        ("PagefileUsage", ctypes.c_size_t),
+        ("PeakPagefileUsage", ctypes.c_size_t),
+    ]
+
+
+class _MemoryStatus(ctypes.Structure):
+    """Mirror Win32 ``MEMORYSTATUSEX`` for ``GlobalMemoryStatusEx``."""
+
+    _fields_ = [
+        ("dwLength", ctypes.c_uint32),
+        ("dwMemoryLoad", ctypes.c_uint32),
+        ("ullTotalPhys", ctypes.c_uint64),
+        ("ullAvailPhys", ctypes.c_uint64),
+        ("ullTotalPageFile", ctypes.c_uint64),
+        ("ullAvailPageFile", ctypes.c_uint64),
+        ("ullTotalVirtual", ctypes.c_uint64),
+        ("ullAvailVirtual", ctypes.c_uint64),
+        ("ullAvailExtendedVirtual", ctypes.c_uint64),
+    ]
+
+
+def _kernel32() -> ctypes.CDLL:
+    """Load Windows' kernel32, which carries both memory queries, typed for them."""
+    kernel32 = ctypes.WinDLL("kernel32")  # pyright: ignore[reportAttributeAccessIssue]
+    # The process pseudo-handle is pointer-sized ((HANDLE)-1): ctypes' default int
+    # return type truncates it to 32 bits, and Windows refuses the truncated handle.
+    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel32.GetCurrentProcess.argtypes = []
+    kernel32.K32GetProcessMemoryInfo.restype = ctypes.c_int
+    kernel32.K32GetProcessMemoryInfo.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(_ProcessMemoryCounters),
+        ctypes.c_uint32,
+    ]
+    return kernel32
+
+
+def _windows_peak_working_set() -> int | None:
+    """Read this process's peak working set, Windows' counterpart of peak RSS.
+
+    - Returns: bytes, or ``None`` when Windows refuses the query.
+    """
+    kernel32 = _kernel32()
+    counters = _ProcessMemoryCounters()
+    counters.cb = ctypes.sizeof(counters)
+    process = kernel32.GetCurrentProcess()
+    if not kernel32.K32GetProcessMemoryInfo(
+        process, ctypes.byref(counters), counters.cb
+    ):
+        return None
+    return int(counters.PeakWorkingSetSize)
+
+
+def _windows_physical_memory() -> int | None:
+    """Read the installed physical memory on Windows.
+
+    - Returns: bytes, or ``None`` when Windows refuses the query.
+    """
+    status = _MemoryStatus()
+    status.dwLength = ctypes.sizeof(status)
+    if not _kernel32().GlobalMemoryStatusEx(ctypes.byref(status)):
+        return None
+    return int(status.ullTotalPhys)
+
+
+def physical_memory() -> int | None:
     """Return the machine's physical memory, or ``None`` where it cannot be read.
 
-    - Returns: bytes.
+    - Returns: bytes: ``sysconf``'s pages times page size on POSIX, Windows' total
+      physical memory there.
     """
+    if sys.platform == "win32":
+        return _windows_physical_memory()
     try:
         pages, size = os.sysconf("SC_PHYS_PAGES"), os.sysconf("SC_PAGE_SIZE")
     except AttributeError, OSError, ValueError:
         return None
     return pages * size if pages > 0 and size > 0 else None
+
+
+def peak_rss() -> int | None:
+    """Return this process's peak resident memory, or ``None`` where it cannot be read.
+
+    - Returns: bytes: ``getrusage``'s peak (macOS reports bytes, Linux and the BSDs
+      KiB), and on Windows the peak working set.
+    """
+    if sys.platform == "win32":
+        return _windows_peak_working_set()
+    import resource  # noqa: PLC0415 - POSIX only; Windows has no such module
+
+    value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return int(value) if sys.platform == "darwin" else int(value) * 1024
 
 
 @functools.cache
@@ -148,7 +257,7 @@ def machine() -> dict[str, object]:
         "cpu_model": cpu_model() or platform.processor() or None,
         "logical_cpus": os.cpu_count(),
         "usable_cpus": len(allowed_cpus()),
-        "memory_bytes": _memory_bytes(),
+        "memory_bytes": physical_memory(),
     }
     if "SLURM_JOB_ID" in os.environ:
         record["slurm_job_id"] = os.environ["SLURM_JOB_ID"]
@@ -204,26 +313,17 @@ def usage(clock: RunClock) -> dict[str, float | int | None]:
 
     - Returns: ``wall_time_s`` and ``cpu_time_s`` (every thread's user and system time)
       since the start, and ``peak_rss_bytes``, the **process's** largest resident memory
-      so far: in a session running several runs it includes the earlier ones, and on a
-      device it does not count device memory; ``None`` where :mod:`resource` is absent
-      (Windows). A run with a plane observer adds ``observer_time_s`` and
+      so far (:func:`peak_rss`): in a session running several runs it includes the
+      earlier ones, and on a device it does not count device memory; ``None`` where it
+      cannot be read. A run with a plane observer adds ``observer_time_s`` and
       ``observer_transfers``, the device fetches made for it.
     """
     spent: dict[str, float | int | None] = {
         "wall_time_s": time.perf_counter() - clock.wall,
         "cpu_time_s": time.process_time() - clock.cpu,
-        "peak_rss_bytes": None,
+        "peak_rss_bytes": peak_rss(),
     }
     if clock.observer.calls:
         spent["observer_time_s"] = clock.observer.seconds
         spent["observer_transfers"] = clock.observer.transfers
-    try:
-        import resource  # noqa: PLC0415 - POSIX only
-    except ImportError:  # pragma: no cover - Windows
-        return spent
-    # macOS reports the peak in bytes, Linux and the BSDs in KiB.
-    scale = 1 if sys.platform == "darwin" else 1024
-    spent["peak_rss_bytes"] = (
-        int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) * scale
-    )
     return spent

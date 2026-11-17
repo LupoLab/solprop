@@ -68,7 +68,7 @@ In scripts and library code, import from the home modules listed below.
 | {mod}`solprop.sol` | the interactive namespace |
 | {mod}`solprop.log`, {mod}`solprop.driver.summary` | logging and progress reporting (`configure_logging`), and the summary a run shows before its first step |
 | {mod}`solprop.exceptions` | every error and warning solprop raises, under `SolpropError` and `SolpropWarning` |
-| {mod}`solprop.cli` | the `solprop` command: run, check and export a recipe, and launch a scan |
+| {mod}`solprop.cli` | the `solprop` command: run, resume, check and export a recipe, launch a scan, and calibrate the native backend |
 | {mod}`solprop.scan` | the command-line launcher of a scan script |
 
 **Internals.** {mod}`solprop.translate` turns the physics objects into the kernel problem

@@ -4,15 +4,19 @@
 
 """Deliver SIGTERM and Ctrl-C to a run between its commits, never inside one.
 
-A run commits in short sections: a step's new state and position, a saved plane and
-the march's snapshot beside it, a terminal checkpoint. An exception raised inside one
--- as a signal handler's is, at whatever line the interpreter has reached -- could
-leave the state and its position apart, or a file half written. While a run is in
-progress (:func:`handled`), SIGTERM raises :class:`solprop.exceptions.RunTerminated`
-and SIGINT :class:`KeyboardInterrupt` at once, which abandons a trial in flight without
-its result, unless a commit is being written (:func:`committing`): then the exception
-is held and raised as the commit ends. The run loop catches it as any failure and
-writes its terminal checkpoint.
+A run commits in short sections: a step's new state and position, a saved plane and the
+march's snapshot beside it, a terminal checkpoint. A signal handler's exception, raised
+at whatever line the interpreter has reached, could leave the state and its position
+apart or a file half written. So while a run is in progress (:func:`handled`), SIGTERM
+raises :class:`solprop.exceptions.RunTerminated` and SIGINT :class:`KeyboardInterrupt`
+at once, abandoning a trial in flight, unless a commit is being written
+(:func:`committing`): then the exception is held and raised as the commit ends. The run
+loop catches it as any failure and writes its terminal checkpoint.
+
+:func:`interruptible` and :func:`raise_held` let a long wait inside a commit take the
+held signal; :func:`deferred_handlers` defers an application's own handlers over a file
+transaction; :func:`poll` raises :class:`solprop.exceptions.StopRequested` when a run's
+stop flag is set.
 """
 
 import signal

@@ -36,6 +36,7 @@ __all__ = [
     "ArrayDigest",
     "JsonValue",
     "StatedInput",
+    "deserialise",
     "recorded_input",
     "serialise",
 ]
@@ -498,15 +499,33 @@ def _decode_array(record: Mapping[str, object]) -> np.ndarray:
     return np.array(record["__ndarray__"], dtype=dtype)
 
 
-def _decode(value: object) -> object:
-    """Return a serialised value with an array field rebuilt.
+def deserialise(value: object) -> object:
+    """Return a serialised value with its array rebuilt, the one form JSON cannot hold.
 
-    An array is the only form a record type holds that JSON cannot carry directly, so
-    it is the only one rebuilt; a nested configuration dictionary is left as plain
-    JSON, because the physics objects it describes are not reconstructible in general
-    (a callable was recorded by ``repr``).
+    The partial inverse of :func:`serialise` that the record types use: an array is
+    the only form a record type holds that JSON cannot carry directly, so it is the
+    only one rebuilt, with its dtype and shape. A nested configuration dictionary is
+    left as plain JSON, because the physics objects it describes are not
+    reconstructible in general (a callable was recorded by ``repr``).
 
-    - Returns: the rebuilt value, or ``value`` itself when there is nothing to rebuild.
+    Parameters
+    ----------
+    value : object
+        A value :func:`serialise` returned, or any JSON value.
+
+    Returns
+    -------
+    object
+        The array, when `value` is an inlined array record; otherwise `value` itself.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.output.serialisation import deserialise, serialise
+    >>> deserialise(serialise(np.array([1.0, 2.0])))
+    array([1., 2.])
+    >>> deserialise({"radius": 0.000125})
+    {'radius': 0.000125}
     """
     if isinstance(value, dict) and "__ndarray__" in value:
         return _decode_array(value)
@@ -579,7 +598,9 @@ def _rebuild[T](
     the stored text (:meth:`~solprop.output.metadata.RunMetadata.configuration_hash`).
     """
     fields = {entry.name: entry for entry in dataclasses.fields(build) if entry.init}  # pyright: ignore[reportArgumentType] - a record dataclass
-    arguments = {name: _decode(item) for name, item in record.items() if name in fields}
+    arguments = {
+        name: deserialise(item) for name, item in record.items() if name in fields
+    }
     for name, entry in fields.items():
         if (
             name not in arguments

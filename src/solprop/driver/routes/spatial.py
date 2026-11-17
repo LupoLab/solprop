@@ -2,7 +2,18 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The spatial routes: free space and planar grids, and their transverse design."""
+"""The spatial routes: free space and planar grids, and their transverse design.
+
+``_from_spatial`` builds a radial or Cartesian propagation of physical fields for
+:meth:`~solprop.driver.simulation.Simulation.from_free`; ``_selected_planar`` and
+``_planar_medium`` give :meth:`~solprop.driver.simulation.Simulation.from_planar` its
+grid's built-in materials under a material selection and its modes' fill as a bulk
+medium, and ``_selected_medium`` resolves a bulk medium's built-in gas likewise. The
+transverse design: the transverse boundary a translation resolves
+(``_transverse_specification``, SEP 40), a derived run's design rechecked on its new
+launch (``_rechecked``, ``_launch_band``), and a refusal to start a run whose collar's
+check never saw a launch (``_refuse_pending_check``).
+"""
 
 import dataclasses
 import warnings

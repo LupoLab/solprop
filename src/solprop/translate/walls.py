@@ -29,9 +29,10 @@ from solprop.exceptions import (
 )
 from solprop.grid import TimeGrid
 from solprop.linear import Frame
-from solprop.modes.capillary import (
+from solprop.modes.capillary import MarcatiliMode
+from solprop.modes.protocol import Mode
+from solprop.modes.wall import (
     CoherentWall,
-    MarcatiliMode,
     VectorWallOperator,
     WallImpedance,
     WallLimits,
@@ -41,7 +42,6 @@ from solprop.modes.capillary import (
     wall_connection,
     wall_operator,
 )
-from solprop.modes.protocol import Mode
 from solprop.translate.coupled import (
     constant_schur_flow,
     frozen_residual_flow,
@@ -207,7 +207,7 @@ def _vector_wall_assembly(
     cumulative diagonal ``Phi``, built over ``N`` copies of the **first** channel so
     that it is a multiple of the identity and commutes with the block, and the whole
     modal part -- the paraxial transverse term and the **rank-two** wall together --
-    is the coupled flow (:func:`solprop.modes.capillary.vector_wall_operator`). What
+    is the coupled flow (:func:`solprop.modes.wall.vector_wall_operator`). What
     differs is the block itself and two admissions.
 
     **No wall pair is stored.** The leaf's optional factored pair is one vector and
@@ -220,7 +220,7 @@ def _vector_wall_assembly(
     (:func:`_varying_wall_assembly`) with this block in place of the scalar one and
     the vector connection, which is block diagonal -- each family's own ``C_mn`` of
     its Bessel order, and no term between the families -- as derived and as measured
-    (:func:`solprop.modes.capillary.wall_connection`).
+    (:func:`solprop.modes.wall.wall_connection`).
     """
     first = cast("MarcatiliMode", block[0])
     if not first.z_constant:
@@ -291,10 +291,10 @@ def _varying_wall_assembly(
 
     is the explicit residual the interaction-picture source carries, with ``C`` the
     HE1m moving-basis connection
-    (:func:`solprop.modes.capillary.wall_connection`). With ``R`` evaluated exactly,
+    (:func:`solprop.modes.wall.wall_connection`). With ``R`` evaluated exactly,
     freezing is a rearrangement and not an approximation. The **vector** block of
     ``impedance="te_tm"`` takes the same route unchanged but for the block
-    (:func:`solprop.modes.capillary.vector_wall_operator`) and its connection, which
+    (:func:`solprop.modes.wall.vector_wall_operator`) and its connection, which
     is each radial family's own and nothing between them.
 
     Two things differ from the constant section of a guide that does not vary. The
@@ -402,7 +402,7 @@ def _taper_assembly(
     term zero, which is the whole of the derivation: in a basis attached to the local
     radius the equation of the true-power amplitude is ``b' = (i B(z) - C(z)) b``,
     with ``B`` the channels' own propagation constants and ``C`` the HE1m connection
-    (:func:`solprop.modes.capillary.taper_connection`). Without the wall's rank-one
+    (:func:`solprop.modes.wall.taper_connection`). Without the wall's rank-one
     block the diagonal is the **modes' own** ``beta_n(z)`` -- the Marcatili index of
     whatever model and loss the channels declare, lossless or not -- rather than the
     wall block's paraxial condensation of it, so that with ``C`` dropped the flow
@@ -414,7 +414,7 @@ def _taper_assembly(
     connection in the explicit residual (:func:`frozen_residual_flow`).
 
     - ``block``: the contiguous ``HE_11`` to ``HE_1N`` set on a varying radius, from
-      :func:`solprop.modes.capillary.taper_coupling_block`.
+      :func:`solprop.modes.wall.taper_coupling_block`.
     """
     _check_taper_route(build, grid)
     # The block's own door, before the generator differentiates the profiles: it
@@ -734,7 +734,7 @@ def _wall_connection_at(
 ) -> Complex[np.ndarray, "n_modes_c_out n_modes_c_in n_omega_c"]:
     """Return the wall block's connection at one position, on the run's frequency axis.
 
-    :func:`solprop.modes.capillary.wall_connection` is the connection of the
+    :func:`solprop.modes.wall.wall_connection` is the connection of the
     field-normalised Bessel basis, antisymmetric in the **true-power** amplitude
     ``b = W^(1/2) a`` with ``W = diag(Re n_eff)`` -- which is where coupled local-mode
     theory puts it, and what makes a lossless taper conserve power exactly. The
@@ -805,7 +805,7 @@ def _check_wall_total_varying(  # noqa: PLR0917 - called positionally
     width is the carrier's. A sign slipped into this arithmetic is a *global*
     property of the conjugation, which is what this catches; the block's own pointwise
     passivity is checked at every sampled position by
-    :func:`solprop.modes.capillary.wall_operator`.
+    :func:`solprop.modes.wall.wall_operator`.
 
     - ``coefficients``: the stored generator's Chebyshev coefficients in 1/m.
     - ``edges``: the section edges in m.
@@ -891,7 +891,7 @@ def _check_wall_route(build: _Assembly) -> None:
     The two the *assembly* owns. The route the run takes is refused earlier still
     (:func:`_refuse_a_wall_off_the_capillary_route`, the first thing
     :func:`assemble` does), the mode set by
-    :func:`solprop.modes.capillary.wall_operator`, and an empty active band by that
+    :func:`solprop.modes.wall.wall_operator`, and an empty active band by that
     same function, which names the mask it was given and is the layer that evaluates
     over it.
     """
@@ -925,7 +925,7 @@ def _check_wall_total(
 
     The last of the three doors the sign of this operator passes through. The wall
     block itself is checked for passivity in its own coordinates
-    (:func:`solprop.modes.capillary.wall_operator`); here the **carrier** is added
+    (:func:`solprop.modes.wall.wall_operator`); here the **carrier** is added
     back, so a conjugation applied to one of the two terms and not the other -- the
     easy mistake of writing ``-i B`` where ``-i conj(B)`` was meant -- turns the
     diagonal into gain and is caught.

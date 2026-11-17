@@ -2,15 +2,20 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The kernel's results requests: one plane, the statistics, a spectrogram, figures.
+"""The kernel's results requests: a plane, the statistics, health, scans and figures.
 
 Each request opens a results file and asks :mod:`solprop.processing` (or
 :mod:`solprop.plotting`, for what has no data function) for one view's numbers (design
-11.3): a plane's spectrum, power and spectral phase; every recorded statistic and the
-step history against z; a plane's spectrogram as data; and a figure of any of these
-written by solprop's own plotting
-(design 11.4). Like the other handlers, this module computes nothing of its own, and
-runs only in the kernel process.
+11.3); like the other handlers, this module computes nothing of its own and runs only
+in the kernel process (:data:`RESULTS_HANDLERS`).
+
+- One plane: :func:`plane` (spectrum, power and spectral phase), :func:`spatial_plane`
+  and :func:`beam` for a free-space plane (through :mod:`solprop.service.beam`), and
+  :func:`spectrogram` as data; :func:`band_of` reads a request's bandpass.
+- The run: :func:`statistics` (every statistic and the step history against z) and
+  :func:`run_health` (its steps, its boundary and its record).
+- A scan: :func:`scan_overview` and :func:`scan_point`.
+- :func:`figure` draws solprop's own plots of a file (design 11.4).
 """
 
 import contextlib

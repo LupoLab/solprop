@@ -3,7 +3,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 
-"""Dispersive-wave phase matching: the mismatch and its roots in wavelength."""
+"""Dispersive-wave phase matching: the mismatch and its roots in wavelength.
+
+:func:`phase_mismatch` is the phase mismatch between a soliton and a dispersive wave,
+with the soliton's nonlinear wavenumber chosen by :data:`NonlinearPhase` (the largest
+constituent, a supplied power, or none); :func:`lambda_rdw` returns the phase-matched
+wavelength nearest the pump and :func:`lambda_rdw_all` every one in a window. The
+condition is derived in ``docs/guide/workflows/design-tools.md``.
+"""
 
 import math
 from dataclasses import dataclass

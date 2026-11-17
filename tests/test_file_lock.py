@@ -10,8 +10,8 @@ import types
 
 import pytest
 
-from solprop.output import _file_lock
-from solprop.output._file_lock import lock, unlock
+from solprop import _file_lock
+from solprop._file_lock import lock, unlock
 
 
 @pytest.fixture

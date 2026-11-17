@@ -4,18 +4,18 @@
 
 """Start a run without a window: directly, or as a Slurm job (design 13.4).
 
-Either way the run is ``python -m solprop.service.job FOLDER``
-(:mod:`solprop.service.job`), with its spec in the folder, and either way it outlives
+Either way :func:`prepare` writes the run's folder and spec, the run is
+``python -m solprop.service.job FOLDER`` (:mod:`solprop.service.job`), and it outlives
 whoever started it. What started it is written to ``submitted.json`` at once, so a run
-still waiting in Slurm's queue, which has written nothing of its own yet, can be found
-and listed.
+still waiting in Slurm's queue, which has written nothing of its own yet, can be found.
 
-Directly, the run is a process in a session of its own, so closing the SSH session or
-the helper that started it does not end it. Through Slurm it is a batch job from a
-template the user edits (:class:`SlurmResources`): its resources and any lines a site
-needs (module loads, an environment), and nothing else. The job asks for ``SIGTERM``
-two minutes before its time limit, so solprop writes a checkpoint the run can be
-resumed from.
+- :func:`start_direct` runs it as a process in a session of its own, so closing the SSH
+  session or the helper that started it does not end it.
+- :func:`submit_slurm` submits :func:`slurm_script`'s batch job, from a template the
+  user edits (:class:`SlurmResources`: its resources and any lines a site needs). The
+  job asks for ``SIGTERM`` two minutes before its time limit, so solprop writes a
+  checkpoint the run can be resumed from. :func:`slurm_states` (:class:`SlurmState`)
+  and :func:`cancel_slurm` follow and end it.
 """
 
 import os

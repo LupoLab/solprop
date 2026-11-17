@@ -5,12 +5,13 @@
 """The lazy view of a saved plane that a plane observer is shown (SEP 41, S3).
 
 A reporter that defines ``observe_plane`` (:class:`~solprop.log.ProgressReporter`) is
-shown each saved plane as a :class:`PlaneView`: the plane's position, statistics row
-and basis at once, and its field, spectrum, power and spectral density only on
-request, computed by the same :mod:`solprop.processing` functions that read a file, so
-what an observer draws is what the file holds. On a device a plane whose field the
-output does not keep is fetched only when asked for, and the fetch is counted in the
-run's resources.
+shown each saved plane as a :class:`PlaneView`, through a run's :class:`PlaneWatch`:
+the plane's position, statistics row and basis at once, and its field, spectrum, power
+and spectral density only on request, computed by the same :mod:`solprop.processing`
+functions that read a file, so what an observer draws is what the file holds. On a
+device a plane whose field the output does not keep is fetched only when asked for,
+and the fetch is counted in the run's resources. The manual page is
+``docs/guide/performance/progress.md`` ("Watching each saved plane").
 """
 
 import logging
@@ -22,14 +23,18 @@ from typing import TYPE_CHECKING, Any, Final
 import numpy as np
 
 from solprop._host import ObserverSpend
-from solprop.capabilities import Quantity, _quantities
 from solprop.exceptions import DriverError, SolpropWarning
 from solprop.log import ProgressReporter
-from solprop.output.capability import BasisCapability, capability_of
+from solprop.output.capability import (
+    BasisCapability,
+    Quantity,
+    capability_of,
+    quantities,
+)
 from solprop.output.memory import MemoryOutput
 from solprop.output.metadata import RunMetadata
 from solprop.output.records import SavedPlane, StoredField
-from solprop.processing import fields
+from solprop.processing import fields, planes
 
 if TYPE_CHECKING:
     from solprop.coupling.plane import FieldPlane
@@ -111,7 +116,7 @@ class PlaneView:
         :func:`solprop.capabilities.output` states them; a spatial plane has only
         its field.
         """
-        return _quantities(self._metadata, self.basis)
+        return quantities(self._metadata, self.basis)
 
     def _reader(self) -> MemoryOutput:
         """Return the plane as a one-plane output, fetching its field once if needed."""
@@ -251,9 +256,7 @@ class PlaneView:
             For a run :func:`~solprop.processing.planes.field_plane` refuses (a hybrid
             planar run, the modified noise model).
         """
-        from solprop.processing.planes import field_plane  # noqa: PLC0415 - heavy
-
-        return field_plane(self._reader(), 0)
+        return planes.field_plane(self._reader(), 0)
 
     def _close(self) -> None:
         """End the view's validity and let its arrays go."""

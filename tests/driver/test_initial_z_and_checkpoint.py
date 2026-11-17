@@ -36,7 +36,7 @@ from solprop.exceptions import (
 )
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.linear import Frame
-from solprop.modes.capillary import CoherentWall
+from solprop.modes.wall import CoherentWall
 from solprop.noise import NoiseRealisation
 from solprop.nonlinear.tdse import (
     TDSEBasis,

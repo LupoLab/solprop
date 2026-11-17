@@ -28,7 +28,7 @@ from scipy.linalg import sqrtm
 from scipy.optimize import newton, root
 from scipy.special import jn_zeros, jv
 
-import solprop.modes.capillary as capillary_module
+import solprop.modes.wall as wall_module
 from solprop.constants import EPS0, C
 from solprop.exceptions import GrazingIncidenceWarning, ModeError
 from solprop.modes import (
@@ -42,13 +42,8 @@ from solprop.modes import (
     vector_wall_operator,
     wall_operator,
 )
-from solprop.modes.capillary import (
-    ModeKind,
-    WallLimits,
-    _cladding_term_and_derivative,
-    wall_connection,
-    wall_square_root_metric,
-)
+from solprop.modes.capillary import ModeKind, cladding_term_and_derivative
+from solprop.modes.wall import WallLimits, wall_connection, wall_square_root_metric
 from solprop.profiles import FromCallable, Linear, ZProfile
 
 ORACLE = Path(__file__).resolve().parents[1] / "data" / "wall_oracle"
@@ -414,14 +409,14 @@ def test_an_empty_band_or_an_empty_frequency_vector_is_rejected():
 def test_no_cladding_this_package_ships_can_leave_the_passive_branch():
     """`Re(1/v_HE) >= 0` for every permittivity, which is why the wall always absorbs.
 
-    The algebra in :func:`solprop.modes.capillary._check_wall_passivity` says
+    The algebra in :func:`solprop.modes.wall._check_wall_passivity` says
     `Re(2s/(s^2+2)) = 2x(|s|^2+2)/|s^2+2|^2` with `x = Re sqrt(e - 1) >= 0` on the
     principal root. This measures it over a grid of real, complex, absorbing and
     below-unity claddings, to an absolute -1e-15 of the value's own scale.
     """
     grid = [0.5, 0.95, 1.0001, 1.3, 1.45, 3.0, 1.45 + 0.05j, 0.6 + 0.2j, 1.0 + 0.5j]
     permittivity = np.array([complex(one) ** 2 for one in grid])
-    term, _ = _cladding_term_and_derivative(
+    term, _ = cladding_term_and_derivative(
         permittivity, np.zeros_like(permittivity), "HE"
     )
     assert np.all(np.real(1.0 / term) >= -1e-15 * abs(1.0 / term))
@@ -438,13 +433,13 @@ def test_an_impedance_off_the_passive_branch_is_refused_rather_than_clamped(
     such as the vector averages of the hybrid families, and against a sign slipped
     into this arithmetic.
     """
-    principal = capillary._cladding_term_and_derivative
+    principal = capillary.cladding_term_and_derivative
 
     def active(permittivity, dpermittivity, kind):
         term, derivative = principal(permittivity, dpermittivity, kind)
         return -term, -derivative
 
-    monkeypatch.setattr(capillary, "_cladding_term_and_derivative", active)
+    monkeypatch.setattr(capillary, "cladding_term_and_derivative", active)
     with pytest.raises(ModeError, match="not passive on the branch"):
         wall_operator(block(3, 125e-6, None, 0.0), np.array([2.356e15]))
 
@@ -1336,13 +1331,13 @@ def test_the_mixed_family_coupling_moves_the_eigenvalue_towards_the_exact_root(
         return -float(np.real(nearest)) / (exact["attenuation_radius"] / radius) - 1.0
 
     coupled = nearest_departure(vector_wall_operator(modes, omega, validity_limit=2.0))
-    true_impedances = capillary_module._vector_impedances
+    true_impedances = wall_module._vector_impedances
 
     def averaged(mode, band):
         both = true_impedances(mode, band)
         return np.repeat(np.mean(both, axis=0, keepdims=True), 2, axis=0)
 
-    monkeypatch.setattr(capillary_module, "_vector_impedances", averaged)
+    monkeypatch.setattr(wall_module, "_vector_impedances", averaged)
     uncoupled = nearest_departure(
         vector_wall_operator(modes, omega, validity_limit=2.0)
     )

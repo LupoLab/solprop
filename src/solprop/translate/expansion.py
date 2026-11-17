@@ -5,46 +5,26 @@
 r"""A z-dependent quantity as a Chebyshev expansion in the scalar paths it depends on.
 
 A mode whose whole z dependence runs through named scalar paths
-(:class:`solprop.modes.protocol.ParameterisedMode`) makes every quantity built from it a
-function of those parameters rather than of the position:
-``D(omega, z) = D(omega; rho(z), a(z))``. That distinction is worth a representation of
-its own, because the two dependences are completely different in character. ``D`` is
-smooth and analytic in the density and the core radius; ``rho(z)`` is what carries the
-square-root cusp of a near-vacuum entrance, the stage boundaries of a fill and the
-corners of a taper. Tabulating ``D`` along z pays for that structure once per state
-element:
+(:class:`solprop.modes.protocol.ParameterisedMode`) makes every quantity built from it
+a function of those parameters, ``D(omega; rho(z), a(z))``: analytic in the
+parameters, while the scalar ``rho(z)`` carries the cusps and kinks. So ``D`` is
+expanded once in one global Chebyshev box per parameter, and ``Phi`` is that expansion
+against **scalar** integral tables along z,
+:math:`\Phi(\omega, z) = \sum_{jk} d_{jk}(\omega)\, I_{jk}(z)`.
 
-.. math::
+- :class:`ParameterExpansion`: the coefficients and the weight tables;
+  :meth:`~ParameterExpansion.delta` is ``tensordot(weights(z2) - weights(z1), terms)``.
+  It serves the cumulative operator (weights the integrals ``I_jk``) and the prefactor
+  (weights the basis products at z); the ``integrate`` flag of :func:`build_expansion`
+  is the only difference.
+- :func:`build_expansion` builds one, or returns ``None`` when an axis is unresolved at
+  the degree ceiling (a kink in a parameter) and the caller falls back to the z table.
+- :func:`append_endpoint_expansion` adds the ``-ln(w)/2`` endpoint block,
+  :func:`parameter_roundoff_floor` measures its floor on the box, and
+  :func:`reweight_expansion` reuses coefficients along new covered paths.
 
-    D(\omega; \rho, a) \approx \sum_{jk} d_{jk}(\omega)\,T_j(\hat\rho)\,T_k(\hat a),
-    \qquad
-    \Phi(\omega, z) = \sum_{jk} d_{jk}(\omega)\, I_{jk}(z),
-
-with :math:`I_{jk}(z) = \int_0^z T_j(\hat\rho(z'))T_k(\hat a(z'))\,\mathrm{d}z'` a
-**scalar** table along z. The expensive array-valued object is resolved where it is easy
--- one global Chebyshev box per parameter -- and the hard structure stays in the scalar
-tables, which cost 8 bytes per term per coefficient instead of 16 bytes per state
-element. The memory of the kernel contract's section 3 falls from
-``n_intervals x n_deg x state`` to ``n_terms x state``, and evaluation
-falls from two Clenshaw passes over the state to one over ``n_terms`` scalars followed
-by one linear combination.
-
-The same class serves the cumulative operator, whose weights are the integrals
-:math:`I_{jk}`, and the prefactor, whose weights are the products
-:math:`T_j(\hat\rho(z))T_k(\hat a(z))` themselves; ``integrate`` is the only difference
-between the two builds.
-
-**Where this does not apply.** The expansion is one global box per parameter, so it is
-exact only to the truncation of an *analytic* function. A quantity that kinks in a
-parameter -- the loss clamp of :class:`solprop.linear.LossPolicy` crossing its limit,
-the evanescent index floor of a capillary binding partway along the range -- has no such
-truncation, the degree search reaches its ceiling, and :func:`build_expansion` returns
-``None``. The caller then falls back to the z table, which is the general representation
-and splits at the kink as it always did. Nothing about the seam changes either way:
-a backend evaluates through ``delta_phi``, ``unitary_phase`` and ``prefactor_at``.
-
-The narrative is ``docs/guide/numerics/linear-operator.md``, "The expansion in the
-parameters".
+The derivation, the costs and the refusals are
+``docs/guide/numerics/linear-tables.md``, "The expansion in the parameters".
 """
 
 import logging
@@ -67,8 +47,8 @@ from solprop.translate.chebyshev import (
     INITIAL_DEGREE,
     SAMPLING_NOISE_FACTOR,
     PiecewiseChebyshev,
-    _held_table,
     build,
+    held_table,
     interleave_axis,
     lobatto_points,
     refinement_points,
@@ -969,7 +949,7 @@ def _weight_tables(  # noqa: PLR0917 - called positionally
     )
     if integrate:
         table = table.integral()
-    return _held_table(table)
+    return held_table(table)
 
 
 def _mapping_noise(ranges: Float[np.ndarray, "n_params two"]) -> float:

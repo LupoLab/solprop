@@ -10,7 +10,7 @@ import pytest
 
 from solprop import capabilities
 from solprop.exceptions import OutputError, ProcessingError
-from solprop.output import MemoryOutput
+from solprop.output import MemoryOutput, capability
 from solprop.processing import compression, modal, time
 from solprop.processing._examples import example_general_output, example_output
 from solprop.recipe import Recipe
@@ -122,6 +122,12 @@ def test_the_modal_statements_keep_their_units():
             "field": "sqrt(W)",
         }
         assert {one.kind for one in quantities.values()} == {kind}
+
+
+def test_the_quantity_records_are_the_output_layer_s_own():
+    # The statement re-exports them: one class, whichever path it is imported from.
+    assert capabilities.Quantity is capability.Quantity
+    assert capabilities.QuantityKind is capability.QuantityKind
 
 
 def test_a_file_says_its_planes_its_recipe_and_whether_it_continues(tmp_path):

@@ -137,7 +137,6 @@ intersphinx_timeout = 10
 nitpicky = True
 nitpick_ignore = [
     ("py:class", "logging.Logger"),
-    ("py:mod", "pyfluids"),  # no published inventory
     # Removed with numba_cpu (SEP 43); the Final SEP 18 keeps its reference as history.
     ("py:mod", "solprop.backends.bodies"),
     # The private base of the two tabulated hollow modes. `show-inheritance`

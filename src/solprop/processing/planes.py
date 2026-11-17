@@ -4,19 +4,20 @@
 
 """Read one saved plane of a run: a coherent field plane (SEP 31), or a fluence map.
 
-:func:`fluence_map` lays a spatial plane's fluence out on its transverse axes.
-:func:`field_plane` turns a stored plane into a
-:class:`solprop.coupling.plane.FieldPlane`: its native coefficients exactly as stored,
-the reference rebuilt from the run's plane-reference record, the medium's
-metric at the plane's own position, the path certificate and the provenance.
-It is the extraction half of plane exchange; the manual page is
-``docs/guide/workflows/coupling.md``.
+- :func:`field_plane` turns a stored plane into a
+  :class:`solprop.coupling.plane.FieldPlane`: its native coefficients exactly as
+  stored, the reference rebuilt from the run's plane-reference record, the medium's
+  metric at the plane's own position, the path certificate and the provenance. It is
+  the extraction half of plane exchange (:mod:`solprop.processing.plane_file` is the
+  file half).
+- :func:`fluence_map` lays a spatial plane's fluence out on its transverse axes, as a
+  :class:`FluenceMap`.
 
-A file records what it can: the frame integral, the spatial plane measure and the
-identities of a general guide's reference, not the reference's arrays. A general
-modal plane's physical E/H and a dense basis Gram are therefore read with the
-simulation that ran it (``source=``), checked against the file's identities first
-through :mod:`solprop.processing.modal`.
+A file records the identities of a general guide's reference, not its arrays, so a
+general modal plane's physical E/H and a dense basis Gram are read with the simulation
+that ran it (``source=``), checked against the file through
+:mod:`solprop.processing.modal`. The manual page is
+``docs/guide/workflows/coupling.md``.
 """
 
 from collections.abc import Callable, Mapping, Sequence

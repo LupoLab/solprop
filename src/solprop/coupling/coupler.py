@@ -2,62 +2,25 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Couple a field plane into a simulation's input port (SEP 31, sections 4.3 and 4.7).
+"""Couple a field plane into a simulation's input port (SEP 31, sections 4.3 and 4.7).
 
 :func:`couple` is the one public path from a :class:`~solprop.coupling.plane.FieldPlane`
 to a target-bound :class:`~solprop.coupling.port.CouplingLaunch`. It applies one of
-the three models of :class:`~solprop.coupling.models.CouplingModel` and returns a
-:class:`CouplingResult`: the launch and an immutable :class:`CouplingReport`.
+the three models of :class:`~solprop.coupling.models.CouplingModel` (``same_basis``,
+``scalar_paraxial``, ``vector_paraxial``) and returns a :class:`CouplingResult`: the
+launch and an immutable :class:`CouplingReport`. An approximate coupling is admitted
+against its ``model_error`` budget through a list of :class:`AdmissionItem` s, each a
+relative energy discrepancy with its :data:`ItemScope`, whose counted items must sum
+to at most the budget; an apparent gain below :data:`PASSIVITY_ROUNDING` is rounding.
+:func:`target_columns` gives a scalar target profile's columns in a spatial plane's
+own spectral quadrature, where the overlaps are taken by Parseval.
 
-**Measures.** Three quadratic forms are kept apart (section 4.3): ``F``, the
-Hermitian E/H flux pairing of a modal basis; ``G = S^H M S``, the scalar
-least-squares Gram in the common paraxial measure :math:`M_0 = Y_0\,dA/2`,
-:math:`Y_0 = n_{\rm ref}\varepsilon_0c`; and ``Q``, a representation's native power
-metric. Only in the common positive metric ``M_0`` does the orthogonal-residual
-identity :math:`\|f\|^2_M = a^\dagger Ga + \|f - Sa\|^2_M` hold, so only the scalar
-model reports an uncaptured energy; the others report the incident and launched
-energies and leave the difference unattributed.
-
-**Overlaps in the plane's own quadrature.** A spatial plane's columns are the
-Hankel or Fourier spectrum of its field, so the scalar overlap of a target profile is
-taken by Parseval in that spectral quadrature, with the profile's closed-form
-transform (:meth:`~solprop.coupling.models.ScalarModeBasis.hankel`): the incident
-norm, the overlaps and the Gram all use one quadrature, and the identity above holds
-to rounding. A modal source is overlapped on a composite Gauss--Legendre rule that
-breaks at both core radii.
-
-**Admission** (section 4.3). Each approximate coupling is admitted against its
-``model_error`` budget :math:`\epsilon_m` through a list of
-:class:`AdmissionItem` s, each a relative energy discrepancy:
-
-- ``angular``: :math:`[d(E_{\rm in}) + d_{\rm target}]/U` with
-  :math:`1 - \cos\theta_* = \epsilon_m/8` and
-  :math:`d = (1 - \cos\theta_*)U_{\rm cone} + U_{\rm tail}` (section 4.6), for the
-  incident field and for the retained target subspace. The cone term is the cone
-  rule's **allocation**, about :math:`\epsilon_m/8` of the cone share, not a
-  measured defect; only the tail beyond :math:`\theta_*` is measured;
-- ``contrast``: the weak-guidance screen
-  :math:`\Delta \le \epsilon_m/8` of a solid provider, or the recorded pair
-  envelope that replaces it; not applied to a capillary wall;
-- ``target metric`` and ``source metric``: the relative defect between ``G`` (or
-  ``F``) and the target's native ``Q``, and between ``M_0`` and the source's native
-  metric, each at most :math:`\epsilon_m/8`;
-- ``closure`` (vector model): :math:`2\delta + \delta^2` of the H-closure field error
-  :math:`\delta`, at most :math:`\epsilon_m/8`;
-- ``passivity``: the whitened certificate :math:`C^\dagger Q_BC \preceq Q_A`; an
-  apparent gain within the model's own defects is reported as a model defect, never
-  rescaled or clipped, and a larger one refuses;
-- ``envelope``: the recorded pair envelope's allowance (scaled by the pair's leaky
-  parameter for a capillary, by the fibre's contrast for a beam into a step-index
-  fibre, by the squared contrast for the vector model into a step-index guide),
-  plus the incident share of any bins outside its range; a general guide without
-  a recorded envelope (a graded index) reports it without a value, uncounted;
-- ``numerical``: quadrature, representation and domain errors, an amplitude error
-  :math:`\delta` entered as :math:`2\delta + \delta^2`.
-
-The counted items must sum to at most :math:`\epsilon_m`. A source plane's SEP 34 path
-certificate is carried separately in the report. A zero field is a
-valid zero launch with an undefined efficiency.
+Three quadratic forms are kept apart throughout: ``F``, the Hermitian E/H flux pairing
+of a modal basis; ``G = S^H M S``, the scalar least-squares Gram in the common
+paraxial measure ``M_0``; and ``Q``, a representation's native power metric. Only the
+scalar model, in ``M_0``, reports an uncaptured energy. The measures, the models, every
+admission item and the recorded envelopes are in ``docs/guide/workflows/coupling.md``,
+section "Coupling between different representations".
 """
 
 import math
@@ -1663,9 +1626,9 @@ def _vector_envelope_item(
 ) -> AdmissionItem:
     r"""Return the vector model's recorded facet envelope item, or refuse the guide.
 
-    Only a :class:`~solprop.modes.guide.StepIndexProvider` guide has a recorded
-    envelope (:data:`~solprop.coupling.envelopes.VECTOR_STEP_INDEX_ENVELOPE`); its
-    port carries the guide's normalised frequency. Its parameters are the contrast,
+    Only a :class:`~solprop.modes.stepindex_vector.StepIndexProvider` guide has a
+    recorded envelope (:data:`~solprop.coupling.envelopes.VECTOR_STEP_INDEX_ENVELOPE`);
+    its port carries the guide's normalised frequency. Its parameters are the contrast,
     V and squared contrast weighted by the incident energy, as the other per-bin
     items are: the allowance is linear in the squared contrast, so the weighted
     mean bounds the whole field over the bins inside the range. Bins whose contrast

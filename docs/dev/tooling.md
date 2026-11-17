@@ -85,7 +85,7 @@ drop them too and allow `print` and cell-style imports; benchmarks allow `print`
 
 `include = ["src", "tests"]` without the oracles, `typeCheckingMode = "standard"` (strict once the baseline is
 clean), `pythonVersion = "3.14"`, `failOnWarnings = true`, `reportMissingTypeStubs = false`
-because pyfluids ships no stubs (narrow ignores are still preferred over
+because some dependencies ship no stubs (narrow ignores are still preferred over
 broad ones); `scipy-stubs` supplies SciPy's. The checker is pinned to an exact version and
 bumped in its own commit.
 

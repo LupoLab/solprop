@@ -4,19 +4,18 @@
 
 """The standard figures of a propagation: the maps, the slices and the energy.
 
-Drawn with matplotlib from whatever :mod:`solprop.processing` returns. Every function
-takes an :class:`~solprop.output.store.Output`, returns figures and never calls
-:func:`~matplotlib.pyplot.show`; the slice plots accept an ``ax`` to draw into, so a
-figure of several panels is assembled by the caller rather than by a keyword here.
+- :func:`prop_2d` draws the false-colour propagation maps, one figure per mode;
+  :func:`time_1d` and :func:`spec_1d` the time-domain and spectral slices at one or
+  more positions, into a caller's ``ax`` when given one, so a figure of several panels
+  is assembled by the caller; :func:`plot_energy` the energy along the propagation.
+- :func:`default_time_range` and :func:`default_spec_range` choose what a plot shows
+  when it is given no range (where the light is; the run's band).
 
-The display units are :mod:`solprop.plotting.style`'s: z in centimetres, time in
-femtoseconds, wavelength in nanometres, frequency in petahertz, energy in microjoules
-and power auto-scaled.
-
-These figures draw modes, so a radial, Cartesian, line or planar file is refused by the
-name of the figure: its columns are not modal amplitudes, and a map or a slice of them
-would be labelled in watts and joules it does not hold. The refusal names the spatial
-functionals to draw instead (:data:`solprop.output.capability.COLUMN_READINGS`).
+Display units are :mod:`solprop.plotting.style`'s. These figures draw modes, so a
+radial, Cartesian, line or planar file is refused by the figure's name, naming the
+spatial functionals to draw instead
+(:data:`solprop.output.capability.COLUMN_READINGS`). The manual page is
+``docs/guide/results/plotting.md``.
 """
 
 from collections.abc import Sequence

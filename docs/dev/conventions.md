@@ -3,8 +3,8 @@
 The units, signs, normalisations, grids and array layouts that every module assumes and
 every docstring defers to. A function that departs from any of these says so in the first line
 of its docstring and explains why. Sign errors escape review; these belong in one place.
-The layer letters P, T, B, D and X that docstrings use are defined in
-[architecture.md §3](architecture.md) and ADR-001, not here.
+The layer letters P, S, T, B, D and X that docstrings use are defined in
+[architecture.md §3](architecture.md), ADR-001 and ADR-080, not here.
 
 ## 1. Units
 
@@ -161,6 +161,12 @@ realises the request rounded up and is kept to reproduce frozen witnesses, can p
 collar inside the requested window. In
 solprop these profiles become **rates** (ADR-007); the hard band limit outside the active
 mask is a 0/1 mask.
+
+**Hazards.** `grid.py` guards against four, each noted where it is handled: overlapping
+coarse spectral bins when the transform size is not a power of two; a degenerate temporal
+collar when the realised window equals the requested one; an envelope fine spacing that
+ignores the low-frequency edge; and an envelope crop derived from the upper edge alone and
+then applied symmetrically.
 
 **Oversampling scale factors** (Luna `NonlinearRHS.jl:19–56`): zero-pad the coarse spectrum
 into the fine one with scale `(n_omega_fine − 1)/(n_omega − 1) = n_to/n_t` (field) or
@@ -342,6 +348,13 @@ ledgers or a march snapshot's stored state (SEP 52). Every backend computes in b
 (ADR-077). Saved fields: `(n_z, n_modes, n_pol, n_omega)`; a scan stores each point separately.
 Space-domain buffers: `(n_nodes_chunk, n_pol, n_to)`. Convenience accessors
 may squeeze trivial axes; the seam and the files never do.
+
+**The spectral layout is passed, never inferred.** A field grid stores the one-sided
+spectrum of a real field (`n_omega = n_t/2 + 1`) and an envelope grid the full FFT-order
+spectrum of a complex envelope (`n_omega = n_t`). Neither dtype nor array length tells
+them apart reliably — a real-valued envelope is an ordinary unchirped pulse, and a real
+field cast to complex is indistinguishable from an analytic signal — so every function of
+`fourier` that needs to know takes an explicit `kind` and checks the array against it.
 
 Standard axis names, reused verbatim in every jaxtyping annotation and docstring:
 

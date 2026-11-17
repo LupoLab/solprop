@@ -4,22 +4,20 @@
 
 """The plasma column's running-integral rule, designed once per grid (SEP 18).
 
-The production field-grid plasma source integrates the exposure and free current
-along t. The physical polarisation returned by ``PlasmaResponse.evaluate`` adds a
-third integral; production uses the held-current spectral conversion (SEP 27).
-The plain cumulative trapezoid integrates a Fourier
-component ``exp(i omega t)`` with the multiplier ``rho(theta) = (theta/2) cot(theta/2)``
-times the exact ``-i/omega``, ``theta = omega dt``, which on the default grid leaves the
-top of the active band 11 % short per integral. The band rule filters each integrand
-with symmetric taps ``c_0 ... c_K`` before the trapezoid, chosen so that the composite
-multiplier ``H = C rho``, with ``C(theta) = c_0 + 2 sum_k c_k cos(k theta)``, is one to
-within :data:`DESIGN_TOLERANCE` on ``[0, theta_b]``, ``theta_b = omega_max_window dt``.
+The field-grid plasma source integrates the exposure and free current along t. The
+plain cumulative trapezoid integrates ``exp(i omega t)`` with the multiplier
+``rho(theta) = (theta/2) cot(theta/2)`` times the exact ``-i/omega``
+(:func:`trapezoid_multiplier`), which on the default grid leaves the top of the active
+band 11 % short per integral. The band rule filters each integrand with symmetric taps
+before the trapezoid, so that the composite multiplier is one to within
+:data:`DESIGN_TOLERANCE` over the band. :func:`design_running_integral` designs a grid's
+rule -- a constrained least-squares fit and a certified extremum search, hand-rolled
+numerics that live here so the physics layer only carries the result
+(:class:`solprop.nonlinear.ionisation.RunningIntegral`) -- and
+:func:`integration_record` is the record a saved run carries.
 
-The design is hand-rolled numerics -- a constrained least-squares fit and a certified
-extremum search -- so it lives here in translation, and the physics layer only carries
-the result (:class:`solprop.nonlinear.ionisation.RunningIntegral`). The rules, the
-certified ladder of designs and the evidence for each choice are in SEP 18, section 4.3;
-the manual page is ``docs/guide/media/field-plasma.md``.
+The rules, the certified ladder and the evidence are in SEP 18, section 4.3; the manual
+page is ``docs/guide/media/field-plasma.md``.
 """
 
 import functools

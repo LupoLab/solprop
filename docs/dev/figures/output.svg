@@ -11,6 +11,8 @@ svg {
     --rule: #c9d0da;
     --p-fill: #e2f0e8;
     --p-edge: #2c7a55;
+    --s-fill: #ddf1f3;
+    --s-edge: #1d7a86;
     --t-fill: #fceedd;
     --t-edge: #a96a15;
     --b-fill: #e3ebfa;
@@ -28,6 +30,8 @@ svg {
     --rule: #3a424e;
     --p-fill: #16342a;
     --p-edge: #5cb98a;
+    --s-fill: #113236;
+    --s-edge: #5fc2ce;
     --t-fill: #3a2b15;
     --t-edge: #e0a44f;
     --b-fill: #17253f;
@@ -56,6 +60,9 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 .fill-p { fill: var(--p-fill); stroke: var(--p-edge); }
 .edge-p { stroke: var(--p-edge); }
 .ink-p { fill: var(--p-edge); }
+.fill-s { fill: var(--s-fill); stroke: var(--s-edge); }
+.edge-s { stroke: var(--s-edge); }
+.ink-s { fill: var(--s-edge); }
 .fill-t { fill: var(--t-fill); stroke: var(--t-edge); }
 .edge-t { stroke: var(--t-edge); }
 .ink-t { fill: var(--t-edge); }

@@ -48,8 +48,8 @@ level, so a keyword added to solprop later can never collide with the format:
 | `[recipe]` | `format` and `route`, required; `title` and `solprop`, informative |
 | `[build]` | the keywords of the route's `Simulation.from_*` constructor, under their own names |
 | `[execution]` | `fields`, `field_planes` and `resume_history`: settings the run reads when it executes |
-| `[pins]` | values solved from a design target (a later release) |
-| `[scan]` | a scan over parameter paths (a later release) |
+| `[pins]` | values solved from a design target ([below](#pins)) |
+| `[scan]` | a scan over parameter paths ([below](#scans)) |
 
 The names in `[build]` are the keywords of
 {py:meth}`~solprop.driver.simulation.Simulation.from_capillary`,
@@ -102,6 +102,33 @@ supplies them. An unknown key is refused with the nearest valid one.
   (`SpatialPulse`, `SpatialPulseSum`, `PlanarPulse`), `SimulationSettings`, `PIController`,
   `default_spec` and `SpatialAbsorber`. A recipe never imports a module or evaluates
   code.
+- **TOML's own types.** Every value is a string, a boolean, a 64-bit integer, a float, a
+  table or an array: TOML's dates and times are refused, and so is an integer outside 64
+  bits, which other TOML readers refuse too.
+
+**Units.** A unit is a product of factors with at most one solidus, as the SI brochure
+writes it: a numerator of factors joined by `*` or `·` (or the single factor `1`), then
+optionally `/` and one factor or a parenthesised product, as in `W/cm^2`, `fs^2/mm` or
+`J/(m*s)`; `a/b/c` and `a/b*c` are refused as ambiguous. A factor is an optional SI prefix
+(`q` to `Q`; `u`, `µ` and `μ` all read as micro), a symbol and an optional integer
+exponent `^n` or `^-n`. The symbols are `m`, `s`, `g`, `Hz`, `J`, `W`, `Pa`, `bar`, `K`,
+`rad` and `deg`; temperature is in kelvin only, with no Celsius or Fahrenheit. The space
+between the number and the unit is optional (`"800nm"` is read). Plane angle is a fifth
+base dimension beside length, time, mass and temperature, so an angular frequency in
+rad/s is never confused with a frequency in Hz (a factor of 2π); `rad` is therefore
+written only where the keyword's unit is an angle.
+
+The number is read as a decimal, multiplied exactly by the ratio of the two units'
+factors, and rounded once to the nearest double. Every unit but `deg` is a decimal
+multiple of an SI unit, so that ratio only shifts the decimal exponent. `deg` multiplies
+by π/180, which has no finite decimal; it is carried to 70 significant digits, so the
+one rounding gives the double nearest the exact angle unless that lies within 10⁻⁷⁰
+(relative) of a tie, which no recipe value does. `deg` therefore stands alone: it takes
+no prefix, no exponent and no other factor. A saved recipe writes each value in its
+keyword's display unit with the fewest digits that read back to the same double: for a
+decimal unit, the shortest round-tripping form of the double with its decimal point
+shifted, which is always exact; for `deg`, the fewest of up to 17 significant digits that
+read back, which always suffice.
 
 **Supplied modes.** On the `waveguide` route, and for the capillary's `modes`, a mode is
 a table of its geometry, cladding and loss. Its fill is the route's `gas`, `pressure` and
@@ -138,7 +165,11 @@ taken from that grid. `check()` on such a recipe costs one solve of the guide.
 
 **Parameter paths** name a value inside the recipe: the keyword, then `.name` for a
 keyword of an object, `[i]` for an element of a list and `["key"]` for a key of a mapping,
-as in `pressure`, `pulses[1].energy` or `betas[2]`. {py:meth}`Recipe.get
+as in `pressure`, `pulses[1].energy` or `betas[2]`. An index is a non-negative integer
+with no leading zero, and a key is a JSON string, so `["a\"b"]` is the key `a"b`. Since an
+object and a mapping are both tables in TOML, `.name` and `["name"]` reach the same
+entry, and the canonical text is the one
+{py:func}`~solprop.recipe.paths.format_path` writes. {py:meth}`Recipe.get
 <solprop.recipe.core.Recipe.get>` and {py:meth}`Recipe.set <solprop.recipe.core.Recipe.set>` take
 them, and so does every error a recipe or a route raises about a value, in its
 `parameter` attribute.

@@ -33,8 +33,9 @@ from solprop.modes.connection import (
     connection_nodes,
     modal_connection,
 )
-from solprop.modes.guide import StepIndexProvider, circular_pair, provider_channels
+from solprop.modes.guide import circular_pair, provider_channels
 from solprop.modes.material import MaterialRegion
+from solprop.modes.stepindex_vector import StepIndexProvider
 from solprop.modes.vector import ModalNodeRule, ModalProvider, ModalSample
 from solprop.profiles import Linear, PiecewiseLinear
 
@@ -495,7 +496,7 @@ def test_the_connection_is_taken_in_the_declared_channel_basis():
     """A declared unitary basis reaches the connection as it reaches the tables.
 
     The transform is applied after the tracking gauge, in the same fixed order
-    :func:`solprop.translate.modal_tables.composed_gauge` documents, so the
+    :func:`solprop.modes.tables.composed_gauge` documents, so the
     connection is ``U^H Gamma U`` -- a similarity, because a *constant* declaration
     adds no term of its own.
     """
@@ -704,7 +705,7 @@ def test_a_specified_mode_declares_no_field_to_pair_and_so_has_no_connection():
     # The connection this pair *would* need is the capillary's own, and it is not
     # small: `wall_connection` reads it directly from the profile the fibres were
     # built from.
-    from solprop.modes.capillary import wall_connection  # noqa: PLC0415
+    from solprop.modes.wall import wall_connection  # noqa: PLC0415
 
     link = wall_connection(modes, 1e-4)
     assert float(np.max(abs(link))) > 1e3

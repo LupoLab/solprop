@@ -4,30 +4,23 @@
 
 """The closed union of route descriptions a propagation problem carries (SEP 47 6.2).
 
-A :class:`~solprop.translate.problem.PropagationProblem` shares its grid, operator,
-response and source components between every route; what differs between routes is
-carried by exactly one of three variants, each holding the fields its executor needs and
-nothing else:
+What differs between routes is carried by exactly one of three frozen variants, each
+holding the fields its executor needs and checking them on construction:
 
-- :class:`ModalRoute`: modal amplitudes through the static synthesis and projection
-  of the transform -- the mode-averaged effective-area route and the resolved
-  quadrature, a wall's coupled flow among them. The TDSE response is its
-  reference-only extension (:class:`TDSESource`).
+- :class:`ModalRoute`: modal amplitudes through the transform's static synthesis and
+  projection -- the mode-averaged route and the resolved quadrature, a wall's coupled
+  flow among them -- with the TDSE response as its extension (:class:`TDSESource`).
 - :class:`GeneralRoute`: a general modal guide, whose transform carries the full E/H
-  reference (``transform.modal_tables``) and whose static matrices are declared
-  placeholders.
-- :class:`SpatialRoute`: free space on a transverse grid of one of four kinds --
-  radial, Cartesian, planar (the hybrid slab transform) or line (a Cartesian grid one
-  sample wide in y) -- with the plane measure every spatial statistic is weighted by
-  and the resolved transverse boundary.
+  reference (``transform.modal_tables``).
+- :class:`SpatialRoute`: free space on a radial, Cartesian, planar or line grid
+  (:data:`SPATIAL_KINDS`, :func:`spatial_kind`), with its plane measure and transverse
+  boundary.
 
-Each variant checks its own fields on construction; what spans groups is checked by
-:meth:`~solprop.translate.problem.PropagationProblem.validate`, which visits the variant
-explicitly. A backend admits a problem the same way: it visits ``problem.route`` with a
-``match`` statement and refuses, by name and before it allocates, a variant or a kind it
-does not execute. Extending a route changes this typed contract and its tests in both
-distributions; there is no string-keyed bag of optional capabilities
-(``docs/dev/kernel-contract.md``, the extension procedure).
+:func:`route_name` names a route in a refusal; :func:`tdse_of`, :func:`flux_of`,
+:func:`transverse_of` and :func:`tdse_descriptor` read a variant's optional parts. A
+backend visits ``problem.route`` with ``match`` and refuses, by name and before it
+allocates, what it does not execute (``docs/dev/kernel-contract.md``, "The route
+union", and section 10 for extending it).
 """
 
 from dataclasses import dataclass

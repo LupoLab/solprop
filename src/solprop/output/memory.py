@@ -4,22 +4,17 @@
 
 """The in-memory output handler.
 
-Everything in RAM: the handler for fast, small problems and for the members of a scan,
-where a file per run would cost more than the run. It stores exactly what
-:class:`solprop.output.hdf5.HDF5Output` stores, in the same layout and the same sign
-convention -- both go through :class:`solprop.output.store.PlaneStore` -- so a test can
-compare the two bitwise and :meth:`MemoryOutput.to_file` writes the file the other
+:class:`MemoryOutput` holds a whole run in RAM: the handler for fast, small problems and
+for the members of a scan, where a file per run would cost more than the run. It stores
+exactly what :class:`solprop.output.hdf5.HDF5Output` stores, in the same layout and sign
+convention -- both are :class:`solprop.output.store.PlaneStore` subclasses -- so a test
+can compare the two bitwise and :meth:`MemoryOutput.to_file` writes the file the other
 handler would have written.
 
-The plane-indexed arrays are allocated once, for the planes the run reserved
-(:meth:`~solprop.output.store.PlaneStore.reserve`; the run loop reserves the entrance
-and every save plane), or for a block of :data:`INITIAL_BLOCK` planes when nothing was
-reserved, and grow by doubling past that rather than by concatenating on every save,
-which would be quadratic in the number of planes. The field block follows the run's
-field retention (:meth:`~solprop.output.store.PlaneStore.retain`): every plane,
-exactly the named planes, or none at all, in which case no field block is allocated.
-The step history is variable in length per plane, so it is kept as a
-list of pieces, concatenated when read, with a per-plane count beside it.
+The plane-indexed arrays are allocated once for the planes the run reserved (or a block
+of :data:`INITIAL_BLOCK` planes) and grow by doubling, never by concatenating on every
+save, which would be quadratic in the number of planes; the field block follows the
+run's field retention, and the variable-length step history is kept as per-plane pieces.
 
 The manual page is ``docs/guide/results/output.md``.
 """

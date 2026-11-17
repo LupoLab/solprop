@@ -21,7 +21,7 @@ from solprop.backends.numpy_ref.passes.responses import (
     tensor_raman_spectrum,
 )
 from solprop.constants import EPS0
-from solprop.driver.simulation import _undamped_model_key
+from solprop.driver.mixtures import _undamped_model_key
 from solprop.exceptions import BackendError, TranslationError
 from solprop.profiles import Constant
 from solprop.translate.responses import RamanCoefficients, raman_coefficients

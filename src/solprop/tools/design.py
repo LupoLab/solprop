@@ -5,9 +5,11 @@
 
 """Design solvers: the parameter of a guide or fill that meets a design target.
 
-:func:`solve_parameter` brackets every root of a target's residual over a parameter;
-:func:`radius_zdw`, :func:`pressure_zdw` and :func:`pressure_rdw` are its capillary
-forms.
+:func:`solve_parameter` brackets every root of a target's residual over a parameter of a
+guide or fill built by a :data:`DesignBuild`, returning :class:`DesignRoots`, one of
+which a :data:`RootChoice` selects. The targets (:data:`DesignTarget`) are :class:`ZDW`,
+:class:`RDW` and :class:`SolitonOrder`; :func:`radius_zdw`, :func:`pressure_zdw` and
+:func:`pressure_rdw` are its capillary forms.
 """
 
 import logging

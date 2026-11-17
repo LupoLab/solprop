@@ -71,6 +71,12 @@ from solprop.exceptions import (
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import IndexMaterial, MarcatiliMode, StepIndexMode
 from solprop.modes.guide import ModalGuide, _profile_defect
+from solprop.modes.tables import (
+    DEFAULT_GRAM_ATOL,
+    align_modal_sample,
+    channel_area,
+    sample_modal_table,
+)
 from solprop.noise import photons_per_bin
 from solprop.nonlinear.normalisation import modal_kerr_coefficient
 from solprop.nonlinear.raman import SilicaTensorResponse
@@ -89,13 +95,7 @@ from solprop.translate.general import (
     modal_identity,
     occupancy_weight,
 )
-from solprop.translate.modal_tables import (
-    DEFAULT_GRAM_ATOL,
-    align_modal_sample,
-    channel_area,
-    project_transverse_field,
-    sample_modal_table,
-)
+from solprop.translate.modal_tables import project_transverse_field
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
 # hold more than a millionth of the energy in their guards or collar: the boundary

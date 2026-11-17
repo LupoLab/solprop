@@ -10,15 +10,18 @@ radial or Cartesian :class:`~solprop.coupling.plane.FieldPlane` of the physical
 field, under an **explicitly declared** forward interface model. No Fresnel factor
 is implied: the one model offered, ``"matched"``, is the guide's exit into a medium
 of its own core index, where the transverse field is continuous; a change of index is
-a separate ``PlanarInterface`` element in the transport sequence that follows,
-applied once.
+a separate :class:`~solprop.coupling.elements.PlanarInterface` element in the
+transport sequence that follows, applied once. :data:`OutcouplingModel` names the
+models, and :class:`OutcoupleResult` is the synthesised exit plane with its energy
+account.
 
 The guide's field per true-power coefficient is
-:math:`\sqrt{2/(\varepsilon_0c\operatorname{Re}n_{\rm eff})}\,v_m` (``docs/dev/
-conventions.md`` section 4). It is written into the grid's columns through each
-profile's closed-form transform (:func:`~solprop.coupling.coupler.target_columns`),
-so a profile's kink at the core radius is not sampled; what the grid's spectral
-window cannot hold is reported, not renormalised.
+:math:`\sqrt{2/(\varepsilon_0c\operatorname{Re}n_{\rm eff})}\,v_m`
+(``docs/dev/conventions.md`` section 4). It is written into the grid's columns
+through each profile's closed-form transform
+(:func:`~solprop.coupling.coupler.target_columns`), so a profile's kink at the core
+radius is not sampled; what the grid's spectral window cannot hold is reported, not
+renormalised.
 """
 
 from dataclasses import dataclass
