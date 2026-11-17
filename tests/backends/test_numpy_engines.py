@@ -233,7 +233,7 @@ def _split_backend():
     and its monitor."""
     simulation = walking_fibre("numpy_ref", RungeKutta())
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     backend = NumpyRefBackend(problem, request, grid=simulation.grid)
     load_reference(backend)
     monitor = simulation._boundary_monitor()

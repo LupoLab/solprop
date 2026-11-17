@@ -216,7 +216,7 @@ def varying(mode: str) -> Built:
     simulation = varying_capillary()
     problem, run_request = with_mode(
         simulation.translate(),
-        simulation._run_request().for_run(stats=StatsSpec()),
+        simulation.run_request().for_run(stats=StatsSpec()),
         mode,
     )
     return Built(problem, run_request, simulation.grid, modes=simulation.modes)
@@ -262,7 +262,7 @@ def tabled_fibre(mode: str) -> Built:
         absorber=False,
     )
     problem, run_request = with_mode(
-        simulation.translate(), simulation._run_request(), mode
+        simulation.translate(), simulation.run_request(), mode
     )
     assert problem.linear.phi_representation == "table"
     return Built(problem, run_request, simulation.grid)

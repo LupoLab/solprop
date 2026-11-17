@@ -293,7 +293,7 @@ def test_a_borrowed_observed_field_is_detached(case):
     backend = "numpy_ref"
     simulation = STORED[case](backend)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     stepping = select(
         backend,
         problem,

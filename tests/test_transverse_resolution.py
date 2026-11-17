@@ -130,7 +130,7 @@ def test_the_scaled_suite_collar_is_the_full_case_s_design_scaled() -> None:
     # lengths by 1/8 scales the rate by 8.
     simulation = suite(2.6, SpatialAbsorber())
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     design = transverse_of(problem.route)
     assert design is not None and design.has_collar
     assert design.alpha0 == pytest.approx(8 * 242, rel=0.01)

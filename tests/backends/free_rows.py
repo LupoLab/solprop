@@ -503,7 +503,7 @@ def ramped_case() -> Built:
         ),
         noise=None,
     )
-    return Built(simulation.translate(), simulation._run_request(), grid)
+    return Built(simulation.translate(), simulation.run_request(), grid)
 
 
 def ramps(problem: PropagationProblem) -> bool:

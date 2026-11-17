@@ -1170,8 +1170,6 @@ def _refuse_unknown_method(stepper: StepperSettings) -> None:
         )
 
 
-
-
 def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -> None:
     _refuse_unknown_method(stepper)
     # The route by its variant (solprop SEP 47 section 6.2), refused by name before

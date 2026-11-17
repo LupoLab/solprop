@@ -699,7 +699,7 @@ def watched_run(
         memory ledger after the run.
     """
     problem = simulation.translate() if problem is None else problem
-    run_request = simulation._run_request() if run_request is None else run_request
+    run_request = simulation.run_request() if run_request is None else run_request
     backend = select(
         name,
         problem,

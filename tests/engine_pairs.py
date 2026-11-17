@@ -158,7 +158,7 @@ def opened(
     workspace's, leased for the block (no session can start meanwhile).
     """
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     made = cast(
         "Any",
         select(
@@ -294,7 +294,7 @@ def record_adams(
     spy("chord_phase", lambda z1, z2: (float(z1), float(z2)))
     spy("step_carrier", lambda order: (int(order),))
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     made = select(
         "numpy_ref",
         problem,

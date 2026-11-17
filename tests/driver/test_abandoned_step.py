@@ -282,4 +282,4 @@ def test_a_step_abandoned_after_a_running_checkpoint_falls_back_to_it(
 
 def _translated(simulation):
     """Return a simulation's problem and its run's request."""
-    return simulation.translate(), simulation._run_request()
+    return simulation.translate(), simulation.run_request()

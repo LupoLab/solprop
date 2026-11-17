@@ -389,7 +389,7 @@ def test_planes_beside_step_planes_are_refused_and_retention_is_validated():
         dataclasses.replace(settings, step_planes=2, fields="planes", field_planes=(0,))
     with pytest.raises(DriverError, match="required exactly when"):
         dataclasses.replace(settings, fields="planes")
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     stepped = run_request.with_stepper(
         dataclasses.replace(run_request.stepper, step_planes=2)
     )
@@ -411,7 +411,7 @@ def test_an_output_that_cannot_store_field_free_planes_is_refused():
 
     simulation = cartesian("numpy_ref")
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
     try:
         with pytest.raises(DriverError, match="cannot store field-free planes"):
@@ -465,7 +465,7 @@ def test_a_field_free_observation_crosses_no_field(monkeypatch):
     backend = "numpy_ref"
     simulation = cartesian(backend, noise=True)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     observations = []
     histories = []
     for field in (True, False):
@@ -538,7 +538,7 @@ def test_no_saved_plane_logs_the_retired_collar_diagnostic(caplog):
 def test_a_field_free_observation_relies_on_the_step_loop_for_finiteness():
     simulation = cartesian("numpy_ref")
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     poisoned = problem.initial.field0.copy()
     poisoned[0, 0, np.flatnonzero(problem.grids.active_mask)[0]] = np.nan
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)

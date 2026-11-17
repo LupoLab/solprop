@@ -143,7 +143,7 @@ def matched_window(simulation: Simulation, *, compensated: bool = False) -> Buil
     compensation (section 4.5).
     """
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NumpyRefBackend(
         problem,
         run_request,

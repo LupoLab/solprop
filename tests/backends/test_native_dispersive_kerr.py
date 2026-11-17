@@ -82,7 +82,7 @@ DISPERSIVE_ROWS = (
 
 
 def built(simulation) -> Built:
-    return Built(simulation.translate(), simulation._run_request(), simulation.grid)
+    return Built(simulation.translate(), simulation.run_request(), simulation.grid)
 
 
 @pytest.mark.parametrize("evaluator", sorted(POLICIES))
@@ -219,7 +219,7 @@ def test_a_coherent_wall_flow_beside_the_response_matches_the_reference(policy):
         problem = simulation.translate()
     bound = flow_parity.ten_step_bound(
         flow_parity.flow_scales(
-            problem, simulation._run_request(), simulation.grid, fields["numpy_ref"]
+            problem, simulation.run_request(), simulation.grid, fields["numpy_ref"]
         )
     )
     assert bound > 0

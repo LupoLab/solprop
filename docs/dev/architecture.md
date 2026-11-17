@@ -331,7 +331,7 @@ user script / prop_capillary(...)                                  (D)
    ▼
 Simulation(...)                                                    (D)
    │  .translate() → PropagationProblem  (validated arrays)                   (T)
-   │     beside it the RunRequest: stepper settings, planes, statistics
+   │  .run_request() → beside it the RunRequest: stepper settings, planes, statistics
    │  .backend = backends.select(name, problem, request)            (B)
    ▼
 run loop over save planes and stats periods                        (D)
@@ -359,7 +359,10 @@ The outer loop is `solprop.driver.run.run_problem`, which takes a translated pro
 constructed backend, an output handler and a `Start` -- the entrance, or a resumed
 state with its call ledgers and method history -- which the run's session loads into
 the backend (SEP 47). Nothing in it is
-specific to a `Simulation`; it is the piece a runner or a scan calls. What the
+specific to a `Simulation`; it is the piece a runner or a scan calls. A caller that
+runs it by hand takes the problem from `Simulation.translate()` and the request built
+beside it from `Simulation.run_request()`, which translates once and caches both, and
+selects the backend with them (`backends.select(name, problem, request)`). What the
 driver does not do is as much a part of the design as what it does:
 
 - It **never conjugates a spectrum**. The backend works in the FFT convention, the output

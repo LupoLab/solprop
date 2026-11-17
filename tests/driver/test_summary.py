@@ -107,7 +107,7 @@ def summary_of(simulation, *, backend="numpy_ref", execution=None, **keywords):
     """Return the summary of a simulation that has not run."""
     return run_summary(
         simulation.translate(),
-        simulation._run_request(),
+        simulation.run_request(),
         simulation.metadata(),
         backend=backend,
         execution={} if execution is None else execution,
@@ -310,7 +310,7 @@ def test_the_integrator_row_names_each_march():
 def test_the_planes_row_names_per_step_and_interpolated_saving():
     simulation = gnlse()
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     stepper = dataclasses.replace(
         run_request.stepper, step_planes=3, interpolate_planes=True
     )
@@ -423,7 +423,7 @@ def test_a_grid_reaching_zero_frequency_has_no_longest_wavelength():
     )
     summary = run_summary(
         simulation.translate(),
-        simulation._run_request(),
+        simulation.run_request(),
         zero,
         backend="numpy_ref",
         execution={},
@@ -574,7 +574,7 @@ def test_progress_log_logs_the_summary_at_info(caplog):
 def test_a_direct_run_of_a_problem_reports_what_was_compiled():
     simulation = gnlse()
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     from solprop.backends.registry import select  # noqa: PLC0415 - only this test
 
     backend = select(

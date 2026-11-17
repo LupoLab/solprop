@@ -370,7 +370,7 @@ def test_the_modified_noise_model_is_refused_beside_a_coupled_flow(rotated, grid
     # The problem's own validation names it too, for a problem that reaches a backend
     # by hand: the assembly refuses first, so the draw is spoofed onto a clean problem.
     simulation = guide_simulation(rotated, grid)
-    problem, run_request = simulation.translate(), simulation._run_request()
+    problem, run_request = simulation.translate(), simulation.run_request()
     initial = problem.initial
     spoofed = replace(
         problem,

@@ -1697,7 +1697,7 @@ def radial_problem():
         ),
         noise=None,
     )
-    return simulation.translate(), simulation._run_request()
+    return simulation.translate(), simulation.run_request()
 
 
 def test_validate_pairs_the_plane_measure_with_spatial_geometry(

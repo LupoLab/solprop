@@ -109,7 +109,7 @@ def modal_and_planar(family):
     derived = simulation.with_input(
         np.stack([math.sqrt(share) * pulse for share in shares])
     )
-    modal = Translation(derived.translate(), derived._run_request())
+    modal = Translation(derived.translate(), derived.run_request())
     space = PlanarGrid(modes, 1e-3, n_y, collar_fraction=0.0, n_x=n_r)
     # A field uniform in y is its k_y = 0 column alone, n_y times the row value.
     field0 = np.zeros((space.n_columns, 1, grid.n_omega), complex)
@@ -120,7 +120,7 @@ def modal_and_planar(family):
     hybrid = Simulation.from_planar(
         grid, space, list(simulation.responses), field0, settings=settings
     )
-    planar = Translation(hybrid.translate(), hybrid._run_request())
+    planar = Translation(hybrid.translate(), hybrid.run_request())
     return grid, modal, planar, space, steps
 
 
@@ -344,7 +344,7 @@ def test_a_linear_beam_diffracts_in_y_and_decays_as_each_slab_mode():
     # A run ends at its grid's length (SEP 51); the bare collar has no length.
     grid = grid_at(grid, length)
     hybrid = Simulation.from_planar(grid, space, [], field0, settings=settings)
-    problem, run_request = hybrid.translate(), hybrid._run_request()
+    problem, run_request = hybrid.translate(), hybrid.run_request()
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         final = final_field(backend, problem, bare(run_request), ended=True)[:, 0, 0]
@@ -431,7 +431,7 @@ def test_the_kerr_phase_at_the_beam_centre_is_the_closed_form_b_integral():
         hybrid = Simulation.from_planar(
             grid, space, nonlinear, field0, settings=settings
         )
-        problem, run_request = hybrid.translate(), hybrid._run_request()
+        problem, run_request = hybrid.translate(), hybrid.run_request()
         backend = NumpyRefBackend(problem, run_request, grid=grid)
         try:
             final = final_field(backend, problem, bare(run_request), ended=True)[
@@ -492,7 +492,7 @@ def test_the_planar_launch_carries_the_coupled_share_of_the_incident_energy():
     grid = grid_at(grid, 1e-3)
     simulation = Simulation.from_planar(grid, space, [], pulse, settings=settings)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         load_reference(backend)
@@ -563,7 +563,7 @@ def test_a_modulation_in_y_grows_at_the_modulational_instability_rate():
         hybrid = Simulation.from_planar(
             grid, space, responses, field0, settings=settings
         )
-        problem, run_request = hybrid.translate(), hybrid._run_request()
+        problem, run_request = hybrid.translate(), hybrid.run_request()
         backend = NumpyRefBackend(problem, run_request, grid=grid)
         try:
             finals.append(

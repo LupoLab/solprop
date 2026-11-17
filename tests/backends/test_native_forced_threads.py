@@ -279,7 +279,7 @@ def test_the_fused_dispersive_path_agrees_across_threads(tmp_path, evaluator, ra
         evaluator, gas="N2" if raman else "Ar", raman=raman, stepped=True
     )
     problem = simulation.translate()
-    run_request = fixed_order(simulation._run_request())
+    run_request = fixed_order(simulation.run_request())
     bound = 10 * step_evaluations(run_request) * dispersive_evaluation(problem)
     case = f"dispersive:{evaluator}-{'raman' if raman else 'plain'}"
     one = forced_run(case, 1, tmp_path)

@@ -823,7 +823,7 @@ def test_both_cpu_backends_refuse_a_general_name_on_an_ordinary_run(backend):
         noise=None,
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     # Asked of a run (SEP 47 phase 5): refused by name, at the native preparation or
     # at the reference session's first plane.
     built = select(backend, problem, run_request, grid=simulation.grid)

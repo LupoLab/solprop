@@ -144,7 +144,7 @@ def test_without_the_cap_a_step_outgrows_the_table_s_intervals():
         backend="numpy_ref",
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     assert run_request.stepper.interval_cap is False
     assert run_request.stepper.auto_init is True
     edges = problem.linear.phi_breakpoints

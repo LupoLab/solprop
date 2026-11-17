@@ -361,7 +361,7 @@ def problem():
         n_save=5,
         noise=None,
     )
-    return simulation.translate(), simulation._run_request()
+    return simulation.translate(), simulation.run_request()
 
 
 def test_a_plane_is_charged_what_the_memory_store_holds_for_it(problem):

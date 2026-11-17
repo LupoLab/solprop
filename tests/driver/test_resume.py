@@ -134,7 +134,7 @@ def budget(simulation):
     The launch's nonlinear phase over the sixteenth of a period is ``L / L_NL = 0.88``
     for the third-order soliton, below the module's default declared ``Phi = 1``.
     """
-    return march_bound(simulation.translate(), simulation._run_request())
+    return march_bound(simulation.translate(), simulation.run_request())
 
 
 def assert_column(key, got, expected, bound, rtol):
@@ -343,7 +343,7 @@ def test_the_input_draw_is_added_at_a_launch_and_not_to_a_resumed_state(
     """Once at the launch; never to a stored state, with the floor kept either way."""
     simulation = scheduled(build_simulation, noise="input", seed=17)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     draw = problem.initial.noise0
     assert draw is not None
     engine = select(
@@ -380,7 +380,7 @@ def test_the_native_session_adds_the_input_draw_at_a_launch_alone(build_simulati
     pytest.importorskip("solprop_native")
     simulation = scheduled(build_simulation, noise="input", seed=17, backend="native")
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     draw = problem.initial.noise0
     assert draw is not None
     context = {
@@ -610,7 +610,7 @@ def _start_at(backend, problem, run_request, z):
 def test_a_session_refuses_a_start_outside_the_table(build_simulation):
     simulation = build_simulation(length=LENGTH, n_save=2)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
     with pytest.raises(BackendError, match="operator table"):
         _start_at(backend, problem, run_request, 2 * LENGTH)
@@ -622,7 +622,7 @@ def test_a_session_refuses_a_start_outside_the_table(build_simulation):
 def test_a_session_refuses_a_start_off_a_replayed_schedule(build_simulation):
     simulation = scheduled(build_simulation)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
     # Half a step past an edge: a replay could not continue in step from there.
     with pytest.raises(BackendError, match="one of its edges"):
@@ -634,7 +634,7 @@ def test_a_state_loaded_at_a_plane_starts_the_run_there(build_simulation):
     """The position and the schedule index come from `z`, and nothing else moves."""
     simulation = scheduled(build_simulation)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
     session = _start_at(backend, problem, run_request, LENGTH / 2)
     assert session.status().z == LENGTH / 2

@@ -92,7 +92,7 @@ def test_a_varying_operator_holds_its_pair_or_none():
     simulation = varying_capillary()
     for mode, held in (("tabulate", 2), ("recompute", 0)):
         problem, run_request = with_mode(
-            simulation.translate(), simulation._run_request(), mode
+            simulation.translate(), simulation.run_request(), mode
         )
         field = 16 * math.prod(problem.shape)
         backend = NativeBackend(

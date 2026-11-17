@@ -230,7 +230,7 @@ def test_the_flow_s_ledger_rows_are_its_views_and_zero_elsewhere():
     assert ledger["flow_weights"] == stages * terms * 8
     assert ledger["flow_drive"] == channels * bins * 16
     other = capillary(energy=ENERGY, pressure=PRESSURE)
-    plain = native_class()(other.translate(), other._run_request(), grid=other.grid)
+    plain = native_class()(other.translate(), other.run_request(), grid=other.grid)
     try:
         rows = dict(plain.memory_ledger())
     finally:

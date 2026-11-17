@@ -679,7 +679,7 @@ def test_only_the_exponential_formulation_reads_the_collar(integrator):
             simulation.settings, integrator=integrator
         )
         problem = simulation.translate()
-        run_request = simulation._run_request()
+        run_request = simulation.run_request()
     backend = NumpyRefBackend(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )

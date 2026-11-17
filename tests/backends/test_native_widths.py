@@ -85,7 +85,7 @@ def _simulation(kind, space, n_pol, medium=LOSSY, waist=60e-6):
     simulation = Simulation.from_free(
         grid, space, medium, [], pulse, settings=settings, noise=None
     )
-    return grid, simulation.translate(), simulation._run_request()
+    return grid, simulation.translate(), simulation.run_request()
 
 
 def _gaussian(x, y, x0=0.0, y0=0.0, waist=6e-5):
@@ -883,7 +883,7 @@ def _radial_route(kind="envelope"):
     simulation = Simulation.from_free(
         grid, RadialGrid(3e-4, 32), LOSSY, [], pulse, settings=settings, noise=None
     )
-    return grid, simulation.translate(), simulation._run_request()
+    return grid, simulation.translate(), simulation.run_request()
 
 
 @native_only

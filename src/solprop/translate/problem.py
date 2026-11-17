@@ -901,7 +901,7 @@ class PropagationProblem:
         ...     width=100e-15, peak_power=9.8, shape="sech",
         ... )
         >>> problem = simulation.translate()
-        >>> problem.validate_launch(simulation._run_request()) is None
+        >>> problem.validate_launch(simulation.run_request()) is None
         True
         """
         stepper = request.stepper
@@ -2013,7 +2013,7 @@ def validate_run(problem: PropagationProblem, request: "RunRequest") -> None:
     ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
     ...     width=100e-15, peak_power=9.8, shape="sech",
     ... )
-    >>> validate_run(simulation.translate(), simulation._run_request()) is None
+    >>> validate_run(simulation.translate(), simulation.run_request()) is None
     True
     """
     problem._validate(_RunPolicy(request.stepper, request.observation.stats))

@@ -298,7 +298,7 @@ def test_the_reference_s_plasma_statistics_refuse_a_problem_with_no_plasma(
     )
     problem = simulation.translate()
     backend = select(
-        "numpy_ref", problem, simulation._run_request(), grid=simulation.grid
+        "numpy_ref", problem, simulation.run_request(), grid=simulation.grid
     )
     try:
         state = simulation._field0

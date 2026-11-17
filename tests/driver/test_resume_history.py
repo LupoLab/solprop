@@ -295,7 +295,7 @@ def test_a_snapshot_s_size_is_known_without_it(build_simulation, integrator):
     backend = "numpy_ref"
     simulation = soliton(build_simulation, backend, integrator=integrator)()
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     engine = cast(
         "Any",
         select(
@@ -378,7 +378,7 @@ def test_a_snapshot_from_another_run_is_not_continued(build_simulation):
         length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=Multistep()
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
         session = _started(backend, problem, run_request)
@@ -402,7 +402,7 @@ def test_a_snapshot_from_another_run_is_not_continued(build_simulation):
     runge_kutta = build_simulation(
         length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=RungeKutta()
     )
-    problem, run_request = runge_kutta.translate(), runge_kutta._run_request()
+    problem, run_request = runge_kutta.translate(), runge_kutta.run_request()
     backend = NumpyRefBackend(problem, run_request, grid=runge_kutta.grid)
     try:
         session = _started(backend, problem, run_request)
@@ -614,7 +614,7 @@ def test_rows_another_history_keeps_are_refused_by_name(build_simulation):
         length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=Multistep()
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
         session = _started(backend, problem, run_request)

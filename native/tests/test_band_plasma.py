@@ -202,7 +202,7 @@ def modal(
         problem = simulation.translate()
     grid = simulation.grid
     assert isinstance(grid, FieldGrid)
-    return grid, problem, simulation._run_request()  # pyright: ignore[reportPrivateUsage]
+    return grid, problem, simulation.run_request()
 
 
 def spatial(

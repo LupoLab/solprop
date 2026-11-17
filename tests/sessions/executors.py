@@ -654,7 +654,7 @@ def coupled_flow(
                 "solprop.translate.coupled.eigenbasis_limit", lambda n_modes: 0.0
             ):
                 backend._HOST_FLOWS[problem] = backend._decomposed_flow(problem)
-    request = simulation._run_request().for_run(stats=StatsSpec())
+    request = simulation.run_request().for_run(stats=StatsSpec())
     context = {
         "grid": simulation.grid,
         "modes": simulation.modes,
@@ -696,7 +696,7 @@ def edged(
         noise=noise,
     )
     problem = simulation.translate()
-    request = simulation._run_request().for_run(
+    request = simulation.run_request().for_run(
         stats=StatsSpec(), monitor=simulation._boundary_monitor()
     )
     return problem, request, {"grid": simulation.grid, "modes": simulation.modes}

@@ -230,7 +230,7 @@ def _from_simulation(name: str, simulation: Simulation) -> Case:
         name,
         simulation,
         simulation.translate(),
-        simulation._run_request(),
+        simulation.run_request(),
         simulation.grid,
         simulation.modes,
     )

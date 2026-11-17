@@ -169,7 +169,7 @@ def built_from(
     def _build() -> Built:
         made = make()
         if isinstance(made, Simulation):
-            made = Built(made.translate(), made._run_request(), made.grid)
+            made = Built(made.translate(), made.run_request(), made.grid)
         elif not isinstance(made, Built):
             made = Built(*made)
         return made if options is None else dataclasses.replace(made, options=options)

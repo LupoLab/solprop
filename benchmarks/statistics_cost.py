@@ -167,7 +167,7 @@ def _worker(  # noqa: PLR0915 - one measurement: set up, run the arms, report
                 backend=backend_name,
             )
         problem = simulation.translate()
-        plain = simulation._run_request()  # pyright: ignore[reportPrivateUsage]
+        plain = simulation.run_request()
     stashed = plain.for_run(
         stats=StatsSpec(
             names=PERIODIC,

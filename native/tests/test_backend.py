@@ -1010,7 +1010,7 @@ def test_the_plasma_stash_is_off_under_modified_noise(
     assert problem.responses.plasma_channels
     payload = _lower(
         problem,
-        simulation._run_request(),  # pyright: ignore[reportPrivateUsage]
+        simulation.run_request(),
         _LowerPlan(terms=terms(problem)),
     )
     assert payload.plasma.stash is stashed
@@ -1050,7 +1050,7 @@ def test_the_plasma_stash_is_off_under_the_split_step_absorber() -> None:
         problem = simulation.translate()
         payloads[scheme] = _lower(
             problem,
-            simulation._run_request(),  # pyright: ignore[reportPrivateUsage]
+            simulation.run_request(),
             _LowerPlan(terms=terms(problem)),
         )
     assert payloads["nonlinear"].plasma.stash is True

@@ -58,7 +58,7 @@ def _line() -> Simulation:
 def _judged(simulation: Simulation, state: np.ndarray, draw, *, resume: bool) -> None:
     """Start a session at `state` with `draw`, whose fresh monitor judges the launch."""
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = cast(
         "Any",
         select(

@@ -128,5 +128,5 @@ def legacy_parity_bound(samples: int, simulation) -> float:
     Derived before the local-build comparison was run.
     """
     per_stage = 2 * fft_bound(samples) + 2 * gamma(samples)
-    evaluations = max(DOPRI5.n_stages, step_evaluations(simulation._run_request()))
+    evaluations = max(DOPRI5.n_stages, step_evaluations(simulation.run_request()))
     return STEPS * evaluations * per_stage

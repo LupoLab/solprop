@@ -133,7 +133,7 @@ def _built(
     return select(
         backend,
         problem,
-        simulation._run_request(),
+        simulation.run_request(),
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
@@ -316,7 +316,7 @@ def test_a_reading_needs_a_monitor(backend: str) -> None:
     _require(backend)
     simulation = probe("gnlse", "nonlinear")
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     made = select(backend, problem, run_request, grid=simulation.grid)
     try:
         if backend == "numpy_ref":
@@ -344,7 +344,7 @@ def test_a_monitor_for_another_grid_is_refused(backend: str) -> None:
     _require(backend)
     simulation = probe("gnlse", "nonlinear")
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     other = probe("capillary (envelope)", "nonlinear")._boundary_monitor()
     assert other is not None
     made = select(backend, problem, run_request, grid=simulation.grid)
@@ -422,7 +422,7 @@ def _host_second_run(
         session_run(
             made,
             problem,
-            simulation._run_request().for_run(monitor=monitor),
+            simulation.run_request().for_run(monitor=monitor),
             Start(field=launch, z=float(problem.initial.z)),
         )
         # The next load, watched by a fresh monitor, as the next run's session has it.
@@ -572,7 +572,7 @@ def test_successive_occupancies_are_the_reference_s(backend: str, route: str) ->
     _require(backend)
     simulation = probe(route, "split_step", MARCHES["runge_kutta"])
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     # The schedule's edges a replay to each third of the length stops at.
     schedule = run_request.stepper.schedule
     assert schedule is not None

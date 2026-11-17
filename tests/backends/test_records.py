@@ -345,7 +345,7 @@ def test_periodic_rows_and_step_planes_set_the_cadence():
 def _monitored_records(start: Start | None = None) -> tuple[Any, Any, RunRecords]:
     simulation = _monitored()
     problem = simulation.translate()
-    request = simulation._run_request().for_run(monitor=simulation._boundary_monitor())
+    request = simulation.run_request().for_run(monitor=simulation._boundary_monitor())
     return problem, request, run_records(problem, request, start or _entrance(problem))
 
 
@@ -477,7 +477,7 @@ def test_an_edged_run_carries_its_edge_s_configuration():
     problem = simulation.translate()
     monitor = simulation._boundary_monitor()
     assert monitor is not None and monitor.transverse is not None
-    request = simulation._run_request().for_run(stats=StatsSpec(), monitor=monitor)
+    request = simulation.run_request().for_run(stats=StatsSpec(), monitor=monitor)
     records = run_records(problem, request, _entrance(problem))
     assert records.monitor is not None
     edge = records.monitor.edge

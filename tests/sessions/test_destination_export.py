@@ -341,7 +341,7 @@ def _from_simulation(simulation: Any) -> tuple[Any, Any, dict[str, Any]]:
         "modes": simulation.modes,
         "profiles": simulation.profiles,
     }
-    return simulation.translate(), simulation._run_request(), context
+    return simulation.translate(), simulation.run_request(), context
 
 
 def _capillary() -> tuple[Any, Any, dict[str, Any]]:

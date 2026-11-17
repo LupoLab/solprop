@@ -60,7 +60,7 @@ def engine_of(route: str, integrator: Multistep) -> str:
         }
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NativeBackend(
         problem,
         run_request,
@@ -118,7 +118,7 @@ def test_a_divisor_formed_on_the_host_takes_the_same_steps():
         save_planes=list(np.linspace(LENGTH / 4, LENGTH, 4)), rtol=1e-7
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     assert type(run_request.stepper.controller) is PIController
 
     def march(implementation):

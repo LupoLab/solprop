@@ -119,7 +119,7 @@ def test_the_rate_never_reaches_the_noise_phase(backend):
             seed=3,
         )
         problem = simulation.translate()
-        run_request = simulation._run_request()
+        run_request = simulation.run_request()
         selected = cast("Any", select(backend, problem, run_request, grid=grid))
         try:
             # The stage's scalars as either backend's march forms them, and the

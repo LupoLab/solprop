@@ -23,7 +23,8 @@ scaling and acceptance:
 
 :func:`describe_run` builds one from the resolved
 :class:`~solprop.translate.problem.StepperSettings` and the run's settings;
-:func:`solprop.translate.assembly.assemble` returns it beside its problem, and
+:func:`solprop.translate.assembly.assemble` returns it beside its problem, which
+:meth:`solprop.driver.simulation.Simulation.run_request` gives out, and
 :meth:`RunRequest.for_run` adapts it to one run's start, retention, monitor and history.
 """
 
@@ -252,6 +253,11 @@ class HistoryPolicy:
 @dataclass(frozen=True, eq=False)
 class RunRequest:
     """Every policy of one run, resolved before preparation.
+
+    A :class:`~solprop.driver.simulation.Simulation` gives the request its translation
+    built beside the problem through
+    :meth:`~solprop.driver.simulation.Simulation.run_request`;
+    :func:`describe_run` builds one from a stepper section of your own.
 
     Attributes
     ----------

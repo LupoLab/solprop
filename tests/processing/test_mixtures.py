@@ -483,7 +483,7 @@ def test_the_recorded_power_weight_is_factored_and_survives_the_file(tmp_path):
             noise=None,
         )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     record = simulation.metadata().configuration["mixture_processing"]
     assert isinstance(record, dict)
     terms, basis = record["power_weight_terms"], record["power_weight_basis"]

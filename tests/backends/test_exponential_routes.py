@@ -60,7 +60,7 @@ def translated(route: str, integrator, rtol: float):
             "integrator": integrator,
         }
     )
-    return simulation, simulation.translate(), simulation._run_request()
+    return simulation, simulation.translate(), simulation.run_request()
 
 
 @pytest.mark.medium

@@ -94,7 +94,7 @@ def modal(kind):
         absorber_scheme="split_step",
         n_save=2,
     )
-    return simulation.grid, simulation.translate(), simulation._run_request()
+    return simulation.grid, simulation.translate(), simulation.run_request()
 
 
 def planar():

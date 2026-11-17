@@ -70,7 +70,7 @@ spatial routes with their transverse edge (phase 4)."""
 def _run(build, backend: str = "native") -> dict[str, Any]:
     simulation = build()
     simulation.settings = dataclasses.replace(simulation.settings, backend=backend)
-    rtol = simulation._run_request().stepper.controller.rtol
+    rtol = simulation.run_request().stepper.controller.rtol
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)
         warnings.simplefilter("error", HostMarchWarning)
@@ -214,7 +214,7 @@ def test_a_z_table_s_staged_trial_is_the_host_packed_trial():
     """
     simulation = walk_off("native", RungeKutta())
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     assert problem.linear.phi_representation == "table"
     backend = backend_module.NativeBackend(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
@@ -266,7 +266,7 @@ def test_a_replay_takes_the_schedule_s_steps(route):
     catalogue's rows ``rk replay ...`` (``backends/driver_rows.py``).
     """
     native = _repeated(lambda: replayed(route, 400))
-    schedule = replayed(route, 400)._run_request().stepper.schedule
+    schedule = replayed(route, 400).run_request().stepper.schedule
     assert schedule is not None
     np.testing.assert_array_equal(native["h"], schedule.steps)
     np.testing.assert_array_equal(native["accepted"], np.ones_like(native["accepted"]))

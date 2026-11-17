@@ -367,7 +367,7 @@ def test_the_start_of_run_summary_says_what_the_edge_can_report() -> None:
 
     simulation = suite(1.5, None)
     problem, metadata = simulation.translate(), simulation.metadata()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
 
     def row(backend: str, check: BoundaryCheck | None) -> str:
         summary = run_summary(

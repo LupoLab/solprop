@@ -158,7 +158,7 @@ def interface_and_backend(simulation):
     taken at the launch as the budget's propagation growth.
     """
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     handler = simulation.run()
     backend = select(
         simulation.settings.backend,

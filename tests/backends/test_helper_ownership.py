@@ -107,7 +107,7 @@ def translated(integrator):
         )
         changes["absorber_scheme"] = "split_step"
     simulation.settings = dataclasses.replace(simulation.settings, **changes)
-    return simulation, simulation.translate(), simulation._run_request()
+    return simulation, simulation.translate(), simulation.run_request()
 
 
 def propagate(backend_class, prepared):
@@ -183,7 +183,7 @@ def z_table(integrator):
     )
     problem = simulation.translate()
     assert problem.linear.phi_representation == "table"
-    return simulation, problem, simulation._run_request()
+    return simulation, problem, simulation.run_request()
 
 
 @pytest.mark.parametrize(

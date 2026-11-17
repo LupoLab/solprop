@@ -147,7 +147,7 @@ def estimate(
         The estimate.
     """
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     settings = simulation.settings
     n_planes = request.observation.save_planes.size + 1
     size = output_bytes(simulation)
@@ -227,7 +227,7 @@ def output_bytes(simulation: "Simulation") -> int:
         Bytes.
     """
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     settings = simulation.settings
     retention = field_retention(request, settings.fields, settings.field_planes)
     n_planes = request.observation.save_planes.size + 1
@@ -266,7 +266,7 @@ def plane_bytes(problem: PropagationProblem, stats: StatsSpec) -> int:
     ...     width=100e-15, peak_power=9.8, shape="sech",
     ... )
     >>> problem = simulation.translate()
-    >>> stats = simulation._run_request().observation.stats
+    >>> stats = simulation.run_request().observation.stats
     >>> plane_bytes(problem, stats) >= 16 * problem.shape[-1]
     True
     """

@@ -141,7 +141,7 @@ def test_a_varying_operator_holds_its_pair_tabulated_and_none_recomputed():
     simulation = varying_capillary()
     for mode, held in (("tabulate", 2), ("recompute", 0)):
         problem, run_request = with_mode(
-            simulation.translate(), simulation._run_request(), mode
+            simulation.translate(), simulation.run_request(), mode
         )
         backend = NativeBackend(
             problem, run_request, grid=simulation.grid, modes=simulation.modes

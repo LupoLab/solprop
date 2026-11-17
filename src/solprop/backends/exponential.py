@@ -633,7 +633,7 @@ def refuse_adams(
     ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
     ...     width=100e-15, peak_power=9.8, shape="sech",
     ... )
-    >>> request = simulation._run_request()
+    >>> request = simulation.run_request()
     >>> refuse_adams(simulation.translate(), request.stepper, "numpy_ref") is None
     True
     """

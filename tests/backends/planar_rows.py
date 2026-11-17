@@ -654,7 +654,7 @@ def driver_built() -> Built:
         settings=settings,
     )
     return Built(
-        simulation.translate(), simulation._run_request(), grid, simulation=simulation
+        simulation.translate(), simulation.run_request(), grid, simulation=simulation
     )
 
 

@@ -92,7 +92,7 @@ def transfer(radii, steps, name="numpy_ref"):
     )
     simulation.settings = replace(simulation.settings, absorber=None)
     problem, grid = simulation.translate(), simulation.grid
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None and flow.connection is not None
     backend = backend_class(name)
