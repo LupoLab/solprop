@@ -549,17 +549,6 @@ class NumpyRefBackend:
         record.update(self._workspace.metadata())
         return record
 
-    def march_export_refusal(self) -> str | None:
-        """Return ``None``: every march the reference admits carries its history.
-
-        Returns
-        -------
-        None
-            The Adams engines export and install their rows; the Runge-Kutta and
-            low-storage marches keep none.
-        """
-        return None
-
     def edge_memory(self, space: object) -> int:
         """Return what reading the edge holds in the state's memory space.
 

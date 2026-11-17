@@ -621,10 +621,8 @@ class Backend(Protocol):
     >>> names = [name for name in sorted(dir(Backend)) if not name.startswith("_")]
     >>> names[:4]
     ['available_device_memory', 'close', 'closed', 'edge_memory']
-    >>> names[4:8]
-    ['march_export_refusal', 'memory_ledger', 'metadata', 'prepare']
-    >>> names[8:]
-    ['request', 'timing_probe']
+    >>> names[4:]
+    ['memory_ledger', 'metadata', 'prepare', 'request', 'timing_probe']
     """
 
     name: str
@@ -677,16 +675,6 @@ class Backend(Protocol):
             JSON-serialisable scalars keyed by name. ``backend`` and
             ``propagator_mode`` are always present; pools, plan flags and wisdom
             digests are a backend's own.
-        """
-        ...
-
-    def march_export_refusal(self) -> str | None:
-        """Return why this backend's Adams march cannot carry its history, or ``None``.
-
-        Returns
-        -------
-        str or None
-            The reason, or ``None`` when it can or when the march keeps none.
         """
         ...
 

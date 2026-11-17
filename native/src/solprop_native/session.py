@@ -1189,17 +1189,6 @@ class NativeSession:
             return None
         return math.prod(self._problem.shape) * 16 + self._rows_nbytes
 
-    def march_export_refusal(self) -> str | None:
-        """Return ``None``: the session exports the history of every march it admits.
-
-        Returns
-        -------
-        None
-            The resident Adams engine exports and installs its rows; a Runge-Kutta
-            march keeps no history to refuse.
-        """
-        return None
-
     @property
     def march_refusal(self) -> str | None:  # numpydoc ignore=RT01
         """Why the start's method history was not installed.

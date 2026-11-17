@@ -263,17 +263,6 @@ class SessionFacts:
         del z
         return self._session.march_snapshot_nbytes()
 
-    def march_export_refusal(self) -> str | None:
-        """Return why the session's method history is not exported here, or ``None``.
-
-        Returns
-        -------
-        str or None
-            The session's own reason
-            (:meth:`~solprop.backends.session.RunSession.march_export_refusal`).
-        """
-        return self._session.march_export_refusal()
-
 
 @handled()  # SIGTERM and Ctrl-C stop a run between its commits
 def run_problem(

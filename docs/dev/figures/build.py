@@ -1273,7 +1273,6 @@ TABLEAU = (
 SEAM_METHODS = (
     ("prepare", "bind a problem and its run request; each start opens a session"),
     ("edge_memory", "what reading a grid's edge will hold, for an estimate"),
-    ("march_export_refusal", "why the march cannot carry its history, or None"),
     ("timing_probe", "single trials from a start, committing nothing, for timing"),
     ("metadata", "what the execution was: pools, plans, digests, propagator mode"),
     ("memory_ledger", "every named buffer and its size"),

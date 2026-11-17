@@ -166,9 +166,6 @@ class NullBackend:
     def edge_memory(self, space):
         return 0
 
-    def march_export_refusal(self):
-        return None
-
     def timing_probe(self, start):
         raise NotImplementedError
 

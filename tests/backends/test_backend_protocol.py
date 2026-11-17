@@ -401,9 +401,6 @@ class Stub:
     def edge_memory(self, space):
         return 0
 
-    def march_export_refusal(self):
-        return None
-
     def timing_probe(self, start):
         raise NotImplementedError
 
@@ -424,7 +421,6 @@ def test_a_minimal_backend_satisfies_the_protocol():
     backend = Stub()
     assert isinstance(backend, Backend)
     assert backend.edge_memory(None) == 0
-    assert backend.march_export_refusal() is None
     assert backend.memory_ledger() == {"state": 64}
     assert backend.available_device_memory() is None
     assert backend.metadata()["backend"] == "stub"

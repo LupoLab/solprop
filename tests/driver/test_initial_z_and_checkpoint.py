@@ -537,7 +537,7 @@ def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path
                 backend,
                 problem,
                 run_request,
-                resume_module._start(simulation, backend, problem, state),
+                resume_module._start(simulation, problem, state),
             )
             == 0
         )
@@ -547,7 +547,7 @@ def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path
             state, checkpoint=dataclasses.replace(state.checkpoint, next_save_index=1)
         )
         with pytest.raises(DriverError, match="next_save_index"):
-            resume_module._start(simulation, backend, problem, invalid)
+            resume_module._start(simulation, problem, invalid)
     finally:
         backend.close()
 
@@ -578,7 +578,7 @@ def test_ordinary_resume_without_outcome_restores_plane_and_starts_fresh_ledgers
                 backend,
                 problem,
                 run_request,
-                resume_module._start(simulation, backend, problem, state),
+                resume_module._start(simulation, problem, state),
             )
             == 1
         )
@@ -1188,7 +1188,7 @@ def test_a_resume_without_an_outcome_loads_the_field_without_restoring_ledgers(
                 backend,
                 problem,
                 run_request,
-                resume_module._start(simulation, backend, problem, state),
+                resume_module._start(simulation, problem, state),
             )
             == 0
         )
@@ -1270,7 +1270,7 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
                 backend,
                 problem,
                 run_request,
-                resume_module._start(simulation, backend, problem, state),
+                resume_module._start(simulation, problem, state),
             )
             == 0
         )

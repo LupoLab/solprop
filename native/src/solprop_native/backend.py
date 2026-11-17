@@ -854,17 +854,6 @@ class NativeBackend:
         self._probe = probe
         return NativeProbe(self, probe, loaded)
 
-    def march_export_refusal(self) -> str | None:
-        """Return ``None``: every march the backend admits carries its history.
-
-        Returns
-        -------
-        None
-            The resident Adams engine exports and installs its rows; a Runge-Kutta
-            or low-storage march keeps none.
-        """
-        return None
-
     def metadata(self) -> dict[str, object]:
         """Return the shared execution metadata plus the native build record.
 

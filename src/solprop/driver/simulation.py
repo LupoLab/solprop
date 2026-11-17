@@ -1975,7 +1975,6 @@ class Simulation(Displayed):
                 restoration: dict[str, object] = {}
                 start = _start(
                     self,
-                    backend,
                     problem,
                     state,
                     kept=kept is not None,

@@ -1168,7 +1168,6 @@ class _MarchKeeper:
         self._save = getattr(output, "save_march", None)
         self._snapshot = backend.march_snapshot
         self._snapshot_nbytes = backend.march_snapshot_nbytes
-        self._refusal = backend.march_export_refusal
         self._policy = policy
         self._method = method
         # Measured once against the automatic limit: kept from then on, or not.
@@ -1235,7 +1234,7 @@ class _MarchKeeper:
             # history, on the host.
             nbytes = self._snapshot_nbytes(z)
             if nbytes is None:
-                self._omit_unavailable(z)
+                self._decide(z, "omitted", "unavailable_history")
                 return
             if nbytes > MARCH_SNAPSHOT_AUTO_BYTES:
                 logger.info(
@@ -1256,7 +1255,7 @@ class _MarchKeeper:
             self._within_limit = True
         snapshot = self._snapshot()
         if snapshot is None or snapshot.z != z:
-            self._omit_unavailable(z)
+            self._decide(z, "omitted", "unavailable_history")
             if required:
                 raise OutputError(
                     "snapshot requires Adams history at the accepted endpoint"
@@ -1278,18 +1277,6 @@ class _MarchKeeper:
             if self._policy
             else "automatic_policy",
             nbytes=snapshot.nbytes,
-        )
-
-    def _omit_unavailable(self, z: float) -> None:
-        """Record history that could not be had at `z`, naming an engine's refusal.
-
-        - ``z``: the persisted position, m.
-        """
-        refused = self._refusal() is not None
-        self._decide(
-            z,
-            "omitted",
-            "incompatible_representation" if refused else "unavailable_history",
         )
 
 

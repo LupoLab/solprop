@@ -935,16 +935,6 @@ class HostSession:
         state = math.prod(self._problem.shape) * np.dtype(np.complex128).itemsize
         return state + rows.nbytes()
 
-    def march_export_refusal(self) -> str | None:
-        """Return ``None``: every march the reference admits carries its history.
-
-        Returns
-        -------
-        None
-            The Adams history exports its rows; the other marches keep none.
-        """
-        return None
-
     @property
     def march_refusal(self) -> str | None:  # numpydoc ignore=RT01
         """Why the start's method history could not be installed.
