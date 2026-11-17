@@ -14,7 +14,7 @@ this page is out of date.
   first tag); there is no version string to edit.
 - The target-specific native backend, `solprop-native`, is the repository's second
   distribution, built from `native/`, and a required dependency. The root is a uv workspace
-  with `native/` as its member and one `uv.lock`; `hatch_build.py` pins `solprop-native` to
+  with `native/` and `gui/` as its members and one `uv.lock`; `hatch_build.py` pins `solprop-native` to
   solprop's own version in the built metadata, and both take that version from the
   repository's tags.
   A plain `uv sync` builds and installs it editable. It removes a hand-installed Pyroraptor
@@ -55,7 +55,7 @@ lane, on a CUDA or HIP build with a device), `poe bench`
 [manual](benchmarking.md)), `poe docs`, `poe docs-clean` (remove the untracked build
 output, `docs/_build` and `docs/api/generated`; the committed gallery pages stay),
 `poe figures` (redraw the
-committed structure and geometry SVGs) and `poe docs-examples` (execute the stale
+committed structure, geometry and primer figures) and `poe docs-examples` (execute the stale
 gallery scripts and refresh their committed output).
 
 The native package has a gate of its own, `uv run poe check-native`
@@ -90,7 +90,7 @@ drop them too and allow `print` and cell-style imports; benchmarks allow `print`
 
 ## basedpyright
 
-`include = ["src", "tests"]` without the oracles, `typeCheckingMode = "standard"` (strict once the baseline is
+`include = ["src", "tests", "benchmarks", "tools"]` without the oracles, `typeCheckingMode = "standard"` (strict once the baseline is
 clean), `pythonVersion = "3.14"`, `failOnWarnings = true`, `reportMissingTypeStubs = false`
 because some dependencies ship no stubs (narrow ignores are still preferred over
 broad ones); `scipy-stubs` supplies SciPy's. The checker is pinned to an exact version and
@@ -353,11 +353,13 @@ it does not reuse a previous commit's CI result or bypass required checks.
 
 `.github/workflows/wheels.yml` builds the native release wheels (Linux x86-64 and
 aarch64, macOS arm64, Windows x64 and Arm) on pull requests that change the wheel recipe
-(`native/ci/`, `native/pyproject.toml`, the CMake files, the workflow), weekly, on release
-tags and by hand, and tests each installed wheel. It also builds solprop's sdist and
-wheel and checks a fresh install of each, builds solprop-gui's and checks that
-`solprop[gui]` installs from the files and answers at the version, and on a release
-tag publishes solprop-native, then solprop, then solprop-gui
+or a pure-Python distribution's build inputs (`native/ci/`, `native/pyproject.toml`, the
+CMake files, `hatch_build.py`, `gui/pyproject.toml`, `gui/hatch_build.py`, `gui/README.md`,
+the front end's chapter of the user guide `docs/guide/front-end/`, and the workflow),
+weekly, on release tags and by hand, and tests each installed wheel. It also builds
+solprop's sdist and wheel and checks a fresh install of each, builds solprop-gui's and
+checks that `solprop[gui]` installs from the files and answers at the version, and on a
+release tag publishes solprop-native, then solprop, then solprop-gui
 ([Releasing and the native wheels](releasing.md)).
 
 `native` runs in the coverage lane's driver tests; the parity tests check it against
