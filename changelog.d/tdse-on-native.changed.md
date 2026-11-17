@@ -1,0 +1,1 @@
+The TDSE response runs on the native backend's CPU build, and `backend="auto"` now selects native for a TDSE run as for every other; `backend="numpy_ref"` still runs it, and a native GPU build refuses it by name (SEP 49).

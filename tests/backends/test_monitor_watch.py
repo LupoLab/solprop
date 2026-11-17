@@ -8,8 +8,9 @@ A native march predicts, at each check it takes, what solprop's
 :class:`~solprop.monitor.BoundaryMonitor` will make of the reading: the split collar's
 new cap, the cadence, the quiet collar's verdict, a first warning or a stop. These
 tests hand the same readings to a real monitor and to the native predictions
-(``solprop_native._core.watch_check``) and require the same verdict and the same state,
-field by field, on drawn readings around every threshold and on the review's witnesses.
+(``watch_check`` of ``solprop_native._core._testing``) and require the same verdict and
+the same state, field by field, on drawn readings around every threshold and on the
+review's witnesses.
 """
 
 from __future__ import annotations
@@ -37,8 +38,8 @@ pytestmark = pytest.mark.skipif(
 STOP, WARN, QUIET, ERROR = 1, 2, 3, 5
 
 
-def _core() -> Any:
-    return importlib.import_module("solprop_native._core")
+def _testing() -> Any:
+    return importlib.import_module("solprop_native._core")._testing
 
 
 def _monitor(*, split: bool, quiet: bool, budget: float = 1e-3) -> BoundaryMonitor:
@@ -56,7 +57,7 @@ def _monitor(*, split: bool, quiet: bool, budget: float = 1e-3) -> BoundaryMonit
         buckets[0, :4] = np.arange(4)
         monitor.crossing = SplitCrossing(buckets, 1e-13, launch_limit=0.05)
     pulse = np.exp(-((grid.t / 20e-15) ** 2)).astype(complex)
-    spectrum = np.fft.fft(pulse)[None, None, None, :]
+    spectrum = np.fft.fft(pulse)[None, None, :]
     energies = monitor.energies(spectrum)
     if split:
         energies = BoundaryEnergies(
@@ -102,7 +103,7 @@ def _python(monitor: BoundaryMonitor, energies: BoundaryEnergies, z: float) -> i
 
 def _agree(monitor: BoundaryMonitor, energies: BoundaryEnergies, z: float) -> int:
     """Check one reading on both, require the same verdict and state; return it."""
-    core = _core()
+    core = _testing()
     policy = monitor.watch_policy()
     before = monitor.watch_state()
     assert core.watch_due(policy, before, z) == monitor.due(z)
@@ -210,4 +211,4 @@ def test_the_split_limit_is_the_crossing_s():
     occupancy[0] = float.fromhex("0x1.0c6f8ba2f9813p-20")
     occupancy[1] = 1.0
     for case in (occupancy, np.zeros(SPLIT_RATE_BUCKETS), np.ones(SPLIT_RATE_BUCKETS)):
-        assert _core().watch_split_limit(policy, case) == crossing.limit(case)
+        assert _testing().watch_split_limit(policy, case) == crossing.limit(case)

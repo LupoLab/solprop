@@ -5,7 +5,7 @@
 """The outer loop: what it saves, what it reports and what it refuses."""
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import h5py
 import numpy as np
@@ -26,14 +26,13 @@ from solprop.backends.protocol import (
     Backend,
     BackendHistory,
     Observation,
-    StepSummary,
-    stepping,
 )
 from solprop.backends.registry import select
 from solprop.backends.session import Start
-from solprop.driver import Simulation, SimulationSettings, metadata_for, run_problem
-from solprop.driver.run import _history_of, plane_from_observation
-from solprop.exceptions import BackendError, DriverError
+from solprop.driver import Simulation, SimulationSettings, run_problem
+from solprop.driver.metadata import metadata_for
+from solprop.driver.run import history_of, plane_from_observation
+from solprop.exceptions import DriverError
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
 from solprop.nonlinear.gnlse import problem_from
@@ -41,7 +40,7 @@ from solprop.output import HDF5Output, MemoryOutput
 from solprop.pulses import SechPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from solprop.translate.run_request import RunRequest
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
@@ -136,9 +135,7 @@ class NullBackend:
     """
 
     name = "null"
-    max_batch = 1
 
-    reads_transverse_edge = False
     in_flight = None
     closed = False
 
@@ -165,59 +162,14 @@ class NullBackend:
         # Every refusal this double reaches fires before the run is prepared.
         raise AssertionError("the null backend prepares no run")
 
-    def prepare_group(self, members, problems, requests):
-        raise BackendError("the null backend runs no group")
-
-    def set_initial(self, field, noise, *, z=0.0, resume=False):
-        pass
-
-    def set_progress(self, reporter):
-        self.reporter = reporter
-
-    def set_stop(self, flag):
-        pass
-
     def edge_memory(self, space):
         return 0
-
-    def attach_monitor(self, monitor):
-        pass
-
-    def march_snapshot(self):
-        return None
-
-    def march_snapshot_nbytes(self, z):
-        return None
-
-    def march_export_refusal(self):
-        return None
-
-    def restore_march(self, snapshot):
-        return None
 
     def timing_probe(self, start):
         raise NotImplementedError
 
-    def propagate_to(self, z):
-        if self.failure is not None:
-            raise self.failure
-        return StepSummary(z, 1, 0, 0.5, 0.5, 0.0, True)
-
-    def observe(self, *, field=True):
-        history = BackendHistory(
-            np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0, bool), np.zeros(0)
-        )
-        state = np.zeros(self.shape, complex) if field else None
-        return Observation(0.0, state, None, history, 0, 0)
-
-    def stats(self, spec):
-        return {}
-
     def metadata(self) -> dict[str, object]:
         return {"backend": self.name, "propagator_mode": "tabulate"}
-
-    def restore_call_ledgers(self, logical, atomic=None):
-        pass
 
     def memory_ledger(self):
         return {}
@@ -238,17 +190,25 @@ def failing_backend(simulation, error):
     backend = select(
         "numpy_ref",
         simulation.translate(),
-        simulation._run_request(),
+        simulation.run_request(),
         grid=simulation.grid,
         modes=simulation.modes,
     )
 
-    def propagate_to(z):
-        raise error
+    built = cast("Any", backend).method
 
-    # A patched instance attribute: the reference's stepping seam fails each march.
-    stepped = stepping(backend)
-    stepped.propagate_to = propagate_to  # pyright: ignore[reportAttributeAccessIssue]
+    def method(host):
+        # Each session's march, whose every advance raises.
+        made = built(host)
+
+        def advance(target):
+            raise error
+
+        made.march.advance = advance  # pyright: ignore[reportAttributeAccessIssue]
+        return made
+
+    # A patched instance attribute: every run the backend serves fails its march.
+    backend.method = method  # pyright: ignore[reportAttributeAccessIssue]
     return backend
 
 
@@ -272,7 +232,7 @@ def read_file(path, key):
 def test_the_stored_history_holds_start_positions_and_per_attempt_times():
     """The backend records end positions and a running clock; the file does not.
 
-    ``output.schema.StepHistory`` documents ``z`` as the start of each attempt and
+    ``output.records.StepHistory`` documents ``z`` as the start of each attempt and
     ``wall_time`` as the time one attempt took, and the driver converts on the way.
     Exactly representable numbers, so the check is bitwise.
     """
@@ -329,7 +289,7 @@ def test_the_stored_field_is_the_optics_spectrum_of_the_observation(build_simula
     simulation = matched(build_simulation, n_save=2)
     handler = simulation.run()
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     # The backend the run itself used: the claim is that storing a plane is a
     # conjugation and a sign flip and nothing else, both exact, so the stored plane is
     # the observation's within the rounding of running the march a second time.
@@ -475,7 +435,7 @@ def test_a_statistics_spec_that_disagrees_about_the_channel_is_refused(
     """
     spec = StatsSpec(names=("energy",), periodic=("energy",), period=10)
     simulation = build_simulation(n_save=2, stats=spec)
-    problem, run_request = simulation.translate(), simulation._run_request()
+    problem, run_request = simulation.translate(), simulation.run_request()
     with pytest.raises(DriverError, match="the between-planes channel is armed"):
         run_problem(
             problem,
@@ -493,7 +453,7 @@ def test_a_start_plane_outside_the_run_is_refused(build_simulation, narrow_grid)
     with pytest.raises(DriverError, match="between 0 and 2"):
         run_problem(
             problem,
-            NullBackend(request=simulation._run_request()),
+            NullBackend(request=simulation.run_request()),
             MemoryOutput(),
             start=Start(
                 field=problem.initial.field0, z=problem.initial.z, plane_index=3
@@ -583,21 +543,16 @@ def test_the_loop_runs_without_a_simulation(narrow_grid, soliton):
     assert handler["z"].tolist() == [0.0, 0.005, 0.01]
 
 
-def test_the_settings_refuse_save_planes_that_are_not_increasing():
-    with pytest.raises(DriverError, match="positive and increasing"):
+@pytest.mark.parametrize(
+    ("save_planes", "message"),
+    [([1.0, 0.5], "must increase strictly"), ([0.5, 0.5], "repeats")],
+)
+def test_the_settings_refuse_save_planes_out_of_order_or_repeated(save_planes, message):
+    # The entrance may be listed (SEP 51 D8): it is kept once, at adoption.
+    with pytest.raises(DriverError, match=message):
         SimulationSettings(
             controller=PIController(rtol=1e-8, atol=1e-18),
-            save_planes=[1.0, 0.5],
-            dz_max=0.1,
-            dz_init=1e-3,
-        )
-
-
-def test_the_settings_refuse_a_plane_at_the_entrance():
-    with pytest.raises(DriverError, match="saved anyway"):
-        SimulationSettings(
-            controller=PIController(rtol=1e-8, atol=1e-18),
-            save_planes=[0.0, 0.5],
+            save_planes=save_planes,
             dz_max=0.1,
             dz_init=1e-3,
         )
@@ -635,7 +590,7 @@ def test_a_periodic_subset_is_recorded_end_to_end(build_simulation):
     for name in names:
         rows = output[f"step_stats/{name}"]
         assert rows.shape[0] == z.size
-        # The stored rows have lost the batch axis, as the plane statistics have.
+        # The stored rows have the statistic's own shape, as the plane statistics have.
         assert rows.shape[1:] == output[f"stats/{name}"].shape[1:]
 
     # Every row stands at an accepted step of the run, at that step's own end.
@@ -701,41 +656,12 @@ def test_a_run_that_raises_tells_the_reporter_it_was_interrupted(build_simulatio
             metadata=simulation.metadata(),
             progress=events,
         )
-    # The failing march never calls `started` (a real march does), so the
-    # interruption is the only event, and it names the last plane reached: none.
-    assert events.calls == [("interrupted", 0.0, "RuntimeError")]
+    # The session announces the run before its first march, which fails: the
+    # interruption follows, naming the last plane reached: none.
+    assert events.calls == ["started", ("interrupted", 0.0, "RuntimeError")]
 
 
-def test_a_reporter_without_interrupted_is_still_accepted(build_simulation):
-    """A reporter written to the four-call protocol is not required to grow."""
-
-    class FourCalls:
-        def started(self, z_start, z_end, n_planes):
-            pass
-
-        def step(self, z, dz, accepted):
-            pass
-
-        def plane(self, z, summary):
-            pass
-
-        def finished(self, total):
-            pass
-
-    simulation = build_simulation(n_save=2)
-    problem = simulation.translate()
-    with pytest.raises(RuntimeError, match="the card caught fire"):
-        run_problem(
-            problem,
-            failing_backend(simulation, RuntimeError("the card caught fire")),
-            MemoryOutput(),
-            start=Start.entrance(problem),
-            metadata=simulation.metadata(),
-            progress=FourCalls(),  # type: ignore[arg-type] - the older protocol on purpose
-        )
-
-
-def test_history_of_stores_start_positions_and_per_attempt_times():
+def testhistory_of_stores_start_positions_and_per_attempt_times():
     history = BackendHistory(
         np.array([0.5, 1.0]),
         np.array([0.5, 0.5]),
@@ -743,6 +669,6 @@ def test_history_of_stores_start_positions_and_per_attempt_times():
         np.array([True, True]),
         np.array([0.25, 0.75]),
     )
-    stored = _history_of(history)
+    stored = history_of(history)
     assert stored.z.tolist() == [0.0, 0.5]
     assert stored.wall_time.tolist() == [0.25, 0.5]

@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 
 import solprop.driver.simulation as simulation_module
-import solprop.translate.problem as problem_module
+import solprop.translate.assembly as assembly_module
 from solprop.backends.exponential import carrier_reference
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
@@ -126,14 +126,14 @@ def test_declares_harmonic_carrier_is_false_on_a_field_grid():
 
 def test_a_beta0_removing_frame_beside_the_harmonic_is_refused():
     simulation = capillary(thg=True, raman=False)
-    simulation.frame = Frame(simulation.grid.omega0, subtract_beta0=True)
+    simulation._frame = Frame(simulation.grid.omega0, subtract_beta0=True)
     with pytest.raises(TranslationError, match="subtract_beta0=True"):
         simulation.translate()
 
 
 def test_a_beta0_keeping_frame_beside_the_harmonic_is_taken():
     simulation = capillary(thg=True, raman=False)
-    simulation.frame = Frame(simulation.grid.omega0, subtract_beta0=False)
+    simulation._frame = Frame(simulation.grid.omega0, subtract_beta0=False)
     problem = simulation.translate()
     assert problem.responses.harmonic_carrier
     assert problem.grids.carrier_2w0 is not None
@@ -191,7 +191,7 @@ def beam() -> GaussianPulse:
 
 def radial(grid, responses):
     """Return a radial simulation, choosing its frame in ``_from_spatial``."""
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(6e-4, 32),
         SpatialMedium("Ar", 1.0),
@@ -249,7 +249,9 @@ def test_the_spatial_routes_choose_the_frame_by_the_same_rule(
 def test_a_frame_the_compiled_carrier_disagrees_with_is_refused(thg, monkeypatch):
     # No input reaches this: the rule is replaced by its negation to stand in for a
     # compiler that drifted from it.
-    monkeypatch.setattr(problem_module, "declares_harmonic_carrier", lambda *_: not thg)
+    monkeypatch.setattr(
+        assembly_module, "declares_harmonic_carrier", lambda *_: not thg
+    )
     with pytest.raises(TranslationError, match="internal inconsistency"):
         capillary(thg=thg, raman=False).translate()
 

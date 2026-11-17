@@ -4,12 +4,20 @@
 
 """Share gas-fill resolution, freezing and loss policy across hollow-waveguide modes.
 
-This class contributes methods only. Concrete frozen dataclasses declare their
-own fields, preserving the public Marcatili constructor and its arithmetic.
+:class:`GasFillMixin` is the base of every gas-filled hollow mode
+(:class:`~solprop.modes.capillary.MarcatiliMode` and the rectangular wall pair): it
+resolves the fill into species and density paths, freezes it at a position, samples
+its susceptibility, and applies the shared loss vocabulary (``loss_scale`` or an
+absolute ``alpha``). It contributes methods only; each concrete frozen dataclass
+declares its own fields, so the public constructors and their arithmetic are its own.
+:data:`LossFunction` is the callable form of a mode's ``alpha``,
+:data:`EVANESCENT_INDEX_FLOOR` the floor the full model puts under ``Re n_eff``, and
+``_sqrt1p_minus_one`` the rounding-safe refractivity every gas-filled guide forms.
 """
 
 import copy
 import logging
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import is_dataclass, replace
 from types import MappingProxyType
@@ -43,17 +51,16 @@ from solprop.profiles import (
     as_profile,
 )
 
-__all__ = ["GasFillMixin"]
+__all__ = ["GasFillMixin", "LossFunction"]
 
 logger = logging.getLogger(__name__)
 
-_LossCurve = Callable[[Float[np.ndarray, " n_omega"]], Float[np.ndarray, " n_omega"]]
+LossFunction = Callable[[Float[np.ndarray, " n_omega"]], Float[np.ndarray, " n_omega"]]
+"""A power attenuation coefficient in 1/m as a function of angular frequency.
 
-LossSpec = bool | float | _LossCurve
-"""Specify the model loss of any mode that mixes in :class:`GasFillMixin`.
-
-The vocabulary is documented on :class:`~solprop.modes.capillary.MarcatiliMode`,
-which shares it with :class:`~solprop.modes.rectangular.RectMode`.
+The callable form of every mode's ``alpha``. It may carry its analytic frequency
+derivative as a ``derivative`` attribute of the same signature; without one, the slope
+is differenced where it is needed.
 """
 
 EVANESCENT_INDEX_FLOOR: Final = 1e-3
@@ -92,9 +99,16 @@ class GasFillMixin(Displayed):
     """Provide material and loss methods for frozen hollow-mode dataclasses.
 
     Subclasses declare gas, pressure, temperature, susceptibility, mixture,
-    density and loss fields. The model attribute selects the evanescent floor:
-    ``"full"`` applies it and ``"reduced"`` does not. No dataclass fields or
-    constructor are supplied here.
+    density, ``alpha`` and ``loss_scale`` fields. The model attribute selects the
+    evanescent floor: ``"full"`` applies it and ``"reduced"`` does not. No dataclass
+    fields or constructor are supplied here.
+
+    The loss vocabulary is shared by every hollow mode. ``loss_scale`` multiplies the
+    model's own loss: 1 (the default) is the model, 0 is lossless, and it must be
+    finite and non-negative. ``alpha`` replaces the model's loss by an **absolute**
+    power attenuation coefficient in 1/m: a number, or a callable ``alpha(omega)``.
+    The two are alternatives, so an ``alpha`` beside a ``loss_scale`` other than 1
+    is refused.
     """
 
     gas: Gas | str | None
@@ -103,13 +117,31 @@ class GasFillMixin(Displayed):
     susceptibility: GasSusceptibility | None
     mixture: Mixture | None
     density: ZProfile
-    loss: LossSpec
+    alpha: float | LossFunction | None
+    loss_scale: float
     model: Literal["full", "reduced"]
     _gain_warned: bool
 
-    def _loss_text(self) -> object:
-        """Return the loss specification for printing."""
-        return self.loss if isinstance(self.loss, (bool, int, float)) else "callable"
+    @property
+    def _lossless(self) -> bool:
+        """Whether the mode is declared lossless: no ``alpha`` and a zero scale."""
+        return self.alpha is None and self.loss_scale == 0.0
+
+    def _loss_text(self) -> str:
+        """Return the loss declaration for printing.
+
+        - Returns: ``"model"``, ``"none"``, ``"model x 0.5"``, ``"alpha 0.1 1/m"`` or
+          ``"alpha(omega)"``.
+        """
+        if callable(self.alpha):
+            return "alpha(omega)"
+        if self.alpha is not None:
+            return f"alpha {self.alpha:g} 1/m"
+        if self.loss_scale == 1.0:
+            return "model"
+        if self.loss_scale == 0.0:
+            return "none"
+        return f"model x {self.loss_scale:g}"
 
     def _fill_text(self) -> str:
         """Return the fill as a person would say it, for printing.
@@ -154,17 +186,7 @@ class GasFillMixin(Displayed):
         # A constant path is stored as its number, so the mode takes the
         # constant-temperature arithmetic bit for bit.
         object.__setattr__(self, "temperature", temperature)
-        if not isinstance(self.loss, bool):
-            if isinstance(self.loss, (float, int)):
-                if self.loss < 0.0:
-                    raise ModeError(
-                        f"a loss scale must not be negative, got {self.loss}"
-                    )
-            elif not callable(self.loss):
-                raise ModeError(
-                    "loss must be a bool, a non-negative scale or a callable "
-                    f"alpha(omega), got {type(self.loss).__name__}"
-                )
+        self._check_loss_arguments()
 
         if self.mixture is not None and (
             self.gas is not None
@@ -174,6 +196,38 @@ class GasFillMixin(Displayed):
             raise ModeError(
                 "mixture carries its gas, pressure and susceptibility; "
                 "omit those arguments"
+            )
+
+    def _check_loss_arguments(self) -> None:
+        """Check ``loss_scale`` and ``alpha``, alone and against each other."""
+        scale = self.loss_scale
+        if (
+            isinstance(scale, bool)
+            or not isinstance(scale, (int, float))
+            or not math.isfinite(scale)
+            or scale < 0.0
+        ):
+            raise ModeError(
+                "loss_scale must be a finite non-negative number (1.0 for the "
+                f"model's loss, 0.0 for none), got {scale!r}"
+            )
+        alpha = self.alpha
+        if alpha is None:
+            return
+        if not callable(alpha) and (
+            isinstance(alpha, bool)
+            or not isinstance(alpha, (int, float))
+            or not math.isfinite(alpha)
+            or alpha < 0.0
+        ):
+            raise ModeError(
+                "alpha must be a finite non-negative attenuation in 1/m or a "
+                f"callable alpha(omega), got {alpha!r}"
+            )
+        if scale != 1.0:
+            raise ModeError(
+                f"alpha replaces the model's loss and loss_scale={scale!r} scales it: "
+                "give one of them, not both"
             )
 
     def _resolve_fill(self) -> None:
@@ -218,12 +272,10 @@ class GasFillMixin(Displayed):
             )
 
     def _warn_loss_derivative(self) -> None:
-        """Report when a callable loss requires a numerical derivative."""
-        if not isinstance(self.loss, (bool, int, float)) and not hasattr(
-            self.loss, "derivative"
-        ):
+        """Report when a callable alpha requires a numerical derivative."""
+        if callable(self.alpha) and not hasattr(self.alpha, "derivative"):
             logger.warning(
-                "the loss callable of %r carries no 'derivative' attribute, so the "
+                "the alpha callable of %r carries no 'derivative' attribute, so the "
                 "imaginary part of dneff_domega is a Richardson difference with a "
                 "relative floor near 1e-10; the real part, which sets beta_1, stays "
                 "analytic",
@@ -238,8 +290,8 @@ class GasFillMixin(Displayed):
         Return ``rho_s(z) omega Im(gamma_s(omega)) / c`` in mixture order.
         This dilute-material attribution excludes wall leakage and the higher-order
         square-root and waveguide corrections in the mode's total attenuation.
-        ``loss=False`` removes it; a numeric loss scales it. A callable replaces
-        total loss and therefore supplies no species attribution.
+        ``loss_scale`` scales it, so ``loss_scale=0`` removes it. An ``alpha``
+        replaces the total loss and therefore supplies no species attribution.
 
         Parameters
         ----------
@@ -252,21 +304,20 @@ class GasFillMixin(Displayed):
         -------
         numpy.ndarray
             Non-negative intensity absorption in m^-1, shape
-            ``(n_species, n_omega)``. A legacy gas or vacuum has one row.
+            ``(n_species, n_omega)``. A single gas or vacuum has one row.
 
         Raises
         ------
         ModeError
-            If omega is non-positive or non-finite, or loss is a callable whose
-            total attenuation cannot be assigned to individual species.
+            If omega is non-positive or non-finite, or the mode declares an
+            ``alpha``, whose total attenuation cannot be assigned to individual
+            species.
         """
         if np.any(omega <= 0) or not np.all(np.isfinite(omega)):
             raise ModeError("species absorption requires positive finite omega")
-        if callable(self.loss):
-            raise ModeError(
-                "callable loss replaces total loss without species attribution"
-            )
-        scale = float(self.loss)
+        if self.alpha is not None:
+            raise ModeError("alpha replaces the total loss without species attribution")
+        scale = float(self.loss_scale)
         position = np.asarray([z])
         if self.mixture is not None:
             result = np.zeros((len(self.mixture.components), omega.size))
@@ -287,7 +338,7 @@ class GasFillMixin(Displayed):
             return result
         if self.susceptibility is None:
             return np.zeros((1, omega.size))
-        # The legacy gas slot carries a real GasSusceptibility. Absorbing supplied
+        # The single-gas slot carries a real GasSusceptibility. Absorbing supplied
         # optical tables belong to explicit Species components of a mixture.
         return np.zeros((1, omega.size))
 
@@ -350,7 +401,7 @@ class GasFillMixin(Displayed):
 
         - ``omega``: positive angular frequencies in rad/s, already checked by the mode.
         - Returns: susceptibility in m³ and its derivative in m³ s/rad, one spectral row
-          for a legacy gas and one row per population for an explicit mixture.
+          for a single gas and one row per population for an explicit mixture.
         - Warns :class:`DiluteScalingWarning` once per gas where an optmat-selected
           population's linear density scaling departs from optmat's finite-density law
           beyond its bound.
@@ -469,21 +520,20 @@ class GasFillMixin(Displayed):
         refractivity: Complex[np.ndarray, " n_omega"],
         derivative: Complex[np.ndarray, " n_omega"],
     ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
-        """Apply the loss specification to a model refractivity and its derivative.
+        """Apply the loss declaration to a model refractivity and its derivative.
 
         - ``omega``: angular frequencies in rad/s.
         - Returns: the refractivity and derivative with the requested loss.
         """
-        specification = self.loss
-        if isinstance(specification, bool):
-            if specification:
+        if self.alpha is None:
+            if self._lossless:
+                return (
+                    np.asarray(np.real(refractivity), dtype=complex),
+                    np.asarray(np.real(derivative), dtype=complex),
+                )
+            if self.loss_scale == 1.0:
                 return self._no_gain(refractivity, derivative)
-            return (
-                np.asarray(np.real(refractivity), dtype=complex),
-                np.asarray(np.real(derivative), dtype=complex),
-            )
-        if isinstance(specification, (int, float)):
-            scale = float(specification)
+            scale = float(self.loss_scale)
             return self._no_gain(
                 np.asarray(np.real(refractivity) + 1j * scale * np.imag(refractivity)),
                 np.asarray(np.real(derivative) + 1j * scale * np.imag(derivative)),
@@ -491,8 +541,12 @@ class GasFillMixin(Displayed):
         # An absolute power loss coefficient: alpha = 2 omega Im(n) / c, so
         # Im n = c alpha / (2 omega) and its derivative follows by the quotient rule.
         # Only the imaginary part is replaced; beta and beta_1 stay analytic.
-        alpha = np.asarray(specification(omega), dtype=float)
-        dalpha = self._loss_derivative(specification, omega)
+        if callable(self.alpha):
+            alpha = np.asarray(self.alpha(omega), dtype=float)
+            dalpha = self._loss_derivative(self.alpha, omega)
+        else:
+            alpha = np.full_like(omega, float(self.alpha), dtype=float)
+            dalpha = np.zeros_like(omega, dtype=float)
         extinction = 0.5 * C * alpha / omega
         dextinction = 0.5 * C * (dalpha * omega - alpha) / omega**2
         return (
@@ -536,9 +590,9 @@ class GasFillMixin(Displayed):
         )
 
     def _loss_derivative(
-        self, curve: _LossCurve, omega: Float[np.ndarray, " n_omega"]
+        self, curve: LossFunction, omega: Float[np.ndarray, " n_omega"]
     ) -> Float[np.ndarray, " n_omega"]:
-        """Return the frequency derivative of a loss curve supplied as a callable.
+        """Return the frequency derivative of an attenuation supplied as a callable.
 
         - ``curve``: the loss curve ``alpha(omega)`` in 1/m.
         - ``omega``: angular frequencies in rad/s.
@@ -575,7 +629,7 @@ class GasFillMixin(Displayed):
         binds = np.real(index) < EVANESCENT_INDEX_FLOOR
         if not np.any(binds):
             return refractivity, derivative
-        extinction = np.maximum(np.imag(index), 0.0) if self.loss is not False else 0.0
+        extinction = 0.0 if self._lossless else np.maximum(np.imag(index), 0.0)
         floored = np.where(
             binds, EVANESCENT_INDEX_FLOOR + 1j * extinction - 1.0, refractivity
         )

@@ -178,6 +178,70 @@ def test_history_rows_append_read_and_summarise(tmp_path):
         history.append(tmp_path / "new.csv", [{"date": "x"}])
 
 
+def test_a_build_profile_change_starts_a_new_series_and_a_toolchain_change_does_not(
+    tmp_path,
+):
+    # Issue #138: a local build after wheel rows read as the release's speed-up.
+    base: dict[str, object] = dict.fromkeys(history.COLUMNS, "")
+    base.update(
+        date="2026-11-01T08:00Z", solprop="0.1.0", commit="a" * 12, dirty=0,
+        backend="native", slug="x", threads=1, threading="passive", numa_domains=1,
+        case="rdw", revision=1, stepper="default", median_s="10.0",
+        native_build="distribution; GCC 14; FFTW_OPENMP; OpenBLAS",
+    )  # fmt: skip
+    toolchain = {
+        **base, "date": "2026-11-02T08:00Z", "commit": "b" * 12, "median_s": "9.0",
+        "native_build": "distribution; GCC 15; FFTW_OPENMP; OpenBLAS",
+    }  # fmt: skip
+    local = {
+        **base, "date": "2026-11-03T08:00Z", "commit": "c" * 12, "median_s": "7.0",
+        "native_build": "local; GCC 15; FFTW_OPENMP; MKL",
+    }  # fmt: skip
+    path = tmp_path / "build.csv"
+    history.append(path, [base, toolchain, local])
+    shared = [row["shared_previous"] for row in history.summary(history.read(path))]
+    assert shared == [1, 1, 0]
+    assert history.comparable(base) == history.comparable(toolchain)
+    assert history.comparable(base) != history.comparable(local)
+
+
+def test_a_dirty_native_build_is_admitted_only_with_allow_dirty():
+    # Issue #138: `<commit>+dirty` went to `git diff`, which cannot resolve it, so the
+    # run was refused as stale whatever --allow-dirty said.
+    good = [result_row()]
+    revision = subprocess.check_output(
+        ["git", "-C", str(runner.ROOT), "rev-parse", "HEAD"], text=True
+    ).strip()
+    source = {"revision": revision}
+    dirty = {"build_info": {"git_commit": revision + track.DIRTY_STAMP}}
+    assert track.native_build_commit(dirty) == (revision, True)
+    assert track.native_build_commit({"build_info": {"git_commit": revision}}) == (
+        revision,
+        False,
+    )
+    assert track.native_build_commit({}) == (None, False)
+    refusal = str(track.imported_elsewhere(good, dirty, source))
+    assert "modified tree" in refusal
+    assert "rebuild it (uv sync" not in refusal
+    assert track.imported_elsewhere(good, dirty, source, allow_dirty=True) is None
+    # A dirty build of a stale commit is still stale.
+    stale = {"build_info": {"git_commit": "0" * 40 + track.DIRTY_STAMP}}
+    assert "rebuild" in str(
+        track.imported_elsewhere(good, stale, source, allow_dirty=True)
+    )
+    machine = {
+        "slug": "test-cpu-2c", "cpu_model": "Test CPU", "instance_type": None,
+        "system": "Linux", "machine": "x86_64", "numa_domains": 1,
+    }  # fmt: skip
+    provenance = {"packages": {"solprop": "1.0"}, **dirty}
+    rows = track.history_rows(
+        good, machine, {**source, "dirty": False}, provenance, "native"
+    )
+    assert [(row["dirty"], row["native_commit"]) for row in rows] == [
+        (1, revision[:12])
+    ]
+
+
 def test_older_history_files_gain_new_columns_and_newer_ones_are_refused(tmp_path):
     path = tmp_path / "old.csv"
     with path.open("w", encoding="utf-8", newline="") as stream:

@@ -142,7 +142,8 @@ def test_select_builds_the_reference_backend(linear_problem, narrow_grid, caplog
         backend = select("numpy_ref", problem, run_request, grid=narrow_grid)
     assert isinstance(backend, NumpyRefBackend)
     assert isinstance(backend, Backend)
-    assert (backend.name, backend.max_batch) == ("numpy_ref", 1)
+    assert backend.name == "numpy_ref"
+    assert backend.available_device_memory() is None
     backend.close()
     assert caplog.messages == ["Using numpy_ref backend"]
 
@@ -153,7 +154,7 @@ def test_select_builds_the_installed_native_backend(linear_problem, narrow_grid)
         pytest.skip("the optional solprop-native package is not installed")
     problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
     backend = select("native", problem, run_request, grid=narrow_grid)
-    assert (backend.name, backend.max_batch) == ("native", 1)
+    assert backend.name == "native"
     backend.close()
 
 
@@ -181,6 +182,7 @@ def test_optional_constructor_receives_the_original_contract_without_fallback(
         "grid": narrow_grid,
         "modes": None,
         "profiles": None,
+        "tdse_binding": None,
         "options": None,
     }
 
@@ -286,7 +288,13 @@ def test_optional_backend_constructor_forwards_the_context(
             (
                 problem,
                 run_request,
-                {"grid": narrow_grid, "modes": None, "profiles": None, "options": None},
+                {
+                    "grid": narrow_grid,
+                    "modes": None,
+                    "profiles": None,
+                    "tdse_binding": None,
+                    "options": None,
+                },
             )
         ]
         assert isinstance(backend, Backend)
@@ -514,11 +522,10 @@ def test_a_required_device_passes_what_meets_it(monkeypatch, value, backend):
     registry._check_required_device("native")
 
 
-@pytest.mark.parametrize("name", ["numpy_ref"])
-def test_a_required_device_refuses_the_other_backends_by_name(monkeypatch, name):
+def test_a_required_device_refuses_the_reference_by_name(monkeypatch):
     monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, "any")
-    with pytest.raises(BackendError, match=f"this run is on {name}"):
-        registry._check_required_device(name)
+    with pytest.raises(BackendError, match="this run is on numpy_ref"):
+        registry._check_required_device("numpy_ref")
 
 
 def test_a_required_device_is_refused_before_anything_is_constructed(

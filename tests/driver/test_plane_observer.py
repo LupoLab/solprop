@@ -11,11 +11,11 @@ import numpy as np
 import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
-from solprop.backends.host.driver import HostDriver
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import available
 from solprop.exceptions import DriverError, SolpropWarning
 from solprop.grid import EnvelopeGrid
-from solprop.log import NullReporter, PlaneObserver
+from solprop.log import NullReporter, ProgressReporter
 from solprop.output.hdf5 import open_file
 from solprop.processing import get_spectral_density, get_spectrum
 from solprop.stepper import FixedSchedule, RungeKutta
@@ -93,8 +93,8 @@ def _scheduled(build_simulation, backend, **keywords):
 
 
 def test_a_quiet_reporter_is_no_observer():
-    assert not isinstance(NullReporter(), PlaneObserver)
-    assert isinstance(Watcher(), PlaneObserver)
+    assert not hasattr(NullReporter(), "observe_plane")
+    assert isinstance(Watcher(), ProgressReporter)
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -159,14 +159,14 @@ def test_a_stop_after_a_fetched_plane_checkpoints_the_field_fetched_once(
     """The observer and the failure checkpoint share one fetch (SEP 47 section 5.4)."""
     fetched = []
 
-    # The reference's driver observes; the native backend's session exports.
-    def counted(self, *, field=True, observe=HostDriver.observe):
+    # The reference's session observes its state; the native session exports.
+    def counted(self, *, field, observe=HostSession._observe):
         observation = observe(self, field=field)
         if field:
             fetched.append(observation.z)
         return observation
 
-    monkeypatch.setattr(HostDriver, "observe", counted)
+    monkeypatch.setattr(HostSession, "_observe", counted)
     if backend == "native":
         # The native session fetches from its resident state: a fetch is a native
         # export, which the session counts.

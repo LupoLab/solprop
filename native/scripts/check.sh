@@ -18,11 +18,12 @@ source "$repo_root/scripts/compiler.sh"
 raman_provider=${SOLPROP_NATIVE_CHECK_RAMAN_FFT_PROVIDER:-$(native_raman_provider)}
 export CMAKE_ARGS="${CMAKE_ARGS:-} -DSOLPROP_NATIVE_RAMAN_FFT_PROVIDER=$raman_provider"
 cxx_compiler=$(native_cxx_compiler)
-# Every tracked C++ file, so that none can drop out of the format check.
+# Every tracked C++ file, the fragments a unit includes (.inc) among them, so that none
+# can drop out of the format check.
 cpp_sources=()
 while IFS= read -r -d '' cpp_source; do
   cpp_sources+=("$cpp_source")
-done < <(git ls-files -z -- '*.cpp' '*.hpp' '*.h')
+done < <(git ls-files -z -- '*.cpp' '*.hpp' '*.h' '*.inc')
 
 # The stages to run, all of them by default; CI runs them as parallel jobs. "lint" is
 # ruff, pyright and clang-format; "tidy" and "sanitize" build and run the native tests
@@ -62,6 +63,8 @@ mkdir -p build
 if stage lint; then
 uv run ruff format --check .
 uv run ruff check .
+# The bound problem's part of _core.pyi is stubgen's, from the build installed above.
+uv run python scripts/problem_stub.py --check
 uv run python - "$repo_root" "$workspace_root" <<'PY'
 import json
 import sys
@@ -166,7 +169,7 @@ subprocess.run([sys.executable, "-I", "-m", "solprop_native"], check=True, captu
 # solprop #135: the strict files' probes round separately in the wheel, beside a control
 # that fuses (the x86-64-v2 variant, for processors without FMA, cannot fuse).
 from solprop_native import _core
-control, *probes = _core.strict_witness(1.0 + 2.0**-30, 1.0 - 2.0**-30, -1.0)
+control, *probes = _core._testing.strict_witness(1.0 + 2.0**-30, 1.0 - 2.0**-30, -1.0)
 assert probes == [0.0] * 9, probes
 assert control == -(2.0**-60) or info.cpu_baseline == "x86-64-v2", (control, info.cpu_baseline)
 PY

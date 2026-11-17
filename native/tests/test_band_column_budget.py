@@ -73,14 +73,16 @@ from solprop.profiles import Constant
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
-from solprop.translate.problem import PropagationProblem, Translation, assemble
+from solprop.translate.problem import PropagationProblem, Translation
 from solprop.translate.run_request import RunRequest
 from test_band_stress import launch_statistics
 
 import solprop_native
 from solprop_native import NativeBackend
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 
 type Real = npt.NDArray[np.float64]
 type Complex = npt.NDArray[np.complex128]
@@ -224,21 +226,26 @@ def stages(
     """Return native's and the reference's first stage on the launch."""
     reference = NumpyRefBackend(problem, run_request, grid=GRID)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
-        expected = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
-            reference._require_state(),  # pyright: ignore[reportPrivateUsage]
-            reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-            np.ones((1, *problem.shape), complex),
-        )[0]
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
+        reference.workspace.hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
+        expected = reference.workspace.nonlinear(  # pyright: ignore[reportPrivateUsage]
+            reference.workspace.committed(),  # pyright: ignore[reportPrivateUsage]
+            reference.workspace.stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
+            np.ones(problem.shape, complex),
+        )
     finally:
         reference.close()
     backend = NativeBackend(problem, run_request, grid=GRID)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         # A zero-length trial exposes the first stage, N(E, z = 0).
         native_trial(backend, 0.0, 0.0)
-        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
+        actual = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
     finally:
         backend.close()
     return actual, expected
@@ -272,14 +279,17 @@ def launch_fraction_bound(
     dt = GRID.dt_fine
     reference = NumpyRefBackend(problem, run_request, grid=GRID)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
-        state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
-        bundle = reference._stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
+        reference.workspace.hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
+        state = reference.workspace.committed()  # pyright: ignore[reportPrivateUsage]
+        bundle = reference.workspace.stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         fields = np.real(
-            np.concatenate(
-                list(reference._plasma_nodes(state[0]))  # pyright: ignore[reportPrivateUsage]
-            )
+            np.concatenate(list(reference.workspace.statistics.node_fields(state, 0.0)))
         )
         field_error = node_field_error(reference, problem, fields)
     finally:

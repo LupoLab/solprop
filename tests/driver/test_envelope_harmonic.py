@@ -56,7 +56,7 @@ def harmonic_fraction(kind: str) -> float:
         wavelength=WAVELENGTH,
         fwhm=FWHM,
         energy=ENERGY,
-        loss=False,
+        loss_scale=0.0,
         plasma=False,
         raman=False,
         noise=None,

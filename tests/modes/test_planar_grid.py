@@ -11,7 +11,7 @@ import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
 from solprop.constants import EPS0, C
-from solprop.driver.simulation import _capillary_quadrature
+from solprop.driver.routes.hollow import _capillary_quadrature
 from solprop.exceptions import GridError, ModeError
 from solprop.grid import FreeGrid
 from solprop.modes import (

@@ -13,12 +13,21 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from driver.test_scan_batch import build
+from builders import fixed_fibre_point as build
+from solprop.backends.numpy_ref.workspace import NumpyWorkspace
+from solprop.backends.registry import select
 from solprop.driver import Simulation, _scan_run
-from solprop.driver._scan_run import _Capture, _checked, _Job, _Options, _Work
+from solprop.driver._scan_run import (
+    _Capture,
+    _checked,
+    _Job,
+    _Options,
+    _Work,
+    launch_statistics,
+)
 from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import DriverError, OutputError
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.processing import scans
 
 
@@ -238,7 +247,7 @@ def test_admission_counts_every_mode_of_a_retained_and_reduced_field():
     simulation = capillary(modes=3, length=2e-3)
     shape = simulation.translate().shape
     assert shape[0] == 3
-    count = len(simulation.settings.save_planes) + 1
+    count = len(np.asarray(simulation.settings.save_planes)) + 1
     plane = math.prod(shape) * 16
     retained = _Work(build, _Options((), "all", (), "none"), "worker")
     assert retained._output_bytes(simulation, {}) == count * plane + count * 8
@@ -246,3 +255,27 @@ def test_admission_counts_every_mode_of_a_retained_and_reduced_field():
         build, _Options((scans.field_at_plane(),), "none", (), "none"), "worker"
     )
     assert reduced._output_bytes(simulation, {}) == plane + count * 8
+
+
+def test_a_probe_whose_launch_fails_raises_the_launch_s_own_error(point, monkeypatch):
+    # A probe's launch statistics that fail end its session with a failed terminal:
+    # the probe raises that error, never a bare assertion.
+    simulation = build(point)
+    problem = simulation.translate()
+
+    def broken(self, spec, z):
+        raise OutputError("manufactured launch statistics failure")
+
+    monkeypatch.setattr(NumpyWorkspace, "stats", broken)
+    backend = select(
+        "numpy_ref",
+        problem,
+        simulation.run_request(),
+        grid=simulation.grid,
+        modes=simulation.modes,
+    )
+    try:
+        with pytest.raises(OutputError, match="manufactured launch statistics"):
+            launch_statistics(backend, problem)
+    finally:
+        backend.close()

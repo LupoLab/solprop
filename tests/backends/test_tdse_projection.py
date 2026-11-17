@@ -11,8 +11,8 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
-from solprop.backends.numpy_ref import passes
-from solprop.backends.numpy_ref.tdse import (
+from solprop.backends.numpy_ref.passes.transforms import synthesise, to_time
+from solprop.backends.tdse_source import (
     atomic_edge_source,
     atomic_sources,
     project_atomic_sources,
@@ -28,8 +28,8 @@ from solprop.nonlinear.tdse import (
     TDSESampling,
 )
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import power_weight_at
-from solprop.translate.problem import assemble
 from solprop.translate.responses import prefactor_at
 from solprop.translate.routes import TDSESource, tdse_descriptor
 from solprop.translate.stage import scalars
@@ -45,7 +45,7 @@ from solprop.translate.tdse_source import current_numerator
 @pytest.fixture
 def projection_case(request):
     grid = FieldGrid.from_limits(0.001, 800e-9, (500e-9, 1e-6), 8e-15)
-    mode = MarcatiliMode(125e-6, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, cladding=1.45, loss_scale=0.0)
     rule = transverse_quadrature([mode], n_r=16, radial_rule="gauss_kronrod")
     problem = assemble(
         grid,
@@ -135,8 +135,8 @@ def test_current_conductivity_has_analytic_attenuation_and_modal_normalization(
     index, _, _, _ = carrier_case(problem, grid)
     field = np.zeros((1, 1, grid.n_omega), dtype=np.complex128)
     field[0, 0, index] = 1.3 + 0.7j
-    modal = passes.to_time(field, grid.crop_index, grid.n_to, kind="field")
-    physical = passes.synthesise(modal, problem.transform.synthesis, 1.0, 1)
+    modal = to_time(field, grid.crop_index, grid.n_to, kind="field")
+    physical = synthesise(modal, problem.transform.synthesis, 1.0, 1)
     conductivity = 1e-5
     current = conductivity * physical
     source, diagnostics = _project(

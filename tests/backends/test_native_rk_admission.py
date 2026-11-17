@@ -49,7 +49,7 @@ def launched(route: str, **settings):
             simulation.settings, integrator=RungeKutta(), **settings
         )
         problem = simulation.translate()
-        run_request = simulation._run_request()
+        run_request = simulation.run_request()
     backend = native.NativeBackend(
         problem,
         run_request,

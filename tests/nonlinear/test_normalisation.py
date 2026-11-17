@@ -80,7 +80,7 @@ def test_the_prefactor_is_the_uppe_expression(mode, envelope_grid):
 def test_the_prefactor_ignores_the_loss_and_stays_purely_imaginary(envelope_grid):
     # The loss lives in the linear operator. Keeping it here as well would give the
     # nonlinear term a real prefactor -- a gain that no derivation asks for.
-    lossy = SpecifiedMode.from_taylor(BETAS, OMEGA_REF, loss=50.0, aeff=AEFF)
+    lossy = SpecifiedMode.from_taylor(BETAS, OMEGA_REF, alpha=50.0, aeff=AEFF)
     lossless = SpecifiedMode.from_taylor(BETAS, OMEGA_REF, aeff=AEFF)
     # The same real index by two dispersions: a few roundings at most.
     np.testing.assert_allclose(

@@ -39,7 +39,7 @@ from solprop.profiles import Linear
 GEOMETRIES = [
     (15e-6, 180e-9, 9e-6, 6),
     (5e-6, 80e-9, 1e-6, 10),
-    (core_radius_from_gap(10e-6, 8, 5e-6), 1e-6, 10e-6, 8),
+    (core_radius_from_gap(10e-6, n_tubes=8, gap=5e-6), 1e-6, 10e-6, 8),
 ]
 LEGACY_RADIUS_COEFFICIENT = LEGACY_CONVENTIONS.radius_coefficient
 
@@ -70,7 +70,7 @@ def test_luna_regression():
     omega = np.array([2 * math.pi * C / 1030e-9])
     # Luna's evacuated HE11 with its loss, stated (``docs/dev/testing.md``).
     luna = replace(
-        make_mode(GEOMETRIES[2], LunaFormMode, kind="HE", n=1, m=1, loss=True),
+        make_mode(GEOMETRIES[2], LunaFormMode, kind="HE", n=1, m=1, loss_scale=1.0),
         cladding=1.44,
     )
     result = luna.neff(omega)[0]
@@ -88,16 +88,20 @@ def test_luna_regression():
 
 @given(st.floats(1e-6, 100e-6), st.floats(0, 10e-6), st.integers(3, 20))
 def test_geometry_roundtrip(outer, gap, count):
-    radius = core_radius_from_gap(outer, count, gap)
+    radius = core_radius_from_gap(outer, n_tubes=count, gap=gap)
     # Three elementary operations per inverse; cancellation is bounded by geometry size.
     np.testing.assert_allclose(
-        tube_gap(radius, outer, count),
+        tube_gap(radius, tube_radius=outer, n_tubes=count),
         gap,
         rtol=0,
         atol=16 * np.finfo(float).eps * (radius + outer),
     )
-    assert tube_radius_from_gap(radius, count, gap) == pytest.approx(outer, rel=1e-14)
-    lattice = TubeLattice.from_gap(radius, gap, count, outer / 10)
+    assert tube_radius_from_gap(radius, n_tubes=count, gap=gap) == pytest.approx(
+        outer, rel=1e-14
+    )
+    lattice = TubeLattice.from_gap(
+        radius, gap=gap, n_tubes=count, wall_thickness=outer / 10
+    )
     assert lattice.core_radius_for(gap) == pytest.approx(radius, rel=1e-14)
     assert lattice.gap(radius) == pytest.approx(gap, abs=1e-18)
 
@@ -110,16 +114,28 @@ def test_loss_policy_and_wide_band(geometry):
     assert np.all(np.isfinite(values))
     assert np.all(np.imag(values) >= 0)
     assert not mode._gain_warned
-    np.testing.assert_array_equal(np.imag(replace(mode, loss=False).neff(omega)), 0)
+    np.testing.assert_array_equal(np.imag(replace(mode, loss_scale=0.0).neff(omega)), 0)
     # Half the loss is the lossy evaluation's imaginary part halved: a power-of-two
     # scale on another code path, held to a few roundings of the loss term.
     np.testing.assert_allclose(
-        np.imag(replace(mode, loss=0.5).neff(omega)),
+        np.imag(replace(mode, loss_scale=0.5).neff(omega)),
         np.imag(values) / 2,
         rtol=16 * np.finfo(float).eps,
         atol=0,
     )
     assert np.all(np.isfinite(mode.dneff_domega(omega)))
+
+
+def test_vincetti_mode_compares_by_identity_with_a_stable_hash():
+    mode = make_mode()
+    # Like every other mode: equal arguments do not make equal modes.
+    assert mode != make_mode()
+    before = hash(mode)
+    # The one-shot gain warning flips a private flag on the frozen mode; the hash
+    # must not follow it, or a mode stored in a set or dict would be lost.
+    object.__setattr__(mode, "_gain_warned", True)
+    assert hash(mode) == before
+    assert mode in {mode}
 
 
 def test_protocol_and_freezing():
@@ -287,7 +303,7 @@ def test_luna_witness(case):
         kind="HE",
         n=1,
         m=1,
-        loss=True,
+        loss_scale=1.0,
     )
     # The witness deliberately extrapolates the 400--1000 nm argon fit. Assert the
     # range warning; these points compare implementations, not material accuracy.
@@ -505,7 +521,7 @@ def test_stale_silica_is_not_reference(row):
         kind="HE",
         n=1,
         m=1,
-        loss=True,
+        loss_scale=1.0,
     )
     omega = np.array([2 * math.pi * C / wavelength])
     if wavelength < 400e-9:
@@ -537,7 +553,7 @@ def test_loss_callable(analytic):
             return 2 * omega / 2e15**2
 
     curve = Curve()
-    mode = make_mode(loss=curve if analytic else curve.__call__)
+    mode = make_mode(alpha=curve if analytic else curve.__call__)
     omega = np.array([2e15, 3e15])
     # Callable loss is absolute power loss; c/(2w) fixes the extinction convention.
     np.testing.assert_allclose(
@@ -616,17 +632,19 @@ def test_invalid_samples_and_geometry():
             0.0,
         )
     with pytest.raises(ModeError, match="gap"):
-        core_radius_from_gap(10e-6, 8, -1e-6)
+        core_radius_from_gap(10e-6, n_tubes=8, gap=-1e-6)
     with pytest.raises(ModeError, match="tube_radius"):
-        tube_radius_from_gap(10e-6, 8, 1.0)
+        tube_radius_from_gap(10e-6, n_tubes=8, gap=1.0)
     lattice = TubeLattice(1e-6, 10e-6, 8)
     touching = VincettiMode(
         lattice.core_radius_for(0.0), lattice=lattice, cladding=1.44
     )
     assert touching.lattice.gap(float(touching.core_radius(np.array([0.0]))[0])) >= 0
     assert repr(touching).startswith("VincettiMode(HE11, a=16.1313 um, t=1000 nm")
-    assert repr(touching).endswith("N=8, evacuated, loss=True)")
-    assert repr(make_mode(gas="Ar", pressure=1.0)).endswith("N=6, Ar 1 bar, loss=True)")
+    assert repr(touching).endswith("N=8, evacuated, loss=model)")
+    assert repr(make_mode(gas="Ar", pressure=1.0)).endswith(
+        "N=6, Ar 1 bar, loss=model)"
+    )
     assert "Ar 2 bar" in repr(make_mode(gas="Ar", pressure=Linear(2.0, 3.0, 1.0)))
 
 

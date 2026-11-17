@@ -12,8 +12,10 @@ estimate for free (``docs/dev/stepper.md`` sections 2 and 3).
 A tableau is data, not behaviour: it carries the nodes, the Butcher matrix, the
 propagated weights and the error weights, and it validates its own structure.
 :func:`check_order_conditions` measures the order the coefficients actually attain,
-from the rooted-tree conditions [3]_. Applying a tableau to a state is a backend kernel
-and does not live here.
+from the rooted-tree conditions [3]_. DOPRI5's continuous extension (``DOPRI5_DENSE``,
+:func:`continuous_extension`, :func:`extension_coefficients`, :func:`extension_value`)
+serves the opt-in interpolated planes (ADR-039). Applying a tableau to a state is a
+backend kernel and does not live here.
 
 Every rational coefficient is written as the exact rational of its reference and
 evaluated once, at import, so each constant is a single correctly-rounded division and
@@ -514,7 +516,14 @@ DOPRI5_DENSE = np.array(
         69997945 / 29380423,
     ]
 )
-"""DOPRI5's dense-output weights ``d``, Hairer, Noersett and Wanner's (II.6.12).
+"""DOPRI5's dense-output weights ``d``: the quartic midpoint construction.
+
+Hairer, Noersett and Wanner, *Solving Ordinary Differential Equations I*, section
+II.6, the construction after (II.6.14) on p. 192, not the degree-five ``b7(theta)``
+of (II.6.12). From Dormand and Prince's continuous weights ``b_i*(sigma)``
+("Runge-Kutta triples", 1986, p. 1014, doi:10.1016/0898-1221(86)90025-8),
+``d_i = 16 ((1/2) b_i*(1/2) - b_i / 2 - delta_i1 / 8 + delta_i7 / 8)``: the
+difference from the cubic Hermite midpoint.
 
 With ``r1 = y0``, ``r2 = y1 - y0``, ``r3 = h k1 - r2``, ``r4 = r2 - h k7 - r3`` and
 ``r5 = h sum_i d_i k_i``, the fourth-order continuous extension at ``theta`` in

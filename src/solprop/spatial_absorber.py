@@ -2,40 +2,28 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""The transverse boundary of a free-space run: its specification and its design.
+"""The transverse boundary of a free-space run: its specification and its design.
 
 SEP 40. A free-space run (radial, Cartesian, line or planar) has a wall or a wrap at
 its grid's outer size. By default it carries no real-space collar: a
-transverse-wavenumber *safety ramp* removes what reaches the grid's outer wavenumbers,
-and the boundary monitor (:mod:`solprop.monitor`) watches the edge. A
-:class:`SpatialAbsorber` asks for a real-space collar outside the requested aperture as
-well, for fast content the run declares; translation resolves it into a
-:class:`SpatialAbsorberDesign`.
+transverse-wavenumber *safety ramp* (:func:`safety_ramp_strength`) removes what
+reaches the grid's outer wavenumbers, and the boundary monitor
+(:mod:`solprop.monitor`) watches the edge. A :class:`SpatialAbsorber` asks for a
+real-space collar outside the requested aperture as well, for fast content the run
+declares; translation resolves it into a :class:`SpatialAbsorberDesign`.
 
-The design is a complex absorbing potential [Kosloff and Kosloff 1986; Muga et al.
-2004]. For one frequency, with :math:`k_z(\kappa) = \sqrt{k^2 - \kappa^2}` and a collar
-of power rate :math:`\alpha(x) = \alpha_0 P(x/w)` over a width :math:`w`, a component of
-transverse wavenumber :math:`\kappa` crossing the collar and coming back is attenuated
-in field by the local WKB integral with the exact symbol (SEP 40 section 4.2),
-
-.. math::
-
-    \Gamma(\kappa; \alpha_0) = 2 w \int_0^1 \left|\operatorname{Im} q\right| ds,
-    \qquad q^2 = \kappa^2 + i k_z \alpha_0 P(s) + \alpha_0^2 P(s)^2 / 4,
-
-which the phase-0 calibration on the discrete radial, Fourier and slab operators
-matched to between -1.3 % and +0.04 %. The strength :math:`\alpha_0` is its root at the
-protected band's edge :math:`\kappa_p`, :math:`\Gamma = \Gamma_\min`, over every
-frequency of the requested band; the run length does not enter it. Below the reflection
-threshold :math:`\kappa_\mathrm{lo}` the collar reflects rather than absorbs (section
-4.3), with the measured law
-:math:`\kappa_\mathrm{lo} w = 7.36\,(k_\max \alpha_0 w^2)^{0.182}` for the Planck
-profile :math:`P = 1 - W`.
-
+The design is a complex absorbing potential of profile :func:`collar_profile`: its
+round-trip field attenuation is a local WKB integral (:func:`collar_attenuation`),
+its strength the root that attenuates the protected band's edge by
+:data:`DEFAULT_ATTENUATION` (:func:`collar_strength`, the band from
+:func:`rms_wavenumber` and :data:`LAUNCH_BAND_FACTOR` by default), and below
+:func:`reflection_threshold` (:data:`THRESHOLD_LAW`) it reflects rather than absorbs.
+:func:`crossing_limit` is the step limit that stops a protected packet crossing it
+unseen (:data:`CROSSING_ADAPTIVE`, :data:`CROSSING_FIXED`, :data:`DAMPING_BOUND`).
 ``alpha`` is a power coefficient and attenuations are field nepers, as in
-:mod:`solprop.boundaries` (``docs/dev/conventions.md`` section 2).
-
-The manual page is ``docs/guide/free-space/model.md``.
+:mod:`solprop.boundaries` (``docs/dev/conventions.md`` section 2). The derivation and
+the measured laws are in ``docs/guide/free-space/model.md``, section "Spatial collar
+and statistics".
 """
 
 from __future__ import annotations

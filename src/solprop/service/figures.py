@@ -16,12 +16,12 @@ from pathlib import Path
 import numpy as np
 from matplotlib.figure import Figure
 
+from solprop.service._payload import Payload
+
 __all__ = ["FIGURE_HANDLERS", "figure"]
 
 FORMATS = (".png", ".svg", ".pdf")
 """The file types a figure is written as."""
-
-Payload = Mapping[str, object]
 
 
 def figure(payload: Payload) -> str:

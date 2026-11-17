@@ -65,6 +65,9 @@ __all__ = ["LensEditor", "SheetStage", "TargetEditor"]
 _NARROW = 1000
 """Below this width, in pixels, the plot moves below the form."""
 
+_PLANE_MODES = {"number": "Evenly spaced", "text": "Explicit positions"}
+"""The saved planes' two forms (SEP 51): a count of ``n_save``, or ``save_planes``."""
+
 
 class TargetEditor(QFrame):
     """The strip that asks what a derived number should be, and what moves to give it.
@@ -507,7 +510,8 @@ class SheetStage(QWidget):
                 if meta is None:
                     continue
                 self._fields[row.path] = row
-                widget = self._row(self._entry(row, meta), catalog, on_sheet=True)
+                entry = self._entry(row, meta, description, build)
+                widget = self._row(entry, catalog, on_sheet=True)
                 if row.blank is not None:
                     for box in widget.findChildren(QLineEdit):
                         if not box.placeholderText():
@@ -668,9 +672,20 @@ class SheetStage(QWidget):
         if row is None or table != "build":
             self.edited.emit(path, table, value)
             return
+        widget = self.rows.get((path, table))
+        explicit = widget is not None and widget.current_mode == "text"
+        if row.positions is not None and explicit and value is not MISSING:
+            # Typed as explicit positions, one value is a list of one (SEP 51).
+            value = value if isinstance(value, list) else [value]
         self._move(row, value)
 
-    def _entry(self, row: Field, meta: Mapping[str, object]) -> dict[str, object]:
+    def _entry(
+        self,
+        row: Field,
+        meta: Mapping[str, object],
+        description: Mapping[str, object],
+        build: Mapping[str, object],
+    ) -> dict[str, object]:
         """Return the metadata of a sheet's row: its path, its label, what it offers.
 
         Parameters
@@ -679,6 +694,10 @@ class SheetStage(QWidget):
             The sheet's row.
         meta : Mapping
             Its keyword's metadata.
+        description : Mapping
+            The kernel's description of the route.
+        build : Mapping
+            The open recipe's ``[build]`` table.
 
         Returns
         -------
@@ -691,10 +710,13 @@ class SheetStage(QWidget):
             "name": row.path,
             "label": row.label or label(name),
         }
-        if row.planes_over is not None:
-            entry["forms"] = [{"kind": "integer", "minimum": 1}]
-            entry["default_value"] = None
-            entry["default"] = None
+        positions = None
+        if row.positions is not None:
+            positions = field_meta(row.positions, description, build)
+        if positions is not None:
+            # The saved planes' explicit positions are a second form beside the count.
+            entry["forms"] = [*_forms(meta), *_forms(positions)]
+            entry["mode_titles"] = _PLANE_MODES
         listed = self._lists.get(row.choices or "")
         if listed:
             forms: Sequence[Mapping[str, object]] = meta.get("forms", ())  # pyright: ignore[reportAssignmentType]
@@ -1138,8 +1160,7 @@ class SheetStage(QWidget):
         """
         self._issues = list(issues)
         for issue in issues:
-            where = issue.get("parameter")
-            named = where if isinstance(where, list | tuple) else [where]
+            named = self._issue_paths(issue)
             # An issue on an Advanced keyword needs its row made to stand beside it.
             if (
                 any(path and (path, "build") not in self.rows for path in named)
@@ -1149,9 +1170,7 @@ class SheetStage(QWidget):
         for row in self.rows.values():
             row.set_issue(None)
         for issue in issues:
-            where = issue.get("parameter")
-            paths = where if isinstance(where, list | tuple) else [where]
-            for path in paths:
+            for path in self._issue_paths(issue):
                 keyword = issue_keyword(path)[0] if path else None
                 for (name, _), row in self.rows.items():
                     if name in (path, keyword):
@@ -1173,6 +1192,26 @@ class SheetStage(QWidget):
         self.ready.setProperty("error", bool(errors))
         self.ready.setProperty("warn", bool(warnings) and not errors)
         repolish(self.ready)
+
+    def _issue_paths(self, issue: Mapping[str, object]) -> list[object]:
+        """Return the paths an issue names, as the sheet's rows are named.
+
+        The saved planes' positions are shown in the row of their count.
+
+        Parameters
+        ----------
+        issue : Mapping
+            The issue.
+
+        Returns
+        -------
+        list
+            Its paths; ``None`` where it names none.
+        """
+        where = issue.get("parameter")
+        paths = where if isinstance(where, list | tuple) else [where]
+        aliases = {f.positions: f.path for f in self._fields.values() if f.positions}
+        return [aliases.get(str(path), path) for path in paths]
 
     def _show_ready(self) -> None:
         """Write the Ready line: solprop's verdict, and the run's size where known."""

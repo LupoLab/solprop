@@ -2,43 +2,30 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The host scalars of one stage, and the device form they are the other half of.
+"""The seam's per-stage evaluation form: fixed terms, host scalars and their sum.
 
-A stage of the interaction-picture step needs three z-dependent quantities that are
-*arrays* -- the propagator's exponent ``dPhi``, the response prefactor and the noise's
-unitary phase -- and a handful that are *scalars*: the number density, the
-pre-ionisation, the mode set's taper, the Raman decay rates and, since schema 13, the
-frozen section and the residual weights of a coupled flow, and since schema 14
-the weights of a moving guide's maps. Until this module the
-backends fetched all seven for themselves, each through the function that hides the
-representation (:func:`solprop.translate.linop.delta_phi`,
-:func:`solprop.translate.linop.unitary_phase`,
-:func:`solprop.translate.responses.prefactor_at`) or straight off a
-:class:`~solprop.translate.chebyshev.PiecewiseChebyshev`. That works on a host and
-cannot work on a device: a Clenshaw pass over a Python object is not something a
-compiled step loop can call, and the z table it walks is an array of the state's size
-times the degree -- 1.55 GB at the comb-to-continuum size.
+A stage needs three z-dependent *arrays* -- the propagator's exponent ``dPhi``, the
+response prefactor and the noise's unitary phase -- and a handful of *scalars*. This
+module splits them in two, so a backend knows nothing of the representation:
 
-The seam's evaluation form is therefore split in two:
+- :class:`StageTerms` (:func:`terms`): the fixed arrays, uploaded once per run; a
+  constant quantity is one term, an expansion ``n_terms`` of them.
+- :class:`StageScalars` (:func:`scalars`; :func:`scalars_at` for several stages of one
+  step): one stage's host floats -- the weights that multiply the terms and every
+  scalar path value the responses read: the number density, the pre-ionisation, the
+  taper, the Raman decay rates, a coupled flow's section and residual weights and a
+  moving guide's map weights. :class:`StepAnchor` (:func:`anchor`) hoists what a step's
+  stages share.
+- :func:`combine`: the weighted sum of the terms, the one arithmetic a backend does.
+  It is the arithmetic of :func:`~solprop.translate.linop.delta_phi` and
+  :func:`~solprop.translate.responses.prefactor_at` rearranged, so a backend that goes
+  through it reproduces them to the last bit.
 
-* **terms**, the fixed arrays, uploaded once per run (:func:`terms`). A constant
-  operator is one term; an expansion is ``n_terms`` of them.
-* **scalars**, a small frozen record of host floats per stage (:func:`scalars`). The
-  weights that multiply the terms, and every scalar path value the responses read.
-
-A backend evaluates ``dPhi`` as one linear combination of the terms it holds over the
-bundle's floats (:func:`combine`) and knows nothing else about the representation. The
-z table has no such split:
-:attr:`solprop.translate.problem.PropagationProblem.device_ready` is the predicate, the
-host backends evaluate the table, the native backend's CPU build evaluates it natively
-into term slots it then weighs by +-1 (SEP 29 section 6.6), and
-:func:`require_device_ready` is the refusal an accelerator build raises.
-
-The split costs nothing in accuracy because it is the arithmetic that was already
-there: :meth:`~solprop.translate.expansion.ParameterExpansion.delta` *is*
-``tensordot(weights(z2) - weights(z1), terms)``, and the constant path *is*
-``D (z2 - z1)``, so a backend that goes through this module reproduces
-:func:`~solprop.translate.linop.delta_phi` to the last bit.
+A z table has no such split
+(:attr:`~solprop.translate.problem.PropagationProblem.device_ready`), and
+:func:`require_device_ready` is the refusal an accelerator build raises. The design is
+``docs/dev/kernel-contract.md`` section 3, "How a stage is evaluated"; the bundles are
+frozen by ``tests/backends/test_driver.py``.
 """
 
 from collections.abc import Sequence
@@ -80,8 +67,8 @@ class StageTerms:
     Attributes
     ----------
     phi : numpy.ndarray or None
-        The terms of ``Phi``, complex128, shape ``(n_phi_terms, 1, n_modes,
-        n_pol, n_omega)``. One term for a constant operator, ``n_terms`` for an
+        The terms of ``Phi``, complex128, shape ``(n_phi_terms, n_modes, n_pol,
+        n_omega)``. One term for a constant operator, ``n_terms`` for an
         expansion, and ``None`` for the z table, which has no such form.
     prefactor : numpy.ndarray or None
         The terms of the prefactor, complex128, shape ``(n_pre_terms, n_modes, n_pol,
@@ -97,10 +84,10 @@ class StageTerms:
     >>> from solprop.translate.stage import StageTerms
     >>> table = constant_phi(np.array([-1j, -2j]), 1.0)
     >>> StageTerms(phi=table.phi_constant[np.newaxis], prefactor=None).phi.shape
-    (1, 1, 1, 1, 2)
+    (1, 1, 1, 2)
     """
 
-    phi: Complex[np.ndarray, "n_phi_terms n_batch n_modes n_pol n_omega"] | None
+    phi: Complex[np.ndarray, "n_phi_terms n_modes n_pol n_omega"] | None
     prefactor: Complex[np.ndarray, "n_pre_terms n_modes_p n_pol_p n_omega_p"] | None
     separable: SeparableOperator | None = None
 
@@ -156,7 +143,7 @@ def anchor(
         The step's anchor, m, inside the tabulated range.
     helpers : solprop._helpers.Helpers, optional
         The implementation of the tables' Clenshaw pass: the backend's that runs the
-        step (``HostDriver.helpers``, SEP 29 section 6.6), or the plain Python forms by
+        step (``Backend.helpers``, SEP 29 section 6.6), or the plain Python forms by
         default.
 
     Returns
@@ -259,7 +246,7 @@ class StageScalars:
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
-    >>> from solprop.translate.problem import assemble
+    >>> from solprop.translate.assembly import assemble
     >>> from solprop.translate.stage import scalars
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 4e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0, gamma=0.11,
@@ -380,7 +367,7 @@ def terms(problem: PropagationProblem) -> StageTerms:
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
-    >>> from solprop.translate.problem import assemble
+    >>> from solprop.translate.assembly import assemble
     >>> from solprop.translate.stage import terms
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 4e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0, gamma=0.11,
@@ -403,7 +390,7 @@ def terms(problem: PropagationProblem) -> StageTerms:
 
 def _phi_terms(
     linear: LinearOperator,
-) -> Complex[np.ndarray, "n_phi_terms n_batch n_modes n_pol n_omega"] | None:
+) -> Complex[np.ndarray, "n_phi_terms n_modes n_pol n_omega"] | None:
     """Return the terms of ``Phi``, or ``None`` for the z table."""
     if linear.phi_constant is not None:
         return linear.phi_constant[np.newaxis]
@@ -447,7 +434,7 @@ def scalars(
         stage that the step did not need. Must be the anchor of `z0`.
     helpers : solprop._helpers.Helpers, optional
         The implementation of the tables' Clenshaw pass: the backend's that runs the
-        stage (``HostDriver.helpers``, SEP 29 section 6.6), or the plain Python forms by
+        stage (``Backend.helpers``, SEP 29 section 6.6), or the plain Python forms by
         default.
 
     Returns
@@ -553,7 +540,7 @@ def scalars_at(
         The anchor's weights from :func:`anchor`; must be the anchor of `z0`.
     helpers : solprop._helpers.Helpers, optional
         The implementation of the tables' Clenshaw pass: the backend's that runs the
-        stages (``HostDriver.helpers``, SEP 29 section 6.6), or the plain Python forms
+        stages (``Backend.helpers``, SEP 29 section 6.6), or the plain Python forms
         by default, for callers outside a backend.
 
     Returns
@@ -575,7 +562,7 @@ def scalars_at(
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
-    >>> from solprop.translate.problem import assemble
+    >>> from solprop.translate.assembly import assemble
     >>> from solprop.translate.stage import scalars_at
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 4e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0, gamma=0.11,

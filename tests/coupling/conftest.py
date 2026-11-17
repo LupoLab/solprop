@@ -57,7 +57,7 @@ def beam(grid: EnvelopeGrid, air: SpatialMedium) -> BeamFactory:
         wavelength: float = WAVELENGTH,
     ) -> SpatialState:
         pulse = GaussianPulse(wavelength=wavelength, fwhm=fwhm, energy=ENERGY)
-        spatial = SpatialPulse(pulse, waist, order=order, jones=jones)
+        spatial = SpatialPulse(pulse, waist, m=order, jones=jones)
         spectrum = spatial.build(grid, space, medium=medium)
         return SpatialState(grid, space, spectrum, medium)
 

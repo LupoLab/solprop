@@ -108,7 +108,7 @@ implementation; the hashes document the evidence, not package-version pins.
 | Existing component | Reusable part | Required difference |
 |---|---|---|
 | `solprop.spatial.SpatialMedium` and `SpatialDispersion`; [free space](../../guide/free-space/model.md), [Cartesian propagation](../../guide/free-space/cartesian.md) | Bulk dispersion, longitudinal square root, diffraction, physical spatial fields and UPPE prefactors | A nongas medium currently has dimensionless `density=1`. That cannot become an available carrier density |
-| `driver.interface.prop_radial`, `prop_free` and `Simulation.from_radial/from_free` | Launch, spatial geometry, adaptive/fixed stepping, save planes | Admit an explicit solid response and normalise its launch with its medium |
+| `driver.interface.prop_free` and `Simulation.from_free` | Launch, spatial geometry, adaptive/fixed stepping, save planes | Admit an explicit solid response and normalise its launch with its medium |
 | `nonlinear.responses.PlasmaResponse` | Memory-response organisation, zero-field handling, physical-current accounting | Gas species, single-event survival and collisionless free-electron current do not describe a solid |
 | `nonlinear.ionisation` and `translate.ionisation` | Rate protocol, table/cache machinery and accuracy checks; after SEP 3 these tabulate optmat rate models | The `keldysh` helper is a gas adiabaticity parameter, not a solid production rate; gas rates cannot be parameterised by a bandgap. A solid rate is a distinct optmat model with its own protocol |
 | [Envelope plasma](../../guide/media/envelope-plasma.md), `translate.envelope_plasma` | Separate current-source streams and explicit spectral assembly | Gas cycle quadrature starts with an instantaneous rate. Solid Keldysh is already cycle averaged and must not be averaged again |
@@ -673,7 +673,7 @@ medium = SpatialMedium.from_optmat(<resolved YAG optical model>)
 responses = [<matched bound Kerr response>, plasma]
 # Use existing grid, spatial pulse and settings constructors.
 # Pulse energy and focus refer to just inside the entrance face.
-result = prop_radial(grid, space, medium, responses, pulse, settings=settings)
+result = prop_free(grid, space, medium, responses, pulse, settings=settings)
 ```
 
 No convenience `plasma=True` chooses a solid model implicitly. Scans vary

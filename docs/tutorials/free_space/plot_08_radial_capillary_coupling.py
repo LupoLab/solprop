@@ -41,6 +41,7 @@ import numpy as np
 from scipy.special import j0, jn_zeros
 
 from solprop import fourier
+from solprop.boundaries import DEFAULT_BOUNDARY_N, absorber
 from solprop.constants import EPS0, C
 from solprop.coupling import CouplingModel, couple
 from solprop.driver import Simulation, SimulationSettings
@@ -130,7 +131,7 @@ settings = SimulationSettings(
 kerr = [KerrResponse(gamma3("Ar", wavelength=WAVELENGTH), thg=False)]
 gap = {}
 for name, responses in (("linear", []), ("Kerr", kerr)):
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid, space, medium, responses, beam, settings=settings, noise=None
     )
     gap[name] = (simulation, simulation.run(progress="none"))
@@ -276,13 +277,20 @@ figure.tight_layout()
 # mode *m*, in its native true-power metric, over the incident energy of the
 # whole entrance plane in the coupling's common measure.
 
+# The capillary's grid samples as the gap's does -- a launch is bound to its
+# lattice -- and is built for the capillary's own 5 mm, since a run ends at its
+# grid's length; its collar keeps the rate the gap's 20 mm grid gives.
+capillary_grid = EnvelopeGrid.from_limits(
+    LENGTH, WAVELENGTH, (500e-9, 1.4e-6), 300e-15, thg=False
+)
 capillary = Simulation.from_capillary(
     RADIUS,
     LENGTH,
     "Ar",
     PRESSURE,
     wavelength=WAVELENGTH,
-    grid=grid,
+    grid=capillary_grid,
+    absorber=absorber(capillary_grid, boundary_length=GAP / DEFAULT_BOUNDARY_N),
     envelope=True,
     fwhm=FWHM,
     energy=energy,

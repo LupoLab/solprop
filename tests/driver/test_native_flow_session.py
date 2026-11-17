@@ -12,15 +12,13 @@ was deleted with the inherited driver's fallbacks in phase 5).
 
 The wide cases are lossless helium tapers with taper coupling and every bin on the
 route, over ten fixed steps short enough that the formation bound of
-``tests/flow_parity.py`` stays far below one; the resident engine is held to
-``numpy_ref`` within the ten-step bound of ``tests/driver/test_native_coupled_flow.py``
-(``parity_bound``). The cases off
-the route are ``flow_parity``'s eight, every bin or every other one routed to the
-augmented exponential, held to ``numpy_ref`` and the same backend on the eigenbasis
-route within ``flow_parity.ten_step_bound`` at
-``adams_formation_bound``. Every bound is written before any measurement; the session
-is held to ``numpy_ref`` within the same bound, and is the same run twice to the bit on
-one thread.
+``tests/flow_parity.py`` stays far below one; the cases off the route are
+``flow_parity``'s eight, every bin or every other one routed to the augmented
+exponential. Their ten steps against ``numpy_ref`` are rows of the case catalogue
+(``tests/backends/flow_rows.py``, ``flow wide ...`` and ``flow off route ...``). What
+stays here: the routing, the off-route run against the same backend on the eigenbasis
+route, the session held to ``numpy_ref`` and the same run twice to the bit on one
+thread, the block functions, the refusals and the resume.
 """
 
 import dataclasses
@@ -32,13 +30,17 @@ from typing import Any
 import numpy as np
 import pytest
 
-from driver.test_coherent_capillary import GRID, STEPS, WEAK_COLLAR
-from driver.test_native_coupled_flow import (
-    ENERGY,
-    PRESSURE,
+from coupled_flow_cases import (
+    OFF_ROUTES,
+    STEPS,
+    WIDE,
+    WIDE_LENGTH,
     Case,
+    off_route,
+    on_adams,
     parity_bound,
     propagate,
+    wide_simulation,
 )
 from flow_parity import (
     CASES,
@@ -52,16 +54,25 @@ from flow_parity import (
     ten_step_bound,
 )
 from sessions.executors import IDENTITY, Started, drive, entrance
-from sessions.runs import bare, final_field, load_native, to_planes
+from sessions.runs import (
+    bare,
+    final_field,
+    load_native,
+    native_adams_rows,
+    native_adams_start,
+    native_exponential_trial,
+    to_planes,
+)
 from sessions.runs import run as run_session
+from solprop._helpers import PLAIN
 from solprop.backends.events import ObservationReady, Outcome
 from solprop.backends.exponential import carrier_reference
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.multistep import (
+from solprop.backends.numpy_ref.adams_kernels import (
     CoupledBlock,
     coupled_moments,
-    trial_tables,
 )
+from solprop.backends.numpy_ref.adams_tables import trial_tables
 from solprop.backends.registry import available
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -71,7 +82,6 @@ from solprop.exceptions import (
     GrazingIncidenceWarning,
     MaterialRangeWarning,
 )
-from solprop.profiles import PiecewiseLinear
 from solprop.stepper import FixedSchedule
 from solprop.stepper.multistep import Multistep
 from solprop.translate.coupled import schur_eigenbasis
@@ -92,62 +102,13 @@ native_session = pytest.importorskip("solprop_native.session")
 NativeBackend = pytest.importorskip("solprop_native").NativeBackend
 
 DEVICE = pytest.importorskip("solprop_native").build_info().device_backend != "none"
+_testing = pytest.importorskip("solprop_native._core")._testing
 """Whether the installed build executes on an accelerator, which holds no host channel
 rows and refuses the carrier frame."""
 
-WIDE_LENGTH = 2e-5
-"""Length of the wide cases, m: ten steps of 2 um.
-
-At 24 channels ``||h T||`` stays near two, so that the scaling and squaring share of
-the formation bound, ``exp(2 ||h T||)`` times the rounding, stays below a millionth
-(a step of 20 um puts it above one)."""
 
 CONTEXT: dict[int, dict[str, Any]] = {}
 """Each built case's z profiles and modes, which its plane statistics read."""
-
-WIDE = (17, 24)
-"""Channel counts past the 16 a host task holds on its stack."""
-
-
-def wide_simulation(modes: int, backend: str = "numpy_ref") -> Simulation:
-    """Return the lossless taper with `modes` channels, ten fixed steps.
-
-    Parameters
-    ----------
-    modes : int
-        The channels.
-    backend : str, optional
-        The backend the simulation names.
-
-    Returns
-    -------
-    solprop.driver.Simulation
-        The simulation.
-    """
-    length = WIDE_LENGTH
-    return Simulation.from_capillary(
-        PiecewiseLinear.from_stages((0.0, length), [50e-6, 48e-6]),
-        length,
-        "He",
-        PRESSURE,
-        wall=None,
-        loss=False,
-        cladding=1.45,
-        modes=modes,
-        wavelength=800e-9,
-        grid=GRID,
-        absorber=WEAK_COLLAR,
-        fwhm=30e-15,
-        energy=ENERGY,
-        n_save=2,
-        backend=backend,
-        dz_max=length / STEPS,
-        dz_init=length / STEPS,
-        schedule=FixedSchedule(np.full(STEPS, length / STEPS)),
-        plasma=False,
-        raman=False,
-        noise=None,
-    )
 
 
 @pytest.fixture(scope="module")
@@ -160,7 +121,7 @@ def cases():
             simulation = wide_simulation(modes)
             built[modes] = Case(
                 simulation.translate(),
-                simulation._run_request(),
+                simulation.run_request(),
                 simulation.grid,
                 WIDE_LENGTH,
             )
@@ -189,7 +150,7 @@ def test_a_wide_flow_takes_the_resident_engine_and_the_session(cases, modes):
     assert native_session.refusal(problem, request) is None
     backend = NativeBackend(problem, request, grid=case.grid)
     try:
-        assert type(backend._resident).__name__ == "_ResidentAdams"
+        assert backend._diagnostics()["method"] == "adams"
         # A CPU build's host passes' channel rows: one per bin, nine samples of every
         # channel; a device's passes hold none.
         if not DEVICE:
@@ -197,35 +158,6 @@ def test_a_wide_flow_takes_the_resident_engine_and_the_session(cases, modes):
             assert rows >= problem.grids.n_omega * 9 * modes * 16
     finally:
         backend.close()
-
-
-@pytest.mark.parametrize(
-    "modes",
-    [
-        pytest.param(17, marks=pytest.mark.medium),
-        pytest.param(24, marks=pytest.mark.slow),
-    ],
-)
-def test_ten_wide_steps_are_the_reference_s(cases, modes, record_property):
-    """The resident engine against ``numpy_ref``, within the bound.
-
-    The bound (``parity_bound``), stated first: the flow's formation bound ``eps_form``
-    at the case's step, the carries' ``2 n kappa u + kappa eps_form`` and the shared
-    work's rounding, per step and per stage, over ten steps.
-    """
-    case = cases(modes)
-    expected = propagate(case, NumpyRefBackend)
-    linear = 1e3 * propagate(case, NumpyRefBackend, case.problem.initial.field0 * 1e-3)
-    bound = parity_bound(case, expected, linear)
-    resident = propagate(case, NativeBackend)
-    scale = _scale(case)
-    rho = float(np.max(np.abs(expected - linear))) / scale / STEPS
-    assert rho > 1e-5, "the nonlinear half must be exercised through the flow"
-    reference = float(np.max(np.abs(resident - expected)))
-    record_property("bound", bound / scale)
-    record_property("reference", reference / scale)
-    assert 0.0 < bound < 1e-6 * scale
-    assert reference <= bound
 
 
 def _one_thread() -> bool:
@@ -261,8 +193,13 @@ def session_run(
     return run.fields[-1].reshape(case.problem.shape), run.status
 
 
-@pytest.mark.medium
-@pytest.mark.parametrize("modes", WIDE)
+@pytest.mark.parametrize(
+    "modes",
+    [
+        pytest.param(17, marks=pytest.mark.medium),
+        pytest.param(24, marks=pytest.mark.slow),
+    ],
+)
 def test_the_session_runs_a_wide_flow_within_the_bound(cases, modes):
     """The session is ``numpy_ref``'s in bound, and repeatable.
 
@@ -285,36 +222,6 @@ def test_the_session_runs_a_wide_flow_within_the_bound(cases, modes):
 
 # --- Bins off the flow's eigenbasis route ------------------------------------------
 
-ROUTES = ("off", "mixed")
-"""Every bin off the eigenbasis route, and every other active bin of every section."""
-
-
-def _every_other(vectors, triangular):
-    """``schur_eigenbasis`` with every other bin taken off the route."""
-    left, right, eigenvalues, route = schur_eigenbasis(vectors, triangular)
-    route = route.copy()
-    route[1::2] = False
-    left[~route] = 0.0
-    right[~route] = 0.0
-    return left, right, eigenvalues, route
-
-
-def off_route(monkeypatch, route: str) -> None:
-    """Route a problem's bins off the eigenbasis, all of them or every other one.
-
-    Each problem's decomposition is kept while it lives, routed as it was when formed:
-    a fresh cache forms this route's.
-    """
-    monkeypatch.setattr(
-        "solprop_native.backend._HOST_FLOWS", weakref.WeakKeyDictionary()
-    )
-    if route == "off":
-        monkeypatch.setattr(
-            "solprop.translate.coupled.eigenbasis_limit", lambda n_modes: 0.0
-        )
-    else:
-        monkeypatch.setattr(backend_module, "schur_eigenbasis", _every_other)
-
 
 @pytest.fixture(scope="module")
 def parity_cases():
@@ -330,15 +237,6 @@ def parity_cases():
     return get
 
 
-def on_adams(request):
-    """Return a request on the exponential Adams march, the split block's included."""
-    if isinstance(request.stepper.integrator, Multistep):
-        return request
-    return request.with_stepper(
-        dataclasses.replace(request.stepper, integrator=Multistep())
-    )
-
-
 def _assert_routed(problem, route: str) -> None:
     held = backend_module._host_flow(problem)
     assert held is not None
@@ -348,65 +246,56 @@ def _assert_routed(problem, route: str) -> None:
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("route", ROUTES)
+@pytest.mark.parametrize("route", OFF_ROUTES)
 @pytest.mark.parametrize("name", CASES)
-def test_bins_off_the_route_are_the_reference_s(
+def test_bins_off_the_route_are_the_eigenbasis_route_s(
     parity_cases, name, route, monkeypatch, record_property
 ):
-    """Ten fixed Adams steps with bins off the route, within ``B_10``.
+    """Ten fixed Adams steps with bins off the route, against the route's own run.
 
     The bound, stated first: ``flow_parity.ten_step_bound`` with its formation bound
     the larger of the actions' and the augmented exponential's
-    (``adams_formation_bound``), against ``numpy_ref`` (SciPy's ``expm`` on every
-    bin) and against the resident engine with every bin on the eigenbasis route, each
-    a pair of implementations of the same ten steps.
+    (``adams_formation_bound``), against the resident engine with every bin on the
+    eigenbasis route, a pair of implementations of the same ten steps. The run against
+    ``numpy_ref`` (SciPy's ``expm`` on every bin) within the same bound is a row of the
+    case catalogue (``tests/backends/flow_rows.py``, ``flow off route ...``).
     """
     simulation, problem = parity_cases(name)
-    request, grid = on_adams(simulation._run_request()), simulation.grid
+    request, grid = on_adams(simulation.run_request()), simulation.grid
     on = run(NativeBackend, problem, request, grid)
     expected = run(NumpyRefBackend, problem, request, grid)
     off_route(monkeypatch, route)
     _assert_routed(problem, route)
-    backend = NativeBackend(problem, request, grid=grid)
-    try:
-        assert type(backend._resident).__name__ == "_ResidentAdams"
-    finally:
-        backend.close()
     resident = run(NativeBackend, problem, request, grid)
     scales = flow_scales(problem, request, grid, expected)
     formation = max(scales.formation, adams_formation_bound(problem, request, grid))
     bound = ten_step_bound(dataclasses.replace(scales, formation=formation))
-    measured = {
-        "reference": departure(resident, expected),
-        "eigenbasis": departure(resident, on),
-    }
+    eigenbasis = departure(resident, on)
     record_property("bound", bound)
-    for key, value in measured.items():
-        record_property(key, value)
+    record_property("eigenbasis", eigenbasis)
     assert 0.0 < bound < 1e-8
-    assert max(measured.values()) <= bound
+    assert eigenbasis <= bound
     # The a priori bound is three to five orders above what two evaluations of the
     # same functions differ by; the route's own run is the sharper witness. The
     # off-route run is held to a small multiple of the on-route run's departure from
     # the reference, which the two formations' rounding both sit in.
     on_route = max(departure(on, expected), 32 * UNIT)
     record_property("on_route", on_route)
-    assert measured["eigenbasis"] <= 8 * on_route
+    assert eigenbasis <= 8 * on_route
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("route", ROUTES)
+@pytest.mark.parametrize("route", OFF_ROUTES)
 def test_the_session_runs_bins_off_the_route_within_the_bound(
     parity_cases, route, monkeypatch
 ):
     """The session admits the taper off the route, held to the reference's bound.
 
-    ``numpy_ref`` within the bound of
-    :func:`test_bins_off_the_route_are_the_reference_s`, and the same run twice to the
-    bit on one thread.
+    ``numpy_ref`` within the bound of the ``flow off route taper`` rows of the case
+    catalogue, and the same run twice to the bit on one thread.
     """
     simulation, problem = parity_cases("taper")
-    request, grid = simulation._run_request(), simulation.grid
+    request, grid = simulation.run_request(), simulation.grid
     expected = run(NumpyRefBackend, problem, request, grid)
     off_route(monkeypatch, route)
     _assert_routed(problem, route)
@@ -442,7 +331,7 @@ def test_a_bin_off_the_route_past_thirty_squarings_is_refused_by_name(
         linear=dataclasses.replace(linear, phi_constant=linear.phi_constant + 1e15j),
     )
     with pytest.raises(BackendError, match="would need more than 30 squarings"):
-        run(NativeBackend, fast, simulation._run_request(), simulation.grid)
+        run(NativeBackend, fast, simulation.run_request(), simulation.grid)
 
 
 # --- The assembled block functions, one trial at a time -----------------------------
@@ -451,10 +340,10 @@ def test_a_bin_off_the_route_past_thirty_squarings_is_refused_by_name(
 def _resident(simulation: Simulation, problem: Any, request: Any) -> Any:
     """Return a native backend whose resident Adams engine can take a trial directly.
 
-    The engine's trial (``_ResidentAdams.exponential_trial``) is called with no march
-    around it, as solprop's host march called it before SEP 47 phase 5 retired that
-    march: the state is the launch, loaded into the native state, and every history
-    row holds the launch's sample (the engine's own ``start``), so a trial of any
+    The engine's trial (:func:`sessions.runs.native_exponential_trial`, the private
+    test module's ``adams_exponential_trial_at``) is taken with no march around it:
+    the state is the launch, loaded into the native state, and every history row holds
+    the launch's sample (:func:`sessions.runs.native_adams_start`), so a trial of any
     order reads a full, finite history. A trial's flow and moments depend on its
     step, its width and the operator alone, not on the history it reads.
     """
@@ -465,17 +354,16 @@ def _resident(simulation: Simulation, problem: Any, request: Any) -> Any:
         profiles=simulation.profiles,
         modes=simulation.modes,
     )
-    engine = backend._resident
-    assert type(engine).__name__ == "_ResidentAdams"
+    assert backend._diagnostics()["method"] == "adams"
     field = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
-    load_native(backend, field, clear_fsal=False)
-    engine.start(0.0)
-    rows = {
-        name: np.broadcast_to(row[:1], row.shape).copy()
-        for name, row in engine.snapshot_rows().items()
-    }
-    engine.load_rows(rows, engine.shape)
+    load_native(backend, field)
+    native_adams_start(backend, 0.0, range(backend._adams.n_slots))
     return backend
+
+
+def _compensated(backend: Any) -> bool:
+    """Whether a native backend's resident Adams history carries a compensation."""
+    return bool(backend._compensated(backend.request.stepper.integrator, "transported"))
 
 
 def _stencil(order: int) -> tuple[list[float], np.ndarray]:
@@ -503,24 +391,29 @@ def _block_departure(
     ``coupled_moments`` on the engine's own exponent and carrier shift, relative to
     that matrix's 2-norm, at least one.
     """
-    engine, state = backend._resident, backend._native_state
+    state = backend._workspace
     nodes, slots = _stencil(order)
-    norms = engine.exponential_trial(z, dz, nodes, slots, order, [order])
+    norms, shift = native_exponential_trial(
+        backend, z, dz, nodes, slots, order, [order]
+    )
     assert np.all(np.isfinite(norms))
     count = trial_tables(
-        nodes, order, [order], compensated=engine.compensated, helpers=engine.helpers
+        nodes,
+        order,
+        [order],
+        compensated=_compensated(backend),
+        helpers=PLAIN,
     )[1].shape[0]
-    shift = engine._trial_carrier
     assert bool(shift.size) is carrier
     expected = coupled_moments(
-        state.adams_exponent_to_host().reshape(1, *shape),
+        _testing.adams_exponent_to_host(state).reshape(shape),
         count,
         block,
         dz,
-        carrier=np.full((1, 1, 1, 1), 1j * float(shift[0])) if carrier else None,
+        carrier=np.full((1, 1, 1), 1j * float(shift[0])) if carrier else None,
     )
     active = int(np.count_nonzero(block.active))
-    native = state.adams_block_to_host().reshape(-1, active, shape[0], shape[0])
+    native = _testing.adams_block_to_host(state).reshape(-1, active, shape[0], shape[0])
     pairs = [(native[0], expected.flow_matrix)] + [
         (native[k + 1], expected.matrices[k]) for k in range(count)
     ]
@@ -556,7 +449,7 @@ def test_the_off_route_block_functions_are_the_reference_s(
         dz_init=step,
     )
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     # A fixed sixth order, so that the trials reach seven moments.
     method = Multistep(
         order=6, variable_order=False, carrier_frame="scalar" if carrier else "off"
@@ -623,7 +516,7 @@ def test_a_carry_past_thirty_squarings_is_refused_and_keeps_the_state(
     moves: the session ends failed at the committed state, and the resident engine's
     refused trial leaves the state and its history untouched."""
     simulation, problem = parity_cases("taper")
-    request, grid = simulation._run_request(), simulation.grid
+    request, grid = simulation.run_request(), simulation.grid
     off_route(monkeypatch, "off")
     monkeypatch.setattr(
         backend_module,
@@ -655,18 +548,18 @@ def test_a_carry_past_thirty_squarings_is_refused_and_keeps_the_state(
     # it met them, and a trial over one step then forms.
     backend = _resident(simulation, problem, request)
     try:
-        engine, state = backend._resident, backend._native_state
-        assert engine.compensated
+        state = backend._workspace
+        assert _compensated(backend)
         dz = float(steps[0])
-        field, rows = state.field_to_host().copy(), engine.snapshot_rows()
+        field, rows = _testing.field(state).copy(), native_adams_rows(backend)
         nodes, slots = _stencil(2)
         with pytest.raises(BackendError, match="a history sample's carry"):
-            engine.exponential_trial(dz, dz, nodes, slots, 2, [2])
-        assert state.field_to_host().tobytes() == field.tobytes()
-        for name, row in engine.snapshot_rows().items():
+            native_exponential_trial(backend, dz, dz, nodes, slots, 2, [2])
+        assert _testing.field(state).tobytes() == field.tobytes()
+        for name, row in native_adams_rows(backend).items():
             assert row.tobytes() == rows[name].tobytes(), name
         nodes, slots = _stencil(1)
-        norms = engine.exponential_trial(dz, dz, nodes, slots, 1, [1])
+        norms, _ = native_exponential_trial(backend, dz, dz, nodes, slots, 1, [1])
         assert np.all(np.isfinite(norms))
     finally:
         backend.close()
@@ -716,7 +609,7 @@ def _held_to_the_bound(setup, runs, carrier=0.0):
 def test_sections_on_and_off_the_route_in_one_run(parity_cases, name, monkeypatch):
     """A flow whose sections alternate: every bin off the route, then every bin on."""
     simulation, problem = parity_cases(name)
-    request, grid = on_adams(simulation._run_request()), simulation.grid
+    request, grid = on_adams(simulation.run_request()), simulation.grid
     on = run(NativeBackend, problem, request, grid)
     expected = run(NumpyRefBackend, problem, request, grid)
     monkeypatch.setattr(
@@ -743,7 +636,7 @@ def test_a_carrier_frame_off_the_route(parity_cases, monkeypatch):
     simulation, problem = parity_cases("te_tm")
     grid = simulation.grid
     method = Multistep(carrier_frame="scalar")
-    request = simulation._run_request()
+    request = simulation.run_request()
     request = request.with_stepper(
         dataclasses.replace(request.stepper, integrator=method)
     )
@@ -752,7 +645,7 @@ def test_a_carrier_frame_off_the_route(parity_cases, monkeypatch):
     steps = request.stepper.schedule.steps
     anchors = np.concatenate(([0.0], np.cumsum(steps)[:-1]))
     carrier = max(
-        float(np.max(np.abs(np.imag(reference.chord.exponent(z, z + dz)))))
+        float(np.abs(np.imag(reference.chord.exponent(z, z + dz))))
         for z, dz in zip(anchors, steps, strict=True)
     )
     assert carrier > 0.0
@@ -796,7 +689,7 @@ def _round_trip(simulation, problem, middle, end):
     Each run is a native session over a fixed schedule with planes at `middle` and
     `end`, both edges of it, so the planes take no step of their own.
     """
-    request = to_planes(simulation._run_request(), [middle, end])
+    request = to_planes(simulation.run_request(), [middle, end])
     context = {
         "grid": simulation.grid,
         "modes": simulation.modes,
@@ -810,7 +703,7 @@ def _round_trip(simulation, problem, middle, end):
         owns=True,
     )
     first = NativeBackend(problem, request, **context)
-    assert type(first._resident).__name__ == "_ResidentAdams"
+    assert first._diagnostics()["method"] == "adams"
     taken = []
 
     def take(session, batch) -> None:
@@ -866,7 +759,7 @@ def test_a_snapshot_off_the_route_or_wide_resumes_to_the_bit(
         simulation, problem = parity_cases("gradient")
         off_route(monkeypatch, "off")
         _assert_routed(problem, "off")
-        steps = simulation._run_request().stepper.schedule.steps
+        steps = simulation.run_request().stepper.schedule.steps
         middle, end = float(np.sum(steps[:5])), float(np.sum(steps))
     uninterrupted, resumed = _round_trip(simulation, problem, middle, end)
     np.testing.assert_array_equal(resumed, uninterrupted)

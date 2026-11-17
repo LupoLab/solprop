@@ -8,14 +8,12 @@ A path is a keyword, then any number of steps: ``.name`` for a keyword of an obj
 ``[i]`` for an element of an array and ``["key"]`` for a key of a mapping, as in
 ``pressure``, ``pulses[1].energy`` or ``launch["HE1,1:even"].share``. Paths are what
 ``Recipe.set`` and ``Recipe.get`` take, what errors name, what a scan varies and what a
-pin sets.
-
-In the tree a TOML document reads into, an object and a mapping are both dictionaries,
-so ``.name`` and ``["name"]`` address the same entry; the parsed path keeps them apart
-(:class:`Attribute` and :class:`Key`) because they are different texts, and the
-canonical text is the one :func:`format_path` writes. An index is a non-negative
-integer with no leading zero, and a key is a JSON string, so ``["a\"b"]`` is the key
-``a"b``.
+pin sets. :func:`parse_path` reads one into its steps (:class:`Attribute`,
+:class:`Index`, :class:`Key`), :func:`format_path` writes the canonical text, and
+:func:`get_path` and :func:`set_path` read and write the value it names in a recipe's
+tree. In that tree ``.name`` and ``["name"]`` address the same entry; the parsed path
+keeps them apart because they are different texts. The syntax is in the manual,
+``docs/guide/setup/recipes.md`` ("Values").
 """
 
 import json

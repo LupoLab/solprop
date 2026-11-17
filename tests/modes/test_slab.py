@@ -4,13 +4,10 @@
 
 """Qualify the hollow planar (slab) mode against closed forms, papers and RectMode."""
 
-import inspect
 import itertools
-import json
 import math
 import warnings
-from dataclasses import fields, replace
-from pathlib import Path
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -18,7 +15,6 @@ from numpy.testing import assert_allclose, assert_array_equal
 from scipy.integrate import quad
 from scipy.optimize import minimize_scalar
 from scipy.special import erf, jn_zeros
-from witness_materials import ermolov_helium, kingston_argon, malitson_silica
 
 from bounds import assert_within
 from solprop.constants import EPS0, C
@@ -31,16 +27,16 @@ from solprop.modes import (
     SlabPolarisation,
     gaussian_coupling,
     gaussian_to_per_unit_width,
-    on_axis_rule,
     per_unit_width_to_gaussian,
-    taper_scale,
-    transverse_measure,
 )
+from solprop.modes.collection import transverse_measure
 from solprop.modes.protocol import PolarisationComponent
 from solprop.modes.quadrature import (
     cartesian_nodes,
     mode_matrix,
+    on_axis_rule,
     quadrature_rule,
+    taper_scale,
     transverse_quadrature,
 )
 from solprop.physdata import Mixture, aluminium, silver
@@ -129,9 +125,17 @@ def test_slab_tm_over_te_is_the_wall_permittivity_ratio():
     te = field_attenuation(SlabMode(a, cladding=silver()))[0]
     tm = field_attenuation(SlabMode(a, cladding=silver(), polarisation="tm"))[0]
     assert_allclose(tm / te, abs(index) ** 2, rtol=3 / abs(index) ** 2)
-    # A gas fill moves the TM coefficient by eps_co.
+    # A gas fill divides the TM coefficient by eps_co: 10 bar of argon moves the
+    # ratio by 5.1e-3, beyond the truncation bound of the glass case above.
+    te = field_attenuation(SlabMode(a, "Ar", 10.0, cladding=1.45))[0]
     filled = SlabMode(a, "Ar", 10.0, cladding=1.45, polarisation="tm")
-    assert field_attenuation(filled)[0] != tm
+    core = 1.0 + filled._terms(OMEGA_800, 0.0).chi[0].real
+    assert core - 1.0 > 5e-3
+    assert_allclose(
+        field_attenuation(filled)[0] / te,
+        1.45**2 / core,
+        rtol=3 * 800e-9 * 1.45**2 / (2 * math.pi * a * 1.05),
+    )
 
 
 def test_akturk_and_arnold_numbers_are_reproduced():
@@ -198,83 +202,31 @@ def test_the_rectangle_approaches_the_slab_as_its_height_grows(polarisation, par
         assert_allclose(math.log2(coarse.imag / fine.imag), 3.0, atol=1e-3)
 
 
-def baseline_modes():
-    # The table held the former defaults' numbers (the registry's gases, silica and
-    # stitched metal tables), which SEP 3's Phase 4b deleted; it is now recorded on
-    # the gases and silica supplied explicitly (Kingston argon, Ermolov helium,
-    # Malitson's silica: ``witness_materials``), optmat's metals and optmat's mixture.
-    taper = Linear(50e-6, 40e-6, 0.1)
-    silica = malitson_silica()
-    return (
-        RectMode(
-            50e-6, 12.5e-6, "Ar", 5.0, susceptibility=kingston_argon(), cladding=1.45
-        ),
-        RectMode(
-            50e-6,
-            12.5e-6,
-            "Ar",
-            5.0,
-            susceptibility=kingston_argon(),
-            cladding=silica,
-            polarisation="y",
-            n=2,
-            m=3,
-        ),
-        RectMode(
-            taper,
-            30e-6,
-            "He",
-            1.0,
-            susceptibility=ermolov_helium(),
-            cladding=silver(),
-            polarisation="y",
-        ),
-        RectMode(taper, taper, cladding=aluminium(), n=3, m=2),
-        RectMode(
-            50e-6,
-            20e-6,
-            mixture=Mixture.fill({"He": 0.25, "Ar": 0.75}, 2.0),
-            cladding=0.05 + 3.5j,
-            polarisation="y",
-        ),
-    )
+def test_a_wall_pair_mixture_sums_its_components_by_density():
+    """Both wall-pair guides fill their core with each component at its own density.
 
-
-def test_rectmode_is_unchanged_by_the_shared_wall_pair():
-    """The wall-pair extraction left every RectMode number where it was.
-
-    Each mode's ``neff``, ``neff - 1`` and its derivative at each position is compared
-    normwise with the record at 64 eps: the ladder's one-evaluation budget of 16 eps
-    (``accuracy.md`` section 7) for a closed form of a few tens of roundings, times
-    four for another platform's libm in the wall's complex square roots and the
-    transcendental terms. The signature and the dataclass fields stay exact.
-
-    The table was written on main 5fcfa7cf, before the extraction: five guides --
-    glass, silver, aluminium and a constant complex wall; argon, helium and a
-    mixture; both polarisations; (1,1), (2,3), (3,2); constant, one-axis and
-    two-axis tapers -- at 31 wavelengths and three positions.
+    The sum of the components' per-density susceptibilities, each read from a guide
+    filled with that gas alone, weighted by the mixture's densities: two products
+    and a sum per sample, held to 4 eps.
     """
-    reference = json.loads(
-        (Path(__file__).parents[1] / "data/rectangular_before_slab.json").read_text()
-    )
-    assert str(inspect.signature(RectMode)) == reference["signature"]
-    assert [field.name for field in fields(RectMode)] == reference["fields"]
-    omega = 2 * np.pi * C / np.linspace(600e-9, 900e-9, 31)
+    mixture = Mixture.fill({"He": 0.25, "Ar": 0.75}, 2.0)
+    omega = 2 * np.pi * C / np.linspace(600e-9, 900e-9, 7)
+    densities = mixture.density(np.asarray([0.0]))[:, 0]
     with warnings.catch_warnings():
-        # Helium and argon fits are outside their published range at 600 nm; the
-        # table was captured with the same notices silenced.
+        # Helium's and argon's fits are outside their published range at 600 nm.
         warnings.simplefilter("ignore")
-        values = np.asarray(
-            [
-                [getattr(mode, name)(omega, z) for z in (0.0, 0.05, 0.1)]
-                for mode in baseline_modes()
-                for name in ("neff", "neff_minus_one", "dneff_domega")
-            ]
-        )
-    expected = np.asarray(reference["real"]) + 1j * np.asarray(reference["imag"])
-    assert values.shape == expected.shape
-    for index in np.ndindex(values.shape[:2]):
-        assert_within(values[index], expected[index], 64 * EPS, what=str(index))
+        parts = [
+            RectMode(50e-6, 20e-6, gas, 1.0, cladding=1.45)._sampled_susceptibility(
+                omega
+            )[0]
+            for gas in ("He", "Ar")
+        ]
+        expected = parts[0] * densities[0] + parts[1] * densities[1]
+        for mode in (
+            RectMode(50e-6, 20e-6, mixture=mixture, cladding=1.45),
+            SlabMode(50e-6, mixture=mixture, cladding=1.45),
+        ):
+            assert_within(mode._terms(omega, 0.0).chi, expected, 4 * EPS)
 
 
 # --------------------------------------------------------------- the derivative
@@ -288,7 +240,9 @@ def test_slab_derivative_by_contour_and_finite_difference(polarisation):
     total = np.zeros_like(omega, dtype=complex)
     for phase in np.arange(64) * 2 * np.pi / 64:
         offset = 0.1 * omega * np.exp(1j * phase)
-        value = mode._model_values(replace(terms, omega=omega + offset), 50e-6)[0]
+        value = mode._model_values(
+            replace(terms, omega=omega + offset), mode._walls(0.0)
+        )[0]
         total = total + value / offset
     # RectMode's contour tolerance: rounding amplified by the Cauchy radius, with
     # exponentially small 64-node trapezoid truncation.
@@ -378,7 +332,7 @@ def test_slab_quartic_bound_is_the_cartesian_one():
 
 
 def test_slab_rule_kronrod_alarm_on_axis_and_warnings():
-    modes = ModeCollection.slab(63.5e-6, (1, 3, 5), "Ar", 1.0)
+    modes = ModeCollection.slab(63.5e-6, "Ar", 1.0, orders=(1, 3, 5))
     rule = transverse_quadrature(modes.modes, n_r=36, radial_rule="gauss_kronrod")
     assert rule.kronrod and rule.has_embedded_rule and rule.n_r == 37
     limits = modes.dimlimits()
@@ -570,7 +524,9 @@ def test_slab_labels_components_partners_and_measure():
 
 def test_slab_collection_constructor_and_measure_refusals():
     modes = ModeCollection.slab(
-        Linear(60e-6, 50e-6, 0.1), (1, 3, 5), mixture=Mixture.fill({"Ar": 1.0}, 1.0)
+        Linear(60e-6, 50e-6, 0.1),
+        orders=(1, 3, 5),
+        mixture=Mixture.fill({"Ar": 1.0}, 1.0),
     )
     assert [label.display_label for label in modes.channel_labels] == [
         "TE1",
@@ -580,9 +536,9 @@ def test_slab_collection_constructor_and_measure_refusals():
     assert not modes.needs_full_rule and modes.scale_invariant
     assert transverse_measure([MarcatiliMode(125e-6)]) == "area"
     with pytest.raises(ModeError, match="at least one order"):
-        ModeCollection.slab(50e-6, ())
+        ModeCollection.slab(50e-6, orders=())
     with pytest.raises(ModeError, match="duplicate physical channel"):
-        ModeCollection.slab(50e-6, (1, 1))
+        ModeCollection.slab(50e-6, orders=(1, 1))
     with pytest.raises(ModeError, match=r"MarcatiliMode\) measures 'area'"):
         ModeCollection([SlabMode(50e-6), MarcatiliMode(50e-6)])
     with pytest.raises(ModeError, match="per_unit_width"):
@@ -601,7 +557,8 @@ def test_slab_collection_constructor_and_measure_refusals():
         ({"half_gap": 0.0}, "half-gap must be positive"),
         ({"half_gap": Linear(50e-6, -1e-6, 0.1)}, "half-gap must be positive"),
         ({"gas": "Ar", "mixture": Mixture.fill({"He": 1.0}, 1.0)}, "mixture carries"),
-        ({"loss": -1.0}, "loss scale"),
+        ({"loss_scale": -1.0}, "loss_scale"),
+        ({"alpha": 1.0, "loss_scale": 2.0}, "not both"),
     ],
 )
 def test_slab_constructor_refusals(keywords, message):
@@ -628,8 +585,10 @@ def test_slab_quadrature_and_model_refusals():
         SlabMode(50e-6, cladding=1.0).neff(OMEGA_800)
     terms = mode._terms(OMEGA_800, 0.0)
     with np.errstate(invalid="ignore"), pytest.raises(ModeError, match="non-finite"):
-        mode._model_values(replace(terms, chi=np.asarray([np.nan + 0j])), 50e-6)
-    loss = replace(mode, loss=False)
+        mode._model_values(
+            replace(terms, chi=np.asarray([np.nan + 0j])), mode._walls(0.0)
+        )
+    loss = replace(mode, loss_scale=0.0)
     assert np.imag(loss.neff(OMEGA_800))[0] == 0.0
 
 

@@ -15,9 +15,9 @@ from solprop.linear import DEFAULT_LOSS_POLICY, Frame, log_power_weight
 from solprop.modes import MarcatiliMode, RectMode
 from solprop.modes.quadrature import mode_matrix, taper_scale, transverse_quadrature
 from solprop.profiles import Linear, PressureGradient
+from solprop.translate.assembly import _transform
 from solprop.translate.linop import _operator_sampler, build_phi, delta_phi
 from solprop.translate.modal import _radius_kinks, multimode_transform
-from solprop.translate.problem import _transform
 
 
 def test_rectangular_shared_taper_rescales_matrices_and_tracks_kinks():

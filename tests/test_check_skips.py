@@ -33,7 +33,7 @@ def test_an_expected_reason_and_a_pass_are_clean(tmp_path, capsys):
     path = junit(
         tmp_path,
         ("a", ""),
-        ("b", skip("Pyroraptor at the pinned revision is not installed")),
+        ("b", skip("Pyroraptor is not installed")),
     )
     assert check_skips.main([str(path)]) == 0
     assert "0 unexpected" in capsys.readouterr().out

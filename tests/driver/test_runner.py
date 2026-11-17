@@ -16,7 +16,7 @@ import gc
 import threading
 import types
 import weakref
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -26,24 +26,19 @@ from driver.test_field_free_planes import cartesian, low_storage, replay_bound
 from runtime_types import unchecked
 from sessions.executors import one_thread
 from solprop.backends import sessions
-from solprop.backends.host.driver import HostDriver
-from solprop.backends.protocol import stepping
+from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available, select
+from solprop.backends.session import Start
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationRunner
-from solprop.driver.simulation import check_derived_problem
+from solprop.driver.runner import check_derived_problem
 from solprop.exceptions import DriverError, TranslationError
 from solprop.log import NullReporter
 from solprop.noise import NoiseRealisation, spatial_noise
-from solprop.output import MemoryOutput, open_file
-from solprop.output import schema as output_schema
-from solprop.output.schema import (
-    PEAK_FIELDS_ANNOTATION,
-    ArrayDigest,
-    Output,
-    PlaneStore,
-    RunMetadata,
-)
+from solprop.output import MemoryOutput, open_file, serialisation
+from solprop.output.metadata import PEAK_FIELDS_ANNOTATION, RunMetadata
+from solprop.output.serialisation import ArrayDigest
+from solprop.output.store import Output, PlaneStore
 from solprop.pulses import GaussianPulse
 from solprop.spatial import SpatialFlux
 from solprop.stats import StatsSpec
@@ -106,7 +101,7 @@ def capillary(backend: str, *, dense: bool = False) -> Simulation:
         schedule=None
         if dense
         else FixedSchedule.uniform(
-            0.0, LENGTH, LENGTH / STEPS, save_planes=settings.save_planes
+            0.0, LENGTH, LENGTH / STEPS, save_planes=np.asarray(settings.save_planes)
         ),
         interpolate_planes=dense,
     )
@@ -128,7 +123,7 @@ def bound(simulation: Simulation) -> float:
     problem = simulation.translate()
     return (
         STEPS
-        * step_evaluations(simulation._run_request())
+        * step_evaluations(simulation.run_request())
         * (fft_bound(problem.grids.n_to) + fft_bound(problem.transform.n_nodes))
     )
 
@@ -147,22 +142,32 @@ class _Stop(NullReporter):
 
 
 def restored(backend, problem, run_request) -> tuple:
-    """Return the four pieces of state a load restores (SEP 22 section 4.7).
+    """Return the four pieces of state a session's load restores (SEP 22 section 4.7).
 
-    The quadrature alarm as the entrance plane reads it, ``quadrature_error`` before
-    any march: in-tree backends keep it on the host, Kokkos in its native state.
+    A session started on the reference: whether a dense observation holds its state,
+    the quadrature alarm as the entrance plane reads it (``quadrature_error`` before
+    any march), and its Adams march's ledger and last rejection.
     """
-    march = backend._adams
-    spec = dataclasses.replace(
-        run_request.observation.stats, names=("quadrature_error",)
+    session = backend.prepare(problem, run_request).start(
+        Start.entrance(problem), owns=False
     )
-    entrance = float(backend.stats(spec)["quadrature_error"])
-    return (
-        backend._dense_ahead is None,
-        "nan" if np.isnan(entrance) else entrance,
-        None if march is None else dataclasses.asdict(march.ledger),
-        None if march is None else march._last_rejected,
-    )
+    try:
+        march = backend.march
+        ledger = getattr(march, "ledger", None)
+        spec = dataclasses.replace(
+            run_request.observation.stats, names=("quadrature_error",)
+        )
+        entrance = float(
+            backend.workspace.stats(spec, float(problem.initial.z))["quadrature_error"]
+        )
+        return (
+            not session._observed,
+            "nan" if np.isnan(entrance) else entrance,
+            None if ledger is None else dataclasses.asdict(ledger),
+            None if ledger is None else march._last_rejected,
+        )
+    finally:
+        session.close()
 
 
 @pytest.mark.medium
@@ -240,25 +245,23 @@ def _failed_runner_case(backend: str, dense: bool) -> Simulation:
 @pytest.mark.medium
 @DENSE
 def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(dense):
-    # The reference's driver keeps a run's march state on the backend itself; the
-    # native session keeps it in the session, which the next test checks by its runs.
+    # The reference's session builds its march afresh over the backend's workspace,
+    # which the failed run left behind; the native session keeps its state in the
+    # session, which the next test checks by its runs.
     backend = "numpy_ref"
     simulation = _failed_runner_case(backend, dense)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     with simulation.runner() as runner:
         with pytest.raises(RuntimeError, match="on purpose"):
             runner.run(inputs(simulation)[0], progress=_Stop())
-        left = cast("HostDriver", runner.backend)
-        if dense:
-            # The failed run held the march ahead of its interpolated plane.
-            assert left._dense_ahead is not None
-        else:
-            assert left._adams is not None
-            assert left._adams.ledger.total > 0
+        left = cast("NumpyRefBackend", runner.backend)
+        if not dense:
+            # The failed run's march, which the next session does not inherit.
+            failed = cast("Any", left.march)
+            assert failed.ledger.total > 0
             # A failed run can stop just after a rejection; the load clears it.
-            left._adams._last_rejected = True
-        left.set_initial(problem.initial.field0, None, z=problem.initial.z)
+            failed._last_rejected = True
         fresh = select(
             backend,
             problem,
@@ -268,9 +271,6 @@ def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(dense):
             profiles=simulation.profiles,
         )
         try:
-            stepping(fresh).set_initial(
-                problem.initial.field0, None, z=problem.initial.z
-            )
             # Restored state is exact: the same flags, alarm and integer ledger.
             assert restored(left, problem, run_request) == restored(
                 fresh, problem, run_request
@@ -278,7 +278,7 @@ def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(dense):
         finally:
             fresh.close()
         after = stored(runner.run(inputs(simulation)[1], progress="none"))
-    assert after.n_saved == len(simulation.settings.save_planes) + 1
+    assert after.n_saved == len(np.asarray(simulation.settings.save_planes)) + 1
 
 
 @pytest.mark.medium
@@ -309,7 +309,11 @@ def test_a_native_run_after_a_failed_one_is_a_fresh_backend_s_run(dense, monkeyp
             runner.run(inputs(simulation)[0], progress=_Stop())
         after = stored(runner.run(field, progress="none"))
     assert served == ["NativeSession"] * 3
-    assert after.n_saved == fresh.n_saved == len(simulation.settings.save_planes) + 1
+    assert (
+        after.n_saved
+        == fresh.n_saved
+        == len(np.asarray(simulation.settings.save_planes)) + 1
+    )
     assert np.array_equal(after["field"], fresh["field"])
     for name in fresh.stat_names:
         assert np.array_equal(
@@ -353,6 +357,28 @@ def test_a_runner_refuses_what_its_backend_cannot_carry(tmp_path):
     runner.close()  # idempotent
 
 
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [({"node_budget": 2**20}, "prepared with"), ({"backend": "native"}, "backend is")],
+)
+def test_a_runner_refuses_execution_choices_its_backend_was_not_built_for(
+    change, message
+):
+    # Issue #705: the backend and node budget are outside the resume key, yet the
+    # held backend was selected and prepared for the runner's own.
+    simulation = capillary("numpy_ref")
+    built = simulation.settings
+    with SimulationRunner(simulation) as runner:
+        simulation.settings = dataclasses.replace(built, **change)
+        assert not runner._takes(simulation)
+        with pytest.raises(DriverError, match=message):
+            runner.run(inputs(simulation)[0])
+        assert runner.runs == 0 and not runner.closed
+        # The same choices again, if not the same objects, are the runner's.
+        simulation.settings = dataclasses.replace(built)
+        assert runner._takes(simulation)
+
+
 def test_a_runner_closes_only_between_runs():
     simulation = cartesian("numpy_ref")
     runner = simulation.runner()
@@ -390,10 +416,10 @@ def test_a_tdse_run_has_no_runner(monkeypatch):
 def test_a_derived_problem_is_the_constructed_one_but_for_its_input():
     simulation = capillary("numpy_ref")
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     derived = simulation.with_input(inputs(simulation)[1])
     check_derived_problem(
-        problem, derived.translate(), run_request, derived._run_request()
+        problem, derived.translate(), run_request, derived.run_request()
     )
     replaced = dataclasses.replace(problem, grids=dataclasses.replace(problem.grids))
     with pytest.raises(DriverError, match="share the runner's grids"):
@@ -428,7 +454,7 @@ def test_a_derived_problem_on_another_route_is_refused():
     # The transform is the same object, so only the route's variant, TDSE source or
     # plane measure can differ: each is the constructed problem's or refused.
     simulation = capillary("numpy_ref")
-    problem, run_request = simulation.translate(), simulation._run_request()
+    problem, run_request = simulation.translate(), simulation.run_request()
     check_derived_problem(
         problem,
         dataclasses.replace(
@@ -451,7 +477,7 @@ def test_a_derived_problem_on_another_route_is_refused():
     with pytest.raises(DriverError, match="does not share the runner's route"):
         check_derived_problem(problem, attached, run_request, run_request)
     planar = cartesian("numpy_ref")
-    spatial, spatial_request = planar.translate(), planar._run_request()
+    spatial, spatial_request = planar.translate(), planar.run_request()
     assert isinstance(spatial.route, SpatialRoute)
     remeasured = dataclasses.replace(
         spatial,
@@ -486,15 +512,15 @@ def test_with_input_validates_the_replaced_input_alone():
     check_derived_problem(
         simulation.translate(),
         derived.translate(),
-        simulation._run_request(),
-        derived._run_request(),
+        simulation.run_request(),
+        derived.run_request(),
     )
 
 
 def test_a_large_array_input_is_recorded_by_its_digest(monkeypatch):
     simulation = capillary("numpy_ref")
     field = inputs(simulation)[0]
-    monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", field.size - 1)
+    monkeypatch.setattr(serialisation, "INLINE_ARRAY_LIMIT", field.size - 1)
     one = simulation.with_input(field).metadata()
     recorded = one.configuration["initial"]
     assert isinstance(recorded, ArrayDigest)
@@ -505,7 +531,7 @@ def test_a_large_array_input_is_recorded_by_its_digest(monkeypatch):
     assert two.configuration["initial"] != recorded
     assert two.configuration_hash() != one.configuration_hash()
     # Below the limit an array is recorded inline, as before.
-    monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", field.size)
+    monkeypatch.setattr(serialisation, "INLINE_ARRAY_LIMIT", field.size)
     inline = simulation.with_input(field).metadata().configuration["initial"]
     assert isinstance(inline, np.ndarray)
 
@@ -531,27 +557,29 @@ def no_collector():
     gc.enable()
 
 
-def _load_name(backend) -> str:
-    """Return the backend's load: the native session's ``_load``, the host's
-    ``set_initial``; both take the field, the noise, ``z`` and ``resume``."""
-    return "_load" if hasattr(backend, "_load") else "set_initial"
+def _load_owner(backend) -> tuple[object, str]:
+    """Return the backend's load: the native backend's ``_load``, the reference's
+    workspace's ``load``; both take the field, the noise, ``z`` and ``resume``."""
+    if hasattr(backend, "_load"):
+        return backend, "_load"
+    return backend.workspace, "load"
 
 
 def _spied_load(backend, monkeypatch) -> list[weakref.ref[np.ndarray]]:
     """Return a list that keeps a weak reference to each array the backend loads.
 
-    The reference loads through its driver's ``set_initial``, the native backend
+    The reference's session loads through its workspace's ``load``, the native backend
     through its own ``_load`` (SEP 47 phase 5).
     """
     loads: list[weakref.ref[np.ndarray]] = []
-    name = _load_name(backend)
-    load = getattr(backend, name)
+    owner, name = _load_owner(backend)
+    load = getattr(owner, name)
 
     def spy(field, noise, *, z=0.0, resume=False) -> object:
         loads.append(weakref.ref(field))
         return load(field, noise, z=z, resume=resume)
 
-    monkeypatch.setattr(backend, name, spy)
+    monkeypatch.setattr(owner, name, spy)
     return loads
 
 
@@ -569,7 +597,7 @@ def test_a_runner_holds_no_input_through_the_march(
     """
     simulation = capillary(backend) if route == "modal" else cartesian(backend)
     limit = 0 if digested else simulation._field0.size
-    monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", limit)
+    monkeypatch.setattr(serialisation, "INLINE_ARRAY_LIMIT", limit)
     run = unchecked(SimulationRunner.run)
     with simulation.runner() as runner:
         loads = _spied_load(runner.backend, monkeypatch)
@@ -593,19 +621,19 @@ def test_a_runner_holds_no_input_through_the_march(
 def test_a_runner_reads_a_digested_input_without_a_copy(backend, monkeypatch):
     """The derived simulation views the caller's array, which it leaves as it was."""
     simulation = cartesian(backend)
-    monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", 0)
+    monkeypatch.setattr(serialisation, "INLINE_ARRAY_LIMIT", 0)
     field = 0.9 * simulation._field0
     before = field.copy()
     with simulation.runner() as runner:
-        name = _load_name(runner.backend)
-        load = getattr(runner.backend, name)
+        owner, name = _load_owner(runner.backend)
+        load = getattr(owner, name)
         shared: list[bool] = []
 
         def spy(given, noise, *, z=0.0, resume=False) -> object:
             shared.append(np.shares_memory(given, field))
             return load(given, noise, z=z, resume=resume)
 
-        monkeypatch.setattr(runner.backend, name, spy)
+        monkeypatch.setattr(owner, name, spy)
         output = stored(runner.run(field, progress="none"))
         fresh = stored(simulation.with_input(field).run(progress="none"))
     assert shared == [True]
@@ -640,7 +668,7 @@ def test_a_resident_adams_march_holds_no_host_copy_of_the_state(route):
             simulation.settings, integrator=Multistep()
         )
     with simulation.runner() as runner:
-        assert getattr(runner.backend, "_resident", None) is not None
+        assert cast("Any", runner.backend)._diagnostics()["method"] == "adams"
         output = stored(runner.run(np.array(simulation._field0), progress="none"))
         assert "adams_host_state" not in runner.backend.memory_ledger()
         # What a stopped run reports is read from the engine when the session is asked
@@ -672,7 +700,7 @@ def test_a_runner_runs_an_input_without_noise_when_it_has_none():
     simulation = capillary("numpy_ref")
     with simulation.runner() as runner:
         output = stored(runner.run(inputs(simulation)[0], noise=None, progress="none"))
-    assert output.n_saved == len(simulation.settings.save_planes) + 1
+    assert output.n_saved == len(np.asarray(simulation.settings.save_planes)) + 1
 
 
 @pytest.mark.medium
@@ -725,7 +753,7 @@ def test_with_input_refuses_a_non_finite_realisation_and_keeps_a_pulse_recipe():
     assert derived.metadata().configuration["pulse"] is pulse
     # A new launch keeps the stepper's checks: the launch precedes every plane.
     problem = single.translate()
-    run_request = single._run_request()
+    run_request = single.run_request()
     late = dataclasses.replace(
         problem,
         initial=dataclasses.replace(
@@ -735,4 +763,4 @@ def test_with_input_refuses_a_non_finite_realisation_and_keeps_a_pulse_recipe():
     with pytest.raises(TranslationError, match="follow the initial position"):
         late.validate_launch(run_request)
     replayed = cartesian("numpy_ref")
-    replayed.translate().validate_launch(replayed._run_request())  # a schedule
+    replayed.translate().validate_launch(replayed.run_request())  # a schedule

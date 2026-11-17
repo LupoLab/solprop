@@ -4,13 +4,13 @@
 
 """The Runge-Kutta march's controller as functions of its policy and state (SEP 45).
 
-The decisions of ``HostDriver._march_to`` -- the
-equivalent norm and acceptance of an attempt, the start-up rule, the next proposal
-after an accepted step and the shrink after a rejected one -- each as a function of the
-run's :class:`RungeKuttaPolicy` and the values it decides on, with no backend or field
-in reach. The march calls them, and SEP 45 section 4 specifies them; the native march
-executes the same algorithm and is held to these functions by the decision traces of
-``tests/data/rk_traces.json.gz``.
+The decisions of the Runge-Kutta march -- the equivalent norm and acceptance of an
+attempt, the start-up rule, the next proposal after an accepted step and the shrink
+after a rejected one -- each as a function of the run's
+:class:`~solprop.backends.records.RungeKuttaPolicy` and the values it decides on, with
+no backend or field in reach. The march calls them, and SEP 45 section 4 specifies
+them; the native march executes the same algorithm and is held to these functions by
+the decision traces of ``tests/data/rk_traces.json.gz``.
 
 Every function performs the operations of the code it was extracted from, in the same
 order. The controller's state is its own proposal: a cap or a landing shortens the
@@ -22,61 +22,16 @@ sites of section 4.3).
 """
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 
-from solprop.stepper.controller import START_GROWTH, PIController, limit_step
-from solprop.translate.problem import StepperSettings
+from solprop.backends.records import RungeKuttaPolicy
+from solprop.stepper.controller import START_GROWTH, limit_step
 
 __all__ = [
-    "RungeKuttaPolicy",
     "decide",
     "propose",
     "reject",
-    "rk_policy",
     "start_up",
 ]
-
-
-@dataclass(frozen=True)
-class RungeKuttaPolicy:
-    """Every number the Runge-Kutta march's controller reads during a run (SEP 45).
-
-    Attributes
-    ----------
-    controller : solprop.stepper.controller.PIController
-        The controller, whose gains, factors, lag, estimator order and acceptance rule
-        the decisions read.
-    dz_min, dz_max : float
-        The floor and the cap on a proposal, m.
-    auto_init : bool
-        Whether the first accepted step takes the start-up rule.
-    """
-
-    controller: PIController
-    dz_min: float
-    dz_max: float
-    auto_init: bool
-
-
-def rk_policy(stepper: StepperSettings) -> RungeKuttaPolicy:
-    """Return the run's controller policy from its stepper settings.
-
-    Parameters
-    ----------
-    stepper : solprop.translate.problem.StepperSettings
-        The translated stepper settings.
-
-    Returns
-    -------
-    RungeKuttaPolicy
-        Its controller, floor, cap and start-up flag.
-    """
-    return RungeKuttaPolicy(
-        controller=stepper.controller,
-        dz_min=stepper.dz_min,
-        dz_max=stepper.dz_max,
-        auto_init=stepper.auto_init,
-    )
 
 
 def decide(

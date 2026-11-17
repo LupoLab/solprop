@@ -4,8 +4,16 @@
 
 """Describe a gas species: a built-in gas from optmat, or a caller's own data.
 
-Optical susceptibilities are per particle in m^3. Partial pressures are in bar,
-the same interface convention as :mod:`solprop.physdata.equation_of_state`.
+:class:`Species` is one chemical species and the data it supplies: its susceptibility
+(an optmat law or a :class:`TabulatedSusceptibility`), its equation of state
+(:class:`EquationOfState`: :class:`OptmatGas` for a built-in gas, which also carries
+transport properties, or :class:`IdealGas`), its Kerr coefficient, its
+:class:`IonisationData` and any Raman constants. :func:`species` builds a built-in gas
+from optmat or passes a custom species through, and :func:`ionisation_potential` is a
+gas's first ionisation energy.
+
+Optical susceptibilities are per particle in m^3. Partial pressures are in bar, the same
+interface convention as :mod:`solprop.physdata.equation_of_state`.
 """
 
 import dataclasses
@@ -46,12 +54,12 @@ __all__ = [
 class EquationOfState(Protocol):
     """Convert a species' partial pressure and temperature to number density."""
 
-    def density(self, pressure_bar: float, temperature: float) -> float:
+    def density(self, pressure: float, temperature: float) -> float:
         """Return number density in m^-3.
 
         Parameters
         ----------
-        pressure_bar : float
+        pressure : float
             Non-negative partial pressure in bar.
         temperature : float
             Positive temperature in K.
@@ -85,14 +93,12 @@ class EquationOfState(Protocol):
 class IdealGas:
     """Use the ideal-gas equation of state for a partial population."""
 
-    def density(
-        self, pressure_bar: float, temperature: float = ROOM_TEMPERATURE
-    ) -> float:
+    def density(self, pressure: float, temperature: float = ROOM_TEMPERATURE) -> float:
         """Return ideal-gas number density.
 
         Parameters
         ----------
-        pressure_bar : float
+        pressure : float
             Non-negative partial pressure in bar.
         temperature : float, optional
             Positive temperature in K.
@@ -107,11 +113,11 @@ class IdealGas:
         MaterialError
             If pressure or temperature is non-finite or outside its domain.
         """
-        if not math.isfinite(pressure_bar) or pressure_bar < 0:
+        if not math.isfinite(pressure) or pressure < 0:
             raise MaterialError("partial pressure must be finite and non-negative")
         if not math.isfinite(temperature) or temperature <= 0:
             raise MaterialError("temperature must be finite and positive")
-        return ideal_gas_density(pressure_bar, temperature)
+        return ideal_gas_density(pressure, temperature)
 
     def pressure(
         self, number_density: float, temperature: float = ROOM_TEMPERATURE
@@ -241,11 +247,11 @@ class OptmatGas:
         )
 
     def _state_error(
-        self, error: Exception, pressure_bar: float, temperature: float
+        self, error: Exception, pressure: float, temperature: float
     ) -> MaterialError:
         """Return the error for a state optmat's equation of state refuses.
 
-        - ``pressure_bar``: the pressure asked for, in bar, or NaN when a density was
+        - ``pressure``: the pressure asked for, in bar, or NaN when a density was
           given.
         - ``temperature``: the temperature asked for, in K.
         """
@@ -264,21 +270,19 @@ class OptmatGas:
             )
         state = (
             f"{temperature:g} K"
-            if math.isnan(pressure_bar)
-            else f"{pressure_bar:g} bar and {temperature:g} K"
+            if math.isnan(pressure)
+            else f"{pressure:g} bar and {temperature:g} K"
         )
         return MaterialError(
             f"{name} has no gas-phase solution at {state}{note}: {error}"
         )
 
-    def density(
-        self, pressure_bar: float, temperature: float = ROOM_TEMPERATURE
-    ) -> float:
+    def density(self, pressure: float, temperature: float = ROOM_TEMPERATURE) -> float:
         """Return the real-gas number density at a partial pressure.
 
         Parameters
         ----------
-        pressure_bar : float
+        pressure : float
             Non-negative partial pressure in bar; zero is vacuum.
         temperature : float, optional
             Positive temperature in K.
@@ -297,18 +301,18 @@ class OptmatGas:
         from optmat.conditions import State  # noqa: PLC0415 - optmat is lazy
         from optmat.exceptions import StateError  # noqa: PLC0415 - as above
 
-        IdealGas().density(pressure_bar, temperature)
-        if pressure_bar == 0.0:
+        IdealGas().density(pressure, temperature)
+        if pressure == 0.0:
             return 0.0
         _optmat.check_status(self._equation, self.key.value)
         try:
             return float(
                 self._equation.number_density(
-                    State(_optmat.bar_to_pa(pressure_bar), float(temperature))
+                    State(_optmat.bar_to_pa(pressure), float(temperature))
                 )
             )
         except StateError as error:
-            raise self._state_error(error, pressure_bar, temperature) from error
+            raise self._state_error(error, pressure, temperature) from error
 
     def pressure(
         self, number_density: float, temperature: float = ROOM_TEMPERATURE
@@ -443,12 +447,12 @@ class OptmatGas:
             for model, fraction in self._transport
         )
 
-    def sound_speed(self, pressure_bar: float, temperature: float) -> float:
+    def sound_speed(self, pressure: float, temperature: float) -> float:
         """Return the real gas's speed of sound from its equation of state.
 
         Parameters
         ----------
-        pressure_bar : float
+        pressure : float
             Pressure in bar, > 0.
         temperature : float
             Temperature in K, within :attr:`temperature_range`.
@@ -467,16 +471,16 @@ class OptmatGas:
         from optmat.exceptions import StateError  # noqa: PLC0415 - as above
 
         kelvin = self._checked(temperature)
-        if not (math.isfinite(pressure_bar) and pressure_bar > 0.0):
-            raise MaterialError(f"pressure must be positive, got {pressure_bar} bar")
+        if not (math.isfinite(pressure) and pressure > 0.0):
+            raise MaterialError(f"pressure must be positive, got {pressure} bar")
         try:
             return float(
                 self._equation.speed_of_sound(
-                    State(_optmat.bar_to_pa(pressure_bar), kelvin)
+                    State(_optmat.bar_to_pa(pressure), kelvin)
                 )
             )
         except StateError as error:
-            raise self._state_error(error, pressure_bar, kelvin) from error
+            raise self._state_error(error, pressure, kelvin) from error
 
 
 @dataclass(frozen=True)
@@ -870,6 +874,45 @@ def built_in_population(material: Species) -> bool:
     """
     gas = next((key for key in Gas if key.value == material.name), None)
     return gas is not None and bool(material.material_records)
+
+
+MIXTURE_AIR_POINTER: Final = (
+    "the built-in Air entry is dispersion-only; for air with Kerr, plasma and "
+    "Raman channels use Mixture.air (solprop.physdata.mixtures.Mixture.air)"
+)
+"""The pointer a refusal of the dispersion-only ``Air`` entry ends with."""
+
+
+def dispersion_only_air(material: Species) -> bool:
+    """Return whether a species is the built-in, dispersion-only ``Air`` entry.
+
+    The entry carries optmat's index of dry air as a whole and no Kerr, ionisation
+    or Raman data; :meth:`solprop.physdata.mixtures.Mixture.air` builds air with
+    those channels. A supplied species merely named ``Air`` that carries Kerr or
+    ionisation data is not the entry.
+
+    Parameters
+    ----------
+    material : Species
+        The species.
+
+    Returns
+    -------
+    bool
+        Whether it is the built-in ``Air`` entry.
+
+    Examples
+    --------
+    >>> from solprop.physdata.species import dispersion_only_air, species
+    >>> dispersion_only_air(species("Air")), dispersion_only_air(species("N2"))
+    (True, False)
+    """
+    return (
+        material.name == Gas.Air.value
+        and built_in_population(material)
+        and material.kerr is None
+        and material.ionisation is None
+    )
 
 
 @functools.cache

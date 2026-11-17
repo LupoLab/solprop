@@ -2,7 +2,18 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Read population inventories and reconstruct physical deposition from saved planes."""
+"""Read a run's population record and reconstruct physical deposition from its planes.
+
+The analysis layer of the four ``mixtures`` modules: :mod:`solprop.physdata.mixtures`
+is the mixture type, :mod:`solprop.nonlinear.mixtures` selects each population's
+response, :mod:`solprop.driver.mixtures` resolves the declarations, and this module
+reads what a run saved. :func:`species_ionisation` and
+:func:`species_ionisation_energy` read the per-species population statistics,
+:func:`absorbed_spectral_energy` the species-resolved linear absorption,
+:func:`get_power_weight` the modal power weight ``Re n_eff`` at every saved plane, and
+:func:`node_fluence` the fluence at each transverse quadrature node. The manual section
+is ``docs/guide/media/mixtures.md`` ("Saved material analysis").
+"""
 
 from collections.abc import Mapping
 from typing import cast
@@ -14,7 +25,7 @@ from solprop import fourier
 from solprop.constants import EPS0, C
 from solprop.exceptions import ProcessingError
 from solprop.grid import TimeGrid
-from solprop.output.schema import Output
+from solprop.output.store import Output
 from solprop.processing.axes import grid_of, spatial_grid_of
 from solprop.processing.fields import _spectral_density
 from solprop.processing.planes import _plane_fluence
@@ -149,7 +160,7 @@ def get_power_weight(output: Output) -> Float[np.ndarray, "n_z n_modes n_pol n_o
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         Opened modal output whose record carries the power-weight factors.
 
     Returns

@@ -9,8 +9,8 @@
 // stepped in place, the replay's records and the poisoned terminal of a step left in
 // flight, by a failure or a divergence.
 
-#include "solprop_native/low_storage.hpp"
-#include "solprop_native/session.hpp"
+#include "solprop_native/march/low_storage.hpp"
+#include "solprop_native/session/session.hpp"
 
 #include <gtest/gtest.h>
 

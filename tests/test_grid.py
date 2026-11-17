@@ -149,7 +149,7 @@ def test_a_collar_placement_must_be_outside_or_inside():
 def test_a_grid_without_room_for_a_taper_takes_the_spectral_collar_alone(field_grid):
     # A collar of one sample each side cannot taper: the default absorber falls back
     # to its spectral collar rather than refuse the run.
-    from solprop.driver.simulation import default_collar  # noqa: PLC0415
+    from solprop.driver.settings import default_collar  # noqa: PLC0415
 
     edges = field_grid.t_collar
     narrow = dataclasses.replace(

@@ -84,7 +84,7 @@ with warnings.catch_warnings():
             wavelength=1030e-9,
             fwhm=400e-15,
             energy=5e-6,
-            loss=False,
+            loss_scale=0.0,
             plasma=True,
             raman=False,
             trange=4e-12,

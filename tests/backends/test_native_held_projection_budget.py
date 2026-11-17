@@ -27,16 +27,18 @@ import dataclasses
 import numpy as np
 import pytest
 
-from backends.test_band_plasma_parity import bound, case
-from backends.test_radial_nonlinear import QuadraticRate
+from backends.plasma_column_cases import bound, case
+from backends.spatial_cases import QuadraticRate
 from bounds import UNIT_ROUNDOFF, fft_bound, gamma
 from sessions.runs import native_trial
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.transforms import project, synthesise, to_time
 from solprop.backends.session import ExecutionOptions
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
 
 native = pytest.importorskip("solprop_native")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning"),
@@ -87,17 +89,19 @@ def test_embedded_current_projection_accumulates_partial_chunks(
     assert relative > 0
     reference = NumpyRefBackend(problem, run_request, grid=grid, options=options)
     try:
-        reference._hoist(0.0)
+        reference.workspace.hoist(0.0)
         state = problem.initial.field0
-        bundle = reference._stage_scalars(0.0, 0.0)
+        bundle = reference.workspace.stage_scalars(0.0, 0.0)
         transform, grids = problem.transform, problem.grids
-        nodes = passes.synthesise(
-            passes.to_time(state, grids.crop_index, grids.n_to, kind="field"),
+        nodes = synthesise(
+            to_time(state, grids.crop_index, grids.n_to, kind="field"),
             transform.synthesis,
             bundle.taper_scale,
             transform.n_pol,
         )
-        current = reference._column_sources(nodes, bundle, None).current
+        current = reference.workspace.stage_source._column_sources(
+            nodes, bundle, None
+        ).current
         assert current is not None
         # SEP 27 section 4.6: the existing column allowance on J before either collar
         # multiplies it, then projected with absolute weights.
@@ -105,7 +109,7 @@ def test_embedded_current_projection_accumulates_partial_chunks(
         rounding = gamma(2 * transform.n_nodes * transform.n_pol + 4)
         collars = (grids.t_window_fine, grids.t_window_fine_derivative)
         limits = [
-            passes.project(
+            project(
                 abs(collar) * current_limit + rounding * abs(collar * current),
                 abs(transform.projection_coarse),
                 bundle.taper_scale,
@@ -115,7 +119,7 @@ def test_embedded_current_projection_accumulates_partial_chunks(
         ]
         assert all(np.max(limit) > 0 for limit in limits)
         magnitudes = [
-            passes.project(
+            project(
                 abs(collar * current),
                 abs(transform.projection_coarse),
                 bundle.taper_scale,
@@ -123,12 +127,14 @@ def test_embedded_current_projection_accumulates_partial_chunks(
             )
             for collar in collars
         ]
-        reference._nonlinear(state[None], bundle, np.ones_like(state[None]))
-        assert reference._last_plasma is not None
-        _, _, coarse_gate, coarse_edge = reference._last_plasma
+        reference.workspace.nonlinear(state, bundle, np.ones_like(state))
+        assert reference.workspace.stage_source._last_plasma is not None
+        _, _, coarse_gate, coarse_edge = reference.workspace.stage_source._last_plasma
         assert coarse_gate is not None and coarse_edge is not None
         assert np.max(abs(coarse_gate)) > 0 and np.max(abs(coarse_edge)) > 0
-        expected = reference._held_streams(coarse_gate, coarse_edge)
+        expected = reference.workspace.stage_source._held_streams(
+            coarse_gate, coarse_edge
+        )
     finally:
         reference.close()
     # The forward transform: l1 -> linf of each row's allowance, with its own normwise
@@ -145,7 +151,7 @@ def test_embedded_current_projection_accumulates_partial_chunks(
     backend = native.NativeBackend(problem, run_request, grid=grid, options=options)
     try:
         native_trial(backend, 0.0, 0.0, field=state)
-        raw = np.asarray(backend._native_state.projected_to_host(True))
+        raw = np.asarray(_testing.projected_to_host(backend._workspace, True))
     finally:
         backend.close()
     actual = raw.reshape(*expected.shape[:-1], grids.n_to // 2 + 1)[

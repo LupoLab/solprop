@@ -9,7 +9,7 @@
 // `_execution.builtin` returns it without a spin. Native code holds no values of its
 // own; a workspace refuses a problem without a record.
 
-#include "solprop_native/core.hpp"
+#include "solprop_native/runtime/cpu_execution.hpp"
 
 namespace solprop_native::test {
 

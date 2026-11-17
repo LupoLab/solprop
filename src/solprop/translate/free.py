@@ -2,7 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Translate constant Cartesian propagation into the schema-5 separable seam."""
+"""Translate constant Cartesian free-space propagation into the separable spatial seam.
+
+:func:`free_transform` freezes the Cartesian FFT layout (the line grid, one sample wide
+in y, among them) and :func:`free_operators` keeps the constant material coefficients
+in separable form for the operator and the nonlinear prefactor.
+:func:`solprop.translate.assembly.assemble` calls them for a
+:class:`solprop.grid.FreeGrid`; the physics is ``docs/guide/free-space/cartesian.md``.
+"""
 
 import warnings
 

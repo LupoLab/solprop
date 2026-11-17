@@ -2,20 +2,18 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The coupled flow on native: every case, both marches, both formation routes.
+"""The coupled flow's actions on native: every case, both formation routes.
 
-``test_native_coupled_flow.py`` runs its own launches on the default march at its own
-bound, and forms the actions on the taper alone. Here is what that leaves: the eight
-cases of ``tests/flow_parity.py`` under ``B_10`` on both marches, the Runge-Kutta march
-beside a capillary wall carrying a real Kerr source through forward and inverse actions,
-with the check that the flow matters; every stage's action on all eight cases and both
+``test_native_coupled_flow.py`` forms the actions on the taper alone. Here is what that
+leaves: every stage's action on all eight cases of ``tests/flow_parity.py`` and both
 routes at ``eps_form``; and random nonnormal blocks through up to four squarings against
 the per-bin bound, which the C++ test holds only to ``norm(lT) <= 2`` at a fixed 4096
-eps.
+eps. The eight cases' ten fixed steps under ``B_10`` on both marches, guarded by the
+flow, are rows of the case catalogue (``tests/backends/flow_rows.py``,
+``flow marches ...``).
 """
 
 import weakref
-from dataclasses import replace
 from functools import partial
 
 import numpy as np
@@ -26,23 +24,19 @@ from flow_parity import (
     QUIET,
     UNIT,
     build,
-    departure,
-    flow_scales,
     formation_bound,
-    run,
     section_formation_bounds,
-    ten_step_bound,
 )
-from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.backend import (
-    _coupled_flow_maps,
-    _flow_action,
+from solprop.backends.numpy_ref.coupled_flow import (
     _triangular_exponential,
+    flow_action,
+    held_flow,
 )
 from solprop.translate.coupled import schur_blocks, schur_eigenbasis
 
 native = pytest.importorskip("solprop_native")
 backend_module = pytest.importorskip("solprop_native.backend")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 pytestmark = [
     pytest.mark.filterwarnings(f"ignore::{category.__module__}.{category.__name__}")
@@ -70,46 +64,6 @@ def cases():
     return get
 
 
-def on_march(run_request, march):
-    """Return the request on the default integrator or on the Runge-Kutta march."""
-    if march == "default":
-        return run_request
-    return run_request.with_stepper(replace(run_request.stepper, integrator=None))
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("march", ["default", "runge_kutta"])
-@pytest.mark.parametrize("name", CASES)
-def test_ten_steps_are_the_reference_within_the_bound(
-    cases, name, march, record_property
-):
-    """Ten fixed steps on native against ``numpy_ref``, within ``B_10``.
-
-    The bound (``tests/flow_parity.py``), stated before the measurement:
-    ``C^S exp(Phi) (||a_0||/||a_L||) S eps_step`` with ``C`` the declared
-    conditioning, ``Phi`` the launch's nonlinear scale and ``eps_step`` the diagonal
-    half's 32 u, the source's share and the flow's own products. The run is also
-    checked to exercise the flow at all: without the leaf it departs by more than a
-    thousand bounds.
-    """
-    simulation, problem = cases(name)
-    run_request = on_march(simulation._run_request(), march)
-    grid = simulation.grid
-    reference = run(NumpyRefBackend, problem, run_request, grid)
-    actual = run(native.NativeBackend, problem, run_request, grid)
-    bound = ten_step_bound(flow_scales(problem, run_request, grid, reference))
-    measured = departure(actual, reference)
-    record_property("bound", bound)
-    record_property("measured", measured)
-    assert bound > 0.0
-    assert measured <= bound
-    bare = replace(problem, linear=replace(problem.linear, coupled_flow=None))
-    assert (
-        departure(run(native.NativeBackend, bare, run_request, grid), reference)
-        > 1e3 * bound
-    )
-
-
 def _spectral(stack):
     return np.linalg.norm(stack, ord=2, axis=(-2, -1))
 
@@ -130,7 +84,7 @@ def test_the_flow_s_actions_are_the_reference_s_within_the_formation_bound(
     eigenbasis limit to zero, so every bin is formed by native's scaling and squaring.
     """
     simulation, problem = cases(name)
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     if route == "scaling_and_squaring":
         monkeypatch.setattr(
             "solprop.translate.coupled.eigenbasis_limit", lambda n_modes: 0.0
@@ -143,7 +97,7 @@ def test_the_flow_s_actions_are_the_reference_s_within_the_formation_bound(
     held = backend_module._host_flow(problem)
     assert held is not None
     assert np.all(held.route) if route == "eigenbasis" else not np.any(held.route)
-    reference = _coupled_flow_maps(problem)
+    reference = held_flow(problem)
     assert reference is not None
     nodes = run_request.stepper.tableau.nodes
     fractions = np.array([*(float(node) for node in nodes), 1.0])
@@ -153,20 +107,20 @@ def test_the_flow_s_actions_are_the_reference_s_within_the_formation_bound(
     backend = native.NativeBackend(problem, run_request, grid=simulation.grid)
     worst = 0.0
     try:
-        state = backend._native_state
+        state = backend._workspace
         shape = (fractions.size, -1, reference.n_modes, reference.n_modes)
         for section in range(reference.frozen.shape[0]):
-            measured = state.form_flow_actions(section, dz, fractions)[0]
-            forward = state.flow_actions_to_host(inverse=False).reshape(shape)
-            inverse = state.flow_actions_to_host(inverse=True).reshape(shape)
+            measured = _testing.form_flow_actions(state, section, dz, fractions)[0]
+            forward = _testing.flow_actions_to_host(state, inverse=False).reshape(shape)
+            inverse = _testing.flow_actions_to_host(state, inverse=True).reshape(shape)
             for slot, fraction in enumerate(fractions):
                 if fraction == 0.0:
                     continue
-                pair = _flow_action(reference, section, float(fraction) * dz)
+                pair = flow_action(reference, section, float(fraction) * dz)
                 for got, want in zip((forward[slot], inverse[slot]), pair, strict=True):
                     error = _spectral(got - want) / _spectral(want)
                     worst = max(worst, float(np.max(error)))
-            pair = _flow_action(reference, section, dz)
+            pair = flow_action(reference, section, dz)
             whole = _spectral(pair[0]) * _spectral(pair[1])
             assert np.max(abs(measured / whole - 1.0)) <= 32 * reference.n_modes * UNIT
     finally:
@@ -221,7 +175,7 @@ def test_the_formed_actions_are_the_reference_s_on_either_route(
     is the production one with the original's operands.
     """
     simulation, problem = cases("scalar")
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     rng = np.random.default_rng(6)
     n_active = 5
     n_modes = problem.shape[0]
@@ -248,12 +202,12 @@ def test_the_formed_actions_are_the_reference_s_on_either_route(
         monkeypatch.setattr(backend_module, "_host_flow", partial(_held, flow))
         backend = native.NativeBackend(problem, run_request, grid=simulation.grid)
         try:
-            state = backend._native_state
-            state.form_flow_actions(0, length, fractions)
-            forward = state.flow_actions_to_host(inverse=False).reshape(
+            state = backend._workspace
+            _testing.form_flow_actions(state, 0, length, fractions)
+            forward = _testing.flow_actions_to_host(state, inverse=False).reshape(
                 count, n_active, n_modes, n_modes
             )
-            inverse = state.flow_actions_to_host(inverse=True).reshape(
+            inverse = _testing.flow_actions_to_host(state, inverse=True).reshape(
                 count, n_active, n_modes, n_modes
             )
         finally:

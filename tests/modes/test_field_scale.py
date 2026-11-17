@@ -25,6 +25,7 @@ from scipy.integrate import quad
 from scipy.special import j0, j1, jn_zeros
 
 from rate_oracles import adk_oracle
+from sessions.runs import bare, final_field
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import MaterialRangeWarning, ModeError
 from solprop.grid import FieldGrid
@@ -40,8 +41,8 @@ from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.physdata import Gas
 from solprop.pulses import GaussianPulse
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
-from solprop.translate.problem import assemble
 
 U01 = float(jn_zeros(0, 1)[0])
 GAUSS_ORDERS = (2, 3, 5, 8, 16, 32)
@@ -302,9 +303,7 @@ def run(grid, modes, responses, energy, **options):
             **options,
         )
     with closing(NumpyRefBackend(problem, run_request, grid=grid)) as backend:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(LENGTH)
-        return backend.observe().require_field(), problem
+        return final_field(backend, problem, bare(run_request), z=LENGTH), problem
 
 
 def peak_gap(got, want):
@@ -313,7 +312,7 @@ def peak_gap(got, want):
 
 @pytest.fixture(scope="module")
 def argon():
-    return MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45, loss=False)
+    return MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45, loss_scale=0.0)
 
 
 @pytest.mark.parametrize(
@@ -388,7 +387,7 @@ def capillary_simulation(radial_rule, n_r):
 
 
 def test_the_run_records_its_rule_and_a_changed_rule_changes_the_resume_key():
-    from solprop.output.schema import RunMetadata  # noqa: PLC0415 - the output layer
+    from solprop.output.metadata import RunMetadata  # noqa: PLC0415 - the output layer
 
     field_scale = capillary_simulation("field_scale_radau", 5).metadata()
     default = capillary_simulation("gauss_kronrod", 32).metadata()

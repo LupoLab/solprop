@@ -29,6 +29,7 @@ from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse
 from solprop.stepper import PIController
 from solprop.translate import problem as problem_module
+from solprop.translate.assembly import assemble
 from solprop.translate.coupled import (
     CoupledFlowTables,
     ModalMetricTables,
@@ -37,7 +38,7 @@ from solprop.translate.coupled import (
     metric_at,
 )
 from solprop.translate.modal_tables import ModalTransformTables
-from solprop.translate.problem import _RunPolicy, _walk_arrays, assemble, validate_run
+from solprop.translate.problem import _RunPolicy, _walk_arrays, validate_run
 from solprop.translate.responses import RegionalResponseTables
 from solprop.translate.routes import GeneralRoute
 

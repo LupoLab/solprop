@@ -22,7 +22,7 @@ from march_bounds import (
 )
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver._scan_model import name_seed
-from solprop.driver.executors import Batch, Local, Pool, pool
+from solprop.driver.executors import Local, Pool, pool
 from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import OutputError
 from solprop.grid import EnvelopeGrid, RadialGrid
@@ -99,7 +99,7 @@ def fresh(point):
 
 
 def fibre(**overrides):
-    """Return a fibre whose batch members and solo runs are one discrete march."""
+    """Return a fibre on a fixed schedule at a fixed order: one discrete march."""
     # The former grid without a collar, which a short fixed schedule is refused beside.
     grid = EnvelopeGrid.from_limits(FIBRE, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID)
     return Simulation.from_gnlse(
@@ -135,7 +135,7 @@ def shared(point):
 def radial(medium=None, **overrides):
     """Return a small radial run in helium, by default at one bar."""
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(6e-4, 8),
         SpatialMedium(Mixture.fill({"He": 1.0}, 1.0)) if medium is None else medium,
@@ -196,6 +196,7 @@ def test_the_recipe_records_a_seed_per_point_and_a_rerun_skips_them(tmp_path):
     assert again.status.tolist() == ["done", "done"]
 
 
+@pytest.mark.medium
 def test_the_recipe_seeds_do_not_depend_on_the_execution(tmp_path):
     scan = Scan("order", pressure=FOUR)
     local = tmp_path / "local.h5"
@@ -225,6 +226,7 @@ def test_the_recipe_takes_the_base_seed(tmp_path):
     assert recorded_seeds(path) == [point.seed for point in scan.points()]
 
 
+@pytest.mark.medium
 def test_the_recipe_matches_points_built_from_nothing(tmp_path):
     scan = Scan("pressure_energy", pressure=TWO, energy=[200e-6, 275e-6])
     base.cache_clear()
@@ -279,38 +281,6 @@ def test_the_recipe_matches_points_built_from_nothing(tmp_path):
             exact=PRESCRIBED,
             what=f"derived point {point.index}",
         )
-
-
-def test_one_object_under_batch_matches_local_member_for_member(tmp_path):
-    scan = Scan("trials", trial=[0, 1, 2])
-    one_object.cache_clear()
-    reference = run_scan(
-        scan,
-        shared,
-        executor=Local(),
-        output=tmp_path / "local.h5",
-        fields="all",
-        progress="none",
-    )
-    one_object.cache_clear()
-    result = run_scan(
-        scan,
-        shared,
-        executor=Batch(3),
-        output=tmp_path / "batch.h5",
-        fields="all",
-        progress="none",
-    )
-    assert result.status.tolist() == ["done"] * 3
-    launches = [
-        cast("np.ndarray", result.point(index)["fields/values"])[0]
-        for index in range(3)
-    ]
-    assert not np.array_equal(launches[0], launches[1])
-    assert_points_matched(result, reference, scan, shared, what="batch member")
-    assert recorded_seeds(tmp_path / "batch.h5") == recorded_seeds(
-        tmp_path / "local.h5"
-    )
 
 
 def test_a_scan_leaves_the_builders_object_as_it_is(tmp_path):

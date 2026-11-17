@@ -12,22 +12,12 @@ import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 import numpy as np
-import numpy.typing as npt
 import pytest
 from legacy_geometry import LEGACY_GRID
-from session_runs import (
-    alone,
-    assert_same,
-    drain,
-    grouped,
-    load_native,
-    native_trial,
-    one_thread,
-    run,
-)
+from session_runs import drain, load_native, native_trial, run
 from solprop.backends.events import Outcome
 from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -42,14 +32,17 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 from solprop.translate.stage import terms
 from thread_sizing import Sizing, assert_threaded
 
 from solprop_native import NativeBackend, _core, build_info
-from solprop_native.backend import (
-    _native_problem,  # pyright: ignore[reportPrivateUsage] - validate the native boundary
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
+from solprop_native._lowering import (
+    _lower,  # pyright: ignore[reportPrivateUsage] - validate the native boundary
+    _LowerPlan,  # pyright: ignore[reportPrivateUsage] - validate the native boundary
 )
 
 # The FFT collar extends beyond the neutral-gas index fit. These are current
@@ -186,15 +179,20 @@ def test_envelope_current_streams_use_large_radial_projection() -> None:
         NativeBackend(problem, run_request, grid=grid),
     )
     try:
-        reference.set_initial(problem.initial.field0, None)
-        expected = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
-            problem.initial.field0[None],
-            reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-            np.ones((1, *problem.shape), complex),
-        )[0]
-        state = load_native(actual, problem.initial.field0, clear_fsal=False)
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
+        expected = reference.workspace.nonlinear(  # pyright: ignore[reportPrivateUsage]
+            problem.initial.field0,
+            reference.workspace.stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
+            np.ones(problem.shape, complex),
+        )
+        state = load_native(actual, problem.initial.field0)
         native_trial(actual, 0.0, 0.0)
-        observed = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
+        observed = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
         info = build_info()
         if info.device_backend == "none":
             assert str(actual.metadata()["projection_provider"]).endswith(
@@ -265,7 +263,7 @@ def envelope_case(
             ionisation_field_range=(1e7, 1e11),
         )
     else:
-        mode = MarcatiliMode(30e-6, mixture=fill, cladding=1.45, loss=False)
+        mode = MarcatiliMode(30e-6, mixture=fill, cladding=1.45, loss_scale=0.0)
         initial = pulse.build(grid) * np.asarray(jones)[None, :, None]
         modes = (
             ModeCollection.with_polarisations([mode])
@@ -371,41 +369,54 @@ def test_envelope_currents_steps_statistics_and_repeatability(
 
 @pytest.mark.parametrize(
     "corruption",
-    ["field", "shape", "nan", "weight", "inactive", "sign", "thg", "stash"],
+    ["field", "shape", "layout", "nan", "weight", "inactive", "sign", "thg", "stash"],
 )
 def test_envelope_native_payload_rejects_inconsistent_inputs(corruption: str) -> None:
     problem, run_request, _ = envelope_case("modal", 1, mixture=False)
-    payload = _native_problem(
+    payload = _lower(
         problem,
         run_request,
-        terms(problem),
-        node_chunk=envelope_options("modal").chunk,
+        _LowerPlan(terms=terms(problem), node_chunk=envelope_options("modal").chunk),
     )
-    if corruption in ("field", "thg", "stash"):
-        key, value = {
-            "field": ("family", "field_real"),
-            "thg": ("harmonic_factor", 1.0),
-            "stash": ("stash_plasma", True),
-        }[corruption]
-        payload[key] = value
-    elif corruption in ("shape", "nan", "weight"):
-        key = (
-            "envelope_rule_nodes" if corruption != "weight" else "envelope_rule_weights"
-        )
-        array = cast(npt.NDArray[np.float64], payload[key]).copy()
-        if corruption == "shape":
-            payload[key] = array.ravel()
+    plasma = payload.plasma
+    shape = (plasma.n_channels, 4, 512)
+
+    def _spoil() -> None:
+        if corruption == "field":
+            payload.dims.family = _core.FieldFamily.field_real
+        elif corruption == "thg":
+            payload.kerr.harmonic_factor = 1.0
+        elif corruption == "stash":
+            plasma.stash = True
+        elif corruption in ("shape", "layout", "nan", "weight"):
+            weight = corruption == "weight"
+            rule = (
+                plasma.envelope_rule_weights if weight else plasma.envelope_rule_nodes
+            )
+            if corruption == "shape":
+                corrupted = rule
+            elif corruption == "layout":
+                # The rule's elements, its (n_channels, 4, 512) axes reversed.
+                corrupted = rule.reshape(shape[::-1])
+            else:
+                corrupted = rule.reshape(shape)
+                corrupted.flat[0] = np.nan if corruption == "nan" else 0.0
+            if weight:
+                plasma.envelope_rule_weights = corrupted
+            else:
+                plasma.envelope_rule_nodes = corrupted
         else:
-            array.flat[0] = np.nan if corruption == "nan" else 0.0
-            payload[key] = array
-    else:
-        array = cast(npt.NDArray[np.float64], payload["envelope_drude_factor"]).copy()
-        mask = problem.grids.active_mask & (problem.grids.omega > 0)
-        index = int(np.flatnonzero(mask if corruption == "sign" else ~mask)[0])
-        array[index] = 1.0
-        payload["envelope_drude_factor"] = array
-    with pytest.raises(ValueError, match="envelope"):
-        _core.State(payload)
+            array = plasma.envelope_drude_factor
+            mask = problem.grids.active_mask & (problem.grids.omega > 0)
+            index = int(np.flatnonzero(mask if corruption == "sign" else ~mask)[0])
+            array[index] = 1.0
+            plasma.envelope_drude_factor = array
+        _core.Workspace(payload)
+
+    # A reordered rule keeps its elements: only its layout can refuse it.
+    match = "envelope rules require" if corruption == "layout" else "envelope"
+    with pytest.raises(ValueError, match=match):
+        _spoil()
 
 
 @pytest.mark.parametrize(
@@ -424,24 +435,27 @@ def test_envelope_angular_failure_is_a_solprop_convergence_error(
     # No statistics: the failure is the first step's, inside the native march, as the
     # driver's was (the launch plane's populations would meet the bad rule first).
     run_request = run_request.for_run(stats=StatsSpec())
-    payload = _native_problem(
+    payload = _lower(
         problem,
         run_request,
-        terms(problem),
-        node_chunk=envelope_options(geometry).chunk,
+        _LowerPlan(terms=terms(problem), node_chunk=envelope_options(geometry).chunk),
     )
-    nodes = cast(npt.NDArray[np.float64], payload["envelope_rule_nodes"]).copy()
+    nodes = payload.plasma.envelope_rule_nodes.reshape(-1, 4, 512)
     # Sorted interior nodes and normalized positive weights still satisfy native
     # shape/domain checks. Alternating incompatible rules must fail refinement.
     for level in (1, 3):
         order = 64 << level
         nodes[:, level, :order] = 0.5 * (nodes[:, level, :order] + 1)
-    payload["envelope_rule_nodes"] = nodes
+    payload.plasma.envelope_rule_nodes = nodes
 
-    def corrupt_payload(*args: object, **keywords: object) -> dict[str, object]:
-        return payload
+    def corrupt_payload(*args: object, **keywords: object) -> _core.Problem:
+        # The backend's own lowering, its set-once data included, with the bad rule.
+        built = _lower(*args, **keywords)  # pyright: ignore[reportArgumentType]
+        built.plasma.envelope_rule_nodes = nodes
+        return built
 
-    monkeypatch.setattr(adapter, "_native_problem", corrupt_payload)
+    # Patched where the backend looks it up: backend.py imports it from _lowering.
+    monkeypatch.setattr(adapter, "_lower", corrupt_payload)
     owner = NativeBackend(
         problem, run_request, grid=grid, options=envelope_options(geometry)
     )
@@ -467,72 +481,3 @@ def test_envelope_angular_failure_is_a_solprop_convergence_error(
         assert result.all_planes()[-1].z == grid.length
     finally:
         owner.close()
-
-
-def test_envelope_native_group_keeps_noisy_members_and_statistics_independent() -> None:
-    """Noisy members of a native group agree with the same members run alone.
-
-    Each member and its lone native session share a stored noise draw and replay
-    eight prescribed steps, each member in its own native session (solprop SEP 47
-    section 6.7): bit for bit at one thread, and otherwise held to
-    :func:`native_bound` (solprop SEP 25), with the schedule's row positions exact.
-    Every step's periodic row is compared, and the plane statistics at the end.
-    """
-    from solprop.noise import modified_noise
-
-    problem, run_request, grid = envelope_case("modal", 2)
-    bound = native_bound(problem, grid)
-    problems: list[PropagationProblem] = []
-    starts: list[Start] = []
-    singles: list[list[dict[str, Any]]] = []
-    for index in range(2):
-        draw = modified_noise(
-            grid, np.random.default_rng(390 + index), n_modes=1, n_pol=2
-        )
-        initial = replace(
-            problem.initial,
-            field0=problem.initial.field0 * (1 + 0.125 * index),
-            noise0=draw.spectrum,
-            noise_model=draw.model,
-        )
-        one = replace(
-            problem, initial=initial, flags=replace(problem.flags, has_noise=True)
-        )
-        problems.append(one)
-        starts.append(Start.entrance(one, noise=draw))
-        owner = NativeBackend(
-            one, run_request, grid=grid, options=envelope_options("modal")
-        )
-        singles.append(alone(owner, one, run_request, Start.entrance(one, noise=draw)))
-    owners = [
-        NativeBackend(one, run_request, grid=grid, options=envelope_options("modal"))
-        for one in problems
-    ]
-    group = grouped(owners, problems, [run_request] * 2, starts)
-    periodic = set(run_request.observation.stats.periodic)
-    for member, single in zip(group, singles, strict=True):
-        # Every step's row reached the end plane.
-        assert set(single[-1]["rows"]) == periodic
-        assert len(single[-1]["row_z"]) == 8
-        if one_thread():
-            assert_same(member, single)
-        assert [plane["z"] for plane in member] == [plane["z"] for plane in single]
-        for got, expected in zip(member, single, strict=True):
-            field = expected["field"]
-            np.testing.assert_allclose(
-                got["field"], field, rtol=bound, atol=bound * np.max(np.abs(field))
-            )
-            for name in NAMES:
-                np.testing.assert_allclose(
-                    got["stats"][name], expected["stats"][name], rtol=bound, atol=1e-30
-                )
-            # Exact: the prescribed schedule's positions.
-            np.testing.assert_array_equal(got["row_z"], expected["row_z"])
-            assert got["rows"].keys() == expected["rows"].keys()
-            for name in expected["rows"]:
-                np.testing.assert_allclose(
-                    got["rows"][name],
-                    expected["rows"][name],
-                    rtol=bound,
-                    atol=1e-30,
-                )

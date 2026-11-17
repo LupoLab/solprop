@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 
 from legacy_geometry import LEGACY_GRID
+from sessions.runs import bare, final_field
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.constants import C
@@ -84,7 +85,7 @@ def pinned_final():
         noise=None,
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     launch = np.array(REFERENCE["launch"])
     state = np.zeros_like(problem.initial.field0)
     state[:, 0, index] = AMPLITUDE * launch
@@ -92,15 +93,17 @@ def pinned_final():
         problem, initial=replace(problem.initial, field0=state, noise0=None)
     )
     driver = NumpyRefBackend(problem, run_request, grid=grid)
-    driver.set_initial(problem.initial.field0, None)
-    driver.propagate_to(length)
-    final = np.conj(driver.observe().require_field()[:, 0, index]) / AMPLITUDE
-    driver.close()
+    try:
+        reached = final_field(driver, problem, bare(run_request), ended=True)
+    finally:
+        driver.close()
+    assert float(run_request.stepper.save_planes[-1]) == length
+    final = np.conj(reached[:, 0, index]) / AMPLITUDE
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert flow.generator is not None
     span = float(problem.linear.phi_breakpoints[-1])
-    rate = complex(delta_phi(problem.linear, 0.0, span)[0, 0, 0, index]) / span
+    rate = complex(delta_phi(problem.linear, 0.0, span)[0, 0, index]) / span
     single = np.zeros_like(grid.active_mask)
     single[index] = True
     block = wall_operator(

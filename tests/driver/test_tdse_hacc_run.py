@@ -40,7 +40,7 @@ from solprop.exceptions import (
 )
 from solprop.nonlinear.tdse import TDSEConsistency, TDSEExecution
 from solprop.output import MemoryOutput, open_file, resume
-from solprop.output.schema import SCHEMA_VERSION
+from solprop.output.metadata import SCHEMA_VERSION
 from solprop.stats import StatsSpec
 
 pytestmark = pytest.mark.medium
@@ -112,7 +112,7 @@ def test_hacc_run_records_model_window_consistency_and_ledger(fake, cache, windo
     simulation = _simulation(atomic_window=window)
     output = _run(simulation)
     assert output.metadata is not None
-    assert output.metadata.schema_version == SCHEMA_VERSION == 2
+    assert output.metadata.schema_version == SCHEMA_VERSION == 4
     descriptor = json.loads(plain(output.metadata.tdse)["configuration_json"])
     assert descriptor["schema"] == "solprop.tdse-descriptor.v5"
     assert descriptor["response"]["model"] == "hacc"
@@ -269,12 +269,12 @@ def test_a_hacc_run_needs_a_binding_with_a_diagnostic_row(fake, monkeypatch):
 def test_a_failed_refusal_record_keeps_the_consistency_error_primary(
     fake, monkeypatch, caplog
 ):
-    import solprop.driver.simulation as simulation_module  # noqa: PLC0415
+    import solprop.driver.tdse_run as tdse_run_module  # noqa: PLC0415
 
     def broken(*args, **kwargs):
         raise OutputError("disk full")
 
-    monkeypatch.setattr(simulation_module, "open_run_record", broken)
+    monkeypatch.setattr(tdse_run_module, "open_run", broken)
     fake.response = alpha_law(0.5)
     with pytest.raises(TDSEConsistencyError, match="refused"):
         _run(_simulation())

@@ -2,7 +2,28 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Compose ordered gas populations with their own number-density paths."""
+"""Compose ordered gas populations with their own number-density paths.
+
+The mixture *type* of the physics layer. Each of the four ``mixtures`` modules plays one
+per-layer role: this one is the type, :mod:`solprop.nonlinear.mixtures` selects its
+responses, :mod:`solprop.driver.mixtures` resolves a run's declarations into it, and
+:mod:`solprop.processing.mixtures` analyses a saved run's populations.
+
+- :class:`Mixture` keeps ordered, labelled :class:`Component` populations, each a
+  species with its density path. :meth:`Mixture.fill`, :meth:`Mixture.air`,
+  :meth:`Mixture.partial_pressures` and :meth:`Mixture.of` build one, and
+  :meth:`Mixture.with_fill` replaces its shared fill; it supplies densities,
+  susceptibilities and Kerr paths, and measures its linear density scaling against
+  :data:`DILUTE_SCALING_THRESHOLD`.
+- The pressure vocabulary (``Pressure``: a number, an endpoint pair, a ``(z, p)`` table
+  or a profile, in bar) resolves through :mod:`solprop.profiles`, and, given the guide's
+  radius or a temperature path, through :func:`solprop.gasflow.steady_fill` and
+  :func:`solprop.gasflow.temperature_weight`, imported lazily because
+  :mod:`solprop.gasflow` imports this module.
+- :func:`check_preionisation` validates an initial ionised fraction.
+
+The manual page is ``docs/guide/media/mixtures.md``.
+"""
 
 import math
 import numbers

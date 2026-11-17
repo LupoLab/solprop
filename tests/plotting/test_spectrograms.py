@@ -8,7 +8,9 @@ import pytest
 from matplotlib.collections import QuadMesh
 
 from solprop.exceptions import ModeError, ProcessingError
+from solprop.plotting.propagation import default_spec_range, default_time_range
 from solprop.plotting.spectrograms import spectrogram
+from solprop.processing import get_power
 
 
 def test_a_spectrogram_has_a_time_axis_and_a_spectral_axis(single):
@@ -18,6 +20,16 @@ def test_a_spectrogram_has_a_time_axis_and_a_spectral_axis(single):
     assert ax.get_ylabel() == "Wavelength (nm)"
     # The map and its colour bar.
     assert len(figure.axes) == 2
+
+
+def test_a_spectrogram_shows_the_plane_and_band_of_its_run_by_default(single):
+    t, power = get_power(single, plane=0)
+    low, high = default_time_range(t, power)
+    ax = spectrogram(single, 0.0).axes[0]
+    assert ax.get_xlim() == pytest.approx((low * 1e15, high * 1e15), rel=1e-12)
+    band = default_spec_range(single, "wavelength")
+    assert ax.get_ylim() == pytest.approx((band[0] * 1e9, band[1] * 1e9), rel=1e-12)
+    plt.close("all")
 
 
 @pytest.mark.parametrize(

@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from bounds import gamma, ladder_bound, record_backend
+from builders import load_reference
 from convergence_records import record
 from convergence_studies import BACKEND_EQUIVALENCE
 from legacy_geometry import LEGACY_GRID
@@ -25,9 +26,9 @@ from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import assemble
 
 EPS = np.finfo(float).eps
 LENGTH = 0.002
@@ -43,7 +44,7 @@ def polarised_case(request):
     )
     # Vacuum index and fixed cladding make this an analytic propagation test without
     # extrapolating any gas's index fit. The specified chi3 is absolute (density=1).
-    mode = MarcatiliMode(125e-6, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, cladding=1.45, loss_scale=0.0)
     response = KerrResponse(chi3=1e-26, thg=family == "field_real")
     pulse = GaussianPulse(wavelength=800e-9, fwhm=15e-15, energy=2e-6).build(grid)
     return family, grid, mode, response, pulse
@@ -146,13 +147,13 @@ def problem_derivative(backend_class, problem, run_request, grid, modes):
     backend = backend_class(problem, run_request, grid=grid, modes=modes)
     try:
         if isinstance(backend, NumpyRefBackend):
-            backend.set_initial(problem.initial.field0, None)
-            backend._hoist(0.0)
-            bundle = backend._stage_scalars(0.0, 0.0)
-            derivative = backend._nonlinear(
-                problem.initial.field0[None],
+            load_reference(backend)
+            backend.workspace.hoist(0.0)
+            bundle = backend.workspace.stage_scalars(0.0, 0.0)
+            derivative = backend.workspace.nonlinear(
+                problem.initial.field0,
                 bundle,
-                np.ones((1, *problem.shape), complex),
+                np.ones(problem.shape, complex),
             )
         else:
             # The first stage of a trial is exactly N(initial, 0). Observation reads
@@ -160,7 +161,11 @@ def problem_derivative(backend_class, problem, run_request, grid, modes):
             # the native state's own trial (``rk_trial`` on the uploaded stage tables),
             # loaded with the launch.
             native_trial(backend, 0.0, LENGTH / 8, field=problem.initial.field0)
-            derivative = np.asarray(backend._native_state.stage_to_host(0))
+            from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+                _testing,
+            )
+
+            derivative = np.asarray(_testing.stage_to_host(backend._workspace, 0))
         return derivative.reshape(2, -1)
     finally:
         backend.close()
@@ -217,7 +222,7 @@ def plasma_energy_at(backend_class, backend_name, requested_dt):
     bound = plasma_work_bound(grid, tau, amplitude, potential)
     bound = ladder_bound(backend_name, bound, grid.n_to, 1)
     assert 0 < bound < 0.1
-    mode = MarcatiliMode(125e-6, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, cladding=1.45, loss_scale=0.0)
     rule = transverse_quadrature([mode], n_r=N_RADIAL)
     profile = mode.field(rule.nodes(mode.dimlimits()))[:, 0]
     fractions = -np.expm1(-3e12 * tau * math.sqrt(math.pi / 2) * profile**2)
@@ -344,7 +349,7 @@ class QuadraticRate:
 @pytest.fixture(scope="module")
 def circular_plasma_case():
     grid = FieldGrid.from_limits(LENGTH, 800e-9, (300e-9, 2e-6), 100e-15, **LEGACY_GRID)
-    mode = MarcatiliMode(125e-6, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, cladding=1.45, loss_scale=0.0)
     rate = build_rate_table(QuadraticRate(), (1e7, 1e11))
     template = np.zeros((1, 1, grid.n_omega), dtype=complex)
     carrier = int(np.argmin(np.abs(grid.omega - grid.omega0)))
@@ -494,7 +499,7 @@ def test_full_azimuthal_propagation_obeys_selection_rules(
     grid = FieldGrid.from_limits(LENGTH, 800e-9, (300e-9, 2e-6), 100e-15)
     indices = [1, 2, 1] if len(kinds) == 3 else [1, 1]
     modes = [
-        MarcatiliMode(125e-6, kind=kind, n=n, m=m, cladding=1.45, loss=False)
+        MarcatiliMode(125e-6, kind=kind, n=n, m=m, cladding=1.45, loss_scale=0.0)
         for kind, n, m in zip(kinds, orders, indices, strict=True)
     ]
     field = np.zeros((len(modes), 1, grid.n_omega), complex)
@@ -536,7 +541,7 @@ def test_transverse_family_linear_flow_matches_its_neff(
     backend_class, backend_name, kind, request
 ):
     grid = EnvelopeGrid.from_limits(LENGTH, 800e-9, (400e-9, 2e-6), 100e-15)
-    mode = MarcatiliMode(125e-6, kind=kind, n=0, cladding=1.45, loss=True)
+    mode = MarcatiliMode(125e-6, kind=kind, n=0, cladding=1.45, loss_scale=1.0)
     field = GaussianPulse(wavelength=800e-9, fwhm=15e-15, energy=2e-6).build(grid)
     rule = transverse_quadrature([mode], n_r=24, n_theta=5)
     problem, run_request = assemble(
@@ -566,7 +571,7 @@ def test_an_underresolved_angular_rule_creates_a_forbidden_harmonic(
     # HE_11 cannot drive HE_31: its Cartesian field is angle-independent, while
     # HE_31 carries harmonic 2. Two midpoint samples alias cos(2 theta) to -1.
     grid = FieldGrid.from_limits(LENGTH, 800e-9, (300e-9, 2e-6), 100e-15)
-    modes = [MarcatiliMode(125e-6, n=n, cladding=1.45, loss=False) for n in (1, 3)]
+    modes = [MarcatiliMode(125e-6, n=n, cladding=1.45, loss_scale=0.0) for n in (1, 3)]
     field = np.zeros((2, 1, grid.n_omega), complex)
     field[0] = GaussianPulse(wavelength=800e-9, fwhm=15e-15, energy=2e-6).build(grid)[0]
     bound = 7 * (2 * gamma(24 * 9) + 16 * EPS * math.ceil(math.log2(grid.n_to)))

@@ -19,10 +19,11 @@ from dataclasses import dataclass
 import numpy as np
 from jaxtyping import Float
 
+from solprop._validation import choice
 from solprop.constants import C
 from solprop.exceptions import ProcessingError
 from solprop.grid import TimeGrid, planck_taper
-from solprop.processing.axes import SPECTRAL_AXES, SpectralAxis, _check_choice
+from solprop.processing.axes import SPECTRAL_AXES, SpectralAxis
 
 __all__ = [
     "DEFAULT_BANDPASS_BINS",
@@ -75,7 +76,7 @@ class Passband:
 
     def __post_init__(self) -> None:
         """Refuse an unknown axis, and limits that name no light on it."""
-        _check_choice(self.axis, SPECTRAL_AXES, "axis")
+        choice(self.axis, "axis", SPECTRAL_AXES, ProcessingError)
         _check_limits(self.spec_range, self.axis)
         if self.width is not None:
             _check_width(self.width)
@@ -161,7 +162,7 @@ def bandpass(
     >>> bool(np.allclose(window, same))
     True
     """
-    _check_choice(axis, SPECTRAL_AXES, "axis")
+    choice(axis, "axis", SPECTRAL_AXES, ProcessingError)
     _check_limits(spec_range, axis)
     if axis == "wavelength":
         edges = sorted(2.0 * np.pi * C / limit for limit in spec_range)

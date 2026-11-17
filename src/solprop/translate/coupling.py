@@ -4,17 +4,19 @@
 
 """Sample a translated problem's entrance into a coupling port (SEP 31).
 
-Two products of the translation layer feed plane exchange. :func:`frame_record` is
-the persisted frame integral of a run: the antiderivatives of the frame quantities
-its linear operator removed, so that any saved plane's reference can be rebuilt
-without the run (SEP 31). :func:`input_port` fills the
-:class:`solprop.coupling.port.InputPort` of a translated problem's entrance: its native
-metric at that plane, the frame it has accumulated there, the entrance medium's
-index, the coupling models it admits and what they need: an ordinary mode set's
-scalar profiles, and for a general guide that does not move its E/H reference at the
-nodes and the weak-guidance contrast of its regions (SEP 31, section 4.3). Both read
-the contract's own leaves, so a port and a saved plane of the same run see the same
-numbers.
+Two products of the translation layer feed plane exchange, both read from the
+contract's own leaves, so a port and a saved plane of the same run see the same
+numbers:
+
+- :func:`frame_record`, the persisted frame integral of a run: the antiderivatives of
+  the frame quantities its linear operator removed, so any saved plane's reference can
+  be rebuilt without the run.
+- :func:`input_port`, the :class:`solprop.coupling.port.InputPort` of the entrance: its
+  native metric there (:func:`port_metric`), the frame accumulated, the entrance
+  medium's index, the coupling models it admits and what they need -- an ordinary mode
+  set's scalar profiles, or, for a general guide whose reference does not move, its
+  E/H reference at the nodes and its regions' weak-guidance contrast
+  (:func:`guide_contrast`, :func:`step_index_frequency`; SEP 31 section 4.3).
 """
 
 from collections.abc import Sequence
@@ -36,8 +38,9 @@ from solprop.coupling import (
 )
 from solprop.exceptions import CouplingError, TranslationError
 from solprop.grid import TimeGrid
-from solprop.modes.guide import ModalGuide, StepIndexProvider
+from solprop.modes.guide import ModalGuide
 from solprop.modes.protocol import Mode
+from solprop.modes.stepindex_vector import StepIndexProvider
 from solprop.spatial import FluxSide, SpatialMedium
 from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.coupled import metric_at
@@ -308,7 +311,7 @@ def step_index_frequency(
     numpy.ndarray or None
         V at each bin, shape ``(n_omega,)``, zero off the active positive band;
         None for a guide whose provider is not a
-        :class:`~solprop.modes.guide.StepIndexProvider`.
+        :class:`~solprop.modes.stepindex_vector.StepIndexProvider`.
     """
     provider = guide.field_provider
     if not isinstance(provider, StepIndexProvider):

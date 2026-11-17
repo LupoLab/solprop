@@ -12,7 +12,7 @@ import warnings
 import numpy as np
 import pytest
 
-from solprop.driver.simulation import SimulationSettings
+from solprop.driver.settings import SimulationSettings
 from solprop.exceptions import MaterialRangeWarning, SolpropWarning
 from solprop.log import NullReporter
 from solprop.output import MemoryOutput
@@ -49,7 +49,13 @@ def test_the_resolved_recipe_rebuilds_the_run(name):
     assert _hash(Recipe.from_dict(document).build()) == _hash(simulation)
 
 
-@pytest.mark.parametrize("name", EXAMPLES)
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param(name, marks=pytest.mark.medium) if name == "rdw" else name
+        for name in EXAMPLES
+    ],
+)
 def test_each_resolvable_keyword_written_back_keeps_the_hash(name):
     recipe = Recipe.example(name)
     simulation, document = _resolved(recipe)
@@ -158,7 +164,7 @@ def test_the_keywords_left_to_the_build_would_move_the_record():
     # An explicit first step turns the start-up rule off (SEP 41 section 5.2).
     recipe = Recipe.example("soliton")
     simulation = recipe.build()
-    length = simulation.settings.save_planes[-1]
+    length = np.asarray(simulation.settings.save_planes)[-1]
     with_step = recipe.to_dict()
     with_step["build"]["dz_init"] = float(length * 1e-4)
     assert _hash(Recipe.from_dict(with_step).build()) != _hash(simulation)

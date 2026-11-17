@@ -58,6 +58,37 @@ install does not rebuild itself: after changing C++ sources or CMake options, ru
 contributor rules for this directory are in [`AGENTS.md`](https://github.com/LupoLab/solprop/blob/main/native/AGENTS.md), beside the
 repository's [`AGENTS.md`](https://github.com/LupoLab/solprop/blob/main/AGENTS.md).
 
+### Source layout
+
+| Directory | What lives there |
+|---|---|
+| `include/solprop_native/runtime/` | Execution spaces and launches, the floating-point policy (`fp.hpp`), vector maths, the CPU thread policy, crossings, field tables, refusals, the host source hook |
+| `include/solprop_native/transforms/` | FFT plans and FFTW wisdom, the Raman FFT, the GEMM kernels, the slab transform (header-only) |
+| `include/solprop_native/problem/` | `Problem`, the tables fixed for a workspace |
+| `include/solprop_native/response/` | The material responses: the plasma band scans, envelope plasma, dispersive Kerr, the general modal source, the far field, the coupled flow |
+| `include/solprop_native/march/` | The steppers: the Adams and Runge-Kutta marches, low-storage RK4IP, dense output, the engines, stage and z tables |
+| `include/solprop_native/session/` | The native execution session (solprop SEP 47) and what it consults: the boundary watch, the transverse edge, the statistics plan |
+| `include/solprop_native/general/` | `GeneralState`, the general route's state; its implementation is private to `src/general/` |
+| `include/solprop_native/workspace/` | `Workspace`, with its lease, marches, session and probe; the run records (the set-once `Setup` and what a run starts from) |
+| `src/{runtime,problem,response,march,session,workspace}/` | The definitions behind the headers of the same name |
+| `src/general/` | The general workspace: refusals, setup, statistics, its kernel helpers (`kernels.hpp`, an umbrella over topic headers such as `views.hpp`, `traversal.hpp` and `stage_terms.hpp`), and the hot set, one translation unit (`trial.cpp`) in topic fragments (`trial_*.inc`) |
+| `src/bindings/` | The nanobind seam: the `_core` module and its `_testing` submodule, one file a bound concept |
+| `src/solprop_native/` | The Python adapter: `backend.py`, `_lowering.py`, `_load.py`, `_march.py`, `_probe.py`, `_device.py`, `_build.py`, `session.py`, … |
+| `tests/native/` | The GoogleTest unit tests of the C++ library (`ctest`) |
+| `tests/` | The Python tests, through the built extension |
+
+Each layer of `runtime` ← `transforms`, `problem` ← `response`, `march` ← `session`,
+`general` ← `workspace` ← `bindings` ← the Python adapter includes only those to its
+left, with two exceptions among the headers. `general/general_state.hpp` sits low,
+beside `problem.hpp`: the marches, the flow functions and the session's statistics
+include it, and only `src/general/` sits high. The session's helper headers
+(`watch.hpp`, `transverse.hpp`, `session_resident.hpp`, `session_dense.hpp`, …) sit
+among the marches, which include them, and `readings.hpp` lower still, under
+`general_state.hpp`; only `session.hpp` is above `march/`. `workspace/` sits above the
+marches, the session and the general workspace, since the workspace owns them. The
+strict floating-point files (`-ffp-contract=off`, see `AGENTS.md`) are those of
+`src/march/` but `engines.cpp`, and every file of `src/session/`.
+
 ### Tests
 
 From `native/`, in that environment:
@@ -120,8 +151,41 @@ extension was compiled from, with this directory's sources. Rebuild with
 `uv sync --reinstall-package solprop-native` when it refuses; a wheel carries no sources,
 and solprop's metadata pins it to solprop's own version. The version recorded at configure time
 (`solprop_version_built_against`: the repository's version, or `unknown` for a direct
-CMake configure) is provenance only. The TDSE electronic response is refused by name
-before anything is allocated; TDSE propagation uses `backend="numpy_ref"`.
+CMake configure) is provenance only. The TDSE electronic response runs on CPU builds
+only (solprop SEP 49); a device build refuses it by name before anything is allocated.
+
+### The binding
+
+The private extension `_core` is a thin seam (solprop SEP 52 section 5.3):
+
+- **One workspace, one run record.** A backend builds one `_core.Problem`, which
+  carries every table, guard and setting fixed for the workspace, and one
+  `_core.Workspace` from it for its life. Each run starts from one record
+  (`Workspace.start(run)`), and the timing probe from the run's start
+  (`Workspace.probe(start)`); `Workspace.diagnostics()` returns every fact the
+  metadata reads. A session or probe leases the workspace until it closes.
+- **Records by field table.** Each C++ record declares its fields once, beside its
+  definition (`include/solprop_native/runtime/fields.hpp`), and one converter
+  (`src/bindings/records.hpp`) reads a dataclass, mapping or tuple into it, refusing a missing
+  or unknown field, a wrong dtype, rank or extent relation, a strided array or an
+  enumeration given by anything but its name, by the field's path before copying
+  anything. `_core.schemas()` exports every table, and a test holds each Python record
+  to its table. Input arrays are copied in, except a run's initial field and noise,
+  which the start reads where they are, for its load only; returned arrays own their
+  storage.
+- **Bindings only marshal.** A binding converts, releases the interpreter lock and
+  forwards. The lease, the coupled flow's guard, the marches' construction and the
+  probe live in the C++ library (`native::Workspace`, `src/workspace/workspace.cpp`), where the
+  native tests reach them.
+- **`_testing` promises nothing.** The test-only entry points live in the submodule
+  `_core._testing`, shipped in the wheel for solprop's own tests; they take the
+  workspace first and may change with any commit. `_testing.engines(workspace)` leases
+  the workspace's Runge-Kutta (or low-storage) and Adams engines, which solprop's
+  tests run through the same engine protocols as the reference's.
+- **Generated stubs.** `_core.pyi` and `_core_testing.pyi` are generated whole by
+  nanobind's stubgen (`scripts/problem_stub.py`; `--check` in the lint stage). A binding
+  that takes or returns a record names its Python type with `nb::sig`, so the stubs
+  stay typed: edit the binding and regenerate, never the stub.
 
 ### Native source coverage
 

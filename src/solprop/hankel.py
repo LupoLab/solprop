@@ -4,6 +4,7 @@
 
 """Transform an axisymmetric field with the raw order-zero QDHT.
 
+:class:`QDHT` is the quasi-discrete Hankel transform the radial grid uses.
 The forward transform is ``H(k) = integral r*f(r)*J0(k*r) dr``; its inverse
 integrates ``k*H(k)*J0(k*r)``. Angular frequencies are in rad/m and no ``2*pi``
 is hidden in either transform. The integration weights include the azimuthal

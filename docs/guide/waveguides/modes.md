@@ -14,7 +14,7 @@ a transverse field profile. Every class in the table lives in {mod}`solprop.mode
 | model | class | use it for | run it with | section |
 |---|---|---|---|---|
 | Marcatili capillary | {class}`~solprop.modes.capillary.MarcatiliMode` | gas-filled hollow capillaries: HE, TE and TM modes, tapers, pressure gradients, mixtures | `prop_capillary` | [the Marcatili model](capillary-model.md#the-marcatili-model) |
-| coherent wall | {class}`~solprop.modes.capillary.CoherentWall` | a multimode capillary whose wall couples the modes, straight or tapered; separate TE and TM wall impedances | `prop_capillary(..., wall=...)` | [the coherent wall](coherent-wall.md#the-coherent-wall) |
+| coherent wall | {class}`~solprop.modes.wall.CoherentWall` | a multimode capillary whose wall couples the modes, straight or tapered; separate TE and TM wall impedances | `prop_capillary(..., wall=...)` | [the coherent wall](coherent-wall.md#the-coherent-wall) |
 | antiresonant tube lattice | {class}`~solprop.modes.antiresonant.VincettiMode` | single-ring antiresonant hollow-core fibres: loss and dispersion from published fits | `prop_capillary(..., lattice=...)` | [the Vincetti model](antiresonant.md#antiresonant-tube-lattice-fibres-the-vincetti-model) |
 | tabulated index | {class}`~solprop.modes.tabulated.IndexTable`, {class}`~solprop.modes.tabulated.TabulatedHollowMode`, {class}`~solprop.modes.tabulated.TabulatedMode` | measured or separately computed $n_{\rm eff}(\omega)$: an evacuated hollow guide filled with gas, a filled guide as a whole, or a solid-core fibre | `prop_capillary(modes=[...])`, `prop_gnlse(fibre=...)` | [tabulated data](tabulated-modes.md#modes-from-tabulated-data) |
 | step-index fibre | {class}`~solprop.modes.stepindex.StepIndexMode` | solid-core fibres and nanowires, exact vector modes | `prop_gnlse(fibre=...)`; several modes on the general modal route | [step-index fibres](step-index.md#step-index-fibres) |
@@ -25,7 +25,8 @@ a transverse field profile. Every class in the table lives in {mod}`solprop.mode
 
 The [capillary model](capillary-model.md) establishes conventions that the
 Vincetti, tabulated-hollow, rectangular and slab models share. These models
-share its gas fill, its loss policy (`loss=True`, `False`, a scale or a callable), its
+share its gas fill, its loss keywords (`loss_scale` on the model's own loss, or an
+absolute `alpha`, a number or a callable), its
 way of forming $n_{\rm eff}-1$ and its analytic derivatives. Each model chapter explains its additional assumptions and differences. Every way solprop represents the transverse field, these
 modes among them, is set side by side with its figure and its validity in
 [spatial decompositions](../setup/spatial-decompositions.md). Where solprop's choices for these

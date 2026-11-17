@@ -14,6 +14,7 @@ from conftest import PhaseACase
 
 import solprop_native as native
 from solprop_native import _core
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 from solprop_native.backend import NativeBackend
 
 if native.build_info().device_backend != "none":  # pragma: no cover - device builds
@@ -27,7 +28,7 @@ def _plan(case: PhaseACase, planning: dict[str, object] | None) -> dict[str, obj
     problem, run_request, grid = case
     backend = NativeBackend(problem, run_request, grid=grid, fft_planning=planning)
     try:
-        found = dict(backend._native_state.fft_planning)  # pyright: ignore[reportPrivateUsage]
+        found = dict(backend._diagnostics()["fft_planning"])  # pyright: ignore[reportPrivateUsage]
         found["metadata"] = cast(dict[str, object], backend.metadata()["calibration"])[
             "fft_planning"
         ]
@@ -94,7 +95,7 @@ def test_stale_wisdom_never_reaches_a_profiled_workspace(
     # a profile forgets it before planning, and its estimate plans are FFTW's own.
     wisdom = _capture(phase_a_case)
     for text in wisdom.values():
-        assert _core.import_fftw_wisdom(text)
+        assert _testing.import_fftw_wisdom(text)
     assert _entries(_core.export_fftw_wisdom()) > 0
     efforts = {"rows": "estimate", "threaded_rows": "estimate", "planes": "estimate"}
     found = _plan(phase_a_case, {"mode": "profile", "efforts": efforts, "wisdom": {}})
@@ -145,7 +146,7 @@ def test_wisdom_that_no_longer_builds_a_plan_falls_back_and_is_recorded(
 @pytest.mark.parametrize(
     ("planning", "message"),
     [
-        ({"mode": "sometimes"}, "legacy, profile or capture"),
+        ({"mode": "sometimes"}, "policy, profile or capture"),
         (
             {"mode": "profile", "efforts": {"rows": "quickly"}},
             "estimate, measure or patient",

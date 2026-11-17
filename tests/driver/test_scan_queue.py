@@ -29,10 +29,11 @@ from solprop.driver.executors._request import ScanRequest
 from solprop.driver.executors.pool import Pool, peak_rss
 from solprop.driver.executors.queue import Queue, _Heartbeat, _QueueWork, collect
 from solprop.driver.scan import Scan, run_scan
-from solprop.exceptions import DriverError, OutputError
+from solprop.exceptions import DriverError, ExecutorError, OutputError
 from solprop.output.hdf5 import _dataset
+from solprop.output.metadata import _example_metadata
 from solprop.output.scan import PointResult
-from solprop.output.schema import RECORD_ARRAY_LIMIT, _example_metadata
+from solprop.output.serialisation import RECORD_ARRAY_LIMIT
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32",
@@ -171,7 +172,7 @@ def test_queue_heartbeat_propagates_filesystem_failure(tmp_path, monkeypatch):
     heartbeat = _Heartbeat(tmp_path, "controller", 1.0)
     monkeypatch.setattr(heartbeat.stop, "wait", lambda interval: False)
     heartbeat._refresh()
-    with pytest.raises(DriverError, match="lease refresh failed"):
+    with pytest.raises(ExecutorError, match="lease refresh failed"):
         heartbeat.check()
 
 

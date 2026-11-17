@@ -9,10 +9,10 @@ body of what would otherwise be a hand loop over the backend. The plane reaches 
 the run made it, with no copy and no conversion, so the handler costs no volume of its
 own.
 
-It is an :class:`~solprop.output.schema.Output` and a
-:class:`~solprop.output.schema.RetainingOutput`, and deliberately neither a
-:class:`~solprop.output.schema.PlaneStore` nor a
-:class:`~solprop.output.schema.CheckpointOutput`. A store's readers have nothing to read
+It is an :class:`~solprop.output.store.Output` and a
+:class:`~solprop.output.store.RetainingOutput`, and deliberately neither a
+:class:`~solprop.output.store.PlaneStore` nor a
+:class:`~solprop.output.store.CheckpointOutput`. A store's readers have nothing to read
 here, and its save path converts each field into a new volume. A checkpoint promises a
 state that ``resume=True`` can continue, and with no file there is nothing to continue,
 so a run neither fetches a terminal field for this handler nor says that one was
@@ -27,13 +27,9 @@ import numpy as np
 
 from solprop._display import line
 from solprop.exceptions import OutputError
-from solprop.output.schema import (
-    Convention,
-    FieldRetention,
-    RunMetadata,
-    SavedPlane,
-    resolve_metadata_write,
-)
+from solprop.output.metadata import RunMetadata, resolve_metadata_write
+from solprop.output.records import Convention, SavedPlane
+from solprop.output.store import FieldRetention
 
 __all__ = ["CallbackOutput"]
 
@@ -50,17 +46,24 @@ def _not_held(what: str) -> OutputError:
 class CallbackOutput:
     """Give each saved plane to a callable, and keep nothing.
 
-    The callable is given the run's own :class:`~solprop.output.schema.SavedPlane`, not
+    The callable is given the run's own :class:`~solprop.output.records.SavedPlane`, not
     a copy. Its arrays are read-only and nothing writes to them again, so the callable
     may keep any of them, at the cost of what it keeps; a plane it reduces and lets go
     costs one field volume on the host while it is held, the one the observation
     crossed with. The field is as a backend produces it: in the internal FFT convention,
     in the square root of watts. A reduction of the squared modulus does not depend on
     the convention, and :func:`solprop.fourier.spectrum_to_optics` gives the form a file
-    stores, in a second volume.
+    stores, in a second volume. The array functions to reduce it with are
+    :func:`solprop.stats.energy`, :func:`solprop.stats.peak_power` and
+    :func:`solprop.stats.fwhm_t`, given the run's grid (``simulation.grid``) and
+    ``plane.field`` as it arrives: they take the internal convention the plane is in,
+    as the run's own statistics do, and no conversion is needed; the
+    :mod:`solprop.processing` readers of the same names read a stored run instead. Like
+    those readers they measure the squared amplitude, and the plane's own
+    ``plane.stats`` carries what the run recorded.
 
     The run's ``fields`` setting
-    (:class:`~solprop.driver.simulation.SimulationSettings`) decides what a plane
+    (:class:`~solprop.driver.settings.SimulationSettings`) decides what a plane
     carries. With ``fields="none"``, what a reduction of statistics wants, every plane
     has ``field=None`` and ``noise_phase=None`` beside its position, its statistics and
     its step history, and no field leaves the backend. With ``fields="planes"`` the
@@ -68,8 +71,9 @@ class CallbackOutput:
     its field.
 
     What it cannot do, it refuses by name. Reading anything back (``handler[key]``,
-    :meth:`fields`) raises :class:`~solprop.exceptions.OutputError`, and a handler that
-    has served a run refuses another, which would continue it. A resume needs a file
+    :meth:`fields`, :meth:`plane_field`) raises
+    :class:`~solprop.exceptions.OutputError`, and a handler that has served a run
+    refuses another, which would continue it. A resume needs a file
     (:func:`~solprop.output.hdf5.check_cache`, :func:`~solprop.output.hdf5.resume`,
     ``resume=True``), as does a TDSE run's ledger. A stopped run returns the handler
     with no state written.
@@ -142,7 +146,7 @@ class CallbackOutput:
             The record of the run about to start.
         force : bool, optional
             Whether to replace a different record held already
-            (:func:`~solprop.output.schema.resolve_metadata_write`).
+            (:func:`~solprop.output.metadata.resolve_metadata_write`).
 
         Raises
         ------
@@ -162,7 +166,7 @@ class CallbackOutput:
     def retain(self, retention: FieldRetention, field_shape: tuple[int, ...]) -> None:
         """Accept the run's field rule: there is no storage for it to size.
 
-        Declares :class:`~solprop.output.schema.RetainingOutput`, which is what admits
+        Declares :class:`~solprop.output.store.RetainingOutput`, which is what admits
         field-free planes. The rule reaches the callable as each plane's ``field``.
 
         Parameters
@@ -265,3 +269,20 @@ class CallbackOutput:
             Always.
         """
         raise _not_held("the fields")
+
+    def plane_field(self, index: int, convention: Convention = "optics") -> np.ndarray:  # noqa: ARG002 - the protocol's signature
+        """Refuse to read a plane's field back.
+
+        Parameters
+        ----------
+        index : int
+            The plane that was asked for.
+        convention : {'optics', 'fft'}, optional
+            The convention that was asked for.
+
+        Raises
+        ------
+        OutputError
+            Always.
+        """
+        raise _not_held(f"the field of plane {index}")

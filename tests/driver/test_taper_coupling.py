@@ -23,6 +23,7 @@ import numpy as np
 import pytest
 from scipy.integrate import cumulative_trapezoid, trapezoid
 
+from coupled_flow_cases import lossless
 from driver.test_coherent_capillary import (
     GRID,
     LENGTH,
@@ -50,16 +51,14 @@ from solprop.exceptions import (
 from solprop.grid import FieldGrid
 from solprop.modes import CoherentWall, MarcatiliMode
 from solprop.modes.antiresonant import TubeLattice, VincettiMode
-from solprop.modes.capillary import (
-    taper_connection,
-    taper_coupling_block,
-    wall_connection,
-)
+from solprop.modes.wall import taper_connection, taper_coupling_block, wall_connection
 from solprop.output.memory import MemoryOutput
 from solprop.physdata.mixtures import Mixture
 from solprop.profiles import FromCallable, Linear
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
-from solprop.translate.problem import TAPER_FLOW_CERTIFICATE, _walk_arrays, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import _walk_arrays
+from solprop.translate.validation import TAPER_FLOW_CERTIFICATE
 
 pytestmark = [
     pytest.mark.filterwarnings(
@@ -75,11 +74,6 @@ pytestmark = [
 the advisory step, which a fixed schedule chosen for a test may exceed on purpose."""
 
 
-def lossless(**overrides):
-    """Return the ten-step three-channel qualification taper, lossless, no wall."""
-    return varying(loss=False, cladding=1.45, **overrides)
-
-
 # ------------------------------------------------------------------ which sets
 
 
@@ -91,7 +85,7 @@ def test_the_coupling_applies_to_a_multimode_capillary_taper_alone():
     own diagonal (``MarcatiliMode.radius_is_constant``).
     """
     moving = taper()
-    block = [MarcatiliMode(moving, "He", 1.0, m=m, loss=False) for m in (1, 2, 3)]
+    block = [MarcatiliMode(moving, "He", 1.0, m=m, loss_scale=0.0) for m in (1, 2, 3)]
     assert taper_coupling_block(block) == tuple(block)
     assert taper_coupling_block(block[:1]) is None
     assert taper_coupling_block([block[0], block[2]]) is None
@@ -120,9 +114,9 @@ def test_the_connection_is_the_wall_s_and_admits_any_loss_and_model():
     for z in (0.0, 1e-4, 1.3e-4):
         assert np.array_equal(taper_connection(walled, z), wall_connection(walled, z))
     for modes in (
-        [MarcatiliMode(moving, "He", 1.0, m=m, loss=False) for m in (1, 2)],
+        [MarcatiliMode(moving, "He", 1.0, m=m, loss_scale=0.0) for m in (1, 2)],
         [MarcatiliMode(moving, "He", 1.0, m=m, model="reduced") for m in (1, 2)],
-        [MarcatiliMode(moving, "He", 1.0, m=m, loss=0.5) for m in (1, 2)],
+        [MarcatiliMode(moving, "He", 1.0, m=m, loss_scale=0.5) for m in (1, 2)],
     ):
         link = taper_connection(modes, 1e-4)
         assert link[0, 1] == -link[1, 0] != 0.0
@@ -201,9 +195,9 @@ def test_the_opt_out_is_the_adiabatic_route_without_a_warning():
         list(simulation.responses),
         simulation._field0,
         controller=cast("PIController", simulation.settings.controller),
-        save_planes=simulation.settings.save_planes,
-        dz_max=simulation.settings.dz_max,
-        dz_init=simulation.settings.dz_init,
+        save_planes=np.asarray(simulation.settings.save_planes),
+        dz_max=cast("float", simulation.settings.dz_max),
+        dz_init=cast("float", simulation.settings.dz_init),
         schedule=simulation.settings.schedule,
         absorber=simulation.settings.absorber,
         quadrature=simulation.settings.quadrature,
@@ -238,9 +232,9 @@ def test_a_wall_and_the_opt_out_are_refused_together():
             list(simulation.responses),
             simulation._field0,
             controller=cast("PIController", simulation.settings.controller),
-            save_planes=simulation.settings.save_planes,
-            dz_max=simulation.settings.dz_max,
-            dz_init=simulation.settings.dz_init,
+            save_planes=np.asarray(simulation.settings.save_planes),
+            dz_max=cast("float", simulation.settings.dz_max),
+            dz_init=cast("float", simulation.settings.dz_init),
             wall=CoherentWall(),
             taper_coupling=False,
         )
@@ -278,7 +272,7 @@ def test_a_supplied_set_couples_through_from_waveguide_and_a_provider_refuses_it
     Beside a provider the opt-out is refused: a moving general guide carries its own
     connection.
     """
-    modes = [MarcatiliMode(taper(), "He", 1.0, m=m, loss=False) for m in (1, 2)]
+    modes = [MarcatiliMode(taper(), "He", 1.0, m=m, loss_scale=0.0) for m in (1, 2)]
     arguments = {
         "wavelength": 800e-9,
         "grid": GRID,
@@ -360,7 +354,7 @@ def slow_taper(*, taper_coupling=True, steps=STEPS):
         modes=3,
         n_save=2,
         backend="numpy_ref",
-        loss=False,
+        loss_scale=0.0,
         cladding=1.45,
         plasma=False,
         raman=False,
@@ -525,20 +519,14 @@ def test_auto_runs_a_lossless_multimode_taper_on_native():
     The coupled flow's carrier is the lowest channel's parameter expansion, which the
     native backend executes (the opt-out, where its per-channel expansion does not
     resolve, takes the z table, which the native CPU build runs too:
-    ``test_native_z_table.py``). The final plane is ``numpy_ref``'s to the flow parity
-    order (a millionth of the launch is generous for ten steps of a nanojoule).
+    ``test_native_z_table.py``). The record names native; the final plane against the
+    reference's is a row of the case catalogue (``tests/backends/flow_rows.py``,
+    ``taper coupling driver``).
     """
-    reference = cast("MemoryOutput", lossless().run(progress="none"))
     automatic = cast("MemoryOutput", lossless(backend="auto").run(progress="none"))
     assert automatic.metadata is not None
     assert automatic.metadata.backend is not None
     assert automatic.metadata.backend.name == "native"
-    expected = reference.planes()[-1].field
-    start, actual = reference.planes()[0].field, automatic.planes()[-1].field
-    assert expected is not None and start is not None and actual is not None
-    scale = float(np.max(np.abs(start)))
-    departure = float(np.max(np.abs(actual - expected)))
-    assert departure <= 1e-12 * scale
 
 
 @pytest.mark.medium
@@ -577,9 +565,9 @@ def test_a_second_field_component_beside_the_coupling_is_refused():
             list(simulation.responses),
             field,
             controller=cast("PIController", simulation.settings.controller),
-            save_planes=simulation.settings.save_planes,
-            dz_max=simulation.settings.dz_max,
-            dz_init=simulation.settings.dz_init,
+            save_planes=np.asarray(simulation.settings.save_planes),
+            dz_max=cast("float", simulation.settings.dz_max),
+            dz_init=cast("float", simulation.settings.dz_init),
             quadrature=simulation.settings.quadrature,
             components=("x", "y"),
         )

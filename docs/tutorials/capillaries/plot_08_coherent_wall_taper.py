@@ -52,6 +52,7 @@ import numpy as np
 
 from solprop.boundaries import absorber
 from solprop.driver import prop_capillary
+from solprop.exceptions import GrazingIncidenceWarning, SolpropWarning
 from solprop.grid import FieldGrid
 from solprop.modes import CoherentWall
 from solprop.profiles import PiecewiseLinear
@@ -72,11 +73,15 @@ grid = FieldGrid.from_limits(length, 800e-9, (400e-9, 1.6e-6), 300e-15)
 
 def run(wall, radius=taper, taper_coupling=True):
     """Propagate three channels ten steps along `radius`, with or without a wall."""
-    # The band runs past helium's and silica's fitted ranges and the geometry is a
-    # marginal one on purpose, so that a fifth of a millimetre shows the wall: both
-    # warn, and both are silenced here, as is the advisory step of the coupled flow.
+    # The geometry is a marginal one on purpose, so that a fifth of a millimetre shows
+    # the wall (GrazingIncidenceWarning), and the collar is weakened for the steps'
+    # stability, which the walk-off check reports although the modes walk apart by
+    # a fraction of a femtosecond in a 300 fs window: both are silenced by name.
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        warnings.simplefilter("ignore", GrazingIncidenceWarning)
+        warnings.filterwarnings(
+            "ignore", "the temporal absorber attenuates", SolpropWarning
+        )
         return prop_capillary(
             radius,
             length,

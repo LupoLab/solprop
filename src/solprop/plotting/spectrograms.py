@@ -4,10 +4,9 @@
 
 """Time-frequency maps of a saved plane, through a Gaussian-gated short-time transform.
 
-The map is :func:`solprop.processing.fields.get_spectrogram`'s, drawn. The gate width
-and the number of gate positions have defaults, taken from the time range asked for;
-and a multimode run must say which mode it means, rather than silently taking the
-first.
+:func:`spectrogram` draws :func:`solprop.processing.fields.get_spectrogram`'s map. The
+gate width and the number of gate positions default from the time range asked for, and
+a multimode run must say which mode it means, rather than silently taking the first.
 """
 
 import numpy as np
@@ -18,13 +17,12 @@ from matplotlib.figure import Figure
 
 from solprop.constants import C
 from solprop.optics import TransferFunction
-from solprop.output.schema import Output
-from solprop.plotting.propagation import DEFAULT_TIME_RANGE, DEFAULT_WAVELENGTH_RANGE
+from solprop.output.store import Output
+from solprop.plotting.propagation import _limits, _plane_time_range
 from solprop.plotting.style import (
     T_TO_FS,
     _display_limits,
     _figure_of,
-    _spec_range,
     spectral_display,
 )
 from solprop.processing.axes import ModeSelection, SpectralAxis
@@ -44,7 +42,7 @@ def spectrogram(
     axis: SpectralAxis = "wavelength",
     *,
     modes: ModeSelection = None,
-    time_range: tuple[float, float] = DEFAULT_TIME_RANGE,
+    time_range: tuple[float, float] | None = None,
     gate_fwhm: float | None = None,
     positions: int = DEFAULT_GATE_POSITIONS,
     spec_range: tuple[float, float] | None = None,
@@ -63,7 +61,7 @@ def spectrogram(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     z : float or None
         Position of the plane, m; the end of the run by default.
@@ -72,15 +70,16 @@ def spectrogram(
     modes : int, sequence of int, 'sum' or None
         Which mode to draw. A multimode run must name one: a spectrogram is of a field,
         and modal fields do not add away from a point in space.
-    time_range : tuple of float
-        Time range to gate over, s.
+    time_range : tuple of float or None
+        Time range to gate over and show, s. By default where the plane's light is
+        (:func:`~solprop.plotting.propagation.default_time_range`).
     gate_fwhm : float or None
         Width of the gate, s; a twentieth of the time range by default.
     positions : int
         How many gate positions to place across the time range.
     spec_range : tuple of float or None
-        Spectral limits in the units of ``axis``: m, Hz or rad/s. By default
-        :data:`~solprop.plotting.propagation.DEFAULT_WAVELENGTH_RANGE` on that axis;
+        Spectral limits in the units of ``axis``: m, Hz or rad/s. By default the run's
+        band (:func:`~solprop.plotting.propagation.default_spec_range`);
         :func:`~solprop.plotting.style.wavelength_to_axis` converts a wavelength range.
     log : bool
         Whether to show decibels below the peak rather than a linear scale.
@@ -117,6 +116,8 @@ def spectrogram(
     >>> plt.close(figure)
     """
     plane = output.n_saved - 1 if z is None else nearest_plane(output, z)
+    if time_range is None:
+        time_range = _plane_time_range(output, plane, modes, transfer)
     # The map per unit frequency, drawn against the axis asked for as it stands:
     # the colour scale is arbitrary, and a figure keeps its look on every axis.
     times, frequency, intensity = get_spectrogram(
@@ -148,7 +149,7 @@ def spectrogram(
     figure = _figure_of(ax)
     figure.colorbar(mesh, ax=ax).set_label(label)
     ax.set_xlim(time_range[0] * T_TO_FS, time_range[1] * T_TO_FS)
-    limits = _spec_range(axis, spec_range, DEFAULT_WAVELENGTH_RANGE)
+    limits = _limits(output, axis, spec_range)
     ax.set_ylim(*_display_limits(axis, limits))
     ax.set_xlabel("Time (fs)")
     ax.set_ylabel(spectral_display(axis)[1])

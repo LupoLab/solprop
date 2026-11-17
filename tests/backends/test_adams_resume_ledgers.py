@@ -70,7 +70,7 @@ def test_restored_adams_ledger_charges_fresh_startup(backend_name, backend_class
     # there with the ledger but no method history: the resumed march starts afresh.
     simulation = tiny_adams(backend_name)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     run_request = run_request.with_stepper(
         dataclasses.replace(run_request.stepper, save_planes=np.array([1e-6, 1e-5]))
     )
@@ -161,7 +161,7 @@ def refused_then_fresh(simulation, backend_class, ledgers, match):
     restore that took part of the ledgers before refusing the rest would show there.
     """
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = backend_class(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )

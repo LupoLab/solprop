@@ -16,8 +16,8 @@ from solprop.linear import Frame
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import assemble
 from solprop.translate.responses import prefactor_at
 
 EPS = np.finfo(float).eps
@@ -97,7 +97,7 @@ def test_radial_operator_and_prefactor_match_vacuum_dispersion(radial_case):
     assert not problem.flags.mode_averaged
     assert problem.flags.constant_linop
     assert_allclose(
-        delta_phi(problem.linear, 0.0, grid.length)[0, :, 0],
+        delta_phi(problem.linear, 0.0, grid.length)[:, 0],
         expected * grid.length,
         rtol=0,
         atol=bound,

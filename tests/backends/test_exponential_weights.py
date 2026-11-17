@@ -24,7 +24,7 @@ from solprop.backends.exponential import (
     exponential_weights,
     phi_functions,
 )
-from solprop.backends.numpy_ref.multistep import ExponentialKernels
+from solprop.backends.numpy_ref.adams_kernels import ExponentialKernels
 from solprop.exceptions import StepperError
 from solprop.stepper.multistep import integrated_weights, lagrange_coefficients
 
@@ -151,8 +151,8 @@ def test_phi_functions_agree_with_the_augmented_exponential(x):
 def test_kernel_moments_agree_with_the_augmented_exponential(x):
     # The moments k! phi_{k+1}(x) the reference's trial takes.
     count = MAX_PHI_ORDER
-    exponent = np.full((1, 1, 1, 1), x, dtype=np.complex128)
-    moments = ExponentialKernels().moments(exponent, count)[:, 0, 0, 0, 0]
+    exponent = np.full((1, 1, 1), x, dtype=np.complex128)
+    moments = ExponentialKernels().moments(exponent, count)[:, 0, 0, 0]
     reference = augmented_phi(complex(x), count)
     for k in range(count):
         scale = math.factorial(k)

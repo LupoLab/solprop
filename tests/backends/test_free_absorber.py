@@ -15,9 +15,11 @@ import numpy as np
 import pytest
 from scipy.linalg import expm
 
-from backends.test_radial_absorber import LENGTH, assembled, rk_bound
+from backends.radial_absorber_cases import LENGTH, assembled
+from backends.test_radial_absorber import rk_bound
 from backends.test_radial_nonlinear import derivative
 from bounds import gamma
+from builders import load_reference
 from sessions.runs import load_native, native_trial
 from sessions.runs import run as session_run
 from solprop.backends.session import ExecutionOptions
@@ -236,13 +238,15 @@ def test_cartesian_split_step_temporal_absorber_reconstructs_physical_field(
         if backend.name == "native":
             # A zero-length trial loads the unmodified field into advanced;
             # finish then exercises precisely the once-per-step absorber.
+            _testing = pytest.importorskip("solprop_native._core")._testing
+
             state = load_native(backend, problem.initial.field0)
             native_trial(backend, 0.0, 0.0)
-            state.finish(dz)
-            actual = state.field_to_host().reshape(start.shape)
+            _testing.finish(state, dz)
+            actual = np.asarray(_testing.field(state)).reshape(start.shape)
         else:
-            backend.set_initial(problem.initial.field0, None)
-            actual = backend._finish(problem.initial.field0[None].copy(), dz)[0]
+            load_reference(backend)
+            actual, _ = backend.workspace.finish(problem.initial.field0.copy(), dz)
         assert np.max(np.abs(actual - expected)) < bound
         record_metric(
             request,

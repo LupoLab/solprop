@@ -11,7 +11,6 @@ tests so that a probe does not import a pytest module with its fixtures.
 """
 
 import dataclasses
-import itertools
 import warnings
 from typing import Any, cast
 
@@ -38,7 +37,8 @@ from solprop.spatial import SpatialFlux, SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.stepper.multistep import Multistep
-from solprop.translate.problem import Translation, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import Translation
 from solprop.translate.run_request import RunRequest
 
 CAPILLARY_ROW_NAMES = ("energy", "peak_power", "fwhm_t")
@@ -53,6 +53,16 @@ def _native():
     )
 
     return NativeBackend
+
+
+def _testing() -> Any:
+    """Return the optional wheel's private test module, in the probe's process."""
+    # Optional wheel: absent from the base environment.
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
+    return _testing
 
 
 def _sizing(backend) -> dict[str, dict[str, int]]:
@@ -76,7 +86,7 @@ def route_adams_problem(route: str, formulation: str):
             "integrator": Multistep(formulation=formulation),  # pyright: ignore[reportArgumentType]
         }
     )
-    return simulation, simulation.translate(), simulation._run_request()
+    return simulation, simulation.translate(), simulation.run_request()
 
 
 def ten_steps(run_request: RunRequest) -> RunRequest:
@@ -210,7 +220,7 @@ def dispersive(option: str):
         evaluator, gas="N2" if raman else "Ar", raman=raman, stepped=True
     )
     problem = simulation.translate()
-    run_request = fixed_order(simulation._run_request())
+    run_request = fixed_order(simulation.run_request())
     assert problem.transform.n_nodes == 33
     fields = []
     for _ in range(2):
@@ -263,7 +273,7 @@ def noisy_problem(march: str, *, draw: bool = True):
     retired combine test's seed; `march` ``"rk"`` takes the Runge-Kutta march on the
     schedule instead, ``"adams"`` the exponential Adams method at its top order.
     """
-    from backends.test_low_storage import cartesian_march  # noqa: PLC0415
+    from backends.low_storage_cases import cartesian_march  # noqa: PLC0415
 
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
     noise = spatial_noise(
@@ -300,7 +310,7 @@ def noisy_problem(march: str, *, draw: bool = True):
 
 def noisy(march: str):
     """March the beam under the modified noise model, and once without its draw."""
-    from backends.test_low_storage import CARTESIAN_CHUNK  # noqa: PLC0415
+    from backends.low_storage_cases import CARTESIAN_CHUNK  # noqa: PLC0415
 
     fields = {}
     for name, draw in (("field", True), ("quiet", False)):
@@ -326,7 +336,7 @@ def wide_transverse_problem(march: str = "march"):
     `march` ``"adams"`` takes the default method at its top order on the same schedule,
     which #322 asks for beside the low-storage march.
     """
-    from backends.test_low_storage import MARCH  # noqa: PLC0415
+    from backends.low_storage_cases import MARCH  # noqa: PLC0415
 
     length = 1e-3
     grid = EnvelopeGrid.from_limits(
@@ -379,7 +389,7 @@ def accept_problem():
     """
     simulation = ROUTES["cartesian"](None)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     return (
         simulation,
         dataclasses.replace(
@@ -407,14 +417,15 @@ def accept():
     simulation, problem, run_request = accept_problem()
     backend = _native()(problem, run_request, grid=simulation.grid)
     try:
+        testing = _testing()
         state = load_native(backend, problem.initial.field0)
-        launch = state.field_to_host().copy()
+        launch = np.array(testing.field(state))
         partials = native_trial(backend, 0.0, ACCEPT_STEP)
-        state.finish(ACCEPT_STEP)
+        testing.finish(state, ACCEPT_STEP)
         return {
             "launch": launch,
             "partials": partials,
-            "advanced": state.field_to_host().copy(),
+            "advanced": np.array(testing.field(state)),
             "mask": np.asarray(problem.grids.norm_mask),
         }, _sizing(backend)
     finally:
@@ -423,7 +434,7 @@ def accept():
 
 def linear_cartesian(mode: str):
     """Return ``cartesian_march``'s beam with no response: a pass is its fold."""
-    from backends.test_low_storage import cartesian_march  # noqa: PLC0415
+    from backends.low_storage_cases import cartesian_march  # noqa: PLC0415
 
     problem, run_request, grid, _ = cartesian_march(mode)
     return (
@@ -442,32 +453,34 @@ def linear_cartesian(mode: str):
 def folds(mode: str):
     """March the linear beam on the resident engine, saving every step's squared norm.
 
-    Each step is the resident low-storage engine's on the backend's native state, as
-    ``test_native_synthetic_operator.py``'s ``resident_step`` takes one, followed by the
-    state's finish, as the march accepts a step. The squared norm over the norm mask is
-    the one the engine's threaded reduction hands the accept, so a width's norms test
-    that reduction's order, and its state the folds.
+    Each step is the resident low-storage engine's on the backend's workspace, followed
+    by the state's finish, as the march accepts a step (``_testing.low_storage_norms``).
+    The squared norm over the norm mask is the one the engine's threaded reduction
+    hands the accept, so a width's norms test that reduction's order, and its state
+    the folds.
     """
     # Optional wheel: absent from the base environment.
-    from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        _ResidentLowStorage,  # pyright: ignore[reportPrivateUsage]
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing as testing,
     )
 
-    from backends.test_low_storage import CARTESIAN_CHUNK, MARCH  # noqa: PLC0415
+    from backends.low_storage_cases import CARTESIAN_CHUNK  # noqa: PLC0415
+    from solprop.backends.records import run_records  # noqa: PLC0415
+    from solprop.backends.session import Start  # noqa: PLC0415
 
     problem, run_request, grid = linear_cartesian(mode)
     edges = np.asarray(run_request.stepper.schedule.edges)  # pyright: ignore[reportOptionalMemberAccess]
     backend = _native()(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
     try:
-        state = load_native(backend, problem.initial.field0)
-        engine = _ResidentLowStorage(backend, MARCH)
-        norms = []
-        for z, end in itertools.pairwise(edges):
-            dz = float(end - z)
-            norms.append(engine.step(float(z), dz))
-            state.finish(dz)
-        field = np.asarray(state.field_to_host()).reshape(problem.shape).copy()
-        return {"field": field, "norms": np.array(norms)}, _sizing(backend)
+        workspace = load_native(backend, problem.initial.field0)
+        testing.configure_march(
+            workspace, run_records(problem, run_request, Start.entrance(problem))
+        )
+        norms = np.asarray(
+            testing.low_storage_norms(workspace, [float(z) for z in edges])
+        ).reshape(-1)
+        field = np.asarray(testing.field(workspace)).reshape(problem.shape).copy()
+        return {"field": field, "norms": norms}, _sizing(backend)
     finally:
         backend.close()
 
@@ -482,9 +495,9 @@ def linear_flow_problem(name: str):
     """
     linear = flow_parity.build(name)
     # The entry point refuses a capillary with no nonlinearity.
-    object.__setattr__(linear, "responses", ())
+    linear._responses = ()  # what it is built from is read-only, by design
     problem = linear.translate()
-    run_request = linear._run_request()
+    run_request = linear.run_request()
     schedule = run_request.stepper.schedule
     return (
         dataclasses.replace(
@@ -506,12 +519,13 @@ def flow(name: str):
     problem, run_request, grid, dz = linear_flow_problem(name)
     backend = _native()(problem, run_request, grid=grid)
     try:
+        testing = _testing()
         state = load_native(backend, problem.initial.field0)
         partials = native_trial(backend, 0.0, dz)
-        state.finish(dz)
+        testing.finish(state, dz)
         return {
             "partials": partials,
-            "field": state.field_to_host().copy(),
+            "field": np.array(testing.field(state)),
         }, _sizing(backend)
     finally:
         backend.close()
@@ -519,7 +533,7 @@ def flow(name: str):
 
 def flow_kerr(name: str):
     """Ten steps of a ``test_native_coupled_flow.py`` case, with its source."""
-    from driver.test_native_coupled_flow import CASES as FLOWS  # noqa: PLC0415
+    from coupled_flow_cases import CASES as FLOWS  # noqa: PLC0415
 
     case = FLOWS[name]()
     problem = case.problem

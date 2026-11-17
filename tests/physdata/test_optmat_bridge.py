@@ -246,28 +246,49 @@ def test_translated_turns_optmat_range_warnings_into_one_material_warning():
     assert "optmat:" in message
 
 
-def test_translated_without_a_band_names_the_range():
+@pytest.mark.parametrize(
+    ("message", "category", "expected", "match"),
+    [
+        # Without a band, the warning names the qualified range.
+        ("outside", ModelRangeWarning, MaterialRangeWarning, "qualified range"),
+        # Other warnings pass through unchanged.
+        ("unrelated", RuntimeWarning, RuntimeWarning, "unrelated"),
+        ("absorbs", ModelAbsorptionWarning, MaterialRangeWarning, "Ar: absorbs"),
+    ],
+)
+def test_translated_converts_optmat_warnings(message, category, expected, match):
     with (
-        pytest.warns(MaterialRangeWarning, match="qualified range"),
+        pytest.warns(expected, match=match),
         _optmat.translated(ARGON, "polarizability", material="Ar"),
     ):
-        warnings.warn("outside", ModelRangeWarning, stacklevel=1)
+        warnings.warn(message, category, stacklevel=1)
 
 
-def test_translated_passes_other_warnings_through():
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("capped at the Doppler widths (TC-688)", "capped at the Doppler widths"),
+        ("not modelled (TC-527, TC-688)", "not modelled"),
+        ("between (TC-1) words", "between words"),
+        # Parentheses that are not tracker ids stay.
+        ("of H2 Q (100-300 K) (TC-688)", "of H2 Q (100-300 K)"),
+        ("the HOMO (HOMO-1) orbital", "the HOMO (HOMO-1) orbital"),
+        ("no ids here", "no ids here"),
+    ],
+)
+def test_optmat_text_drops_only_optmats_tracker_ids(message, expected):
+    assert _optmat.optmat_text(message) == expected
+    assert _optmat.optmat_text(ModelRangeWarning(message)) == expected
+
+
+def test_translated_drops_optmats_tracker_ids():
     with (
-        pytest.warns(RuntimeWarning, match="unrelated"),
+        pytest.warns(MaterialRangeWarning) as raised,
         _optmat.translated(ARGON, "polarizability", material="Ar"),
     ):
-        warnings.warn("unrelated", RuntimeWarning, stacklevel=1)
-
-
-def test_translated_converts_absorption_warnings():
-    with (
-        pytest.warns(MaterialRangeWarning, match="Ar: absorbs"),
-        _optmat.translated(ARGON, "polarizability", material="Ar"),
-    ):
-        warnings.warn("absorbs", ModelAbsorptionWarning, stacklevel=1)
+        warnings.warn("outside (TC-688)", ModelRangeWarning, stacklevel=1)
+    (message,) = [str(w.message) for w in raised]
+    assert message.endswith("optmat: outside")
 
 
 def test_translated_turns_optmat_errors_into_material_errors():

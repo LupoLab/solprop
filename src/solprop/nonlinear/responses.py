@@ -5,17 +5,22 @@
 """Nonlinear response definitions and their declared traits.
 
 A response says how a medium answers a field: the nonlinear polarisation ``P(t)`` it
-produces from the field ``E(t)`` at a point, and the declared traits the translation
-layer needs in order to compile a set of responses into one fused time-domain pass.
-This module holds the Kerr and plasma responses, SEP 6's frequency-dependent electronic
-response (:class:`DispersiveKerrResponse`), and the trait vocabulary the delayed Raman
-response of :mod:`solprop.nonlinear.raman` extends.
+produces from ``E(t)`` at a point, and the :class:`ResponseTraits` the translation layer
+needs to compile a set of responses into one fused time-domain pass (the delayed Raman
+response of :mod:`solprop.nonlinear.raman` extends the same vocabulary).
 
-The ``evaluate`` method here is the **NumPy reference**: the oracle every backend kernel
-is tested against, written for clarity rather than for speed
-(``docs/dev/architecture.md`` section 3). Units, signs and the analytic-signal
-convention follow ``docs/dev/conventions.md`` sections 2 and 4, and the derivation of
-every numerical factor is in ``docs/guide/media/nonlinear.md``.
+- :class:`KerrResponse`, the instantaneous third-order response, with
+  :func:`thg_carrier` for an envelope grid's third-harmonic term.
+- :class:`DispersiveKerrResponse`, SEP 6's frequency-dependent electronic response, with
+  :func:`dispersive_cubic`, :class:`DispersiveWeights` and :func:`mixture_filter`.
+- :class:`PlasmaResponse`, the polarisation of the free electrons a field tears from a
+  gas.
+
+Each ``evaluate`` method is the **NumPy reference**, the oracle every backend kernel is
+tested against, written for clarity rather than speed (``docs/dev/architecture.md`` §6).
+Units, signs and the analytic-signal convention follow ``docs/dev/conventions.md`` §2
+and §4, and the derivation of every numerical factor is in
+``docs/guide/media/nonlinear.md``.
 """
 
 import logging
@@ -76,7 +81,20 @@ Sector = Literal["full", "conserving"]
 with two positive and two negative signed legs (SEP 6, Phase 0, decision Q4)."""
 
 MAX_N_POL = 2
-"""Largest polarisation axis a response accepts: ``(x, y)`` (``conventions.md`` 5)."""
+"""Most entries the state's polarisation axis may have, ``(x, y)`` (``conventions.md``).
+
+The largest polarisation axis a response accepts. The transverse components are carried
+either by the transform's rows or by the state's polarisation axis, never by both: a row
+of ``synthesis`` is one Cartesian component at one node, and so is one entry of the
+state's polarisation axis, so a problem that set both would count them twice.
+
+It stays 2 at kernel schema 14. A general modal guide's three Cartesian components
+are *not* three state polarisations: one vector eigenmode has E_x, E_y and E_z and
+stores one amplitude, so the guide carries ``n_pol = 1`` and
+:data:`solprop.translate.problem.MAX_N_COMPONENTS` local field components. Setting this
+to 3 would instead admit three independent amplitudes per eigenmode, which is a
+different and unphysical problem.
+"""
 
 _PREIONISATION_PATH = (
     "this plasma response carries its preionisation as a path along z, and the "
@@ -787,9 +805,9 @@ class DispersiveKerrResponse:
 
     @property
     def coefficient(self) -> float:  # numpydoc ignore=RT01
-        """``eps0 gamma3_0``, the static coefficient per unit density, C m^2/V^3.
+        """``eps0 gamma3_0``, the static coefficient per unit density, C m^4/V^3.
 
-        That is m^5/V^2 times eps0; it multiplies the number density.
+        That is m^5/V^2 times eps0, in C/(V m); it multiplies the number density.
         """
         return EPS0 * self.model.gamma3_static
 

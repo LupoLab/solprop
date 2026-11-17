@@ -10,10 +10,10 @@ section 3). Case-specific reference data and sensitivity assumptions stay with t
 tests that use them.
 
 - **Rounding bound (class R).** Two computations with the same discrete method and
-  history -- two backends, thread counts, a batch member and its solo run, a scan point
-  and its run -- differ by rounding alone. The bound is fixed from operation and
-  reduction counts, transform lengths, magnitudes and a stated margin *before* the
-  comparison runs, never fitted to the discrepancy it then accepts:
+  history -- two backends, thread counts, a scan point and its run -- differ by rounding
+  alone. The bound is fixed from operation and reduction counts, transform lengths,
+  magnitudes and a stated margin *before* the comparison runs, never fitted to the
+  discrepancy it then accepts:
   :func:`higham_gamma`, :func:`fft_bound`, :func:`scan_bound`, :func:`prefix_bound`,
   :func:`stencil_bound`, :func:`propagation_growth`.
 - **Accuracy envelope (class T).** Adaptive runs, ordinary replays and resumed runs
@@ -90,6 +90,19 @@ def rate_log_sensitivity(rate, value: float, field_range: tuple[float, float]) -
         float(rate(field * (1 - step)))
     )
     return rise / (math.log1p(step) - math.log1p(-step))
+
+
+INTEGRATION_AGREEMENT = 1e-7
+"""Absolute agreement of SEP 18's run diagnostics across backends: a thousandth of the
+smallest level at which one would mean anything (a work defect of 1e-4; an undershoot
+matters from about 1e-2).
+
+They are dimensionless ratios, and the work defect is a difference of nearly equal sums,
+so a relative deviation measures nothing. Nor can they be held to the sums' rounding:
+where a channel barely ionises, the fraction ``1 - (1 - p) exp(-S)`` carries an absolute
+rounding of about 1e-16, so the work defect of a peak fraction of 1e-9 is noise of order
+1e-8 that moves by tens of per cent with one ulp of ``exp``, and the platforms'
+``exp`` differ by ulps."""
 
 
 def device_backend(backend_name: str) -> str:

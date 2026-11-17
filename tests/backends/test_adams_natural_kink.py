@@ -14,7 +14,7 @@ from numpy.testing import assert_allclose
 from sessions.runs import run
 from solprop.backends import available
 from solprop.backends.events import ObservationReady
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import select
 from solprop.stepper.multistep import Multistep
 from solprop.translate.linop import constant_phi, delta_phi
@@ -86,7 +86,7 @@ def test_natural_save_at_hard_kink_restarts_before_the_next_trial(
     }
     assert orders[steps_before_restart] == 1
     start = problem.initial.field0[0, 0] * problem.grids.active_mask
-    exact = np.exp(delta_phi(problem.linear, 0.0, end))[0, 0, 0] * start
+    exact = np.exp(delta_phi(problem.linear, 0.0, end))[0, 0] * start
     # Four exact linear steps differ only by propagator multiplication roundoff.
     assert_allclose(
         result.fields[-1][0, 0],
@@ -100,12 +100,13 @@ def _march(session: Any) -> tuple[dict[str, int], int, list[int]]:
     """Return a session's Adams march: four of its counters, its history's length and
     the order of every accepted step.
 
-    The reference's march is its driver's (:class:`~solprop.backends.host.session.
-    HostSession`); the native session's is the native march's state.
+    The reference's march is its session's own
+    (:class:`~solprop.backends.numpy_ref.session.HostSession`); the native session's is
+    the native march's state.
     """
     names = ("accepted_steps", "rejected_steps", "restarts", "startup")
     if isinstance(session, HostSession):
-        march = cast("Any", session.driver)._adams
+        march = cast("Any", session)._march
         counters = {name: int(getattr(march.ledger, name)) for name in names}
         return counters, len(march._history), list(march.ledger.orders)
     state = session.native.march_state(0)

@@ -15,6 +15,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from backends.native_edge import bind_edge_monitor, edge_reading
 from bounds import fft_bound, higham_gamma
 from capability_routes import LENGTH, SPATIAL_GRID
 from capability_routes import ROUTES as CASES
@@ -43,6 +44,7 @@ pytestmark = pytest.mark.skipif(
     "native" not in available(), reason="native is not installed"
 )
 NativeBackend = pytest.importorskip("solprop_native.backend").NativeBackend
+_testing = cast("Any", pytest.importorskip("solprop_native._core"))._testing
 
 ROUTES = ("radial", "cartesian", "line", "planar")
 
@@ -71,10 +73,10 @@ def _attached(simulation: Simulation, state: np.ndarray) -> Any:
     """Return a native backend loaded with `state` and watched by the edge.
 
     The state is loaded into the backend's native state and the monitor bound there,
-    as the native session binds its own (the backend's ``_bind_monitor``).
+    as the native session binds its own (``backends.native_edge.bind_edge_monitor``).
     """
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = cast(
         "Any",
         select(
@@ -90,7 +92,7 @@ def _attached(simulation: Simulation, state: np.ndarray) -> Any:
     monitor = simulation._boundary_monitor()
     assert monitor is not None
     assert monitor.transverse is not None
-    backend._bind_monitor(monitor)
+    bind_edge_monitor(backend, monitor)
     return backend, monitor.transverse
 
 
@@ -103,7 +105,7 @@ def _read_both(
     state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 41)
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._native_state, edge, full=full)
+        native = edge_reading(backend, edge, full=full)
         host = edge.reduction.reading(state, full=full)
     finally:
         backend.close()
@@ -140,10 +142,10 @@ def test_native_reads_a_state_it_holds_without_changing_it(route: str) -> None:
     state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 43)
     backend, edge = _attached(simulation, state)
     try:
-        before = backend._native_state.field_to_host()
-        backend._edge_reading(backend._native_state, edge, full=True)
-        backend._edge_reading(backend._native_state, edge)
-        after = backend._native_state.field_to_host()
+        before = _testing.field(backend._workspace)
+        edge_reading(backend, edge, full=True)
+        edge_reading(backend, edge)
+        after = _testing.field(backend._workspace)
     finally:
         backend.close()
     # The reading works on the scratch: the state's own bits don't move.
@@ -176,7 +178,7 @@ def test_one_lit_node_reaches_only_its_own_faces(
     state[:, 0, int(np.nonzero(active)[0][0])] = phase.reshape(-1)
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._native_state, edge, full=True)
+        native = edge_reading(backend, edge, full=True)
         host = edge.reduction.reading(state, full=True)
     finally:
         backend.close()
@@ -203,7 +205,7 @@ def _polarised(route: str) -> Simulation:
     medium = SpatialMedium("Ar", 1.0)
     settings = _case(route).settings
     if route == "radial":
-        return Simulation.from_radial(
+        return Simulation.from_free(
             SPATIAL_GRID,
             RadialGrid(3e-4, 16, collar_fraction=0),
             medium,
@@ -231,7 +233,7 @@ def test_two_polarisations_read_as_the_host_reads(route: str) -> None:
     state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 47)
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._native_state, edge, full=True)
+        native = edge_reading(backend, edge, full=True)
         host = edge.reduction.reading(state, full=True)
     finally:
         backend.close()
@@ -271,7 +273,7 @@ def test_a_read_at_every_step_leaves_the_march_where_it_was(
         backend = select(
             name,
             problem,
-            simulation._run_request(),
+            simulation.run_request(),
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -351,7 +353,7 @@ def test_each_region_reads_what_its_definition_says(route: str) -> None:
     state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 53)
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._native_state, edge, full=True)
+        native = edge_reading(backend, edge, full=True)
     finally:
         backend.close()
     assert native.faces is not None and native.totals is not None
@@ -378,7 +380,7 @@ def test_the_grids_total_is_its_columns_by_parseval(route: str) -> None:
     state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 59)
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._native_state, edge, full=True)
+        native = edge_reading(backend, edge, full=True)
     finally:
         backend.close()
     assert native.totals is not None and native.columns is not None
@@ -417,7 +419,7 @@ def test_a_nearly_cancelling_radial_read_stays_within_its_absolute_budget() -> N
     state[:, 0, :] = beam[:, None] * active[None, :]
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._native_state, edge, full=True)
+        native = edge_reading(backend, edge, full=True)
     finally:
         backend.close()
     assert native.faces is not None
@@ -491,8 +493,8 @@ def test_a_field_free_default_run_crosses_no_state() -> None:
     with simulation.runner() as runner:
         output = runner.run(field, progress="none")
         assert isinstance(runner.backend, NativeBackend)
-        state = cast("Any", runner.backend)._native_state
-        to_host, from_host = state.crossed_bytes()
+        crossed = cast("Any", runner.backend)._diagnostics()["crossed_bytes"]
+        to_host, from_host = crossed
     outcome = cast("Any", output).outcome
     edge = outcome.execution["boundary_monitor"]["transverse"]
     assert edge["reads"] > 0
@@ -507,10 +509,12 @@ def test_the_crossing_count_sees_a_direct_copy() -> None:
     state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 61)
     backend, _ = _attached(simulation, state)
     try:
-        native = backend._native_state
-        assert native.crossed_bytes() == (0, state.nbytes)
-        native.field_to_host()
-        assert native.crossed_bytes() == (state.nbytes, state.nbytes)
+        assert tuple(backend._diagnostics()["crossed_bytes"]) == (0, state.nbytes)
+        _testing.field(backend._workspace)
+        assert tuple(backend._diagnostics()["crossed_bytes"]) == (
+            state.nbytes,
+            state.nbytes,
+        )
     finally:
         backend.close()
 
@@ -520,7 +524,7 @@ def test_the_edge_holds_memory_only_once_a_monitor_binds_it(route: str) -> None:
     # A check-off run pays nothing, and the formula an estimate adds is the row itself.
     simulation = _case(route)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = cast(
         "Any",
         select(
@@ -539,7 +543,7 @@ def test_the_edge_holds_memory_only_once_a_monitor_binds_it(route: str) -> None:
         monitor = simulation._boundary_monitor()
         assert monitor is not None
         assert monitor.transverse is not None
-        backend._bind_monitor(monitor)
+        bind_edge_monitor(backend, monitor)
         _, n_pol, n_omega = problem.shape
         expected = _transverse_edge_bytes(
             monitor.transverse.space, monitor.transverse.design, n_pol, n_omega
@@ -602,7 +606,7 @@ def test_a_launch_with_noise_judges_as_the_host_does_with_no_transfer(
             warnings.simplefilter("ignore", BoundaryWarning)
             output = cast("Any", runner.run(field, progress="none"))
             crossed = (
-                cast("Any", runner.backend)._native_state.crossed_bytes()
+                cast("Any", runner.backend)._diagnostics()["crossed_bytes"]
                 if backend == "native"
                 else None
             )
@@ -640,7 +644,7 @@ def test_a_field_grid_reads_as_the_host_does() -> None:
     )
     medium = SpatialMedium("Ar", 1.0)
     simulations = [
-        Simulation.from_radial(
+        Simulation.from_free(
             grid,
             RadialGrid(6e-4, 32),
             medium,
@@ -664,7 +668,7 @@ def test_a_field_grid_reads_as_the_host_does() -> None:
         state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 79)
         backend, edge = _attached(simulation, state)
         try:
-            native = backend._edge_reading(backend._native_state, edge, full=True)
+            native = edge_reading(backend, edge, full=True)
             host = edge.reduction.reading(state, full=True)
         finally:
             backend.close()
@@ -701,8 +705,8 @@ def test_energy_in_one_extreme_bin_reads_as_the_host_does(where: str) -> None:
         state[nyquist, 0, active[0]] = 1.0
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._native_state, edge, full=True)
-        held = backend._native_state.field_to_host().reshape(problem.shape)
+        native = edge_reading(backend, edge, full=True)
+        held = _testing.field(backend._workspace).reshape(problem.shape)
         host = edge.reduction.reading(held, full=True)
     finally:
         backend.close()
@@ -729,7 +733,7 @@ def test_a_planar_channel_above_the_first_reads_its_own_column() -> None:
     state[column, 0, active[0]] = 1.0
     backend, edge = _attached(simulation, state)
     try:
-        native = backend._edge_reading(backend._native_state, edge, full=True)
+        native = edge_reading(backend, edge, full=True)
         host = edge.reduction.reading(state, full=True)
     finally:
         backend.close()

@@ -4,11 +4,11 @@
 
 """Run a constructed backend through its own session, for the tests outside the suite.
 
-SEP 47 phase 5 retired the native backend's step-driver calls (``set_initial``,
-``propagate_to``, ``observe``, ``stats``): every run starts through
+SEP 47 phase 5 retired the native backend's step-driver calls, and SEP 52 the
+reference's: every run starts through
 :func:`solprop.backends.sessions.start_session`, which opens the native session for a
 native backend and the reference's own
-:class:`~solprop.backends.host.session.HostSession` for ``numpy_ref``, so one call
+:class:`~solprop.backends.numpy_ref.session.HostSession` for ``numpy_ref``, so one call
 serves both sides of a parity check. These helpers start that session on a backend the
 test built, drive it with the conformance suite's driver
 (:func:`sessions.executors.drive`) and hand back its
@@ -27,8 +27,12 @@ state (:data:`sessions.executors.IDENTITY`), which is what the retired
   :func:`watched_run` shape a request or read a run;
 - :func:`load_native`, :func:`native_trial`, :func:`native_source`,
   :func:`bind_native_monitor` and :func:`native_reading` reach a native backend's
-  state (``solprop_native._core.State``) for the kernel-level checks, as the native
-  session's march does.
+  workspace (``solprop_native._core.Workspace``) for the kernel-level checks, as
+  the native session's march does; :func:`native_stage_rows` and
+  :func:`native_rate_weights` pack a trial's host rows, and
+  :func:`native_adams_start`, :func:`native_adams_rows` and
+  :func:`native_exponential_trial` reach its resident Adams history, through the
+  private test module (``solprop_native._core._testing``).
 
 ``native/tests/session_runs.py`` is the native test root's copy of the same names.
 """
@@ -55,6 +59,7 @@ from solprop.boundaries import SPLIT_RATE_BUCKETS
 from solprop.driver import Simulation
 from solprop.monitor import BoundaryEnergies, BoundaryMonitor
 from solprop.stats import StatsSpec
+from solprop.translate.linop import rate_weights
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
@@ -70,8 +75,13 @@ __all__ = [
     "launch_statistics",
     "launched",
     "load_native",
+    "native_adams_rows",
+    "native_adams_start",
+    "native_exponential_trial",
+    "native_rate_weights",
     "native_reading",
     "native_source",
+    "native_stage_rows",
     "native_trial",
     "run",
     "run_error",
@@ -85,8 +95,7 @@ __all__ = [
 def bare(request: RunRequest) -> RunRequest:
     """Return a request that observes no statistics and watches no boundary.
 
-    What the step driver's direct calls ran: a march between planes, with no
-    statistics evaluated and no monitor attached.
+    A march between planes, with no statistics evaluated and no monitor attached.
 
     Parameters
     ----------
@@ -165,8 +174,7 @@ def run(
         the run with its terminal failure.
     export : solprop.backends.export.ExportRecipe or None, optional
         The recipe every observation's field is exported with: the state as the
-        session holds it by default, as the step driver's observation read it;
-        ``None`` exports nothing.
+        session holds it by default; ``None`` exports nothing.
     stop : object or None, optional
         The run's stop token.
     observations : int or None, optional
@@ -521,7 +529,7 @@ class Snapshots:
 
         Returns
         -------
-        solprop.output.schema.MarchSnapshot or None
+        solprop.output.records.MarchSnapshot or None
             Its snapshot.
         """
         [found] = [
@@ -600,7 +608,7 @@ def run_error(
 def summary(result: Run) -> StepSummary:
     """Return a run's summary from its launch: every plane's attempts together.
 
-    What the step driver's one march to the last plane summarised.
+    The summary of one march from the launch to the last plane.
 
     Parameters
     ----------
@@ -641,11 +649,11 @@ def adams_ledger(backend: Any, record: Mapping[str, object]) -> CallLedger:
 
     Returns
     -------
-    solprop.backends.numpy_ref.multistep.CallLedger
+    solprop.backends.ledger.CallLedger
         The ledger.
     """
     if backend.name == "numpy_ref":
-        return backend._adams.ledger
+        return backend.march.ledger
     return CallLedger.from_record(
         cast("Mapping[str, object]", record["response_calls"])
     )
@@ -689,7 +697,7 @@ def watched_run(
         memory ledger after the run.
     """
     problem = simulation.translate() if problem is None else problem
-    run_request = simulation._run_request() if run_request is None else run_request
+    run_request = simulation.run_request() if run_request is None else run_request
     backend = select(
         name,
         problem,
@@ -720,13 +728,13 @@ def load_native(
     backend: Any,
     field: np.ndarray,
     noise: np.ndarray | None = None,
-    *,
-    clear_fsal: bool = True,
 ) -> Any:
-    """Load a host state into a native backend's state, its recycled stage dropped.
+    """Load a host state into a native backend's workspace, as a run's start does.
 
-    The kernel-level tests call the native state (``solprop_native._core.State``)
-    directly, as the session's march does, in place of the retired driver load.
+    The kernel-level tests call the workspace's state (``solprop_native._core.
+    _testing``) directly, as the session's march does: the field and noise go in, the
+    collar back into the stages, the recycled stage dropped and no monitor bound
+    (``Workspace::load``).
 
     Parameters
     ----------
@@ -738,41 +746,40 @@ def load_native(
     noise : numpy.ndarray or None, optional
         The ``modified`` noise model's spectrum the stages add, in the state's layout
         (:func:`solprop.translate.masks.noise_spectrum`), or ``None``.
-    clear_fsal : bool, optional
-        Drop the recycled first-same-as-last stage, as a session's load does; the
-        checks that loaded the bare state keep it with ``False``.
 
     Returns
     -------
-    solprop_native._core.State
-        The backend's native state, loaded.
+    solprop_native._core.Workspace
+        The backend's workspace, loaded.
     """
-    state = backend._native_state
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
+    workspace = backend._workspace
     values = np.ascontiguousarray(field, dtype=np.complex128).reshape(-1)
     added = (
         np.empty(0, dtype=np.complex128)
         if noise is None
         else np.ascontiguousarray(noise, dtype=np.complex128).reshape(-1)
     )
-    state.set_initial(values, added)
-    if clear_fsal:
-        state.clear_fsal()
-    return state
+    _testing.load(workspace, values, added)
+    return workspace
 
 
 def native_trial(
     backend: Any, z: float, dz: float, *, field: np.ndarray | None = None
 ) -> np.ndarray:
-    """Take one Runge-Kutta trial on a native backend's staged rows; its partials.
+    """Take one Runge-Kutta trial on a native backend's stage tables; its partials.
 
-    The trial is the native state's own (``rk_trial`` on the uploaded stage tables),
-    as the native march takes it, at the nodes of the backend's own request's
-    tableau; its stages stay in the state for ``stage_to_host``.
+    The trial is the workspace's own (``_testing.rk_trial``), as the native march
+    takes it, at the nodes of the backend's own request's tableau; its stages stay in
+    the state for ``stage_to_host``.
 
     Parameters
     ----------
     backend : solprop_native.NativeBackend
-        The constructed backend, its state loaded (:func:`load_native`).
+        The constructed backend, its workspace loaded (:func:`load_native`).
     z : float
         Where the trial starts, m.
     dz : float
@@ -785,11 +792,17 @@ def native_trial(
     numpy.ndarray
         The trial's scored partials, float64.
     """
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+    from solprop_native._march import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        _envelope_errors,
+    )
+
     if field is not None:
         load_native(backend, field)
-    backend._staged_rows()
-    nodes = [float(node) for node in backend.request.stepper.tableau.nodes]
-    partials = backend._native_state.rk_trial(z, dz, nodes, prepare_only=False)
+    with _envelope_errors():
+        partials = _testing.rk_trial(backend._workspace, z, dz)
     return np.array(partials, dtype=np.float64)
 
 
@@ -814,21 +827,25 @@ def native_source(backend: Any, field: np.ndarray, z: float = 0.0) -> np.ndarray
     Returns
     -------
     numpy.ndarray
-        The source, shape ``(1, n_modes, n_pol, n_omega)`` as the reference's.
+        The source, shape ``(n_modes, n_pol, n_omega)`` as the reference's.
     """
-    state = load_native(backend, field)
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
+    workspace = load_native(backend, field)
     native_trial(backend, z, 0.0)
-    return np.array(state.stage_to_host(0)).reshape(1, *np.shape(field))
+    return np.array(_testing.stage_to_host(workspace, 0)).reshape(np.shape(field))
 
 
 def bind_native_monitor(
     backend: Any, problem: PropagationProblem, monitor: BoundaryMonitor
 ) -> BoundaryMonitor:
-    """Hold a boundary monitor's weights and walk-off buckets in a native state.
+    """Hold a boundary monitor's weights and walk-off buckets in a native workspace.
 
-    What the native session binds for its monitor (the backend's ``_bind_monitor``,
-    the split collar's crossing the problem's), through the state's own bindings, for
-    the kernel-level readings of :func:`native_reading`.
+    What a native run's start binds for its monitor (the backend's
+    ``_monitor_binding``, the split collar's crossing the problem's), through
+    ``_testing.bind_monitor``, for the kernel-level readings of :func:`native_reading`.
 
     Parameters
     ----------
@@ -844,29 +861,30 @@ def bind_native_monitor(
     solprop.monitor.BoundaryMonitor
         The monitor as bound, for :func:`native_reading`.
     """
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
     monitor = dataclasses.replace(
         monitor, crossing=problem.split_crossing if monitor.split else None
     )
-    state = backend._native_state
-    columns = (
-        np.empty(0, dtype=np.float64)
-        if monitor.columns is None
-        else np.ascontiguousarray(monitor.columns, dtype=np.float64)
+    occupancy = (
+        None
+        if monitor.crossing is None
+        else {
+            "buckets": np.ascontiguousarray(
+                monitor.crossing.buckets, dtype=np.uint8
+            ).reshape(-1),
+            "count": SPLIT_RATE_BUCKETS,
+        }
     )
-    state.bind_monitor(
-        np.ascontiguousarray(monitor.weights, dtype=np.float64).reshape(-1), columns
+    _testing.bind_monitor(
+        backend._workspace, backend._monitor_binding(monitor), None, occupancy
     )
-    if monitor.crossing is not None:
-        state.bind_occupancy(
-            np.ascontiguousarray(monitor.crossing.buckets, dtype=np.uint8).reshape(-1),
-            SPLIT_RATE_BUCKETS,
-        )
     return monitor
 
 
-def native_reading(
-    backend: Any, monitor: BoundaryMonitor, field: np.ndarray | None = None
-) -> BoundaryEnergies:
+def native_reading(backend: Any, monitor: BoundaryMonitor) -> BoundaryEnergies:
     """Return a native state's boundary reading, as the native session reduces it.
 
     The five numbers, the split's removal since the last reading, what the last
@@ -878,19 +896,19 @@ def native_reading(
     backend : solprop_native.NativeBackend
         The backend, its monitor bound (:func:`bind_native_monitor`).
     monitor : solprop.monitor.BoundaryMonitor
-        The monitor as bound (:func:`bind_native_monitor`).
-    field : numpy.ndarray or None, optional
-        A state to load first (:func:`load_native`); the state as it stands by
-        default.
+        The monitor as bound (:func:`bind_native_monitor`), after the state was
+        loaded (:func:`load_native`, which unbinds it).
 
     Returns
     -------
     solprop.monitor.BoundaryEnergies
         The reading.
     """
-    if field is not None:
-        load_native(backend, field)
-    reading = np.asarray(backend._native_state.monitor_reading(), dtype=np.float64)
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
+    reading = np.asarray(_testing.monitor_reading(backend._workspace), dtype=np.float64)
     reading = reading.reshape(-1)
     found = reading[6:10].copy() if monitor.split else None
     occupancy = None
@@ -903,3 +921,262 @@ def native_reading(
         found=found,
         occupancy=occupancy,
     )
+
+
+def native_stage_rows(
+    backend: Any, anchor: float, position: float
+) -> tuple[tuple[np.ndarray, ...], dict[str, Any]]:
+    """Return the host-packed rows of a trial whose every stage reads `position`.
+
+    The arrays a resident Adams trial took before the native march formed its rows
+    from the stage tables (SEP 39): the bundle at `position`, anchored at `anchor`,
+    repeated over the tableau's stages, packed as the backend packed them, with a
+    coupled flow's section and a frozen-residual flow's weights. The tests hold the
+    native evaluation to them. A z table's rows are its native slots, which no host
+    bundle holds: such a problem is refused here.
+
+    Parameters
+    ----------
+    backend : solprop_native.NativeBackend
+        The constructed backend.
+    anchor : float
+        The step's anchor, m.
+    position : float
+        Where every stage reads its scalars, m.
+
+    Returns
+    -------
+    tuple
+        The seven row arrays (``phi_delta`` to ``raman_rates``) and the material
+        record.
+    """
+    tables = backend._z_tables
+    if tables is not None and (tables.phi or tables.prefactor):
+        msg = "a z table's stage rows are its native slots, not a host bundle's"
+        raise NotImplementedError(msg)
+    bundle = backend._stage_scalars(anchor, position)
+    stages = backend.request.stepper.tableau.n_stages
+    bundles = [bundle] * stages
+    if backend._terms.separable is not None:
+        phi_delta = np.array([[one.z1 - one.z0] for one in [*bundles, bundle]])
+        phi_at = np.array([[one.z1] for one in bundles])
+        prefactor = np.ones((stages, 1))
+    else:
+        phi_delta = np.stack([one.phi_delta for one in [*bundles, bundle]])
+        phi_at = np.stack([one.phi_at for one in bundles])
+        prefactor = np.stack([one.prefactor for one in bundles])
+    arrays = tuple(
+        np.ascontiguousarray(values, dtype=np.float64)
+        for values in (
+            phi_delta,
+            phi_at,
+            prefactor,
+            [one.density for one in bundles],
+            [one.taper_scale for one in bundles],
+            [one.preionisation for one in bundles],
+            [one.raman_rates for one in bundles],
+        )
+    )
+    material: dict[str, Any] = {
+        "kerr_density": np.asarray([one.kerr_density for one in bundles]),
+        "plasma_densities": np.asarray([one.plasma_densities for one in bundles]),
+        "plasma_preionisation": np.asarray(
+            [one.plasma_preionisation for one in bundles]
+        ),
+        "raman_densities": np.asarray([one.raman_densities for one in bundles]),
+    }
+    if backend._problem.responses.dispersive_kerr is not None:
+        material["dispersive_densities"] = np.ascontiguousarray(
+            [one.dispersive_kerr_densities for one in bundles], dtype=np.float64
+        )
+    if backend._moving_maps:
+        material["transform_weights"] = np.ascontiguousarray(
+            np.stack([one.transform_weights for one in bundles]), dtype=np.float64
+        )
+    flow = backend._flow
+    if flow is not None:
+        material |= {
+            "flow_section": bundle.flow_section,
+            "flow_weights": np.empty(0, dtype=np.float64)
+            if flow.residual_terms is None
+            else np.ascontiguousarray(
+                np.tile(bundle.flow_weights, stages), dtype=np.float64
+            ),
+        }
+    return arrays, material
+
+
+def native_rate_weights(backend: Any, z: float, *, before: bool = False) -> np.ndarray:
+    """Return ``D(z)``'s weights over a native backend's ``Phi`` terms (SEP 16).
+
+    solprop's :func:`~solprop.translate.linop.rate_weights` for a constant or an
+    expansion; for a z table, the rate table evaluated natively into its slot
+    (``table_rate_at``, SEP 29 G1), one at that slot.
+
+    Parameters
+    ----------
+    backend : solprop_native.NativeBackend
+        The constructed backend.
+    z : float
+        Position, m.
+    before : bool, optional
+        Read an interior breakpoint from the interval ending there.
+
+    Returns
+    -------
+    numpy.ndarray
+        The weights, float64.
+    """
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
+    tables = backend._z_tables
+    if tables is not None and tables.phi:
+        _testing.table_rate_at(backend._workspace, float(z), before)
+        rate = np.zeros(tables.n_phi)
+        rate[tables.rate_slot] = 1.0
+        return rate
+    linear = backend._problem.linear
+    weights = rate_weights(linear, z, before=before, helpers=backend.helpers)
+    return np.ascontiguousarray(weights, dtype=np.float64)
+
+
+def _native_compensated(backend: Any) -> bool:
+    """Whether a native backend's resident Adams history carries a compensation."""
+    method = backend.request.stepper.integrator
+    return bool(backend._compensated(method, "transported"))
+
+
+def native_adams_start(backend: Any, z: float, slots: Sequence[int] = (0,)) -> None:
+    """Evaluate a native backend's first Adams sample at its loaded state, into `slots`.
+
+    The native march's start-up (``engines::ResidentEngine``) taken alone, for the
+    kernel-level checks that read one source sample: every stage row at `z`
+    (:func:`native_stage_rows`) and, for a compensated history, the state and rate
+    read on the far side of a kink (:func:`native_rate_weights`).
+
+    Parameters
+    ----------
+    backend : solprop_native.NativeBackend
+        The constructed backend, under an Adams method, its workspace loaded
+        (:func:`load_native`).
+    z : float
+        The state's position, m.
+    slots : sequence of int, optional
+        The history rows that take the sample: row 0 by default.
+    """
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+    from solprop_native._march import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        _envelope_errors,
+    )
+
+    workspace = backend._workspace
+    backend._stages.hoist(z)
+    arrays, material = native_stage_rows(backend, z, z)
+    compensated = _native_compensated(backend)
+    for slot in slots:
+        with _envelope_errors():
+            _testing.adams_start(workspace, slot, *arrays, material=material)
+        if compensated:
+            rate = native_rate_weights(backend, z)
+            _testing.adams_compensation_start(workspace, slot, rate)
+
+
+def native_adams_rows(backend: Any) -> dict[str, np.ndarray]:
+    """Return host copies of a native backend's Adams history rows, losslessly.
+
+    Parameters
+    ----------
+    backend : solprop_native.NativeBackend
+        The constructed backend, under an Adams method.
+
+    Returns
+    -------
+    dict of str to numpy.ndarray
+        Each row the engine keeps, ``(n_slots, n_modes, n_pol, n_omega)``, as a
+        snapshot holds it.
+    """
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
+    workspace = backend._workspace
+    expected = (backend._adams.n_slots, *backend._problem.shape)
+    return {
+        name: _testing.adams_rows_to_host(workspace, name).reshape(expected)
+        for name in backend._diagnostics()["history_rows"]
+    }
+
+
+def native_exponential_trial(
+    backend: Any,
+    z: float,
+    dz: float,
+    nodes: Sequence[float],
+    slots: np.ndarray,
+    order: int,
+    orders: Sequence[int],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Take one exponential Adams trial on a native backend's resident history.
+
+    The native march's trial (``engines::ResidentEngine``) taken alone: the tables, the
+    stage scalars and the rate formed natively from the nodes, under the run's carrier
+    frame, whose packed shift and rotations are formed here as the march forms them.
+
+    Parameters
+    ----------
+    backend : solprop_native.NativeBackend
+        The constructed backend, under the exponential formulation.
+    z : float
+        The step's anchor, m.
+    dz : float
+        The step, m.
+    nodes : sequence of float
+        The history's nodes ``theta``, newest first.
+    slots : numpy.ndarray
+        The history rows the nodes name.
+    order : int
+        The corrector's order.
+    orders : sequence of int
+        The orders whose defects the trial scores.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The scored norms, and the packed carrier frame, empty without one.
+    """
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+    from solprop_native._march import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        _envelope_errors,
+    )
+
+    rows = max(orders)
+    carrier = np.empty(0, dtype=np.float64)
+    reference = backend._carrier
+    if reference is not None and reference.active:
+        # (Im sigma, Re f_0, Im f_0, ...), f_t = exp(sigma (1 - theta_t)), over the
+        # rows read; sigma is the reference element's chord over the step (SEP 35).
+        shift = float(np.imag(reference.chord.exponent(z, z + dz)))
+        spans = 1.0 - np.asarray(nodes[:rows], dtype=np.float64)
+        carrier = np.empty(1 + 2 * rows, dtype=np.float64)
+        carrier[0] = shift
+        carrier[1::2] = np.cos(shift * spans)
+        carrier[2::2] = np.sin(shift * spans)
+    with _envelope_errors():
+        norms = _testing.adams_exponential_trial_at(
+            backend._workspace,
+            z,
+            dz,
+            np.asarray(nodes, dtype=np.float64),
+            np.ascontiguousarray(slots[: max(rows, order)], dtype=np.uint64),
+            order,
+            list(orders),
+            _native_compensated(backend),
+            carrier,
+        )
+    return np.asarray(norms, dtype=np.float64).reshape(-1), carrier

@@ -17,12 +17,9 @@ from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import OutputError, ProcessingError
 from solprop.grid import FieldGrid
 from solprop.output.memory import MemoryOutput
+from solprop.output.metadata import _example_metadata
+from solprop.output.records import GridRecord, SavedPlane
 from solprop.output.scan import PointResult, ScanWriter
-from solprop.output.schema import (
-    GridRecord,
-    SavedPlane,
-    _example_metadata,
-)
 from solprop.processing import scans
 from solprop.processing.axes import grid_from_record
 from solprop.processing.fields import get_spectral_density
@@ -259,7 +256,7 @@ def test_spectrum_wavelength_refuses_ambiguous_or_missing_axes(tmp_path):
         writer.commit(_spectrum_point(index, grid, reduction))
     writer.commit(_spectrum_point(2, grids[0], impostor))
     writer.close()
-    result = scans.open(path)
+    result = scans.open_scan(path)
     for index, grid in enumerate(grids):
         expected = scans._band_wavelength(GridRecord.from_grid(grid), (400e-9, 1.2e-6))
         np.testing.assert_array_equal(result.spectrum_wavelength(index), expected)

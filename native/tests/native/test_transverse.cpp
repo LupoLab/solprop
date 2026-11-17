@@ -9,7 +9,7 @@
 // configuration is refused by the field at fault, the tie order of the worst face, a
 // point's several notices served one at a time, and the spacing's ceiling.
 
-#include "solprop_native/transverse.hpp"
+#include "solprop_native/session/transverse.hpp"
 
 #include <gtest/gtest.h>
 

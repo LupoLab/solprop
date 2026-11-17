@@ -4,12 +4,13 @@
 
 """Line plots of the statistics a run recorded at its saved planes.
 
-Two figures: what the pulse did, and what the waveguide and the gas were doing while
-it did it. Only the statistics the run actually recorded are drawn, and a figure with
-nothing to put in it is not made at all rather than raising.
+:func:`plot_stats` draws two figures: what the pulse did (:data:`PULSE_STATISTICS`), and
+what the waveguide and the gas were doing meanwhile (:data:`OTHER_STATISTICS`). Only
+the statistics the run recorded are drawn, and a figure with nothing to put in it is not
+made at all rather than raising.
 
-The catalogue of names, shapes and units is :data:`solprop.stats.CATALOGUE`; the display
-units are :mod:`solprop.plotting.style`'s.
+The catalogue of names, shapes and units is :data:`solprop.stats.catalogue.CATALOGUE`;
+the display units are :mod:`solprop.plotting.style`'s.
 """
 
 from typing import Any
@@ -20,7 +21,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
 from solprop.constants import C
-from solprop.output.schema import Output
+from solprop.output.store import Output
 from solprop.plotting.style import (
     ENERGY_TO_UJ,
     T_TO_FS,
@@ -100,7 +101,7 @@ def plot_stats(output: Output, **kwargs: Any) -> list[Figure]:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     **kwargs : Any
         Passed to :meth:`matplotlib.axes.Axes.plot`.

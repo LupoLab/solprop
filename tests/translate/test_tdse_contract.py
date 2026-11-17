@@ -27,7 +27,7 @@ from solprop.nonlinear.tdse import (
     TDSEGasResponse,
     TDSESampling,
 )
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.translate.tdse import (
     AtomicCallBudget,
     AtomicCallLedger,

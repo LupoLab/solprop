@@ -6,9 +6,12 @@
 
 :func:`resolve_transverse` turns a :class:`~solprop.spatial_absorber.SpatialAbsorber`
 into a :class:`~solprop.spatial_absorber.SpatialAbsorberDesign` against the grid, the
-medium over the requested band and along the run, and the noise-free launch: the
-safety ramp's rate on the spectral columns and, when a collar is asked for, its rate
-on the nodes, its band, its strength and its step limit. The formulas are
+medium over the requested band and along the run (:func:`band_wavenumbers`), and the
+noise-free launch: the safety ramp's rate on the spectral columns and, when a collar is
+asked for, its rate on the nodes, its band, its strength and its step limit.
+:func:`checked_design` runs the collar's design check
+(:mod:`solprop.translate.collar_check`) and refuses a failing design, naming the first
+larger collar fraction of :data:`LADDER` that passes. The formulas are
 :mod:`solprop.spatial_absorber`'s; this module only gathers what they are evaluated on.
 """
 
@@ -152,7 +155,7 @@ def band_wavenumbers(
 
 def _column_power(
     space: RadialGrid | FreeGrid | PlanarGrid,
-    field0: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+    field0: Complex[np.ndarray, "n_modes n_pol n_omega"],
     mask: np.ndarray,
 ) -> Float[np.ndarray, " n_columns"]:
     """Return each spectral column's launch energy over the requested band.
@@ -160,14 +163,14 @@ def _column_power(
     - ``field0``: the noise-free launch, canonical layout.
     - Returns: energy per column in the field's own units.
     """
-    density = np.empty(field0.shape[1])
+    density = np.empty(field0.shape[0])
 
     def columns(rows: slice) -> None:
         """Sum one block of columns; each column's own sum is unchanged by blocking."""
-        density[rows] = np.sum(np.abs(field0[:, rows][..., mask]) ** 2, axis=(0, 2, 3))
+        density[rows] = np.sum(np.abs(field0[rows][..., mask]) ** 2, axis=(1, 2))
 
     # A large launch's single pass took 2 s of translation (solprop issue #347).
-    parallel_rows(field0.shape[1], field0.nbytes, columns)
+    parallel_rows(field0.shape[0], field0.nbytes, columns)
     return np.asarray(space.spectral_weights) * density
 
 
@@ -192,7 +195,7 @@ def _intermediate_return(  # noqa: PLR0917 - the design and its weights
     widths: tuple[float, ...],
     starts: list[float],
     alpha0: float,
-    field0: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+    field0: Complex[np.ndarray, "n_modes n_pol n_omega"],
     space: RadialGrid | FreeGrid | PlanarGrid,
     grid: TimeGrid,
     k: Float[np.ndarray, " n"],
@@ -212,7 +215,7 @@ def _intermediate_return(  # noqa: PLR0917 - the design and its weights
     """
     band = np.nonzero(grid.inband_mask & grid.active_mask)[0]
     power = np.asarray(space.spectral_weights)[:, None] * np.sum(
-        np.abs(np.asarray(field0[0])[..., band]) ** 2, axis=1
+        np.abs(np.asarray(field0)[..., band]) ** 2, axis=1
     )
     total = float(np.sum(power))
     if not total > 0.0:
@@ -291,8 +294,7 @@ def resolve_transverse(  # noqa: PLR0912, PLR0915 - one resolution, in order
     grid = dispersion.grid
     k, omega = band_wavenumbers(space, dispersion, z_max)
     mask = grid.inband_mask & grid.active_mask
-    # The column reductions read a leading axis of one, a view.
-    launch = np.asarray(field0)[np.newaxis]
+    launch = np.asarray(field0)
     power = _column_power(space, launch, mask)
     attenuation = specification.attenuation
     axes = _axes(space)
@@ -470,12 +472,12 @@ def _trial_grid(
 def _relaunched(
     space: RadialGrid | FreeGrid | PlanarGrid,
     trial: RadialGrid | FreeGrid | PlanarGrid,
-    field0: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
-) -> Complex[np.ndarray, "1 n_trial n_pol n_omega"]:
+    field0: Complex[np.ndarray, "n_modes n_pol n_omega"],
+) -> Complex[np.ndarray, "n_trial n_pol n_omega"]:
     """Return the launch on a trial grid: its field, zero beyond the design's grid."""
-    first = np.asarray(field0[:1], dtype=np.complex128)
-    _, n_cols, n_pol, n_omega = first.shape
-    flat = first[0].reshape(n_cols, n_pol * n_omega)
+    first = np.asarray(field0, dtype=np.complex128)
+    n_cols, n_pol, n_omega = first.shape
+    flat = first.reshape(n_cols, n_pol * n_omega)
     if isinstance(space, RadialGrid):
         assert isinstance(trial, RadialGrid)
         series = j0(np.outer(trial.r, space.k_r)) * (
@@ -510,7 +512,7 @@ def _relaunched(
         columns = np.fft.fftn(np.fft.ifftshift(bigger, axes=axes), axes=axes).reshape(
             -1, n_pol * n_omega
         )
-    return columns.reshape(1, -1, n_pol, n_omega)
+    return columns.reshape(-1, n_pol, n_omega)
 
 
 def checked_design(
@@ -553,8 +555,7 @@ def checked_design(
     if not design.has_collar:
         return design
     assert design.collar_rate is not None
-    # The check and the trial launches read a leading axis of one, a view.
-    held = np.asarray(field0)[np.newaxis]
+    held = np.asarray(field0)
     result = design_check(
         space, design.collar_rate, held, dispersion, z_max, min(design.width)
     )
@@ -569,7 +570,7 @@ def checked_design(
         launch = _relaunched(space, trial, held)
         try:
             candidate = resolve_transverse(
-                design.specification, trial, dispersion, launch[0], z_max
+                design.specification, trial, dispersion, launch, z_max
             )
         except TranslationError:
             continue

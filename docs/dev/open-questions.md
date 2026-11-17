@@ -19,7 +19,7 @@ comparison with a reference, a measurement — settles it.
 
 **The on-axis spectrum's end bins on the native backend.** The `on_axis_spectrum`
 statistic is computed natively on the native backend
-(`GeneralWorkspace::spatial_statistics` in `native/src/general.cpp`) and in
+(`GeneralWorkspace::spatial_statistics` in `native/src/general/statistics.cpp`) and in
 Python on the others (`solprop/backends/spatial.py`, through
 {func}`~solprop.fourier.spectral_density`). On a field grid the two agree at every
 interior bin and differ at the zero-frequency and Nyquist bins: the native kernel does
@@ -31,11 +31,11 @@ public interfaces sees the difference. Open: which definition the statistic shou
 so that the backends also agree on a hand-built grid.
 
 **Transverse components resolved at the entrance only.** With a transverse quadrature and
-`components=None`, {func}`~solprop.translate.problem.assemble` decides which Cartesian
+`components=None`, {func}`~solprop.translate.assembly.assemble` decides which Cartesian
 field components (x, y or both) the transform carries from each mode's
 `principal_component(0.0)`, and refuses an explicitly requested component that is zero
 for every mode by the same z = 0 reading (`_components` and `_transform` in
-`solprop/translate/problem.py`). The mode protocol's `principal_component(z)` takes a
+`solprop/translate/assembly.py`). The mode protocol's `principal_component(z)` takes a
 position, so a mode whose polarisation changed along the guide would gain a component the
 transform does not carry. Every mode class today ignores `z`, so no run is affected. Open:
 whether the resolution should take the union over the run's length, or the protocol
@@ -54,22 +54,18 @@ required, [SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)).
 $n_x n_y$ columns per time sample ([free space](../guide/free-space/model.md), *Memory*). The
 backend ledger counts the retained arrays exactly, and `native` also records the device's
 free-memory decrease while its FFT plans are built, but cuFFT and rocFFT plan workspace is
-opaque and these measurements are not upper bounds. No full-size Cartesian grid (for
-example 512 × 512 transverse samples on a few thousand time samples) has been run on a
-data-centre GPU, so the largest grid a given device holds is not known. Open: a
+opaque and these measurements are not upper bounds. The largest Cartesian grid recorded
+on a data-centre GPU is 768 × 768 × 600, with statistics-only planes
+([SEP 24](seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md#closing-report--the-native-guards-the-follow-ups-and-phase-4-not-started),
+2026-10-19): the low-storage march took 610 ms a step on an AMD MI325X and 674 ms on an
+NVIDIA H200, at a device high-water of 46 and 34 GB with the transform workspace, and the
+IP-DOPRI5 replay 1077 and 1092 ms. A grid of 512 × 512 transverse samples on 2000 to 4000
+time samples is 1.5 to 3 times as many points and has not run, no record gives the Adams
+march at such a size, and the largest grid a given device holds is not known. Open: a
 measurement of plan usage and peak device memory at the largest intended grid on each
 qualified device.
 
 ## Translation and materials
-
-**Interior extrema in the scalar table check.** Before a run, `_check_scalar_domain`
-(`solprop/translate/problem.py`) checks that each scalar Chebyshev table of a density or
-a preionisation fraction stays in its domain, by evaluating every interval at its ends and
-at the real roots of its derivative. A root is kept only when `numpy.isreal` holds
-exactly, so a stationary point returned with a rounding-size imaginary part is dropped,
-and an excursion out of the domain at that point would pass without a refusal. No false
-refusal and no missed excursion was seen on the fitted tables checked. Open: whether to
-admit roots whose imaginary part is below a tolerance, and which tolerance.
 
 **`with_mixture` and the operator's representation.**
 {meth}`Simulation.with_mixture <solprop.driver.simulation.Simulation.with_mixture>`
@@ -122,14 +118,14 @@ between backends.
 ## Validation
 
 **Systematic differences against Luna's mixture witness.**
-`tests/backends/test_luna_mixture_propagation.py` propagates a single gas, the same gas
-split into two populations, and a two-channel plasma case over 64 fixed steps from Luna's
-own inputs and compares the exit field with Luna.jl's
-(`tests/data/luna_mixture_propagation.json`). The relative L2 differences are 5.25e-9
-(single and split) and 1.12e-8 (plasma), the same on every run. The test admits them
-under a predeclared rounding budget, $64\,n_{to}\,n_{\rm channels}\cdot 7\cdot{\rm
-steps}\cdot\varepsilon$ (1.30e-8 and 2.61e-8), which is an allowance rather than a count
-of operations, so the margin is 2.3–2.5. Open: what the systematic difference is —
+`tests/backends/test_luna_mixture_propagation.py` propagates a single gas and the same
+gas split into two populations over 64 fixed steps from Luna's own inputs and compares
+the exit field with Luna.jl's (`tests/data/luna_mixture_propagation.json`). The relative
+L2 differences are 5.25e-9, the same on every run. The test admits them under a
+predeclared rounding budget, $64\,n_{to}\cdot 7\cdot{\rm steps}\cdot\varepsilon$
+(1.30e-8), which is an allowance rather than a count of operations, so the margin is
+2.5. (The witness's two-channel plasma case ran the gated plasma source and was dropped
+with it; its arrays stay in the archive.) Open: what the systematic difference is —
 summation order, an input conversion or a small model difference — so that the bound can
 be derived rather than budgeted.
 

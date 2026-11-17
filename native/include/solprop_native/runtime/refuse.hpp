@@ -1,0 +1,58 @@
+// SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+// The backend's refusals: the exception types solprop maps to its own errors
+// (`EnvelopeConvergenceError` and `BackendRefusal`, which the extension registers as
+// Python exceptions), and `refuse`, which throws an error whose message `concat` builds
+// from text and numbers.
+
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <type_traits>
+
+namespace solprop_native {
+
+/** Signal exhaustion of the validated angular rule before source assembly. */
+class EnvelopeConvergenceError : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
+};
+
+/** Refuse a step solprop's reference refuses with `BackendError` (solprop SEP 45
+    phase 4): a coupled flow's action past its squarings or its certificate. */
+class BackendRefusal : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
+};
+
+namespace detail {
+
+template <class Part> void append_part(std::string& text, const Part& part) {
+  if constexpr (std::is_arithmetic_v<Part> && !std::is_same_v<Part, bool> &&
+                !std::is_same_v<Part, char>)
+    text += std::to_string(part);
+  else
+    text += std::string_view(part);
+}
+
+} // namespace detail
+
+/** `parts` concatenated: text as given, numbers as `std::to_string` writes them (a
+    double in `%f`), so that a message built from them keeps its exact text. */
+template <class... Parts> [[nodiscard]] std::string concat(const Parts&... parts) {
+  std::string text;
+  (detail::append_part(text, parts), ...);
+  return text;
+}
+
+/** Throw `Error` with the message `concat(parts...)`. */
+template <class Error = std::invalid_argument, class... Parts>
+[[noreturn]] void refuse(const Parts&... parts) {
+  throw Error(concat(parts...));
+}
+
+} // namespace solprop_native

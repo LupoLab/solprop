@@ -3743,3 +3743,10 @@ benchmarks committed), solprop-kokkos `78add4f` installed, `SOLPROP_KOKKOS_THREA
 - 2026-10-08: Phase 4 merged with John Travers's decisions (Q6: the carrier policy stays
   the default; the fit-uncertainty comparison published). **Final**, approved by John
   Travers; moved to the archive. Its remaining work is on the roadmap.
+- 2026-11-12: The Phase 0 design-table replay (`tests/sep6_quartets.py`, its record
+  `tests/data/sep6_quartets.json` and `tests/test_sep6_quartets.py`) was retired. It
+  re-evaluated Part I's tables with code of its own rather than solprop's. Its claims
+  are held by solprop's own tests: the SI conversion against optmat's `gamma3` and
+  the leg bound by `tests/physdata/test_dispersive_kerr_model.py`, and the leg bound
+  and the FFT forms by `tests/nonlinear/test_dispersive_kerr_algebra.py` and
+  `tests/driver/test_dispersive_demonstrations.py`.

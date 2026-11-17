@@ -62,7 +62,8 @@ from legacy_geometry import LEGACY_GRID
 from march_bounds import FIXED_ORDER
 from modal_provider_cases import GENERAL_Z_END
 from sessions.runs import bare, final_field, to_planes
-from solprop.backends import available
+from sessions.runs import run as session_run
+from solprop.backends import available, records
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -183,7 +184,7 @@ def test_the_collar_is_carried_by_the_frozen_flow_alone(name):
     """
     backend = backend_class(name)
     simulation = varying(wall=CoherentWall(), absorber=_no_temporal_collar())
-    problem, run_request = simulation.translate(), simulation._run_request()
+    problem, run_request = simulation.translate(), simulation.run_request()
     index = int(np.flatnonzero(collar_bins(problem))[0])
     assert not GRID.inband_mask[index]
     launched = _launched_in(problem, index)
@@ -232,7 +233,7 @@ def _transient_case():
     with warnings.catch_warnings():
         for category in (*QUIET, SolpropWarning):
             warnings.simplefilter("ignore", category)
-        return simulation.translate(), simulation._run_request(), simulation.grid
+        return simulation.translate(), simulation.run_request(), simulation.grid
 
 
 def _transient_simulation():
@@ -308,34 +309,35 @@ def test_a_coupled_flow_keeps_its_collar_in_every_stage(transient, name, monkeyp
     problem, run_request, grid = transient
     assert problem.linear.coupled_flow is not None
     if name == "numpy_ref":
-        # The reference's driver, whose collar rule the native session's mirrors.
+        # The reference's session, whose collar rule the native session's mirrors.
+        assert not records.collar_rests(problem, run_request.stepper)
         driver: Any = backend(problem, run_request, grid=grid)
         try:
-            assert not driver._collar_can_rest()
-            driver._set_collar_quiet(True)
-            assert not driver._collar_quiet
+            session: Any = driver.prepare(problem, run_request).start(
+                Start.entrance(problem), owns=False
+            )
+            session._set_collar_quiet(True)
+            assert not session.collar_quiet
+            assert not driver.workspace.collar_quiet
+            session.close()
         finally:
             driver.close()
         return
     # The native session's monitor holds the collar's state natively: the rule
     # reaches it in the monitor's configuration, which a monitored session of the
     # flow is built with (SEP 47 phase 5).
-    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        _watch,
-    )
-
     simulation = _transient_simulation()
     monitor = simulation._boundary_monitor()
     assert monitor is not None
     request = run_request.for_run(stats=StatsSpec(), monitor=monitor)
     asked: list[bool] = []
-    configured = _watch.monitor_config
+    configured = records.monitor_config
 
     def spied(monitor, crossing, *, can_rest):
         asked.append(can_rest)
         return configured(monitor, crossing, can_rest=can_rest)
 
-    monkeypatch.setattr(_watch, "monitor_config", spied)
+    monkeypatch.setattr(records, "monitor_config", spied)
     session = start_session(
         backend(problem, request, grid=grid), problem, request, Start.entrance(problem)
     )
@@ -444,18 +446,19 @@ def test_the_in_band_answer_moves_by_less_than_the_derived_bound(case):
     """
     simulation = IN_BAND_CASES[case]()
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     grid = simulation.grid
     band = problem.grids.inband_mask
-    planes = []
-    driver = NumpyRefBackend(problem, run_request, grid=grid)
+    # Every step's end observed, through the backend's session (SEP 47).
+    request = to_planes(
+        bare(run_request), [(step + 1) * LENGTH / STEPS for step in range(STEPS)]
+    )
+    driver = NumpyRefBackend(problem, request, grid=grid)
     try:
-        driver.set_initial(problem.initial.field0, None)
-        for step in range(STEPS):
-            driver.propagate_to((step + 1) * LENGTH / STEPS)
-            planes.append(driver.observe().require_field().copy())
+        planes = [field.copy() for field in session_run(driver, problem).fields[1:]]
     finally:
         driver.close()
+    assert len(planes) == STEPS
     old = run(NumpyRefBackend, scored_everywhere(problem), run_request, grid)
     departure = float(
         np.linalg.norm((planes[-1] - old)[..., band]) / np.linalg.norm(old[..., band])
@@ -516,7 +519,7 @@ def test_a_flow_with_nothing_unscored_is_what_it_was(
         problem = scored_everywhere(problem)
     else:
         assert flow.section_methods == ("constant_schur",)
-    state = run(backend, problem, simulation._run_request(), simulation.grid)
+    state = run(backend, problem, simulation.run_request(), simulation.grid)
     check_state(
         ndarrays_regression,
         state,

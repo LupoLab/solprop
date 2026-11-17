@@ -52,10 +52,10 @@ plane out without touching the rest. They are created at the first save for ever
 the run will save, and the file's `n_saved` attribute counts the planes written (below).
 
 The run loop tells either store how many planes to expect with
-{py:meth}`~solprop.output.schema.PlaneStore.reserve`; a handler driven by hand works
+{py:meth}`~solprop.output.store.PlaneStore.reserve`; a handler driven by hand works
 without it, growing as it goes.
 
-Both are {py:class}`~solprop.output.schema.PlaneStore` subclasses, and everything that
+Both are {py:class}`~solprop.output.store.PlaneStore` subclasses, and everything that
 must not differ between them lives in that base class: the conversion applied on save,
 the metadata overwrite rule, the accessor keys, the step-history layout, and the check
 that every plane fits the layout the first one fixed (the field's shape, the statistic
@@ -91,7 +91,7 @@ vocabulary {py:func}`~solprop.driver.scan.run_scan` already uses:
 | `"none"` | the statistics and step history alone |
 
 A run is **homogeneous**: it keeps its fields by one rule, declared to the output before
-its first plane ({py:meth}`~solprop.output.schema.PlaneStore.retain`), and a plane that
+its first plane ({py:meth}`~solprop.output.store.PlaneStore.retain`), and a plane that
 breaks it is refused by name. A plane without its field is not copied, converted or
 stored, and an in-memory output allocates no field block for it: a statistics-only run
 holds its statistics. The march is unchanged — the statistics are computed from
@@ -131,18 +131,18 @@ output["field_planes"]                  # the saved planes that kept a field: no
 
 Reading a field that was not kept is refused, naming the run's `fields`:
 `output["field"]`, `output["noise_phase"]` and
-{py:meth}`~solprop.output.schema.PlaneStore.fields` need every plane's field and answer
-only for an `"all"` run; {py:meth}`~solprop.output.schema.PlaneStore.plane_field` reads
+{py:meth}`~solprop.output.store.PlaneStore.fields` need every plane's field and answer
+only for an `"all"` run; {py:meth}`~solprop.output.store.PlaneStore.plane_field` reads
 one saved plane's field and works for any plane that kept one; `output["field_planes"]`
-lists them. {py:mod}`solprop.processing` reads one plane through `plane_field`, so a
-processing function asked for a kept plane works and one asked for another plane is
-refused by name. {py:meth}`~solprop.output.memory.MemoryOutput.planes` returns
+lists them. `plane_field` is part of the {py:class}`~solprop.output.store.Output`
+protocol, and {py:mod}`solprop.processing` reads one plane through it, so a processing
+function asked for a kept plane works and one asked for another plane is refused by name. {py:meth}`~solprop.output.memory.MemoryOutput.planes` returns
 `field=None` where no field was kept. A run that stops on an error or a signal still
 writes its terminal checkpoint **with** the field ([resuming](resuming.md)).
 
 A handler of your own takes field-free planes by declaring
-{py:class}`~solprop.output.schema.RetainingOutput`, one method beside the
-{py:class}`~solprop.output.schema.Output` protocol; a run that keeps fewer than every field
+{py:class}`~solprop.output.store.RetainingOutput`, one method beside the
+{py:class}`~solprop.output.store.Output` protocol; a run that keeps fewer than every field
 refuses a handler without it, by name. To reduce each plane and keep nothing, no class is
 needed: {py:class}`~solprop.output.callback.CallbackOutput` is built from a callable
 ([a scan that reduces each plane](../setup/running.md#a-scan-that-reduces-each-plane)).
@@ -165,7 +165,7 @@ class Energies:
     ...  # the rest of the Output protocol
 ```
 
-`retain` is given a {py:class}`~solprop.output.schema.FieldRetention` whose indices are
+`retain` is given a {py:class}`~solprop.output.store.FieldRetention` whose indices are
 already counted from the entrance, and the shape `(n_modes, n_pol, n_omega)` of the state,
 known even when no plane will carry a field. A handler already holding planes
 under a different rule raises {py:class}`~solprop.exceptions.OutputError`, as a resumed
@@ -178,7 +178,7 @@ observation itself can skip the field.
 
 ## What goes in, and in which convention
 
-A {py:class}`~solprop.output.schema.SavedPlane` is what a driver hands over: the position
+A {py:class}`~solprop.output.records.SavedPlane` is what a driver hands over: the position
 `z`, the field there as `(n_modes, n_pol, n_omega)` in the **internal** FFT convention
 (or `None` on a plane that keeps no field), the statistics evaluated at that plane, the
 step history since the previous plane, and the accumulated noise phase when a noise
@@ -203,26 +203,26 @@ $$ \tilde E_{\text{optics},k} = (-1)^k\,\overline{\tilde E_k} $$
 and a stored spectral phase uses the declared optics convention and time origin.
 An ordinary intensity spectrometer does not itself measure that phase. The `field` dataset
 and the file itself carry the attribute `spectral_convention = "optics"` to say so.
-{py:meth}`~solprop.output.schema.PlaneStore.fields` with `convention="fft"` converts
+{py:meth}`~solprop.output.store.PlaneStore.fields` with `convention="fft"` converts
 back, to the form a backend works in.
 
 A run makes that conversion only once per kept plane, and where the field is kept. Rather
 than handing a store a plane with its field and having the store convert it into a second
 volume, the run's session converts the field straight into the stored form, into the room
-the store gives it ({py:meth}`~solprop.output.schema.PlaneStore.field_destination`):
+the store gives it ({py:meth}`~solprop.output.store.PlaneStore.field_destination`):
 `MemoryOutput`'s own row for the plane, so the field is written once, where it stays, or a
 new array that `HDF5Output` writes into the plane's chunk without a copy. The store then
 takes the plane with
-{py:meth}`~solprop.output.schema.PlaneStore.save_exported`, its field beside it as a
-{py:class}`~solprop.output.schema.StoredField`. What is stored is bit for bit what
-{py:meth}`~solprop.output.schema.PlaneStore.save` stores for the same field. A store
+{py:meth}`~solprop.output.store.PlaneStore.save_exported`, its field beside it as a
+{py:class}`~solprop.output.records.StoredField`. What is stored is bit for bit what
+{py:meth}`~solprop.output.store.PlaneStore.save` stores for the same field. A store
 subclass that overrides `save` is still given every plane, with its field in the internal
 convention, through its `save`
-({py:attr}`~solprop.output.schema.PlaneStore.takes_exports`); so is any output that is not
+({py:attr}`~solprop.output.store.PlaneStore.takes_exports`); so is any output that is not
 a `PlaneStore`.
 
 Two things stay internal, and are marked so rather than converted: the **noise
-realisation** in {py:class}`~solprop.output.schema.NoiseRecord` and the per-plane
+realisation** in {py:class}`~solprop.output.records.NoiseRecord` and the per-plane
 **noise phase**. Neither is a user-facing spectrum — they are the object the stepper adds
 at every stage and the phase that advances it (see [noise](../media/noise.md)) — and
 conjugating them would make them disagree with the state they have to be added to.
@@ -236,7 +236,7 @@ and that is exactly what the boundary exists to get right.
 ## The metadata overwrite rule
 
 Metadata is written once.
-{py:func}`~solprop.output.schema.resolve_metadata_write` is the single rule both handlers
+{py:func}`~solprop.output.metadata.resolve_metadata_write` is the single rule both handlers
 obey: a second record describing the same run — the same configuration hash — is a no-op;
 one describing a different run raises and names what changed; `force=True` replaces it
 and logs a warning.
@@ -275,7 +275,7 @@ For a modal run:
   step_stats/<name>     already available periodic statistics
 /march_snapshot/       optional; attrs: z (NaN while being written), method, order,
                        rejections, last_rejected, proposal, identities (JSON)
-  state                 (1, n_modes, n_pol, n_omega)        the accepted state, internal
+  state                 (n_modes, n_pol, n_omega)           the accepted state, internal
   positions, slots      (n_entries,)                        the history's entries
   rows/<name>           (n_slots, ...)                      the engine's rows
 ```
@@ -353,8 +353,8 @@ its first start, once, and never rewrites it:
 The **resolved** recipe is what rebuilds the run: the authored keys, the noise seed that
 was drawn, each keyword written back only where its value gives the same record (`rtol`,
 `atol`, `dz_max`, the integrator, the statistics, the save planes, the capillary's
-temperature, plasma, third harmonic and Raman switches, and the defaults of `loss` and
-`model`), and `[execution]` as the run started. The group is provenance outside the run
+temperature, plasma, third harmonic and Raman switches, and the defaults of
+`loss_scale` and `model`), and `[execution]` as the run started. The group is provenance outside the run
 record and its hash: a file without it is a file from a script, a reader that does not
 know it ignores it, and a later session of the file, from a script or from an edited
 recipe, leaves it as it is and is recorded in its own execution record.
@@ -366,15 +366,19 @@ recipe, leaves it as it is and is recorded in its own execution record.
 reader may offer: the file's basis (`modal`, `general_modal` or `spatial`); whether its
 power, energy, spectral density and field are **physical fluxes** (an orthogonal modal
 basis) or **coordinate quantities** (a general modal basis, whose physical energy is
-`physical_energy`, and a spatial grid, per transverse column); which saved planes keep
-their field and which only their statistics; which of the basis-dependent accessors and
-compression its readers refuse, with the refusal they give, read from the same gates
-(a spatial file admits `energy`, whose statistic is the beam's physical energy); in
-`refused_readers`, which processing and plotting readers refuse it (on a spatial file
-every reader that would read its columns as modes, such as `get_power`);
-what a general modal reconstruction needs that the file only identifies (the guide and
-the reference tables); whether it records a recipe; and, for a path, its
-[resumability](resuming.md#what-a-file-allows).
+`physical_energy`), in W, J, J s/rad and √W. A spatial file states only its field, a
+coordinate quantity per transverse column in the run's stored unit (V m radially, V/m
+on a Cartesian or line grid, √(W/m) per y frequency on a planar one): the readers of
+its power, energy and spectral density read the columns as modes and refuse it, and
+the beam's flux is a [spatial functional](../free-space/flux.md#using-the-measure).
+It also says which saved planes keep their field and which only their statistics;
+which of the basis-dependent accessors and compression its readers refuse, with the
+refusal they give, read from the same gates (a spatial file admits `energy`, whose
+statistic is the beam's physical energy); in `refused_readers`, which processing and
+plotting readers refuse it (on a spatial file every reader that would read its
+columns as modes, such as `get_power`); what a general modal reconstruction needs
+that the file only identifies (the guide and the reference tables); whether it
+records a recipe; and, for a path, its [resumability](resuming.md#what-a-file-allows).
 
 ### The writer-lock sidecar
 
@@ -424,13 +428,17 @@ it with `open_tdse_archive` ([the TDSE response](../media/tdse.md#the-raw-respon
 ## The schema version
 
 Every file records its `schema_version`; this release writes and reads output
-schema **2** (`solprop.output.SCHEMA_VERSION`). Schema 1 was the first released layout,
-that of 0.1.0; schema 2 adds `spectral_phase` to the record of a
-{py:class}`~solprop.pulses.DataPulse`. A file of any other schema is refused by name
-wherever it is opened, read or resumed: files written by an earlier release or by
-development versions of solprop, which declared output schemas up to 28, are not read,
-and nor is a file from a later release. Read such a file with the solprop version that
-wrote it. A scan file is refused the same way, by the output schema each point's run
+schema **4** (`solprop.output.SCHEMA_VERSION`). Schema 1 was the first released layout,
+that of 0.1.0; schema 2, that of 0.2.0, adds `spectral_phase` to the record of a
+{py:class}`~solprop.pulses.DataPulse`; schema 3 stores a march snapshot's `state` and
+its engine `rows` without the leading axis of one they kept before; schema 4 records no
+basis identity in the plane-reference record, whose `basis` entry is gone: a plane's
+basis is derived when it is read ([coupling simulations](../workflows/coupling.md)). A
+file of any other schema is refused by name wherever it is opened, read or resumed: files
+written by an earlier release or by development versions of solprop, which declared
+output schemas up to 28, are not read, and nor is a file from a later release. Read such
+a file with the solprop version
+that wrote it. A scan file is refused the same way, by the output schema each point's run
 record declares, whether it is read or resumed; its own `scan_schema_version` versions
 the scan container, not the records in it, and is still 1. A resume needs the file's
 schema to be this one, and checks that before it compares the records
@@ -454,7 +462,9 @@ How a run resumes from its last plane depends on what that plane is:
   whatever `interpolate_planes` the resuming run asks for;
   `resume="interpolated"` continues afresh from it and
   appends its position to the annotation `interpolated_resumes`
-  (`INTERPOLATED_RESUMES_ANNOTATION`), outside the configuration hash.
+  (`INTERPOLATED_RESUMES_ANNOTATION`), outside the configuration hash. The position is
+  written before the continuation's first step, so a session that stops or fails later
+  still records where it restarted.
 
 **Every field is recorded.** A record holds every field of every dataclass it
 serialises, at its default too, so a change that adds a field to a recorded dataclass
@@ -487,22 +497,11 @@ resume decides by the configuration hash (ADR-066).
 release bumps the schema; every later one before the next release folds into that
 version, which the next release is the first to write. Development builds between two
 releases are therefore not compatible with one another: a file written by an earlier
-build of the same schema may be refused, by name where the difference is known (a
-Multistep run's predictor orders, which are now recorded as `[order, count]` pairs,
-were one integer per step before), and is read with the build that wrote it.
+build of the same schema may be refused, and is read with the build that wrote it.
 
-**Four columns of `absorbed_power`.** The fifth column, `custom`, folded into schema 2 the
-same way, and the first column became the collar alone. A file from an earlier development
-build still **reads**, showing the four columns as they were written, in the same positions
-as the first four now, its first column holding the spectral collar and any custom rate
-together. It is not **continued**: its run record differs from the one this build writes, so an
-append, a resume, a cache check and a scan writer each refuse it, as they refuse any
-changed record ([what a resume compares](resuming.md#what-a-resume-compares)). Start a
-new file, or launch a new segment from a saved plane.
-
-A run with a non-zero `custom_absorber` rate also records the new `absorber.user_rate`, so
-even a file with no `absorbed_power` is not continued: the comparison names that field as
-absent from the stored record. A run with no custom rate keeps its record.
+**Five columns of `absorbed_power`.** The fifth column, `custom`, folded into schema 2 the
+same way, and the first column became the collar alone. A file from a development build
+before it, with four columns, is not supported: read it with the build that wrote it.
 
 ## A worked example
 
@@ -510,7 +509,8 @@ absent from the stored record. A run with no custom rate keeps its record.
 import numpy as np
 from solprop.grid import EnvelopeGrid
 from solprop.output import HDF5Output, MemoryOutput, resume
-from solprop.output.schema import GridRecord, RunMetadata, SavedPlane, StepperRecord
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import GridRecord, SavedPlane, StepperRecord
 from solprop.stepper import DOPRI5, PIController
 
 grid = EnvelopeGrid.from_limits(1.0, 835e-9, (400e-9, 2e-6), 2e-12)
@@ -541,7 +541,7 @@ function. The default, `None`, leaves the run unchanged. This is an execution po
 outside the scientific configuration hash; `SimulationRunner`'s restriction on
 reusing TDSE across inputs still applies.
 
-A snapshot requires an unbatched HDF5 run with `fields="all"`; it no longer needs
+A snapshot requires an HDF5 run with `fields="all"`; it no longer needs
 `step_planes`, and it is taken with interpolated planes too
 ([SEP 47](../../dev/seps/archive/sep-0047-run-ownership.md)). With `interpolate_planes=True` a
 request is taken at the end of the step that crossed the plane being saved, once every

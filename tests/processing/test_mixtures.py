@@ -17,7 +17,7 @@ from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import GasFlowWarning, ProcessingError
 from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
 from solprop.output import HDF5Output, MemoryOutput, open_file
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.physdata import Mixture
 from solprop.processing._examples import example_output
 from solprop.processing.fields import _spectral_density
@@ -71,7 +71,7 @@ def case(request):
     if request.param == "modal":
         simulation = Simulation(
             grid,
-            replace(mode, mixture=material, loss=2.0),
+            replace(mode, mixture=material, loss_scale=2.0),
             (),
             pulse,
             settings=settings,
@@ -83,7 +83,7 @@ def case(request):
             else FreeGrid(3e-4, 4, 4e-4, 4, collar_fraction=0.0)
         )
         if isinstance(space, RadialGrid):
-            simulation = Simulation.from_radial(
+            simulation = Simulation.from_free(
                 grid,
                 space,
                 SpatialMedium(material),
@@ -201,7 +201,7 @@ def test_saved_record_contains_ordered_species_and_complete_optics(case, outputs
     simulation, _ = case
     memory, reloaded = outputs
     for output in (memory, reloaded):
-        assert output.metadata.schema_version == 2
+        assert output.metadata.schema_version == 4
         material = output.metadata.configuration["medium"]
         assert material["labels"] == ["population-0", "population-1"]
         assert (
@@ -226,7 +226,7 @@ def test_missing_statistics_and_unknown_labels_are_explicit(outputs):
         processing.absorbed_spectral_energy(output, species="misspelled")
 
 
-def test_legacy_record_remains_readable_without_mixture_accessors():
+def test_a_single_gas_record_stays_readable_without_mixture_accessors():
     output = example_output()
     for function in (
         processing.absorbed_spectral_energy,
@@ -238,11 +238,11 @@ def test_legacy_record_remains_readable_without_mixture_accessors():
     assert processing.get_spectral_density(output)[1].size > 0
 
 
-def test_callable_total_loss_is_retained_but_species_attribution_is_refused():
+def test_an_alpha_total_loss_is_retained_but_species_attribution_is_refused():
     mixture, grid, mode, _, (original, run_request) = mixture_translation()
     simulation = Simulation(
         grid,
-        replace(mode, mixture=mixture, loss=np.ones_like),
+        replace(mode, mixture=mixture, alpha=np.ones_like, loss_scale=1.0),
         (),
         original.initial.field0,
         settings=SimulationSettings(
@@ -255,7 +255,7 @@ def test_callable_total_loss_is_retained_but_species_attribution_is_refused():
     output = MemoryOutput()
     output.open(simulation.metadata())
     output.save(SavedPlane(z=0.0, field=original.initial.field0))
-    with pytest.raises(ProcessingError, match="callable total loss"):
+    with pytest.raises(ProcessingError, match="an alpha replacing the total loss"):
         processing.absorbed_spectral_energy(output)
     assert np.all(processing.node_fluence(output) >= 0)
 
@@ -309,7 +309,7 @@ def test_a_spatial_record_without_its_plane_measure_is_refused(case):
 def test_coarse_radial_fluence_matches_direct_bessel_synthesis():
     material, grid, _, _, (_, run_request) = mixture_translation()
     space = RadialGrid(6e-4, 8, collar_fraction=0.0)
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid,
         space,
         SpatialMedium(material),
@@ -368,12 +368,12 @@ def test_zero_density_does_not_require_optical_support(case):
     )
     mixture = Mixture.of(first, absent)
     if simulation.medium:
-        simulation.medium = replace(simulation.medium, material=mixture)
+        simulation._medium = replace(simulation.medium, material=mixture)
     else:
-        simulation.modes = tuple(
+        simulation._modes = tuple(
             replace(mode, mixture=mixture) for mode in simulation.modes
         )
-    simulation.configuration["medium"] = mixture
+    simulation._configuration["medium"] = mixture
     # Reconstruct a fresh simulation because the fixture has already translated.
     fresh = Simulation(
         simulation.grid,
@@ -416,7 +416,7 @@ def test_tapered_multimode_fluence_matches_hand_node_sum(envelope):
         energy=1e-9,
         plasma=False,
         thg=False,
-        loss=False,
+        loss_scale=0.0,
         n_r=8,
         n_save=2,
         cladding=1.45,
@@ -483,7 +483,7 @@ def test_the_recorded_power_weight_is_factored_and_survives_the_file(tmp_path):
             noise=None,
         )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     record = simulation.metadata().configuration["mixture_processing"]
     assert isinstance(record, dict)
     terms, basis = record["power_weight_terms"], record["power_weight_basis"]

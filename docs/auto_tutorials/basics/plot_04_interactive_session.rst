@@ -86,7 +86,7 @@ characteristic lengths, the soliton order and the powers.
  .. code-block:: none
 
     MODE:
-      MarcatiliMode(HE11, a=125 um, Ar, model=full, loss=True)
+      MarcatiliMode(HE11, a=125 um, Ar, model=full, loss=model)
     WAVEGUIDE:
       Aeff = 2.34e-08 m^2, Lloss = 7.06e+00 m (1/e power)
     FILL:
@@ -169,12 +169,14 @@ The same phase matching applies to an antiresonant fibre. Here d/D is the
 **inner** resonator diameter divided by the inscribed core diameter. The model's
 wall resonances can produce several roots; phase matching does not ensure low loss.
 
-.. GENERATED FROM PYTHON SOURCE LINES 84-101
+.. GENERATED FROM PYTHON SOURCE LINES 84-103
 
 .. code-block:: Python
 
 
-    lattice = sol.TubeLattice.from_inner_diameter_ratio(20e-6, 300e-9, 0.6, 6)
+    lattice = sol.TubeLattice.from_inner_diameter_ratio(
+        20e-6, wall_thickness=300e-9, inner_diameter_ratio=0.6, n_tubes=6
+    )
     antiresonant = sol.VincettiMode(20e-6, "He", 2.0, lattice=lattice)
     antiresonant_gamma = sol.nonlinear_coefficient(
         antiresonant, sol.n2("He", pressure=2.0, wavelength=800e-9), 800e-9
@@ -198,19 +200,19 @@ wall resonances can produce several roots; phase matching does not ensure low lo
 
  .. code-block:: none
 
-    2026-11-06 16:13:03,321 WARNING solprop.modes.antiresonant: Vincetti geometry outside published validation ranges: wall_thickness/tube_radius=0.0243902 outside [0.05, 0.2]
+    2026-11-16 16:17:38,476 WARNING solprop.modes.antiresonant: Vincetti geometry outside published validation ranges: wall_thickness/tube_radius=0.0243902 outside [0.05, 0.2]
     Vincetti RDW roots (nm): [636.0, 688.2]
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 102-105
+.. GENERATED FROM PYTHON SOURCE LINES 104-107
 
 Run
 ---
 One call. The pulse is a Gaussian, the default; the run takes a second or two.
 
-.. GENERATED FROM PYTHON SOURCE LINES 105-122
+.. GENERATED FROM PYTHON SOURCE LINES 107-124
 
 .. code-block:: Python
 
@@ -249,22 +251,22 @@ One call. The pulse is a Gaussian, the default; the run takes a second or two.
                        plasma_work_defect, pressure, quadrature_error, species_density, ...
       between planes:  none
       run:             RunMetadata(multimode, field grid of 1728, 1 modes, native,
-                       2026-11-06T16:13:03.569961+00:00)
+                       2026-11-16T16:17:39.316305+00:00)
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 123-125
+.. GENERATED FROM PYTHON SOURCE LINES 125-127
 
 The propagation maps: the spectrum broadens symmetrically and the pulse stretches, as
 self-phase modulation in normal dispersion does.
 
-.. GENERATED FROM PYTHON SOURCE LINES 125-128
+.. GENERATED FROM PYTHON SOURCE LINES 127-130
 
 .. code-block:: Python
 
 
-    figures = sol.prop_2d(run, "wavelength", spec_range=(500e-9, 1.2e-6), db_min=-30)
+    figures = sol.prop_2d(run, spec_range=(500e-9, 1.2e-6), db_min=-30)
 
 
 
@@ -278,14 +280,14 @@ self-phase modulation in normal dispersion does.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 129-133
+.. GENERATED FROM PYTHON SOURCE LINES 131-135
 
 Compress
 --------
 How short could the output be, and what gets it there? The transform limit first,
 then a pure group-delay dispersion, then dispersion and third order together.
 
-.. GENERATED FROM PYTHON SOURCE LINES 133-142
+.. GENERATED FROM PYTHON SOURCE LINES 135-144
 
 .. code-block:: Python
 
@@ -323,14 +325,14 @@ then a pure group-delay dispersion, then dispersion and third order together.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 143-147
+.. GENERATED FROM PYTHON SOURCE LINES 145-149
 
 About -40 fs\ :sup:`2` does most of the work, reaching 0.86 of the transform-limited
 peak power, and adding third order recovers much of what is left. Neither is a thing
 you can buy. Glass has the wrong sign for this pulse, and the search says so: the
 best it can do is *remove* glass that is not there.
 
-.. GENERATED FROM PYTHON SOURCE LINES 147-150
+.. GENERATED FROM PYTHON SOURCE LINES 149-152
 
 .. code-block:: Python
 
@@ -355,13 +357,13 @@ best it can do is *remove* glass that is not there.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 151-154
+.. GENERATED FROM PYTHON SOURCE LINES 153-156
 
 What is on the table is a set of chirped mirrors, which over-compensate in whole
 bounces, and a pair of wedges to trim the rest. ``compress_mirrors`` tries every count
 and tunes the insertion for each.
 
-.. GENERATED FROM PYTHON SOURCE LINES 154-164
+.. GENERATED FROM PYTHON SOURCE LINES 156-166
 
 .. code-block:: Python
 
@@ -388,7 +390,7 @@ and tunes the insertion for each.
       duration:   41.92 fs before, 4.96 fs after, 4.21 fs at the transform limit
       peak power: 2.113 GW before, 13.13 GW after, 17.44 GW at the limit
       quality:    0.7533 of the transform-limited peak power
-      search:     converged: Solution found. (625 evaluations)
+      search:     converged: Solution found. (624 evaluations)
       per count:  0: quality 0.1212, 0 m
                   1: quality 0.7533, 128.3 um
                   2: quality 0.7391, 1.338 mm
@@ -400,12 +402,12 @@ and tunes the insertion for each.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 165-167
+.. GENERATED FROM PYTHON SOURCE LINES 167-169
 
 The standard plots take the element too: the pulse behind the mirrors and wedges, and
 the spectrum it was compressed from.
 
-.. GENERATED FROM PYTHON SOURCE LINES 167-171
+.. GENERATED FROM PYTHON SOURCE LINES 169-173
 
 .. code-block:: Python
 
@@ -443,14 +445,14 @@ the spectrum it was compressed from.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 172-176
+.. GENERATED FROM PYTHON SOURCE LINES 174-178
 
 Every result carries its transfer function, which the time-domain accessors and plots
 take directly: ``sol.time_1d(run, transfer=mirrors.transfer)`` draws the compressed
 pulse. Here the three are drawn together: the pulse as it leaves the fibre, after the
 mirrors and wedges, and at its transform limit.
 
-.. GENERATED FROM PYTHON SOURCE LINES 176-195
+.. GENERATED FROM PYTHON SOURCE LINES 178-197
 
 .. code-block:: Python
 
@@ -493,12 +495,12 @@ mirrors and wedges, and at its transform limit.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 196-198
+.. GENERATED FROM PYTHON SOURCE LINES 198-200
 
 A session ends when the interpreter does. To hand the process back to the library's
 defaults before that -- the range warnings visible, no log handler -- end it:
 
-.. GENERATED FROM PYTHON SOURCE LINES 198-203
+.. GENERATED FROM PYTHON SOURCE LINES 200-205
 
 .. code-block:: Python
 
@@ -514,7 +516,7 @@ defaults before that -- the range warnings visible, no log handler -- end it:
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 204-210
+.. GENERATED FROM PYTHON SOURCE LINES 206-212
 
 Related reading
 ---------------
@@ -526,7 +528,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 2.687 seconds)
+   **Total running time of the script:** (0 minutes 12.055 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_basics_plot_04_interactive_session.py:

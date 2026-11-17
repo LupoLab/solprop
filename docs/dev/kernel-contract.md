@@ -45,14 +45,14 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 | field | type | meaning |
 |---|---|---|
 | `grid_kind` | `"field" \| "envelope"` | selects r2c/c2r vs c2c transforms and the response formulas |
-| `shape` | `(n_modes, n_pol, n_omega)` | canonical state shape of the one trajectory the problem describes; a group of trajectories is a sequence of problems ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.7) |
+| `shape` | `(n_modes, n_pol, n_omega)` | canonical state shape of the one trajectory the problem describes |
 | `flags` | frozen dataclass of static flags and counts | `single_mode`, `scalar_pol`, `has_plasma`, `has_raman`, `has_noise`, `has_temporal_absorber`, `constant_linop`, `mode_averaged`, `n_channels`, `n_raman` — kernels specialise on these at compile time. Derived from the content, never passed in |
 | `grids` | frozen dataclass | section 2 (`translate.masks.Grids`) |
 | `linear` | frozen dataclass | section 3 (`translate.linop.LinearOperator`) |
 | `responses` | frozen dataclass | section 5 (`translate.responses.CompiledResponses`) |
 | `initial` | frozen dataclass | section 6 (`translate.problem.Initial`) |
 | `route` | `ModalRoute \| GeneralRoute \| SpatialRoute` | the closed union of route descriptions (`translate.routes`), each variant carrying exactly the fields its executor needs: the transform (§4) and the route's own leaves. Below, under *The route union* |
-| `split_crossing` | `SplitCrossing` or `None` | the split temporal collar's crossing limit (`boundaries.SplitCrossing`): `buckets`, each `(mode, frequency)` bin's walk-off bucket as `(n_modes,n_omega) uint8` (the fastest of its polarisations and positions, a coupled flow's channels with the generator's diagonal added to the shared carrier; `boundaries.split_rate_buckets`), the fastest rate a bin reaches `fastest` (the open first bucket's rate), the collar's `width` and the launch's limit `launch_limit`, which holds an adaptive `dz_max` and a fixed schedule at translation. A backend that reads the boundary monitor under the `"split_step"` scheme returns the state's energy per bucket with every reading (`BoundaryEnergies.occupancy`; native: `bind_occupancy`, then `monitor_reading`'s ten numbers followed by the 128 buckets); the monitor turns it into a cap on the steps until the next check (`HostDriver._split_capped`, the native Adams march's required `step_cap` bound), and a fixed schedule whose steps before the next check exceed it, at a check or when a resumed state is watched, stops with a `BoundaryError`. `None` under the in-stage scheme or without a temporal collar. Added in version 43 |
+| `split_crossing` | `SplitCrossing` or `None` | the split temporal collar's crossing limit (`boundaries.SplitCrossing`): `buckets`, each `(mode, frequency)` bin's walk-off bucket as `(n_modes,n_omega) uint8` (the fastest of its polarisations and positions, a coupled flow's channels with the generator's diagonal added to the shared carrier; `boundaries.split_rate_buckets`), the fastest rate a bin reaches `fastest` (the open first bucket's rate), the collar's `width` and the launch's limit `launch_limit`, which holds an adaptive `dz_max` and a fixed schedule at translation. A backend that reads the boundary monitor under the `"split_step"` scheme returns the state's energy per bucket with every reading (`BoundaryEnergies.occupancy`; native: the buckets in the run's start record, then `monitor_reading`'s ten numbers followed by the 128 buckets); the monitor turns it into a cap on the steps until the next check (`numpy_ref.session.step_cap`, the native Adams march's required `step_cap` bound), and a fixed schedule whose steps before the next check exceed it, at a check or when a resumed state is watched, stops with a `BoundaryError`. `None` under the in-stage scheme or without a temporal collar. Added in version 43 |
 `PropagationProblem` also carries two **properties**, which are not fields and so not rows
 above: `transform`, the route's transform, and `device_ready`, true when Φ (§3) and the prefactor (§5) are each a weighted sum
 of a fixed set of arrays, and false when either took the z table.
@@ -60,15 +60,15 @@ of a fixed set of arrays, and false when either took the z table.
 The problem is the run's numerical meaning and nothing of how it is run
 ([SEP 47](seps/archive/sep-0047-run-ownership.md) §5.2). The stepper settings of §7 and the
 statistics request of §8 are run policy: they travel in the immutable
-`translate.run_request.RunRequest` that `translate.problem.assemble` returns beside the
+`translate.run_request.RunRequest` that `translate.assembly.assemble` returns beside the
 problem (`Translation(problem, request)`), and a backend receives both where it is built
 (`registry.select(name, problem, request, ...)`). `PropagationProblem.validate()` checks
 what the problem promises alone; `translate.problem.validate_run(problem, request)` runs
 the same checks in the same order with the request-dependent ones among them — the tables
 and leaves covering the run, a schedule landing on every plane and kink, the collar's
 stability, the split collar's crossing, the exponent budget, the method's admission on the
-route and the statistics the route admits — and every backend calls it before
-it allocates.
+route, the statistics the route admits and dense observation's admission (§7's
+`interpolate_planes`) — and every backend calls it before it allocates.
 
 ### The route union
 
@@ -88,11 +88,11 @@ mode-averaged effective-area route and the resolved quadrature, a wall's coupled
 | field | type | meaning |
 |---|---|---|
 | `transform` | frozen dataclass | §4, of kind `"mode_averaged"` or `"modal"`, with neither `geometry` nor `modal_tables` |
-| `tdse` | `TDSESource` or `None` | the TDSE response, the modal route's reference-only extension (§6); `None` without one |
+| `tdse` | `TDSESource` or `None` | the TDSE response, the modal route's extension (§6); `None` without one |
 
-`TDSESource` — the TDSE response's immutable scientific identity. Only `numpy_ref`
-executes it; `native` refuses it by name. Its execution resource, the atomic binding, is
-the driver's and crosses explicitly (§6).
+`TDSESource` — the TDSE response's immutable scientific identity. `numpy_ref` and the
+native CPU build execute it; a native device build refuses it by name. Its execution
+resource, the atomic binding, is the driver's and crosses explicitly (§6).
 
 | field | type | meaning |
 |---|---|---|
@@ -135,7 +135,8 @@ about the representation. It is the arithmetic of `delta_phi` and
 rounding.
 
 **The z table has no such split** — its evaluation is a Clenshaw pass over an array of the
-state's size times the degree. NumPy evaluates it directly. The native CPU
+state's size times the degree (1.55 GB at the comb-to-continuum size), walked through a
+Python object that a compiled step loop cannot call. NumPy evaluates it directly. The native CPU
 build holds the coefficients resident and evaluates the table at each native call's
 distinct positions into term slots, which the stage weights then select (`+-1` for an
 increment, one-hot for a value), so the bundle's arithmetic is unchanged and no field of
@@ -157,24 +158,10 @@ relies on by name, and in an editable checkout compares the extension with its `
 sources by digest (`BuildInfo.source_digest`). An added optional field leaves every problem
 that does not use it unchanged.
 
-**Batches and device memory.** A group (`GroupSession`, from the first member's
-`prepare_group`; SEP 47 section 6.7) runs independently translated member backends, which
-carry their own parameter tables and noise. The native group runs one native session per
-member; the reference's runs a `BatchBackend`, its lockstep runner
-(`registry.select_batch`), whose successful construction adopts the loaded members'
-lifetime. `observe_members()` returns one
-ordinary host `Observation` per member, preserving independent error histories and
-periodic-statistics rows. `member_metadata()` returns each member's resolved policies plus
-batch settings. `Backend.available_device_memory()` returns current free device bytes,
+**Device memory.** `Backend.available_device_memory()` returns current free device bytes,
 excluding live allocations and allocator reserves, or `None` for host execution;
-a host backend returns `None` and a device backend answers for itself. Common batch
-admission uses that probe before allocating a complete group, with 20% headroom and a
-conservative per-member upper bound from the complete memory ledger. Only compatible
-layouts under the same explicit fixed schedule can share a batch; mixed backend names are
-refused. The batch's `max_batch` is its constructed member count. Calling its
-single-observation API is refused because it would discard the independent diagnostic
-histories. The descriptors, stage bundles and singleton output schema are those of a
-singleton run.
+a host backend returns `None` and a device backend answers for itself. A scan's memory
+admission reads it with the backend's complete memory ledger.
 
 **The general-modal leaves.** `linear.coupled_flow` and `linear.modal_metric` (§3),
 `transform.modal_tables` (§4) and `responses.regional_responses` (§5) are optional. Each
@@ -258,63 +245,59 @@ too. The test that compares this document with the dataclass walks the tree by t
 in both directions; a second test checks the flags and counts named in the `flags` row of this section
 against the fields of `Flags`.
 
-**The transverse edge.** `HostDriver._edge_reading(state, edge, *, faces, current, full)`
-returns an `_EdgeReading` ([SEP 44](seps/archive/sep-0044-native-edge-read.md)): region sums, each column's unweighted energy, each
-line's `(inward, windowed)` strip and the summed rectified current, never the field. The default forms them with
-`_HostEdgeReduction` on a host copy. An override takes the edge's `_EdgeTables` and `_EdgeLine`s, whose weights, strides,
+**The transverse edge.** `NumpyWorkspace.edge_reading(edge, *, faces, current, full)`
+(native's `GeneralResident::edge_reading` in C++, `native/src/march/engines.cpp`) returns an `_EdgeReading` ([SEP 44](seps/archive/sep-0044-native-edge-read.md)): region sums, each column's unweighted energy, each
+line's `(inward, windowed)` strip and the summed rectified current, never the field. The reference forms them with
+the edge's host reduction (`_HostEdgeReduction`) on its host state. Native's takes the edge's `_EdgeTables` and `_EdgeLine`s, whose weights, strides,
 windows and onsets say all there is to know about the geometry, so a backend holds no face, mask or judgement of its own. It
 reads the state at a committed position, so it may use scratch that a step writes before reading, and it must leave the march
-as it was. `HostDriver.edge_memory(space)` says what binding holds, from the grid alone, for `estimate`: the default holds
+as it was. `Backend.edge_memory(space)` says what binding holds, from the grid alone, for `estimate`: the reference holds
 nothing beyond the state, and native's is `_transverse_edge_bytes`, equal to its `transverse_edge` ledger row.
 
-**Source reservations in the shared Adams march.** The protected hooks
-`HostDriver._reserve_source_calls(count)` and `HostDriver._release_source_calls()`
-bound the source evaluations of a trial. Before starting a trial, the shared march
-reserves its required source evaluations through these hooks; on every exit it
-releases unused capacity. The ordinary backend implementation needs no atomic
-reservation. NumPy's TDSE implementation translates the reservation into the
+**Source reservations in the Adams march.** The engine protocol's
+`begin_attempt(cost)` and `end_attempt(outcome)` (`solprop.backends.engines.AdamsEngine`,
+SEP 52 §5.2) bound the source evaluations of a trial. Before starting a trial, after the
+budget check, the march begins an attempt with its required source evaluations; it ends
+it with its decision once the attempt is recorded, or abandoned on any other exit, which
+only releases unused capacity. The reference's engine (`HostHistory`) forwards them to
+its workspace (`NumpyWorkspace.reserve_calls`, `record_trial`, `release_calls`), a no-op
+without a host source. NumPy's TDSE implementation translates the reservation into the
 required persistent-plan chunks, while provider attempts remain charged before
-invocation, including failures. Logical source-call and atomic-attempt ledgers
-remain separate. The base driver owns `_adams`, initially `None`, and exports and
-restores its logical ledger on every Adams backend. Loading a checkpoint resets
-numerical history but preserves charged calls; startup is charged again. Atomic
-ledger restoration remains exclusive to the bound NumPy TDSE path.
+invocation, including failures. Logical source-call and atomic-attempt ledgers remain
+separate. The march owns its logical ledger, which the session exports and restores on
+every Adams backend. Loading a checkpoint resets numerical history but preserves charged
+calls; startup is charged again. Atomic ledger restoration needs a bound TDSE binding, on
+either backend.
 
 **The lab-frame source of the exponential formulation.**
-`HostDriver._adams_lab_source(lab, position, *, purpose)` is the complete source
-assembly at a lab-frame field and position -- the `modified` noise draw advanced to
-that position's absolute phase, the in-stage absorbers and, on the reference backend,
-the TDSE adapter with its labels -- returned in the lab frame, with no propagator
-applied. The exponential Adams formulation
-([SEP 16](seps/archive/sep-0016-unified-multistep.md)) stores these untransported samples and
-integrates their polynomial against the linear flow; the base driver's hook refuses,
-naming the backend, so a backend that has not implemented it refuses the formulation
-rather than stepping it with another method. `Multistep.formulation` is
-`"interaction"` or `"exponential"`.
+`NumpyWorkspace.lab_source(lab, position, *, purpose)` is the complete source assembly
+at a lab-frame field and position -- the `modified` noise draw advanced to that
+position's absolute phase, the in-stage absorbers and the TDSE adapter with its labels --
+returned in the lab frame, with no propagator applied. The exponential Adams formulation
+([SEP 16](seps/archive/sep-0016-unified-multistep.md)) stores these untransported
+samples and integrates their polynomial against the linear flow, and the low-storage
+step's passes evaluate it too. `Multistep.formulation` is `"interaction"` or
+`"exponential"`.
 
-**The Adams engine.** With `HostDriver._adams_engine(method, compensation)`,
-`HostAdamsMarch` keeps the controller -- orders, slots, rejection,
-restarts, the call budget and the ledger -- and hands every state-sized operation of
-its fused and exponential paths to an engine
-(`solprop.backends.numpy_ref.multistep.AdamsEngine`): the startup sample, a trial's predictor,
-source, corrector and scored defect norms, the adoption and transport of an accepted
-step, holding and restoring the accepted state around a dense observation, and the
-observation itself. Only scalars, the coefficient tables and the norms cross the
-interface. The default returns `None`, and the march uses `HostHistory`, the host
-engine, over the other Adams hooks; `native` always returns one resident in its native
-state, and refuses the untransported compensation witness by name (SEP 47 phase 5
-deleted its host-engine fallback, and with it its `_adams_source`, `_adams_lab_source`,
-`_adams_propagator`, `_adams_block` and `_adams_adopt` overrides).
+**The Adams engine.** `HostAdamsMarch` keeps the controller -- orders, the history's
+entries, rejection, restarts, the call budget and the ledger -- in its own state, and
+hands every state-sized operation to an engine of the protocol
+`solprop.backends.engines.AdamsEngine`, native's `march::Engine` one-to-one: the startup
+sample, a trial's predictor, source, corrector and scored defect norms (`trial(z, dz,
+stencil)`), and the adoption and transport of an accepted step, which receives the
+retained entries oldest first (`accept(dz, free, stencil, kept)`). Only scalars, the
+coefficient tables and the norms cross the interface. The reference's engine is
+`HostHistory` over the workspace; a dense observation is the session's (`HostSession`),
+which asks the reference's dense output (`numpy_ref/dense.py`) to hold the accepted state
+aside, interpolate the plane and restore it.
+`native` keeps its engine resident in its native state and refuses the untransported
+compensation witness by name.
 
-`HostDriver._adams_source(lab, anchor, position, *, purpose)` takes a
-`TDSEPurpose` label so startup, predictor, corrected-field and diagnostic
-observations retain their actual provenance. This is a host seam operation:
-the shared march neither accesses NumPy's private binding nor adds atomic
-physics to a compiled backend. The native backend continues to refuse TDSE by name.
-A corrected-field diagnostic still needs an identical cached response or a
+`NumpyWorkspace.source(lab, anchor, position, *, purpose)` takes a `TDSEPurpose` label
+so startup, predictor, corrected-field and diagnostic observations retain their actual
+provenance. The native backend's march reaches the same binding through its host source
+hook (§6). A corrected-field diagnostic still needs an identical cached response or a
 separately charged solve; a predictor label never implies accepted-field data.
-If the corrected-field solve fails after candidate adoption, `_adams_restore`
-restores the previous accepted field and position before a checkpoint is written.
 
 **A `ZProfile` table** is how anything that varies along z crosses the seam: a
 scalar-valued `translate.chebyshev.PiecewiseChebyshev` over the same z range as `Phi`,
@@ -374,18 +357,18 @@ and falls to the z table below. The names are the vocabulary of
 | `phi_representation` | `"constant" \| "expansion" \| "table" \| "separable"` | the representation consumed by `delta_phi` and `unitary_phase`; every kind except the z table has a device form |
 | `phi_breakpoints` | `(n_intervals + 1,) float64` | interval edges in z — of the table itself, or of the expansion's scalar tables |
 | `phi_degrees` | `(n_intervals,) intp` | degree used per interval (diagnostic) |
-| `phi_coefficients` | `(n_intervals, n_deg, 1, n_modes, n_pol, n_omega) complex128` or `None` | Chebyshev coefficients of Φ(ω, z) = ∫D dz − ½ ln[w(z)/w(0)] along z (the leading axis of one is the value layout the native build reads; the state has none); present for `"table"` and for `"constant"`, whose degree-1 intervals are exact — one, or one per stretch between the hard kinks a response path declares — and absent for `"expansion"` |
+| `phi_coefficients` | `(n_intervals, n_deg, n_modes, n_pol, n_omega) complex128` or `None` | Chebyshev coefficients of Φ(ω, z) = ∫D dz − ½ ln[w(z)/w(0)] along z; present for `"table"` and for `"constant"`, whose degree-1 intervals are exact — one, or one per stretch between the hard kinks a response path declares — and absent for `"expansion"` |
 | `phi_expansion` | frozen dataclass or `None` | Φ as an expansion in the mode set's scalar paths (`translate.expansion.ParameterExpansion`; a leaf, see below); present exactly when `phi_representation` is `"expansion"` |
 | `hard_kinks` | `(n_kinks,) float64` | z positions where D, or a scalar path a response consumes (a plasma channel's preionisation, an explicit density), jumps or kinks; steps land on them |
-| `phi_constant` | `(1, n_modes, n_pol, n_omega) complex128` or `None` | `D` itself, present exactly when `phi_representation` is `"constant"`, so that `delta_phi` returns `D (z₂ − z₁)` to the last bit rather than the difference of two Clenshaw sums. As a bundle it is the one-term case: one array, and the distance as its weight |
+| `phi_constant` | `(n_modes, n_pol, n_omega) complex128` or `None` | `D` itself, present exactly when `phi_representation` is `"constant"`, so that `delta_phi` returns `D (z₂ − z₁)` to the last bit rather than the difference of two Clenshaw sums. As a bundle it is the one-term case: one array, and the distance as its weight |
 | `power_weight_representation` | `"constant" \| "expansion" \| "table"` or `None` | modal power weight representation, present exactly for modal transforms and absent for spatial geometry |
 | `power_weight` | `PiecewiseChebyshev` or `None` | positive dimensionless `Re n_eff`, or the prefactor's index override, per `(n_modes, n_pol, n_omega)`; table and constant representations only; unit weight outside the active band |
 | `power_weight_expansion` | `ParameterExpansion` or `None` | the weight with plain basis-product weights; expansion representation only |
-| `power_weight_constant` | `(n_modes, n_pol, n_omega) float64` or `None` | exact constant weight, with a matching degree-zero table; constant representation only. It carries no leading axis of one, unlike `phi_constant`'s value layout |
+| `power_weight_constant` | `(n_modes, n_pol, n_omega) float64` or `None` | exact constant weight, with a matching degree-zero table; constant representation only |
 | `beta0`, `beta1` | `ZProfile` tables | frame quantities along z (diagnostic; already inside Φ) |
 | `separable` | `SeparableOperator` or `None` | shared constant spatial coefficients, present exactly for `"separable"`; described below and shared by identity with `responses.separable` |
 | `coupled_flow` | `CoupledFlowTables` or `None` | the generator of a guide whose channels couple, dense or factored, with its residual, conditioning and error certificate and one method per section; a leaf in `translate.coupled`, described in [the coupled-flow leaf](#the-coupled-flow-leaf) below |
-| `modal_metric` | `ModalMetricTables` or `None` | the explicit Hermitian flux metric W, a documented leaf here rather than a record nested inside the flow, shared by identity with the controller's norm, the linear flow and the output layer so that no second W is allocated. `kind` is `"identity"`, `"diagonal"` or `"dense"`, a dense W being Hermitian at every interval, degree and frequency. `"diagonal"` is admitted by the record and refused by **every** backend, because nothing in the package builds one. Entries are **dimensionless**: the diagonal weights float64 and positive, a dense W complex128, the error and eigenvalue rows float64; `omega` is `grids.omega` itself and `z_edges` covers the run. `None` for the orthogonal routes, whose weight is `power_weight` above. Every backend executes it as part of the general modal route, in two kinds: `"identity"`, while its `error` row is inside `translate.modal_tables.DEFAULT_GRAM_ATOL` — an identity metric that is not the identity is a silent error of `\|1/W₀₀ − 1\|` — and `"dense"`, the metric of a declared unitary change of basis of such a reference, whose `gauge_id` must equal the tables' and whose stored block the backend measures itself against `translate.general.MAX_DENSE_METRIC_DEPARTURE` rather than trusting the declared row. Both gates are the same statement: the backends propagate through the **diagonal** cumulative flow and measure the controller's norm on the coordinate amplitudes, neither of which is the basis's own where that basis is not orthonormal in true power. A `"diagonal"` metric is refused by name, and so is a nonunitary transform, at three layers: the declaration's own unitarity budget, the per-knot invariance of the spectral norm, and this one |
+| `modal_metric` | `ModalMetricTables` or `None` | the explicit Hermitian flux metric W, a documented leaf here rather than a record nested inside the flow, shared by identity with the controller's norm, the linear flow and the output layer so that no second W is allocated. `kind` is `"identity"`, `"diagonal"` or `"dense"`, a dense W being Hermitian at every interval, degree and frequency. `"diagonal"` is admitted by the record and refused by **every** backend, because nothing in the package builds one. Entries are **dimensionless**: the diagonal weights float64 and positive, a dense W complex128, the error and eigenvalue rows float64; `omega` is `grids.omega` itself and `z_edges` covers the run. `None` for the orthogonal routes, whose weight is `power_weight` above. Every backend executes it as part of the general modal route, in two kinds: `"identity"`, while its `error` row is inside `modes.tables.DEFAULT_GRAM_ATOL` — an identity metric that is not the identity is a silent error of `\|1/W₀₀ − 1\|` — and `"dense"`, the metric of a declared unitary change of basis of such a reference, whose `gauge_id` must equal the tables' and whose stored block the backend measures itself against `translate.general.MAX_DENSE_METRIC_DEPARTURE` rather than trusting the declared row. Both gates are the same statement: the backends propagate through the **diagonal** cumulative flow and measure the controller's norm on the coordinate amplitudes, neither of which is the basis's own where that basis is not orthonormal in true power. A `"diagonal"` metric is refused by name, and so is a nonunitary transform, at three layers: the declaration's own unitarity budget, the per-knot invariance of the spectral norm, and this one |
 
 The separable representation carries no `phi_coefficients`, `phi_constant` or
 `phi_expansion`. It has one interval, degree 1, its declared `z_span` as the two
@@ -446,7 +429,10 @@ bounds read off the operator (`translate.radial.radial_rate_bounds`): a
 constant table's exact extremes of `Re D`, and, for a varying medium, a sufficient bound
 on each interval of the rate's Chebyshev series (`|T_j| ≤ 1`) for a z table or for an
 expansion's scalar weights against its terms. The refusal names the radial operator's
-attenuation and the admissible step. The modal kinds are not checked.
+attenuation and the admissible step. The modal kinds are not checked: the default
+`LossPolicy` clamps a mode's power attenuation on `D` to `2 × 708 / L`, so no step within
+the run forms an exponent past 708; gain, a raised `max_alpha` and the absorber's rates,
+added after the clamp, are outside that bound.
 
 The imaginary part of Φ is also the unitary phase for the noise field. Modal Φ
 includes the real endpoint term `-1/2 [ln w(z) - ln w(0)]`. It vanishes identically
@@ -467,7 +453,7 @@ blocks' tensor sizes. Reuse reweights each block with its original weight kind.
 this document; they are `parameters` (the path names, in the order of the term
 multi-index), `ranges` (`(n_params, 2) float64`, the values each path reaches over the
 tabulated range), `degrees` (`(n_params,) intp`, the Chebyshev degree per parameter),
-`terms` (`(n_terms, 1, n_modes, n_pol, n_omega) complex128`, with
+`terms` (`(n_terms, n_modes, n_pol, n_omega) complex128`, with
 `n_terms = Π(degrees + 1) + Π(endpoint_degrees + 1)` when the endpoint block
 is present, otherwise just the first product, and each multi-index flattened in C
 order) and `weights`, the concatenated integral and endpoint tables along z as a `(n_terms,)`-valued `PiecewiseChebyshev`. Its
@@ -566,7 +552,7 @@ diagnostic **plus** the relative Chebyshev tail of the z expansion, `residual_no
 is the enclosure `Σ_k ‖r_k‖₂` of the explicit residual over the **whole** section (`|T_k|
 ≤ 1`, so it bounds the extrema no sample sees), and `inverse_condition_bound` is
 `exp(dz_max (μ_max − μ_min))` of the frozen block. `0.9/(K · cond)` from the last two is
-the advisory step `solprop.translate.problem.validate_coupled_flow` warns `dz_init`,
+the advisory step `solprop.translate.validation.validate_coupled_flow` warns `dz_init`,
 `dz_max` and a fixed schedule against; no row carries it.
 
 **What executes.** Two families of combinations, either of which may carry the vector
@@ -635,7 +621,7 @@ it is prepared, from the problem and its `ExecutionOptions` -- an explicit `node
 which is authoritative, or the automatic choice
 (`solprop.backends.node_chunk.plan_node_chunk`) -- records it in its execution metadata,
 and keeps it out of every identity and resume key. The native backend lowers the plan
-further (`solprop_native.backend.native_node_chunk`: whole y rows on the planar kind, and
+further (`solprop_native._device.native_node_chunk`: whole y rows on the planar kind, and
 `device_node_chunk` for a device build's automatic plan: the host rule at a quarter of the
 accelerator's free bytes, never fewer nodes than the host plan, solprop issue #361).
 
@@ -856,11 +842,12 @@ P_R(t) = \varepsilon_0\,\rho\,E(t)\;
 \mathrm{irfft}\!\left[\tilde H \cdot \mathrm{rfft}(D)\right](t)
 $$
 
-per chunk of quadrature nodes (`solprop.backends.numpy_ref.passes.raman_polarisation`),
+per chunk of quadrature nodes
+(`solprop.backends.numpy_ref.passes.responses.raman_polarisation`),
 with $D$ the real drive of the grid written into the first half of an array of twice the
 length. The damped kernel spectrum $\tilde H$ does not depend on the nodes, so a stage
 forms it once and shares it between the chunks
-(`solprop.backends.numpy_ref.passes.raman_spectrum`: each row damped at the rate its
+(`solprop.backends.numpy_ref.passes.responses.raman_spectrum`: each row damped at the rate its
 table gives at this plane, summed, scaled by `fraction` and transformed). A backend
 memoises it on **the rates**, not on the density, because the rates are what it depends
 on: a glass's are zero at every density, so its kernel is transformed once for a whole
@@ -1019,17 +1006,63 @@ owning read-only `TDSEResult` arrays. Each consumed sample is valid and finite.
 Its atomic counter is charged immediately before every provider invocation,
 including failed calls and requested diagnostics. Stable chunks are reserved for
 the entire Adams trial before startup. Unused reservations are released on every
-exit path. `restore_call_ledgers(logical, atomic)` restores cumulative counters
-after loading a field; it restores no Adams history or atomic state.
+exit path. A resumed start's cumulative counters are restored by the session after it
+loads the field (the reference's `HostSession._restore_ledgers`); that restores no Adams
+history or atomic state.
 
 The host binding protocol also labels its evaluations for an optional raw archive. Each reservation opens one optical trial, `evaluate` takes
 an optional `density` label (m⁻³), and `record_trial(accepted=...)` reports the
-stepper's decision on the latest trial. The reference backend calls it from its
-step record (`_record`), which every Adams attempt reaches, rejected or accepted;
+stepper's decision on the latest trial. The reference backend calls it through its
+workspace's `record_trial` when its Adams engine ends an attempt (`end_attempt`), which
+every decided Adams attempt reaches, rejected or accepted;
 it changes no step, charge or reservation. None of this is part of the descriptors
 or the kernel problem, which compiled backends see, so it is
-outside the kernel schema: the native backend refuses TDSE by name and never holds a
-binding.
+outside the kernel schema.
+
+**The native host source hook** ([SEP 49](seps/archive/sep-0049-tdse-on-native.md),
+ADR-078). On the native CPU build the binding reaches the resident Adams march as a
+host source: a session binding outside the kernel problem, whose three entry points the march calls
+from the thread that called `advance`, outside every parallel region, holding the
+interpreter lock for each. `begin(cost)` reserves an attempt's calls after the march's
+budget check; `evaluate(field, z, purpose, out)` receives, read-only, the lab-frame
+spectrum the engine would hand its own source pass, unscaled and with any noise added,
+which the stage's entry kernel writes into the hook's field row, and writes `F`, the projected source before the
+spectral collar, which the shared assembly (`solprop.backends.tdse_source`) forms as
+the reference does; `end(outcome)` records an accepted or rejected attempt after its
+decision, and after its commit for an accepted one, then releases the reservation, and
+an attempt that leaves before a decision only releases it. The engine's own response
+pass does not run; its stage finish applies the spectral collar, the in-stage absorber
+and the propagator. The hook's two rows, the field and `F`, are allocated when it is
+bound, handed to it in place, and listed as `host_source` in the memory ledger. An exception in an entry point is kept on the
+Python side and reported to the march as a host failure: before the commit the
+attempt is abandoned, after it the committed attempt is returned with the failure,
+and the session raises the kept exception unchanged; an abandoned attempt's failed
+release rides on the run's own error as a note. A device build refuses a TDSE
+problem at preparation.
+
+**The provider worker** (`driver/_source_worker.py`, SEP 49 §6.5, ADR-078). The binding
+never imports the provider: it runs in a worker process, provider-agnostic, in which an
+*adapter* module runs it (`driver/_pyroraptor.py` for Pyroraptor; the tests run a
+manufactured one). The parent starts `sys.executable -m solprop.driver._source_worker
+<adapter> <limit>` with `subprocess` (never `multiprocessing`, whose spawn re-imports
+the parent's `__main__` and whose fork inherits its runtimes) in a session of its own,
+so that a terminal's Ctrl-C or a scheduler's signal to the job reaches the parent alone,
+which then ends the worker. The worker moves the protocol off its standard input and
+output before importing the adapter, points standard output at standard error, ignores
+SIGINT and SIGTERM, and exits at once when its pipe from the parent reaches end of file,
+even during a call.
+
+- *Frames.* An 8-byte little-endian length, then the payload. A message is one control
+  frame, a UTF-8 JSON object `{"kind", "body", "arrays"}`, followed by one raw frame per
+  entry of `arrays`, each the array's bytes in the dtype (byte order included) and shape
+  its entry names. Nothing is pickled. Every frame's declared length is checked against
+  the channel's limit, and an array frame's against its declared shape, before anything
+  is allocated.
+- *Values.* A body is JSON with tagged objects: `{"$a": i}` the i-th array, `{"$t":
+  [...]}` a tuple, `{"$d": {...}}` a mapping, `{"$f": "nan"}` a non-finite float and
+  `{"$r": type, "f": fields, "c": computed}` a record (a dataclass or a plain object's
+  attributes, received as a `Record`); any other object travels as its type and `repr`
+  only (`Opaque`).
 
 The backend independently projects macroscopic P and J with the existing modal
 weights and crop scale. It subtracts unscaled discrete shadows, then applies
@@ -1084,7 +1117,7 @@ The initial-state fields below are independent of that optional binding.
 | `noise_model` | `"none" \| "input" \| "modified"` | |
 | `z` | `float` | absolute initial position in m, non-negative and before the first requested save; true-power input is normalised at this position |
 
-No kernel indexes `field0`: `HostDriver.set_initial` accepts a state of any strides and
+No kernel indexes `field0`: a session's load accepts a state of any strides and
 copies it contiguous into the backend's own state, so since version 42 `field0` may be a
 zero-stride broadcast view. Every array of `Initial` is the problem's own, so that
 nothing a caller does afterwards to an array it passed changes the problem, and the
@@ -1101,7 +1134,7 @@ the immutable `translate.run_request.RunRequest`
 `assemble` fills the route's defaults and holds `dz_max` and `dz_init` to the collars'
 limits — and handed to a backend where it is built. The request structures them as its
 integration, error-control, replay and observation specifications; `RunRequest.stepper`
-gathers them back into `translate.problem.StepperSettings`, the record whose fields are
+gathers them back into `stepper.settings.StepperSettings`, the record whose fields are
 the rows below and which the march drivers, `validate_run` and the run's configuration
 record read. `RunRequest.for_run` adapts a request to one run's start plane, retention,
 monitor, history and snapshot policy, leaving these rows alone, so a backend built for a
@@ -1114,14 +1147,14 @@ launch's remaining planes).
 | `controller` | frozen dataclass | `solprop.stepper.controller.PIController`: `rtol`, `atol`, `safety`, `max_factor`, `min_factor`, `beta1`, `beta2`, `lag`, `reject_free`, `estimator_order`, and `weights` (`None` for the weak norm, a `(n_omega,)` array for the weighted one). The tolerances and the norm choice live here and nowhere else. |
 | `dz_min`, `dz_max`, `dz_init` | float | caps on the controller's proposal; `dz_min` defaults to `solprop.stepper.controller.default_dz_min` of the run length and never applies to a landing step. Under the `"split_step"` scheme `assemble` holds `dz_max` to the launch's crossing limit and refuses a schedule past it (`split_crossing`, §1) |
 | `stretch` | float | landing stretch factor (`StepTargets.stretch`), default 1.1, equal to the controller's default growth cap but independent of it; 1 switches it off |
-| `schedule` | `(n_steps,) float64` or `None` | fixed schedule to replay (lockstep batches require it); its edges must contain every save plane and hard kink, which `FixedSchedule.uniform` guarantees for a plain fixed-step run |
+| `schedule` | `(n_steps,) float64` or `None` | fixed schedule to replay; its edges must contain every save plane and hard kink, which `FixedSchedule.uniform` guarantees for a plain fixed-step run |
 | `save_planes` | `(n_z,) float64` | z positions the driver will ask for; steps land on them unless `interpolate_planes` is set |
 | `propagator_mode` | `"auto" \| "tabulate" \| "recompute"` | ADR-004 and [backends.md §3.6](backends.md). `"auto"` is the default and is the backend's own choice, resolved at construction and written into the run's `backend` metadata group: `tabulate` for `numpy_ref` and `recompute` for `native` on a modal problem; `recompute` on every backend for a separable free-space operator, whose increment `D (z₂ − z₁)` is exact. Under the low-storage march `tabulate` is one volume of `exp(h D / 2)` reused while the step holds (a varying operator's `P` and `Q` for the step), admitted on the free and planar kinds too, and `"auto"` resolves to `tabulate` for a constant operator and `recompute` for a varying one (SEP 24 §4.3), and to `recompute` on a native device build, where an extra field read costs more than the exponential |
-| `integrator` | `Multistep \| LowStorageRungeKutta \| None` | The method stepping the problem instead of the tableau, or `None` for the Runge-Kutta march. `Multistep` ([SEP 13](seps/archive/sep-0013-expensive-response-steppers.md), [SEP 16](seps/archive/sep-0016-unified-multistep.md)) is the Adams march in its exponential or interaction formulation, with an optional carrier frame (`carrier_frame`, [SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md), added in version 37: `"off"` or `"scalar"`, the latter on `numpy_ref` and native CPU builds and refused by name elsewhere); it runs on `numpy_ref` and Kokkos on every diagonal-flow route, and beside the constant-Schur and frozen-residual coupled flows in the exponential formulation; with a `schedule` it replays the schedule's steps (`HostAdamsMarch._replay_to`); TDSE remains NumPy-only. `LowStorageRungeKutta` ([SEP 24](seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md)) is RK4 in the midpoint interaction picture in three registers: it replays a `schedule` and nothing else, records the norm 0.0 ("not estimated"), refuses a coupled flow, the TDSE response, interpolated planes and a step past RK4's negative-real interval 2.785, and runs on `numpy_ref` and solprop-native (a resident engine whose step is one native call) |
+| `integrator` | `Multistep \| LowStorageRungeKutta \| None` | The method stepping the problem instead of the tableau, or `None` for the Runge-Kutta march. `Multistep` ([SEP 13](seps/archive/sep-0013-expensive-response-steppers.md), [SEP 16](seps/archive/sep-0016-unified-multistep.md)) is the Adams march in its exponential or interaction formulation, with an optional carrier frame (`carrier_frame`, [SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md), added in version 37: `"off"` or `"scalar"`, the latter on `numpy_ref` and native CPU builds and refused by name elsewhere); it runs on `numpy_ref` and Kokkos on every diagonal-flow route, and beside the constant-Schur and frozen-residual coupled flows in the exponential formulation; with a `schedule` it replays the schedule's steps (`HostAdamsMarch._replay_to`); the TDSE response runs adaptive, on `numpy_ref` and the native CPU build (SEP 49). `LowStorageRungeKutta` ([SEP 24](seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md)) is RK4 in the midpoint interaction picture in three registers: it replays a `schedule` and nothing else, records the norm 0.0 ("not estimated"), refuses a coupled flow, the TDSE response, interpolated planes and a step past RK4's negative-real interval 2.785, and runs on `numpy_ref` and solprop-native (a resident engine whose step is one native call) |
 | `interval_cap` | bool | whether a step is capped at the width of the operator-table interval it starts in. `assemble` turns it off on the diagonal-flow routes and on for a coupled flow or a reject-free controller, unless set ([SEP 14](seps/archive/sep-0014-stepper-efficiency.md) §4.1) |
 | `auto_init` | bool | whether the start-up rule takes the step after the first from the first step's own scaled norm (`PIController.start_factor`, at most 100 times `dz_init`). Set by the convenience interfaces when no `dz_init` is given; off for a coupled flow or a reject-free controller ([SEP 14](seps/archive/sep-0014-stepper-efficiency.md) §4.2) |
 | `interpolate_planes` | bool | steps across the save planes and observes each inside its accepted step, through DOPRI5's continuous extension or, with an `integrator`, the Adams march's own polynomial (ADR-039); the end of the run and the hard kinks are still landed on. Refused with a schedule, a Runge-Kutta tableau without an extension, the per-step collar, a coupled flow and the `modified` noise |
-| `step_planes` | int | a positive `k` also saves the end of every `k`-th accepted step since the load: the shared march returns from `propagate_to` there, short of its target, and the driver saves the plane and asks for the target again (ADR-039). `0` never stops short |
+| `step_planes` | int | a positive `k` also saves the end of every `k`-th accepted step since the load: the march returns to its session there, short of its target, and the session observes the plane and marches on to the target (ADR-039). `0` never stops short |
 
 **The finish's input is on the band.** Under the split-step absorber scheme the reference
 masks before and after the temporal absorber, and native masks only after it. With content
@@ -1139,25 +1172,20 @@ the problem.
 | `stats` | frozen dataclass | `solprop.stats.StatsSpec`: which statistics, energy windows (`(n_windows, 2)` in ω), periodic subset and period, validated against the catalogue at construction; and the far-field tables of [SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md), `apertures` (an `ApertureSet`: centres, diameters, distances, edges, profile, weighting, labels, and from schema 45 the optional shapes, profiles and extents, which a record leaves out while they are unset) and `spectral_regions` (`(n_regions, 4)` boxes of physical transverse wavevector in rad/m, the one leaf whose entries may be infinite), read only when a name that uses them is requested, so a backend that does not know a name refuses it rather than misreading a table. Fields of the leaf, not rows of the contract |
 
 The `periodic` subset and its `period` are read **when the backend is built**, not when a
-run is started: the shared step loop arms the between-planes channel from the statistics
+run is started: the session arms the between-planes channel from the statistics
 of the request the backend was built with, so a spec handed to `run_problem` that
 disagrees with that request's own about either is refused. Every name in the subset must carry the catalogue's
 `between_planes` trait, which `StatsSpec` enforces at construction and by name; a backend
 that cannot form one of them at all refuses the run the same way its plane statistics do.
 
-The driver exposes three storage hooks; the shared march decides which accepted
-steps produce rows and passes their exact history indices:
-
-| hook | contract |
-|---|---|
-| `_reset_step_stats(*, release: bool)` | Discard rows on a fresh load (`True`, release storage) or at a new plane (`False`, retain capacity). Period counting remains in the shared march. |
-| `_record_step_stats(spec: StatsSpec, z: float, step: int)` | Evaluate a row after boundary treatments, state commitment and position advancement. `step` includes rejected attempts. Device implementations retain device values and share their evaluator with `stats()`. |
-| `_drain_step_stats() -> StepStats` | Return owning host rows at observation, then reset the row count while retaining capacity. A device implementation copies packed values once here. An empty drain transfers nothing. |
-
-The defaults keep a host buffer and call `stats()`. No backend needs to
-override the march or read its private row buffer. Device arrays remain behind the
-seam. The native backend inherits the host defaults. A backend must implement the contract,
-including the batch admission interface of §1, explicit handling or refusal of envelope
+Each session decides which accepted steps produce rows and keeps them between events
+(the step-driver storage hooks were removed by SEP 52): a row is evaluated after the
+step's boundary treatments, its commit and the position's advance, with the index of its
+attempt in the event's chunk, rejected attempts counted (`-1` when a warning barrier
+delivered that attempt in the chunk before). The reference keeps a host buffer and
+evaluates the workspace's `stats`; the native session keeps bounded resident chunk
+buffers. Device arrays remain behind the seam. A backend must implement the contract,
+including the device-memory probe of §1, explicit handling or refusal of envelope
 source assemblies, and an explicit refusal of each general-modal leaf, section method and
 spatial kind it does not execute.
 
@@ -1165,12 +1193,13 @@ spatial kind it does not execute.
 
 `Observation` (host arrays only, FFT convention): `z`, `field` in the lab frame `(n_modes,
 n_pol, n_omega)`, `noise_phase` (if a noise model is active, so processing can restore the
-background), both `None` for an observation made with `observe(field=False)`: nothing then crosses to the host and nothing scans the field, so a
+background), both `None` for a field-free observation (a plane whose field is not kept): nothing then crosses to the host and nothing scans the field, so a
 diverged field-free run is caught by the step loop's finite-norm rule and the
 statistics, `step_history` (arrays of z, h, error norm, accepted flag, wall time since the
 last observation; recorded whether the run was adaptive or replayed a schedule, since the
-embedded estimate is computed either way), `n_steps`, `n_rejected`, and `step_stats`. `stats()` returns a dict of small host arrays
-keyed by statistic name, without a batch axis. Nothing writes to an observation's
+embedded estimate is computed either way), `n_steps`, `n_rejected`, and `step_stats`. A plane's statistics, computed by the backend (the
+reference's workspace `stats`) and carried by its `ObservationReady` event, are a dict of small host arrays keyed by
+statistic name. Nothing writes to an observation's
 arrays again, the backend included: `run_problem` hands them to the output without a copy,
 and a handler may keep them. The array-backed state of a host backend is observed as it is
 and frozen, so its next step replaces it rather than accepting in place; the run's conversion
@@ -1209,8 +1238,7 @@ an exception. There is no version counter to bump (ADR-068).
 There are exactly two **backends**, `native` and `numpy_ref`, and no other will be
 added (ADR-077; [backends.md §1](backends.md)). Each consumes this contract as it
 stands, visits every route variant and component to prepare or refuse it by name, and
-runs through its own `prepare` (one run) and `prepare_group` (a group of compatible
-members, or a `BackendError` saying it runs none), so the run layer names no backend.
+runs through its own `prepare`, so the run layer names no backend.
 Both qualify on the conformance suite in `tests/sessions`, native against the
 reference.
 
@@ -1269,14 +1297,17 @@ ledger. A resume carries all of it exactly (`MarchSnapshot`).
 
 An acceptance commits the engine's state, the history, the ledger, the stored order, the
 position and a kink restart together. Only then is the next proposal tested against the
-floor. A floor so found is raised after the attempt is recorded.
+floor. A floor so found is raised after the attempt is recorded. A rejection's shrunk
+proposal is tested in the same way, and a floor it falls below leaves the proposal as
+it was and is raised after the rejected attempt is recorded (issue #651); a replay
+records no rejected attempt and raises it at once.
 
 **What a native call takes**: the policy, once per run and again when the monitor's
 interval changes (`MarchPolicy`, every field of the record), with a replay's
-schedule (its steps and edges); the state above, with a replay's cursor (the driver's
-schedule index); and its bounds: the target; for a replay, the edges' slack
+schedule (its steps and edges); the state above, with a replay's cursor (the march
+state's `cursor`); and its bounds: the target; for a replay, the edges' slack
 (`replay_tolerance`); whether the collar rests; the accepted steps after which the
-driver has work (the next statistics row, natural stop or monitor check, whichever comes
+session has work (the next statistics row, natural stop or monitor check, whichever comes
 first; none for zero); the monitor's last check and interval; and the call's own bound,
 256 attempts or 0.1 s of wall time, read after each attempt, which bounds the wait of a
 signal or a stop flag. Where a call returns is not a decision of the march's: a return
@@ -1290,7 +1321,7 @@ one attempt, of seven and of none to one set of bits.
 - each accepted step's order, and the last accepted step's anchor, step, order and
   nodes, for a dense observation;
 - the reason it returned (`march::Reason`): the target reached, or crossed with planes
-  interpolated; an accepted step on which the driver has work; the monitor's distance;
+  interpolated; an accepted step on which the session has work; the monitor's distance;
   the call's bound; the budget, with the refused attempt's cost; the floor, with the
   proposal below it; a replayed step whose norm is not finite, with its step, end and
   norm; or a native error, with its stage (startup, trial, accept), category
@@ -1315,11 +1346,15 @@ monitor-cadence and distance returns are then not asked for.
 
 **What solprop does with a call.** The native session makes the calls, holds the march's
 state between them natively and turns each call's rows and readings into its events (SEP
-47); the record `_NativeAdamsMarch` hands it the policy and the start's history once. The
-decision-trace tests drive the march a call at a time over a scripted host backend
-(`tests/backends/native_trace_marches.py`), booking each row as the reference books its
-attempts, and hold its decisions, its monitor's watch state and its errors to the
-reference's.
+47); the policy and the start's history cross once, in the run's start record
+(`Workspace.start(run)`: the run records' `MarchPolicy` and the march state
+`_NativeAdamsMarch.start_state` forms, its history entries' identities by name). The
+decision-trace tests drive the march a call at a time over a scripted engine
+(`_core._testing.ScriptedMarch`, from `tests/backends/native_trace_marches.py`), booking
+each row as the reference books its attempts, and hold its decisions, its monitor's
+watch state and its errors to the reference's. The engine itself, `march::Engine`, is
+held to the reference's `HostHistory` through solprop's `AdamsEngine` protocol
+(`_core._testing.engines`, `tests/backends/test_engine_parity.py`).
 
 **Rounding.** The decisions are compiled without contraction or fast-math in their own
 translation unit and call no elementary function but `pow`, so that they round as
@@ -1329,26 +1364,28 @@ library (#135): each strict file's probe, beside a control that fuses, in the in
 build (`tests/backends/test_native_strict_witness.py`, and the wheel stage's smoke test);
 the same probe in the native unit tests of an optimised build with fused multiply-add;
 and the wheel stage's scan of the strict files' disassembly for a fused instruction
-(`native/ci/check_strict_fma.py`). The boundary checks above and the Runge–Kutta march
+(`native/ci/check_strict_fma.py`, each function bounded by its symbol's size, since a
+stripped extension labels only exported functions). The boundary checks above and the Runge–Kutta march
 (§12) are held the same way.
 
 ## 12. The Runge–Kutta march
 
 *Normative from [SEP 45](seps/archive/sep-0045-native-rk-march.md) phase 3. `native` executes it
-(`native/src/rk_march.cpp`), adaptive or replayed, with `PIController`'s norm, weighted or
+(`native/src/march/rk_march.cpp`), adaptive or replayed, with `PIController`'s norm, weighted or
 not, on CPU and device builds. `PIController` is final (ADR-077), so its decisions are
 the only ones either backend takes.*
 
 The adaptive loop of `RungeKutta()` (`integrator is None`, §7) is one algorithm with one
-reference implementation, solprop's `HostDriver._march_to` and the controller core it
+reference implementation, solprop's `RungeKuttaMarch.march_to` and the controller core it
 calls (`solprop.backends.rk_core`). A backend may execute the same algorithm natively,
 as §11's Adams march is executed. It then receives every number the algorithm reads in
 one record and holds no default and no constant of its own (`native/AGENTS.md`).
 [SEP 45](seps/archive/sep-0045-native-rk-march.md) §4 is the algorithm in full; this section is
 its interface.
 
-**The policy record** (`solprop.backends.rk_core.RungeKuttaPolicy`, formed once per run
-by `rk_policy`, with the landings of the run):
+**The policy record** (`solprop.backends.records.RungeKuttaPolicy`, formed once per run
+by `runge_kutta_policy` with the landings of the run, one of the run records both
+backends read):
 
 | field | meaning |
 |---|---|
@@ -1387,7 +1424,7 @@ start-up rule, before the history's last value is rewritten; and after an accept
 commit and append, before its boundary check and statistics.
 
 **What a native call takes and returns** is §11's, with this march's policy and state:
-the call's bounds (the target, the accepted steps after which the driver has work, the
+the call's bounds (the target, the accepted steps after which the session has work, the
 call's own bound of 256 attempts or 0.1 s), and per attempt one row of end, step, norm
 (non-finite as infinity), accepted and wall time, the reason it returned and the state.
 The call takes the boundary monitor's checks inside the march as §11's does, with the
@@ -1399,14 +1436,16 @@ reference holds it there.
 planes to the run's end, and the call returns the accepted step that crosses its target
 unfinished (`dense`), with its equivalent norm; solprop records the step's extension from
 the state before it and finishes it with the reference's acceptance. *Replay:*
-`HostDriver._replay_to`, a call of steps at a time from the schedule's cursor: never a
+`RungeKuttaMarch.replay_to`, a call of steps at a time from the schedule's cursor: never a
 rejection, each step recorded after its commit with its raw norm, the edges within the
 replay's slack; a non-finite norm returns `diverged`, the step uncommitted. *A coupled
 flow:* the stage rows carry the anchor's section and each stage's residual weights, and the
 state forms the step's actions for one (section, step) at a time behind
-`_flow_squarings` and `_check_flow_conditioning`, transcribed, with the Taylor scale, the
-squarings admitted, the sections' row sums, the certificate and the rounding allowance in
-a record; a refusal returns as `BackendError`. *A z table:* the state loads the stages'
+the reference's `_flow_squarings` and `check_flow_conditioning`
+(`backends/numpy_ref/coupled_flow.py`), transcribed, with the Taylor scale, the
+squarings admitted (solprop's `solprop.backends.exponential.FLOW_TAYLOR_SCALE` and
+`FLOW_MAX_SQUARINGS`, which the reference reads too), the sections' row sums, the
+certificate and the rounding allowance in a record; a refusal returns as `BackendError`. *A z table:* the state loads the stages'
 positions into the one slot cache. *The transverse edge:* its ceiling caps every candidate
 after the quiet interval and before the split cap, the call returns before a step would
 carry past the next read, and solprop takes the monitor's checks by its distance test. *A

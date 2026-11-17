@@ -12,12 +12,11 @@ call's configuration hash, so the comparisons are of digests and exact.
 """
 
 import json
-import subprocess
-import sys
 import textwrap
 
 import pytest
 
+from builders import run_python
 from solprop.driver import Simulation
 from solprop.modes import MarcatiliMode, ModeCollection, RectMode
 from solprop.recipe import Recipe, RecipeError, parameters, provenance
@@ -161,7 +160,7 @@ def _cases():
         for one in ("x", "y")
     ]
     channels = [MarcatiliMode(125e-6, "He", 1.2, m=m) for m in (1, 2)]
-    planar = ModeCollection.slab(63.5e-6, (1, 3, 5), "Ar", 1.0).modes
+    planar = ModeCollection.slab(63.5e-6, "Ar", 1.0, orders=(1, 3, 5)).modes
     return {
         "planar": (PLANAR, planar, PLANAR_CALL),
         "rectangular": (RECTANGULAR, rectangular, RECTANGULAR_CALL),
@@ -256,12 +255,5 @@ def test_the_python_export_builds_the_same_run(name, tmp_path):
     assert "prop_waveguide(" in script
     path = tmp_path / f"{name}.py"
     path.write_text(_PROBE + script, encoding="utf-8")
-    result = subprocess.run(
-        [sys.executable, str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=tmp_path,
-    )
-    assert result.returncode == 0, result.stderr
+    result = run_python(path)
     assert json.loads(result.stdout.splitlines()[-1]) == _hash(recipe.build())

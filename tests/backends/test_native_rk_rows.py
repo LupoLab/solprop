@@ -40,6 +40,7 @@ pytestmark = [
 native = pytest.importorskip("solprop_native")
 backend_module = pytest.importorskip("solprop_native.backend")
 core = pytest.importorskip("solprop_native._core")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 ROWS = (
     "gnlse",
@@ -83,7 +84,7 @@ def launched(simulation, controller: PIController | None = None):
             settings = dataclasses.replace(settings, controller=controller)
         simulation.settings = settings
         problem = simulation.translate()
-        run_request = simulation._run_request()
+        run_request = simulation.run_request()
     backend = native.NativeBackend(
         problem,
         run_request,
@@ -116,6 +117,24 @@ def _refusal(call) -> str:
     return str(caught.value)
 
 
+def _guarded(route: str, monkeypatch, **guard):
+    """Return a route's launched backend whose flow guard has `guard`'s constants.
+
+    The guard is set once, where the workspace is built (``_flow_guard``), so a
+    changed certificate or Taylor scale is a backend built with it.
+    """
+    built = backend_module._flow_guard
+
+    def changed(flow):
+        record = built(flow)
+        assert record is not None
+        return record | guard
+
+    with monkeypatch.context() as patch:
+        patch.setattr(backend_module, "_flow_guard", changed)
+        return runge_kutta(route)
+
+
 @pytest.mark.parametrize("route", FLOWS)
 def test_the_native_flow_guards_refuse_as_the_host_s(route, monkeypatch):
     """Each transcribed guard refuses where solprop's does, with its message.
@@ -125,45 +144,39 @@ def test_the_native_flow_guards_refuse_as_the_host_s(route, monkeypatch):
     """
     backend, problem, run_request = runge_kutta(route)
     try:
-        backend._staged_rows()
         flow = backend._flow
-        state = backend._native_state
         z, dz = steps(problem, run_request)[0]
         nodes = _nodes(run_request)
-        modes = int(flow.vectors.shape[-1])
-        allowance = backend_module._flow_allowance(modes)
         section = int(scalars(problem, z, z + dz, helpers=backend.helpers).flow_section)
         fractions = np.array([*nodes, 1.0])
-        measured = np.asarray(state.form_flow_actions(section, dz, fractions))[0]
-        if measured.size:
-            halved = dataclasses.replace(flow, condition_bound=flow.condition_bound / 2)
-            expected = _refusal(
-                lambda: check_flow_conditioning(
-                    backend_module, halved, section, measured, dz
-                )
+        measured = np.asarray(
+            _testing.form_flow_actions(backend._workspace, section, dz, fractions)
+        )[0]
+    finally:
+        backend.close()
+    if measured.size:
+        halved = dataclasses.replace(flow, condition_bound=flow.condition_bound / 2)
+        expected = _refusal(
+            lambda: check_flow_conditioning(
+                backend_module, halved, section, measured, dz
             )
-            state.flow_guard_configure(
-                [float(v) for v in flow.row_sum],
-                [float(v) for v in np.ravel(halved.condition_bound)],
-                backend_module._TAYLOR_SCALE,
-                backend_module._MAX_FLOW_SQUARINGS,
-                allowance,
-            )
+        )
+        bound = np.asarray(halved.condition_bound, dtype=np.float64)
+        backend, _, _ = _guarded(
+            route,
+            monkeypatch,
+            condition_bound=np.ascontiguousarray(bound).reshape(flow.row_sum.size, -1),
+        )
+        try:
             assert _refusal(lambda: native_trial(backend, z, dz)) == expected
-        tiny = 1e-12
-        # Both refuse at the first stage length past the scale, in the nodes' order.
-        first = next(
-            float(f) * dz * float(flow.row_sum[section]) for f in fractions if f
-        )
-        monkeypatch.setattr(backend_module, "_TAYLOR_SCALE", tiny)
-        expected = _refusal(lambda: flow_squarings(backend_module, first))
-        state.flow_guard_configure(
-            [float(v) for v in flow.row_sum],
-            [float(v) for v in np.ravel(flow.condition_bound)],
-            tiny,
-            backend_module._MAX_FLOW_SQUARINGS,
-            allowance,
-        )
+        finally:
+            backend.close()
+    tiny = 1e-12
+    # Both refuse at the first stage length past the scale, in the nodes' order.
+    first = next(float(f) * dz * float(flow.row_sum[section]) for f in fractions if f)
+    expected = _refusal(lambda: flow_squarings(first, scale=tiny))
+    backend, _, _ = _guarded(route, monkeypatch, taylor_scale=tiny)
+    try:
         assert _refusal(lambda: native_trial(backend, z, dz)) == expected
     finally:
         backend.close()
@@ -183,7 +196,7 @@ def test_the_native_norm_is_the_host_s_to_rounding(slots, atol):
     rng = np.random.default_rng(slots)
     partials = np.ascontiguousarray(rng.uniform(0.0, 2.0, size=(3, slots)))
     for rtol in (1e-8, 1e-3):
-        found = core.rk_score(partials, rtol, atol)
+        found = _testing.rk_score(partials, rtol, atol)
         expected = _host_norm(partials, rtol, atol)
         # Only the order of each row's sum differs: a few ulps of each sum.
         assert found == pytest.approx(expected, rel=8 * slots * np.finfo(float).eps)
@@ -215,8 +228,9 @@ def _first_attempt(route: str, controller: PIController):
             old = math.sqrt(float(partials[0].sum()))
             new = math.sqrt(float(partials[1].sum()))
             weighted = np.asarray(
-                backend._native_state.weighted_error(
-                    np.ascontiguousarray(controller.scale(old, new), dtype=np.float64)
+                _testing.weighted_error(
+                    backend._workspace,
+                    np.ascontiguousarray(controller.scale(old, new), dtype=np.float64),
                 )
             )
     finally:
@@ -237,9 +251,9 @@ def test_the_weak_scale_is_reduced_natively():
     expected = _host_norm(partials, 1e-6, 0.0)
     assert expected > 0.0
     assert norm == pytest.approx(expected, rel=1e-14)
-    assert core.rk_score(np.ascontiguousarray(partials), 1e-6, 0.0) == pytest.approx(
-        expected, rel=1e-14
-    )
+    assert _testing.rk_score(
+        np.ascontiguousarray(partials), 1e-6, 0.0
+    ) == pytest.approx(expected, rel=1e-14)
 
 
 def test_a_weighted_norm_is_the_host_s_to_rounding():

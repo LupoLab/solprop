@@ -18,6 +18,7 @@ from optmat.solid.models.tabulated import TabulatedModel
 from solprop.constants import C
 from solprop.driver.material_output import material_manifest
 from solprop.exceptions import MaterialError, MaterialRangeWarning
+from solprop.modes.guide import ModalGuide
 from solprop.modes.material import IndexMaterial
 from solprop.modes.stepindex import StepIndexMode
 from solprop.physdata import (
@@ -417,3 +418,56 @@ def test_a_lossless_optmat_index_passes_the_lossless_provider():
         profile_wavelength=835e-9,
     )
     assert np.all(np.imag(mode.neff(omega_of(np.array([800e-9])))) == 0)
+
+
+def test_the_solid_factories_take_optmat_by_default():
+    assert isinstance(fused_silica(), OptmatGlass)
+    assert fused_silica().source == "fit/SiO2"
+    assert bk7().source == "schott_2023/sellmeier"
+    assert silver().source == "table/Ag"
+    assert glass("CaF2").source == "daimon_2002/sellmeier_20C"
+
+
+@pytest.mark.parametrize(
+    "build",
+    [magnesium_fluoride, sapphire, lambda: glass("MgF2"), lambda: glass("sapphire")],
+)
+def test_a_uniaxial_crystal_without_its_ray_is_refused_by_name(build):
+    with pytest.raises(MaterialError, match="uniaxial"):
+        build()
+
+
+def test_a_uniaxial_crystals_named_model_is_its_ray():
+    assert sapphire(axis="o").source == "weber_2003/sellmeier_o"
+    with pytest.raises(MaterialError, match="ray"):
+        sapphire(axis="e", model="weber_2003/sellmeier_o")
+
+
+def test_two_default_silica_adapters_are_one_material():
+    """Value equality: two adapters built separately compare and hash as one."""
+    first, second = cast("Any", fused_silica()), cast("Any", fused_silica())
+    assert first is not second
+    assert first == second and hash(first) == hash(second)
+    transparent = first.as_transparent()
+    assert transparent != first
+    assert transparent == second.as_transparent()
+    assert first.as_transparent(absorption_bound=50.0) != transparent
+    assert first != fused_silica(model="malitson_1965/sellmeier")
+    assert first != "fit/SiO2"
+    assert len({first, second, transparent}) == 2
+
+
+def test_two_default_cores_share_one_step_index_guide():
+    """Two channels built separately with ``core=None`` are one guide."""
+    channels = tuple(
+        StepIndexMode(
+            2e-6, cladding=1.4, profile_wavelength=1e-6, kind=cast("Any", kind), n=n
+        )
+        for kind, n in (("HE", 1), ("TE", 0))
+    )
+    assert channels[0]._core is not channels[1]._core
+    assert channels[0]._core == channels[1]._core
+    guide = ModalGuide.from_step_index(
+        channels, core=IndexMaterial(channels[0]._core), cladding=IndexMaterial(1.4)
+    )
+    assert len(guide.mode_collection.modes) == 2

@@ -4,17 +4,18 @@
 
 """Whether a results file can continue, rebuild itself, and pass the gate (SEP 41, S17).
 
-:func:`resumability` answers three questions about a file separately, so a front end
-can say which applies without trying a resume:
+:func:`resumability` returns a :class:`Resumability` answering three questions
+separately, so a front end can say which applies without trying a resume:
 
-- **Can it continue, and from where?** The position, and the ``resume=`` value it needs
-  (``True`` or ``"interpolated"``), or why not: no work left, no
-  checkpoint written before a failure, another output schema, or a writer still alive.
-- **Can it be rebuilt from itself?** Whether it records a recipe (SEP 41, S2), and
-  whether this solprop reads its format. A file without one can still continue, from
-  the script that wrote it.
+- **Can it continue, and from where?** The position and the ``resume=`` value it needs
+  (:data:`ResumeMode`), or why not: no work left, no checkpoint written before a
+  failure, another output schema, or a writer still alive.
+- **Can it be rebuilt from itself?** Whether it records a recipe (SEP 41, S2) that this
+  solprop reads. A file without one can still continue, from the script that wrote it.
 - **Does the gate pass?** Only on request, at the cost of a rebuild: whether the stored
   record and the one the recorded recipe rebuilds have one hash (ADR-066).
+
+The manual page is ``docs/guide/results/resuming.md`` ("What a file allows").
 """
 
 from dataclasses import dataclass
@@ -25,9 +26,12 @@ import h5py
 import numpy as np
 
 from solprop.exceptions import OutputError, SolpropError
-from solprop.output._writer_lock import WriterLock
+from solprop.output._writer_lock import WriterHeldError, WriterLock
 from solprop.output.hdf5 import ResumeState, _file_path, resume
-from solprop.output.schema import SCHEMA_VERSION, Output, _decode
+from solprop.output.metadata import SCHEMA_VERSION
+from solprop.output.serialisation import deserialise
+from solprop.output.store import Output
+from solprop.recipe.document import FORMAT
 
 __all__ = ["Resumability", "ResumeMode", "resumability"]
 
@@ -92,8 +96,10 @@ def _writer_alive(path: Path) -> bool:
     lock = WriterLock(path)
     try:
         lock.acquire()
-    except OutputError as error:
-        return "another writer" in str(error)
+    except WriterHeldError:
+        return True
+    except OutputError:
+        return False
     lock.release()
     return False
 
@@ -123,8 +129,7 @@ def _unusable_state(state: ResumeState) -> str | None:
         return "its last plane kept no field and no terminal checkpoint follows it"
     if state.outcome is not None and state.outcome.logical_calls:
         # A resume under Multistep installs the charged ledger and refuses one it
-        # cannot read, such as the flat orders of an earlier development build of
-        # this schema (#80): the answer says so before a resume is tried.
+        # cannot read: the answer says so before a resume is tried.
         from solprop.backends.ledger import CallLedger  # noqa: PLC0415 - heavy
 
         try:
@@ -139,7 +144,7 @@ def resumability(path: str | Path | Output, *, gate: bool = False) -> Resumabili
 
     Parameters
     ----------
-    path : str or pathlib.Path or solprop.output.schema.Output
+    path : str or pathlib.Path or solprop.output.store.Output
         The HDF5 output; an output handler is refused by name.
     gate : bool, optional
         Also rebuild the run from its recorded recipe and compare the records' hashes,
@@ -156,8 +161,6 @@ def resumability(path: str | Path | Output, *, gate: bool = False) -> Resumabili
     OutputError
         If the file cannot be read as HDF5, or `path` is an output handler.
     """
-    from solprop.recipe.document import FORMAT  # noqa: PLC0415 - the layer above
-
     path = _file_path(path, "resumability")
     try:
         schema = _schema(path)
@@ -185,7 +188,7 @@ def resumability(path: str | Path | Output, *, gate: bool = False) -> Resumabili
     except OutputError as error:
         return _refused(f"no state to continue from: {error}")
     planes = np.asarray(
-        _decode(state.metadata.configuration["save_planes"]),  # type: ignore[arg-type]
+        deserialise(state.metadata.configuration["save_planes"]),  # type: ignore[arg-type]
         dtype=float,
     )
     position = float(state.plane.z)
@@ -199,7 +202,8 @@ def resumability(path: str | Path | Output, *, gate: bool = False) -> Resumabili
     differences = None
     gate_error = None
     if gate and recipe == "stored":
-        from solprop.recipe import Recipe  # noqa: PLC0415 - the layer above
+        # Only a gated check rebuilds the run; the recipe's core loads the driver.
+        from solprop.recipe import Recipe  # noqa: PLC0415 - heavy
 
         try:
             rebuilt = Recipe.from_output(path, resolved=True).build().metadata()

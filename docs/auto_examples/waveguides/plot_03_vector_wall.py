@@ -64,7 +64,7 @@ optmat's helium fit, qualified over the whole band (from 60 nm).
 # Each family's own loss, across the band
 # ---------------------------------------
 # One channel of each family in a 100 um bore, the vector wall block evaluated on its
-# own with :func:`~solprop.modes.capillary.vector_wall_operator` -- no run -- against
+# own with :func:`~solprop.modes.wall.vector_wall_operator` -- no run -- against
 # the Marcatili attenuation of the same channel. A negative azimuthal index is this
 # package's spelling of the ``EH`` family. The "impedance-averaged" curve is what a
 # wall with one impedance gives the transverse families: the hybrid cladding term in

@@ -6,7 +6,7 @@
 
 from dataclasses import dataclass
 
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 
 
 @dataclass(frozen=True)

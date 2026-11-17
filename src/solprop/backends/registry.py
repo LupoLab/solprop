@@ -6,9 +6,9 @@
 
 ``docs/dev/backends.md`` section 1: there are exactly two backends (ADR-077),
 ``native`` and ``numpy_ref``. Selection is by name; availability is detected with
-:func:`importlib.util.find_spec` and **never cached**. A name that is neither, a
-retired backend's included, is a :class:`~solprop.exceptions.BackendError` naming the
-two; ``native`` without its package is an :class:`ImportError` saying what to install.
+:func:`importlib.util.find_spec` and **never cached**. A name that is neither is a
+:class:`~solprop.exceptions.BackendError` naming the two; ``native`` without its
+package is an :class:`ImportError` saying what to install.
 
 The native backend is a second distribution, ``solprop-native``, built from ``native/``
 in this repository and a required dependency; probing availability does not import it.
@@ -28,7 +28,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Final, cast
 
-from solprop.backends.protocol import Backend, BatchBackend
+from solprop.backends.protocol import Backend
 from solprop.backends.session import ExecutionOptions
 from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
@@ -36,7 +36,6 @@ from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
 from solprop.spatial import FAR_FIELD_STATISTICS
 from solprop.translate.problem import PropagationProblem
-from solprop.translate.routes import tdse_descriptor
 from solprop.translate.run_request import RunRequest
 from solprop.translate.tdse import TDSEBinding
 
@@ -47,7 +46,6 @@ __all__ = [
     "available",
     "resolve_name",
     "select",
-    "select_batch",
     "statistics_refusal",
 ]
 
@@ -64,8 +62,7 @@ _NATIVE_PACKAGE: Final = "solprop_native"
 
 _UNKNOWN: Final = (
     "the backends are backend='native', the solprop-native package, and "
-    "backend='numpy_ref', the reference, which is unthreaded and far slower. Output "
-    "and snapshots that record another backend still load"
+    "backend='numpy_ref', the reference, which is unthreaded and far slower"
 )
 """What a name that is neither backend is told to use instead."""
 
@@ -189,8 +186,8 @@ def resolve_name(name: str = "auto") -> str:
     Raises
     ------
     BackendError
-        If ``name`` is neither backend (a retired backend's name included), or
-        ``"auto"`` has nothing to select; the message says what to do.
+        If ``name`` is neither backend, or ``"auto"`` has nothing to select; the
+        message says what to do.
 
     Examples
     --------
@@ -354,7 +351,8 @@ def select(
     profiles : collections.abc.Mapping, optional
         The z-profiles keyed by statistic name, for the profile statistics.
     tdse_binding : solprop.translate.tdse.TDSEBinding or None, optional
-        Driver-owned host response binding for a TDSE problem on NumPy.
+        Driver-owned host response binding for a TDSE problem, on either backend
+        (SEP 49).
     options : solprop.backends.session.ExecutionOptions or None, optional
         The run's execution options, among them an explicit node budget, from which
         the backend plans its node chunk (SEP 47 section 6.5); ``None`` for the
@@ -389,10 +387,6 @@ def select(
 
         ensure()
     _check_required_device(name)
-    if (
-        tdse_descriptor(problem.route) is not None or tdse_binding is not None
-    ) and name != "numpy_ref":
-        raise BackendError(f"{name} does not execute TDSE responses; use numpy_ref")
     refusal = statistics_refusal(name, request.observation.stats.names)
     if refusal is not None:
         raise BackendError(refusal)
@@ -412,48 +406,6 @@ def select(
     return backend
 
 
-def select_batch(owners: Sequence[Backend]) -> BatchBackend:
-    """Select batch arithmetic without substituting a different backend.
-
-    This is the reference group's lockstep runner. The native backend runs its groups
-    through its own prepared group instead
-    (:func:`solprop.backends.sessions.start_group`; SEP 47 section 6.7), and is
-    refused here by name.
-
-    Parameters
-    ----------
-    owners : sequence of solprop.backends.protocol.Backend
-        Compatible, loaded member owners.
-
-    Returns
-    -------
-    BatchBackend
-        Common fixed march using the selected backend's arithmetic.
-
-    Raises
-    ------
-    BackendError
-        If the members are not of one backend, or their backend has no lockstep runner
-        (its groups start through ``start_group``).
-    """
-    if not owners:
-        raise BackendError("Batch requires at least one loaded member")
-    if any(owner.name != owners[0].name for owner in owners):
-        raise BackendError("Batch refuses mixed backends")
-    name = owners[0].name
-    if name != "numpy_ref":
-        msg = (
-            f"Batch has no runner for backend {name!r}: select_batch is the "
-            "reference's lockstep runner, and native runs its groups through its own "
-            "prepared group, which solprop.backends.sessions.start_group starts "
-            "(SEP 47 section 6.7)"
-        )
-        raise BackendError(msg)
-    from solprop.backends.numpy_ref.batch import lockstep_runner  # noqa: PLC0415
-
-    return lockstep_runner(owners)
-
-
 def _construct(
     name: str,
     problem: PropagationProblem,
@@ -468,8 +420,8 @@ def _construct(
     """Import and build the named backend, whose package is installed.
 
     Imported here, not at module scope: selecting a backend must not be a reason to
-    import the other or initialize a native runtime. Only the reference is given a TDSE
-    binding; :func:`select` refuses one elsewhere.
+    import the other or initialize a native runtime. A TDSE binding goes to either
+    backend, which refuses a problem without its binding by name.
     """
     factory: Callable[..., Backend]
     if name == "native":
@@ -479,16 +431,15 @@ def _construct(
 
         factory = cast("Callable[..., Backend]", NativeBackend)
     else:
-        from solprop.backends.numpy_ref import construct  # noqa: PLC0415
+        from solprop.backends.numpy_ref import NumpyRefBackend  # noqa: PLC0415
 
-        factory = construct
-    host = {} if tdse_binding is None else {"tdse_binding": tdse_binding}
+        factory = NumpyRefBackend
     return factory(
         problem,
         request,
         grid=grid,
         modes=modes,
         profiles=profiles,
+        tdse_binding=tdse_binding,
         options=options,
-        **host,
     )

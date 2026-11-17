@@ -93,7 +93,7 @@ $n_2 = 3\chi^{(3)}/(4\varepsilon_0 c n_0^2)$: optmat's own gas `n2` takes $n_0 =
 `n2(..., wavelength=)` give the selected values (or take the carrier from
 `selection=`'s `carrier_wavelength`); a
 {class}`~solprop.physdata.mixtures.Mixture` evaluates its populations at a carrier with
-`gamma3_path(wavelength)`, which {func}`solprop.tools.soliton_params` passes its
+`gamma3_path(wavelength)`, which {func}`solprop.tools.capillary.soliton_params` passes its
 `wavelength`.
 
 ```{code-block} python
@@ -194,7 +194,7 @@ $h_R$ are imported; a test records the $n_0^2$ ratio.
 ## Selecting a run's materials
 
 The drivers take the same selection as `materials=`: `prop_capillary`,
-`prop_waveguide`, `prop_gnlse`, `prop_free`, `prop_radial` and `prop_planar`, the
+`prop_waveguide`, `prop_gnlse`, `prop_free` and `prop_planar`, the
 `Simulation.from_*` constructors behind them, and `solprop.sol`'s re-exports; an
 omitted one is `MaterialSelection()`. What the driver resolves itself comes from
 optmat; what the caller built is taken as it is.
@@ -214,7 +214,7 @@ optmat; what the caller built is taken as it is.
      - the gas, the fraction mapping and ``"air"``; the supplied modes keep their
        claddings. A provider's material regions are its own; a region's
        ``SilicaTensorResponse()`` is optmat's tensor silica bundle by default
-   * - ``prop_free``, ``prop_radial``
+   * - ``prop_free``
      - a :py:class:`~solprop.spatial.SpatialMedium` naming a built-in gas becomes the
        one-population mixture of that gas under the selection, at the same pressure
        and temperature; a supplied susceptibility is kept beside optmat's equation of
@@ -358,9 +358,22 @@ polarisabilities are identical.
 For a fill of optmat-selected species, {mod}`solprop.gasflow` takes optmat's
 transport properties (`optmat.gas.transport`): the zero-density viscosity, the
 ideal-gas heat capacity and the molar mass, each over optmat's own temperature range,
-the real-gas sound speed of the equation of state, and optmat's Wilke rule for a
-mixture (air resolved into its constituents). The mean free path, the flow law and the
-regime checks are solprop's. A custom species without an
+and optmat's Wilke rule for a mixture (air resolved into its constituents). The flow
+law and the regime checks are solprop's, and so are two properties of
+{mod}`solprop.physdata.transport`, dilute-gas values like the rest, which is what the
+laminar law and the choke use:
+
+- the **dilute sound speed** $c = \sqrt{\gamma R T/M}$, with the heat-capacity ratio
+  $\gamma = c_p/c_v$, $c_v = c_p - R$, and for a mixture the mole-weighted molar mass
+  and $\gamma = \sum_i x_i c_{p,i} / \sum_i x_i c_{v,i}$ (ideal-gas mixing of heat
+  capacities); the real-gas sound speed of the equation of state is
+  {func}`~solprop.physdata.transport.sound_speed` given a pressure, for a pure gas;
+- the **mean free path** in the viscosity-based kinetic-theory form
+  $\lambda = (\eta/p)\sqrt{\pi k_B T/(2m)}$, which needs no collision diameter. Other
+  conventions exist; the Knudsen thresholds of the flow regime assume this form and the
+  core diameter.
+
+A custom species without an
 {class}`~solprop.physdata.species.OptmatGas` equation of state has no transport
 properties, and a flow fill containing one is refused.
 
@@ -569,14 +582,7 @@ and carry their own citations.
 
 - The gas law is linear density scaling, with the error above declared and measured,
   not removed.
-- solprop requires optmat 0.3.0 or later: the noble gases' recommended ionisation rates
-  take the frequency-dependent Coulomb factor from 0.3.0, which run records and their
-  digests assume; a gas's Raman status is read without
-  building its response, which 0.2.1 could not do; D₂'s viscosity is a smooth
-  correlation from 0.2.2, so a D₂ temperature path over its whole range has a
-  viscosity series; `Gas.Air` takes its molar mass from the equation of state, which
-  0.2.0 did not expose; and 0.1.0's density inverse (a
-  pressure from a density) failed for Ar, N₂ and CH₄ below about 255 K, 284 K and 256 K. A
+- solprop requires optmat 0.10.0 or later, the floor its dependencies declare. A
   temperature at an equation's lowest temperature, its triple point, is refused.
 - One grade and temperature per solid; N-BK7 is lossless; no OH, dopant or
   temperature absorption model.

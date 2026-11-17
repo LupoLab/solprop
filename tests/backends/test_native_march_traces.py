@@ -5,14 +5,15 @@
 """The native Adams march against the Python march's decision traces (SEP 39 7.1).
 
 The corpus of ``tests/data/adams_traces.json.gz`` was taken from the Python march before
-SEP 39 refactored it. Here the same scenarios run through the native Adams record
-driven a call at a time (``native_trace_marches.TraceAdamsMarch``) with the native
-march's loop and decisions, its field arithmetic replaced by the script of norms
-(``_core.ScriptedMarch``). Each call is bound to one attempt, so the state the adapter
+SEP 39 refactored it. Here the same scenarios run through the native Adams record driven
+a call at a time (``native_trace_marches.TraceAdamsMarch``) with the native march's loop
+and decisions, its field arithmetic replaced by the script of norms (the private test
+module's ``ScriptedMarch``). Each call is bound to one attempt, so the state the adapter
 adopts after each call is the state after that attempt, and every stencil, decision,
 proposal, order, landing, restart and ledger counter is compared exactly with the
 reference's. A second pass lets the calls run to their events with the production bound
-and compares the attempts and the end state.
+and compares the attempts and the end state. Both passes run each scenario on the fused
+trial too, against the Python march on the same trial.
 """
 
 import gzip
@@ -33,7 +34,7 @@ from tests.backends.adams_traces import (
 from solprop.backends import available
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.log import NullReporter
-from solprop.stepper.multistep import Multistep
+from solprop.stepper.multistep import Formulation, Multistep
 from solprop.stepper.schedule import FixedSchedule
 
 pytestmark = pytest.mark.skipif(
@@ -41,14 +42,15 @@ pytestmark = pytest.mark.skipif(
 )
 
 native = pytest.importorskip("solprop_native")
-_core = pytest.importorskip("solprop_native._core")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 from tests.backends.native_trace_marches import TraceAdamsMarch  # noqa: E402
 
 CORPUS = Path(__file__).parents[1] / "data" / "adams_traces.json.gz"
 
-CHANGED = {"floor_short_landing"}
-"""Scenarios phase 0's commit-order fix changed; the fixed march is the reference."""
+CHANGED = {"floor_short_landing", "floor_after_rejections"}
+"""Scenarios a later fix changed -- phase 0's commit order, and the recorded rejection
+before a floor (issue #651); the fixed march is the reference."""
 
 
 def _corpus() -> list[dict[str, Any]]:
@@ -106,13 +108,13 @@ class _Runner:
                 replayed = FixedSchedule(np.array(schedule, dtype=np.float64))
                 steps = np.ascontiguousarray(replayed.steps, dtype=np.float64)
                 edges = np.ascontiguousarray(replayed.edges, dtype=np.float64)
-            self.scripted = _core.ScriptedMarch(
+            self.scripted = _testing.ScriptedMarch(
                 policy, self.norms, harness.scenario.carrier_rate or 0.0, steps, edges
             )
         bounds = {**bounds, "max_attempts": harness.max_attempts}
         result = self.scripted.run(state, bounds)
         log = self.scripted.log()
-        held = [slot for _, _, slot in state["history"]] or [0]
+        held = [entry["row"] for entry in state["history"]] or [0]
         for event in log[self.seen :]:
             if "start" in event:
                 harness.events.append(dict(event))
@@ -154,10 +156,12 @@ class _NativeHarness(_HostHarness):
         self._take_step_stats()
 
 
-def run_native(scenario: Scenario, max_attempts: int) -> dict[str, Any]:
+def run_native(
+    scenario: Scenario, max_attempts: int, formulation: Formulation = "exponential"
+) -> dict[str, Any]:
     """Run a scenario through the native adapter on the scripted native march."""
     harness = _NativeHarness(scenario, max_attempts)
-    method = Multistep(formulation="exponential", **scenario.method)
+    method = Multistep(formulation=formulation, **scenario.method)
     runner = _Runner(harness, scenario.norms)
     march = TraceAdamsMarch(harness, method, runner=runner)
     harness.march = march
@@ -182,31 +186,44 @@ def run_native(scenario: Scenario, max_attempts: int) -> dict[str, Any]:
     return {"events": harness.events, "end": end}
 
 
-def expected(entry: dict[str, Any]) -> dict[str, Any]:
+def expected(entry: dict[str, Any], formulation: Formulation) -> dict[str, Any]:
     """The reference's trace: the corpus's, or the fixed Python march's where phase 0
-    changed it."""
-    if entry["scenario"]["name"] in CHANGED:
-        return run_scenario(Scenario.from_json(entry["scenario"]))
+    changed it or on the fused trial, which the corpus was not taken on."""
+    if entry["scenario"]["name"] in CHANGED or formulation != "exponential":
+        return run_scenario(
+            Scenario.from_json(entry["scenario"]), formulation=formulation
+        )
     return entry["trace"]
 
 
-@pytest.mark.parametrize(
-    "entry", ENTRIES, ids=[entry["scenario"]["name"] for entry in ENTRIES]
-)
-def test_the_native_march_takes_the_reference_s_decisions(entry):
+CASES = [
+    pytest.param(entry, "exponential", id=entry["scenario"]["name"])
+    for entry in ENTRIES
+] + [
+    # Issue #270: the fused trial (the interaction formulation) on every scenario
+    # without a carrier frame, which that formulation refuses. The native record
+    # forms the fused path's policy itself, the collar's rate off.
+    pytest.param(entry, "interaction", id=f"fused-{entry['scenario']['name']}")
+    for entry in ENTRIES
+    if entry["scenario"]["carrier_rate"] is None
+]
+"""Each scenario on the exponential trial, then on the fused one."""
+
+
+@pytest.mark.parametrize(("entry", "formulation"), CASES)
+def test_the_native_march_takes_the_reference_s_decisions(entry, formulation):
     scenario = Scenario.from_json(entry["scenario"])
-    assert run_native(scenario, max_attempts=1) == expected(entry)
+    found = run_native(scenario, max_attempts=1, formulation=formulation)
+    assert found == expected(entry, formulation)
 
 
-@pytest.mark.parametrize(
-    "entry", ENTRIES, ids=[entry["scenario"]["name"] for entry in ENTRIES]
-)
-def test_calls_to_their_events_take_the_same_attempts(entry):
+@pytest.mark.parametrize(("entry", "formulation"), CASES)
+def test_calls_to_their_events_take_the_same_attempts(entry, formulation):
     # With the production bound, the state after each attempt within a call is not
     # handed back, so the attempts and the end are compared.
     scenario = Scenario.from_json(entry["scenario"])
-    found = run_native(scenario, max_attempts=256)
-    reference = expected(entry)
+    found = run_native(scenario, max_attempts=256, formulation=formulation)
+    reference = expected(entry, formulation)
 
     def attempts(trace):
         return [
@@ -217,3 +234,36 @@ def test_calls_to_their_events_take_the_same_attempts(entry):
 
     assert attempts(found) == attempts(reference)
     assert found["end"] == reference["end"]
+
+
+def test_a_rejection_below_the_floor_records_its_attempt_in_both_marches():
+    # Issue #651: one order-one trial at z = 0 of 0.25 m, rejected with norm four, and
+    # its shrunk proposal (0.1 m) below the 0.2 m floor. Each march records the
+    # completed attempt once, then raises the floor with the accepted state, the
+    # proposal and the ledger as they were.
+    case = Scenario(
+        name="rejected_floor_accounting",
+        method={"order": 1, "variable_order": False},
+        z0=0.0,
+        proposal=0.25,
+        dz_min=0.2,
+        dz_max=1.0,
+        z_end=1.0,
+        norms=[[4.0, 4.0, 4.0]],
+    )
+    reference = run_scenario(case)
+    for trace in (reference, run_native(case, max_attempts=1)):
+        rows = [row for row in trace["events"] if "accepted" in row]
+        assert [
+            (row["end"], row["step"], row["norm"], row["accepted"], row["order"])
+            for row in rows
+        ] == [(0.25, 0.25, 4.0, False, 1)]
+        end = trace["end"]
+        assert end["stop"] == "ConvergenceError"
+        assert "below the floor dz_min = 2.000e-01 m" in end["message"]
+        assert (end["position"], end["proposal"]) == (0.0, 0.25)
+        assert end["history"] == [[0.0, "accepted", 0]]
+        # startup, predictor, rejected, accepted and rejected steps (`LEDGER`).
+        assert end["ledger"][:5] == [1, 1, 1, 0, 1]
+        assert end["in_flight"] == {}
+    assert run_native(case, max_attempts=1) == reference

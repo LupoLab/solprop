@@ -4,19 +4,22 @@
 
 """Read one saved plane of a run: a coherent field plane (SEP 31), or a fluence map.
 
-:func:`fluence_map` lays a spatial plane's fluence out on its transverse axes.
-:func:`field_plane` turns a stored plane into a
-:class:`solprop.coupling.plane.FieldPlane`: its native coefficients exactly as stored,
-the reference rebuilt from the run's plane-reference record, the medium's
-metric at the plane's own position, the path certificate and the provenance.
-It is the extraction half of plane exchange; the manual page is
-``docs/guide/workflows/coupling.md``.
+- :func:`field_plane` turns a stored plane into a
+  :class:`solprop.coupling.plane.FieldPlane`: its native coefficients exactly as
+  stored, the reference rebuilt from the run's plane-reference record, the medium's
+  metric at the plane's own position, the path certificate and the provenance. It is
+  the extraction half of plane exchange (:mod:`solprop.processing.plane_file` is the
+  file half).
+- :func:`fluence_map` lays a spatial plane's fluence out on its transverse axes, as a
+  :class:`FluenceMap`.
 
-A file records what it can: the frame integral, the spatial plane measure and the
-identities of a general guide's reference, not the reference's arrays. A general
-modal plane's physical E/H and a dense basis Gram are therefore read with the
-simulation that ran it (``source=``), checked against the file's identities first
-through :mod:`solprop.processing.modal`.
+A file records the identities of a general guide's reference, not its arrays, so a
+general modal plane's physical E/H and a dense basis Gram are read with the simulation
+that ran it (``source=``), checked against the file through
+:mod:`solprop.processing.modal`. It records no basis identity: a plane's is derived
+when it is read, an ordinary mode set's from the source's modes or, when coupling first
+reads it, the recorded recipe's. The manual page is
+``docs/guide/workflows/coupling.md``.
 """
 
 from collections.abc import Callable, Mapping, Sequence
@@ -34,11 +37,9 @@ from solprop.coupling import (
     NodalField,
     PlaneBasis,
     PlaneGeometry,
-    PlaneKind,
     PlaneMetric,
     PlaneProvenance,
     ScalarModeBasis,
-    basis_identity,
     reference_at,
 )
 from solprop.exceptions import CouplingError, OutputError, ProcessingError
@@ -46,9 +47,17 @@ from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
 from solprop.modes.guide import ModalGuide
 from solprop.modes.protocol import Mode
 from solprop.modes.slab import PlanarGrid
-from solprop.output.schema import Output, RunMetadata
-from solprop.processing.axes import _plane_field, grid_of, spatial_grid_of
+from solprop.output.capability import capability_of
+from solprop.output.metadata import RunMetadata
+from solprop.output.store import Output, PlaneStore
+from solprop.processing.axes import (
+    _check_plane_or_z,
+    _plane_field,
+    grid_of,
+    spatial_grid_of,
+)
 from solprop.processing.modal import _checked_tables, _plane_rule, _spectra
+from solprop.recipe import Recipe
 from solprop.spatial import (
     SpatialFlux,
     SpatialMedium,
@@ -78,12 +87,14 @@ def _source_part(source: object, name: str) -> object:
     return getattr(source, name)
 
 
-def _selected(output: Output, plane: int, z: float | None) -> tuple[int, float]:
+def _selected(output: Output, plane: int | None, z: float | None) -> tuple[int, float]:
     """Return the index and stored position of the plane a selection names.
 
-    - ``z``: position that must match a stored plane, m.
+    - ``plane``: plane index, negative from the end; ``None``, the last.
+    - ``z``: position that must match a stored plane, m; refused beside a `plane`.
     - Returns: the index counted from the start, and its stored position in m.
     """
+    _check_plane_or_z(plane, z)
     positions = np.asarray(output["z"], dtype=float)
     if positions.size == 0:
         msg = "the output holds no saved plane"
@@ -98,6 +109,7 @@ def _selected(output: Output, plane: int, z: float | None) -> tuple[int, float]:
             )
             raise ProcessingError(msg)
         return index, float(positions[index])
+    plane = -1 if plane is None else plane
     index = plane + positions.size if plane < 0 else plane
     if not 0 <= index < positions.size:
         msg = f"plane {plane} is out of range for {positions.size} saved planes"
@@ -176,7 +188,7 @@ def _plane_fluence(
 
 
 def fluence_map(
-    output: Output, plane: int = -1, *, z: float | None = None
+    output: Output, plane: int | None = None, *, z: float | None = None
 ) -> FluenceMap:
     """Lay one saved plane's fluence out on the run's transverse axes.
 
@@ -186,13 +198,14 @@ def fluence_map(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened memory or HDF5 output of a spatial run.
-    plane : int, optional
+    plane : int or None, optional
         Index of the saved plane, negative from the end; default the last.
     z : float or None, optional
         Position of the plane instead, m; it must be a stored plane's to
-        :data:`PLANE_TOLERANCE`. A nearby plane is never substituted.
+        :data:`PLANE_TOLERANCE`. A nearby plane is never substituted. Refused beside
+        a `plane`.
 
     Returns
     -------
@@ -202,8 +215,9 @@ def fluence_map(
     Raises
     ------
     ProcessingError
-        If the run has no transverse grid, the plane is not stored, the record
-        carries no plane measure, or the run is a hybrid planar file.
+        If the run has no transverse grid, the plane is not stored or is named both
+        by index and by position, the record carries no plane measure, or the run is
+        a hybrid planar file.
 
     Examples
     --------
@@ -212,7 +226,7 @@ def fluence_map(
     >>> from solprop.pulses import GaussianPulse, SpatialPulse
     >>> from solprop.spatial import SpatialMedium
     >>> from solprop.stepper import PIController
-    >>> simulation = Simulation.from_radial(
+    >>> simulation = Simulation.from_free(
     ...     EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 400e-15),
     ...     RadialGrid(1e-3, 16),
     ...     SpatialMedium(),
@@ -269,28 +283,36 @@ def _lineage(metadata: RunMetadata) -> tuple[str, ...]:
     return (*earlier, cast("str", record["source"]))
 
 
-def _recorded_basis(metadata: RunMetadata, z: float) -> tuple[str, str]:
-    """Return a run's route and the basis identity it recorded at a plane.
+def _source_modes(metadata: RunMetadata, source: object) -> Sequence[Mode]:
+    """Return the source simulation's mode set, checked by configuration hash."""
+    record = cast(
+        "RunMetadata",
+        cast("Callable[[], object]", _source_part(source, "metadata"))(),
+    )
+    _check_source(metadata, record)
+    return cast("Sequence[Mode]", _source_part(source, "modes"))
 
-    - ``z``: the stored plane's position, m.
-    - Returns: the route and the identity. A spatial or general basis is the same at
-      every plane; an ordinary mode set's plane that was not planned (a natural-step
-      save) has no recorded basis, and gets an identity that names it as unrecorded,
-      which no port matches.
+
+def _recipe_modes(output: Output) -> Callable[[], Sequence[Mode] | None]:
+    """Return how to rebuild an output's mode set from the recipe it records.
+
+    A callable, so that the simulation is built only when a plane's basis identity is
+    read -- when the plane is coupled -- and not for a plane read for its field.
+
+    - Returns: the callable; it returns None for a run from a script, whose planes'
+      basis is then not known.
     """
-    record = cast("Mapping[str, object]", metadata.reference)["basis"]
-    bases = cast("Mapping[str, object]", record)
-    route = cast("str", bases["route"])
-    planned = np.asarray(cast("Sequence[float]", bases["z"]), dtype=float)
-    identities = cast("Sequence[str | None]", bases["identity"])
-    distance = np.abs(planned - z)
-    index = int(np.argmin(distance))
-    if route != "modal":
-        index = 0
-    elif distance[index] > PLANE_TOLERANCE * max(1.0, abs(z)):
-        return route, basis_identity("modal", {"unrecorded at": z})
-    identity = identities[index]
-    return route, "" if identity is None else identity
+    # A store keeps the recipe it read when it was opened, so this outlives the file.
+    store = (
+        output if isinstance(output, PlaneStore) and output.recipe is not None else None
+    )
+
+    def _rebuilt() -> Sequence[Mode] | None:
+        if store is None:
+            return None
+        return Recipe.from_output(store, resolved=True).build().modes
+
+    return _rebuilt
 
 
 def _spatial_metric(
@@ -347,20 +369,14 @@ def _check_source(metadata: RunMetadata, record: RunMetadata) -> None:
 
 
 def _modal_profiles(
-    metadata: RunMetadata, grid: TimeGrid, position: float, source: object
+    modes: Sequence[Mode], grid: TimeGrid, position: float
 ) -> ScalarModeBasis | None:
-    """Return an ordinary modal plane's scalar profiles from its source simulation.
+    """Return an ordinary modal plane's scalar profiles from its source's modes.
 
     - ``position``: the plane's position, m.
     - Returns: the profiles; None for a mode family with angular structure, which has
       none.
     """
-    record = cast(
-        "RunMetadata",
-        cast("Callable[[], object]", _source_part(source, "metadata"))(),
-    )
-    _check_source(metadata, record)
-    modes = cast("Sequence[Mode]", _source_part(source, "modes"))
     try:
         return ScalarModeBasis.from_modes(modes, grid, position)
     except CouplingError:
@@ -409,7 +425,7 @@ def _general_parts(
         # The E/H synthesis is electric_field's and magnetic_field's, admitted by
         # that name on every general basis.
         electric, magnetic, _ = _spectra(
-            output, checked, index, None, "electric_field", guide
+            output, index, "electric_field", guide, checked
         )
         nodes, weights = _plane_rule(checked, guide, z)
     except OutputError as refused:
@@ -437,7 +453,7 @@ def _general_parts(
 
 def field_plane(
     output: Output,
-    plane: int = -1,
+    plane: int | None = None,
     *,
     z: float | None = None,
     source: object | None = None,
@@ -449,26 +465,33 @@ def field_plane(
     plane's stored position; the metric is the run's own at that position -- the
     axial admittance of a spatial plane (SEP 34), the identity for ordinary
     true-power coefficients, a general basis's Gram; the path certificate is the
-    :class:`~solprop.adiabatic.AdiabaticAdmission` the spatial record rebuilds.
+    :class:`~solprop.adiabatic.AdiabaticAdmission` the spatial record rebuilds. The
+    basis is derived here, since a file records none
+    (:meth:`~solprop.coupling.plane.PlaneBasis.of_run`): a spatial or general modal
+    one from the file, an ordinary mode set's from its modes at the plane -- the
+    source's, or those the output's recorded recipe rebuilds, built only when the
+    identity is first read, which only coupling does -- and unknown (None) for a run
+    from a script read without its source, which ``same_basis`` then refuses to copy.
     Radial, Cartesian, ordinary modal and general modal runs are read; a hybrid
     planar run is refused by name, and so is a run with the modified noise model,
     whose auxiliary noise phase is not reconstructed into the plane.
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened memory or HDF5 output whose record carries its plane reference.
-    plane : int, optional
+    plane : int or None, optional
         Index of the saved plane, negative from the end; default the last.
     z : float or None, optional
         Position of the plane instead, m; it must be a stored plane's to
-        :data:`PLANE_TOLERANCE`. A nearby plane is never substituted.
+        :data:`PLANE_TOLERANCE`. A nearby plane is never substituted. Refused beside
+        a `plane`.
     source : solprop.driver.Simulation or None, optional
         The simulation that wrote the output, for what the file deliberately does
         not embed: a general guide's E/H reference and a dense Gram, checked against
         the file's identities; a spatial run's medium, or an ordinary mode set's
-        scalar profiles (:class:`~solprop.coupling.models.ScalarModeBasis`, for a
-        capillary's HE1m or a step-index fibre's HE1m modes), checked by
+        basis and scalar profiles (:class:`~solprop.coupling.models.ScalarModeBasis`,
+        for a capillary's HE1m or a step-index fibre's HE1m modes), checked by
         configuration hash. Not needed otherwise.
 
     Returns
@@ -482,6 +505,8 @@ def field_plane(
         If the output holds no record or no plane reference, both `plane` and `z`
         are given, the selection names no stored plane, the run is planar or used
         the modified noise model, or `source` is not the run that wrote it.
+    solprop.recipe.RecipeError
+        If the recipe the output records no longer builds its simulation.
 
     Examples
     --------
@@ -495,6 +520,8 @@ def field_plane(
     >>> plane = field_plane(simulation.run())
     >>> plane.kind, plane.geometry.z, plane.units
     ('modal', 0.01, 'sqrt(W)')
+    >>> plane.basis.identity is None  # a run from a script, read without its source
+    True
     """
     metadata = output.metadata
     if metadata is None:
@@ -518,29 +545,25 @@ def field_plane(
             "noise='input' or noise=None to couple the output"
         )
         raise ProcessingError(msg)
-    if z is not None and plane != -1:
-        msg = f"give a plane index or a position, not both: plane={plane}, z={z}"
-        raise ProcessingError(msg)
     index, position = _selected(output, plane, z)
     samples = _plane_field(output, index, None, convention="optics")
     grid = grid_of(output)
-    route, identity = _recorded_basis(metadata, position)
-    if route == "planar":
+    if metadata.simulation_kind == "slab":
         msg = (
             "a hybrid planar run's columns are slab amplitudes per y frequency; "
             "planar planes are not exchanged in this release"
         )
         raise ProcessingError(msg)
-    kind = cast("PlaneKind", route)
     reference = reference_at(metadata.reference, position)
     provenance = PlaneProvenance(
         metadata.configuration_hash(), index, position, _lineage(metadata), ()
     )
     geometry = PlaneGeometry(position)
-    if kind in ("radial", "cartesian"):
+    if metadata.simulation_kind in ("radial", "free"):
         # A planar plane was refused above: this is a radial or Cartesian grid.
         space = cast("RadialGrid | FreeGrid", spatial_grid_of(output))
-        basis = PlaneBasis(kind, identity, space=space)
+        basis = PlaneBasis.of_run(metadata.simulation_kind, space=space)
+        kind = basis.kind
         metric, medium, certificate = _spatial_metric(
             metadata, grid, space, position, source
         )
@@ -563,14 +586,26 @@ def field_plane(
         for mode in metadata.modes
         if mode.label is not None
     )
-    basis = PlaneBasis(kind, identity, labels)
+    general = capability_of(metadata) == "general_modal"
+    # The source is in hand and checked, so its modes are read now; a recipe is built
+    # only if the basis identity is read, which only coupling does.
+    modes = None if general or source is None else _source_modes(metadata, source)
+    basis = PlaneBasis.of_run(
+        metadata.simulation_kind,
+        labels=labels,
+        modal=metadata.modal,
+        modes=_recipe_modes(output) if modes is None and not general else modes,
+        grid=grid,
+        z=position,
+    )
+    kind = basis.kind
     nodal = None
     profiles = None
     metric = PlaneMetric("identity")
-    if kind == "general_modal":
+    if general:
         metric, nodal = _general_parts(output, metadata, index, position, source)
-    elif source is not None:
-        profiles = _modal_profiles(metadata, grid, position, source)
+    elif source is not None and modes is not None:
+        profiles = _modal_profiles(modes, grid, position)
     return FieldPlane(
         kind,
         samples,

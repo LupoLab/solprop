@@ -6,8 +6,10 @@ import numpy as np
 import pytest
 
 from solprop import stats
+from solprop._validation import choice
 from solprop.exceptions import ModeError, ProcessingError
-from solprop.processing import axes, fields, spectra, time
+from solprop.processing import fields, spectra, time
+from solprop.stats.definitions import _power_half_width
 
 
 def test_moment_is_the_weighted_mean():
@@ -89,7 +91,7 @@ def test_the_statistic_measures_its_trace_with_the_general_crossing(grid, outer)
     power = power * (1.0 + 1e-3 * rng.standard_normal(power.size))
     low, high = time.half_max_range(grid.t, power, outer=outer)
     assert np.isfinite(high - low)
-    assert float(stats._power_half_width(grid, power, outermost=outer)) == high - low
+    assert float(_power_half_width(grid, power, outermost=outer)) == high - low
 
 
 def test_the_duration_follows_the_dispersion_law(output, synthetic):
@@ -160,8 +162,10 @@ def test_the_arrival_time_of_a_delayed_pulse(synthetic, kind, method):
 
 
 def test_arrival_time_refuses_an_unknown_method():
-    with pytest.raises(ProcessingError, match="method must be one of"):
-        axes._check_choice("centroid", time.ARRIVAL_METHODS, "method")
+    with pytest.raises(
+        ProcessingError, match="method must be 'moment' or 'peak', got 'centroid'"
+    ):
+        choice("centroid", "method", time.ARRIVAL_METHODS, ProcessingError)
 
 
 def test_the_field_autocorrelation_is_the_energy_at_zero_delay(output):

@@ -19,7 +19,7 @@ from solprop.constants import EPS0, HBAR, C
 from solprop.driver import Simulation, SimulationSettings, prop_free
 from solprop.exceptions import DriverError, GridError, OutputError, TranslationError
 from solprop.fourier import spectral_density
-from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.linear import Frame
 from solprop.modes import SlabMode
 from solprop.noise import spatial_noise
@@ -36,6 +36,7 @@ from solprop.spatial import (
     spatial_energy,
     spatial_intensity,
 )
+from solprop.stats import StatsSpec, default_spec
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
 from solprop.translate.linop import delta_phi
 from spatial_records import record_metric
@@ -74,6 +75,31 @@ def free_case(request):
         spatial_absorber=False,
     )
     return grid, space, pulse, settings
+
+
+@pytest.mark.parametrize(
+    ("space", "kind"),
+    [(FreeGrid(3e-4, 12, 4e-4, 16, collar_fraction=0), "free"), (None, "radial")],
+    ids=["cartesian", "radial"],
+)
+def test_free_space_statistics_left_unset_take_the_route_s_default(
+    free_case, space, kind
+):
+    # As every modal route does; an empty spec still asks for none.
+    grid, _, pulse, settings = free_case
+    space = RadialGrid(6e-4, 16) if space is None else space
+    for stats, names in ((None, default_spec(kind).names), (StatsSpec(names=()), ())):
+        simulation = Simulation.from_free(
+            grid,
+            space,
+            SpatialMedium(),
+            [],
+            pulse,
+            settings=dataclasses.replace(settings, stats=stats),
+            noise=None,
+        )
+        assert simulation.settings.stats is not None
+        assert simulation.settings.stats.names == names
 
 
 def test_free_interface_preserves_an_explicit_frame(free_case):
@@ -123,7 +149,7 @@ def test_free_interface_separable_flow_and_metadata(free_case, request, backend)
         grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     start, finish = output.fields("fft")
-    expected = start * np.exp(delta_phi(problem.linear, 0, grid.length))[0]
+    expected = start * np.exp(delta_phi(problem.linear, 0, grid.length))
     defect = np.max(np.abs(finish - expected)) / np.max(np.abs(start))
     assert defect < field_bound
     energy_error = abs(
@@ -218,7 +244,7 @@ def test_free_simulation_records_noise_model_and_seed(
     # With no nonlinear source, both noise models obey the exact linear flow
     # of their saved entrance. The phase subtraction and complex exponential
     # cost fewer than 64 rounded operations per optical phase magnitude.
-    phase = delta_phi(simulation.translate().linear, 0.0, grid.length)[0]
+    phase = delta_phi(simulation.translate().linear, 0.0, grid.length)
     bound = 64 * EPS * (1 + float(np.max(np.abs(phase))))
     fields = simulation.run().fields("fft")
     expected = np.exp(phase) * fields[0]
@@ -338,20 +364,6 @@ def test_cartesian_material_loss_gain_and_evanescence(
         bound,
         backend,
     )
-
-
-def test_cartesian_resume_distinguishes_legacy_cutoff_arithmetic(free_case):
-    grid, space, pulse, settings = free_case
-    simulation = Simulation.from_free(
-        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
-    )
-    current = simulation.metadata()
-    assert current.schema_version == 2
-    assert current.configuration["spatial_arithmetic"] == "split-square-v1"
-    legacy_configuration = dict(current.configuration)
-    del legacy_configuration["spatial_arithmetic"]
-    legacy = dataclasses.replace(current, configuration=legacy_configuration)
-    assert legacy.configuration_hash() != current.configuration_hash()
 
 
 # --- the line (x-only) free space, uniform in y ---------------------------------------
@@ -711,6 +723,6 @@ def test_a_line_is_recorded_per_metre_of_y_without_from_free_s_key():
         settings=_line_settings(grid, 1e-3, [1e-3]),
         noise=None,
     )
-    simulation.configuration.pop("transverse_measure")
+    simulation._configuration.pop("transverse_measure")
     assert "transverse_measure" not in simulation.configuration
     assert simulation.metadata().transverse_measure == "per_unit_width"

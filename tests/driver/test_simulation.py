@@ -7,6 +7,7 @@
 import contextlib
 import dataclasses
 import math
+import pickle
 import subprocess
 import sys
 import warnings
@@ -16,12 +17,16 @@ from typing import Any
 import numpy as np
 import pytest
 
+from builders import grid_at
+from solprop._identity import canonical_json
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
+from solprop.driver import settings as settings_module
 from solprop.driver import simulation as simulation_module
 from solprop.exceptions import DriverError, MaterialRangeWarning
 from solprop.nonlinear.gnlse import problem_from
-from solprop.profiles import Constant
+from solprop.output.serialisation import serialise
+from solprop.profiles import Constant, PiecewiseLinear, PressureGradient
 from solprop.pulses import SechPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
@@ -60,12 +65,54 @@ def test_the_problem_is_translated_once_for_two_runs(build_simulation, monkeypat
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("first", ["translate", "run_request"])
+def test_the_run_request_is_the_one_translated_beside_the_problem(
+    build_simulation, monkeypatch, first
+):
+    """Either call translates, once; the other returns what that translation built."""
+    calls = []
+    original = simulation_module.assemble
+
+    def counted(*arguments, **keywords):
+        calls.append(1)
+        return original(*arguments, **keywords)
+
+    monkeypatch.setattr(simulation_module, "assemble", counted)
+    simulation = build_simulation(n_save=2)
+    getattr(simulation, first)()
+    request = simulation.run_request()
+    problem = simulation.translate()
+    assert len(calls) == 1
+    assert simulation.run_request() is request
+    assert request.observation.start_plane == 0
+    np.testing.assert_array_equal(
+        request.observation.save_planes, simulation.settings.save_planes
+    )
+    # A run adapts a copy; the cached request stays the fresh run's.
+    assert request.for_run(start_plane=1) is not request
+    assert simulation.run_request().observation.start_plane == 0
+    assert simulation.translate() is problem
+
+
+def test_a_derived_simulation_has_its_own_run_request(build_simulation):
+    """An interior launch's request holds the planes beyond it, its parent's all."""
+    simulation = build_simulation(n_save=3)
+    planes = simulation.run_request().observation.save_planes
+    launch_z = 0.5 * float(planes[0] + planes[1])
+    derived = simulation.with_input(simulation._field0, initial_z=launch_z)
+    request = derived.run_request()
+    assert request is derived.run_request()
+    assert request.observation.start_plane == 0
+    np.testing.assert_array_equal(request.observation.save_planes, planes[1:])
+    assert simulation.run_request().observation.save_planes is planes
+
+
 def test_settings_assigned_before_the_first_translation_take_effect(build_simulation):
     """A replacement before :meth:`translate` reaches the problem."""
     simulation = build_simulation(n_save=2)
     simulation.settings = dataclasses.replace(simulation.settings, dz_max=1e-4)
     assert simulation.settings.dz_max == 1e-4
-    assert simulation._run_request().stepper.dz_max == 1e-4
+    assert simulation.run_request().stepper.dz_max == 1e-4
 
 
 @pytest.mark.parametrize("first", ["translate", "run"])
@@ -83,6 +130,53 @@ def test_settings_assigned_after_the_first_translation_are_refused(
             settings, dz_max=1e-4, save_planes=[1.234e-4], backend="native"
         )
     assert simulation.settings is settings
+
+
+@pytest.mark.parametrize("name", sorted(simulation_module._FIXED_INPUTS))
+def test_assigning_what_a_simulation_is_built_from_is_refused(build_simulation, name):
+    """The input and the record are built from these at construction, so a new
+    value would run the old input and record the new one; the refusal names the
+    methods that derive a simulation instead."""
+    simulation = build_simulation(n_save=2)
+    before = getattr(simulation, name)
+    with pytest.raises(AttributeError, match=r"with_input\(\.\.\.\).*new Simulation"):
+        setattr(simulation, name, before)
+    assert getattr(simulation, name) is before or name in ("profiles", "configuration")
+
+
+def test_the_recorded_mappings_are_copies(build_simulation):
+    """Changing the configuration or profiles in place would change the record alone,
+    so each read is a plain copy: picklable, and changing it changes nothing."""
+    simulation = build_simulation(n_save=2)
+    configuration = simulation.configuration
+    configuration["label"] = "changed"
+    profiles = simulation.profiles
+    profiles["density"] = Constant(1.0)
+    assert "label" not in simulation.configuration
+    assert "density" not in simulation.profiles
+    assert "label" not in simulation.metadata().configuration
+    pickle.dumps((simulation.configuration, simulation.profiles))
+
+
+def test_with_input_derives_the_run_a_new_pulse_makes(build_simulation):
+    """The way to a new input: the derived run runs and records it, the original
+    keeps its own."""
+    simulation = build_simulation(n_save=2)
+    stronger = dataclasses.replace(
+        simulation.initial,
+        peak_power=2 * simulation.initial.peak_power,  # pyright: ignore[reportAttributeAccessIssue]
+    )
+    derived = simulation.with_input(stronger)
+    assert derived.initial is stronger
+    assert derived.metadata().configuration_hash() != (
+        simulation.metadata().configuration_hash()
+    )
+    # Twice the peak power is twice the energy at the entrance; exact up to rounding.
+    np.testing.assert_allclose(
+        np.sum(np.abs(derived._field0) ** 2),
+        2 * np.sum(np.abs(simulation._field0) ** 2),
+        rtol=1e-12,
+    )
 
 
 def test_the_backend_alone_may_change_after_translation(build_simulation):
@@ -104,7 +198,7 @@ def test_the_backend_alone_may_change_after_translation(build_simulation):
 
 def test_a_setting_that_cannot_be_compared_is_not_the_same():
     """A container of arrays has no truth value; it is never taken as unchanged."""
-    same = simulation_module._same_setting
+    same = settings_module._same_setting
     assert same((np.ones(2),), (np.ones(2),)) is False
     assert same(np.ones(2), [1.0, 1.0]) and not same(np.ones(2), np.ones(3))
     assert same(1e-3, 1e-3) and not same(1e-3, 2e-3)
@@ -157,7 +251,7 @@ def test_the_modes_and_the_profiles_reach_the_backend(narrow_grid, soliton):
         wavelength=wavelength, width=soliton.tau0, peak_power=soliton.peak_power(1)
     )
     simulation = Simulation(
-        narrow_grid,
+        grid_at(narrow_grid, 0.005),
         fibre.mode,
         [fibre.kerr],
         pulse,
@@ -196,7 +290,7 @@ def test_a_built_spectrum_is_accepted_as_the_input(narrow_grid, soliton):
         peak_power=soliton.peak_power(1),
     ).build(narrow_grid)
     simulation = Simulation(
-        narrow_grid,
+        grid_at(narrow_grid, 0.005),
         fibre.mode,
         [fibre.kerr],
         spectrum,
@@ -227,7 +321,7 @@ def test_an_input_that_is_neither_a_pulse_nor_a_spectrum_is_refused(
     not_a_pulse: Any = SimpleNamespace(build="a pulse, honest")
     with pytest.raises(DriverError, match="build\\(grid\\) method"):
         Simulation(
-            narrow_grid,
+            grid_at(narrow_grid, 0.005),
             fibre.mode,
             [fibre.kerr],
             not_a_pulse,
@@ -292,7 +386,7 @@ def test_a_capillary_configuration_hashes_the_same_way_in_a_new_process():
     Every object the configuration carries -- the modes, the pressure and density
     paths, the responses, the rate object and the pulse -- has to serialise to its own
     data rather than to a ``repr`` holding a memory address
-    (:func:`solprop.output.schema.serialise`).
+    (:func:`solprop.output.serialisation.serialise`).
     """
     program = (
         "import warnings, sys\n"
@@ -337,3 +431,216 @@ def test_the_modes_the_profiles_and_the_grid_reach_the_backend():
     assert float(output["stats/peak_intensity"][0]) > 0.0
     assert float(output["stats/density"][0]) > 0.0
     assert output["field"].shape[1] == 2
+
+
+# ------------------------------------------ what a Simulation keeps of its caller's
+
+
+def _profile_tables():
+    """Return the arrays of a density table and a pressure table, fresh each call."""
+    return {
+        "density_positions": np.array([0.0, 0.0025, 0.005]),
+        "density_values": np.array([2.5e25, 2.0e25, 1.5e25]),
+        "pressure_positions": np.array([0.0, 0.005]),
+        "pressure_values": np.array([1.0, 0.5]),
+    }
+
+
+def _configuration():
+    """Return a caller's provenance with a list, a nested dict and an array in it."""
+    return {
+        "coefficients": np.array([1.0, 2.0, 3.0]),
+        "labels": ["scan", "point"],
+        "scan": {"delays": [1e-15, 2e-15], "pair": (0.5, np.array([4.0]))},
+        "tags": {"a", "b"},
+    }
+
+
+def _caller_simulation(narrow_grid, soliton, tables, configuration):
+    """Build a direct Simulation whose density and pressure statistics read profiles."""
+    fibre = problem_from(
+        [0.0, 0.0, soliton.beta2],
+        omega_ref=narrow_grid.omega0,
+        gamma=soliton.gamma,
+        shock=False,
+    )
+    profiles = {
+        "density": PiecewiseLinear(
+            tables["density_positions"], tables["density_values"]
+        ),
+        "pressure": PressureGradient(
+            positions=tables["pressure_positions"],
+            pressures=tables["pressure_values"],
+            floor=0.0,
+        ),
+    }
+    return Simulation(
+        narrow_grid,
+        fibre.mode,
+        [fibre.kerr],
+        SechPulse(
+            wavelength=soliton.wavelength,
+            width=soliton.tau0,
+            peak_power=soliton.peak_power(1),
+        ),
+        settings=SimulationSettings(
+            controller=PIController(rtol=1e-8, atol=1e-18),
+            save_planes=[0.0025, 0.005],
+            dz_max=0.005,
+            dz_init=1e-4,
+            density=1.0,
+            shock=False,
+            prefactor_index=1.0,
+            stats=StatsSpec(names=("density", "pressure")),
+        ),
+        profiles=profiles,
+        configuration=configuration,
+    )
+
+
+def _change_everything(tables, configuration):
+    """Change, in place, every array, list, dict and set the caller passed."""
+    for values in tables.values():
+        np.multiply(values, 2.0, out=values)
+    configuration["coefficients"][0] = -1.0
+    configuration["labels"].append("changed")
+    configuration["scan"]["delays"][0] = 9e-15
+    configuration["scan"]["pair"][1][0] = -4.0
+    configuration["scan"]["added"] = True
+    configuration["tags"].add("c")
+    configuration["late"] = "key"
+
+
+@pytest.mark.parametrize("translated_first", [False, True], ids=["lazy", "translated"])
+def test_changing_what_the_caller_passed_changes_neither_the_run_nor_its_record(
+    narrow_grid, soliton, translated_first
+):
+    """Profiles and configuration are read when the simulation is built (issue #471).
+
+    The run's density and pressure statistics are computed from the profiles, and the
+    record holds both them and the configuration, so a simulation that shared the
+    caller's tables, lists or arrays would follow a change made after construction.
+    The reference is the same simulation built from untouched copies.
+    """
+    tables, configuration = _profile_tables(), _configuration()
+    simulation = _caller_simulation(narrow_grid, soliton, tables, configuration)
+    if translated_first:
+        simulation.translate()
+    _change_everything(tables, configuration)
+    reference = _caller_simulation(
+        narrow_grid, soliton, _profile_tables(), _configuration()
+    )
+    changed = simulation.metadata().differences(reference.metadata())
+    assert not changed, changed
+    assert (
+        simulation.metadata().configuration_hash()
+        == reference.metadata().configuration_hash()
+    )
+    assert simulation.configuration["labels"] == ["scan", "point"]
+    kept = simulation.configuration["coefficients"]
+    assert isinstance(kept, np.ndarray)
+    assert not kept.flags.writeable
+    output, expected = simulation.run(), reference.run()
+    # Exact: both runs evaluate the same profile tables at the same planes.
+    for name in ("stats/density", "stats/pressure"):
+        np.testing.assert_array_equal(output[name], expected[name])
+    # The statistic is the backend's Chebyshev interpolant of the table, exact to a
+    # few roundings; the doubled table would read 5e25.
+    assert float(output["stats/density"][0]) == pytest.approx(2.5e25, rel=1e-12)
+
+
+def test_a_derived_runs_configuration_is_copied_from_the_caller(narrow_grid, soliton):
+    """`with_input` copies its caller's keys as the constructor does (issue #471)."""
+    simulation = _caller_simulation(
+        narrow_grid, soliton, _profile_tables(), _configuration()
+    )
+    pulse = SechPulse(
+        wavelength=soliton.wavelength,
+        width=soliton.tau0,
+        peak_power=soliton.peak_power(1),
+    )
+    keys = {"delay": np.array([1e-15]), "label": ["first"]}
+    derived = simulation.with_input(pulse, configuration=keys)
+    keys["delay"][0] = 5e-15
+    keys["label"].append("second")
+    reference = simulation.with_input(
+        pulse, configuration={"delay": np.array([1e-15]), "label": ["first"]}
+    )
+    assert not derived.metadata().differences(reference.metadata())
+    assert (
+        derived.metadata().configuration_hash()
+        == reference.metadata().configuration_hash()
+    )
+
+
+def test_copying_the_callers_inputs_leaves_the_record_and_its_hash_unchanged(
+    narrow_grid, soliton
+):
+    """The copies serialise as the caller's objects did, so no digest moves.
+
+    Before issue #471 a simulation kept the caller's mapping of profiles and the
+    configuration's values themselves; a run recorded that way must have the record
+    and the configuration hash a run recorded from the copies has, or a resume of a
+    file written before the copy would be refused.
+    """
+    tables, configuration = _profile_tables(), _configuration()
+    copied = _caller_simulation(narrow_grid, soliton, tables, configuration)
+    shared = _caller_simulation(narrow_grid, soliton, tables, configuration)
+    # How a simulation kept them before the copy.
+    shared._profiles = dict(shared._profiles)
+    shared._configuration = dict(configuration)
+    assert shared.configuration["coefficients"] is configuration["coefficients"]
+    assert copied.configuration["coefficients"] is not configuration["coefficients"]
+    record, before = copied.metadata(), shared.metadata()
+    assert record.configuration_hash() == before.configuration_hash()
+    assert not record.differences(before)
+    assert canonical_json(record.hashed()) == canonical_json(before.hashed())
+    assert serialise(record.configuration) == serialise(before.configuration)
+
+
+def _with_components(simulation, components):
+    """Give a simulation's untranslated settings these transverse components."""
+    simulation.settings = dataclasses.replace(
+        simulation.settings, components=components
+    )
+    return simulation
+
+
+def test_the_settings_keep_a_copy_of_the_callers_components():
+    """Changing the caller's list after building the settings changes nothing (#471).
+
+    The simulation translates its settings lazily, so settings that shared the list
+    would let a change made between construction and translation reach the run.
+    """
+    given = ["x"]
+    settings = SimulationSettings(
+        controller=PIController(rtol=1e-8, atol=1e-18),
+        save_planes=[0.005],
+        dz_max=0.005,
+        dz_init=1e-4,
+        components=given,
+    )
+    given.append("y")
+    assert settings.components == ("x",)
+    caller = ["x"]
+    simulation = _with_components(capillary(modes=2), caller)
+    caller.append("y")
+    reference = _with_components(capillary(modes=2), ("x",))
+    with quiet():
+        assert simulation.translate().shape == reference.translate().shape
+        assert not simulation.metadata().differences(reference.metadata())
+    assert digest(simulation) == digest(reference)
+
+
+def test_components_given_as_a_list_record_as_a_tuple_does():
+    """The copy is a tuple; a run given a list records what one given a tuple does.
+
+    Translation resolves the components as a tuple whatever it is given, so the
+    record and its configuration hash are those of the components themselves.
+    """
+    listed = _with_components(capillary(modes=2), ["x"])
+    paired = _with_components(capillary(modes=2), ("x",))
+    with quiet():
+        record, expected = listed.metadata(), paired.metadata()
+    assert record.configuration_hash() == expected.configuration_hash()
+    assert canonical_json(record.hashed()) == canonical_json(expected.hashed())

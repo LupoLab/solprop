@@ -23,7 +23,7 @@ need no exception for them.
 | scipy ≥ 1.18 | `scipy.fft` (reference backend), `special`, `optimize`, `interpolate`, `integrate.quad_vec`, `signal`, `constants` | root finding, special functions, interpolation and adaptive quadrature throughout; the newest API used is `signal.ShortTimeFFT` (1.12), but optmat requires 1.18, the release its stored fits reproduce from |
 | matplotlib ≥ 3.10.7 | plotting | earlier 3.10 releases call pyparsing APIs that current pyparsing deprecates, which the test suite's warnings-as-errors refuses |
 | h5py ≥ 3.15 | HDF5 output | first release with 3.14 wheels on all three platforms |
-| optmat[gas] ≥ 0.9.1 | built-in material models: gas dispersion, Kerr, equation of state and transport; solids; gas and silica Raman responses; gas ionisation rates ([SEP 3](seps/archive/sep-0003-optmat-materials.md)) | the same maintainers' curated-data package; never imported at `import solprop`, since its registries take about a second to import; 0.9 reads only the data a model needs and says which gases each rate model covers |
+| optmat[gas] ≥ 0.10.0 | built-in material models: gas dispersion, Kerr, equation of state and transport; solids; gas and silica Raman responses; gas ionisation rates ([SEP 3](seps/archive/sep-0003-optmat-materials.md)) | the same maintainers' curated-data package; never imported at `import solprop`, since its registries take about a second to import; 0.9 reads only the data a model needs and says which gases each rate model covers; 0.10 loads CoolProp without its superancillaries, so the first real-gas density takes 0.07 s rather than 0.46 s, and versions its equations of state (`EVALUATION_VERSION` 2) |
 | threadpoolctl ≥ 3.1 | inspect and control the backend-owned BLAS pool | pool provenance and limits are recorded per run |
 | jaxtyping ≥ 0.3.11 | array annotations, evaluated at import time in every module | pure Python; the checker (beartype) is dev-only; the floor dates from the removed `numba_cpu` backend, whose compiled kernels earlier releases' import hook wrapped; it has not been re-tested lower since |
 | tqdm ≥ 4.67 | the progress bar (`solprop.log.BarReporter`) | pure Python; imported when the first bar is drawn, never at `import solprop`; `ipywidgets` is optional for the notebook widget and is not a dependency |
@@ -40,12 +40,14 @@ is prepared; ordinary imports and non-TDSE runs never initialise its runtime. A 
 provider, an unsupported interpreter (the provider supports Python 3.14 only) or a
 missing capability is refused with a `BackendError`.
 
-solprop pins one provider source revision, `solprop.driver.tdse._PROVIDER_REVISION`
-(currently `876b72d10b5286478125b842ea45548a5051b033`);
-the binding checks the installed provider against it, and the source identity and the
-loaded native build identity are recorded separately with every run. A device build
-(CUDA or HIP) is selected explicitly through `TDSEExecution.device` and checked against
-the build's execution space, with no fallback.
+solprop pins no provider revision: until Pyroraptor has a release, it uses whatever
+provider is installed, by default the latest `main`
+([SEP 49](seps/archive/sep-0049-tdse-on-native.md), ADR-078). The provider runs in a worker
+process, whose handshake refuses another protocol version; the revision, build and
+execution space it reports are recorded with every run, and a preset's source names
+that revision. A device build (CUDA or HIP) is selected explicitly through
+`TDSEExecution.device` and checked against the build's execution space, with no
+fallback.
 
 ## The native backend package
 
@@ -73,7 +75,7 @@ solprop-native has no runtime dependency on solprop.
 **SLEEF 3.9.0** ([sleef.org](https://sleef.org), Boost Software License 1.0) is the
 native CPU build's host vector maths on x86-64 (ADR-059): vector `exp`, `log` and
 `sincos`, its u10 functions (1.0 ulp over each function's domain), called over blocks
-by `native/include/solprop_native/vmath.hpp`. It is fetched at its release tag like
+by `native/include/solprop_native/runtime/vmath.hpp`. It is fetched at its release tag like
 Kokkos (`FETCHCONTENT_SOURCE_DIR_SLEEF` names a local copy for an offline build), built
 static as its own CMake project with only `libsleef` and the variants the layer calls
 (SSE2, AVX2, AVX-512F on request; AdvSIMD on aarch64), and compiled into the extension, whose wheel

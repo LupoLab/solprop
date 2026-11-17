@@ -2,49 +2,37 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""What a stored basis admits: the accessor whitelist of the run record.
+"""What a stored basis admits: the accessor gate of the run record.
 
-A saved run is read through one protocol, and for every route but one a run's mode
-axis means the same thing: an orthogonal one- or two-component basis whose
-coordinate powers add up to the physical power. A **general modal guide** resolves
-three Cartesian components at its own quadrature nodes, and its coordinate quantities
-are not that: ``energy`` and ``peak_power`` are defined for it only because its metric
-happens to be the identity, and ``peak_intensity`` is not defined for it at all. Rather
-than redefine the old names on a basis they do not describe, the record names the
-**capability** that produced the file and refuses, by name, every accessor that
-capability does not admit.
+A run's record names the **capability** of its mode axis (:data:`BasisCapability`: an
+ordinary orthogonal modal basis, a general modal guide, or a spatial beam), and every
+accessor that capability does not admit is refused by name rather than redefined.
 
-This module is the **gate**; the sets it reads are in :mod:`solprop.stats`, beside the
-catalogue of names they select from, so that a translation module can record the list a
-file publishes without importing an output one.
+- The gate: :func:`declared_capability` (of a translated problem) and
+  :func:`capability_of` (of a stored record) say which capability applies;
+  :data:`ACCESSOR_WHITELIST` and :func:`refusal_for` what it admits and why not;
+  :func:`withheld_accessors` and :func:`withheld_from` what a run withholds beyond it.
+  The name sets come from :mod:`solprop.stats.catalogue`, so that a translation module
+  records them without importing an output one.
+- The per-channel readers: :func:`reading_refusal` refuses the processing readers and
+  plots on a basis they do not describe, and :data:`COLUMN_READINGS` names the readers
+  of a spatial file's columns as modes with the spatial functional to use instead
+  (:func:`spatial_field_unit` gives those columns' unit).
+- :func:`quantities` returns a :class:`Quantity` per derived quantity of a file
+  (:data:`QuantityKind`: a physical flux or a coordinate quantity, with its unit), and
+  :func:`compression_refusal` why the compressors refuse a basis.
 
-The gate is applied at four doors: at :class:`solprop.stats.StatsSpec` admission, where
-the driver knows the problem; in each CPU backend's ``stats``, for a caller who builds
-one and asks it directly; in the accessors of :mod:`solprop.processing.modal`; and in
-the legacy processing accessors of :mod:`solprop.processing.time` and
-:mod:`solprop.processing.fields` and the plots drawn from them, which see only the
-stored record (:func:`reading_refusal`). A modal run of any other route carries no
-general identity, and is read as the ordinary modal run it is: the general names are
-refused for it, because the certified metric and the stored E/H reference they promise
-are exactly what such a file does not have.
-
-**The fourth door also refuses a spatial file's columns read as modes.** The legacy
-readers were written for a mode axis of true-power amplitudes in sqrt(W). A radial or
-Cartesian column is a field sample in V m or V/m and a planar column a slab amplitude
-per y frequency, so ``|a|^2`` summed over them is neither a power nor an energy:
-:data:`COLUMN_READINGS` names those readers and the spatial functional that measures
-the quantity instead. A run's statistics are not readers and are not narrowed: the
-spatial route's ``stats/energy`` is the physical energy and is admitted as before.
-
-The manual page is ``docs/guide/results/statistics.md``.
+The four doors the gate is applied at, and what each capability admits, are in
+``docs/guide/results/statistics.md`` ("Which names a basis admits").
 """
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal
 
-from solprop.output.schema import RunMetadata
-from solprop.stats import (
+from solprop.output.metadata import RunMetadata
+from solprop.stats.catalogue import (
     _GAS_OR_SPATIAL_NAMES,
     _STEP_DIAGNOSTICS,
     ACCESSOR_ADVICE,
@@ -60,10 +48,15 @@ __all__ = [
     "COLUMN_READINGS",
     "GENERAL_MODAL_ACCESSORS",
     "BasisCapability",
+    "Quantity",
+    "QuantityKind",
     "capability_of",
+    "compression_refusal",
     "declared_capability",
+    "quantities",
     "reading_refusal",
     "refusal_for",
+    "spatial_field_unit",
     "withheld_accessors",
     "withheld_from",
 ]
@@ -258,7 +251,7 @@ def capability_of(metadata: RunMetadata) -> BasisCapability:
 
     Parameters
     ----------
-    metadata : solprop.output.schema.RunMetadata
+    metadata : solprop.output.metadata.RunMetadata
         The record read back from a handler.
 
     Returns
@@ -269,7 +262,7 @@ def capability_of(metadata: RunMetadata) -> BasisCapability:
     Examples
     --------
     >>> from solprop.output.capability import capability_of
-    >>> from solprop.output.schema import _example_metadata
+    >>> from solprop.output.metadata import _example_metadata
     >>> capability_of(_example_metadata())
     'modal'
     """
@@ -292,7 +285,7 @@ def refusal_for(
     name refused in processing say the same thing. The message names the basis and
     the replacement, and never redefines the old name.
 
-    **Each name is refused for its own reason.** A legacy power name is refused
+    **Each name is refused for its own reason.** A per-channel power name is refused
     because a general basis's coordinate quantities are not additive; a gas or
     spatial name is refused because this guide has no gas fill and no transverse
     geometry, which is not a statement about the basis at all; and a
@@ -389,7 +382,7 @@ def reading_refusal(
 
     Parameters
     ----------
-    metadata : solprop.output.schema.RunMetadata
+    metadata : solprop.output.metadata.RunMetadata
         The stored record.
     name : str
         The reader or accessor asked for, which the refusal names.
@@ -406,7 +399,7 @@ def reading_refusal(
     --------
     >>> from dataclasses import replace
     >>> from solprop.output.capability import reading_refusal
-    >>> from solprop.output.schema import _example_metadata
+    >>> from solprop.output.metadata import _example_metadata
     >>> reading_refusal(_example_metadata(), "get_power") is None
     True
     >>> radial = replace(
@@ -426,16 +419,44 @@ def reading_refusal(
     return refusal_for(capability, [measured], withheld=withheld_from(metadata))
 
 
-def _column_refusal(metadata: RunMetadata, name: str, recorded: Sequence[str]) -> str:
-    """Return a spatial file's refusal of a column reader, with its route's advice."""
+def _spatial_route(metadata: RunMetadata) -> str:
+    """Return a spatial record's route: radial, Cartesian, line or planar."""
     kind = metadata.simulation_kind
     if kind == "free":
         # A line grid runs as the free transform with one y sample, and is the only
         # free grid measured per metre of y.
         per_width = metadata.transverse_measure == "per_unit_width"
-        route = "line" if per_width else "Cartesian"
-    else:
-        route = "planar" if kind == "slab" else kind
+        return "line" if per_width else "Cartesian"
+    return "planar" if kind == "slab" else kind
+
+
+_SPATIAL_FIELD_UNITS: Mapping[str, str] = MappingProxyType(
+    {"radial": "V m", "Cartesian": "V/m", "line": "V/m", "planar": "sqrt(W/m)"}
+)
+"""The unit of a spatial route's stored field: a radial Hankel spectrum, a Cartesian
+or line field, or a planar slab amplitude per y frequency."""
+
+
+def spatial_field_unit(metadata: RunMetadata) -> str:
+    """Return the unit of a spatial record's stored field.
+
+    Parameters
+    ----------
+    metadata : solprop.output.metadata.RunMetadata
+        The record of a spatial run (radial, free or slab).
+
+    Returns
+    -------
+    str
+        ``"V m"`` for a radial Hankel spectrum, ``"V/m"`` for a Cartesian or line
+        field, ``"sqrt(W/m)"`` for a planar slab amplitude per y frequency.
+    """
+    return _SPATIAL_FIELD_UNITS[_spatial_route(metadata)]
+
+
+def _column_refusal(metadata: RunMetadata, name: str, recorded: Sequence[str]) -> str:
+    """Return a spatial file's refusal of a column reader, with its route's advice."""
+    route = _spatial_route(metadata)
     advice = COLUMN_READINGS[name].format(
         spectrum=_SPECTRUM_ADVICE.get(route, _SPECTRUM_ADVICE["radial"]),
         slab=" (planar_mode_energy per slab mode)" if route == "planar" else "",
@@ -457,8 +478,8 @@ def withheld_accessors(*, general_modal: bool, coupled_flow: bool) -> tuple[str,
 
     A general modal problem carrying ``linear.coupled_flow`` executes a declared
     basis of a split block, whose per-channel propagation constant is the block's
-    mean, so it withholds :data:`solprop.stats.WITHHELD_WITH_A_FLOW`; every other
-    problem withholds nothing. The two execution doors pass this to
+    mean, so it withholds :data:`solprop.stats.catalogue.WITHHELD_WITH_A_FLOW`;
+    every other problem withholds nothing. The two execution doors pass this to
     :func:`refusal_for`, and the route leaves the same names out of the record's
     published list so that the file doors agree (:func:`withheld_from`).
 
@@ -492,13 +513,13 @@ def withheld_from(metadata: RunMetadata) -> tuple[str, ...]:
 
     The file doors' half of :func:`withheld_accessors`: a general modal record whose
     published ``accessors`` list leaves out a name of
-    :data:`solprop.stats.WITHHELD_WITH_A_FLOW` was written by a split-block route,
-    and the name is refused from the file exactly as it was from the run. A record
-    of any other basis, or one with no published list, withholds nothing.
+    :data:`solprop.stats.catalogue.WITHHELD_WITH_A_FLOW` was written by a split-block
+    route, and the name is refused from the file exactly as it was from the run. A
+    record of any other basis, or one with no published list, withholds nothing.
 
     Parameters
     ----------
-    metadata : solprop.output.schema.RunMetadata
+    metadata : solprop.output.metadata.RunMetadata
         The stored record.
 
     Returns
@@ -512,3 +533,101 @@ def withheld_from(metadata: RunMetadata) -> tuple[str, ...]:
     if not isinstance(published, list):
         return ()
     return tuple(sorted(name for name in WITHHELD_WITH_A_FLOW if name not in published))
+
+
+QuantityKind = Literal["physical", "coordinate"]
+"""Whether a derived quantity is a physical flux, or a quantity of the coordinates."""
+
+
+@dataclass(frozen=True)
+class Quantity:
+    """What a derived quantity of a file is.
+
+    Attributes
+    ----------
+    kind : {'physical', 'coordinate'}
+        A physical flux, which sums to the pulse's power and energy, or a quantity
+        of the basis's coordinates, which does not on a basis with cross terms.
+    unit : str
+        Its unit.
+    """
+
+    kind: QuantityKind
+    unit: str
+
+
+def quantities(metadata: RunMetadata, basis: BasisCapability) -> dict[str, Quantity]:
+    """Return what each derived quantity of a stored record is on its basis.
+
+    On an orthogonal modal basis the power, energy, spectral density and field are
+    physical; on a general one they are coordinate quantities (whose physical energy
+    is :func:`solprop.processing.modal.physical_energy`). On a spatial grid there is
+    only the field, per transverse column in its route's stored unit: the readers that
+    would give the power, energy and spectral density read the columns as modes and
+    refuse the file (:func:`reading_refusal`).
+
+    Parameters
+    ----------
+    metadata : solprop.output.metadata.RunMetadata
+        The stored record, which gives a spatial route's field unit.
+    basis : {'modal', 'general_modal', 'spatial'}
+        The record's basis, from :func:`capability_of`.
+
+    Returns
+    -------
+    dict
+        :class:`Quantity` by name: ``power`` (W), ``energy`` (J),
+        ``spectral_density`` (J s/rad) and ``field`` (sqrt(W)) on a modal basis;
+        ``field`` alone on a spatial one.
+
+    Examples
+    --------
+    >>> from solprop.output.capability import quantities
+    >>> from solprop.output.metadata import _example_metadata
+    >>> quantities(_example_metadata(), "general_modal")["energy"]
+    Quantity(kind='coordinate', unit='J')
+    """
+    if basis == "spatial":
+        return {"field": Quantity("coordinate", spatial_field_unit(metadata))}
+    kind: QuantityKind = "physical" if basis == "modal" else "coordinate"
+    return {
+        "power": Quantity(kind, "W"),
+        "energy": Quantity(kind, "J"),
+        "spectral_density": Quantity(kind, "J s/rad"),
+        "field": Quantity(kind, "sqrt(W)"),
+    }
+
+
+def compression_refusal(basis: BasisCapability) -> str | None:
+    """Return why the compressors refuse a basis, or ``None`` when they admit it.
+
+    Every compressor's objective sums ``|a|^2`` over the selected modes and
+    polarisations, which is the physical power only on an orthogonal modal basis. A
+    general modal or spatial run's coordinates are not that, so it is refused by name
+    rather than optimised on a quantity that is not a power.
+
+    Parameters
+    ----------
+    basis : {'modal', 'general_modal', 'spatial'}
+        The output's basis, from :func:`capability_of`.
+
+    Returns
+    -------
+    str or None
+        The refusal, or ``None`` on an orthogonal modal basis.
+
+    Examples
+    --------
+    >>> from solprop.output.capability import compression_refusal
+    >>> compression_refusal("modal") is None
+    True
+    >>> compression_refusal("spatial")[:47]
+    'compression requires orthogonal modal power amp'
+    """
+    if basis == "modal":
+        return None
+    return (
+        f"compression requires orthogonal modal power amplitudes, and this is a "
+        f"{basis} output: its summed |a|^2 is not a physical power, so it needs an "
+        "explicit physical-flux objective"
+    )

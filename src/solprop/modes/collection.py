@@ -4,30 +4,22 @@
 
 r"""Ordered, validated sets of modes, and the overlaps between them.
 
-A multimode simulation propagates a *set* of modes through one transverse quadrature
-rule and one pair of transform matrices, which only works if they share a
-cross-section. :class:`ModeCollection` is that set: ordered, because the mode axis of
-the kernel state is, and validated once at construction rather than at every use.
+:class:`ModeCollection` is the set of modes a multimode run propagates through one
+transverse rule and one pair of transform matrices: ordered, because the kernel's mode
+axis is, and validated once to share a cross-section. It reports whether the azimuthal
+coordinate has to be resolved and to what order, and expands a spatial set into its
+polarisation partners (:func:`polarisation_pairs`). :func:`transverse_measure` names
+the measure a set is integrated over.
 
-It also answers the two questions the translation layer asks of a mode set --
-whether the azimuthal coordinate has to be resolved, and to what order -- and offers
-the overlaps that say whether the set is orthonormal at all.
-
-:func:`overlap` integrates adaptively with :func:`scipy.integrate.dblquad`, and
-:func:`orthonormality` integrates the whole matrix at once, adaptively in the first
+:func:`overlap` integrates adaptively (:func:`scipy.integrate.dblquad`, or
+:func:`scipy.integrate.quad` over x alone, per metre of y, for a slab set), and
+:func:`orthonormality` integrates the whole matrix in one pass, adaptively in the first
 coordinate with :func:`scipy.integrate.quad_vec` and on a rule refined to convergence
-in the second -- both deliberately *not* on the transform's fixed rule. The fixed
-rule's orthonormality is the thing being checked in ``tests/modes/test_quadrature.py``;
-if the check used the same rule it would be true by construction and would say nothing.
-
-Overlaps use the package normalisation (``docs/dev/conventions.md`` section 4),
-
-.. math:: \langle m_1 | m_2 \rangle
-   = \tfrac12 \sqrt{\varepsilon_0/\mu_0} \int e_1^* \cdot e_2 \, \mathrm{d}A
-   \Big/ \sqrt{N_1 N_2},
-
-so a mode overlaps itself by one. For a slab set (:mod:`solprop.modes.slab`) the
-integral is over x alone, per metre of y, with :func:`scipy.integrate.quad`.
+in the second -- both deliberately *not* on the fixed rule whose orthonormality they
+check. They use the package normalisation (``docs/dev/conventions.md`` section 4),
+:math:`\langle m_1|m_2\rangle = \tfrac12\sqrt{\varepsilon_0/\mu_0}\int e_1^*\cdot
+e_2\,\mathrm{d}A / \sqrt{N_1N_2}`, so a mode overlaps itself by one. The manual page is
+``docs/guide/waveguides/mode-sets.md``.
 """
 
 import logging
@@ -41,15 +33,15 @@ from jaxtyping import Float
 from scipy.integrate import dblquad, quad, quad_vec
 
 from solprop._display import Displayed
-from solprop.constants import EPS0, ROOM_TEMPERATURE, C
+from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError
 from solprop.modes.antiresonant import TubeLattice, VincettiMode
 from solprop.modes.capillary import (
-    LossSpec,
     MarcatiliMode,
     MarcatiliModel,
     ModeKind,
 )
+from solprop.modes.fill import LossFunction
 from solprop.modes.protocol import (
     ChannelLabel,
     CrossSection,
@@ -343,7 +335,8 @@ def transverse_measure(modes: Sequence[Mode]) -> TransverseMeasure:
 
     Examples
     --------
-    >>> from solprop.modes import MarcatiliMode, SlabMode, transverse_measure
+    >>> from solprop.modes import MarcatiliMode, SlabMode
+    >>> from solprop.modes.collection import transverse_measure
     >>> transverse_measure([MarcatiliMode(125e-6)])
     'area'
     >>> transverse_measure([SlabMode(50e-6)])
@@ -554,15 +547,17 @@ class ModeCollection(Displayed, Sequence[Mode]):
     def he1m(
         cls,
         radius: float | ZProfile,
-        gas: Gas | str,
-        pressure: float | ZProfile,
-        count: int,
+        gas: Gas | str | None = None,
+        pressure: float | ZProfile = 0.0,
         *,
+        count: int = 1,
         model: MarcatiliModel = "full",
-        loss: LossSpec = True,
+        alpha: float | LossFunction | None = None,
+        loss_scale: float = 1.0,
         cladding: GlassIndex | complex | None = None,
-        temperature: float | ZProfile = ROOM_TEMPERATURE,
+        temperature: float | ZProfile | None = None,
         susceptibility: GasSusceptibility | None = None,
+        mixture: Mixture | None = None,
     ) -> "ModeCollection":
         """Build the first `count` HE_1m modes of one gas-filled capillary.
 
@@ -580,22 +575,27 @@ class ModeCollection(Displayed, Sequence[Mode]):
         ----------
         radius : float or ZProfile
             Core radius, m, constant or along z.
-        gas : Gas or str
-            Filling gas.
-        pressure : float or ZProfile
-            Fill pressure, bar, constant or along z.
-        count : int
+        gas : Gas, str or None, optional
+            Filling gas; None for vacuum or an explicit mixture.
+        pressure : float or ZProfile, optional
+            Fill pressure, bar, constant or along z; default zero.
+        count : int, optional
             How many modes, at least one; the modes are HE_11 to HE_1count.
         model : {'full', 'reduced'}, optional
             Which Marcatili model the modes use.
-        loss : bool, float or callable, optional
-            Whether to include propagation loss, or the loss to use.
+        alpha : float, callable or None, optional
+            Absolute power attenuation in 1/m replacing the model's loss.
+        loss_scale : float, optional
+            Factor on the model's own loss; 0 is lossless.
         cladding : GlassIndex, complex or None, optional
             The cladding index; ``None`` is the package default silica.
-        temperature : float or ZProfile, optional
-            Gas temperature, K, or a path of it along z.
+        temperature : float, ZProfile or None, optional
+            Gas temperature, K, or a path of it along z; ``None`` is room
+            temperature, or the mixture's own.
         susceptibility : GasSusceptibility or None, optional
             A susceptibility to use in place of the built-in gas's.
+        mixture : Mixture or None, optional
+            Ordered species and density paths; owns the gas and susceptibility.
 
         Returns
         -------
@@ -605,12 +605,12 @@ class ModeCollection(Displayed, Sequence[Mode]):
         Raises
         ------
         ModeError
-            If `count` is below one.
+            If `count` is below one or the modes are invalid.
 
         Examples
         --------
         >>> from solprop.modes import ModeCollection
-        >>> modes = ModeCollection.he1m(125e-6, "He", 0.8, 4)
+        >>> modes = ModeCollection.he1m(125e-6, "He", 0.8, count=4)
         >>> len(modes), modes[3].m, modes.azimuthal_order
         (4, 4, 0)
         """
@@ -628,10 +628,12 @@ class ModeCollection(Displayed, Sequence[Mode]):
                     n=1,
                     m=m,
                     model=model,
-                    loss=loss,
+                    alpha=alpha,
+                    loss_scale=loss_scale,
                     cladding=cladding,
                     temperature=temperature,
                     susceptibility=susceptibility,
+                    mixture=mixture,
                 )
                 for m in range(1, count + 1)
             ]
@@ -641,12 +643,13 @@ class ModeCollection(Displayed, Sequence[Mode]):
     def slab(
         cls,
         half_gap: float | ZProfile,
-        orders: Sequence[int],
         gas: Gas | str | None = None,
         pressure: float | ZProfile = 0.0,
         *,
+        orders: Sequence[int] = (1,),
         polarisation: SlabPolarisation = "te",
-        loss: LossSpec = True,
+        alpha: float | LossFunction | None = None,
+        loss_scale: float = 1.0,
         cladding: GlassIndex | complex | None = None,
         temperature: float | ZProfile | None = None,
         susceptibility: GasSusceptibility | None = None,
@@ -656,7 +659,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
 
         A centred, symmetric launch couples only to odd orders, so the set a
         compressor run wants is usually ``(1, 3, 5)``; an offset or tilted launch
-        needs the even ones too. Every keyword is
+        needs the even ones too. Every keyword after `orders` is
         :class:`~solprop.modes.slab.SlabMode`'s own and is given to each mode
         unchanged. For TE and TM rows in one set, build the two polarisations and
         pass them to the constructor, or use :meth:`with_polarisations`: each is a
@@ -666,21 +669,25 @@ class ModeCollection(Displayed, Sequence[Mode]):
         ----------
         half_gap : float or ZProfile
             Half the plate separation in m, constant or along z.
-        orders : sequence of int
-            Mode orders ``p >= 1``, non-empty and without repeats, in state order.
         gas : Gas, str or None, optional
             Filling gas; None for vacuum or an explicit mixture.
         pressure : float or ZProfile, optional
             Gas pressure in bar, constant or along z; default zero.
+        orders : sequence of int, optional
+            Mode orders ``p >= 1``, non-empty and without repeats, in state order;
+            default the lowest order alone.
         polarisation : {'te', 'tm'}, optional
             ``"te"`` (E along y, the default) or ``"tm"`` (E along x), for every
             order.
-        loss : bool, float or callable, optional
-            Inherited mode loss policy.
+        alpha : float, callable or None, optional
+            Absolute power attenuation in 1/m replacing the model's loss.
+        loss_scale : float, optional
+            Factor on the model's own loss; 0 is lossless.
         cladding : GlassIndex, complex or None, optional
             Plate index; None selects the default silica.
         temperature : float, ZProfile or None, optional
-            Gas temperature in K, or a path of it along z.
+            Gas temperature in K, or a path of it along z; ``None`` is room
+            temperature, or the mixture's own.
         susceptibility : GasSusceptibility or None, optional
             Explicit gas susceptibility.
         mixture : Mixture or None, optional
@@ -699,7 +706,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         Examples
         --------
         >>> from solprop.modes import ModeCollection
-        >>> modes = ModeCollection.slab(63.5e-6, (1, 3, 5), "Ar", 1.0)
+        >>> modes = ModeCollection.slab(63.5e-6, "Ar", 1.0, orders=(1, 3, 5))
         >>> [label.display_label for label in modes.channel_labels]
         ['TE1', 'TE3', 'TE5']
         >>> modes.transverse_measure, modes.needs_full_rule
@@ -715,7 +722,8 @@ class ModeCollection(Displayed, Sequence[Mode]):
                     pressure,
                     order=order,
                     polarisation=polarisation,
-                    loss=loss,
+                    alpha=alpha,
+                    loss_scale=loss_scale,
                     cladding=cladding,
                     temperature=temperature,
                     susceptibility=susceptibility,
@@ -731,10 +739,11 @@ class ModeCollection(Displayed, Sequence[Mode]):
         radius: float | ZProfile,
         gas: Gas | str | None = None,
         pressure: float | ZProfile = 0.0,
-        count: int = 1,
         *,
+        count: int = 1,
         lattice: TubeLattice,
-        loss: LossSpec = True,
+        alpha: float | LossFunction | None = None,
+        loss_scale: float = 1.0,
         cladding: GlassIndex | complex | None = None,
         temperature: float | ZProfile | None = None,
         susceptibility: GasSusceptibility | None = None,
@@ -757,12 +766,15 @@ class ModeCollection(Displayed, Sequence[Mode]):
             Number of modes, at least one, in radial order.
         lattice : TubeLattice
             Tube geometry shared by all modes.
-        loss : bool, float or callable, optional
-            Inherited mode loss policy.
+        alpha : float, callable or None, optional
+            Absolute power attenuation in 1/m replacing the model's loss.
+        loss_scale : float, optional
+            Factor on the model's own loss; 0 is lossless.
         cladding : GlassIndex, complex or None, optional
             Tube index; None selects the default silica.
         temperature : float, ZProfile or None, optional
-            Gas temperature in K, or a path of it along z.
+            Gas temperature in K, or a path of it along z; ``None`` is room
+            temperature, or the mixture's own.
         susceptibility : GasSusceptibility or None, optional
             Explicit gas susceptibility.
         mixture : Mixture or None, optional
@@ -788,7 +800,8 @@ class ModeCollection(Displayed, Sequence[Mode]):
                     pressure,
                     m=index + 1,
                     lattice=lattice,
-                    loss=loss,
+                    alpha=alpha,
+                    loss_scale=loss_scale,
                     cladding=cladding,
                     temperature=temperature,
                     susceptibility=susceptibility,
@@ -799,20 +812,22 @@ class ModeCollection(Displayed, Sequence[Mode]):
         )
 
     @classmethod
-    def marcatili(  # noqa: PLR0917 - called positionally
+    def marcatili(
         cls,
         radius: float | ZProfile,
-        gas: Gas | str,
-        pressure: float | ZProfile,
+        gas: Gas | str | None = None,
+        pressure: float | ZProfile = 0.0,
+        *,
         kinds: Sequence[ModeKind],
         n: Sequence[int],
         m: Sequence[int],
-        *,
         model: MarcatiliModel = "full",
-        loss: LossSpec = True,
+        alpha: float | LossFunction | None = None,
+        loss_scale: float = 1.0,
         cladding: GlassIndex | complex | None = None,
-        temperature: float | ZProfile = ROOM_TEMPERATURE,
+        temperature: float | ZProfile | None = None,
         susceptibility: GasSusceptibility | None = None,
+        mixture: Mixture | None = None,
     ) -> "ModeCollection":
         """Build an ordered mixture of hybrid and transverse capillary modes.
 
@@ -820,10 +835,10 @@ class ModeCollection(Displayed, Sequence[Mode]):
         ----------
         radius : float or ZProfile
             Core radius, m, constant or along z.
-        gas : Gas or str
-            Filling gas.
-        pressure : float or ZProfile
-            Fill pressure, bar, constant or along z.
+        gas : Gas, str or None, optional
+            Filling gas; None for vacuum or an explicit mixture.
+        pressure : float or ZProfile, optional
+            Fill pressure, bar, constant or along z; default zero.
         kinds : sequence of {'HE', 'TE', 'TM'}
             Family of each mode, non-empty.
         n : sequence of int
@@ -832,14 +847,19 @@ class ModeCollection(Displayed, Sequence[Mode]):
             Positive radial indices, one per family.
         model : {'full', 'reduced'}, optional
             Marcatili approximation used by every mode.
-        loss : bool, float or callable, optional
-            Propagation-loss specification passed to every mode.
+        alpha : float, callable or None, optional
+            Absolute power attenuation in 1/m replacing the model's loss.
+        loss_scale : float, optional
+            Factor on the model's own loss; 0 is lossless.
         cladding : GlassIndex, complex or None, optional
             Cladding index; ``None`` selects the package default silica.
-        temperature : float or ZProfile, optional
-            Gas temperature, K, positive, or a path of it along z.
+        temperature : float, ZProfile or None, optional
+            Gas temperature, K, positive, or a path of it along z; ``None`` is
+            room temperature, or the mixture's own.
         susceptibility : GasSusceptibility or None, optional
             Explicit susceptibility in place of the selected fit.
+        mixture : Mixture or None, optional
+            Ordered species and density paths; owns the gas and susceptibility.
 
         Returns
         -------
@@ -857,7 +877,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         --------
         >>> from solprop.modes import ModeCollection
         >>> modes = ModeCollection.marcatili(
-        ...     125e-6, "He", 1.0, ["HE", "HE", "TM"], [1, 2, 0], [1, 1, 1]
+        ...     125e-6, "He", 1.0, kinds=["HE", "HE", "TM"], n=[1, 2, 0], m=[1, 1, 1]
         ... )
         >>> len(modes), modes.azimuthal_order
         (3, 1)
@@ -876,10 +896,12 @@ class ModeCollection(Displayed, Sequence[Mode]):
                     n=azimuthal,
                     m=radial,
                     model=model,
-                    loss=loss,
+                    alpha=alpha,
+                    loss_scale=loss_scale,
                     cladding=cladding,
                     temperature=temperature,
                     susceptibility=susceptibility,
+                    mixture=mixture,
                 )
                 for kind, azimuthal, radial in zip(kinds, n, m, strict=True)
             )

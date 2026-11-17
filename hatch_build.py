@@ -49,7 +49,7 @@ class NativePinHook(MetadataHookInterface):
             "h5py>=3.15",
             # Every built-in material model (SEP 3): gases with their equation of state
             # and transport, solids, Raman responses and ionisation rates.
-            "optmat[gas]>=0.9.1",
+            "optmat[gas]>=0.10.0",
             # The native backend limits the other BLAS pools in its process through this
             # (solprop_native/_host_blas.py): no BLAS exposes a runtime thread count
             # except through the library walk this does.

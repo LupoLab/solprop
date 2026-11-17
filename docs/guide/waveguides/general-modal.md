@@ -27,8 +27,8 @@ in the last two sections of this page; read them before planning a run. In short
 runs on **a field grid, for a guide of constant geometry or a solid guide whose geometry
 moves along z**, on `numpy_ref` and the native backend (its CPU build and
 its CUDA and HIP device builds alike); a coupled flow runs on all of them too. A general
-modal run writes, reads back and resumes an HDF5 file, a scan point writes one, and a
-batch of launches on one guide runs in lockstep. A declared basis over a block that is
+modal run writes, reads back and resumes an HDF5 file, and a scan point writes one. A
+declared basis over a block that is
 only *nearly* degenerate propagates as a coupled matrix flow, and a guide whose geometry
 moves carries the connection of its moving basis, which couples its channels.
 [Declared, refused, recorded](#declared-refused-recorded) is the whole route on one
@@ -116,8 +116,10 @@ The launched energy is the pulse's, to the last bit.
 channels as `channel=` does and refused beside it
 ([launching into chosen modes](../setup/pulses.md#launching-into-chosen-modes)). In the
 provider's own coordinates the shares are energy fractions. On a guide that declares a
-change of basis they are a coordinate split: the coefficients are scaled so that their
-energy under the basis's flux metric is the pulse's, and the run records
+change of basis, whose flux metric $W$ has cross terms, the energy $a^\dagger W a$ of the
+coefficients depends on their relative phases, so the shares are a coordinate split:
+relative amplitudes squared, with the coefficients scaled so that their energy under
+the basis's flux metric is the pulse's, and the run records
 `"split": "coordinate"` in `configuration["modal_launch"]`.
 
 **`incident=` launches an incident beam instead.** Where `channel=` names one channel,
@@ -328,23 +330,8 @@ provider's own coordinates carries no such entry; the two gauges are always comp
 they refuse a resume in the other direction.
 {meth}`~solprop.output.memory.MemoryOutput.to_file` and a scan point write the same file.
 
-**A batch member may be a general modal run**, under a narrower admission rule than the
-one for fibre runs ({doc}`../workflows/scans`) and alongside it: the members of a general-guide group
-share the physical guide, the table, the gauge, the materials and one explicit fixed
-schedule, and differ in their **launch and their noise seed** and in nothing else. What
-separates two guides is `modal_tables.identity` — its three declared identities and its
-extents — in the grouping signature, beside the metric's kind and gauge and the compiled
-responses' model and policy; two strands of different radius share every *layout* entry
-of the signature and are told apart by what they physically are. Because a descriptor is only
-as good as what it names, a group assembled by hand is refused by name at the driver and
-again at the backend: *general-guide batch requires identical guide/table/gauge
-identity*. The source pass is unchanged by batching: the lockstep runner hands each
-member its own singleton row, and a batched run is what its members are alone, to
-rounding. A problem is always one trajectory, so there is no fused batch axis to
-refuse.
-
 The file stores channel amplitudes, not fields. {py:mod}`solprop.processing.modal` is the
-way back — given the run's own tables, rebuilt from the guide the record names, it
+way back — given the guide the run was made with, it rebuilds the run's own tables and
 synthesises $\mathbf E$ in V/m and $\mathbf H$ in A/m at the guide's nodes and forms
 `reconstructed_flux` in time, `instantaneous_flux` of the real fields with its
 sum-frequency term, and `coordinate_intensity`, the flux density each channel would
@@ -382,12 +369,11 @@ at the translation layer and in the backend.
   across the band, and the real cubic on a grid with no room for its harmonic.
 * A nonunitary basis, or one acting outside a declared block; and beside a split block,
   the `modified` noise model (its kept-apart draw's transport through a coupled flow is
-  not measured; the `input` draw is part of the launch and is admitted), a lockstep batch
-  member (it applies neither half of the flow) and a block whose exponent exceeds
-  `MAX_GENERAL_FLOW_EXPONENT`.
+  not measured; the `input` draw is part of the launch and is admitted) and a block
+  whose exponent exceeds `MAX_GENERAL_FLOW_EXPONENT`.
 * Beside a guide whose geometry moves: a snapshot position other than the entrance, a
-  run longer than the declared path, the `modified` noise model, a lockstep batch, a
-  fixed schedule that straddles a kink, and no flow at all beside the moving maps
+  run longer than the declared path, the `modified` noise model, a fixed schedule that
+  straddles a kink, and no flow at all beside the moving maps
   ([a guide whose geometry moves along z](moving-modal.md#a-guide-whose-geometry-moves-along-z)).
 * The scalar-route power names, `quadrature_error` and — beside a split block — `zdw`: a
   statistic the basis does not define is refused with its replacement where it has one,
@@ -446,8 +432,8 @@ CPU build and its CUDA and HIP device builds:
 * a **graded-index** guide as readily as a step-index one: any provider that solves its
   own E and H, with `GradedIndexProvider(core_responses=…)` declaring what its core
   responds with;
-* a launch into a **named channel** or a declared **transverse field**, and a **batch**
-  of launches on one guide.
+* a launch into a **named channel** or a declared **transverse field**, and a
+  [scan](../workflows/scans.md) of launches on one guide.
 
 The route admits one combination and no other: a **field** grid; an identity metric
 whose certified defect is inside the route's budget, or the dense metric of a declared

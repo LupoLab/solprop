@@ -84,7 +84,7 @@ The run
         wavelength=800e-9,
         fwhm=30e-15,
         energy=3e-6,
-        loss=False,
+        loss_scale=0.0,
         trange=600e-15,
         wavelength_limits=(300e-9, 4e-6),
         n_save=301,
@@ -104,14 +104,13 @@ The run
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 78-89
+.. GENERATED FROM PYTHON SOURCE LINES 78-88
 
 .. code-block:: Python
 
 
     figures = prop_2d(
         run,
-        "wavelength",
         spec_range=(300e-9, 1.6e-6),
         time_range=(-125e-15, 50e-15),
         db_min=-40,
@@ -131,12 +130,12 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 90-92
+.. GENERATED FROM PYTHON SOURCE LINES 89-91
 
 The output, and the plasma
 --------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 92-113
+.. GENERATED FROM PYTHON SOURCE LINES 91-112
 
 .. code-block:: Python
 
@@ -192,12 +191,12 @@ The output, and the plasma
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 114-116
+.. GENERATED FROM PYTHON SOURCE LINES 113-115
 
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 116-118
+.. GENERATED FROM PYTHON SOURCE LINES 115-117
 
 .. code-block:: Python
 
@@ -211,7 +210,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    16 s; backend native
+    54 s; backend native
 
 
 
@@ -219,7 +218,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 15.645 seconds)
+   **Total running time of the script:** (0 minutes 54.231 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_06_ionisation_blue_shift.py:

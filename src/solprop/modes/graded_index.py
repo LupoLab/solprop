@@ -4,11 +4,16 @@
 
 """Solve radial TE/TM Maxwell sectors and a separately labelled LP approximation.
 
-The symmetric variational problem uses continuous linear elements on a declared
-radial domain matched to an exact decaying exterior. Hybrid HE/EH sectors are
-refused: TE/TM evidence cannot
-qualify hybrid GRIN. The exterior material is explicit and the truncation radius
-is refined independently of the radial mesh.
+:class:`GradedIndexProvider` is the graded-index fibre as a
+:class:`~solprop.modes.vector.ModalProvider`: it solves one sector's bound modes by
+the symmetric variational problem with continuous linear elements on a declared radial
+domain, matched to an exact decaying exterior whose material is explicit, refining the
+truncation radius independently of the mesh. Hybrid HE/EH sectors are refused
+(TE/TM evidence cannot qualify hybrid GRIN), and a channel with more than
+:data:`MAX_EXTERIOR_TAIL_FRACTION` of its power beyond the matching radius is refused
+by name rather than masked. The core law is a :class:`RadialPermittivity`;
+:class:`PowerLawPermittivity` is the finite power-law profile. The manual page is
+``docs/guide/waveguides/graded-index.md``.
 """
 
 import json
@@ -27,7 +32,6 @@ from solprop._display import Displayed, line
 from solprop._process import host_blas
 from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError
-from solprop.modes.guide import radial_node_rule
 from solprop.modes.material import (
     JsonValue,
     MaterialRegion,
@@ -36,7 +40,12 @@ from solprop.modes.material import (
     _radius_text,
 )
 from solprop.modes.protocol import ChannelLabel
-from solprop.modes.vector import ModalNodeRule, ModalSample, flux_product
+from solprop.modes.vector import (
+    ModalNodeRule,
+    ModalSample,
+    flux_product,
+    radial_node_rule,
+)
 from solprop.profiles import ZProfile, as_profile, profile_identity
 
 __all__ = [
@@ -746,8 +755,9 @@ class GradedIndexProvider(Displayed):
         The frequency is not a discretisation choice here -- the mesh is the declared
         element count over the declared extent -- but it is what the discarded power
         beyond the matching radius depends on, so the rule certifies that tail at this
-        frequency, as :meth:`solprop.modes.guide.StepIndexProvider.node_rule` does.
-        One signature for every provider.
+        frequency, as
+        :meth:`solprop.modes.stepindex_vector.StepIndexProvider.node_rule` does. One
+        signature for every provider.
 
         **That certificate costs a solve.** Building the mesh is 0.22 ms on the
         reference parabolic sector (32 elements, two channels, on an Apple-silicon

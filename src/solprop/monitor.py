@@ -4,66 +4,33 @@
 
 """The boundary monitor: guard and collar occupancy, and the energy the collar removes.
 
-SEP 21 decisions D5 and D7. At the launch and at every committed step the monitor
-reads the field's time-domain energy density, ``P(t)``, summed over modes,
-polarisations and transverse columns (with their quadrature weights), and forms:
+SEP 21 decisions D5 and D7. At the launch and at every checked step,
+:class:`BoundaryMonitor` reads the field's time-domain energy density ``P(t)`` (summed
+over modes, polarisations and weighted transverse columns) and forms each edge's
+**guard occupancy** (the share in the outer :attr:`BoundaryCheck.guard_fraction` of
+the window), the **collar occupancy** (weighted by ``1 - W``) and the collar's
+**removal**, integrated along z into the removed fraction of the launch energy. Under
+the ``"split_step"`` scheme the removal is summed exactly per step and the occupancies
+are judged halfway through the split's factor (:attr:`BoundaryEnergies.found`), the
+Strang state.
 
-- the **guard occupancy** of each edge, the share of ``P`` within the outer
-  :attr:`BoundaryCheck.guard_fraction` of the realised window: what has reached the
-  window's edge and is about to wrap or be absorbed;
-- the **collar occupancy**, the share of ``P`` weighted by ``1 - W`` of the temporal
-  collar;
-- the **removal rate** ``int alpha(t) P(t) dt`` of the temporal collar, integrated
-  along z by the trapezoid over committed steps into the removed fraction of the
-  launch energy. Under the ``"split_step"`` scheme the backend adds up what each
-  accepted step's split takes instead, ``sum_t P(t) (1 - exp(-alpha(t) h))`` of the
-  power ``P`` it finds, which is exact on unchecked steps too
-  (:attr:`BoundaryEnergies.removed`).
+- :class:`BoundaryCheck` holds the policy (:data:`DEFAULT_BOUNDARY_CHECK`): a guard
+  occupancy whose square root exceeds ``budget`` warns, ``stop_factor`` times it stops
+  the run or refuses it at the launch, and the removed fraction is reported at the end.
+  The opt-in quiet collar leaves the in-stage term out below :data:`QUIET` for
+  :data:`QUIET_CHECKS` checks; :data:`CADENCE`, :data:`CHECKS` and :data:`ACTIVE` set
+  the check cadence.
+- :class:`BoundaryEnergies` is the five numbers a check needs, which each backend forms
+  where its state lives (``HostSession._energies``); :meth:`BoundaryMonitor.energies`
+  and :meth:`BoundaryMonitor.split_sums` are the host reductions every backend is held
+  to.
+- Light below an input-noise launch's shot-noise floor is not judged: each region's
+  energy has :data:`FLOOR_MARGIN` times the floor's expected share subtracted, with
+  the raw values recorded beside.
 
-Under the ``"split_step"`` scheme the occupancies are judged on the power the last
-accepted step's split found, taken halfway through its factor
-(:attr:`BoundaryEnergies.found`). The state the split leaves has its deep collar
-multiplied by ``exp(-alpha h)``, about ``exp(-10)`` at an adaptive step, so it shows no
-light at the window's edge however much arrived there; the state before it holds what
-walked into the guard during the step unabsorbed. Each verdict would depend on the
-step. Half the factor, ``exp(-alpha h / 2)`` on the power, is the symmetric (Strang)
-splitting's state at the step's end, second order in the step where the one-sided
-split is first: the guards then read as the in-stage scheme's do. Every share of one
-verdict, the guards', the collar's and the no-light test, is of that one state.
-
-``P`` is the energy-density proxy of SEP 21 section 4.6: exact for modal true-power
-amplitudes, and on spatial routes the quadrature-weighted field norm rather than the
-admittance-weighted flux. The quantities are relative, so the proxy's scale cancels.
-
-**Where the reduction runs.** A check needs five numbers of the state, its energy and
-its four weighted energies (:class:`BoundaryEnergies`), and the backend forms them
-where its state lives (``HostDriver._boundary_energies``): only the five cross to the
-host. :meth:`BoundaryMonitor.energies` and :meth:`BoundaryMonitor.split_sums` are
-the host reductions, the reference every backend is held to.
-
-**The shot-noise floor (Q24).** An input-noise launch carries one photon per mode
-across the whole window, guards and collar included. Light below that floor cannot be
-told from the vacuum, so the monitor judges what lies above it: from each region's
-energy it subtracts :data:`FLOOR_MARGIN` times the floor's expected share before
-taking that energy's share of the whole field (the floor is stationary, so its expected
-density is uniform in time; the removal rate subtracts the expectation alone). Without
-noise nothing is subtracted; with a weak launch the field is mostly floor and what lies
-above it is a small share. The raw values, of the whole field, are recorded beside the
-judged ones.
-
-Policy (D7, one rule from the launch on): the square root of a guard occupancy above
-:attr:`BoundaryCheck.budget` warns, and above ``stop_factor`` times it stops the run, or
-refuses it at the launch before a step is spent. At the end of a run the removed
-fraction is reported, and warns when its square root exceeds the budget (D5).
-
-**The quiet collar is opt-in** (:attr:`BoundaryCheck.quiet_collar`, SEP 21 D15 as
-amended by ADR-057). When asked for, a collar that held less than :data:`QUIET` of the
-field's energy, the shot-noise floor included, at :data:`QUIET_CHECKS` consecutive
-checks may be left out of the in-stage stages until light returns. It is judged on the
-whole field because light below the floor is still light the collar would have
-absorbed: judged above the floor, the threshold became a few times the floor itself
-and dropped a term that moved the field by up to a percent. By default the collar
-stays in every stage.
+The transverse edge of a free-space run is :mod:`solprop.transverse_monitor`. The
+policy, the cadence, the floor, the split scheme's readings and the record are in
+``docs/guide/numerics/boundaries.md``, section "Watching the window's edges".
 """
 
 from __future__ import annotations
@@ -116,7 +83,8 @@ every saved plane, are checked regardless."""
 
 CHECKS = 256
 """The fewest checks over the guide's length: a quiet window is checked at least every
-``length / CHECKS`` (or at every committed step, when the steps are longer), so light
+``length / CHECKS`` (or at every committed step, when the steps are longer), unless
+:attr:`BoundaryCheck.interval` sets that distance, so light
 must walk about twenty windows over the run to cross the collar and guards between two
 checks. While an opted-in quiet collar is left out of the stages no step is longer than
 that interval, so the premise holds where an unabsorbed crossing would matter."""
@@ -251,6 +219,11 @@ class BoundaryCheck:
         The budget of a free-space run's transverse edge (SEP 40 section 5.3), a field
         amplitude like `budget`; ``None``, the default, takes `budget`, so relaxing the
         transverse edge does not relax time.
+    interval : float or None
+        The longest distance, m, a quiet window goes unchecked; ``None``, the default,
+        takes the grid's length over :data:`CHECKS`. Setting it keeps a run's checks
+        where they were when its length changes. While an opted-in quiet collar is out
+        of the stages, no step is longer than this.
 
     Examples
     --------
@@ -265,6 +238,7 @@ class BoundaryCheck:
     stop_factor: float = 10.0
     quiet_collar: bool = False
     transverse_budget: float | None = None
+    interval: float | None = None
 
     def __post_init__(self) -> None:
         """Validate the thresholds.
@@ -292,6 +266,11 @@ class BoundaryCheck:
                 "transverse_budget must be finite and positive, got "
                 f"{self.transverse_budget!r}"
             )
+            raise BoundaryError(msg)
+        if self.interval is not None and not (
+            math.isfinite(self.interval) and self.interval > 0.0
+        ):
+            msg = f"interval must be finite and positive, got {self.interval!r}"
             raise BoundaryError(msg)
 
     @property
@@ -372,12 +351,13 @@ class BoundaryMonitor:
     columns : numpy.ndarray or None
         Quadrature weights of the transverse columns, or ``None`` for modal routes.
     interval : float
-        The longest distance, m, a quiet window goes unchecked (:data:`CHECKS`).
+        The longest distance, m, a quiet window goes unchecked (:data:`CHECKS`, or
+        :attr:`BoundaryCheck.interval`).
     transverse : solprop.transverse_monitor.TransverseEdge or None
         A free-space run's transverse edge (SEP 40 section 5.3), read on its own
         spacing; its record joins this monitor's under ``transverse``.
     crossing : solprop.boundaries.SplitCrossing or None
-        The split collar's crossing limit, set by the step driver when the monitor is
+        The split collar's crossing limit, set by the session when the monitor is
         attached to a split run: every reading then carries the state's occupancy,
         and the limit it gives caps the steps until the next check
         (:attr:`step_cap`).
@@ -388,6 +368,10 @@ class BoundaryMonitor:
         monitor integrating the rate by the trapezoid (D5), and whose guards are
         judged on the power the split found (:attr:`BoundaryEnergies.found`), which
         every reading after a step must then carry.
+    sink : list of Warning or None
+        Where the monitor's warnings go instead of being issued, in order, for a
+        session that reports each as a ``WARNING`` barrier event (SEP 52 section 5.1);
+        ``None``, the default, issues them through :func:`warnings.warn`.
     """
 
     check: BoundaryCheck
@@ -398,6 +382,7 @@ class BoundaryMonitor:
     interval: float = math.inf
     transverse: TransverseEdge | None = None
     crossing: SplitCrossing | None = None
+    sink: list[Warning] | None = field(default=None, init=False, repr=False)
     _cap: float = field(default=math.inf, init=False)
     _launch: float = field(default=math.nan, init=False)
     _floor: float = field(default=0.0, init=False)
@@ -502,10 +487,11 @@ class BoundaryMonitor:
         )
         weights = np.stack([low, high, collar, rate])
         weights.setflags(write=False)
-        return cls(check, weights, grid.kind, columns, split, grid.length / CHECKS)
+        interval = grid.length / CHECKS if check.interval is None else check.interval
+        return cls(check, weights, grid.kind, columns, split, interval)
 
     def power(
-        self, field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+        self, field_spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"]
     ) -> Float[np.ndarray, " n_t"]:
         """Return the time-domain energy density summed over everything but time.
 
@@ -526,11 +512,11 @@ class BoundaryMonitor:
         )
         density = np.abs(samples) ** 2
         if self.columns is not None:
-            density = density * self.columns[None, :, None, None]
+            density = density * self.columns[:, None, None]
         return density.reshape(-1, density.shape[-1]).sum(axis=0)
 
     def energies(
-        self, field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+        self, field_spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"]
     ) -> BoundaryEnergies:
         """Return a state's energy and its four weighted energies, on the host.
 
@@ -555,7 +541,7 @@ class BoundaryMonitor:
         >>> grid = EnvelopeGrid.from_limits(1.0, 800e-9, (600e-9, 1.2e-6), 1e-12)
         >>> monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
         >>> pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
-        >>> energies = monitor.energies(np.fft.fft(pulse)[None, None, None, :])
+        >>> energies = monitor.energies(np.fft.fft(pulse)[None, None, :])
         >>> bool(np.isclose(energies.total, np.sum(np.abs(pulse) ** 2)))
         True
         """
@@ -564,7 +550,7 @@ class BoundaryMonitor:
 
     def split_sums(
         self,
-        field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        field_spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
         step: float,
     ) -> Float[np.ndarray, " 5"]:
         """Return what one accepted step's split collar takes, and what it finds.
@@ -607,7 +593,7 @@ class BoundaryMonitor:
         >>> edge = 0.5 * grid.n_t * grid.dt
         >>> pulse = np.exp(-(((grid.t - 0.98 * edge) / 10e-15) ** 2)).astype(complex)
         >>> taken, found, low, high, collar = monitor.split_sums(
-        ...     np.fft.fft(pulse)[None, None, None, :], 0.01
+        ...     np.fft.fft(pulse)[None, None, :], 0.01
         ... )
         >>> bool(taken > 0.0), bool(low < 1e-20 * found), bool(high > 0.5 * found)
         (True, True, True)
@@ -650,7 +636,7 @@ class BoundaryMonitor:
         energies: BoundaryEnergies,
         z: float,
         *,
-        floor: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None,
+        floor: Complex[np.ndarray, "n_modes n_pol n_omega"] | None = None,
     ) -> None:
         """Record the launch, and warn or refuse if it already fills a guard.
 
@@ -952,9 +938,8 @@ class BoundaryMonitor:
             raise BoundaryError(_guard_message(check, worst, z, stop=True))
         if worst > check.budget and not self._warned:
             self._warned = True
-            warnings.warn(
-                _boundary_warning(_guard_message(check, worst, z, stop=False)),
-                stacklevel=3,
+            self._warn(
+                _boundary_warning(_guard_message(check, worst, z, stop=False)), 3
             )
 
     def _settle(
@@ -1220,15 +1205,44 @@ class BoundaryMonitor:
         """
         self._plane_row(z)
 
+    def check_record(self) -> dict[str, object]:
+        """Return the check as a record carries it: its fields, the spacing as used.
+
+        :class:`BoundaryCheck`'s fields, with ``interval`` the distance, m, this
+        monitor's quiet checks are spaced by (:attr:`interval`): the check's own when
+        set, else the grid's length over :data:`CHECKS`, so a record says which.
+        Python's record and a native session's carry it alike.
+
+        Returns
+        -------
+        dict
+            ``guard_fraction``, ``budget``, ``stop_factor``, ``quiet_collar``,
+            ``transverse_budget`` and ``interval``.
+
+        Examples
+        --------
+        >>> from solprop.grid import EnvelopeGrid
+        >>> from solprop.monitor import CHECKS, BoundaryCheck, BoundaryMonitor
+        >>> grid = EnvelopeGrid.from_limits(0.5, 800e-9, (600e-9, 1.2e-6), 1e-12)
+        >>> monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
+        >>> monitor.check_record()["interval"] == 0.5 / CHECKS
+        True
+        """
+        record: dict[str, object] = dataclasses.asdict(self.check)
+        record["interval"] = self.interval
+        return record
+
     def summary(self) -> dict[str, object]:
         """Return the record of the run so far, for its execution record.
 
         Returns
         -------
         dict
-            The thresholds of this execution (``guard_fraction``, ``budget``,
-            ``stop_factor``, ``quiet_collar``); the launch's energy in the monitor's
-            own units, the denominator of every fraction
+            The check of this execution (:meth:`check_record`: ``guard_fraction``,
+            ``budget``, ``stop_factor``, ``quiet_collar``, ``transverse_budget`` and
+            the ``interval`` its quiet checks were spaced by, m); the
+            launch's energy in the monitor's own units, the denominator of every
+            fraction
             (``launch_energy``), and where the run was resumed (``resumed_at``,
             empty for an uninterrupted one). Launch occupancies, the largest guard
             and collar occupancies and where the guards peaked, the removed fraction
@@ -1261,7 +1275,7 @@ class BoundaryMonitor:
             return value if math.isfinite(value) else None
 
         record: dict[str, object] = {
-            **dataclasses.asdict(self.check),
+            **self.check_record(),
             "launch_energy": _finite(self._launch),
             "resumed_at": list(self._resumed_at),
             "launch_guard_low": _finite(self._launch_occupancy[0]),
@@ -1303,6 +1317,14 @@ class BoundaryMonitor:
         removed = max(self.removed, 0.0)
         _log_finish(removed, self._guard_max[0], self._guard_max[1])
         if removed > 0.0 and math.sqrt(removed) > self.check.budget:
-            warnings.warn(
-                _boundary_warning(_removal_message(self.check, removed)), stacklevel=2
-            )
+            self._warn(_boundary_warning(_removal_message(self.check, removed)), 2)
+
+    def _warn(self, warning: Warning, stacklevel: int) -> None:
+        """Issue a warning, or put it in the :attr:`sink` a session reports from.
+
+        - ``stacklevel``: as the caller would pass to :func:`warnings.warn`.
+        """
+        if self.sink is not None:
+            self.sink.append(warning)
+            return
+        warnings.warn(warning, stacklevel=stacklevel + 1)

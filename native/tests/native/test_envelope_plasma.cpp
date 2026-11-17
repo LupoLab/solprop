@@ -2,8 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "solprop_native/core.hpp"
-#include "solprop_native/envelope_plasma.hpp"
+// Tests of the envelope plasma helpers (`response/envelope_plasma.hpp`) on the
+// execution space: polynomial moments and directional work under exact test rules, the
+// two loss components through phase and real rotations, explicit zero, subnormal and
+// unresolved cases, and the scaled magnitude of tiny and huge components.
+
+#include "solprop_native/response/envelope_plasma.hpp"
+#include "solprop_native/runtime/execution.hpp"
 
 #include <Kokkos_Core.hpp>
 #include <gtest/gtest.h>

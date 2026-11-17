@@ -15,13 +15,14 @@ lenses, apertures, mirrors, interfaces and spectral optics.
 ## A plane, and what it means
 
 A {py:class}`~solprop.coupling.plane.FieldPlane` holds a field's native coefficients
-exactly as an output stores them -- the optics-convention raw spectrum of each
-column, referenced to the centre of the time window -- together with everything
-needed to use them:
+exactly as an output stores them -- the optics-convention raw forward DFT of each
+column, referenced to the centre of the time window
+({py:func}`~solprop.fourier.spectrum_to_optics`), shape `(n_modes, n_pol, n_omega)` --
+together with everything needed to use them:
 
 | part | what it says |
 |---|---|
-| `kind`, `units`, `basis` | the representation: ordinary true-power mode coefficients (`modal`, √W), general-modal coordinates (`general_modal`, √W), the Hankel spectrum of a radial field (`radial`, V m) or the transverse DFT of a Cartesian one (`cartesian`, V/m); the basis carries an identity digest |
+| `kind`, `units`, `basis` | the representation: ordinary true-power mode coefficients $b = \sqrt{\operatorname{Re}n_{\rm eff}}\,a$ (`modal`, √W), general-modal coordinates (`general_modal`, √W), the order-zero Hankel spectrum of a radial field (`radial`, V m), the transverse DFT of a Cartesian one (`cartesian`, V/m) or the slab amplitude per y frequency of a planar one (`planar`, √(W/m)); the basis carries an identity digest |
 | `grid` | the temporal grid: field or envelope layout, time samples, the absolute frequency of every bin, the carrier |
 | `reference` | the affine reference of the stored spectrum (below) |
 | `geometry` | the plane's position, the side of a declared index jump, and its oriented right-handed transverse frame |
@@ -93,6 +94,19 @@ into a plane, so the stored samples alone would drop it in the next stage. A sou
 meant for coupling uses the default `noise="input"`, whose background travels in the
 saved field, or `noise=None`.
 
+A file records no basis identity either: a plane's basis is derived when it is read
+({py:meth}`~solprop.coupling.plane.PlaneBasis.of_run`, which a receiving simulation's
+port uses too), so a run that is never coupled computes none. A spatial plane's is its
+transverse grid, read from the file, and a general modal plane's the reference identities
+the file records. An ordinary mode set's is its value at the plane, which needs the
+modes: those of the `source=` simulation, or of the simulation the file's recorded recipe
+rebuilds, for a run built from a recipe. That simulation is built only when the identity
+is first read, which only coupling does, so reading planes for their fields builds
+nothing. A plane of a run from a script read without `source=`, like `plane` above, has
+no basis identity (`plane.basis.identity` is `None`); it can still be moved and saved,
+but `same_basis` refuses to copy it, since there is nothing to check the port's basis
+against.
+
 ## Moving a plane between grids
 
 {py:func}`~solprop.coupling.remap.regrid` puts a plane on another temporal grid -- a longer
@@ -110,6 +124,21 @@ with $q = 2$ on interior bins of a field grid and 1 otherwise, and $\Delta$,
 $\Delta\phi$ the change of reference, so that the absolute spectrum is unchanged. The
 direct sum is the implementation; complex spectral zeros and separated bands need no
 special case, since no phase is unwrapped and nothing is interpolated.
+
+Three things are kept apart: the sign convention (a plane's samples are already in the
+optics convention), the raw DFT's time origin (the window centre) and its amplitude
+scaling. With $s_k$ a plane's stored spectrum, its normalised analytic spectral density
+is $f_k = (\Delta t/\sqrt{2\pi})\,q_k s_k$, so that
+$\Delta\omega\sum_k f_k^\dagger Q_k f_k$ is the energy in the native metric $Q$ ($q_k$
+is 1 at a field grid's zero-frequency and Nyquist bins as on every envelope bin), and
+copying $f$ between identical physical frequencies is the operation that raw DFT
+amplitudes do not give. The analytic signal is
+$a_j = N^{-1}\sum_k q_k s_k e^{-i\omega_k t_j}$ at the source's own time samples. The sum
+is evaluated only on target bins inside the source lattice's own span: beyond it a sum of
+samples spaced $\Delta t$ repeats with period $2\pi/\Delta t$ and returns aliases of the
+record, not light. It is evaluated in bounded chunks of target bins, and its one
+acceleration is the identical lattice in an unchanged reference, where the map is the
+identity and the samples are copied (checked against the direct sum by the tests).
 
 ```python
 from solprop.coupling import regrid
@@ -187,7 +216,9 @@ second = Simulation.from_capillary(
     noise=None,
 )
 relaunch = couple(
-    field_plane(run), second.input_port(), model=CouplingModel("same_basis")
+    field_plane(run, source=simulation),  # the modes give the plane its basis
+    second.input_port(),
+    model=CouplingModel("same_basis"),
 )
 continued = second.with_input(relaunch.launch).run(progress="none")
 print(field_plane(continued).reference.delay)  # the whole 2 mm path's
@@ -199,7 +230,8 @@ tests hold it to the tolerance's level between the two CPU backends. The
 basis of an ordinary mode set is its value at the plane -- each mode's class, label,
 effective area and effective index on the active band -- so the exit of one capillary
 and the entrance of an identical one of another length are the same basis, and a
-different radius is not. A simulation can also continue from inside its own path:
+different radius is not. It is evaluated when the plane is read, at the plane's own
+position, so any saved plane has one, whether it was planned or saved at a natural step. A simulation can also continue from inside its own path:
 `simulation.input_port(z)` is an interior entrance of a modal run.
 
 `same_basis` also takes a declared invertible change of basis or gauge,

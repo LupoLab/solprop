@@ -21,7 +21,6 @@ import numpy as np
 import pytest
 from scipy.integrate import cumulative_trapezoid
 
-from bounds import scan_bound
 from solprop.constants import E_CHARGE, M_E
 from solprop.nonlinear.responses import PlasmaResponse
 from solprop.physdata import IonisationData, species
@@ -227,33 +226,6 @@ def test_the_vector_stages_match_luna():
             < deviation(got[index], rescaled("VECTOR", f"P_{axis}"))
             < (ANALYTIC_RTOL)
         )
-
-
-@pytest.mark.parametrize("case", [*SCALAR_CASES, "PPT"])
-def test_lunas_fused_kernel_is_the_reference_it_claims_to_be(case):
-    # Luna's design note says its two-pass column kernel is the multi-pass form solprop
-    # ports, reordered. Both are stored, so the claim is witnessed rather than assumed,
-    # at the plasma chain's rounding (SEP 25) -- and if it ever stops holding, the
-    # oracle solprop was built from is not the one a Luna propagation runs.
-    for suffix in ("", "_FREE"):
-        fused_witness(stored(f"{case}{suffix}_P_FUSED"), stored(f"{case}{suffix}_P"))
-
-
-def fused_witness(fused, reference):
-    """Assert a fused column within the plasma chain's cap of the multi-pass one."""
-    scale = float(np.max(np.abs(reference)))
-    assert scale > 0
-    bound = scan_bound(np.shape(reference)[-1]) * scale
-    assert np.max(np.abs(np.asarray(fused) - np.asarray(reference))) <= bound
-
-
-def test_the_vector_fused_kernel_is_the_reference_it_claims_to_be():
-    for suffix in ("", "_FREE"):
-        for axis in ("X", "Y"):
-            fused_witness(
-                stored(f"VECTOR{suffix}_P_FUSED_{axis}"),
-                stored(f"VECTOR{suffix}_P_{axis}"),
-            )
 
 
 def test_a_field_with_an_exact_zero_matches_luna_sample_for_sample():

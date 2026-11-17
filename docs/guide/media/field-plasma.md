@@ -86,9 +86,9 @@ sampling when those effects matter.
 The source needs no option: `plasma=True` on the capillary interface, for example,
 selects it. A direct
 {meth}`~solprop.nonlinear.responses.PlasmaResponse.evaluate` call still returns the
-physical, ungated $P=\int J\,dt$, including any residual drift. Gated-source
-comparisons use a private NumPy benchmark hook with a distinct, non-resumable
-configuration; it is not a propagation option.
+physical, ungated $P=\int J\,dt$, including any residual drift. The gated source
+of the original equation is not available: the held current is the only form either
+backend runs.
 
 ## How the current integrals are formed
 
@@ -188,7 +188,7 @@ uncertainties.
 
 **The trapezoid** (`integration="trapezoid"`) is the plain rule, with no filter, no
 reflection and no floor. Luna integrates the same way, and comparisons with Luna use it
-together with the private gated benchmark hook ([luna.md](../workflows/luna.md)).
+([luna.md](../workflows/luna.md)).
 
 The band rule is the default. A propagation's drivers take `plasma_integration=` and
 hand it to every field plasma response. The plasma channels
@@ -272,7 +272,7 @@ between two positions has kinks the modes know nothing about, and a step straddl
 one integrates a right-hand side that is not smooth there, which costs the integrator
 its order. The translation therefore adds a response path's breakpoints -- the
 pre-ionisation of every plasma channel, and an explicit density path given to
-{func}`solprop.translate.problem.assemble` -- to the hard kinks of `Phi`: a constant
+{func}`solprop.translate.assembly.assemble` -- to the hard kinks of `Phi`: a constant
 operator is split there into exact degree-one pieces and keeps its constant `D`, so
 its flow is unchanged to the last bit, and an expansion or table takes them as further
 mandatory edges. The uncoupled modal route does this; a route that cannot (a coherent

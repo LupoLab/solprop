@@ -4,9 +4,10 @@
 
 """Pin the taper-note campaign's small case on the production route.
 
-The campaign itself is the study command
-``tests/oracles/modal_design/taper_production.py``, run by hand; the receipt of its
-small case is committed as ``tests/data/taper_note.json``. This module re-runs the one
+The campaign itself was run by hand against the prototype's mapped-coordinate FEM;
+the receipt of its small case is committed as ``tests/data/taper_note.json``, and
+``tests/oracles/modal_design/taper_production.py`` keeps the production run it was
+recorded with. This module re-runs the one
 case of it that is test-sized -- the 1 cm Robin taper at a quarter of the radius (the
 paraxial similarity: radii times 0.25, lengths times 0.0625, so 31.25 to 15.625
 micrometres over 0.625 mm between 0.3125 mm straight ends), four channels, twelve fixed

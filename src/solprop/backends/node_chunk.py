@@ -37,7 +37,7 @@ it bought before; counting a route's live buffers changes the chunk of every exp
 budget, which is the maintainer's decision under #349 and #89, not this move's.
 
 A device backend may choose differently when no budget is given (solprop issue #361);
-the native backend's rule is ``solprop_native.backend.device_node_chunk``, and an
+the native backend's rule is ``solprop_native._device.device_node_chunk``, and an
 explicit budget or chunk is never overridden by it.
 """
 
@@ -242,7 +242,7 @@ def plan_node_chunk(
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
-    >>> from solprop.translate.problem import assemble
+    >>> from solprop.translate.assembly import assemble
     >>> from solprop.backends.node_chunk import plan_node_chunk
     >>> grid = EnvelopeGrid.from_limits(0.01, 835e-9, (500e-9, 2e-6), 1e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0, gamma=0.11)

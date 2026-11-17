@@ -26,21 +26,25 @@ import h5py
 import numpy as np
 import pytest
 
-import solprop.driver.run as run_module
+import solprop.driver.session_loop as session_loop_module
 from backends.test_exponential_varying import EXPONENTIAL, gradient
 from driver.test_resume import LENGTH, N_SAVE, CrashError, run_until
 from flow_parity import LENGTH as FLOW_LENGTH
 from flow_parity import build as flow_case
 from march_bounds import TIGHTER, assert_in_envelope
 from solprop.backends import available
-from solprop.backends.host.driver import HostDriver
+from solprop.backends.events import ObservationReady
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.session import HostSession
+from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.registry import select
+from solprop.backends.session import Start
 from solprop.exceptions import OutputError, SolpropWarning
 from solprop.log import NullReporter
 from solprop.output import HDF5Output
 from solprop.output.hdf5 import open_file, resume
-from solprop.output.schema import MarchSnapshot, SavedPlane, _example_metadata
+from solprop.output.metadata import _example_metadata
+from solprop.output.records import MarchSnapshot, SavedPlane
 from solprop.stepper import Multistep, RungeKutta
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
@@ -192,7 +196,7 @@ def test_a_run_stopped_between_planes_continues_from_its_checkpoint(
         soliton(build_simulation, "numpy_ref", rtol=RTOL / TIGHTER),
         tmp_path / "tight.h5",
     )
-    original = NumpyRefBackend._adams_lab_source
+    original = NumpyWorkspace.lab_source
     planes = [0.0, *build().settings.save_planes.tolist()]
     positions = []
 
@@ -206,7 +210,7 @@ def test_a_run_stopped_between_planes_continues_from_its_checkpoint(
         return original(self, field, position, *args, **keywords)
 
     with monkeypatch.context() as patch:
-        patch.setattr(NumpyRefBackend, "_adams_lab_source", failing)
+        patch.setattr(NumpyWorkspace, "lab_source", failing)
         with pytest.raises(CrashError):
             build().run(part, progress="none")
     state = resume(part)
@@ -244,7 +248,7 @@ def test_without_the_history_a_resume_starts_afresh(build_simulation, tmp_path):
 def test_a_snapshot_over_the_default_size_is_kept_only_on_request(
     build_simulation, tmp_path, monkeypatch, caplog
 ):
-    monkeypatch.setattr(run_module, "MARCH_SNAPSHOT_AUTO_BYTES", 1)
+    monkeypatch.setattr(session_loop_module, "MARCH_SNAPSHOT_AUTO_BYTES", 1)
     path = tmp_path / "run.h5"
     with caplog.at_level(logging.INFO, logger="solprop.driver.run"):
         soliton(build_simulation, "numpy_ref")().run(path, progress="none")
@@ -264,13 +268,13 @@ def test_a_snapshot_over_the_default_size_is_never_copied(
     # The state and the whole history on the host, to learn a size that needs no copy.
     if backend not in available():
         pytest.skip(f"{backend} is not installed")
-    monkeypatch.setattr(run_module, "MARCH_SNAPSHOT_AUTO_BYTES", 1)
+    monkeypatch.setattr(session_loop_module, "MARCH_SNAPSHOT_AUTO_BYTES", 1)
 
     def refuse(*_):
         pytest.fail("a snapshot over the limit was taken")
 
-    # The reference's session takes its driver's; the native session its own.
-    monkeypatch.setattr(HostDriver, "march_snapshot", refuse)
+    # Each session takes its own.
+    monkeypatch.setattr(HostSession, "march_snapshot", refuse)
     if backend == "native":
         monkeypatch.setattr(
             "solprop_native.session.NativeSession.march_snapshot", refuse
@@ -291,7 +295,7 @@ def test_a_snapshot_s_size_is_known_without_it(build_simulation, integrator):
     backend = "numpy_ref"
     simulation = soliton(build_simulation, backend, integrator=integrator)()
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     engine = cast(
         "Any",
         select(
@@ -304,15 +308,52 @@ def test_a_snapshot_s_size_is_known_without_it(build_simulation, integrator):
         ),
     )
     try:
-        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
-        assert engine.march_snapshot_nbytes(0.0) is None
-        engine.propagate_to(0.5 * LENGTH)
-        snapshot = engine.march_snapshot()
+        session = _started(engine, problem, run_request)
+        # No history at the launch.
+        assert session.march_snapshot_nbytes() is None
+        snapshot, nbytes = _first_plane_snapshot(session)
         assert snapshot is not None
-        assert engine.march_snapshot_nbytes(snapshot.z) == snapshot.nbytes
-        assert engine.march_snapshot_nbytes(0.5 * snapshot.z) is None
+        assert nbytes == snapshot.nbytes
+        session.close()
     finally:
         engine.close()
+
+
+def _started(backend, problem, run_request, z=None, march=None):
+    """Start the reference's session at `z` (the launch by default), with `march`."""
+    position = float(problem.initial.z) if z is None else float(z)
+    planes = run_request.observation.save_planes
+    start = Start(
+        field=problem.initial.field0,
+        z=position,
+        plane_index=int(np.searchsorted(planes, position, side="right")),
+        march=march,
+    )
+    return backend.prepare(problem, run_request).start(start, owns=False)
+
+
+def _first_plane_snapshot(session):
+    """Advance past the launch to the first plane; return its snapshot and size."""
+    while True:
+        batch = session.advance()
+        event = batch.events[-1]
+        if isinstance(event, ObservationReady) and event.plane_index >= 0:
+            break
+        session.acknowledge(batch.receipt)
+    snapshot = session.march_snapshot(event.ticket)
+    nbytes = session.march_snapshot_nbytes()
+    session.acknowledge(batch.receipt)
+    return snapshot, nbytes
+
+
+def _launch_snapshot(session):
+    """Return the method history at a session's launch plane, before any step."""
+    batch = session.advance()
+    (event,) = batch.events
+    assert isinstance(event, ObservationReady)
+    snapshot = session.march_snapshot(event.ticket)
+    session.acknowledge(batch.receipt)
+    return snapshot
 
 
 @pytest.mark.medium
@@ -337,36 +378,39 @@ def test_a_snapshot_from_another_run_is_not_continued(build_simulation):
         length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=Multistep()
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(run_request.stepper.save_planes[0]))
-        snapshot = backend.march_snapshot()
+        session = _started(backend, problem, run_request)
+        snapshot, _ = _first_plane_snapshot(session)
+        session.close()
         assert snapshot is not None
-        backend.set_initial(problem.initial.field0, None)
-        assert "resumes at z = 0.0 m" in str(backend.restore_march(snapshot))
-        backend.set_initial(problem.initial.field0, None, z=snapshot.z)
-        assert backend.restore_march(snapshot) is None
+        session = _started(backend, problem, run_request, march=snapshot)
+        assert "resumes at z = 0.0 m" in str(cast("Any", session).march_refusal)
+        session.close()
+        session = _started(backend, problem, run_request, snapshot.z, snapshot)
+        assert cast("Any", session).march_refusal is None
+        session.close()
         moved = snapshot.__class__(
             **{**vars(snapshot), "history_key": INTERACTION.history_key},
         )
-        backend.set_initial(problem.initial.field0, None, z=snapshot.z)
-        assert "history was kept by" in str(backend.restore_march(moved))
-        # A snapshot that names no key was written before SEP 42: start afresh.
-        unnamed = snapshot.__class__(**{**vars(snapshot), "history_key": None})
-        backend.set_initial(problem.initial.field0, None, z=snapshot.z)
-        assert "names no history key" in str(backend.restore_march(unnamed))
+        session = _started(backend, problem, run_request, snapshot.z, moved)
+        assert "history was kept by" in str(cast("Any", session).march_refusal)
+        session.close()
     finally:
         backend.close()
     runge_kutta = build_simulation(
         length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=RungeKutta()
     )
-    problem, run_request = runge_kutta.translate(), runge_kutta._run_request()
+    problem, run_request = runge_kutta.translate(), runge_kutta.run_request()
     backend = NumpyRefBackend(problem, run_request, grid=runge_kutta.grid)
     try:
-        assert backend.march_snapshot() is None
-        assert "Runge-Kutta" in str(backend.restore_march(snapshot))
+        session = _started(backend, problem, run_request)
+        assert _launch_snapshot(session) is None
+        session.close()
+        session = _started(backend, problem, run_request, snapshot.z, snapshot)
+        assert "Runge-Kutta" in str(cast("Any", session).march_refusal)
+        session.close()
     finally:
         backend.close()
 
@@ -404,6 +448,7 @@ def march(**changes):
         "identities": ("accepted", "predicted"),
         "slots": np.array([0, 1]),
         "rows": {"store": np.zeros((4, 1, 1, 1, 4), complex)},
+        "history_key": "adams",
     }
     return MarchSnapshot(**{**fields, **changes})
 
@@ -458,15 +503,14 @@ def test_a_rewritten_snapshot_holds_only_its_own_rows(tmp_path):
     assert np.array_equal(snapshot.rows["store"], store + 3)
 
 
-def test_the_history_key_crosses_the_file_and_a_rewrite_clears_it(tmp_path):
+def test_the_history_key_crosses_the_file_and_a_rewrite_replaces_it(tmp_path):
     path = tmp_path / "run.h5"
     saved_with(path, march(history_key="adams-pec2/3"))
     snapshot = resume(path).march
     assert snapshot is not None and snapshot.history_key == "adams-pec2/3"
-    # A snapshot that names none, written over one that did, names none either.
     saved_with(path, march(history_key="adams-pec2/3"), march())
     snapshot = resume(path).march
-    assert snapshot is not None and snapshot.history_key is None
+    assert snapshot is not None and snapshot.history_key == "adams"
 
 
 @pytest.mark.parametrize("quiet", [False, True])
@@ -496,6 +540,8 @@ def test_a_snapshot_taken_elsewhere_is_not_returned(tmp_path):
         (lambda group: group.attrs.__setitem__("identities", "not json"), "Expecting"),
         # A snapshot without its collar flag (SEP 39) cannot set the next step.
         (lambda group: group.attrs.__delitem__("collar_was_quiet"), "collar_was_quiet"),
+        # Every release that writes this schema names the history's key.
+        (lambda group: group.attrs.__delitem__("history_key"), "history_key"),
     ],
 )
 def test_an_unreadable_snapshot_is_ignored_with_a_warning(
@@ -568,20 +614,22 @@ def test_rows_another_history_keeps_are_refused_by_name(build_simulation):
         length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=Multistep()
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(run_request.stepper.save_planes[0]))
-        snapshot = backend.march_snapshot()
+        session = _started(backend, problem, run_request)
+        snapshot, _ = _first_plane_snapshot(session)
+        session.close()
         assert snapshot is not None
         rows = {**snapshot.rows, "states": snapshot.rows["store"]}
-        backend.set_initial(problem.initial.field0, None, z=snapshot.z)
-        reason = backend.restore_march(dataclasses.replace(snapshot, rows=rows))
-        assert reason == (
+        damaged = dataclasses.replace(snapshot, rows=rows)
+        session = _started(backend, problem, run_request, snapshot.z, damaged)
+        assert cast("Any", session).march_refusal == (
             "the numpy_ref backend cannot continue this Adams history: its engine "
             "keeps no ['states'] rows"
         )
-        assert backend.march_snapshot() is None
+        # Nothing of it was installed: the march starts afresh, with no history.
+        assert _launch_snapshot(session) is None
+        session.close()
     finally:
         backend.close()

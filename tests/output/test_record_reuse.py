@@ -6,20 +6,22 @@
 
 import logging
 
-from solprop.output import MemoryOutput, schema
-from solprop.output.schema import _example_metadata
+from solprop.output import MemoryOutput
+from solprop.output import metadata as run_metadata
+from solprop.output.metadata import _example_metadata
+from solprop.output.provenance import BackendRecord
 
 
 def test_the_hashed_part_is_serialised_once_and_handed_out_as_copies(monkeypatch):
     metadata = _example_metadata()
     calls = []
-    serialise = schema.serialise
+    serialise = run_metadata.serialise
 
     def counted(value):
         calls.append(1)
         return serialise(value)
 
-    monkeypatch.setattr(schema, "serialise", counted)
+    monkeypatch.setattr(run_metadata, "serialise", counted)
     first = metadata.hashed()
     after_first = len(calls)
     second = metadata.hashed()
@@ -52,14 +54,14 @@ def test_a_run_s_execution_facts_keep_its_resume_key(monkeypatch):
     metadata = _example_metadata()
     key = metadata.configuration_hash()
     calls = []
-    serialise = schema.serialise
+    serialise = run_metadata.serialise
 
     def counted(value):
         calls.append(1)
         return serialise(value)
 
-    monkeypatch.setattr(schema, "serialise", counted)
-    backend = schema.BackendRecord(name="native", propagator_mode="tabulate")
+    monkeypatch.setattr(run_metadata, "serialise", counted)
+    backend = BackendRecord(name="native", propagator_mode="tabulate")
     executed = metadata.with_backend(backend)
     assert executed.configuration_hash() == key
     assert executed.hashed() == metadata.hashed()

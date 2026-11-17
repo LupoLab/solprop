@@ -5,7 +5,7 @@
 """The native session's method history, call ledger and failures outside a march.
 
 SEP 47 sections 5.4 and 5.5: the native session owns the Adams march's state, so it
-exports the method history (:class:`~solprop.output.schema.MarchSnapshot`) at every
+exports the method history (:class:`~solprop.output.records.MarchSnapshot`) at every
 accepted endpoint a ticket names, installs a resumed run's history and call ledgers
 from its start, and states the ledger in its execution record. Each is held to the
 NumPy reference session on the same problem within the budgets of SEP 25
@@ -26,6 +26,7 @@ from typing import Any, Literal
 import numpy as np
 import pytest
 
+from builders import grid_at, held_collar
 from sessions.executors import (
     IDENTITY,
     PLANES,
@@ -47,7 +48,7 @@ from sessions.test_native_session import (
 )
 from solprop._interrupts import handled
 from solprop.backends.events import ObservationReady, Outcome
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import SessionError, Start
 from solprop.backends.sessions import start_session
@@ -57,13 +58,14 @@ from solprop.exceptions import (
     ResponseBudgetError,
     RunTerminated,
 )
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 
 native_session = pytest.importorskip("solprop_native.session")
 native_backend = pytest.importorskip("solprop_native.backend")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 LENGTH = PLANES[-1]
 
@@ -162,9 +164,9 @@ def _assert_same_snapshot(got: MarchSnapshot, expected: MarchSnapshot) -> None:
 
     Parameters
     ----------
-    got : solprop.output.schema.MarchSnapshot
+    got : solprop.output.records.MarchSnapshot
         The snapshot under test.
-    expected : solprop.output.schema.MarchSnapshot
+    expected : solprop.output.records.MarchSnapshot
         The one it must reproduce.
     """
     for name in (
@@ -198,9 +200,9 @@ def _assert_close_snapshot(got: MarchSnapshot, expected: MarchSnapshot) -> None:
 
     Parameters
     ----------
-    got : solprop.output.schema.MarchSnapshot
+    got : solprop.output.records.MarchSnapshot
         The native snapshot.
-    expected : solprop.output.schema.MarchSnapshot
+    expected : solprop.output.records.MarchSnapshot
         The reference's.
     """
     for name in ("method", "order", "rejections", "last_rejected", "collar_was_quiet"):
@@ -298,7 +300,7 @@ def _resumed(
         The problem.
     run_request : solprop.translate.run_request.RunRequest
         Its run's request, whose planes the snapshot's position is among.
-    snapshot : solprop.output.schema.MarchSnapshot
+    snapshot : solprop.output.records.MarchSnapshot
         The history, at a save plane.
     ledger : dict
         The call ledger's record there.
@@ -400,8 +402,7 @@ def test_the_ledger_record_is_the_reference_s():
     request = run_request
     started = _reference_session(problem, request)
     drive(started)
-    driver = started.session.driver  # pyright: ignore[reportAttributeAccessIssue]
-    expected = driver.metadata()["response_calls"]
+    expected = started.session.execution_record()["response_calls"]
     started.session.close()
     session = _native(problem, request, _entrance(problem))
     drive(Started(session))
@@ -483,12 +484,12 @@ def test_a_failure_between_batches_still_checkpoints_the_committed_state():
 
 
 def _armed(monkeypatch, stage: str, after: int, category: str) -> None:
-    """Arm a native march fault when a native session configures its march.
+    """Arm a native march fault when a native session prepares its run.
 
     Parameters
     ----------
     monkeypatch : pytest.MonkeyPatch
-        Restores the march's configuration.
+        Restores the session's preparation.
     stage : str
         ``"startup"``, ``"trial"`` or ``"accept"``.
     after : int
@@ -496,14 +497,15 @@ def _armed(monkeypatch, stage: str, after: int, category: str) -> None:
     category : str
         The failure, or ``"sigint"`` or ``"sigterm"`` for a signal raised in the call.
     """
-    march = native_backend._NativeAdamsMarch
-    configure = march._configure
+    session = native_session.NativeSession
+    prepare = session._prepare
 
-    def arming(self) -> None:
-        configure(self)
-        self._backend._native_state.adams_march_fault(stage, after, category)
+    def arming(self: Any, backend: Any, start: Any) -> Any:
+        run = prepare(self, backend, start)
+        _testing.inject_fault(backend._workspace, stage, after, category)
+        return run
 
-    monkeypatch.setattr(march, "_configure", arming)
+    monkeypatch.setattr(session, "_prepare", arming)
 
 
 @needs_default_sigterm
@@ -552,10 +554,16 @@ def _noisy(noise: Any, *, check: bool, march: str = "adams") -> Any:
     from solprop.pulses import SechPulse  # noqa: PLC0415 - beside its one use
     from solprop.stepper import LowStorageRungeKutta  # noqa: PLC0415
 
-    grid = window()
-    method: dict[str, Any] = {"integrator": Multistep()}
+    # A run ends at its grid's length (SEP 51): the metre window cut at the run's
+    # length, with the collar the metre gave.
+    grid = grid_at(window(), LENGTH)
+    method: dict[str, Any] = {
+        "integrator": Multistep(),
+        "absorber": held_collar(grid, window().length),
+    }
     if march == "low-storage":
         method = {
+            "absorber": method["absorber"],
             "integrator": LowStorageRungeKutta(),
             "schedule": FixedSchedule.uniform(
                 0.0, LENGTH, LENGTH / 80, save_planes=list(PLANES)
@@ -590,7 +598,7 @@ def test_a_noisy_run_meets_the_reference(noise, check, march):
         pytest.skip("the translation refuses dense output beside the modified noise")
     simulation = _noisy(noise, check=check, march=march)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     assert problem.initial.noise_model == noise
     request = run_request.for_run(monitor=simulation._boundary_monitor())
     skip_device_refused(problem)
@@ -683,8 +691,16 @@ def _walkoff(
     )  # fmt: skip
 
 
-@pytest.mark.parametrize("march", ["adams", "runge-kutta"])
-@pytest.mark.parametrize("noise", ["input", "modified"])
+@pytest.mark.parametrize(
+    ("noise", "march"),
+    [
+        ("input", "adams"),
+        ("input", "runge-kutta"),
+        ("modified", "adams"),
+        pytest.param("modified", "runge-kutta", marks=pytest.mark.medium),
+    ],
+    ids=lambda value: value,
+)
 def test_a_noisy_run_on_a_z_table_meets_the_reference(noise, march):
     """The noise phase at a plane reads a z table's propagator phase, which the leased
     state holds: the native session reads its slot at the plane through the session,
@@ -699,7 +715,7 @@ def test_a_noisy_run_on_a_z_table_meets_the_reference(noise, march):
     problem = simulation.translate()
     assert problem.linear.phi_representation == "table"
     assert problem.initial.noise_model == noise
-    request = simulation._run_request()
+    request = simulation.run_request()
     skip_device_refused(problem)
     assert native_session.refusal(problem, request) is None
     context = {"grid": simulation.grid, "modes": simulation.modes}
@@ -745,7 +761,7 @@ def test_a_z_table_s_noise_phase_needs_a_pending_ticket():
     """
     simulation = _walkoff("modified", Multistep())
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     skip_device_refused(problem)
     context = {"grid": simulation.grid, "modes": simulation.modes}
     start = Start(field=problem.initial.field0, z=float(problem.initial.z))

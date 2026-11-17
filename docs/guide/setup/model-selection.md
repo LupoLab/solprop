@@ -41,12 +41,12 @@ each assumes and when it stops being valid.
 **Where the interfaces' keywords differ.** The keyword interfaces share their grid,
 pulse, noise and output keywords; these differ, by interface:
 
-| keyword | `prop_gnlse` | `prop_capillary` | `prop_waveguide` | `prop_radial`, `prop_free`, `prop_planar` |
+| keyword | `prop_gnlse` | `prop_capillary` | `prop_waveguide` | `prop_free`, `prop_planar` |
 |---|---|---|---|---|
 | `noise`, `seed` | yes | yes | yes | yes, except `prop_planar`, whose grid carries no noise model |
 | `rtol`, `atol`, `backend` | yes; `atol` 1e-14 √W | yes; `atol` 1e-10 √W | yes; `atol` 1e-10 √W | in the `settings` they require |
 | `raman` | `False`: fused silica's response only when asked | `None`: each species' curated response | `None`, as the capillary | the medium's own |
-| loss | `loss_db_per_m`, a fibre's attenuation | `loss=True`, the capillary's own wall loss | the modes' own | the medium's own |
+| loss | `loss_db_per_m`, a fibre's attenuation | `loss_scale=1.0`, the capillary's own wall loss (`alpha=` replaces it) | the modes' own | the medium's own |
 | `step_planes`, `interpolate_planes` | yes (`step_planes=None`, the default, and `0` are off) | yes (`None` is off, or every step with the TDSE response) | yes (`None` is off) | in the settings |
 | `polarisation_taper` | yes | yes | yes | in the settings |
 | the launch | the pulse | `launch=`, or the first mode | `launch=`; with `provider=` also `channel=` or `incident=` with `coupling=`; or the first channel | a beam (`SpatialPulse`, `PlanarPulse`) |
@@ -63,9 +63,10 @@ deliberate:
 - **`raman`** is off by default on the GNLSE because it has no medium to read a response
   from: `None` there would switch fused silica's Raman response on for every fibre. The
   gas routes read each species' curated response.
-- **`loss`** on the capillary is a switch or a model of the wall loss, and
-  `loss_db_per_m` on the GNLSE a number from a data sheet; they mean different things,
-  so they keep different names.
+- **`loss_scale`** on the capillary scales the model's wall loss and **`alpha`**
+  replaces it by an absolute attenuation in 1/m, while `loss_db_per_m` on the GNLSE is
+  a number from a data sheet in dB/m; they mean different things, so they keep
+  different names.
 - **`noise`** is not drawn on `prop_planar`: a planar grid declares no photon measure, and
   adding one is physics, not a keyword.
 
@@ -210,7 +211,6 @@ repeatability tests pass on a data-centre NVIDIA GPU (CUDA) and an AMD Instinct 
 | a frequency-dependent electronic response, `MaterialSelection(electronic="symmetric-kerr")` or `"gas-polynomial"` ([model](../media/dispersive-kerr.md)), on every route but the GNLSE | yes | yes | qualified |
 | the `input` noise model beside a coupled flow (a coherent wall, the taper coupling, a split block, a moving guide) | yes | admitted, not yet qualified | not qualified |
 | the `modified` noise model beside a coupled flow | refused | refused | refused |
-| a coupled flow in a fixed-schedule `Batch` group | yes: member by member | yes: each member in its own native session | as the session admits each member; not qualified |
 
 `backend="auto"`, the default, is `native`, and it **never falls back**: it refuses if the
 native package is missing or the processor is below its minimum, and a problem the native

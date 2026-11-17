@@ -208,12 +208,12 @@ area = 1e-10
 synthetic_mode = SpecifiedMode.from_taylor(
     [1.45 * omega0 / C, 1.45 / C, -11.83e-27],
     omega0,
-    loss=attenuation_from_db(0.2),
+    alpha=attenuation_from_db(0.2),
     aeff=area,
 )
 nodes = np.linspace(0.3e15, 4.5e15, 200)
 solid = IndexTable(nodes, synthetic_mode.neff(nodes), area=np.full(nodes.size, area))
-grid = EnvelopeGrid.from_limits(0.01, 835e-9, (500e-9, 2e-6), 1e-12)
+grid = EnvelopeGrid.from_limits(0.01, 835e-9, (500e-9, 2e-6), 1.5e-12)
 active = grid.omega[grid.active_mask]
 assert solid.omega[0] < active.min() < active.max() < solid.omega[-1]
 solid_output = prop_gnlse(

@@ -11,26 +11,31 @@ problems (field and envelope grids, both sectors, a polynomial mixture as the ex
 per-species sum and a symmetric one under its mixture filter); its whole stage
 derivative, with the dispersion switched off, to the constant cubic's on the
 mode-averaged and radial routes; a short lossless propagation to the
-work identity. The native backend executes it on this path
-(``tests/backends/test_native_dispersive_kerr.py``); the free-space, planar and general
-modal routes are ``tests/backends/test_dispersive_kerr_routes.py``'s.
+work identity. The native backend executes it on this path (the dispersive rows of
+``tests/capability_routes.py``); the free-space, planar and general modal routes are
+``tests/backends/test_dispersive_kerr_routes.py``'s.
 """
 
 import dataclasses
-import warnings
-from collections.abc import Mapping
 from typing import Any, cast
 
 import numpy as np
 import pytest
 
+from backends.dispersive_cases import capillary as dispersive_capillary
 from backends.matched import dispersive_response_bound
 from bounds import assert_within
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from builders import numpy_ref_launch_derivative as stage_derivative
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.responses import (
+    dispersive_kerr_polarisation,
+    nonlinear_polarisation,
+)
+from solprop.backends.numpy_ref.passes.transforms import synthesise, to_time
 from solprop.boundaries import Absorber
 from solprop.constants import EPS0
 from solprop.driver import Simulation
-from solprop.exceptions import BackendError, MaterialRangeWarning
+from solprop.exceptions import BackendError
 from solprop.grid import FieldGrid, RadialGrid
 from solprop.nonlinear.responses import (
     DispersiveKerrResponse,
@@ -40,12 +45,12 @@ from solprop.nonlinear.responses import (
     mixture_filter,
 )
 from solprop.output import MemoryOutput
-from solprop.physdata import MaterialSelection, Mixture
+from solprop.physdata import Mixture
 from solprop.physdata.nonlinear_data import DispersiveKerrModel, OptmatKerr
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController, RungeKutta
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from solprop.translate.responses import ResponseStage, dispersive_terms
 
 try:
@@ -67,47 +72,25 @@ GRID_CASES: dict[str, dict[str, Any]] = {
 }
 
 
-def capillary(
-    policy: str = "gas-polynomial",
-    *,
-    gas: str | Mapping[str, float] = "Ar",
-    **overrides: object,
-) -> Simulation:
-    """Return a short single-mode argon capillary under an electronic policy."""
-    # The keywords of one entry point, of as many types as it takes.
-    arguments: dict[str, Any] = {
-        "wavelength": 800e-9,
-        "wavelength_limits": (150e-9, 4e-6),
-        "trange": 150e-15,
-        "fwhm": 10e-15,
-        "energy": 30e-6,
-        "materials": MaterialSelection(electronic=policy),
-        "plasma": False,
-        "raman": False,
-        "backend": "numpy_ref",
-        "n_save": 2,
-    } | overrides
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", MaterialRangeWarning)
-        return Simulation.from_capillary(
-            75e-6, LENGTH, gas, 2.0, **{"noise": None, **arguments}
-        )
+def capillary(policy: str = "gas-polynomial", **overrides: object) -> Simulation:
+    """Return :func:`backends.dispersive_cases.capillary` with one mode, the HE11."""
+    return dispersive_capillary(policy, **{"modes": 1, **overrides})
 
 
 def node_field(problem, bundle):
     """Return the launch field at the mode-averaged route's one node."""
     grids = problem.grids
-    modal = passes.to_time(
+    modal = to_time(
         problem.initial.field0, grids.crop_index, grids.n_to, kind=problem.grid_kind
     )
-    return passes.synthesise(
+    return synthesise(
         modal, problem.transform.synthesis, bundle.taper_scale, problem.transform.n_pol
     )
 
 
 def response_pass(problem, field_t, bundle):
     """Return the fused response pass over one chunk, with no temporal window."""
-    return passes.nonlinear_polarisation(
+    return nonlinear_polarisation(
         field_t,
         problem.responses,
         np.ones(problem.grids.n_to),
@@ -133,14 +116,14 @@ def test_the_response_pass_is_the_reference_evaluation(case, evaluator):
     policy = "gas-polynomial" if evaluator == "polynomial" else "symmetric-kerr"
     simulation = capillary(policy, **GRID_CASES[case])
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     assert ResponseStage.DISPERSIVE_KERR in problem.responses.response_order
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None and leaf.evaluator == evaluator
     assert (problem.grids.carrier_2w0 is not None) == (case == "envelope full")
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
-        bundle = backend._stage_scalars(0.0, 0.0)
+        bundle = backend.workspace.stage_scalars(0.0, 0.0)
     finally:
         backend.close()
     field_t = node_field(problem, bundle)
@@ -167,13 +150,13 @@ def test_a_polynomial_mixture_is_the_sum_of_its_species():
     """Each species is its own channel with its own bound: the exact per-species sum."""
     simulation = capillary(gas={"He": 0.6, "Ar": 0.4})
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None
     assert leaf.n_channels == 2
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
-        bundle = backend._stage_scalars(0.0, 0.0)
+        bundle = backend.workspace.stage_scalars(0.0, 0.0)
     finally:
         backend.close()
     field_t = node_field(problem, bundle)
@@ -208,12 +191,12 @@ def test_a_symmetric_mixture_is_one_cubic_under_its_mixture_filter():
     """
     simulation = capillary("symmetric-kerr", gas={"He": 0.6, "Ar": 0.4})
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None and leaf.n_channels == 2
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
-        bundle = backend._stage_scalars(0.0, 0.0)
+        bundle = backend.workspace.stage_scalars(0.0, 0.0)
     finally:
         backend.close()
     field_t = node_field(problem, bundle)
@@ -232,21 +215,6 @@ def test_a_symmetric_mixture_is_one_cubic_under_its_mixture_filter():
     assert_within(got[0], expected, bound, what="polarisation")
 
 
-def stage_derivative(problem, run_request, grid):
-    """Return ``numpy_ref``'s stage derivative at the launch."""
-    backend = NumpyRefBackend(problem, run_request, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend._hoist(0.0)
-        return backend._nonlinear(
-            backend._require_state(),
-            backend._stage_scalars(0.0, 0.0),
-            np.ones((1, *problem.shape), complex),
-        )
-    finally:
-        backend.close()
-
-
 @pytest.mark.parametrize("thg", [True, False])
 def test_without_dispersion_the_mode_averaged_derivative_is_the_constant_one(thg):
     """The whole fused path -- projection, transforms, prefactor -- around the leaf.
@@ -259,7 +227,7 @@ def test_without_dispersion_the_mode_averaged_derivative_is_the_constant_one(thg
     """
     simulation = capillary("gas-polynomial", thg=thg)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     flat = dataclasses.replace(
         problem,
         responses=dataclasses.replace(
@@ -359,7 +327,7 @@ def test_a_lossless_run_conserves_energy(evaluator):
                 wavelength_limits=None,
                 trange=None,
                 thg=thg,
-                loss=False,
+                loss_scale=0.0,
                 absorber=lossless,
                 schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / steps),
                 integrator=RungeKutta(),
@@ -377,7 +345,7 @@ def test_a_lossless_run_conserves_energy(evaluator):
 def test_native_admits_the_leaf_on_the_fused_path():
     simulation = capillary("symmetric-kerr")
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     NativeBackend(problem, run_request, grid=simulation.grid).close()  # pyright: ignore[reportOptionalCall]
 
 
@@ -385,25 +353,25 @@ def test_the_pass_refuses_stage_inputs_that_do_not_match_the_leaf():
     """The densities, the harmonic carrier and the stage scalars are the leaf's own."""
     simulation = capillary("gas-polynomial", **GRID_CASES["envelope full"])
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None and leaf.carrier
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
-        bundle = backend._stage_scalars(0.0, 0.0)
+        bundle = backend.workspace.stage_scalars(0.0, 0.0)
     finally:
         backend.close()
     field_t = node_field(problem, bundle)
     with pytest.raises(BackendError, match="the stage carries 0 densities"):
-        passes.dispersive_kerr_polarisation(
+        dispersive_kerr_polarisation(
             field_t, leaf, (), kind="envelope", carrier=problem.grids.carrier_2w0
         )
     with pytest.raises(BackendError, match="no harmonic carrier was given"):
-        passes.dispersive_kerr_polarisation(
+        dispersive_kerr_polarisation(
             field_t, leaf, bundle.dispersive_kerr_densities, kind="envelope"
         )
     with pytest.raises(BackendError, match="from the stage scalars"):
-        passes.nonlinear_polarisation(
+        nonlinear_polarisation(
             field_t,
             problem.responses,
             np.ones(problem.grids.n_to),

@@ -4,67 +4,32 @@
 
 r"""Absorbing boundaries as absorption rates per unit distance.
 
-Both axes of the grid are finite and periodic, so energy that reaches the edge of the
-frequency or the time window does not leave the simulation -- it wraps around, and the
-answer is wrong. The collars of :mod:`solprop.grid` mark where the propagation is
-absorbed instead of modelled; this module turns them into rates.
+The grid's time and frequency windows are periodic, so what reaches an edge wraps
+around; the collars of :mod:`solprop.grid` mark where the field is absorbed instead,
+and this module turns them into **rates**, which (unlike a per-step mask) do not
+depend on how many steps the controller takes.
 
-Multiplying the solution by the collar profile ``W`` once per accepted step would make
-the total absorption ``W^n`` for however many steps the adaptive controller happened to
-take. The answer would then depend on ``rtol``: refining the tolerance sixteen-fold
-erodes the spectral wings fifty-fold, and the limit it approaches is not the taper the
-profile describes but a brick wall at the edge of the flat region. As a rate it is
-exact instead, because traversing a distance attenuates by a factor that depends only on
-the distance. The spectral collar becomes
+- :func:`absorber`, :func:`no_absorber` and :func:`custom_absorber` build an
+  :class:`Absorber`: the spectral rate :math:`\alpha(\omega) = -2\log W/\ell`
+  (:func:`collar_rate`, capped at :data:`MAX_ALPHA_LENGTH`) and the bounded temporal
+  rate :math:`A(1 - W(t))/\ell` (:func:`temporal_collar_rate`,
+  :data:`TEMPORAL_ALPHA_LENGTH`), with ``ell = length / boundary_N`` by default
+  (:data:`DEFAULT_BOUNDARY_N`) and an optional separate collar length or walk-off.
+- The spectral rate is folded into the linear operator. The temporal rate is applied
+  inside every stage (:func:`nonlinear_absorber_term`, bounded by :func:`stable_step`)
+  or as a split factor after each accepted step (:func:`split_step_factor`,
+  :func:`apply_split_step`, with the walk-off step limit of :class:`SplitCrossing`,
+  :func:`split_crossing_step`, :func:`split_rate_buckets` and
+  :func:`split_bucket_rates`). :func:`apply_band_mask` is the idempotent hard band
+  limit, and :func:`warn_walkoff` says when the absorber is too weak for the run.
+- :class:`SpatialAbsorber` and :class:`SpatialAbsorberDesign`, a free-space run's
+  transverse boundary, are re-exported from :mod:`solprop.spatial_absorber`.
 
-.. math::
-
-    \alpha(\omega) = -\frac{2 \log W(\omega)}{\ell},
-
-the rate that reproduces one multiplication by the window over the reference length,
-and the temporal collar becomes the bounded profile
-
-.. math::
-
-    \alpha(t) = \frac{A\,(1 - W(t))}{\ell}, \qquad A = 12.6,
-
-whose integral over the collar is what the capped logarithm gave and whose largest
-value is a fifth of the cap (:data:`TEMPORAL_ALPHA_LENGTH`).
-
-``alpha`` is a **power** coefficient, as everywhere else in solprop: power falls as
-``exp(-alpha z)``, the field as ``exp(-alpha z / 2)``, and the linear operator carries
-``-alpha/2`` (``docs/dev/conventions.md`` section 2). The factor of two in the spectral
-definition is what makes ``exp(-alpha ell / 2) = W`` -- one reference length applies the
-historical profile to the *field* exactly once, which is how the profile was used. The
-reference length is ``ell = length / boundary_N`` by default: apply the window
-``boundary_N`` times over the whole propagation.
-
-The two rates are applied by different mechanisms, each chosen because it is exact
-(see ``docs/dev/decisions.md``):
-
-* ``alpha(omega)`` is diagonal in omega, so it is folded into the linear operator before
-  the cumulative operator is integrated. The propagator then applies it exactly over
-  whatever sub-interval the stepper takes, at no cost.
-* ``alpha(t)`` is diagonal in t and cannot ride the propagator. It is applied as the
-  term ``-alpha(t) E(t) / 2`` inside every stage evaluation
-  (:func:`nonlinear_absorber_term`), the default because the alternative -- the
-  split-step factor ``exp(-alpha(t) h / 2)`` after each accepted step
-  (:func:`split_step_factor`), exact for the absorber alone because the factors
-  telescope -- was measured to be a first-order splitting of the whole. Both are here.
-* The hard band limit outside the active mask stays a 0/1 mask
-  (:func:`apply_band_mask`), which is idempotent and never had the problem.
-
-Two lengths set the collars' strengths (SEP 22 section 4.6). ``reference_length``
-sets the spectral rate and the ceiling every spectral rate is validated against;
-``collar_length``, ``reference_length`` unless given, sets the in-stage temporal collar,
-``12.6 (1 - W(t)) / ell_c``, and its ceiling; a free-space run's transverse boundary is
-designed by :class:`SpatialAbsorber` (SEP 40). A custom spectral rate
-(:func:`custom_absorber`) can then be as strong as
-a measurement needs without moving the explicit in-stage collars or their stable step,
-and a temporal collar sized from a run's walk-off (``walkoff`` of :func:`absorber`)
-leaves the spectral rate where it was.
-
-The manual page is ``docs/guide/numerics/boundaries.md``.
+``alpha`` is a **power** coefficient: power falls as ``exp(-alpha z)`` and the linear
+operator carries ``-alpha/2`` (``docs/dev/conventions.md`` section 2), so one reference
+length applies the profile ``W`` to the field exactly once. The rationale, the two
+temporal schemes and the two lengths are in ``docs/guide/numerics/boundaries.md`` and
+``docs/dev/algorithms.md`` section 8.
 """
 
 import logging
@@ -579,8 +544,10 @@ def _walkoff_collar_length(grid: TimeGrid, walkoff: float) -> float:
         \ell_c = \frac{L}{\Delta\tau\,\Gamma}\,\frac{A}{2}\int (1 - W)\,dt.
 
     The integral is taken as :func:`warn_walkoff` takes it, so that the two agree on any
-    grid. For two edges of width ``w`` the Planck taper's symmetry makes it ``w``,
-    giving ``ell_c = 6.3 w L / (Gamma dtau)``.
+    grid: the rectangle sum over the samples, exact on the periodic axis, where a
+    trapezoid would drop the one sample that closes the period. For two edges of width
+    ``w`` the Planck taper's symmetry makes it ``w``, giving
+    ``ell_c = 6.3 w L / (Gamma dtau)``.
 
     - ``walkoff``: the drift over ``grid.length``, s.
     - Returns: the collar length in metres.
@@ -592,7 +559,7 @@ def _walkoff_collar_length(grid: TimeGrid, walkoff: float) -> float:
         )
         raise GridError(msg)
     unit_rate = temporal_collar_rate(grid.t, grid.t_collar, 1.0)
-    integral = float(np.trapezoid(unit_rate, dx=grid.dt))
+    integral = float(np.sum(unit_rate)) * grid.dt
     length = (
         0.5 * integral * grid.length / (MIN_COLLAR_ATTENUATION * walkoff)
     ) * _WALKOFF_ROUNDING_MARGIN
@@ -689,7 +656,7 @@ def absorber(
     >>> bool(np.array_equal(walking.spectral_rate, boundary.spectral_rate))
     True
     >>> round(walking.in_stage_length / boundary.in_stage_length, 3)
-    1.023
+    1.025
     """
     if walkoff is not None and not temporal:
         msg = (
@@ -962,8 +929,8 @@ class SplitCrossing:
     ----------
     buckets : numpy.ndarray
         Each bin's bucket, ``uint8``, shape ``(n_modes, n_omega)``: the fastest of its
-        batch members, polarisations and positions along the guide; evanescent and
-        inactive bins in the last.
+        polarisations and positions along the guide; evanescent and inactive bins in
+        the last.
     width : float
         The collar's width at its narrower edge, s.
     launch_limit : float
@@ -982,7 +949,7 @@ class SplitCrossing:
     >>> from solprop.boundaries import SplitCrossing, split_rate_buckets
     >>> buckets = split_rate_buckets(np.array([[1e-12, 1e-10]]))
     >>> crossing = SplitCrossing(buckets, 1e-13, launch_limit=0.05)
-    >>> occupancy = crossing.occupancy(np.array([[[[1.0, 1e-4]]]], dtype=complex))
+    >>> occupancy = crossing.occupancy(np.array([[[1.0, 1e-4]]], dtype=complex))
     >>> # The fast bin holds 1e-8 of the energy and is set aside: the slow bin's limit,
     >>> # 50 mm at 1e-12 s/m, a little shorter at its bucket's edge.
     >>> round(crossing.limit(occupancy) * 1e3, 1)
@@ -1004,7 +971,7 @@ class SplitCrossing:
 
     def occupancy(
         self,
-        field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        field_spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
         columns: Float[np.ndarray, " n_modes"] | None = None,
     ) -> Float[np.ndarray, " n_buckets"]:
         """Return a state's energy per bucket, on the host: the reference reduction.
@@ -1029,8 +996,8 @@ class SplitCrossing:
 
         def _block(rows: slice) -> Float[np.ndarray, " n_buckets"]:
             """Return a block of modes' energy per bucket."""
-            energy = np.einsum("bmpw,bmpw->mw", re[:, rows], re[:, rows]) + np.einsum(
-                "bmpw,bmpw->mw", im[:, rows], im[:, rows]
+            energy = np.einsum("mpw,mpw->mw", re[rows], re[rows]) + np.einsum(
+                "mpw,mpw->mw", im[rows], im[rows]
             )
             if weights is not None:
                 energy = energy * weights[rows, None]
@@ -1040,7 +1007,7 @@ class SplitCrossing:
                 minlength=SPLIT_RATE_BUCKETS,
             ).astype(np.float64)
 
-        return np.sum(parallel_rows(spectrum.shape[1], spectrum.nbytes, _block), axis=0)
+        return np.sum(parallel_rows(spectrum.shape[0], spectrum.nbytes, _block), axis=0)
 
     def limit(self, occupancy: Float[np.ndarray, " n_buckets"]) -> float:
         """Return the crossing limit of an occupancy, m.
@@ -1214,7 +1181,7 @@ def apply_split_step(
     """Apply the temporal absorber to a time-domain field over one accepted step.
 
     The reference implementation of the split-step absorber scheme, the alternative to
-    the default in-stage term of :func:`nonlinear_absorber_term`, and what that term is
+    the in-stage term of :func:`nonlinear_absorber_term`, and what that term is
     measured against.
 
     Parameters
@@ -1250,10 +1217,11 @@ def nonlinear_absorber_term(
     """Return the temporal absorber as a term to add inside the nonlinear evaluation.
 
     ``-alpha(t) E(t) / 2``: the derivative form of the same rate, and the reference
-    implementation of the default in-stage absorber scheme. Integrating it exactly over
-    a step would give :func:`apply_split_step`; a Runge-Kutta stage integrates it to the
-    order of the method, so the two agree to first order in the step and differ at
-    second, which is what the comparison of the two schemes measures.
+    implementation of the in-stage absorber scheme, the modal routes' default.
+    Integrating it exactly over a step would give :func:`apply_split_step`; a
+    Runge-Kutta stage integrates it to the order of the method, so the two agree to
+    first order in the step and differ at second, which is what the comparison of the
+    two schemes measures.
 
     Parameters
     ----------
@@ -1372,9 +1340,9 @@ def warn_walkoff(
     if group_delay_span <= 0.0:
         return
     rate = temporal_collar_rate(grid.t, grid.t_collar, length)
-    crossing = (
-        0.5 * float(np.trapezoid(rate, dx=grid.dt)) * grid.length / group_delay_span
-    )
+    # The rectangle sum, not a trapezoid: the axis is periodic, and the sum is exact
+    # for the taper the packet crosses.
+    crossing = 0.5 * float(np.sum(rate)) * grid.dt * grid.length / group_delay_span
     if crossing >= MIN_COLLAR_ATTENUATION:
         return
     warnings.warn(

@@ -2,7 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Store durable queue results without loading Python objects from files."""
+"""A durable queue's per-point artifact files, written and read without any pickle.
+
+A worker of :class:`solprop.driver.executors.queue.Queue` writes each point's
+:class:`~solprop.output.scan.PointResult` to its own HDF5 artifact
+(:func:`write_artifact`, fsynced before its name is published) and records its
+:func:`artifact_digest`; collection reads it back with :func:`read_artifact`, which
+checks that digest, the scan, point and owner identity and the artifact schema
+(version 2). Artifacts hold JSON and numerical datasets only, never executable pickle
+payloads; the manual page is
+``docs/guide/workflows/scans.md`` ("Durable queues and Slurm").
+"""
 
 import dataclasses
 import hashlib

@@ -479,9 +479,9 @@ def test_events_follow_the_committed_order_without_a_monitor(start):
 
     The order of :func:`test_events_follow_the_committed_order` for an executor that
     runs no monitor: the launch plane first, save planes in order with a step plane at
-    every third accepted step, the terminal event last; statistics and periodic rows
-    without a batch axis, rows every second accepted step at an accepted endpoint, and
-    at most one field-bearing event a batch.
+    every third accepted step, the terminal event last; statistics and periodic rows in
+    each statistic's own shape, rows every second accepted step at an accepted endpoint,
+    and at most one field-bearing event a batch.
     """
     problem = soliton(step_planes=3, period=2)
     started = start(problem)
@@ -581,7 +581,7 @@ def _check_chunks(run: Run, shape: tuple[int, ...], period: int) -> None:
     """Check every event's chunk of a run with step planes every third step.
 
     A row's step indexes its own chunk's attempts, rows fall on every `period`-th
-    accepted step, step planes on every third, and statistics carry no batch axis.
+    accepted step, step planes on every third, and statistics have their own shape.
 
     Parameters
     ----------
@@ -818,27 +818,39 @@ def test_an_in_flight_failure_poisons_the_state(start_scripted):
 def test_a_warning_raised_as_an_error_fails_at_its_committed_endpoint(start_scripted):
     """SEP 47 section 5.5: a warning the filters promote is a barrier, then a failure.
 
-    The warning arises after an accepted step's commit; the failure reports that
-    endpoint, eligible, with its field.
+    The warning arises after an accepted step's commit and is reported as a barrier at
+    that endpoint, whose ticket exports its field for the failure's checkpoint; the
+    caller's filters raise it when it is emitted.
     """
     warn_at = 6
-    held: dict[str, np.ndarray] = {}
+    session = start_scripted(soliton(), warn_at=warn_at).session
+    batches = []
+    launched = None
+    while True:
+        batch = session.advance()
+        batches.append(batch)
+        event = batch.events[-1]
+        if isinstance(event, ServiceRequired) and event.kind is ServiceKind.WARNING:
+            break
+        assert batch.terminal is None
+        if launched is None:
+            assert isinstance(event, ObservationReady)
+            launched = session.export(event.ticket, IDENTITY)
+        session.acknowledge(batch.receipt)
+    histories = [one.history for batch in batches for one in batch.events]
+    flags = np.concatenate([history.accepted for history in histories])
+    ends = np.concatenate([history.z for history in histories])[flags]
+    assert ends.size == warn_at and event.z == ends[-1] == session.status().z
+    assert event.ticket is not None
+    held = session.export(event.ticket, IDENTITY)
     with warnings.catch_warnings():
         warnings.simplefilter("error", ScriptedWarning)
-        run = drive(
-            start_scripted(soliton(), warn_at=warn_at),
-            export=IDENTITY,
-            between=_terminal_field(held),
-            raises=False,
-        )
-    terminal = run.terminal
-    assert terminal.outcome is Outcome.FAILED
-    assert isinstance(terminal.error, ScriptedWarning)
-    assert terminal.eligibility is Eligibility.ELIGIBLE
-    ends = run.accepted_ends()
-    assert ends.size == warn_at and terminal.z == ends[-1]
-    np.testing.assert_array_equal(held["field"], run.fields[0] * FACTOR**warn_at)
-    assert run.attempts == run.status.attempts
+        with pytest.raises(ScriptedWarning, match="accepted step 6"):
+            emit_warning(event)
+    # The launch's field after `warn_at` doublings, exactly (FACTOR is a power of two).
+    assert launched is not None
+    np.testing.assert_array_equal(held, launched * FACTOR**warn_at)
+    session.close()
 
 
 def test_an_allowed_warning_changes_nothing(start_scripted):

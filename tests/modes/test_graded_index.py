@@ -23,9 +23,8 @@ from solprop.modes.graded_index import (
     GradedIndexProvider,
     PowerLawPermittivity,
 )
-from solprop.modes.guide import radial_node_rule
 from solprop.modes.material import IndexMaterial
-from solprop.modes.vector import ModalNodeRule, ModalProvider
+from solprop.modes.vector import ModalNodeRule, ModalProvider, radial_node_rule
 
 OMEGA = 2 * np.pi * C / 1.03e-6
 

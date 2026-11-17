@@ -24,7 +24,8 @@ import numpy as np
 
 from solprop.grid import EnvelopeGrid
 from solprop.output import MemoryOutput, open_file
-from solprop.output.schema import GridRecord, RunMetadata, SavedPlane, StepperRecord
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import GridRecord, SavedPlane, StepperRecord
 from solprop.plotting import plot_energy, plot_stats, prop_2d, spec_1d, time_1d
 from solprop.processing import energy as pulse_energy
 from solprop.processing import (
@@ -112,9 +113,7 @@ print(f"largest relative error {np.max(np.abs(measured / expected - 1)):.2e}")
 # mode, so there is one figure. The spectral panel is in decibels below the peak and the
 # temporal one is a linear power in an auto-chosen unit.
 
-figures = prop_2d(
-    run, "wavelength", spec_range=(650e-9, 1000e-9), time_range=(-150e-15, 150e-15)
-)
+figures = prop_2d(run, spec_range=(650e-9, 1000e-9), time_range=(-150e-15, 150e-15))
 figures[0].set_size_inches(9.5, 3.4)
 figures[0].tight_layout()
 

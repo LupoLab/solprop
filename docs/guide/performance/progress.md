@@ -151,7 +151,7 @@ actually be stepped, and it follows `progress=` exactly as the progress lines do
 | `"none"` | nothing |
 
 A run into a plane store (memory or HDF5) also keeps it, as the annotation
-{py:data}`~solprop.output.schema.RUN_SUMMARY_ANNOTATION`
+{py:data}`~solprop.output.metadata.RUN_SUMMARY_ANNOTATION`
 (`handler.annotations["run_summary"]`): a list of `{"title", "rows"}`, to which a resume
 adds its own. It is a description for a person; a program should read the run's
 [metadata](../results/provenance.md), which holds all of it. The points of a
@@ -196,18 +196,16 @@ against a fill that reaches exactly zero, closes at a ratio of `1.6e-01`.
 
 ### Writing your own
 
-Progress goes through one {py:class}`~solprop.log.ProgressReporter` protocol:
-`started(z_start, z_end, n_planes)` once, `step(z, dz, accepted)` once per **attempted**
-step from inside the backend's own loop, `plane(z, summary)` once per saved plane, and
-`finished(total)` once. Subclass {py:class}`~solprop.log.NullReporter` and override the one call you want; the
-rest stay no-ops. A fifth call, `interrupted(z, error)`, reaches a reporter that has it
-({py:class}`~solprop.log.InterruptibleReporter`; `NullReporter` supplies a no-op) when
-the loop raises, `KeyboardInterrupt` included, before the error propagates -- it is how
-the bar gives the terminal back. A sixth, `summary(text)`
-({py:class}`~solprop.log.SummarisingReporter`; `NullReporter` supplies a no-op), is
-handed the start-of-run block before the first step, and the `resources` line after
-`finished`. A reporter written to the four
-calls alone is still complete and is simply not told.
+Progress goes through one {py:class}`~solprop.log.ProgressReporter` protocol of six
+calls: `summary(text)` with the start-of-run block before the first step (and the
+`resources` line after `finished`), `started(z_start, z_end, n_planes)` once,
+`step(z, dz, accepted)` once per **attempted** step from inside the backend's own loop,
+`plane(z, summary)` once per saved plane, and at the end `finished(total)`, or
+`interrupted(z, error)` when the loop raises, `KeyboardInterrupt` included, before the
+error propagates -- it is how the bar gives the terminal back. Subclass
+{py:class}`~solprop.log.NullReporter` (or the protocol itself) and override the calls you
+want; the rest are inherited no-ops. A class that subclasses neither must define all six,
+and a run refuses one that does not before it starts.
 
 ```{code-block} python
 from solprop.log import NullReporter
@@ -228,11 +226,10 @@ is decided, and a run with a reporter is the same computation as a run without o
 
 ### Watching each saved plane
 
-A reporter that also implements `observe_plane(z, plane)`
-({py:class}`~solprop.log.PlaneObserver`) is shown every saved plane, the entrance
-included, after the plane is committed to the output and before `plane()`; a resumed
+A reporter that also defines `observe_plane(z, plane)`, the one optional call, is shown
+every saved plane, the entrance included, after the plane is committed to the output and before `plane()`; a resumed
 run does not show again the planes it continues after, which are in the file.
-`NullReporter` is not one, so a quiet run builds nothing for it.
+`NullReporter` does not define it, so a quiet run builds nothing for it.
 
 The `plane` it receives ({py:class}`~solprop.driver.plane_view.PlaneView`) is lazy. Its
 position, statistics row, basis and whether its quantities are physical fluxes are there
@@ -281,11 +278,11 @@ monitor, which warns once with a `BoundaryWarning` or stops the run with a
 A [scan](../workflows/scans.md) shows one outer bar, or one line per point, and its
 points run silently. A program that draws its own display passes `run_scan` a
 {py:class}`~solprop.log.ScanReporter` as `progress=` instead: `scan_started(n_points)`,
-`point_started(index, point)`, `point_finished(index, status, wall)` and
-`scan_finished()`, all made in the process and thread that called `run_scan`. A
-{py:class}`~solprop.log.WatchingScanReporter` also has `point_reporter(index)`, which
-returns the `ProgressReporter` that point's run reports to, or `None`.
-{py:class}`~solprop.log.NullScanReporter` supplies a no-op for each call.
+`point_started(index, point)`, `point_finished(index, status, wall)`,
+`scan_finished()` and `point_reporter(index)`, which returns the `ProgressReporter` that
+point's run reports to, or `None`, all made in the process and thread that called
+`run_scan`. {py:class}`~solprop.log.NullScanReporter` (or the protocol itself, as a base
+class) supplies a no-op for each call, and `None` from `point_reporter`.
 
 ```{code-block} python
 from solprop.log import NullReporter, NullScanReporter
@@ -305,7 +302,7 @@ its run's `summary`, `started`, `plane`, `finished` and `interrupted` calls to t
 controller on its pipe, where they are made on the point's reporter as they arrive: a
 plane carries its position and the four scalars of its summary (steps, rejected steps,
 largest error norm, wall time), never a field, and `step` is not sent at all, since it is
-called thousands of times a second. `Batch`, `Queue` and `Slurm` report only the points'
+called thousands of times a second. `Queue` and `Slurm` report only the points'
 boundaries, as their results are collected. The table per executor, and the scan's
 `stop=` flag, are in [watching and stopping a scan](../workflows/scans.md#watching-and-stopping-a-scan).
 

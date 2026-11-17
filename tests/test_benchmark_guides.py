@@ -47,7 +47,8 @@ def test_wall_cases_keep_full_profiles(name):
 def test_linear_grin_launch_is_configurable_before_translation(stepper):
     case = CASES["grin_linear"]
     simulation = build(configuration("grin_linear", stepper))
-    assert simulation.grid.length == 1e-3
+    # The millimetre grid cut at the beat length the run ends at (SEP 51).
+    assert simulation.grid.length == case.length
     waveguide = simulation.configuration["waveguide"]
     assert isinstance(waveguide, dict)
     assert waveguide["length"] == case.length
@@ -93,7 +94,7 @@ def test_the_nonlinear_grin_guide_takes_its_planes_and_stepper_at_construction()
     # builder passes the planes and integrator to the constructor.
     case = CASES["grin_nonlinear"]
     simulation = build(configuration("grin_nonlinear", "multistep"))
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     np.testing.assert_allclose(
         run_request.stepper.save_planes,
         np.linspace(0, case.length, case.planes + 1)[1:],

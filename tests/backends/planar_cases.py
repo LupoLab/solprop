@@ -17,7 +17,7 @@ import math
 
 import numpy as np
 
-from backends.test_planar_hybrid import FAMILIES, HALF_GAP, LENGTH, ORDERS
+from backends.planar_hybrid_cases import FAMILIES, HALF_GAP, LENGTH, ORDERS
 from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
 from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.driver import Simulation
@@ -77,7 +77,7 @@ def planar_case(name, *, steps=None):
     grid, gas, energy, fwhm, plasma, raman, n_r, _, count, scheme = FAMILIES[family]
     steps = count if steps is None else max(1, steps)
     orders = ORDERS.get(family, (1, 3, 5))
-    modes = ModeCollection.slab(HALF_GAP, orders, gas, 1.0).modes
+    modes = ModeCollection.slab(HALF_GAP, gas, 1.0, orders=orders).modes
     simulation = Simulation.from_waveguide(
         list(modes),
         LENGTH,
@@ -144,7 +144,7 @@ def planar_case(name, *, steps=None):
         problem = dataclasses.replace(
             problem, initial=dataclasses.replace(problem.initial, field0=field0)
         )
-    return grid, space, problem, planar._run_request()
+    return grid, space, problem, planar.run_request()
 
 
 def linear_responses(responses):

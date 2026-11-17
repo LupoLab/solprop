@@ -16,8 +16,9 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from builders import grid_at, held_collar
 from solprop.backends.registry import available
-from solprop.coupling import CouplingModel, couple
+from solprop.coupling import BasisChange, CouplingModel, couple
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import CouplingError, DriverError
 from solprop.grid import FieldGrid, RadialGrid
@@ -38,6 +39,15 @@ the reference and the relaunched one 1.4e-10, against 1.3e-8 and 1.5e-8 at rtol
 def same_basis(plane, port):
     """Return the identity model's launch of a plane into a port."""
     return couple(plane, port, model=CouplingModel("same_basis")).launch
+
+
+def last_plane(simulation):
+    """Run a script's simulation and read its last plane, with its mode set.
+
+    A file records no basis identity, and a run from a script no recipe to rebuild the
+    modes from, so the plane is read with the simulation that wrote it.
+    """
+    return field_plane(simulation.run(progress="none"), source=simulation)
 
 
 def capillary(
@@ -70,9 +80,9 @@ def reference():
 def relaunched(source, receiver):
     """Run 2 mm in one go and as 1 mm + 1 mm, and return both final planes."""
     whole = capillary(2e-3, 3, backend=source).run(progress="none")
-    first = capillary(1e-3, 2, backend=source).run(progress="none")
+    first = last_plane(capillary(1e-3, 2, backend=source))
     second = capillary(1e-3, 2, backend=receiver)
-    launch = same_basis(field_plane(first), second.input_port())
+    launch = same_basis(first, second.input_port())
     rest = second.with_input(launch).run(progress="none")
     return field_plane(whole), field_plane(rest)
 
@@ -115,7 +125,7 @@ def test_an_interior_relaunch_continues_its_own_run(reference):
     port = simulation.input_port(1e-3)
     assert port.geometry.z == 1e-3
     assert port.frame.delay == pytest.approx(field_plane(output, 1).reference.delay)
-    launch = same_basis(field_plane(output, z=1e-3), port)
+    launch = same_basis(field_plane(output, z=1e-3, source=simulation), port)
     # The run's own frame up to 1 mm is the launch's reference: no origin is added.
     assert launch.origin.delay == pytest.approx(0.0, abs=1e-24)
     child = simulation.with_input(launch)
@@ -126,8 +136,33 @@ def test_an_interior_relaunch_continues_its_own_run(reference):
         simulation.input_port(5e-3)
 
 
+def test_a_plane_read_without_its_mode_set_is_refused_an_exact_copy():
+    """A script's run read alone has no basis to check, and the refusal says why.
+
+    The file records no basis identity and no recipe to rebuild the modes from, so
+    neither the copy nor a declared change can be checked against the port.
+    """
+    simulation = capillary(1e-3, 2)
+    plane = field_plane(simulation.run(progress="none"))
+    assert plane.basis.identity is None
+    port = simulation.input_port()
+    declared = BasisChange(
+        np.eye(2, dtype=complex), "0" * 64, cast("str", port.basis.identity)
+    )
+    for model in (
+        CouplingModel("same_basis"),
+        CouplingModel("same_basis", basis_change=declared),
+    ):
+        with pytest.raises(CouplingError, match=r"source=simulation"):
+            couple(plane, port, model=model)
+
+
 def radial(pressure=1.0, length=2e-3, backend="numpy_ref"):
-    grid = FieldGrid.from_limits(2e-3, 800e-9, (600e-9, 1.2e-6), 400e-15)
+    window = FieldGrid.from_limits(2e-3, 800e-9, (600e-9, 1.2e-6), 400e-15)
+    # A run ends at its grid's length (SEP 51): a stage runs on the window cut at its
+    # length, with the collar the whole two millimetres gave, so every stage and the
+    # whole run share one absorber.
+    grid = grid_at(window, length)
     settings = SimulationSettings(
         controller=PIController(rtol=1e-10, atol=1e-16),
         save_planes=np.linspace(0.0, length, 3)[1:],
@@ -138,13 +173,14 @@ def radial(pressure=1.0, length=2e-3, backend="numpy_ref"):
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 6e-5
     )
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(6e-4, 32),
         SpatialMedium("Ar", pressure),
         [],
         pulse,
         settings=settings,
+        absorber=held_collar(grid, window.length),
         noise=None,
     )
 
@@ -169,7 +205,7 @@ def test_a_radial_plane_relaunches_into_the_same_grid_and_medium():
 
 
 def test_a_launch_is_refused_by_any_other_simulation():
-    first = field_plane(capillary(1e-3, 2).run(progress="none"))
+    first = last_plane(capillary(1e-3, 2))
     second = capillary(1e-3, 2)
     launch = same_basis(first, second.input_port())
     wider = capillary(1e-3, 2, radius=110e-6)
@@ -187,7 +223,7 @@ def test_a_launch_is_refused_by_any_other_simulation():
 
 
 def test_a_launch_records_its_provenance_and_draws_no_noise():
-    first = field_plane(capillary(1e-3, 2).run(progress="none"))
+    first = last_plane(capillary(1e-3, 2))
     noisy = capillary(1e-3, 2, noise="input", seed=5)
     assert noisy.noise is not None
     launch = same_basis(first, noisy.input_port())

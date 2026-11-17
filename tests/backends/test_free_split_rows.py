@@ -35,7 +35,6 @@ from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import PropagationProblem
 
 native_backend = pytest.importorskip("solprop_native.backend")
-native_session = pytest.importorskip("solprop_native.session")
 
 BLOCKS = [1, 5, None]
 """Node chunks: one row at a time, one that leaves a shorter last block (192 columns
@@ -142,7 +141,7 @@ def _check_block(
     # its factor's size is inside the bound's margin. A device build adds its
     # transforms' declared envelope, eight round trips a step at most. A reading sums
     # squares of the same samples, at twice the state's relative rounding.
-    problem, run_request = simulation.translate(), simulation._run_request()
+    problem, run_request = simulation.translate(), simulation.run_request()
     low_storage = parity_bound(
         problem, run_request, transverse=problem.transform.n_nodes
     )
@@ -186,9 +185,9 @@ def test_a_devices_choices_on_any_build(
 ) -> None:
     # Flows recomputed under "auto" and input through tiles of team scratch, with a
     # short last block's plan, at the reference's numbers.
-    # The session reads the build's kind where it lowers the low-storage flows.
-    for module in (native_backend, native_session):
-        monkeypatch.setattr(module, "_on_device", lambda: True)
+    # The backend reads the build's kind where it lowers the problem, the low-storage
+    # flows with it.
+    monkeypatch.setattr(native_backend, "_on_device", lambda: True)
     _check_block(reference, 5)
 
 
@@ -202,7 +201,7 @@ def test_real_rows_keep_their_buffers() -> None:
     backend = select(
         "native",
         problem,
-        simulation._run_request(),
+        simulation.run_request(),
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,

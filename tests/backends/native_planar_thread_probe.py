@@ -25,7 +25,7 @@ import numpy as np
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
-from backends.test_planar_native import (
+from backends.planar_plate_cases import (
     chunked,
     native_class,
     planar_case,

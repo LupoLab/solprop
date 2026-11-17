@@ -1271,22 +1271,6 @@
    "name": "fused_silica"
   }
  ],
- "general_modal_route": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "function"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.translate.general",
-   "module_short": "solprop.translate.general",
-   "name": "general_modal_route"
-  }
- ],
  "get_spectral_density": [
   {
    "is_class": false,
@@ -1654,30 +1638,7 @@
    "name": "MemoryOutput"
   }
  ],
- "imaging_route": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.translate.general",
-   "module_short": "solprop.translate.general",
-   "name": "GeneralModalRoute"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.translate",
-   "module_short": "solprop.translate",
-   "name": "GeneralModalRoute"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "GeneralModalRoute"
-  }
- ],
- "imaging_route.tables": [
+ "imaging_tables": [
   {
    "is_class": false,
    "is_explicit": false,
@@ -2021,7 +1982,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.modes.vector",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.vector",
    "name": "ModalNodeRule"
   },
   {
@@ -2652,6 +2613,22 @@
    "name": "reconstructed_flux"
   }
  ],
+ "reference_tables": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.processing.modal",
+   "module_short": "solprop.processing.modal",
+   "name": "reference_tables"
+  }
+ ],
  "run": [
   {
    "is_class": false,
@@ -2700,8 +2677,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.metadata"
   },
   {
@@ -2765,8 +2742,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.metadata"
   },
   {
@@ -2830,8 +2807,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.metadata"
   },
   {
@@ -2972,6 +2949,15 @@
    "module": "solprop.processing.modal",
    "module_short": "solprop.processing",
    "name": "reconstructed_flux"
+  }
+ ],
+ "solprop.processing.modal.reference_tables": [
+  {
+   "is_class": false,
+   "is_explicit": true,
+   "module": "solprop.processing.modal",
+   "module_short": "solprop.processing.modal",
+   "name": "reference_tables"
   }
  ],
  "solprop.pulses.SpatialPulse": [

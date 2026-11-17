@@ -2,41 +2,26 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Adapt optmat's gas Raman responses onto solprop's existing Raman terms (SEP 3).
+"""Adapt optmat's gas Raman responses onto solprop's existing Raman terms (SEP 3).
 
-optmat gives a molecular gas's, or a gas mixture's, delayed response as a sum of
-lines,
-
-.. math::
-
-    h(\tau; N) = \Theta(\tau) \sum_k A_k \sin(\Omega_k(N)\tau)\, e^{-\Gamma_k(N)\tau},
-    \qquad \Gamma_k = \pi\, \Delta\nu_k(N),
-
-for one composition, one temperature and one pump wavelength, with the amplitudes in
-m^5 V^-2 s^-1 per molecule of the **whole** composition: a constituent's lines carry
-its mole fraction, so a mixture's response is driven by its total density. That is
-solprop's own convention (:mod:`solprop.nonlinear.raman`), so no unit changes here.
-
-Lines that share a width law and a shift form one **damping group** (optmat's
-``groups()``). Each group and tensor family becomes one existing
+optmat gives a molecular gas's, or a gas mixture's, delayed response as a sum of damped
+lines in solprop's own units and convention (:mod:`solprop.nonlinear.raman`), driven by
+the composition's total density. Lines sharing a width law and a shift form one damping
+group, and each group and tensor family becomes one existing
 :class:`~solprop.nonlinear.raman.RamanTensorTerm`: an undamped row
-``u(t) = sum_k A_k sin(Omega_k t)`` (:class:`RamanGroupLines`) and the group's decay
-rate as a function of density (:class:`GroupDephasing`), which the translation layer
-composes with the density path. The isotropic amplitudes become an isotropic term and
-the anisotropic ones a rank-two term, so a copolarised probe sees ``a + b`` and a
-cross-polarised one ``a`` (Hellwarth's functions). The mapping is exact for every gas
-whose lines do not shift, at any density path. H2's Q lines shift with density: at a
-constant density their row is built at that density, which is exact; along a
-gradient they are refused unless the selection names the approximation
-``raman_shift="reference-density"``, whose phase bound is recorded.
+(:class:`RamanGroupLines`) and a density-dependent decay rate (:class:`GroupDephasing`).
 
-A mixture's response is built once, for the composition of all its labelled
-populations, and is driven, and damped, by the **summed** density of those labels
-(:attr:`OptmatRamanResponse.labels`). optmat builds a mixture's response only from the
-collision partners whose broadening it has curated, and a mixture with any other
-partner is refused here by name, naming the pair (SEP 3, D16). The derivation and the
-limits are on the manual page ``docs/guide/media/raman-data.md``, "Raman responses from
-optmat".
+- :func:`gas_raman` builds a pure gas's response and :func:`mixture_raman` a mixture's
+  whole composition, an :class:`OptmatRamanResponse` driven and damped by the summed
+  density of its labels; a mixture with a collision partner optmat has not curated is
+  refused by name. :class:`RamanAssembly` records how the mapping was made.
+- :class:`RamanShift` says how a density-dependent line shift (H2's Q lines) is held:
+  exact at a constant density, refused along a gradient unless the selection names
+  ``raman_shift="reference-density"``.
+- :func:`raman_status` reports what optmat holds for a gas.
+
+The mapping, its exactness and its limits are on the manual page
+``docs/guide/media/raman-data.md``.
 """
 
 import functools
@@ -61,8 +46,12 @@ from solprop.physdata.selection import (
     MaterialRecord,
     MaterialSelection,
 )
-from solprop.physdata.species import built_in_population
-from solprop.profiles import Sum, ZProfile, _probe_positions
+from solprop.physdata.species import (
+    MIXTURE_AIR_POINTER,
+    built_in_population,
+    dispersion_only_air,
+)
+from solprop.profiles import Sum, ZProfile, _probe_positions, _weighted_mean
 
 __all__ = [
     "COMPOSITION_TOLERANCE",
@@ -478,7 +467,7 @@ class OptmatRamanResponse(RamanResponse):
         if models is not None or fraction is not None:
             msg = (
                 "an optmat Raman response is built from tensor terms and is absolute; "
-                "it takes neither legacy models nor a fraction"
+                "it takes neither scalar-only models nor a fraction"
             )
             raise MaterialError(msg)
         super().__init__(None, None, thg, species, tensor_terms=tensor_terms)
@@ -711,7 +700,7 @@ def _with_dephasing(response: _optmat.Untyped, request: _Request) -> _optmat.Unt
     A component's :class:`~solprop.physdata.raman_types.Dephasing` sets the width law
     ``c + beta n`` of every band of its species (optmat's ``width_law``), so that the
     response's identity records the change (status ``user``). A law with a Dicke term
-    is refused: optmat caps that term at a Doppler width the legacy law does not have.
+    is refused: optmat caps that term at a Doppler width a Dephasing law does not have.
     """
     laws: dict[str, tuple[float, float, float, float]] = {}
     for name, dephasing in request.dephasing.items():
@@ -757,7 +746,7 @@ def _reemit(
     messages = []
     for item in caught:
         if issubclass(item.category, ModelRangeWarning):
-            messages.append(str(item.message))
+            messages.append(_optmat.optmat_text(item.message))
         else:
             warnings.warn_explicit(
                 item.message, item.category, item.filename, item.lineno
@@ -1224,6 +1213,8 @@ def _keep(
             if explicit:
                 what = "an atom" if kind == "atom" else "not a gas optmat curates"
                 msg = f"{label} ({name}) has no molecular Raman response: it is {what}"
+                if dispersion_only_air(component.species):
+                    msg += f"; {MIXTURE_AIR_POINTER}"
                 raise MaterialError(msg, rule="raman-needs-molecule")
             continue
         options = chosen[label]
@@ -1406,11 +1397,10 @@ def _reference_density(path: _Path) -> float | None:
     :math:`N_\mathrm{ref} = \int N^2\,dz / \int N\,dz`, by quadrature across the
     path's breakpoints.
 
-    - Returns: the reference density in m^-3, or ``None`` over an unbounded run.
+    - Returns: the reference density in m^-3, or ``None`` over an unbounded run or
+      one the density vanishes over.
     """
-    from solprop.nonlinear.mixtures import _mean_temperature  # noqa: PLC0415 - a cycle
-
     start, end = path.span
     if not (math.isfinite(start) and math.isfinite(end) and end > start):
         return None
-    return _mean_temperature(path.total, path.total, start, end, path.z)
+    return _weighted_mean(path.total, path.total, start, end, path.z)

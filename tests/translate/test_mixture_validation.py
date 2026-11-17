@@ -10,15 +10,16 @@ import numpy as np
 import pytest
 
 from mixture_cases import mixture_case, mixture_translation
-from solprop.backends.numpy_ref import passes
+from solprop.backends.numpy_ref.passes.responses import nonlinear_polarisation
 from solprop.exceptions import BackendError, TranslationError
 from solprop.grid import EnvelopeGrid
 from solprop.modes import MarcatiliMode
 from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.physdata import Mixture
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import tabulate
-from solprop.translate.problem import Flags, assemble
+from solprop.translate.problem import Flags
 from solprop.translate.responses import compile_responses
 
 
@@ -111,7 +112,7 @@ def test_physical_modal_weights_are_validated(case, weights):
 def test_multi_channel_pass_cannot_fall_back_to_one_unlabelled_density(case):
     problem = case[-1]
     with pytest.raises(BackendError, match="labelled stage scalars"):
-        passes.nonlinear_polarisation(
+        nonlinear_polarisation(
             np.zeros((1, 1, problem.grids.n_to)),
             problem.responses,
             np.ones(problem.grids.n_to),
@@ -224,7 +225,7 @@ def test_explicit_response_density_cannot_override_a_mixture():
 def test_bare_and_explicit_aliases_cannot_duplicate_one_population(case, kind):
     component = case[0].components[0]
     mixture = Mixture.of(component)
-    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
+    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss_scale=0.0)
     kerr = KerrResponse(1e-52, thg=False)
     if kind == "kerr":
         responses = (kerr, dataclasses.replace(kerr, species=component.label))

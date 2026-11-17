@@ -39,12 +39,13 @@ from tests.tdse_archive_cases import (
 )
 
 from solprop.exceptions import OutputError, TDSEArchiveError
-from solprop.output import TDSE_ARCHIVE_SCHEMA, TDSEArchive, open_tdse_archive
+from solprop.output import TDSEArchive, open_tdse_archive
 from solprop.output.tdse_archive import (
     ARCHIVE_METADATA_CACHE_BYTES,
     HACC_GRID_RESPONSE,
     SAE_GRID_RESPONSE,
     SAE_TOTAL_CURRENT_RESPONSE,
+    TDSE_ARCHIVE_SCHEMA,
     record_serializer,
     structured_json,
     writer_memory,

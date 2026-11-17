@@ -5,8 +5,8 @@
 """The general modal route of solprop on the native backend, against ``numpy_ref``.
 
 The route's source is a second execution path beside the
-node pipeline (``src/general_modal.cpp``); everything before and after it -- the
-lab-frame stage input, the in-stage absorber, the prefactor and the interaction
+node pipeline (``src/response/general_modal.cpp``); everything before and after it --
+the lab-frame stage input, the in-stage absorber, the prefactor and the interaction
 picture -- is the engine's existing code. Each case propagates ten fixed steps on
 both backends from the same problem and compares the fields against a bound derived
 before the run (:func:`_parity_bound`).
@@ -29,7 +29,7 @@ from typing import Literal, cast
 import numpy as np
 import numpy.typing as npt
 import pytest
-from session_runs import alone, assert_same, grouped, launch, one_thread, run
+from session_runs import launch, run
 from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET, general_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
@@ -188,11 +188,13 @@ def _case(
 ) -> Case:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", GeneralModalBasisWarning)
+        # The run ends at its grid's length (SEP 51): the millimetre grid cut at the
+        # ten-step window, whose collar is removed below.
         simulation = Simulation.from_waveguide(
             (),
-            FIBRE,
+            Z_END,
             provider=guide,
-            grid=grid,
+            grid=dataclasses.replace(grid, length=Z_END),
             backend="numpy_ref",
             kerr_form=kerr_form,
             save_planes=[Z_END],
@@ -209,7 +211,7 @@ def _case(
         simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
         problem = simulation.translate()
     run_request = _prescribed(
-        simulation._run_request(),  # pyright: ignore[reportPrivateUsage]
+        simulation.run_request(),
         FixedSchedule(np.full(STEPS, Z_END / STEPS)),
     )
     state = np.array(problem.initial.field0, copy=True)
@@ -223,11 +225,11 @@ def _case(
 def _prescribed(run_request: RunRequest, schedule: FixedSchedule) -> RunRequest:
     """Return a request on `schedule` with its method's order held fixed.
 
-    A prescribed schedule alone does not fix the discrete computation: a
-    variable-order Adams march chooses its orders from error estimates, which rounding
-    can move. Holding the order fixed makes two runs of one problem -- two backends,
-    thread counts, a batch member and its solo run, a repeat -- the same discrete
-    computation, compared by rounding budgets (solprop SEP 25 section 4.4).
+    A prescribed schedule alone does not fix the discrete computation: a variable-order
+    Adams march chooses its orders from error estimates, which rounding can move.
+    Holding the order fixed makes two runs of one problem -- two backends, thread
+    counts, a repeat -- the same discrete computation, compared by rounding budgets
+    (solprop SEP 25 section 4.4).
     """
     integrator = run_request.stepper.integrator
     if isinstance(integrator, Multistep):
@@ -558,44 +560,6 @@ def test_the_two_channel_cases_agree_to_rounding_under_the_thread_count(
     _agree_across_threads(names, (1, threads), tmp_path)
 
 
-def test_a_group_of_general_members_agrees_with_its_members_alone() -> None:
-    """Each member of a native group is the same member run alone.
-
-    Each member and its lone native session march the same prescribed, fixed-order
-    steps, each member in its own native session (solprop SEP 47 section 6.7): bit
-    for bit at one thread, and otherwise held to the member's own
-    :func:`_parity_bound` (solprop SEP 25).
-    """
-    case = CASES["delayed_tensor"]()
-    launches = [case.state, 0.5 * case.state[::-1].copy()]
-    cases = [dataclasses.replace(case, state=state) for state in launches]
-    bounds = [
-        _parity_bound(one, _run(NativeBackend, one)[0], _linear(one)) for one in cases
-    ]
-    problem, request = case.problem, case.run_request
-    z = float(problem.initial.z)
-
-    def owner() -> NativeBackend:
-        return NativeBackend(problem, request, grid=case.simulation.grid)
-
-    singles = [
-        alone(owner(), problem, request, Start(field=state, z=z)) for state in launches
-    ]
-    members = grouped(
-        [owner() for _ in launches],
-        [problem] * len(launches),
-        [request] * len(launches),
-        [Start(field=state, z=z) for state in launches],
-    )
-    for member, single, bound in zip(members, singles, bounds, strict=True):
-        assert single[-1]["z"] == Z_END
-        if one_thread():
-            assert_same(member, single)
-        assert [plane["z"] for plane in member] == [plane["z"] for plane in single]
-        actual, expected = member[-1]["field"], single[-1]["field"]
-        assert float(np.max(np.abs(actual - expected))) <= bound
-
-
 def _moving_grin() -> tuple[Simulation, PropagationProblem, RunRequest]:
     """Build solprop's graded-index sector on a 10 % taper over the millimetre.
 
@@ -646,7 +610,7 @@ def _moving_grin() -> tuple[Simulation, PropagationProblem, RunRequest]:
         simulation,
         problem,
         _prescribed(
-            simulation._run_request(),  # pyright: ignore[reportPrivateUsage]
+            simulation.run_request(),
             FixedSchedule(np.full(STEPS, FIBRE / STEPS)),
         ),
     )

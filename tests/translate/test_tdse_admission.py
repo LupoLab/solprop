@@ -26,8 +26,9 @@ from solprop.profiles import Constant, Linear
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
+from solprop.translate.assembly import _route, assemble
 from solprop.translate.masks import AbsorberScheme
-from solprop.translate.problem import _route, assemble, validate_run
+from solprop.translate.problem import validate_run
 from solprop.translate.responses import (
     compile_responses,
     kerr_coefficients,
@@ -44,7 +45,7 @@ def declaration():
     grid = refine_response_grid(
         FieldGrid.from_limits(0.001, 800e-9, (500e-9, 1e-6), 8e-15), TDSESampling(64)
     )
-    mode = MarcatiliMode(125e-6, "He", 0.1, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, "He", 0.1, cladding=1.45, loss_scale=0.0)
     basis = TDSEBasis(
         "manufactured", (0.0, 1e-9), (8,), 3, 1e-16, source="admission fixture"
     )
@@ -99,7 +100,7 @@ def admitted_request(admitted_translation):
     return admitted_translation.request
 
 
-def test_legacy_helium_mode_refuses_a_separate_nonlinear_density(declaration):
+def test_a_single_gas_helium_mode_refuses_a_separate_nonlinear_density(declaration):
     _, mode, _ = declaration
     assert mode.mixture is None
     with pytest.raises(TranslationError, match=r"density.*helium fill"):
@@ -124,14 +125,14 @@ def test_initial_seam_refuses_invalid_absolute_positions(admitted, z):
 
 
 @pytest.mark.parametrize("periodic", [False, True])
-def test_manual_atomic_seam_refuses_legacy_plasma_statistics(
+def test_manual_atomic_seam_refuses_the_rate_model_statistics(
     admitted, admitted_request, periodic
 ):
     stats = StatsSpec(
         names=("energy", "electron_density"),
         periodic=("electron_density",) if periodic else (),
     )
-    with pytest.raises(TranslationError, match="TDSE does not define legacy"):
+    with pytest.raises(TranslationError, match="TDSE does not define the rate-model"):
         validate_run(admitted, admitted_request.for_run(stats=stats))
 
 

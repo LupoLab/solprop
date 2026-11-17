@@ -45,7 +45,8 @@ Runs, in order: `ruff check --fix .` → `ruff format .` → `ruff check .` → 
 sequence plus `poe test-slow` and the CPU coverage lane; keep the two identical.
 
 Other tasks: `poe test-medium` (the medium tier alone, timed against its budget),
-`poe test-slow`, `poe cov` (the default lane with coverage), `poe bench`
+`poe test-slow`, `poe cov` (the default lane with coverage), `poe test-gpu` (the GPU
+lane, on a CUDA or HIP build with a device), `poe bench`
 (the benchmark plan in `benchmarks/`; `track` runs it on a quiet machine;
 [manual](benchmarking.md)), `poe docs`, `poe docs-clean`, `poe figures` (redraw the
 committed structure and geometry SVGs) and `poe docs-examples` (execute the stale
@@ -84,7 +85,7 @@ drop them too and allow `print` and cell-style imports; benchmarks allow `print`
 
 `include = ["src", "tests"]` without the oracles, `typeCheckingMode = "standard"` (strict once the baseline is
 clean), `pythonVersion = "3.14"`, `failOnWarnings = true`, `reportMissingTypeStubs = false`
-because pyfluids ships no stubs (narrow ignores are still preferred over
+because some dependencies ship no stubs (narrow ignores are still preferred over
 broad ones); `scipy-stubs` supplies SciPy's. The checker is pinned to an exact version and
 bumped in its own commit.
 
@@ -242,7 +243,7 @@ to it.
 - `SOLPROP_THREADS`, the thread budget the native backend's pools stay within, and
   `SOLPROP_OVERSUBSCRIBE`, which lets an explicit count exceed the CPUs (ADR-052).
 - The native backend's plans and neighbours: `SOLPROP_FFTW_PLAN` (`estimate` in CI and
-  tests, `measure` by default, read by `native/include/solprop_native/fft_plan.hpp`),
+  tests, `measure` by default, read by `native/src/transforms/fftw_wisdom.cpp`),
   `SOLPROP_FFTW_WISDOM` (a file name, beside which the native backend keeps the plans its
   runs measure instead of the calibration store, ADR-076)
   and `SOLPROP_BLAS_THREADS` (the width of the other BLAS libraries while a native
@@ -293,14 +294,20 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
   compiler.
 - **test** (macOS arm64, Windows x64 and Windows on Arm, three shards each): `poe test`, the default lane,
   with the wheel installed, so `backend="auto"` and the driver tests select `native`.
+- **tier-budget** (Linux): after the test lane, `tests/tier_budget.py` on each
+  platform's JUnit reports, the tiers against their budgets and the medium total against
+  the ratchet of `tests/tier_budget.toml` ([testing.md](testing.md), "Budgets and timing
+  assertions"), written to the run's summary. The budgets are judged on macOS arm64.
+  Report-only (no `--enforce`): ci-passed does not need it.
 - **coverage** (Linux x86-64): `poe cov` as parallel jobs, with the wheel installed (its
   paths in solprop count towards the 100 %) and `SOLPROP_TEST_BACKEND=native`. Six shards
   run `poe cov-part`.
   **coverage-report** combines their data (`poe cov-report`), requires 100 % of
   statements and branches, and uploads the report to Codecov for the badge.
-- **slow** (Linux and macOS): `poe test-slow` with the wheel installed; on macOS only its
-  functional tests, the statistics-cost timing being Linux's. On Linux,
-  `SOLPROP_TEST_BACKEND=native` selects the ladders' backend.
+- **slow** (Linux and macOS): `poe test-slow` with the wheel installed. On Linux,
+  `SOLPROP_TEST_BACKEND=native` selects the ladders' backend. Each job's budget is
+  about 50 min of pytest wall time ([testing.md](testing.md), "Budgets and timing
+  assertions"); sharding the lane is #803.
 - **oldest** (Linux, three shards): the package installed with `uv pip install
   --resolution lowest-direct`, so every dependency sits at its floor, then the wheel with
   `--no-deps`, then the default lane ([dependencies.md](dependencies.md)).
@@ -312,9 +319,11 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
   its lint and strict types, clang-format and its pytest suite (`lint pytest`);
   clang-tidy and the native tests (`tidy`); and ASan and UBSan (`sanitize`). The
   distribution wheel's stage is native-wheel's Linux job.
-- **device-compile** (Linux, two jobs): on a change to `native/`, compiles the `cuda`
-  preset under CUDA 12.8 and the `hip` preset under ROCm 7.2, tests included, with warnings
-  as errors and no device. About 25 and 11 minutes, with no cache. A fault only a card
+- **device-compile** (Linux, three jobs): on a change to `native/`, compiles the `cuda`
+  preset under CUDA 12.8 for `HOPPER90` and for `AMPERE86`, and the `hip` preset under
+  ROCm 7.2, tests included, with warnings as errors and no device. Each CUDA build then
+  runs `native/ci/check_lambda_tags.py` over its objects. About 20 to 28 minutes for each
+  CUDA job and 13 to 19 for HIP, with no cache. A fault only a card
   shows, or a test that fails on one, still needs a run on a device.
 - **gui** (Linux x86-64, macOS arm64, Windows x64): `uv run poe check-gui`, the front
   end's gate (its types against `gui/pyproject.toml`, its docstrings and its tests, with
@@ -346,7 +355,7 @@ pre-flight checklist sets publishing up).
 
 `native` runs in the coverage lane's driver tests; the parity tests check it against
 `numpy_ref` in every job. GPU tests run by hand on a node with a device
-(`pytest -m gpu`). The self-hosted
-`.github/workflows/cuda.yml`, started by hand, builds the CUDA extension and runs the
+(`poe test-gpu`), at each release and on pull requests that change device code. The
+self-hosted `.github/workflows/cuda.yml`, started by hand, builds the CUDA extension and runs the
 native package's pytest suite and Compute Sanitizer on it. Keep the gate's steps identical to
 `poe check`; a change to one is a change to the other, in the same commit.

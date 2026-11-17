@@ -22,30 +22,28 @@ from solprop.exceptions import OutputError
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.noise import input_noise
 from solprop.output import (
-    COMPRESSIONS,
-    HISTORY_FIELDS,
     HDF5Output,
     MemoryOutput,
     Output,
-    PlaneStore,
     check_cache,
     open_file,
     resume,
 )
 from solprop.output import hdf5 as hdf5_module
-from solprop.output.schema import (
-    PEAK_FIELDS_ANNOTATION,
-    SCHEMA_VERSION,
-    BackendRecord,
+from solprop.output.hdf5 import COMPRESSIONS
+from solprop.output.metadata import PEAK_FIELDS_ANNOTATION, SCHEMA_VERSION, RunMetadata
+from solprop.output.provenance import BackendRecord
+from solprop.output.records import (
+    HISTORY_FIELDS,
     GridRecord,
     NoiseRecord,
-    RunMetadata,
     SavedPlane,
     StepHistory,
     StepLimits,
     StepperRecord,
     StepStats,
 )
+from solprop.output.store import PlaneStore
 from solprop.spatial import ABSORBED_CHANNELS
 from solprop.stepper import DOPRI5, FixedSchedule, PIController
 
@@ -268,6 +266,16 @@ def test_a_handler_refuses_to_work_after_it_is_closed(grid, metadata, tmp_path):
             handler.open(metadata)
 
 
+def test_a_finished_file_run_refuses_a_write_by_saying_it_can_only_be_read(
+    grid, metadata, tmp_path
+):
+    handler = HDF5Output(tmp_path / "run.h5")
+    run_into(handler, grid, metadata, 1)
+    handler.close()
+    with pytest.raises(OutputError, match="has finished, so it can only be read"):
+        handler._require_file()
+
+
 def test_an_unknown_key_names_the_ones_that_exist(grid, metadata):
     memory = MemoryOutput()
     run_into(memory, grid, metadata, 1)
@@ -306,8 +314,9 @@ def test_membership_answers_for_exactly_the_keys_the_accessor_accepts(
     assert 0 not in handler
     assert None not in handler
     handler.close()
-    if factory == "file":
-        assert "z" not in handler
+    # A closed handler still answers, a file handler by opening its file for the read.
+    assert "z" in handler
+    assert "banana" not in handler
 
 
 # --------------------------------------------------------------- the conventions
@@ -424,8 +433,8 @@ def test_open_file_reads_a_finished_run_through_the_protocol(grid, metadata, tmp
         with pytest.raises(OutputError, match="reading only"):
             stored.save(planes[0])
     assert stored.closed
-    with pytest.raises(OutputError, match="not open"):
-        stored["field"]
+    # Closed, it reads the file again for each read rather than holding it.
+    assert np.array_equal(stored["field"], memory["field"])
 
 
 def test_open_file_refuses_what_is_not_a_run(tmp_path):
@@ -571,6 +580,30 @@ def test_the_memory_store_names_what_it_holds_when_a_key_is_missing(grid, metada
         memory["step_history/banana"]
 
 
+@pytest.mark.parametrize(
+    "key",
+    ["field", "z", "noise_phase", "stats/energy", "step_history/h", "step_stats/z"],
+)
+def test_the_memory_store_hands_out_read_only_views(grid, metadata, key):
+    memory = MemoryOutput()
+    run_into(memory, grid, metadata, 2, with_noise=True)
+    stored = memory[key]
+    # A view of the buffer, not a copy, and one that cannot write the run.
+    assert not stored.flags.writeable
+    before = stored.copy()
+    with pytest.raises(ValueError, match="read-only"):
+        stored[...] = 0
+    assert np.array_equal(memory[key], before)
+
+
+def test_the_memory_store_views_share_its_buffers(grid, metadata):
+    memory = MemoryOutput()
+    run_into(memory, grid, metadata, 2)
+    assert np.shares_memory(memory["field"], memory["field"])
+    assert np.shares_memory(memory.plane_field(-1), memory["field"])
+    assert not memory.plane_field(-1).flags.writeable
+
+
 def test_the_memory_store_refuses_a_field_before_the_first_plane(metadata):
     memory = MemoryOutput()
     memory.open(metadata)
@@ -582,13 +615,51 @@ def test_the_memory_store_refuses_a_field_before_the_first_plane(metadata):
     assert memory.stat_names == ()
 
 
-def test_a_closed_file_handler_cannot_be_read(grid, metadata, tmp_path):
+def _open_paths() -> list[str]:
+    """Return the names of the HDF5 files this process holds open."""
+    ids = h5py.h5f.get_obj_ids(types=h5py.h5f.OBJ_FILE)
+    return [h5py.h5f.FileID(id_).name.decode() for id_ in ids]
+
+
+def test_a_closed_file_handler_reads_without_holding_the_file(grid, metadata, tmp_path):
+    handler = HDF5Output(tmp_path / "run.h5")
+    planes = run_into(handler, grid, metadata, 2)
+    handler.close()
+    assert str(tmp_path / "run.h5") not in _open_paths()
+    # Each read opens the file read-only and closes it again: the same stored rows.
+    last = planes[-1].field
+    assert last is not None
+    expected = fourier.spectrum_to_optics(last, kind=grid.kind)
+    assert np.array_equal(handler["field"][-1], expected)
+    assert np.array_equal(handler.plane_field(-1), expected)
+    assert np.array_equal(handler.fields("fft")[-1], last)
+    assert np.array_equal(handler["z"], [plane.z for plane in planes])
+    assert handler["stats/energy"].shape[0] == 2
+    assert str(tmp_path / "run.h5") not in _open_paths()
+    # Nothing is left open, so the file can be written to again at once.
+    with h5py.File(tmp_path / "run.h5", "r+"):
+        pass
+    assert handler.path == tmp_path / "run.h5"
+
+
+def test_a_closed_file_handler_names_a_missing_file(grid, metadata, tmp_path):
     handler = HDF5Output(tmp_path / "run.h5")
     run_into(handler, grid, metadata, 1)
     handler.close()
-    with pytest.raises(OutputError, match="is not open"):
+    (tmp_path / "run.h5").unlink()
+    with pytest.raises(OutputError, match="cannot read the output file"):
         handler["field"]
-    assert handler.path == tmp_path / "run.h5"
+
+
+def test_a_suspended_file_handler_refuses_to_read(grid, metadata, tmp_path):
+    handler = HDF5Output(tmp_path / "run.h5")
+    run_into(handler, grid, metadata, 1)
+    handler.suspend()
+    with pytest.raises(OutputError, match="suspended"):
+        handler["field"]
+    handler.reopen()
+    assert handler["field"].shape[0] == 1
+    handler.close()
 
 
 def test_a_never_opened_file_handler_says_so(tmp_path):
@@ -1016,22 +1087,16 @@ def test_the_backend_group_survives_both_handlers(tmp_path, grid, schedule):
         assert file.attrs["backend"] == "numba_cpu"
 
 
-@pytest.mark.parametrize(
-    ("name", "settings"),
-    [
-        ("numba_cpu", {"numba_threads": 4, "fftw_threads": 2}),
-        ("mlx", {"device": "gpu", "fused": True}),
-    ],
-)
 def test_a_file_recording_a_removed_backend_still_opens_and_resumes(
-    tmp_path, grid, schedule, name, settings
+    tmp_path, grid, schedule
 ):
     """A recorded name is not a request: old output keeps the name it was written with.
 
-    Hand-built, as a file ``numba_cpu`` wrote before SEP 43 removed it, or ``mlx``
-    before SEP 47 retired it; the name is refused where a run asks for it
-    (``tests/backends/test_registry.py``), never where a file is read.
+    Hand-built, as 0.2.0 wrote a file with ``mlx`` before SEP 47 retired it; the name
+    is refused where a run asks for it (``tests/backends/test_registry.py``), never
+    where a file is read.
     """
+    name, settings = "mlx", {"device": "gpu", "fused": True}
     assert name not in BACKEND_NAMES
     record = BackendRecord.from_metadata(
         {"backend": name, "propagator_mode": "recompute", **settings}
@@ -1133,9 +1198,9 @@ def test_the_stored_rows_have_the_documented_shapes(grid, metadata, tmp_path):
 def test_a_run_that_recorded_no_channel_reads_back_empty(grid, metadata, tmp_path):
     """The default, on both handlers: asking is not an error.
 
-    A file written before schema version 3 has no ``step_stats`` group at all, and a
-    run that recorded no periodic subset has an empty one; both answer the same way, so
-    that processing and plotting can ask unconditionally and fall back to the planes.
+    A run that recorded no periodic subset has an empty ``step_stats`` group, which
+    answers like this, so that processing and plotting can ask unconditionally and fall
+    back to the planes.
     """
     memory = MemoryOutput()
     memory.open(metadata)
@@ -1278,45 +1343,9 @@ def test_a_plane_whose_channel_changes_its_statistics_is_refused(grid, metadata)
 
 
 def test_a_run_record_declares_the_current_output_schema(metadata):
-    """Schema 2 is schema 1, the first released layout, plus a recorded field."""
-    assert SCHEMA_VERSION == 2
-    assert metadata.schema_version == 2
-
-
-def _four_column_file(grid, metadata, path, *, in_rows=False):
-    """A file as an earlier development build wrote it: four absorbed-power columns."""
-    power = np.array([1.0, 2.0, 3.0, 4.0])
-    plane = make_plane(grid, 0)
-    if in_rows:
-        rows = StepStats(
-            z=np.array([0.0, 0.1]),
-            step=np.array([1, 2], dtype=np.int64),
-            values={"absorbed_power": np.ones((2, 4))},
-        )
-        plane = dataclasses.replace(plane, step_stats=rows)
-    else:
-        plane = dataclasses.replace(plane, stats={"absorbed_power": power})
-    with HDF5Output(path) as handler:
-        handler.open(metadata)
-        handler.save(plane)
-
-
-@pytest.mark.parametrize("in_rows", [False, True])
-def test_a_four_column_file_still_reads_as_it_was_written(
-    grid, metadata, tmp_path, in_rows
-):
-    path = tmp_path / "earlier.h5"
-    _four_column_file(grid, metadata, path, in_rows=in_rows)
-    with hdf5_module.open_file(path) as stored:
-        if in_rows:
-            np.testing.assert_array_equal(
-                stored["step_stats/absorbed_power"], np.ones((2, 4))
-            )
-        else:
-            np.testing.assert_array_equal(
-                stored["stats/absorbed_power"], [[1.0, 2.0, 3.0, 4.0]]
-            )
-    assert ABSORBED_CHANNELS[:4] == ("spectral", "transverse", "evanescent", "material")
+    """Schema 4 is schema 1, the first released layout, plus three changes."""
+    assert SCHEMA_VERSION == 4
+    assert metadata.schema_version == 4
 
 
 def test_five_columns_continue_as_before(grid, metadata, tmp_path):
@@ -1352,7 +1381,7 @@ def test_a_file_of_another_output_schema_is_refused_by_name(
             "meta/json", data=json.dumps(document), dtype=h5py.string_dtype()
         )
         file.attrs["schema_version"] = declared
-    refusal = rf"schema_version {declared}.*reads output schema 2 only"
+    refusal = rf"schema_version {declared}.*reads output schema 4 only"
     with pytest.raises(OutputError, match=refusal):
         hdf5_module.open_file(path)
     with pytest.raises(OutputError, match=refusal):

@@ -2,7 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Translate radial Hankel geometry and bulk propagation into the spatial seam."""
+"""Translate radial (Hankel) free-space propagation into the spatial seam.
+
+:func:`radial_transform` freezes the quasi-discrete Hankel transform pair applied to
+each polarisation; :func:`radial_operators` builds the cumulative radial dispersion,
+constant or varying along z (with the adiabatic amplitude term of SEP 34 section 4.4),
+and the matching nonlinear prefactor; :func:`radial_rate_bounds` bounds the operator's
+real part for the exponent budget. :func:`solprop.translate.assembly.assemble` calls
+them for a :class:`solprop.grid.RadialGrid`; the physics is
+``docs/guide/free-space/hankel.md``.
+"""
 
 import logging
 from collections.abc import Callable, Mapping
@@ -21,8 +30,8 @@ from solprop.translate.chebyshev import (
     DEFAULT_TOL,
     ENVELOPE_FLOOR,
     PiecewiseChebyshev,
-    _held_table,
     build,
+    held_table,
 )
 from solprop.translate.expansion import (
     MAX_PARAMETERS,
@@ -291,8 +300,8 @@ def radial_operators(
             )
         # Frozen, as every array crossing the seam is: the problem's validation
         # refuses a writeable table.
-        _held_table(prefactor_table)
-        phi = _held_table(linear_table.integral())
+        held_table(prefactor_table)
+        phi = held_table(linear_table.integral())
         return adiabatic.add(
             LinearOperator(
                 phi_representation="table",
@@ -517,7 +526,7 @@ class _AdiabaticAmplitude:
 
     def _log_ratio(
         self, model: SpatialDispersion, z: float
-    ) -> Complex[np.ndarray, "1 n_r n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_r n_pol n_omega"]:
         """Return ``-1/2 ln(Re k_z / Re k_z(0))`` in the canonical layout.
 
         - ``z``: position in m at which to evaluate it.
@@ -534,10 +543,10 @@ class _AdiabaticAmplitude:
             np.log(wave / reference),
         )
         values = np.where(self._mask, -0.5 * ratio, 0.0)
-        shape = (1, values.shape[0], self._n_pol, values.shape[1])
-        return np.broadcast_to(values[None, :, None, :], shape).astype(np.complex128)
+        shape = (values.shape[0], self._n_pol, values.shape[1])
+        return np.broadcast_to(values[:, None, :], shape).astype(np.complex128)
 
-    def sample(self, z: float) -> Complex[np.ndarray, "1 n_r n_pol n_omega"]:
+    def sample(self, z: float) -> Complex[np.ndarray, "n_r n_pol n_omega"]:
         """Evaluate the term's endpoint function along the run path.
 
         - ``z``: position in m.
@@ -547,7 +556,7 @@ class _AdiabaticAmplitude:
 
     def value_at(
         self, values: Mapping[str, float]
-    ) -> Complex[np.ndarray, "1 n_r n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_r n_pol n_omega"]:
         """Evaluate the endpoint function at one point of the parameter box.
 
         - Returns: dimensionless endpoint function, canonical layout.
@@ -559,7 +568,7 @@ class _AdiabaticAmplitude:
         """Join the term to a z table or an expansion of ``Phi``.
 
         - Returns: the operator with the endpoint term; unchanged when no column
-          propagates or an expansion already carries it (batch reuse).
+          propagates or an expansion already carries it (one a material update reuses).
         """
         if not self._mask.any():
             return linear
@@ -605,7 +614,7 @@ def _linear_roundoff_target(
             errors, rounding * (conditioning + absolute + np.abs(frame))
         )
         operator, _ = sampled(dispersion, z)
-        peaks = np.maximum(peaks, np.abs(operator[0, :, 0]))
+        peaks = np.maximum(peaks, np.abs(operator[:, 0]))
     denominator = np.maximum(peaks, ENVELOPE_FLOOR * float(peaks.max()))
     active = dispersion.grid.active_mask[None, :] & (denominator > 0)
     relative = np.zeros_like(peaks)

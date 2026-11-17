@@ -4,26 +4,14 @@
 
 """A calibration child: one candidate's process settings, timed on request (SEP 46).
 
-The controller starts one child per candidate process setting (SEP 46 section 6.2),
-with the setting in its environment, and drives it over JSON lines on its standard
-input and output. The child pins itself to the allocation being calibrated before the
-native runtime starts, builds the calibration problems, and then times their windows
-as the controller asks, under the workspace record it is given or its process's own.
-It never calibrates and never reads a profile (``SOLPROP_CALIBRATION=off``).
-
-Run as ``python -m solprop.calibration.child CPUS``, ``CPUS`` a comma-separated list
-of logical CPUs (empty for no pinning). Requests::
-
-    {"op": "prepare", "problems": {"gnlse": 1.0, ...}}
-    {"op": "time", "problem": "gnlse", "repeats": 40, "record": {...} | null,
-     "planning": {...} | null}
-    {"op": "sizing", "record": {...} | null}
-    {"op": "capture", "effort": "measure", "limit": 2.0, "budget": 30.0,
-     "record": {...} | null}
-    {"op": "regions", "elements": 1000, "repeats": 200}
-    {"op": "exit"}
-
-Each request has one reply line, ``{"ok": ...}`` or ``{"error": "..."}``.
+The controller starts one child per candidate process setting, with the setting in its
+environment. :func:`main` (``python -m solprop.calibration.child CPUS``) pins the
+process to its CPUs (:func:`pin`) before the native runtime starts, then :func:`serve`
+answers JSON-line requests on standard input and output (``prepare``, ``time``,
+``sizing``, ``capture``, ``regions``, ``exit``), one reply line each, through a
+``_Session`` that holds the built problems and a backend per workspace record. A child
+never calibrates and never reads a profile. The request protocol is in
+``docs/dev/backends.md`` (section 3.4a).
 """
 
 from __future__ import annotations
@@ -121,7 +109,7 @@ class _Session:
             )
             backend = NativeBackend(
                 problem,
-                simulation._run_request(),
+                simulation.run_request(),
                 grid=simulation.grid,
                 modes=simulation.modes,
                 profiles=simulation.profiles,
@@ -256,7 +244,7 @@ class _Session:
                     break
             backend = NativeBackend(
                 problem,
-                simulation._run_request(),
+                simulation.run_request(),
                 grid=simulation.grid,
                 modes=simulation.modes,
                 profiles=simulation.profiles,
@@ -271,7 +259,7 @@ class _Session:
                 options=simulation.settings.execution_options(),
             )
             try:
-                found = backend._native_state.fft_planning  # pyright: ignore[reportPrivateUsage]
+                found = backend._diagnostics()["fft_planning"]  # pyright: ignore[reportPrivateUsage]
             finally:
                 backend.close()
             wisdom |= cast(dict[str, str], found["captured"])

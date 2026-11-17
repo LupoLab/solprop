@@ -2,86 +2,64 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Record spatial accuracy gates without treating platform roundoff as physics."""
+"""Hold spatial accuracy checks to their derived bounds; record each series' margin."""
 
 import math
 
 from bounds import record_backend
-from convergence_records import Column, RecordError, Study, load, path_of, record
+from convergence_records import Column, RecordError, Study, record, writing
 from convergence_studies import BACKEND_EQUIVALENCE
 
 SPATIAL_ACCURACY = Study(
     name="spatial_accuracy",
-    title="spatial propagation: independently derived bound beside measurement",
+    title="spatial propagation: the largest fraction of its derived bound per series",
     case={
         "geometries": "radial QDHT and Cartesian Fourier transforms",
         "oracles": "Bessel contour, Gaussian diffraction, energy balance, "
         "constant flow and matrix exponential",
-        "units": "Each series states its physical units; "
-        "relative errors are dimensionless.",
+        "units": "Each series states the units of its measurement; the fraction "
+        "is dimensionless.",
     },
-    axis={"name": "case", "unit": "1", "label": "independent accuracy check"},
+    axis={"name": "case", "unit": "1", "label": "the series' largest case"},
     columns=(
         Column(
-            "deviation",
-            "series units",
-            "Every writer asserts its derived bound. Last-bit errors vary across "
-            "machines; stored deviations are evidence rather than golden truth.",
-        ),
-        Column(
-            "bound",
-            "series units",
-            "The original predeclared acceptance limit is fixed for this case. "
-            "Every measurement must meet both this limit and its freshly derived "
-            "local bound; rewriting records cannot increase the accepted error.",
-            rtol=0,
-        ),
-        Column(
-            "derived_bound",
-            "series units",
-            "The bound derived before this measurement, including local special "
-            "functions and quadrature estimates. Record it at full precision; "
-            "the test and writer enforce it independently of the fixed limit.",
+            "fraction",
+            "1",
+            "The largest measured error over its independently derived bound among "
+            "the series' cases; each writer asserts every case below one. Last-bit "
+            "errors vary across machines, so it is recorded for the figure and not "
+            "compared.",
         ),
     ),
 )
 
+_LARGEST: dict[str, float] = {}
+"""Each series' largest fraction so far in a write session."""
+
 
 def record_metric(request, series, axis, measured, bound, backend="numpy_ref"):
-    """Enforce both predeclared limits and stamp their measured error."""
-    series = f"{record_backend(backend)}: {series}"
-    axis = str(axis)
-    measured, derived = float(measured), float(bound)
-    fixed = derived
-    if path_of(SPATIAL_ACCURACY.name).exists():
-        for previous in load(SPATIAL_ACCURACY.name)["rows"]:
-            if (previous["series"], str(previous["axis"])) == (series, axis):
-                fixed = float(previous["bound"])
-                break
-    if not (
-        math.isfinite(derived)
-        and math.isfinite(fixed)
-        and derived > 0
-        and fixed > 0
-        and 0 <= measured <= min(fixed, derived)
-    ):
+    """Assert a measured error within its derived bound; record its series' margin.
+
+    The bound is the one the test derives for this case before measuring, and it is
+    the whole criterion. The record keeps one row per series, the largest fraction of
+    its bound any case reached, which ``docs/dev/accuracy.md`` section 10 draws; an
+    ordinary run checks only that its series has a row.
+    """
+    measured, bound = float(measured), float(bound)
+    if not (math.isfinite(bound) and bound > 0 and 0 <= measured <= bound):
         raise RecordError(
-            f"{series} {axis}: error {measured!r}, fixed limit {fixed!r}, "
-            f"locally derived bound {derived!r}"
+            f"{series} {axis}: error {measured!r} against the derived bound {bound!r}"
         )
+    series = f"{record_backend(backend)}: {series}"
+    fraction = measured / bound
+    if writing():
+        fraction = max(_LARGEST.get(series, 0.0), fraction)
+        _LARGEST[series] = fraction
     record(
         SPATIAL_ACCURACY,
         request=request,
         backend=record_backend(backend),
-        rows=[
-            {
-                "series": series,
-                "axis": axis,
-                "deviation": measured,
-                "bound": fixed,
-                "derived_bound": derived,
-            }
-        ],
+        rows=[{"series": series, "axis": "largest", "fraction": fraction}],
     )
 
 

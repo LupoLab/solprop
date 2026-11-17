@@ -4,19 +4,18 @@
 
 """The block a run shows before its first step: what is about to be computed, and how.
 
-Every route reaches :func:`solprop.driver.run.run_problem`, which builds this summary
-from the translated :class:`~solprop.translate.problem.PropagationProblem`, the run's
-:class:`~solprop.output.schema.RunMetadata` (whose ``configuration`` holds the physics
-objects the problem was built from: the responses, the medium, the profiles), the
-backend's own execution record and the output. It hands the text to the progress
-reporter, so it follows the ``progress`` choice exactly as the progress lines do, and
-records it on a plane store as the
-:data:`~solprop.output.schema.RUN_SUMMARY_ANNOTATION`.
-
-The rows are descriptions for a person, not a record: everything in them is also in the
-run's metadata, which is what a program should read. Nothing here evaluates physics.
-
-The manual page is ``docs/guide/performance/progress.md``.
+:func:`run_summary` builds a :class:`RunSummary` from the translated
+:class:`~solprop.translate.problem.PropagationProblem`, the run's
+:class:`~solprop.output.metadata.RunMetadata` (whose ``configuration`` holds the physics
+objects the problem was built from), the backend's own execution record and the output;
+the session loop (:func:`solprop.driver.session_loop.serve`) hands its text to the
+progress reporter, so it follows the ``progress`` choice exactly as the progress lines
+do, and records it on a plane store as the
+:data:`~solprop.output.metadata.RUN_SUMMARY_ANNOTATION`. :func:`memory_size` and
+:func:`resources` word sizes and a run's spent resources. The rows are descriptions for
+a person, not a record: everything in them is also in the run's metadata, which is what
+a program should read. Nothing here evaluates physics. The manual page is
+``docs/guide/performance/progress.md``.
 """
 
 from collections.abc import Mapping, Sequence
@@ -30,7 +29,8 @@ from solprop._process import thread_budget
 from solprop.constants import C
 from solprop.log import format_duration
 from solprop.monitor import BoundaryCheck
-from solprop.output.schema import Output, RunMetadata
+from solprop.output.metadata import RunMetadata
+from solprop.output.store import Output
 from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import tdse_descriptor, transverse_of
@@ -125,7 +125,7 @@ def run_summary(
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's request: its method, step control and planes.
-    metadata : solprop.output.schema.RunMetadata
+    metadata : solprop.output.metadata.RunMetadata
         The run's record; its ``configuration`` supplies what the problem holds only as
         compiled tables (the medium and the response models).
     backend : str
@@ -133,7 +133,7 @@ def run_summary(
     execution : collections.abc.Mapping
         The backend's ``metadata()``, which says how it sized its thread pools and
         which propagator it chose.
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         Where the planes go.
     start_plane : int, optional
         Index of the first save plane beyond the loaded state; above zero the run is a
@@ -151,14 +151,14 @@ def run_summary(
 
     Examples
     --------
-    >>> from solprop.driver.simulation import metadata_for
+    >>> from solprop.driver.metadata import metadata_for
     >>> from solprop.driver.summary import run_summary
     >>> from solprop.grid import EnvelopeGrid
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.output import MemoryOutput
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
-    >>> from solprop.translate.problem import assemble
+    >>> from solprop.translate.assembly import assemble
     >>> grid = EnvelopeGrid.from_limits(0.01, 835e-9, (500e-9, 2e-6), 1e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.183e-26], omega_ref=grid.omega0,
     ...                      gamma=0.11, shock=False)
@@ -202,7 +202,7 @@ def run_summary(
             [
                 (
                     "transverse edge",
-                    _transverse(problem, request, boundary_check, backend),
+                    _transverse(problem, request, boundary_check),
                 )
             ]
             if problem.transform.geometry is not None
@@ -630,15 +630,12 @@ def _absorber(problem: PropagationProblem, check: BoundaryCheck | None) -> str:
 
 
 def _transverse(
-    problem: PropagationProblem,
-    request: RunRequest,
-    check: BoundaryCheck | None,
-    backend: str,
+    problem: PropagationProblem, request: RunRequest, check: BoundaryCheck | None
 ) -> str:
     """Describe a free-space run's transverse boundary and what its edge can report.
 
-    SEP 40 section 5.3: ``unwatched``, ``coarse`` and ``off`` are said before the
-    first step, so that a run that cannot reach a clean verdict says so.
+    SEP 40 section 5.3: ``coarse`` and ``off`` are said before the first step, so that
+    a run that cannot reach a clean verdict says so.
 
     - ``check``: the edge thresholds, or ``None`` when nothing is watched.
     """
@@ -654,8 +651,6 @@ def _transverse(
         boundary = "wall or wrap with the safety ramp"
     if check is None:
         return f"{boundary}; off (boundary_check=None)"
-    if backend != "numpy_ref":
-        return f"{boundary}; unwatched on {backend} (numpy_ref reads it)"
     schedule = request.stepper.schedule
     if (
         schedule is not None

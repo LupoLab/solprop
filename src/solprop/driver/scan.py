@@ -2,7 +2,15 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Describe indexed parameter scans and dispatch independent simulations."""
+"""Describe indexed parameter scans and dispatch independent simulations.
+
+The public scan API: :class:`Scan` and :class:`ScanPoint` (defined in
+``solprop.driver._scan_model``), and :func:`run_scan`, which runs a scan's points
+under an executor (:mod:`solprop.driver.executors`) into one collected file through
+``solprop.driver._scan_run``. The worker-side reductions and the reader of a scan
+file live in :mod:`solprop.processing.scans`; the command-line launcher of a scan script
+is :mod:`solprop.scan`. The manual page is ``docs/guide/workflows/scans.md``.
+"""
 
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -13,7 +21,7 @@ from solprop.driver._scan_run import execute_scan
 from solprop.driver.executors import Executor
 from solprop.driver.simulation import Simulation
 from solprop.log import ProgressChoice, ScanReporter, StopFlag
-from solprop.output.schema import RecipeRecord
+from solprop.output.records import RecipeRecord
 from solprop.processing.scans import Reduction, ScanOutput
 
 __all__ = ["Scan", "ScanPoint", "run_scan"]
@@ -68,19 +76,18 @@ def run_scan(
     progress : {'auto', 'bar', 'log', 'none'} or solprop.log.ScanReporter, optional
         One outer progress display; individual runs never draw their own bars. A
         :class:`~solprop.log.ScanReporter` replaces the display and is told when the
-        scan and each point start and finish; a
-        :class:`~solprop.log.WatchingScanReporter` also receives each point's run on
-        ``Local`` and ``Pool`` (SEP 41, S4).
+        scan and each point start and finish, and the reporter its ``point_reporter``
+        returns receives each point's run on ``Local`` and ``Pool`` (SEP 41, S4).
     stop : object or None, optional
         The scan's stop flag: any object with an ``is_set()`` method, such as a
         :class:`threading.Event` (SEP 41, S17). Once it is set no further point is
         dispatched; ``Local`` and ``Pool`` stop the points in flight within one step,
-        a ``Pool`` through a message on each busy worker's pipe; ``Batch`` stops
-        between groups. A stopped point is not committed, so a rerun computes it
-        again, and the scan returns normally, its file holding the points finished
-        before the stop; it logs at ``INFO`` that it stopped, and a scan reporter is
-        told ``"stopped"`` for each stopped point. ``Queue`` and ``Slurm`` refuse it.
-    recipe : solprop.output.schema.RecipeRecord or None, optional
+        a ``Pool`` through a message on each busy worker's pipe. A stopped point is
+        not committed, so a rerun computes it again, and the scan returns normally,
+        its file holding the points finished before the stop; it logs at ``INFO``
+        that it stopped, and a scan reporter is told ``"stopped"`` for each stopped
+        point. ``Queue`` and ``Slurm`` refuse it.
+    recipe : solprop.output.records.RecipeRecord or None, optional
         The recipe the scan was built from, which the scan file records once, so that
         it reopens with its setup (SEP 41, S2); :meth:`solprop.recipe.core.Recipe.scan`
         passes it among its keywords. ``None`` records none.

@@ -9,8 +9,8 @@ tolerances (SEP 37), a fixed noise seed (the N = 3 soliton runs noiseless) and t
 native backend unless asked otherwise (SEP 38). The ``tracking`` set is what
 ``python -m benchmarks track`` times by default; every other case runs only when named.
 The ``sep47`` set is SEP 47 section 7.2's matrix of short windows: each case holds the
-events it measures (periodic rows, snapshots, a group's members, repeated inputs, saved
-or field-free planes, a wide coupled flow) and finishes in seconds.
+events it measures (periodic rows, snapshots, repeated inputs, saved or field-free
+planes, a wide coupled flow) and finishes in seconds.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ STEPPERS = ("default", "multistep", "multistep-interaction", "rk")
 WIDTHS = ("1", "production")
 SEED = 20261027
 """The noise seed every case fixes, so that its repeats take the same steps."""
-WORKLOADS = ("run", "with_input", "scan", "group")
+WORKLOADS = ("run", "with_input", "scan")
 OUTPUTS = ("memory", "hdf5")
 _OPTIONAL = {
     "workload": "run",
@@ -69,7 +69,9 @@ class Case:
     sets : tuple of str
         Selection groups; ``tracking`` puts the case in the default run.
     interface : str
-        The ``prop_*`` interface whose defaults the case runs with.
+        The ``prop_*`` interface whose defaults the case runs with. ``"prop_radial"``
+        is ``prop_free`` on a radial grid: the label the tracked definitions were
+        recorded with, kept so that their digests do not change.
     builder : str
         Builder family in ``benchmarks.builders``.
     length : float
@@ -100,8 +102,7 @@ class Case:
         What one timed repetition is (SEP 47 section 7.2): ``"run"``, one run of the
         case; ``"with_input"``, three runs of it with other inputs through
         ``Simulation.with_input``; ``"scan"``, a four-point ``run_scan`` on ``Local``
-        derived from the case with ``with_input``; ``"group"``, the same four points
-        on ``Batch(4)``, which needs a fixed `step`.
+        derived from the case with ``with_input``.
     output : str
         Where a ``"run"`` writes: ``"memory"`` or ``"hdf5"``, a file in the worker's
         scratch directory.
@@ -139,8 +140,6 @@ class Case:
             raise SuiteError(f"{self.name}: unknown workload or output")
         if self.fields not in ("all", "planes", "none"):
             raise SuiteError(f"{self.name}: unknown field retention {self.fields}")
-        if self.workload == "group" and self.step is None:
-            raise SuiteError(f"{self.name}: a group replays a fixed step")
         if self.snapshots is not None and (
             self.workload != "run" or self.output != "hdf5" or self.snapshots < 0
         ):
@@ -675,16 +674,6 @@ _SEP47 = (
         "field-free",
         workload="scan",
         fields="none",
-        **_SESSION,
-    ),
-    Case(
-        "group_batch",
-        1,
-        ("sep47",),
-        source="scan_local on Batch(4), replaying ten 1.6 mm steps",
-        workload="group",
-        fields="none",
-        step=1.6e-3,
         **_SESSION,
     ),
     *(

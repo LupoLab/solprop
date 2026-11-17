@@ -17,9 +17,10 @@ from solprop.grid import EnvelopeGrid, LineGrid, RadialGrid
 from solprop.linear import Frame
 from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.free import free_transform
 from solprop.translate.linop import constant_phi, delta_phi, tabulate, unitary_phase
-from solprop.translate.problem import assemble, validate_run
+from solprop.translate.problem import validate_run
 from solprop.translate.radial import radial_transform
 from solprop.translate.responses import compile_responses, prefactor_at
 from solprop.translate.routes import ModalRoute, spatial_kind
@@ -223,10 +224,10 @@ def test_separable_values_cover_propagating_cutoff_loss_and_gain(coefficients):
         prefactor[i, j] = -2j / root[i, j].real
     prefactor *= coefficients.active
     actual, measured_prefactor = separable_values(coefficients)
-    assert actual.shape == coefficients.value_shape == (1, 3, 2, 4)
-    assert_allclose(actual[0, :, 0], expected, rtol=gamma(16), atol=0)
+    assert actual.shape == coefficients.value_shape == (3, 2, 4)
+    assert_allclose(actual[:, 0], expected, rtol=gamma(16), atol=0)
     assert_allclose(measured_prefactor[:, 0], prefactor, rtol=gamma(16), atol=0)
-    np.testing.assert_array_equal(actual[0, :, 0], actual[0, :, 1])
+    np.testing.assert_array_equal(actual[:, 0], actual[:, 1])
 
 
 @pytest.mark.parametrize(

@@ -103,14 +103,13 @@ The run
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 77-88
+.. GENERATED FROM PYTHON SOURCE LINES 77-87
 
 .. code-block:: Python
 
 
     figures = prop_2d(
         run,
-        "wavelength",
         spec_range=(200e-9, 1.2e-6),
         time_range=(-100e-15, 200e-15),
         db_min=-40,
@@ -130,14 +129,14 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 89-93
+.. GENERATED FROM PYTHON SOURCE LINES 88-92
 
 The seed's spectrum
 -------------------
 The ultraviolet part of the spectrum at the entrance and the exit, and the pulses in
 time at both ends.
 
-.. GENERATED FROM PYTHON SOURCE LINES 93-116
+.. GENERATED FROM PYTHON SOURCE LINES 92-115
 
 .. code-block:: Python
 
@@ -182,12 +181,12 @@ time at both ends.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 117-119
+.. GENERATED FROM PYTHON SOURCE LINES 116-118
 
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 119-121
+.. GENERATED FROM PYTHON SOURCE LINES 118-120
 
 .. code-block:: Python
 
@@ -209,7 +208,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 8.529 seconds)
+   **Total running time of the script:** (0 minutes 8.674 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_04_cross_phase_modulation.py:

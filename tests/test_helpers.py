@@ -18,10 +18,10 @@ import numpy as np
 import pytest
 
 from bounds import EPS, assert_within, gamma
+from native_lagrange import native_basis, native_tables
 from solprop._helpers import PLAIN, Helpers
-from solprop.backends.host.driver import HostDriver
-from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.multistep import trial_tables
+from solprop.backends.numpy_ref.adams_tables import trial_tables
+from solprop.exceptions import BackendError
 from solprop.stepper.multistep import integrated_weights, lagrange_coefficients
 from solprop.translate.chebyshev import build
 
@@ -37,6 +37,7 @@ except ImportError:  # pragma: no cover - the native package is optional
     _core = None
 
 needs_native = pytest.mark.skipif(NATIVE is None, reason="solprop-native is absent")
+
 
 EDGES = np.array([0.0, 0.3, 0.45, 1.0, 1.75])
 """Four unequal intervals of a 1.75 m span."""
@@ -134,10 +135,11 @@ def records() -> list[Helpers]:
 # ------------------------------------------------------------------ ownership
 
 
-def test_each_backend_names_its_own_record():
-    assert NumpyRefBackend.helpers is PLAIN
-    if NativeBackend is not None:
-        assert NativeBackend.helpers is NATIVE
+def test_native_names_its_own_record():
+    # The reference passes PLAIN where it evaluates; native carries its own record.
+    if NativeBackend is None:
+        pytest.skip("solprop-native is not installed")
+    assert NativeBackend.helpers is NATIVE
 
 
 def test_a_caller_outside_a_backend_compiles_nothing(monkeypatch):
@@ -147,9 +149,7 @@ def test_a_caller_outside_a_backend_compiles_nothing(monkeypatch):
         pytest.fail("a default reached a compiled record")
 
     for record in records():
-        for name in ("points", "basis"):
-            monkeypatch.setitem(record.__dict__, name, refuse)
-    assert HostDriver.helpers is PLAIN
+        monkeypatch.setitem(record.__dict__, "points", refuse)
     assert integrated_weights([1.0, 0.0]).tolist() == [0.5, 0.5]
     assert lagrange_coefficients([1.0, 0.0]).shape == (2, 2)
     table = build(np.sin, 0.0, 1.0, tol=1e-8)
@@ -206,16 +206,17 @@ def test_a_record_loads_its_functions_at_first_use():
     assert not calls
     assert record.points is record.points
     assert len(calls) == 1
-    # Without its own tables a record composes them from its basis.
-    assert record.tables is None
-    assert Helpers("probe", load, load, load).tables is not None
+    assert record.basis is record.basis
     assert len(calls) == 2
 
 
-def test_only_the_native_record_forms_the_tables_in_one_call():
-    assert PLAIN.tables is None
+def test_a_record_without_a_basis_refuses_one_by_name():
+    """A backend whose Adams march is compiled evaluates no basis in Python."""
+    with pytest.raises(BackendError, match="probe helper record has no Adams basis"):
+        _ = Helpers("probe", lambda: PLAIN.points).basis
     if NATIVE is not None:
-        assert NATIVE.tables is not None
+        with pytest.raises(BackendError, match="native helper record"):
+            _ = NATIVE.basis
 
 
 # ------------------------------------------------------------ Chebyshev rows
@@ -281,12 +282,12 @@ def test_a_tables_positions_through_the_native_record(imaginary):
 # ---------------------------------------------------------------- Adams basis
 
 
-@pytest.mark.parametrize("helpers", records(), ids=lambda record: record.name)
+@needs_native
 @pytest.mark.parametrize("upper", [1.0, 0.37, 1.6])
 @pytest.mark.parametrize("nodes", node_sets(), ids=lambda nodes: f"{nodes.size}")
-def test_basis_agrees_with_the_plain_form(helpers, upper, nodes, record_property):
+def test_the_native_basis_agrees_with_the_plain_form(upper, nodes, record_property):
     rows_plain, weights_plain = PLAIN.basis(nodes, upper, True)
-    rows, weights = helpers.basis(nodes, upper, True)
+    rows, weights = native_basis(nodes, upper, True)
     # Integrating, the rows are zero: a structural contract, exact.
     assert not np.any(rows) and not np.any(rows_plain)
     assert_within(
@@ -297,7 +298,7 @@ def test_basis_agrees_with_the_plain_form(helpers, upper, nodes, record_property
         what="weights",
     )
     coefficients_plain, _ = PLAIN.basis(nodes, upper, False)
-    coefficients_, _ = helpers.basis(nodes, upper, False)
+    coefficients_, _ = native_basis(nodes, upper, False)
     assert_within(
         coefficients_,
         coefficients_plain,
@@ -314,8 +315,8 @@ def test_basis_agrees_with_the_plain_form(helpers, upper, nodes, record_property
     )
 
 
-@pytest.mark.parametrize("helpers", [PLAIN, *records()], ids=lambda record: record.name)
-def test_the_shared_functions_take_the_record(helpers):
+def test_the_shared_functions_take_the_record():
+    helpers = PLAIN
     nodes = np.array([1.0, 0.0, -1.0, -2.0])
     # Adams-Moulton 4, times 24: a few operations on quarters, well inside 64 EPS.
     assert_within(
@@ -395,19 +396,17 @@ def table_bounds(
     )
 
 
-@pytest.mark.parametrize("helpers", records(), ids=lambda record: record.name)
+@needs_native
 @pytest.mark.parametrize("compensated", [False, True])
 @pytest.mark.parametrize(("order", "orders"), TRIALS, ids=str)
-def test_the_trial_tables_agree_with_the_plain_form(
-    helpers, compensated, order, orders, record_property
+def test_the_native_trial_tables_agree_with_the_plain_form(
+    compensated, order, orders, record_property
 ):
     nodes = history_nodes(max(orders) + 1)
     plain = trial_tables(
         nodes.tolist(), order, orders, compensated=compensated, helpers=PLAIN
     )
-    tables = trial_tables(
-        nodes.tolist(), order, orders, compensated=compensated, helpers=helpers
-    )
+    tables = native_tables(nodes, order, orders, compensated)
     names = ("predictor", "corrector", "factored")
     compensation = ("spans", "carried", "endpoint", "defects")
     bounds = table_bounds(nodes, order, orders)
@@ -454,18 +453,18 @@ def test_the_native_bindings_refuse_hidden_conversions():
         core.clenshaw_points(z, EDGES[:1], 0.0, 1.75, c[:0], out)
     points = np.zeros(33)
     with pytest.raises(ValueError, match="exceed"):
-        core.basis_rows(points, 1.0, True, np.empty((33, 33)), np.empty(33))
+        core._testing.basis_rows(points, 1.0, True, np.empty((33, 33)), np.empty(33))
     with pytest.raises(ValueError, match="must be"):
-        core.basis_rows(points[:3], 1.0, True, np.empty((3, 2)), np.empty(3))
+        core._testing.basis_rows(points[:3], 1.0, True, np.empty((3, 2)), np.empty(3))
     with pytest.raises(TypeError):
-        core.basis_rows(
+        core._testing.basis_rows(
             points[:3].astype(np.float32), 1.0, True, np.empty((3, 3)), np.empty(3)
         )
     nodes = np.array([0.0, -1.0, -2.0])
     empty, rows = np.empty(0), np.empty((0, 0))
 
     def tables(order, orders, *arrays):
-        core.trial_tables(
+        core._testing.trial_tables(
             nodes, order, orders, False, *arrays, empty, empty, empty, rows
         )
 
@@ -476,7 +475,7 @@ def test_the_native_bindings_refuse_hidden_conversions():
     with pytest.raises(ValueError, match="must be"):
         tables(2, [2, 1, 3], np.empty((2, 2)), np.empty((4, 4)), np.empty((3, 4)))
     with pytest.raises(ValueError, match="must be"):
-        core.trial_tables(
+        core._testing.trial_tables(
             nodes,
             1,
             [1],
@@ -490,7 +489,7 @@ def test_the_native_bindings_refuse_hidden_conversions():
             rows,
         )
     with pytest.raises(TypeError):
-        core.trial_tables(
+        core._testing.trial_tables(
             nodes.astype(np.float32),
             1,
             [1],

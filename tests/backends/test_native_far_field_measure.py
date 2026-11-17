@@ -5,7 +5,7 @@
 """A plane measure the far-field pass can't read is refused on ``native`` (SEP 43).
 
 ``numba_cpu``'s pass read the operator's root as the plane's, and any other measure was
-refused. Native has that guard at the payload (``_flux_payload``), and no test held it.
+refused. Native has that guard at the payload (``_lower_flux``), and no test held it.
 """
 
 import copy

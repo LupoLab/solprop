@@ -2,9 +2,20 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Run bounded spawned workers with explicit threads and memory admission control."""
+"""Run bounded spawned workers with explicit threads and memory admission control.
 
-import ctypes
+:class:`Pool` is the executor: it spawns worker interpreters (persistent, or one per
+point with ``fresh``), each with its thread environment, CPU affinity and BLAS limit set
+before NumPy or a backend loads, probes the first point's memory, and starts as many
+workers as :class:`MemoryBudget`, the CPU and memory admission calculation, allows.
+Each worker serves commands over its own pipe (``_serve``): ``("run", point)``,
+``("probe", point)``, the ``STOP`` message while a point runs, and ``None`` to exit; a
+watched point's reporter calls come back as ``PROGRESS`` messages, each plane's summary
+as :class:`PlaneScalars`, a small picklable copy. :class:`ControlledWork` is what a
+scan's work offers to be stopped and watched through that pipe; :func:`peak_rss` is the
+resident-memory probe. The admission rule is in ``docs/dev/scans.md``.
+"""
+
 import multiprocessing as mp
 import os
 import pickle
@@ -17,17 +28,19 @@ from dataclasses import dataclass, field
 from itertools import chain
 from multiprocessing.connection import Connection, wait
 from multiprocessing.process import BaseProcess
-from pathlib import Path
 from typing import Protocol, cast, runtime_checkable
 
+from solprop import _host
 from solprop._process import (
     LOAD_TIME_BLAS_VARIABLES,
+    THREAD_VARIABLES,
     allowed_cpus,
+    cgroup_memory,
     sizes_blas_after_load,
     spawn_environment,
     thread_budget,
 )
-from solprop.exceptions import DriverError, StopRequested
+from solprop.exceptions import DriverError, ExecutorError, StopRequested
 from solprop.log import PlaneSummary, ProgressReporter, StopFlag
 
 __all__ = ["ControlledWork", "MemoryBudget", "PlaneScalars", "Pool", "peak_rss"]
@@ -40,15 +53,6 @@ if sys.platform == "win32":
     type _Pipe = Connection | PipeConnection  # pyright: ignore[reportRedeclaration]
 else:
     type _Pipe = Connection
-
-_THREAD_VARIABLES = (
-    "SOLPROP_THREADS",
-    "OMP_NUM_THREADS",
-    "OPENBLAS_NUM_THREADS",
-    "MKL_NUM_THREADS",
-    "VECLIB_MAXIMUM_THREADS",
-)
-
 
 # The worker pipe's messages. Controller to worker: ``("run", point)`` or
 # ``("probe", point)``, the ``STOP`` string while a point runs, and ``None`` to exit.
@@ -278,90 +282,16 @@ def peak_rss() -> int:
     int
         Peak RSS, converting Linux KiB and retaining Darwin bytes; on Windows the
         peak working set.
+
+    Raises
+    ------
+    ExecutorError
+        When the operating system refuses the process memory query.
     """
-    if sys.platform == "win32":
-        return _windows_peak_working_set()
-    import resource  # noqa: PLC0415 - POSIX only; Windows has no such module
-
-    value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return int(value) if sys.platform == "darwin" else int(value) * 1024
-
-
-class _ProcessMemoryCounters(ctypes.Structure):
-    """Mirror Win32 ``PROCESS_MEMORY_COUNTERS`` for ``K32GetProcessMemoryInfo``."""
-
-    _fields_ = [
-        ("cb", ctypes.c_uint32),
-        ("PageFaultCount", ctypes.c_uint32),
-        ("PeakWorkingSetSize", ctypes.c_size_t),
-        ("WorkingSetSize", ctypes.c_size_t),
-        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
-        ("QuotaPagedPoolUsage", ctypes.c_size_t),
-        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
-        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-        ("PagefileUsage", ctypes.c_size_t),
-        ("PeakPagefileUsage", ctypes.c_size_t),
-    ]
-
-
-class _MemoryStatus(ctypes.Structure):
-    """Mirror Win32 ``MEMORYSTATUSEX`` for ``GlobalMemoryStatusEx``."""
-
-    _fields_ = [
-        ("dwLength", ctypes.c_uint32),
-        ("dwMemoryLoad", ctypes.c_uint32),
-        ("ullTotalPhys", ctypes.c_uint64),
-        ("ullAvailPhys", ctypes.c_uint64),
-        ("ullTotalPageFile", ctypes.c_uint64),
-        ("ullAvailPageFile", ctypes.c_uint64),
-        ("ullTotalVirtual", ctypes.c_uint64),
-        ("ullAvailVirtual", ctypes.c_uint64),
-        ("ullAvailExtendedVirtual", ctypes.c_uint64),
-    ]
-
-
-def _kernel32() -> ctypes.CDLL:
-    """Load Windows' kernel32, which carries both memory queries, typed for them."""
-    kernel32 = ctypes.WinDLL("kernel32")  # pyright: ignore[reportAttributeAccessIssue]
-    # The process pseudo-handle is pointer-sized ((HANDLE)-1): ctypes' default int
-    # return type truncates it to 32 bits, and Windows refuses the truncated handle.
-    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
-    kernel32.GetCurrentProcess.argtypes = []
-    kernel32.K32GetProcessMemoryInfo.restype = ctypes.c_int
-    kernel32.K32GetProcessMemoryInfo.argtypes = [
-        ctypes.c_void_p,
-        ctypes.POINTER(_ProcessMemoryCounters),
-        ctypes.c_uint32,
-    ]
-    return kernel32
-
-
-def _windows_peak_working_set() -> int:
-    """Read this process's peak working set, Windows' counterpart of peak RSS.
-
-    - Returns: peak working set, bytes.
-    """
-    kernel32 = _kernel32()
-    counters = _ProcessMemoryCounters()
-    counters.cb = ctypes.sizeof(counters)
-    process = kernel32.GetCurrentProcess()
-    if not kernel32.K32GetProcessMemoryInfo(
-        process, ctypes.byref(counters), counters.cb
-    ):
-        raise DriverError("Windows refused the process memory query")
-    return int(counters.PeakWorkingSetSize)
-
-
-def _windows_physical_memory() -> int:
-    """Read the installed physical memory on Windows.
-
-    - Returns: total physical memory, bytes.
-    """
-    status = _MemoryStatus()
-    status.dwLength = ctypes.sizeof(status)
-    if not _kernel32().GlobalMemoryStatusEx(ctypes.byref(status)):
-        raise DriverError("Windows refused the physical memory query")
-    return int(status.ullTotalPhys)
+    value = _host.peak_rss()
+    if value is None:
+        raise ExecutorError("the operating system refused the process memory query")
+    return value
 
 
 def _memory_limit() -> int:
@@ -369,20 +299,19 @@ def _memory_limit() -> int:
 
     - Returns: smallest available memory limit, bytes.
     """
-    limits: list[int] = []
-    if sys.platform == "win32":
-        limits.append(_windows_physical_memory())
-    else:
-        limits.append(os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE"))
-        for path in (
-            "/sys/fs/cgroup/memory.max",
-            "/sys/fs/cgroup/memory/memory.limit_in_bytes",
-        ):
-            file = Path(path)
-            if file.exists():
-                value = file.read_text(encoding="utf-8").strip()
-                if value.isdecimal() and int(value) > 0:
-                    limits.append(int(value))
+    physical = _host.physical_memory()
+    if physical is None:
+        raise ExecutorError("the operating system refused the physical memory query")
+    limits = [physical]
+    if sys.platform != "win32":
+        try:
+            group = cgroup_memory()
+        except (OSError, ValueError) as error:
+            raise ExecutorError(
+                f"cannot read the control-group memory limit: {error}"
+            ) from error
+        if group is not None:
+            limits.append(group)
     slurm = os.environ.get("SLURM_MEM_PER_NODE")
     if slurm and slurm.isdecimal():
         limits.append(int(slurm) * 1024**2)
@@ -402,8 +331,8 @@ def _cpus() -> tuple[int, ...]:
     allocated = os.environ.get("SLURM_CPUS_PER_TASK")
     if allocated and allocated.isdecimal():
         available = available[: int(allocated)]
-    offset = int(os.environ.get("SOLPROP_SCAN_CPU_OFFSET", "0"))
-    count = int(os.environ.get("SOLPROP_SCAN_CPU_COUNT", str(len(available))))
+    offset = _integer("SOLPROP_SCAN_CPU_OFFSET", 0)
+    count = _integer("SOLPROP_SCAN_CPU_COUNT", len(available))
     if offset < 0 or count < 1:
         raise DriverError(
             "scan instance CPU offsets/counts must be non-negative/positive"
@@ -411,6 +340,17 @@ def _cpus() -> tuple[int, ...]:
     # The instance's own CPUs first, then the controller's budget (ADR-052) over them:
     # cut first, a budget smaller than the allocation would empty a later instance.
     return available[offset : offset + count][: budget.threads]
+
+
+def _integer(variable: str, default: int) -> int:
+    """Read an integer environment variable, refusing a malformed one by name."""
+    value = os.environ.get(variable)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        raise DriverError(f"{variable}={value!r} is not an integer") from None
 
 
 @dataclass(frozen=True)
@@ -537,7 +477,7 @@ def _spawn(
     )
     # Workers sleep between regions unless the user chose, or a calibration's row for
     # the workers' allocation did (solprop SEP 46); they never calibrate themselves.
-    environment = dict.fromkeys(_THREAD_VARIABLES, str(threads)) | {
+    environment = dict.fromkeys(THREAD_VARIABLES, str(threads)) | {
         "SOLPROP_NATIVE_WAIT_REQUEST": "passive",
         "SOLPROP_CALIBRATION_ROLE": "worker",
     }

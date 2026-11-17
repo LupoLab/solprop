@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from bounds import gamma
+from builders import load_reference, reference_trial
 from sessions.runs import load_native, native_trial
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import C
@@ -18,8 +19,8 @@ from solprop.noise import spatial_noise
 from solprop.nonlinear.responses import KerrResponse
 from solprop.spatial import SpatialFlux, SpatialMedium
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.masks import noise_spectrum
-from solprop.translate.problem import assemble
 from spatial_records import record_metric
 
 
@@ -72,13 +73,13 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(position)
-        expected = reference._nonlinear(
-            rotated[None],
-            reference._stage_scalars(position, position),
-            np.ones((1, *problem.shape), complex),
-        )[0]
+        load_reference(reference)
+        reference.workspace.hoist(position)
+        expected = reference.workspace.nonlinear(
+            rotated,
+            reference.workspace.stage_scalars(position, position),
+            np.ones(problem.shape, complex),
+        )
         # Zero distance isolates one nonlinear evaluation while still exercising
         # each backend's real stage-input/noise path at nonzero absolute z.
         if backend.name == "native":
@@ -87,10 +88,14 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
                 backend, problem.initial.field0, noise_spectrum(noise, problem.shape)
             )
             native_trial(backend, position, 0.0)
-            actual = state.stage_to_host(0).reshape(expected.shape)
+            from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+                _testing,
+            )
+
+            actual = _testing.stage_to_host(state, 0).reshape(expected.shape)
         else:
             captured = []
-            nonlinear = backend._nonlinear
+            nonlinear = backend.workspace.nonlinear
 
             def capture(lab, bundle, inverse):
                 stage = nonlinear(lab, bundle, inverse)
@@ -98,9 +103,9 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
                     captured.append(stage.copy())
                 return stage
 
-            monkeypatch.setattr(backend, "_nonlinear", capture)
-            backend.set_initial(problem.initial.field0, noise)
-            backend._trial_step(position, 0.0)
+            monkeypatch.setattr(backend.workspace, "nonlinear", capture)
+            load_reference(backend, noise=noise)
+            reference_trial(backend, position, 0.0)
             actual = captured[0].reshape(expected.shape)
         scale = np.max(np.abs(expected))
         assert scale > 0

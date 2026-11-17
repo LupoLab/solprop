@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 from optmat.gas.models.registry import default_model
 
+from builders import grid_at, held_collar
 from former_raman import FORMER_SILICA_TENSOR
 from modal_provider_cases import (
     GENERAL_CHI3,
@@ -32,13 +33,19 @@ from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings, prop_capillary
 from solprop.driver.executors import Local
 from solprop.driver.material_output import material_manifest
+from solprop.driver.routes.materials import _selected_guide
 from solprop.driver.scan import Scan, run_scan
-from solprop.driver.simulation import _selected_guide
-from solprop.exceptions import DiluteScalingWarning, MaterialRangeWarning, OutputError
+from solprop.exceptions import (
+    DiluteScalingWarning,
+    MaterialRangeWarning,
+    MaterialStatusWarning,
+    OutputError,
+)
 from solprop.grid import FieldGrid, FreeGrid, RadialGrid
 from solprop.modes import PlanarGrid, SlabMode, StepIndexMode
 from solprop.modes.guide import ModalGuide
 from solprop.modes.material import IndexMaterial, MaterialKerr, MaterialRegion
+from solprop.nonlinear.optmat_raman import OptmatRamanResponse
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.output import open_file
 from solprop.output.hdf5 import check_cache
@@ -327,7 +334,7 @@ def test_a_supplied_susceptibility_is_kept_and_a_glass_taken_as_it_is(free_case)
     space = RadialGrid(3e-4, 8)
     # optmat's Borzsonyi form, not the recommended fit: a caller's choice.
     other = gamma(Gas.Ar, model="borzsonyi_2008/sellmeier_Ar")
-    kept: Any = Simulation.from_radial(
+    kept: Any = Simulation.from_free(
         grid,
         space,
         SpatialMedium("Ar", Linear(1.0, 2.0, grid.length), susceptibility=other),
@@ -341,7 +348,7 @@ def test_a_supplied_susceptibility_is_kept_and_a_glass_taken_as_it_is(free_case)
     assert component.species.susceptibility == other
     assert type(component.species.equation_of_state).__name__ == "OptmatGas"
     window = fused_silica(model="recommended")
-    glass: Any = Simulation.from_radial(
+    glass: Any = Simulation.from_free(
         grid,
         space,
         SpatialMedium(window),
@@ -560,7 +567,7 @@ def test_ten_steps_write_the_manifest_and_a_changed_identity_is_refused(tmp_path
         **{"noise": None, **options},
     )
     stored: Any = open_file(path).metadata
-    assert stored.schema_version == 2
+    assert stored.schema_version == 4
     assert names(stored.materials) == [
         "eos/Ar",
         "fit/Ar",
@@ -691,12 +698,18 @@ def test_a_derived_run_keeps_its_own_log_from_its_parents():
 
 
 def general(guide, grid, materials: MaterialSelection | None = SELECTION) -> Any:
-    """A general modal run of `guide`, a tenth of a millimetre in two steps."""
+    """A general modal run of `guide`, a tenth of a millimetre in two steps.
+
+    A run ends at its grid's length (SEP 51): the grid is cut at that tenth, with the
+    collar the full grid gave.
+    """
+    short = grid_at(grid, GENERAL_Z_END / 10)
     return Simulation.from_waveguide(
         (),
-        GENERAL_Z_END,
+        GENERAL_Z_END / 10,
         provider=guide,
-        grid=grid,
+        grid=short,
+        absorber=held_collar(short, grid.length),
         wavelength=835e-9,
         fwhm=20e-15,
         energy=1e-12,
@@ -826,3 +839,33 @@ def test_a_graded_index_cores_default_tensor_response_resolves_too():
     assert isinstance(raman.parameters, SilicaBundle)
     assert resolved.regions == resolved.field_provider.regions
     assert resolved.sampling is guide.sampling
+
+
+def test_the_provisional_policy_turns_n2os_default_raman_on_once():
+    """``raman=None`` under ``"provisional"`` takes N2O's provisional bands."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        simulation = Simulation.from_capillary(
+            50e-6,
+            4e-4,
+            "N2O",
+            1.0,
+            wavelength=800e-9,
+            wavelength_limits=(400e-9, 2e-6),
+            trange=200e-15,
+            fwhm=30e-15,
+            energy=1e-6,
+            plasma=False,
+            n_r=8,
+            n_save=2,
+            materials=MaterialSelection(raman="provisional"),
+            noise=None,
+        )
+    statuses = [
+        one for one in caught if issubclass(one.category, MaterialStatusWarning)
+    ]
+    assert len(statuses) == 1
+    assert not any("provisionally" in str(one.message) for one in caught)
+    assert any(isinstance(one, OptmatRamanResponse) for one in simulation.responses)
+    names = {record.name for record in simulation.material_manifest().records}
+    assert any("N2O" in name and "raman" in name for name in names), names

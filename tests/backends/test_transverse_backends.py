@@ -25,7 +25,7 @@ from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BoundaryWarning
 from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.monitor import BoundaryCheck
-from solprop.output.schema import PlaneStore
+from solprop.output.store import PlaneStore
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
@@ -105,6 +105,7 @@ def assert_same(reference: dict[str, Any], native: dict[str, Any]) -> None:
         np.testing.assert_allclose(native[key], reference[key], rtol=1e-7, atol=FLOOR)
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_a_backend_reads_the_miss_as_numpy_ref(backend: str) -> None:
     # The budget relaxed, the run completes: sixteen reads at most L/16 apart.
@@ -155,7 +156,7 @@ def radial_collar(
         backend=backend,
         spatial_absorber=SpatialAbsorber(kappa=8e4),
     )
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(300e-6, 48, collar_fraction=1.0),
         SpatialMedium(1.0),
@@ -196,22 +197,3 @@ def test_a_requested_collar_runs_as_on_numpy_ref(
     assert math.isclose(
         second["current"], first["current"], rel_tol=1e-8, abs_tol=FLOOR
     )
-
-
-def test_a_backend_that_does_not_read_the_edge_runs_unwatched(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Section 6: a backend that does not read the edge (none of solprop's own);
-    # numpy_ref with its reading switched off stands in for one. The run warns
-    # before its first step, is not stopped by the packet on the wrap, and records
-    # that it was unwatched.
-    from solprop.backends.numpy_ref import NumpyRefBackend  # noqa: PLC0415
-
-    monkeypatch.setattr(NumpyRefBackend, "reads_transverse_edge", False)
-    simulation = on(packet_run(REREVIEW, integrator=Multistep()), "numpy_ref")
-    with pytest.warns(BoundaryWarning, match="does not read the transverse edge"):
-        output = simulation.run(progress="none")
-    assert isinstance(output, PlaneStore)
-    record = edge_record(output)
-    assert record["transverse_status"] == "unwatched"
-    assert record["reads"] == 0

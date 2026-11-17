@@ -58,9 +58,13 @@ from solprop.modes import (
 )
 from solprop.processing import get_spectral_density
 from solprop.processing import energy as energy_per_mode
-from solprop.processing.modal import electric_field, physical_energy, reconstructed_flux
+from solprop.processing.modal import (
+    electric_field,
+    physical_energy,
+    reconstructed_flux,
+    reference_tables,
+)
 from solprop.stats import StatsSpec
-from solprop.translate.general import general_modal_route
 
 core, cladding = IndexMaterial(1.45), IndexMaterial(1.44)
 pair = [
@@ -118,17 +122,30 @@ print(f"spectral peak at {wavelength[np.argmax(density)] * 1e9:.1f} nm")
 provider, the sampling, the materials and their responses, the channel labels row by row,
 the table and metric identities with their measured Gram departures, and the basis — but
 not its tens of megabytes of stored E and H. The physical fields are rebuilt from the
-guide: {func}`~solprop.translate.general.general_modal_route` gives the run's own tables,
-and every reconstruction accessor takes them **and** the guide, and checks both against
-the identity the file carries, path by path, before it reads anything:
+guide: every reconstruction accessor takes the guide the run was made with, rebuilds the
+run's own reference tables from it, and checks both against the identity the file
+carries, path by path, before it reads anything. Each reads one saved plane, the last
+unless `plane=` or `z=` names another:
 
 ```python
-route = general_modal_route(guide, grid, z_max=1e-3, omega_reference=float(grid.omega0))
-field = electric_field(run, route.tables, plane=-1, guide=guide)  # V/m, (nodes, 3, t)
-flux = reconstructed_flux(run, route.tables, plane=-1, guide=guide)  # W, (t,)
-density = reconstructed_flux(run, route.tables, plane=-1, density=True, guide=guide)
+field = electric_field(run, guide=guide)  # V/m, (nodes, 3, t)
+flux = reconstructed_flux(run, guide=guide)  # W, (t,)
+density = reconstructed_flux(run, guide=guide, density=True)  # W/m^2, (nodes, t)
 print(field.shape, f"peak flux {flux.max():.3e} W")
 print(f"peak flux density {density.max() * 1e-4:.3e} W/cm^2")
+```
+
+The rebuild takes tens of milliseconds, more if the guide has still to be solved. A loop
+over many planes rebuilds the tables once with
+{py:func}`~solprop.processing.modal.reference_tables` and passes them to each call:
+
+```python
+tables = reference_tables(run, guide=guide)
+peaks = [
+    reconstructed_flux(run, guide=guide, tables=tables, plane=i).max()
+    for i in range(run.n_saved)
+]
+print("peak flux at each plane (W):", np.round(peaks, 4))
 ```
 
 `reconstructed_flux` is the flux of the reconstructed fields, a trace in time, which
@@ -154,6 +171,6 @@ from solprop.output import open_file
 
 run.to_file("fibre.h5")
 with open_file("fibre.h5") as saved:
-    again = reconstructed_flux(saved, route.tables, plane=-1, guide=guide)
+    again = reconstructed_flux(saved, guide=guide)
     print("the same flux from the file:", bool(np.allclose(again, flux)))
 ```

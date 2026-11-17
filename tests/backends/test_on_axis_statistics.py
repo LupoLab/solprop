@@ -10,33 +10,33 @@ node's, which a few-node field-scale rule may place well off the axis, while the
 tables and rule of the node scan. The checks: the axis value is the same whatever the
 rule; a Radau rule's axis node supplies it without a further scan; a five-node Gauss
 rule's node maximum misses the axial peak; a multimode field's off-axis maximum stays in
-the legacy statistic; and every route and backend that does not define them refuses
+the node statistic; and every route and backend that does not define them refuses
 them by name.
 """
 
 import math
 import warnings
 from contextlib import closing
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
 
 from bounds import assert_within, device_backend, fft_bound, gamma, rate_log_sensitivity
+from builders import load_reference
 from rate_oracles import adk_oracle
 from sessions.executors import IDENTITY
-from sessions.runs import launched, load_native, run
+from sessions.runs import launched, run
 from solprop.backends import select
-from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.populations import axis_node
 from solprop.driver import Simulation
-from solprop.driver.simulation import _warn_sampled_peak
+from solprop.driver.routes.hollow import _warn_sampled_peak
 from solprop.exceptions import (
     BackendError,
     DriverError,
     MaterialRangeWarning,
-    OutputError,
+    ProcessingError,
     SampledPeakWarning,
 )
 from solprop.grid import FieldGrid
@@ -47,8 +47,8 @@ from solprop.physdata import Gas
 from solprop.pulses import GaussianPulse
 from solprop.stats import ON_AXIS_PLASMA_STATISTICS, StatsSpec
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
-from solprop.translate.problem import assemble
 from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
 
 ENERGY = 1e-4  # J: a 10 fs pulse that ionises argon appreciably on the axis
@@ -66,10 +66,12 @@ def table():
 
 
 def argon(m=1, phi=0.0):
-    return MarcatiliMode(125e-6, "Ar", 1.0, m=m, cladding=1.45, loss=False, phi=phi)
+    return MarcatiliMode(125e-6, "Ar", 1.0, m=m, cladding=1.45, loss_scale=0.0, phi=phi)
 
 
-def problem_on(grid, table, modes, rule, start=None, save_planes=(0.02,)):
+def problem_on(
+    grid, table, modes, rule, start=None, save_planes=(0.02,), components=None
+):
     """An argon capillary with Kerr and plasma on a given rule; nothing propagated."""
     if start is None:
         built = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=ENERGY)
@@ -87,6 +89,7 @@ def problem_on(grid, table, modes, rule, start=None, save_planes=(0.02,)):
             dz_max=0.002,
             dz_init=1e-4,
             quadrature=rule,
+            components=components,
         )
 
 
@@ -109,10 +112,10 @@ def entrance_stats(grid, problem, run_request, modes, spec):
     with closing(
         NumpyRefBackend(problem, run_request, grid=grid, modes=modes)
     ) as backend:
-        backend.set_initial(problem.initial.field0, None)
-        values = backend.stats(spec)
+        load_reference(backend)
+        values = backend.workspace.stats(spec, problem.initial.z)
         # select() returns the seam's protocol; the counter is the shared driver's.
-        return values, cast("HostDriver", backend).axis_scans
+        return values, cast("Any", backend).workspace.statistics.axis_scans
 
 
 RULES: list[tuple[RadialRule, int]] = [
@@ -193,6 +196,33 @@ def test_a_radau_axis_node_supplies_the_row_when_the_nodes_were_scanned(
     assert counted == scans
 
 
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
+def test_a_radau_axis_node_is_declined_when_the_transform_drops_the_axis_y_row(
+    grid, table, name
+):
+    """A rotated mode on an x-only transform: its node scan lacks the axis y field.
+
+    The axis row carries both Cartesian components, so the node scan, which has only
+    the x row, must not stand in for it: the value is the row scan's, as on a Gauss
+    rule that has no axis node, and the Radau rule pays one scan for it.
+    """
+    mode = argon(phi=math.pi / 3)
+    names = ("species_ionisation", *ON_AXIS_PLASMA_STATISTICS)
+    spec = StatsSpec(names=names)
+    radau = transverse_quadrature([mode], n_r=5, radial_rule="field_scale_radau")
+    problem, run_request = problem_on(grid, table, [mode], radau, components=("x",))
+    got, counted = backend_stats(name, grid, problem, run_request, [mode], spec)
+    gauss = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
+    problem, run_request = problem_on(grid, table, [mode], gauss, components=("x",))
+    want, _ = entrance_stats(grid, problem, run_request, [mode], spec)
+    assert counted == 1
+    assert float(want["on_axis_electron_density"]) > 0.0
+    for statistic in ON_AXIS_PLASMA_STATISTICS:
+        # The same row scan; the native plasma column against the reference's
+        # multipass scan keeps the node scans' parity tolerance.
+        np.testing.assert_allclose(got[statistic], want[statistic], rtol=1e-10)
+
+
 @pytest.mark.parametrize("radial_rule", ["field_scale", "field_scale_radau"])
 def test_an_axis_statistic_leaves_the_node_statistics_the_plan_s(
     grid, table, radial_rule
@@ -243,7 +273,7 @@ def test_consecutive_planes_scan_their_own_field(grid, table, name):
         landed = run(backend, problem, run_request)
         if name == "numpy_ref":
             # select() returns the seam's protocol; the counter is the driver's.
-            assert cast("HostDriver", backend).axis_scans == 2
+            assert cast("Any", backend).workspace.statistics.axis_scans == 2
         first, second = (
             float(observation.stats["on_axis_electron_density"])
             for observation in landed.observations
@@ -262,7 +292,7 @@ def test_consecutive_planes_scan_their_own_field(grid, table, name):
     assert first != second
 
 
-def test_a_multimode_off_axis_maximum_stays_in_the_legacy_statistic(grid, table):
+def test_a_multimode_off_axis_maximum_stays_in_the_node_statistic(grid, table):
     """HE_11 minus HE_12, cancelled on the axis: the densest node is elsewhere."""
     modes = [argon(1), argon(2)]
     rule = transverse_quadrature(modes, n_r=32, radial_rule="gauss_kronrod")
@@ -347,8 +377,8 @@ def test_a_problem_without_plasma_refuses_them(grid):
         ) as backend,
         pytest.raises(BackendError, match="need a compiled plasma response"),
     ):
-        backend.set_initial(problem.initial.field0, None)
-        backend.stats(AXIS)
+        load_reference(backend)
+        backend.workspace.stats(AXIS, problem.initial.z)
 
 
 BACKENDS = ["native"]
@@ -368,7 +398,7 @@ def backend_stats(name, grid, problem, run_request, modes, spec):
         if name == "native":
             return _stats(observation), _native_axis_scans(session)
         # select() returns the seam's protocol; the counter is the driver's.
-        return _stats(observation), cast("HostDriver", backend).axis_scans
+        return _stats(observation), cast("Any", backend).workspace.statistics.axis_scans
 
 
 @pytest.mark.parametrize("name", BACKENDS)
@@ -490,19 +520,6 @@ def test_a_device_s_row_reads_the_reference_s_axis(grid, table, name):
     _check_axis_row(grid, table, name)
 
 
-class _StateRefused:
-    """A native state that refuses to bring its field across (solprop #359)."""
-
-    def __init__(self, state):
-        self._state = state
-
-    def field_to_host(self):
-        raise AssertionError("an on-axis statistic brought the state to the host")
-
-    def __getattr__(self, name):
-        return getattr(self._state, name)
-
-
 @pytest.mark.parametrize("radial_rule", ["field_scale", "field_scale_radau"])
 def test_the_native_axis_row_leaves_the_state_on_the_device(grid, table, radial_rule):
     pytest.importorskip("solprop_native")
@@ -519,50 +536,21 @@ def test_the_native_axis_row_leaves_the_state_on_the_device(grid, table, radial_
         # The session counts every field it exports, and the native state every
         # whole-state transfer to the host by any path (solprop SEP 44).
         native = session.native  # pyright: ignore[reportAttributeAccessIssue]
-        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
+
+        def to_host() -> int:
+            return backend._diagnostics()["crossed_bytes"][0]  # pyright: ignore[reportAttributeAccessIssue]
+
         assert native.status().exports == 0
-        assert state.crossed_bytes()[0] == 0
+        assert to_host() == 0
         values = _stats(observation)
         session.export(observation.ticket, IDENTITY)
         assert native.status().exports == 1, "the count sees a crossing"
-        assert state.crossed_bytes()[0] > 0, "the state's count sees a crossing"
+        assert to_host() > 0, "the state's count sees a crossing"
     assert np.all(values["on_axis_peak_ionisation_rate"] > 0)
 
 
-def test_the_native_row_refuses_a_matrix_that_is_not_one_or_two_rows(grid, table):
-    pytest.importorskip("solprop_native")
-    mode = argon()
-    rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
-    problem, run_request = problem_on(grid, table, [mode], rule)
-    with closing(
-        select("native", problem, run_request, grid=grid, modes=[mode])
-    ) as backend:
-        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
-        with pytest.raises(RuntimeError, match="no initial field"):
-            state.axis_spectrum(np.ones((1, 1)))
-        load_native(backend, problem.initial.field0, clear_fsal=False)
-        with pytest.raises(ValueError, match="at most two rows"):
-            state.axis_spectrum(np.ones((3, 1)))
-        with pytest.raises(ValueError, match="two-dimensional"):
-            state.axis_spectrum(np.ones(1))
-
-
-def test_a_host_backend_s_axis_scan_needs_the_field(grid, table):
-    mode = argon()
-    rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
-    problem, run_request = problem_on(grid, table, [mode], rule)
-    with closing(
-        NumpyRefBackend(problem, run_request, grid=grid, modes=[mode])
-    ) as backend:
-        backend.set_initial(problem.initial.field0, None)
-        with pytest.raises(BackendError, match="needs the field"):
-            backend._axis_row_populations(  # pyright: ignore[reportPrivateUsage]
-                None, np.zeros((2, 1))
-            )
-
-
 def test_they_are_saved_plane_statistics_and_tdse_never_defines_them():
-    with pytest.raises(OutputError, match="between save planes"):
+    with pytest.raises(ProcessingError, match="between save planes"):
         StatsSpec(names=ON_AXIS_PLASMA_STATISTICS, periodic=ON_AXIS_PLASMA_STATISTICS)
     assert set(ON_AXIS_PLASMA_STATISTICS) <= TDSE_UNAVAILABLE_STATISTICS
 

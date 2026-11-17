@@ -13,6 +13,8 @@ import numpy as np
 import pytest
 
 from solprop.exceptions import SolpropError
+from solprop.output import open_file
+from solprop.processing import compress_taylor
 from solprop.service import handlers
 
 # What the window's compressor model sends for each stage at its defaults
@@ -107,6 +109,15 @@ def test_fixed_elements_are_applied_in_order(run: str):
     assert math.isclose(found["wavelength"], 8e-7, rel_tol=1e-3)
     empty = chain(run)  # no elements: after is before
     assert np.allclose(empty["after"], empty["before"])
+
+
+def test_an_auto_stage_finds_what_the_compressor_finds_on_the_file(run: str):
+    """The chain hands the compressor the plane in the convention it takes."""
+    found = chain(run, stage("taylor", auto=True, order=2), modes="sum")
+    with open_file(run) as stored:
+        direct = compress_taylor(stored, plane=-1)
+    # The same array reaches the same deterministic search: the same coefficient.
+    assert found["stages"][0]["values"]["gdd"] == direct.coefficients[2]
 
 
 def test_auto_elements_are_searched_one_at_a_time(run: str):

@@ -9,10 +9,12 @@ import pytest
 from jaxtyping import TypeCheckError
 
 from runtime_types import requires_typecheck
+from solprop._validation import choice
 from solprop.exceptions import GridError, ModeError, OutputError, ProcessingError
 from solprop.grid import EnvelopeGrid, FieldGrid, TimeGrid
 from solprop.output import MemoryOutput
-from solprop.output.schema import Convention, FieldRetention, GridRecord
+from solprop.output.records import Convention, GridRecord
+from solprop.output.store import FieldRetention
 from solprop.processing import axes
 from solprop.processing._examples import example_grid, example_output, gvd_phase
 
@@ -76,10 +78,14 @@ def test_band_mask_selects_the_active_band(grid):
 
 
 def test_check_choice_refuses_an_unknown_keyword():
-    with pytest.raises(ProcessingError, match="band must be one of"):
-        axes._check_choice("middle", axes.BANDS, "band")
-    with pytest.raises(ProcessingError, match="axis must be one of"):
-        axes._check_choice("energy", axes.SPECTRAL_AXES, "axis")
+    with pytest.raises(
+        ProcessingError, match="band must be 'active' or 'all', got 'middle'"
+    ):
+        choice("middle", "band", axes.BANDS, ProcessingError)
+    with pytest.raises(
+        ProcessingError, match="axis must be 'omega', 'f' or 'wavelength', got 'energy'"
+    ):
+        choice("energy", "axis", axes.SPECTRAL_AXES, ProcessingError)
 
 
 def test_spectral_axis_carries_the_jacobian_of_each_abscissa():
@@ -113,14 +119,34 @@ def test_nearest_plane_needs_a_saved_plane():
         axes._nearest_plane(MemoryOutput(), 0.0)
 
 
-def test_plane_field_refuses_a_plane_and_a_position_together(output):
-    with pytest.raises(OutputError, match="not both"):
-        axes._plane_field(output, 0, 0.0, convention="fft")
+@pytest.mark.parametrize(
+    ("index", "z", "error", "message"),
+    [(0, 0.0, ProcessingError, "not both"), (9, None, OutputError, "out of range")],
+)
+def test_plane_field_refuses_a_plane_it_cannot_name(output, index, z, error, message):
+    with pytest.raises(error, match=message):
+        axes._plane_field(output, index, z, convention="fft")
 
 
-def test_plane_field_refuses_an_index_out_of_range(output):
-    with pytest.raises(OutputError, match="out of range"):
-        axes._plane_field(output, 9, None, convention="fft")
+def test_plane_index_takes_the_last_plane_or_the_nearest_position(output):
+    assert axes._plane_index(output, None, None) == -1
+    assert axes._plane_index(output, 2, None) == 2
+    assert axes._plane_index(output, None, 0.049) == 2
+    # Any plane beside a position names two planes, the last one included.
+    for plane in (1, -1):
+        with pytest.raises(ProcessingError, match="not both"):
+            axes._plane_index(output, plane, 0.049)
+
+
+def test_layout_reads_no_field(synthetic, monkeypatch):
+    output = synthetic.build_run("envelope", n_modes=2, n_pol=1)
+    expected = output["field"].shape
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("layout read the whole field")
+
+    monkeypatch.setattr(type(output), "_read", refuse)
+    assert axes.layout(output) == expected
 
 
 def test_plane_field_counts_a_negative_index_from_the_end(output):
@@ -174,6 +200,9 @@ class _ProtocolOnly:
     def fields(self, convention: Convention = "optics"):
         return self.stored.fields(convention)
 
+    def plane_field(self, index, convention: Convention = "optics"):
+        return self.stored.plane_field(index, convention)
+
 
 def keeping_planes(memory: MemoryOutput, kept: tuple[int, ...]) -> MemoryOutput:
     """Return the run stored again keeping the field on the planes `kept` alone."""
@@ -192,6 +221,10 @@ def keeping_planes(memory: MemoryOutput, kept: tuple[int, ...]) -> MemoryOutput:
         )
     partial.close()
     return partial
+
+
+def test_the_layout_of_a_handler_that_is_not_a_store_is_its_field_s_shape(memory):
+    assert axes.layout(_ProtocolOnly(memory)) == memory["field"].shape
 
 
 def test_a_handler_that_is_not_a_store_reads_its_planes_by_index_and_position(memory):
@@ -226,9 +259,11 @@ def test_a_run_keeping_some_fields_answers_for_those_planes_alone(memory):
         axes._plane_field(partial, 2, None, convention="fft")
     with pytest.raises(OutputError, match="fields='planes'"):
         axes._plane_field(partial, None, 0.049, convention="fft")
-    # A handler that reads only whole runs cannot pick out the kept planes.
-    with pytest.raises(OutputError, match="fields='planes'"):
-        axes._plane_field(_ProtocolOnly(partial), 0, None, convention="fft")
+    # A handler that is not a store reads one plane through the protocol too.
+    assert np.array_equal(
+        axes._plane_field(_ProtocolOnly(partial), 0, None, convention="fft"),
+        axes._plane_field(memory, 0, None, convention="fft"),
+    )
 
 
 @pytest.mark.parametrize(

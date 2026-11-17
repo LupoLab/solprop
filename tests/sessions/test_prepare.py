@@ -16,16 +16,13 @@ import pytest
 
 from scripted_driver import HostScriptedDriver
 from sessions.executors import fibre, soliton, window
-from solprop.backends.host.group_session import HostPreparedGroup
-from solprop.backends.host.session import HostPrepared, HostSession
+from solprop.backends.numpy_ref.session import HostPrepared, HostSession
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import available, select
 from solprop.backends.session import (
     PreparedExecution,
-    PreparedGroup,
     SessionError,
     Start,
-    check_group,
 )
 from solprop.backends.sessions import start_session
 from solprop.exceptions import BackendError
@@ -67,18 +64,6 @@ def test_a_closed_reference_preparation_closes_its_backend_and_refuses_to_start(
     assert backend.closed
     with pytest.raises(SessionError, match="closed"):
         prepared.start(Start.entrance(problem))
-
-
-def test_the_reference_prepares_its_own_group():
-    problem, request = soliton()
-    backend = _select("numpy_ref", problem, request)
-    try:
-        prepared = backend.prepare_group([backend], [problem], [request])
-        assert type(prepared) is HostPreparedGroup
-        assert isinstance(prepared, PreparedGroup)
-        assert prepared.backend == "numpy_ref"
-    finally:
-        backend.close()
 
 
 @NATIVE
@@ -231,16 +216,6 @@ def test_the_run_layer_refuses_it_before_a_session_starts(names, match):
         )
         with pytest.raises(BackendError, match=match):
             simulation.run()
-
-
-def test_a_group_refuses_it_for_any_member():
-    from solprop.stats import StatsSpec  # noqa: PLC0415
-
-    problem, request = soliton()
-    run = request.for_run(stats=StatsSpec(names=("plasma_work_defect",)))
-    entrance = Start.entrance(problem)
-    with pytest.raises(BackendError, match="field-grid plasma column"):
-        check_group(2, [problem, problem], [request, run], [entrance, entrance])
 
 
 def test_a_spatial_route_refuses_a_modal_statistic_on_every_executor():

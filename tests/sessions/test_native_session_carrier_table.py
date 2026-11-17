@@ -49,7 +49,7 @@ from solprop.backends.session import Start
 from solprop.boundaries import absorber
 from solprop.driver import Simulation
 from solprop.grid import FieldGrid
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.physdata import Mixture
 from solprop.profiles import Linear
 from solprop.stepper import FixedSchedule, Multistep
@@ -60,6 +60,7 @@ from solprop.translate.run_request import RunRequest
 
 native_session = pytest.importorskip("solprop_native.session")
 native_backend = pytest.importorskip("solprop_native.backend")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 pytestmark = [
     pytest.mark.medium,
@@ -225,7 +226,7 @@ def on_a_table(simulation: Simulation) -> Case:
         The tabulated problem, the simulation's request and context.
     """
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     linear = problem.linear
     table = build_table(
         lambda z: np.stack([delta_phi(linear, 0.0, float(one)) for one in z]),
@@ -294,7 +295,7 @@ def _run(name: str, simulation: Simulation | Case, start: Start | None = None):
     """
     case = simulation
     if not isinstance(case, Case):
-        case = Case(case.translate(), case._run_request(), _context(case))
+        case = Case(case.translate(), case.run_request(), _context(case))
     started = EXECUTORS[name].start(
         case.problem,
         case.request,
@@ -332,7 +333,7 @@ def test_the_chord_is_a_varying_table_the_session_admits():
     # own march steps it natively.
     simulation = capillary()
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     assert problem.linear.phi_representation == "table"
     assert problem.responses.prefactor_representation == "table"
     reference = carrier_reference(problem, SCALAR)
@@ -340,7 +341,7 @@ def test_the_chord_is_a_varying_table_the_session_admits():
     assert reference.chord is not None and reference.chord.table is not None
     assert reference.chord.table.coefficients.shape[0] > 1
     rates = [
-        float(np.imag(reference.chord.exponent(z, z + 1e-4))[0]) / 1e-4
+        float(np.imag(reference.chord.exponent(z, z + 1e-4))) / 1e-4
         for z in (0.0, LENGTH - 1e-4)
     ]
     assert abs(rates[0] - rates[1]) > 1e-6 * abs(rates[0])
@@ -350,21 +351,22 @@ def test_the_chord_is_a_varying_table_the_session_admits():
     backend: Any = select("native", problem, request, **_context(simulation))
     try:
         assert backend._adams._policy.carrier
-        # The table is the chord's whole description: a chord of kind ``table``
-        # without one is refused when the tables are uploaded.
         tables = backend._stage_tables()
         assert tables is not None
-        # A chord kind the build does not know is refused, not cast.
-        for chord in (3, 4, -1):
-            with pytest.raises(ValueError, match="stage tables are inconsistent"):
-                backend._native_state.adams_stage_tables(
+        assert tables["chord"] == "table"
+        # A chord kind the build does not know is refused by the record's reader, not
+        # cast.
+        for chord in ("spline", 4, -1):
+            with pytest.raises(ValueError, match=r"stage\.Tables\.chord must name"):
+                _testing.round_trip(
+                    "stage.Tables",
                     tables
                     | {
                         "chord": chord,
                         "chord_rate": 0.0,
                         "chord_terms": [],
                         "chord_table": None,
-                    }
+                    },
                 )
     finally:
         backend.close()
@@ -429,7 +431,7 @@ def _at_second_plane(simulation: Simulation) -> tuple[MarchSnapshot, dict[str, A
     problem = simulation.translate()
     started = EXECUTORS["native-session"].start(
         problem,
-        simulation._run_request(),
+        simulation.run_request(),
         entrance(problem),
         context=_context(simulation),
     )
@@ -458,7 +460,7 @@ def test_a_resumed_history_continues_the_uninterrupted_run():
     simulation = capillary()
     snapshot, ledger = _at_second_plane(simulation)
     assert snapshot.z > 0.0 and ledger["accepted_steps"]
-    planes = simulation._run_request().stepper.save_planes
+    planes = simulation.run_request().stepper.save_planes
 
     def resumed() -> Start:
         return Start(

@@ -21,20 +21,18 @@ from legacy_geometry import LEGACY_GRID
 from sessions.runs import run as session_run
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.driver.simulation import Simulation, _interpolated
+from solprop.backends.registry import select
+from solprop.driver.resume import _interpolated
+from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError, OutputError, TranslationError
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
 from solprop.noise import modified_noise
 from solprop.output import MemoryOutput
-from solprop.output.hdf5 import resume
-from solprop.output.schema import (
-    INTERPOLATED_RESUMES_ANNOTATION,
-    PlaneStore,
-    StepLimits,
-    StepperRecord,
-    _example_metadata,
-)
+from solprop.output.hdf5 import open_file, resume
+from solprop.output.metadata import INTERPOLATED_RESUMES_ANNOTATION, _example_metadata
+from solprop.output.records import StepLimits, StepperRecord
+from solprop.output.store import PlaneStore
 from solprop.stats import PLASMA_INTEGRATION_STATISTICS
 from solprop.stepper import DOPRI5, PIController, RungeKutta
 from solprop.stepper.multistep import Multistep
@@ -283,7 +281,7 @@ def test_the_admission_matrix_refuses_a_coupled_flow(narrow_grid, soliton_proble
         _admit_dense(coupled, run_request.stepper)
 
 
-def capillary(**extra):
+def capillary(n_save=4, **extra):
     """Return a short helium capillary run with the given settings."""
     return Simulation.from_capillary(
         150e-6,
@@ -295,7 +293,7 @@ def capillary(**extra):
         energy=1e-6,
         trange=100e-15,
         wavelength_limits=(200e-9, 2e-6),
-        n_save=4,
+        n_save=n_save,
         **{"noise": None, **extra},
     )
 
@@ -317,6 +315,20 @@ def test_the_collar_scheme_refuses_interpolated_planes(dense):
         simulation.translate()
 
 
+@pytest.mark.parametrize("name", available())
+def test_backend_preparation_refuses_a_request_adapted_to_interpolate(name):
+    # A landed split-collar request, adapted to dense observation after translation,
+    # is refused where the backend is built, as assembly refuses it outright.
+    simulation = capillary(absorber_scheme="split_step")
+    problem, landed = simulation.translate(), simulation.run_request()
+    dense = dataclasses.replace(
+        landed, observation=dataclasses.replace(landed.observation, dense=True)
+    )
+    with pytest.raises(TranslationError, match="per-step temporal collar"):
+        select(name, problem, dense)
+    select(name, problem, landed).close()
+
+
 class StopError(RuntimeError):
     """Raised by the reporter below to stop a run like a crash."""
 
@@ -331,6 +343,33 @@ class Stop(NullReporter):
         self.seen += 1
         if self.seen >= 2:
             raise StopError("stopped")
+
+
+def test_a_stopped_interpolated_resume_records_its_position(tmp_path):
+    # Issue #152: the record was written on the success path alone.
+    path = tmp_path / "dense.h5"
+    dense = {"backend": "numpy_ref", "integrator": RungeKutta(), "n_save": 6}
+    with pytest.raises(StopError):
+        capillary(interpolate_planes=True, **dense).run(path, progress=Stop())
+    first = resume(path)
+    assert _interpolated(first)
+    with pytest.raises(StopError):
+        capillary(interpolate_planes=True, **dense).run(
+            path, resume="interpolated", progress=Stop()
+        )
+    second = resume(path)
+    assert _interpolated(second)
+    assert second.n_saved > first.n_saved
+    with open_file(path) as stored:
+        assert stored.annotations[INTERPOLATED_RESUMES_ANNOTATION] == [first.plane.z]
+    capillary(interpolate_planes=True, **dense).run(
+        path, resume="interpolated", progress="none"
+    )
+    with open_file(path) as stored:
+        assert stored.annotations[INTERPOLATED_RESUMES_ANNOTATION] == [
+            first.plane.z,
+            second.plane.z,
+        ]
 
 
 def test_a_dense_run_is_recorded_in_the_resume_key():

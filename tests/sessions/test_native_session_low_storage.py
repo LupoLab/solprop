@@ -37,8 +37,8 @@ from sessions.executors import (
     window,
 )
 from solprop.backends.events import Eligibility, Outcome
-from solprop.backends.host.driver import HostDriver
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.marches.low_storage import HostLowStorageMarch
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import select
 from solprop.exceptions import ConvergenceError
 from solprop.pulses import SechPulse
@@ -46,12 +46,14 @@ from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.problem import PropagationProblem, Translation, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import PropagationProblem, Translation
 from solprop.translate.run_request import RunRequest
 
 native_session = pytest.importorskip("solprop_native.session")
 
 _counters = pytest.importorskip("solprop_native._counters")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 LENGTH = PLANES[-1]
 STEPS = 40
@@ -132,7 +134,7 @@ class _Faulted(native_session.NativeSession):
     def _prepare(self, backend, start):
         """Prepare as the session does, then arm the native failure."""
         prepared = super()._prepare(backend, start)
-        backend._native_state.adams_march_fault("trial", self._after, "backend")
+        _testing.inject_fault(backend._workspace, "trial", self._after, "backend")
         return prepared
 
 
@@ -187,22 +189,29 @@ def _reference(
 
     Returns
     -------
-    solprop.backends.host.session.HostSession
+    solprop.backends.numpy_ref.session.HostSession
         The session.
     """
     driver = select(
         "numpy_ref", problem, run_request, grid=window(), modes=[fibre().mode]
     )
     if failing is not None:
-        march = cast("HostDriver[Any]", driver)._low_storage
-        assert march is not None
-        engine = march.engine
-        engine.step = _FailingStep(engine.step, failing)
+        built = cast("Any", driver).method
+
+        def method(host):
+            # The session's own low-storage march, its engine's trial failing.
+            made = built(host)
+            assert isinstance(made.march, HostLowStorageMarch)
+            engine = cast("Any", made.march.engine)
+            engine.trial = _FailingStep(engine.trial, failing)
+            return made
+
+        cast("Any", driver).method = method
     return HostSession(driver, problem, run_request, entrance(problem))
 
 
 class _FailingStep:
-    """An engine step that raises after the step `failing` has made its passes."""
+    """An engine trial that raises after the step `failing` has made its passes."""
 
     def __init__(self, step: Any, failing: int) -> None:
         """Wrap the engine's step."""
@@ -260,7 +269,6 @@ def test_no_step_returns_to_python():
         "session_observation": len(run.observations),
         "session_terminal": 1,
     }
-    assert record["low_storage_steps"] == record["host_attempts"] == 0
     assert len(run.batches) == len(run.observations) + 1 == status.batches
     rows = sum(event.step_stats.n_rows for event in run.observations)
     assert rows == status.rows_taken == run.attempts == STEPS

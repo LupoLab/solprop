@@ -28,28 +28,34 @@ import numpy as np
 import pytest
 
 from bounds import device_backend, ladder_bound
+from builders import load_reference
 from capability_routes import LENGTH
 from legacy_geometry import bare_absorber
 from monitor_cases import (
     MARCHES,
+    QUIET_BUDGET,
+    QUIET_STEPS,
+    ROUTE_MARCHES,
     ROUTE_NAMES,
     SCHEMES,
     STEPS,
-    as_driver,
+    as_reference,
     probe,
     reading,
     record_after_march,
     watched,
     with_copy,
 )
-from sessions.runs import bind_native_monitor, load_native, native_reading
+from sessions.runs import bind_native_monitor, load_native, native_reading, to_planes
 from sessions.runs import run as session_run
-from solprop.backends.protocol import stepping
+from solprop.backends.events import ObservationKind, ObservationReady
+from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available, select
 from solprop.backends.session import ExecutionOptions, Start
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError
 from solprop.monitor import BoundaryEnergies, BoundaryMonitor
+from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.problem import PropagationProblem
 
 COMPILED = ("native",)
@@ -127,12 +133,26 @@ def _built(
     return select(
         backend,
         problem,
-        simulation._run_request(),
+        simulation.run_request(),
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
         options=simulation.settings.execution_options() if options is None else options,
     )
+
+
+def _loaded_reading(
+    made: Any,
+    problem: PropagationProblem,
+    monitor: BoundaryMonitor,
+    field: np.ndarray,
+) -> BoundaryEnergies:
+    """Load `field` in a native backend's workspace, bind `monitor` there, and read it.
+
+    A load unbinds the monitor, as a run's start does, so the monitor is bound after.
+    """
+    load_native(made, field)
+    return native_reading(made, bind_native_monitor(made, problem, monitor))
 
 
 def _launch_reading(
@@ -147,30 +167,54 @@ def _launch_reading(
     try:
         monitor = simulation._boundary_monitor()
         assert monitor is not None
-        bound = bind_native_monitor(made, problem, monitor)
         launch = with_copy(problem.initial.field0, simulation.grid.n_t)
-        return native_reading(made, bound, launch)
+        return _loaded_reading(made, problem, monitor, launch)
     finally:
         made.close()
 
 
-def _check_split(backend: str, route: str, march: str) -> None:
-    """Compare a backend's split removal over a fixed march with the reference's."""
-    simulation = probe(route, "split_step", MARCHES[march])
-    theirs = record_after_march(simulation, "numpy_ref")
-    ours = record_after_march(simulation, backend)
+def _steps(simulation: Simulation) -> int:
+    """Return how many steps a probe's fixed schedule takes."""
+    schedule = simulation.settings.schedule
+    assert isinstance(schedule, FixedSchedule)
+    return len(schedule.edges) - 1
+
+
+def _check_split(backend: str, route: str, march: str, *, quiet: bool = False) -> None:
+    """Compare a backend's split removal over a fixed march with the reference's.
+
+    `quiet` takes the quiet probe: more steps than the cadence and no active edge, so
+    that most steps go unchecked and the backend's own sum alone carries their removal.
+    """
+    simulation = probe(
+        route,
+        "split_step",
+        MARCHES[march],
+        steps=QUIET_STEPS if quiet else STEPS,
+        budget=QUIET_BUDGET if quiet else 1.0,
+    )
+    steps = _steps(simulation)
+    interval = math.inf if quiet else None
+    theirs = record_after_march(simulation, "numpy_ref", interval=interval)
+    ours = record_after_march(simulation, backend, interval=interval)
     assert theirs["raw_removed_fraction"] > 1e-6
+    if quiet:
+        assert theirs["skipped"] > 0
+        assert ours["skipped"] == theirs["skipped"]
     # Each step's removal carries the reading's rounding, and the matched steps' states
     # agree to the march's own rounding, amplified over the steps; a device build adds
     # its transforms' declared envelope, eight round trips a step at most.
     bound = ladder_bound(
-        backend, 1e3 * _rounding(simulation), simulation.grid.n_t, 8 * STEPS
+        backend, 1e3 * _rounding(simulation), simulation.grid.n_t, 8 * steps
     )
-    # The guards are judged on what each step's split found (`split_sums`): the copy's
-    # tail puts 3e-15 to 5e-12 of the energy there, whose samples' rounding is a
-    # relative 1e-8 of it at most, far inside the bound.
-    assert theirs["guard_high_max"] > 1e-15
-    names = ("raw_removed_fraction", "removed_fraction", "collar_max", "guard_high_max")
+    names = ("raw_removed_fraction", "removed_fraction", "collar_max")
+    if not quiet:
+        # The guards are judged on what each step's split found (`split_sums`): the
+        # copy's tail puts 3e-15 to 5e-12 of the energy there, whose samples' rounding
+        # is a relative 1e-8 of it at most, far inside the bound. The quiet march's
+        # two checks may find no more than rounding there, and leave them out.
+        assert theirs["guard_high_max"] > 1e-15
+        names = (*names, "guard_high_max")
     for name in names:
         assert ours[name] == pytest.approx(theirs[name], rel=bound), name
     assert ours["steps"] == theirs["steps"]
@@ -191,8 +235,7 @@ def test_a_check_reads_the_reference_s_five_numbers(
     _checkreading(backend, route, scheme)
 
 
-@pytest.mark.parametrize("march", sorted(MARCHES))
-@pytest.mark.parametrize("route", ROUTE_NAMES)
+@pytest.mark.parametrize(("route", "march"), ROUTE_MARCHES)
 @pytest.mark.parametrize("backend", COMPILED)
 def test_the_split_s_removal_is_the_reference_s(
     backend: str, route: str, march: str
@@ -201,6 +244,48 @@ def test_the_split_s_removal_is_the_reference_s(
     # march; the steps are fixed, so the backends take the same ones.
     _require(backend)
     _check_split(backend, route, march)
+
+
+@pytest.mark.parametrize(("route", "march"), ROUTE_MARCHES)
+@pytest.mark.parametrize("backend", COMPILED)
+def test_the_split_s_removal_over_unchecked_steps_is_the_reference_s(
+    backend: str, route: str, march: str
+) -> None:
+    # Most steps go unchecked: a backend that kept only the latest step's removal
+    # would report the last one between two checks, not their sum.
+    _require(backend)
+    _check_split(backend, route, march, quiet=True)
+
+
+@pytest.mark.parametrize(("route", "march"), ROUTE_MARCHES)
+@pytest.mark.parametrize("backend", ["numpy_ref", *COMPILED])
+def test_the_split_s_removal_does_not_depend_on_the_checks(
+    backend: str, route: str, march: str
+) -> None:
+    # The same quiet march checked at every step (its steps are longer than the
+    # monitor's interval) and left to the cadence: the split takes the same light
+    # either way, and only where the backend's sum is drained differs. This holds
+    # each backend's own accumulator, the reference's included, with no oracle.
+    _require(backend)
+    simulation = probe(
+        route, "split_step", MARCHES[march], steps=QUIET_STEPS, budget=QUIET_BUDGET
+    )
+    every = record_after_march(simulation, backend)
+    sparse = record_after_march(simulation, backend, interval=math.inf)
+    assert every["skipped"] == 0
+    assert sparse["skipped"] > 0
+    assert every["steps"] + every["skipped"] == sparse["steps"] + sparse["skipped"]
+    assert every["raw_removed_fraction"] > 1e-6
+    # The two runs take the same steps; their removals differ by the order of the
+    # sum and by the march's own rounding where a threaded build reorders it, inside
+    # the bound the matched marches of `_check_split` are held to.
+    steps = _steps(simulation)
+    bound = ladder_bound(
+        backend, 1e3 * _rounding(simulation), simulation.grid.n_t, 8 * steps
+    )
+    assert sparse["raw_removed_fraction"] == pytest.approx(
+        every["raw_removed_fraction"], rel=bound
+    )
 
 
 def _require_device() -> None:
@@ -220,8 +305,7 @@ def test_a_device_reads_the_reference_s_five_numbers(route: str, scheme: str) ->
 
 
 @pytest.mark.gpu
-@pytest.mark.parametrize("march", sorted(MARCHES))
-@pytest.mark.parametrize("route", ROUTE_NAMES)
+@pytest.mark.parametrize(("route", "march"), ROUTE_MARCHES)
 def test_a_device_s_split_removal_is_the_reference_s(route: str, march: str) -> None:
     _require_device()
     _check_split("native", route, march)
@@ -232,19 +316,23 @@ def test_a_reading_needs_a_monitor(backend: str) -> None:
     _require(backend)
     simulation = probe("gnlse", "nonlinear")
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     made = select(backend, problem, run_request, grid=simulation.grid)
     try:
         if backend == "numpy_ref":
-            driver = as_driver(made)
-            driver.set_initial(problem.initial.field0, None)
+            reference = as_reference(made)
+            load_reference(reference)
             with pytest.raises(BackendError, match="no boundary monitor"):
-                driver._boundary_energies(driver._require_state())
+                reference.workspace.reading()
         else:
             # The native state's own reduction, which its session reads at a check.
-            load_native(made, problem.initial.field0)
+            from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+                _testing,
+            )
+
+            state = load_native(made, problem.initial.field0)
             with pytest.raises(RuntimeError, match="no boundary monitor is bound"):
-                cast("Any", made)._native_state.monitor_reading()
+                _testing.monitor_reading(state)
     finally:
         made.close()
 
@@ -256,21 +344,15 @@ def test_a_monitor_for_another_grid_is_refused(backend: str) -> None:
     _require(backend)
     simulation = probe("gnlse", "nonlinear")
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     other = probe("capillary (envelope)", "nonlinear")._boundary_monitor()
     assert other is not None
     made = select(backend, problem, run_request, grid=simulation.grid)
     try:
-        if backend == "numpy_ref":
-            driver = as_driver(made)
-            driver.set_initial(problem.initial.field0, None)
-            with pytest.raises(BackendError, match="do not match the grid"):
-                driver.attach_monitor(other)
-        else:
-            # The native session refuses the weights by name before it binds them
-            # where its state lives.
-            with pytest.raises(BackendError, match="do not match the grid"):
-                session_run(made, problem, run_request.for_run(monitor=other))
+        # Each session refuses the weights by name when it attaches the monitor,
+        # before it binds them where its state lives.
+        with pytest.raises(BackendError, match="do not match the grid"):
+            session_run(made, problem, run_request.for_run(monitor=other))
     finally:
         made.close()
 
@@ -331,14 +413,25 @@ def _host_second_run(
     """The reference's launch reading, a march, and its reading of a second load."""
     made = watched(simulation, "numpy_ref")
     try:
-        driver = as_driver(made)
         first = reading(made)
-        stepping(made).propagate_to(LENGTH)
         problem = simulation.translate()
-        driver.set_initial(with_copy(problem.initial.field0, simulation.grid.n_t), None)
+        launch = with_copy(problem.initial.field0, simulation.grid.n_t)
         monitor = simulation._boundary_monitor()
         assert monitor is not None
-        driver.attach_monitor(monitor)
+        # A watched session marches the state to the end.
+        session_run(
+            made,
+            problem,
+            simulation.run_request().for_run(monitor=monitor),
+            Start(field=launch, z=float(problem.initial.z)),
+        )
+        # The next load, watched by a fresh monitor, as the next run's session has it.
+        load_reference(made, launch)
+        fresh = simulation._boundary_monitor()
+        assert fresh is not None
+        if fresh.split:
+            fresh.crossing = problem.split_crossing
+        as_reference(made).workspace.bind_monitor(fresh)
         return first, reading(made), made.memory_ledger()
     finally:
         made.close()
@@ -356,9 +449,7 @@ def _native_second_run(
     launch = with_copy(problem.initial.field0, simulation.grid.n_t)
     made = _built(simulation, backend, problem)
     try:
-        first = native_reading(
-            made, _fresh_bound(made, simulation, problem), launch.copy()
-        )
+        first = _loaded_reading(made, problem, _fresh(simulation), launch.copy())
         boundary = simulation._boundary_monitor()
         assert boundary is not None
         session_run(
@@ -367,12 +458,17 @@ def _native_second_run(
             made.request.for_run(monitor=boundary),
             Start(field=launch.copy(), z=0.0),
         )
-        again = native_reading(
-            made, _fresh_bound(made, simulation, problem), launch.copy()
-        )
+        again = _loaded_reading(made, problem, _fresh(simulation), launch.copy())
         return first, again, made.memory_ledger()
     finally:
         made.close()
+
+
+def _fresh(simulation: Simulation) -> BoundaryMonitor:
+    """Return a case's fresh monitor."""
+    monitor = simulation._boundary_monitor()
+    assert monitor is not None
+    return monitor
 
 
 def _fresh_bound(
@@ -410,30 +506,11 @@ def test_a_monitor_s_own_transform_is_in_the_ledger(
     assert all(ledger[row] > 0 for row in rows), {row: ledger[row] for row in rows}
 
 
-class _CountingState:
-    """A native state that counts its `bind_occupancy` calls."""
-
-    def __init__(self, state: object) -> None:
-        """Wrap `state`."""
-        self.__dict__["_state"] = state
-        self.__dict__["binds"] = 0
-
-    def bind_occupancy(self, *args: object) -> None:
-        """Count, then bind."""
-        self.__dict__["binds"] += 1
-        self.__dict__["_state"].bind_occupancy(*args)
-
-    def __getattr__(self, name: str) -> object:
-        """Hand everything else to the state."""
-        return getattr(self.__dict__["_state"], name)
-
-
-def test_a_second_point_keeps_its_bucket_table_and_reads_as_the_first(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # The table is a sixteenth of a state, and a runner's points share it: a second
-    # upload would move it per point. Nothing else may carry over. Each point is a
-    # watched session on the one backend, which binds its fresh monitor there.
+def test_a_second_point_keeps_its_bucket_table_and_reads_as_the_first() -> None:
+    # The table is a sixteenth of a state, and a runner's points share it: it is one
+    # of the workspace's set-once tables, uploaded when the backend is built, never
+    # per point. Nothing else may carry over. Each point is a watched session on the
+    # one backend, which binds its fresh monitor there.
     _require("native")
     simulation = probe("radial", "split_step", MARCHES["runge_kutta"])
     problem = simulation.translate()
@@ -441,23 +518,9 @@ def test_a_second_point_keeps_its_bucket_table_and_reads_as_the_first(
     launch = with_copy(problem.initial.field0, simulation.grid.n_t)
     records = []
     try:
-        for point in range(2):
+        for _ in range(2):
             boundary = simulation._boundary_monitor()
             assert boundary is not None
-            if point == 1:
-                assert made._bound_buckets is not None
-                counting = _CountingState(made._native_state)
-                bind = made._bind_monitor
-
-                def counted(monitor, *, bind=bind, counting=counting):
-                    # The counting state stands in while the session binds alone.
-                    state, made._native_state = made._native_state, counting
-                    try:
-                        bind(monitor)
-                    finally:
-                        made._native_state = state
-
-                monkeypatch.setattr(made, "_bind_monitor", counted)
             record: dict[str, object] = {}
             session_run(
                 made,
@@ -467,7 +530,6 @@ def test_a_second_point_keeps_its_bucket_table_and_reads_as_the_first(
                 monitor=record,
             )
             records.append(record)
-        assert counting.binds == 0  # pyright: ignore[reportPossiblyUnboundVariable]
     finally:
         made.close()
     # The same launch and march on the same build: the second record is a
@@ -485,9 +547,16 @@ def test_an_occupancy_outside_its_reduction_is_refused(count: int) -> None:
     problem = simulation.translate()
     made = cast("Any", _built(simulation, "native", problem))
     try:
+        _testing = pytest.importorskip("solprop_native._core")._testing
+
+        monitor = simulation._boundary_monitor()
+        assert monitor is not None and monitor.split
         table = np.zeros(math.prod(problem.shape[0:1]) * simulation.grid.n_omega)
+        occupancy = {"buckets": table.astype(np.uint8), "count": count}
         with pytest.raises(ValueError, match="between 1 and 128 buckets"):
-            made._native_state.bind_occupancy(table.astype(np.uint8), count)
+            _testing.bind_monitor(
+                made._workspace, made._monitor_binding(monitor), None, occupancy
+            )
     finally:
         made.close()
 
@@ -503,20 +572,61 @@ def test_successive_occupancies_are_the_reference_s(backend: str, route: str) ->
     _require(backend)
     simulation = probe(route, "split_step", MARCHES["runge_kutta"])
     problem = simulation.translate()
-    theirs = watched(simulation, "numpy_ref")
+    run_request = simulation.run_request()
+    # The schedule's edges a replay to each third of the length stops at.
+    schedule = run_request.stepper.schedule
+    assert schedule is not None
+    edges = np.asarray(schedule.edges)
+    planes = sorted(
+        {
+            float(edges[np.searchsorted(edges, LENGTH * third / 3 * (1 - 1e-12))])
+            for third in (1, 2, 3)
+        }
+    )
+    request = to_planes(run_request, planes)
+    theirs = NumpyRefBackend(
+        problem,
+        request,
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
+        options=simulation.settings.execution_options(),
+    )
     ours = _built(simulation, backend, problem)
     # The matched march's rounding, amplified over its steps, relative to the energy.
     bound = ladder_bound(
         backend, 1e3 * _rounding(simulation), simulation.grid.n_t, 8 * STEPS
     )
+    readings: list[tuple[np.ndarray, np.ndarray]] = []
+
+    def keep(session: Any, batch: Any) -> None:
+        # The reference's reading of the state at each plane, and the state itself.
+        for event in batch.events:
+            if isinstance(event, ObservationReady) and event.kind is (
+                ObservationKind.PLANE
+            ):
+                occupancy = theirs.workspace.reading().occupancy
+                assert occupancy is not None
+                readings.append((occupancy, theirs.workspace.committed().copy()))
+
     try:
-        monitor = _fresh_bound(ours, simulation, problem)
-        for third in (1, 2, 3):
-            stepping(theirs).propagate_to(LENGTH * third / 3)
-            expected = reading(theirs).occupancy
-            state = as_driver(theirs)._require_state()[0]
-            got = native_reading(ours, monitor, np.array(state)).occupancy
-            assert expected is not None and got is not None
+        monitor = simulation._boundary_monitor()
+        assert monitor is not None
+        session_run(
+            theirs,
+            problem,
+            request.for_run(monitor=monitor),
+            Start(
+                field=with_copy(problem.initial.field0, simulation.grid.n_t),
+                z=float(problem.initial.z),
+            ),
+            between=keep,
+        )
+        assert len(readings) == len(planes)
+        fresh = _fresh(simulation)
+        for expected, state in readings:
+            got = _loaded_reading(ours, problem, fresh, state).occupancy
+            assert got is not None
             np.testing.assert_allclose(
                 got, expected, rtol=0.0, atol=bound * float(expected.sum())
             )

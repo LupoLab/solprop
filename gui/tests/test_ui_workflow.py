@@ -11,10 +11,11 @@ from typing import Any
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QEvent, QSettings, QStandardPaths, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QSettings, QStandardPaths, Qt
 from PySide6.QtGui import QFontDatabase, QStandardItemModel
 from PySide6.QtWidgets import QBoxLayout, QLabel, QLineEdit, QWidget
 from pytestqt.qtbot import QtBot
+from shiboken6 import isValid
 from solprop.constants import C
 from solprop.output import open_file
 from solprop.service.messages import Event
@@ -739,12 +740,21 @@ def test_the_filament_s_sheet_links_its_rows(  # noqa: PLR0915 - one story
     assert model.get("settings.ionisation_field_range") is MISSING
     plasma.click()
     assert len(model.get("responses")) == 2  # pyright: ignore[reportArgumentType]
-    planes = sheet.rows["settings.save_planes", "build"].number.number
-    planes.setText("10")
-    planes.textEdited.emit("10")
-    held = model.get("settings.save_planes")
-    assert isinstance(held, list)
-    assert len(held) == 10
+    # The example lists its planes, so they open as explicit positions, unchanged.
+    planes = sheet.rows["settings.n_save", "build"]
+    listed = model.get("settings.save_planes")
+    assert isinstance(listed, list)
+    assert planes.current_mode == "text"
+    assert planes.mode.currentText() == "Explicit positions"
+    assert planes.value == listed
+    planes.mode.setCurrentIndex(planes.modes.index("number"))
+    planes.number.number.setText("10")
+    planes.number.number.textEdited.emit("10")
+    assert model.get("settings.n_save") == 10
+    assert model.get("settings.save_planes") is MISSING
+    window.document.undo.undo()
+    assert model.get("settings.save_planes") == listed
+    assert model.get("settings.n_save") is MISSING
     sheet.apply_lens(50e-6, 0.1)
     assert str(model.get("initial.waist")).endswith("um")
     assert str(model.get("initial.propz")).startswith("-")
@@ -761,6 +771,95 @@ def test_the_filament_s_sheet_links_its_rows(  # noqa: PLR0915 - one story
     assert lens.args == [pytest.approx(0.5), pytest.approx(2e-3)]
     window._ask_lens(0.5, 2e-3)
     window.document.undo.undo()
+
+
+def _planes_held(model: RecipeModel) -> tuple[object, object]:
+    """Return the count and the positions a keyword route's recipe holds."""
+    return model.get("n_save"), model.get("save_planes")
+
+
+def test_the_saved_planes_are_a_count_or_positions_never_both(  # noqa: PLR0915 - one story
+    window: WorkflowWindow, qtbot: QtBot, tmp_path: Path
+) -> None:
+    open_tiny(window, qtbot)
+    sheet = window.sheet
+    model = window.document.model
+    assert model is not None
+    row = sheet.rows["n_save", "build"]
+    assert ("save_planes", "build") not in sheet.rows
+    assert row.current_mode == "number"
+    assert not row.mode.isHidden()
+    assert [row.mode.itemText(i) for i in range(row.mode.count())] == [
+        "Evenly spaced",
+        "Explicit positions",
+    ]
+    assert row.number.number.text() == "6"
+    # A length change leaves the count to spread itself.
+    sheet.rows["length", "build"].edited.emit("length", "build", "4 cm")
+    assert _planes_held(model) == (6, MISSING)
+    window.document.undo.undo()
+    # Switching shows the other editor, empty: a count is never shown as positions.
+    row.mode.setCurrentIndex(row.modes.index("text"))
+    assert row.text.text() == ""
+    row.text.editingFinished.emit()
+    assert _planes_held(model) == (6, MISSING)
+    # The first entry in the new form replaces the count, in one undoable edit.
+    done = window.document.undo.index()
+    row.text.setText('["1 cm", "4 cm"]')
+    row.text.editingFinished.emit()
+    assert _planes_held(model) == (MISSING, ["1 cm", "4 cm"])
+    assert window.document.undo.index() == done + 1
+    window.document.undo.undo()
+    assert _planes_held(model) == (6, MISSING)
+    assert row.current_mode == "number"
+    window.document.undo.redo()
+    assert _planes_held(model) == (MISSING, ["1 cm", "4 cm"])
+    assert row.current_mode == "text"
+    # One position typed is a list of one.
+    row.text.setText('"2 cm"')
+    row.text.editingFinished.emit()
+    assert _planes_held(model) == (MISSING, ["2 cm"])
+    row.text.setText('["1 cm", "4 cm"]')
+    row.text.editingFinished.emit()
+    # Explicit positions stay as entered; one beyond a shorter length is refused there.
+    sheet.rows["length", "build"].edited.emit("length", "build", "3 cm")
+    assert _planes_held(model) == (MISSING, ["1 cm", "4 cm"])
+    qtbot.waitUntil(lambda: not row.issue.isHidden(), timeout=WAIT_MS)
+    assert "length" in row.issue.text()
+    assert sheet.ready.text().startswith("Not ready")
+    sheet.rows["length", "build"].edited.emit("length", "build", "5 cm")
+    qtbot.waitUntil(row.issue.isHidden, timeout=WAIT_MS)
+    # Saved and opened again, the setup opens on the form it holds.
+    path = tmp_path / "planes.toml"
+    assert window.document.save_as(path)
+    assert "n_save" not in path.read_text(encoding="utf-8")
+    window.document.set_model(RecipeModel(TINY), base=None)
+    qtbot.waitUntil(lambda: sheet.rows["n_save", "build"].value == 6, timeout=WAIT_MS)
+    window.open_setup(str(path))
+    qtbot.waitUntil(
+        lambda: sheet.rows["n_save", "build"].current_mode == "text", timeout=WAIT_MS
+    )
+    reopened = window.document.model
+    assert reopened is not None
+    assert _planes_held(reopened) == (MISSING, ["1 cm", "4 cm"])
+    assert sheet.rows["n_save", "build"].text.text() == '["1 cm", "4 cm"]'
+    # Back to a count: one edit takes the positions away.
+    row = sheet.rows["n_save", "build"]
+    row.mode.setCurrentIndex(row.modes.index("number"))
+    assert row.number.number.text() == ""
+    row.number.number.setText("9")
+    row.number.number.textEdited.emit("9")
+    assert _planes_held(reopened) == (9, MISSING)
+
+
+def test_an_uneven_list_opens_as_itself(window: WorkflowWindow, qtbot: QtBot) -> None:
+    text = TINY.replace("n_save = 6", 'save_planes = ["1 cm", "1.5 cm", "4 cm"]')
+    window.document.set_model(RecipeModel(text), base=None)
+    qtbot.waitUntil(lambda: bool(window.sheet.rows), timeout=WAIT_MS)
+    row = window.sheet.rows["n_save", "build"]
+    qtbot.waitUntil(lambda: row.current_mode == "text", timeout=WAIT_MS)
+    assert row.value == ["1 cm", "1.5 cm", "4 cm"]
+    assert row.number.number.text() == ""
 
 
 def test_every_page_of_a_filament_shows_it(  # noqa: PLR0915 - one story
@@ -1434,6 +1533,26 @@ def test_a_step_index_fibre_solves_its_mode_for_its_numbers(
     assert any(
         box.placeholderText() == "fused silica" for box in core.findChildren(QLineEdit)
     )
+
+
+def test_a_second_answer_to_a_routes_description_leaves_its_sheet_standing(
+    window: WorkflowWindow, qtbot: QtBot
+) -> None:
+    # A route asked ahead and asked again as its setup opened is answered twice when
+    # the first answer is through before the second question is sent (#791).
+    window.begin_class("gnlse")
+    sheet = window.sheet
+    qtbot.waitUntil(lambda: sheet.problem is GNLSE, timeout=WAIT_MS)
+    order = sheet.derived["soliton_order"]
+    model = window.document.model
+    assert model is not None
+    route = model.route
+    again = window.document._ask("describe", {"route": route}, f"describe-{route}")
+    qtbot.waitUntil(lambda: again not in window.document._pending, timeout=WAIT_MS)
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert sheet.derived["soliton_order"] is order
+    assert isValid(order)
+    qtbot.waitUntil(lambda: order.text() == "3", timeout=WAIT_MS)
 
 
 def test_a_graded_index_fibre_shows_its_profile_and_its_modes(

@@ -7,7 +7,7 @@
 import h5py
 
 from solprop.output.hdf5 import read_recipe, write_recipe
-from solprop.output.schema import RecipeFile, RecipeRecord
+from solprop.output.records import RecipeFile, RecipeRecord
 
 
 def test_a_recipe_and_its_files_read_back_as_written(tmp_path):

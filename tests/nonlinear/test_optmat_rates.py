@@ -123,6 +123,27 @@ def test_the_rate_is_held_above_the_maximum_field_and_the_run_records_it():
     rate(rate.maximum_field * 2.0)
 
 
+def test_optmats_tracker_ids_are_dropped_from_a_rate_range_warning():
+    # Issue #166, for the rate's warnings at resolution, which optmat 0.9.1 words
+    # without ids.
+    rate = OptmatRate("Ar", WAVELENGTH)
+    text = "below 350 nm (the carrier) the rate is extrapolated"
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warnings.warn(f"{text} (TC-831)", ModelRangeWarning, stacklevel=1)
+    with (
+        _optmat.material_context() as log,
+        pytest.warns(MaterialRangeWarning) as raised,
+    ):
+        rate._translate_warnings(caught)
+    (message,) = [str(w.message) for w in raised]
+    assert "TC-" not in message
+    assert f"{text}. It is used as selected" in message
+    entry: Any
+    (entry,) = log.range_entries()
+    assert list(entry["outside"]) == [text]
+
+
 def test_a_table_above_the_maximum_field_has_nothing_to_tabulate():
     rate = OptmatRate(Gas.Ar, WAVELENGTH)
     assert rate.species_identity == "Ar"
@@ -664,7 +685,7 @@ def test_a_selection_refuses_a_custom_species_and_a_missing_carrier():
     )
     with pytest.raises(MaterialError, match="custom species"):
         selected_rate(supplied, selection, WAVELENGTH)
-    with pytest.raises(MaterialError, match="custom species"):
+    with pytest.raises(MaterialError, match=r"dispersion-only.*use Mixture\.air"):
         selected_rate(species("Air"), selection, WAVELENGTH)
     with pytest.raises(MaterialError, match="carrier wavelength"):
         selected_rate(argon, selection, None)

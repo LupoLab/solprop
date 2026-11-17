@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from numpy.polynomial import Chebyshev
 from scipy.integrate import quad
 
 from solprop.constants import K_B
@@ -28,6 +29,7 @@ from solprop.profiles import (
     PiecewiseLinear,
     PressureGradient,
     Scaled,
+    SeriesOfPath,
     Sum,
     ZProfile,
     as_profile,
@@ -865,3 +867,73 @@ def test_the_hydraulic_integral_of_a_uniform_bore_is_length_over_a4():
         np.array([0.25, 0.75]) / 1e-16,
         rtol=4 * np.finfo(float).eps,
     )
+
+
+# ------------------------------------------------- what a path keeps of its caller's
+
+
+def _piecewise_table():
+    positions, values = np.array([0.0, 0.5, 1.0]), np.array([2.0, 1.0, 3.0])
+    return (positions, values), PiecewiseLinear(positions, values)
+
+
+def _pressure_table():
+    positions, pressures = np.array([0.0, 0.5, 1.0]), np.array([2.0, 1.5, 0.5])
+    fill = PressureGradient(positions=positions, pressures=pressures, floor=0.0)
+    return (positions, pressures), fill
+
+
+def _declared_positions():
+    kinks, jumps, turning = (
+        np.array([0.25]),
+        np.array([0.5]),
+        np.array([0.75]),
+    )
+    path = FromCallable(
+        lambda z: 1.0 + 0.0 * z, (0.0, 1.0), kinks=kinks, jumps=jumps, turning=turning
+    )
+    return (kinks, jumps, turning), path
+
+
+def _series_coefficients():
+    # An explicit window: the default is numpy's class-wide array, which the test's
+    # in-place change would corrupt for every later series.
+    series = Chebyshev([1.0, 0.5, 0.25], domain=[0.0, 2.0], window=[-1.0, 1.0])
+    assert series.window is not Chebyshev.window
+    path = SeriesOfPath(Linear(0.0, 2.0, 1.0), series)
+    return (series.coef, series.domain, series.window), path
+
+
+@pytest.mark.parametrize(
+    "build",
+    [_piecewise_table, _pressure_table, _declared_positions, _series_coefficients],
+    ids=["piecewise_linear", "pressure_gradient", "from_callable", "series_of_path"],
+)
+def test_a_path_keeps_a_read_only_copy_of_the_callers_arrays(build):
+    """Changing an array after building a path changes neither the path nor its record.
+
+    A run holds its profiles until it is translated and records them in its
+    configuration, so a path that shared its caller's table would let a later change
+    reach the run and its configuration hash (issue #471).
+    """
+    given, path = build()
+    probes = np.linspace(0.0, 1.0, 9)
+    before = (path(probes), path.breakpoints.copy(), repr(path))
+    identity = profile_identity(path) if not isinstance(path, FromCallable) else None
+    for values in given:
+        np.multiply(values, 3.0, out=values)
+    # Exact: the path evaluates the same table at the same points.
+    np.testing.assert_array_equal(path(probes), before[0])
+    np.testing.assert_array_equal(path.breakpoints, before[1])
+    assert repr(path) == before[2]
+    if identity is not None:
+        assert profile_identity(path) == identity
+    kept = [
+        value
+        for value in vars(path).values()
+        if isinstance(value, np.ndarray) and value.size
+    ]
+    if isinstance(path, SeriesOfPath):
+        kept = [path.series.coef, path.series.domain, path.series.window]
+    assert kept
+    assert not any(value.flags.writeable for value in kept)

@@ -23,7 +23,7 @@ from solprop.grid import FieldGrid, FreeGrid
 from solprop.nonlinear.responses import DispersiveKerrResponse, KerrResponse
 from solprop.output import HDF5Output
 from solprop.output.hdf5 import check_cache
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.physdata import MaterialSelection, Mixture
 from solprop.physdata.nonlinear_data import OptmatKerr
 from solprop.pulses import GaussianPulse, SpatialPulse

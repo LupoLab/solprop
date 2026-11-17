@@ -4,17 +4,17 @@
 
 """A run's job: build, run, continue or scan, observe, and record (design 13.4).
 
-Every run is a job of its own (:mod:`solprop.service.job`), on this computer or
-another, and streams to nothing but its record (:mod:`solprop.service.record`): the
-window follows the record. The march runs in the main thread, and its plane observer
-(:class:`LiveObserver`) only reduces each plane and hands the row to the record, whose
-own thread writes it. The run's stop file sets its stop token
-(:class:`solprop.backends.session.StopToken`), which reaches the session.
+:func:`execute` runs, or continues, one run or scan as a job of its own
+(:mod:`solprop.service.job`), streaming to nothing but its record
+(:mod:`solprop.service.record`): the window follows the record. The march runs in the
+main thread, and its plane observer (:class:`LiveObserver`) only reduces each plane
+and hands the row to the record, whose own thread writes it; :class:`ScanObserver`
+turns a scan's progress into events and :class:`EventHandler` forwards log records.
+The run's stop file sets its stop token (:class:`solprop.backends.session.StopToken`).
 
 Whether a run *stopped* comes from the worker's own flag and the run's clean return,
-never from solprop's outcome, which records a stop as a failure.
-
-This module imports solprop and runs only in a worker process.
+never from solprop's outcome, which records a stop as a failure. This module imports
+solprop and runs only in a worker process.
 """
 
 import logging
@@ -23,7 +23,6 @@ import time
 import traceback
 import warnings
 from collections.abc import Callable, Mapping
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -44,7 +43,6 @@ from solprop.service.record import (
     clear_stop,
     set_aside,
     watch_stop,
-    write_job,
 )
 from solprop.service.reduce import (
     SPECTRAL_AXES,
@@ -264,7 +262,7 @@ class ScanObserver(ScanReporter):
         """
         values = getattr(point, "values", {})
         # A keyword's value is read in SI; a nested path's is the quantity as written.
-        plain = {str(k): _plain(v) for k, v in dict(values).items()}  # pyright: ignore[reportUnknownArgumentType]
+        plain = {str(k): _point_value(v) for k, v in dict(values).items()}  # pyright: ignore[reportUnknownArgumentType]
         place = [int(i) for i in getattr(point, "multi_index", ())]
         self.emit(
             Event(
@@ -365,7 +363,7 @@ def _ending(output: Path, stopped: bool) -> tuple[str, dict[str, object]]:
     return "failed", data
 
 
-def _plain(value: object) -> float | str:
+def _point_value(value: object) -> float | str:
     """Return a point's value as an event carries it.
 
     - ``value``: a number, or a quantity as a recipe writes it (``"0.8 bar"``).
@@ -495,9 +493,7 @@ def execute(spec: RunSpec) -> None:
     finally:
         record.put(Event(spec.run_id, kind, data))
         done.set()
-        record.close()
-        if record.job is not None:
-            write_job(folder, replace(record.job, ended=time.time()))
+        record.close()  # records the job's end too
         detach()
 
 

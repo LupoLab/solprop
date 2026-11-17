@@ -4,41 +4,24 @@
 
 """Read fields, spectra and spectral densities out of a saved run.
 
-The field, spectrum and density accessors, in solprop's conventions. Each one takes an
-:class:`~solprop.output.schema.Output` -- a memory handler or an HDF5 handler, through
-the same protocol -- selects a saved plane and a set of modes, and returns an abscissa
-and an array whose trivial mode and polarisation axes have been squeezed away.
+Each accessor takes an :class:`~solprop.output.store.Output`, selects a saved plane and
+a set of modes, and returns an abscissa and an array with trivial mode and polarisation
+axes squeezed away: :func:`get_spectrum`, :func:`get_spectral_density` (J/(rad/s) or
+on another axis), :func:`get_field`, :func:`get_power` and :func:`get_phase`, with
+:func:`nearest_plane` and :func:`time_axis`; :func:`get_spectrogram` and
+:func:`field_spectrogram` (with :func:`real_field_oversampling`) map time and
+frequency.
 
-Three rules hold throughout.
+The rules every accessor follows -- the optics convention by default, the spectral
+normalisation of :func:`get_spectrum`, the active band, the plane selection, and no
+implicit window -- are in ``docs/guide/results/processing.md`` ("Four rules that hold
+everywhere"). Two more:
 
-**Convention.** Arrays come back in the optics convention by default and in the FFT
-convention on request. For a spectrum the difference is the conjugation *and*
-the phase origin, both of which the output layer applies; for a time-domain array it is
-the conjugation alone. A real field, an energy and a density are convention-free.
-
-**Normalisation.** :func:`get_spectrum` carries the spectral normalisation, so that
-``abs(spectrum) ** 2`` is the spectral energy density in J/(rad/s) --
-:func:`solprop.fourier.spectral_density` of the same plane, to round-off. The stored
-array itself, the raw forward DFT, is ``output.fields()``.
-
-**Band.** The default is the grid's active band, on an ascending
-frequency axis. Pass ``band="all"`` for every stored bin, remembering that a field grid
-then includes the zero-frequency bin, where a wavelength is undefined.
-
-No window is ever applied implicitly. ``bandpass`` is a keyword, it is a wavelength
-range, and nothing happens without it.
-
-**A spatial file's columns are not modes.** :func:`get_power` and
-:func:`get_spectral_density` read each column of the mode axis as a modal amplitude in
-sqrt(W), so on a radial, Cartesian, line or planar file they refuse by name and name the
-functional of :mod:`solprop.spatial` that measures the quantity. :func:`get_spectrum`,
-:func:`get_field` and :func:`get_phase` return the stored columns as they are, in the
-file's own units, and read every file.
-
-**The noise floor.** A run with input shot noise saves a field that carries its seed,
-one photon per active bin and channel. ``noise_floor="subtract"`` on
-:func:`get_spectral_density` removes exactly that seed's energy, bin by bin and channel
-by channel, and returns the signed remainder (SEP 37, section 5.5).
+- On a spatial file :func:`get_power` and :func:`get_spectral_density` refuse by name,
+  since they read each column as a modal amplitude in sqrt(W); :func:`get_spectrum`,
+  :func:`get_field` and :func:`get_phase` return the stored columns in the file's units.
+- ``noise_floor="subtract"`` on :func:`get_spectral_density` removes the input
+  shot-noise seed's energy bin by bin (SEP 37; "Removing the noise floor").
 """
 
 import math
@@ -48,10 +31,12 @@ import numpy as np
 from jaxtyping import Complex, Float, Inexact
 
 from solprop import fourier
+from solprop._validation import choice
 from solprop.exceptions import ModeError, ProcessingError
 from solprop.grid import TimeGrid
 from solprop.optics import TransferFunction, stored_factor
-from solprop.output.schema import Convention, Output
+from solprop.output.records import Convention
+from solprop.output.store import Output
 from solprop.processing import spectra
 from solprop.processing.axes import (
     SPECTRAL_AXES,
@@ -59,10 +44,10 @@ from solprop.processing.axes import (
     ModeSelection,
     SpectralAxis,
     _apply_modes,
-    _check_choice,
     _keep_index,
     _nearest_plane,
     _plane_field,
+    _plane_index,
     _refuse_by_basis,
     _squeeze,
     grid_of,
@@ -119,7 +104,7 @@ def nearest_plane(output: Output, z: float) -> int:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding at least one plane.
     z : float
         Position along the propagation, m.
@@ -163,7 +148,7 @@ def get_spectrum(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end. With ``z``, at most one of the
@@ -191,6 +176,8 @@ def get_spectrum(
     ------
     solprop.exceptions.ModeError
         If ``modes='sum'``.
+    solprop.exceptions.ProcessingError
+        If both ``plane`` and ``z`` are given.
 
     Examples
     --------
@@ -231,7 +218,7 @@ def get_spectral_density(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     axis : {'wavelength', 'f', 'omega'}
         The abscissa, in m, Hz or rad/s.
@@ -329,7 +316,7 @@ def _spectral_density(
     - ``z``: position of the plane wanted, m.
     - ``band``: which part of the stored axis to use.
     """
-    _check_choice(noise_floor, NOISE_FLOORS, "noise_floor")
+    choice(noise_floor, "noise_floor", NOISE_FLOORS, ProcessingError)
     grid = grid_of(output)
     values = _plane_field(output, plane, z, convention="optics")
     density = np.abs(values * _fft_norm(grid)) ** 2
@@ -416,7 +403,7 @@ def get_field(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     kind : {'analytic', 'real', 'envelope'}
         Which representation to return.
@@ -467,7 +454,7 @@ def get_field(
     >>> bool(np.isrealobj(field))
     True
     """
-    _check_choice(kind, FIELD_KINDS, "kind")
+    choice(kind, "kind", FIELD_KINDS, ProcessingError)
     grid, t, amplitude = _plane_amplitude(
         output,
         plane=plane,
@@ -510,7 +497,7 @@ def get_power(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end; see :func:`get_spectrum`.
@@ -623,7 +610,7 @@ def get_phase(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end; see :func:`get_spectrum`.
@@ -860,15 +847,15 @@ def get_spectrogram(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     axis : {'f', 'omega', 'wavelength'}
         The spectral abscissa, in Hz, rad/s or m.
-    plane : int or None
-        Index of the plane, negative from the end; the last plane when neither it nor
-        ``z`` is given.
+    plane : int or None, optional
+        Index of the plane, negative from the end; the last by default.
     z : float or None
-        Position of the plane, m: the nearest saved plane.
+        Position of the plane instead, m: the nearest saved plane. Refused beside a
+        `plane`.
     modes : int, sequence of int, 'sum' or None
         Which mode. A multimode run must name one: a spectrogram is of a field, and
         modal fields do not add away from a point in space.
@@ -903,7 +890,8 @@ def get_spectrogram(
     solprop.exceptions.ProcessingError
         If the time range misses the time window or selects no gate position, the
         gate is not positive or is wider than the window, the number of positions is
-        not positive, or ``axis`` is unknown.
+        not positive, ``axis`` is unknown, or the plane is named both by index and by
+        position.
 
     Examples
     --------
@@ -914,14 +902,11 @@ def get_spectrogram(
     >>> values.shape == (f.size, t.size), bool(np.all(np.diff(f) > 0))
     (True, True)
     """
-    _check_choice(axis, SPECTRAL_AXES, "axis")
-    if plane is None and z is None:
-        plane = -1
+    choice(axis, "axis", SPECTRAL_AXES, ProcessingError)
     t, field = get_field(
         output,
         kind="real",
-        plane=plane,
-        z=z,
+        plane=_plane_index(output, plane, z),
         modes=modes,
         oversampling=real_field_oversampling(grid_of(output)),
         bandpass=bandpass,

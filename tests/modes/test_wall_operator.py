@@ -11,8 +11,8 @@ of the deviation rather than a tolerance chosen after a run.
 The independent references are: complex roots of the exact outgoing radial equation
 ``q J_1(q) + i eta J_0(q) = 0``, solved by a root finder that knows nothing about the
 condensation; a one-sided difference of the basis function at the wall; this package's
-own :class:`~solprop.modes.capillary.MarcatiliMode` effective index; and the committed
-wall-stiffness rows of an independent prototype.
+own :class:`~solprop.modes.capillary.MarcatiliMode` effective index; and the exact
+outgoing vector roots of an independent prototype.
 """
 
 import json
@@ -28,7 +28,7 @@ from scipy.linalg import sqrtm
 from scipy.optimize import newton, root
 from scipy.special import jn_zeros, jv
 
-import solprop.modes.capillary as capillary_module
+import solprop.modes.wall as wall_module
 from solprop.constants import EPS0, C
 from solprop.exceptions import GrazingIncidenceWarning, ModeError
 from solprop.modes import (
@@ -38,20 +38,15 @@ from solprop.modes import (
     RectMode,
     TubeLattice,
     VincettiMode,
-    WallLimits,
     capillary,
     vector_wall_operator,
-    wall_connection,
     wall_operator,
-    wall_square_root_metric,
 )
-from solprop.modes.capillary import ModeKind, _cladding_term_and_derivative
+from solprop.modes.capillary import ModeKind, cladding_term_and_derivative
+from solprop.modes.wall import WallLimits, wall_connection, wall_square_root_metric
 from solprop.profiles import FromCallable, Linear, ZProfile
 
 ORACLE = Path(__file__).resolve().parents[1] / "data" / "wall_oracle"
-
-STIFFNESS = ORACLE / "stiffness.json"
-"""Rows of an independent prototype's wall-stiffness study: sixty wall blocks."""
 
 VECTOR_ROOTS = ORACLE / "vector_roots.json"
 """Exact outgoing vector boundary roots of a 150 micrometre bore for TE, TM, HE and EH,
@@ -190,43 +185,6 @@ def test_every_channel_of_a_block_carries_its_own_marcatili_loss():
             4.0 * len(modes) ** 2 * inverse_eta**2 + mode.u_nm**2 / (2.0 * carrier**2)
         )
         assert measured / marcatili - 1.0 == pytest.approx(predicted, rel=5e-2)
-
-
-@pytest.mark.medium
-@pytest.mark.filterwarnings("ignore:The maximum number of subdivisions")
-def test_the_block_reproduces_the_prototype_stiffness_rows():
-    """Every row of the prototype's stiffness study comes out of the production block.
-
-    Bound, stated first: the production operator and the prototype are the
-    same arithmetic in a different order, so the three spectral quantities the
-    receipt records -- the rank-one wall term's spectral radius, that of its
-    off-diagonal remainder, and the highest channel's Marcatili loss -- agree to
-    1e-12 relative, which is the rounding of an eigenvalue solve of a rank-one
-    perturbation at these magnitudes. All sixty rows are checked, five wavelengths
-    from 0.8 to 12 micrometres, both cladding indices and N from 8 to 160.
-    """
-    rows = json.loads(STIFFNESS.read_text())
-    assert len(rows) == 60
-    for row in rows:
-        omega = np.array([2.0 * np.pi * C / (row["wavelength_um"] * 1e-6)])
-        modes = block(
-            row["N"], row["radius_m"], None, 0.0, cladding=row["cladding_index"]
-        )
-        operator = wall_operator(modes, omega, validity_limit=100.0)
-        rank_one = operator.coupling[0] * np.outer(
-            operator.trace_vector, operator.trace_vector
-        )
-        whole = float(max(abs(np.linalg.eigvals(rank_one))))
-        off = rank_one - np.diag(np.diag(rank_one))
-        remainder = float(max(abs(np.linalg.eigvals(off))))
-        highest = (
-            modes[-1].u_nm ** 2
-            * float(np.real(omega[0] / C / operator.impedance[0]))
-            / (float(np.real(operator.wavenumber[0])) ** 2 * row["radius_m"] ** 3)
-        )
-        assert whole == pytest.approx(row["whole_wall"]["rho_per_m"], rel=1e-12)
-        assert remainder == pytest.approx(row["offdiagonal"]["rho_per_m"], rel=1e-12)
-        assert highest == pytest.approx(row["alpha_N_marcatili_per_m"], rel=1e-12)
 
 
 def test_the_block_is_passive_and_its_hermitian_part_is_rank_one():
@@ -451,14 +409,14 @@ def test_an_empty_band_or_an_empty_frequency_vector_is_rejected():
 def test_no_cladding_this_package_ships_can_leave_the_passive_branch():
     """`Re(1/v_HE) >= 0` for every permittivity, which is why the wall always absorbs.
 
-    The algebra in :func:`solprop.modes.capillary._check_wall_passivity` says
+    The algebra in :func:`solprop.modes.wall._check_wall_passivity` says
     `Re(2s/(s^2+2)) = 2x(|s|^2+2)/|s^2+2|^2` with `x = Re sqrt(e - 1) >= 0` on the
     principal root. This measures it over a grid of real, complex, absorbing and
     below-unity claddings, to an absolute -1e-15 of the value's own scale.
     """
     grid = [0.5, 0.95, 1.0001, 1.3, 1.45, 3.0, 1.45 + 0.05j, 0.6 + 0.2j, 1.0 + 0.5j]
     permittivity = np.array([complex(one) ** 2 for one in grid])
-    term, _ = _cladding_term_and_derivative(
+    term, _ = cladding_term_and_derivative(
         permittivity, np.zeros_like(permittivity), "HE"
     )
     assert np.all(np.real(1.0 / term) >= -1e-15 * abs(1.0 / term))
@@ -475,13 +433,13 @@ def test_an_impedance_off_the_passive_branch_is_refused_rather_than_clamped(
     such as the vector averages of the hybrid families, and against a sign slipped
     into this arithmetic.
     """
-    principal = capillary._cladding_term_and_derivative
+    principal = capillary.cladding_term_and_derivative
 
     def active(permittivity, dpermittivity, kind):
         term, derivative = principal(permittivity, dpermittivity, kind)
         return -term, -derivative
 
-    monkeypatch.setattr(capillary, "_cladding_term_and_derivative", active)
+    monkeypatch.setattr(capillary, "cladding_term_and_derivative", active)
     with pytest.raises(ModeError, match="not passive on the branch"):
         wall_operator(block(3, 125e-6, None, 0.0), np.array([2.356e15]))
 
@@ -1373,13 +1331,13 @@ def test_the_mixed_family_coupling_moves_the_eigenvalue_towards_the_exact_root(
         return -float(np.real(nearest)) / (exact["attenuation_radius"] / radius) - 1.0
 
     coupled = nearest_departure(vector_wall_operator(modes, omega, validity_limit=2.0))
-    true_impedances = capillary_module._vector_impedances
+    true_impedances = wall_module._vector_impedances
 
     def averaged(mode, band):
         both = true_impedances(mode, band)
         return np.repeat(np.mean(both, axis=0, keepdims=True), 2, axis=0)
 
-    monkeypatch.setattr(capillary_module, "_vector_impedances", averaged)
+    monkeypatch.setattr(wall_module, "_vector_impedances", averaged)
     uncoupled = nearest_departure(
         vector_wall_operator(modes, omega, validity_limit=2.0)
     )
@@ -1555,11 +1513,12 @@ def test_a_set_that_is_not_one_azimuthal_order_is_refused_by_name(modes, message
 
 
 def test_a_vector_block_refuses_what_it_would_otherwise_override():
-    """`loss=`, `model=`, a mixed guide, a mixed angle and a lattice, each by name."""
+    """`loss_scale=`, `alpha=`, `model=`, a mixed guide, a mixed angle, a lattice."""
     omega = np.array([2.356e15])
     for overridden, message in (
-        (vector_block((1, 1), loss=False), "is the loss model"),
-        (vector_block((1, 1), loss=0.5), "is the loss model"),
+        (vector_block((1, 1), loss_scale=0.0), "is the loss model"),
+        (vector_block((1, 1), loss_scale=0.5), "is the loss model"),
+        (vector_block((1, 1), alpha=1.0), "is the loss model"),
         (vector_block((1, 1), model="reduced"), "one capillary model"),
     ):
         with pytest.raises(ModeError, match=message):

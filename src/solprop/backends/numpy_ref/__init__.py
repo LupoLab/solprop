@@ -7,111 +7,39 @@
 Plain NumPy and ``scipy.fft`` through :mod:`solprop.fourier`, one named function per
 pass, no fusion, no in-place tricks and no compiled code. It exists to be read and to be
 right: every other backend is validated against the numbers it produces
-(``docs/dev/backends.md`` section 2). It propagates a mode-averaged or multimode problem
-on either grid with the Kerr, Raman and plasma terms, using interaction-picture DOPRI5
-with the cumulative operator, the lagged PI controller, landing on save planes and hard
-kinks, the shot-noise field and the hard band mask.
+(``docs/dev/backends.md`` section 2). It runs every route and every march.
 
-:mod:`solprop.backends.numpy_ref.passes` holds the passes;
-:mod:`solprop.backends.numpy_ref.backend` holds the step loop and the seam;
-``construct`` is the registry's constructor (:mod:`solprop.backends.registry`).
+Reading order: :mod:`~solprop.backends.numpy_ref.passes` holds the formulas, one
+function per pass of a stage; :mod:`~solprop.backends.numpy_ref.backend` the seam
+(:class:`~solprop.backends.numpy_ref.backend.NumpyRefBackend`), which builds the
+workspace (:mod:`~solprop.backends.numpy_ref.workspace`), the engines
+(:mod:`~solprop.backends.numpy_ref.engines`,
+:mod:`~solprop.backends.numpy_ref.multistep`) and the march of each run. The workspace
+owns the stage source (:mod:`~solprop.backends.numpy_ref.source`), the statistics
+(:mod:`~solprop.backends.numpy_ref.statistics`) and the coupled flow
+(:mod:`~solprop.backends.numpy_ref.coupled_flow`); the Adams arithmetic and coefficients
+are :mod:`~solprop.backends.numpy_ref.adams_kernels` and
+:mod:`~solprop.backends.numpy_ref.adams_tables`, the general modal guide
+:mod:`~solprop.backends.numpy_ref.general_modal`, the dense output
+:mod:`~solprop.backends.numpy_ref.dense`.
+
+The stateful control of a run is the reference's own: its session
+(:mod:`~solprop.backends.numpy_ref.session`, composed of the parts in
+:mod:`~solprop.backends.numpy_ref.session_parts`), which schedules a run and drives its
+march, and the marches it drives (:mod:`~solprop.backends.numpy_ref.marches`): the
+Runge-Kutta march (:mod:`~solprop.backends.numpy_ref.marches.runge_kutta`), the Adams
+march (:mod:`~solprop.backends.numpy_ref.marches.adams`) and the low-storage march
+(:mod:`~solprop.backends.numpy_ref.marches.low_storage`). They are the Python statement
+of what native's ``session.cpp`` and compiled marches do, and native is traced against
+them, but native runs in its own session and imports none of them. What the two backends
+share is stateless: the controller cores (:mod:`solprop.backends.adams_core`,
+:mod:`solprop.backends.rk_core`), the engine protocols
+(:mod:`solprop.backends.engines`), the low-storage method
+(:mod:`solprop.backends.low_storage`), the tableaux, stage tables, exponential
+coefficients and call ledger, and the preparation refusals
+(:func:`solprop.backends.session.check_preparation`).
 """
 
-from collections.abc import Mapping, Sequence
-
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
-from solprop.backends.numpy_ref.passes import (
-    accept_step,
-    accumulate,
-    apply_hard_mask,
-    apply_temporal_rate,
-    error_norm,
-    ionisation_rate,
-    kerr_polarisation,
-    nonlinear_polarisation,
-    plasma_current,
-    plasma_scan,
-    project,
-    raman_polarisation,
-    raman_spectrum,
-    stage_input,
-    stage_output,
-    synthesise,
-    to_frequency,
-    to_time,
-)
-from solprop.backends.session import ExecutionOptions
-from solprop.grid import TimeGrid
-from solprop.modes.protocol import Mode
-from solprop.profiles import ZProfile
-from solprop.translate.problem import PropagationProblem
-from solprop.translate.run_request import RunRequest
-from solprop.translate.tdse import TDSEBinding
 
-__all__ = [
-    "NumpyRefBackend",
-    "accept_step",
-    "accumulate",
-    "apply_hard_mask",
-    "apply_temporal_rate",
-    "construct",
-    "error_norm",
-    "ionisation_rate",
-    "kerr_polarisation",
-    "nonlinear_polarisation",
-    "plasma_current",
-    "plasma_scan",
-    "project",
-    "raman_polarisation",
-    "raman_spectrum",
-    "stage_input",
-    "stage_output",
-    "synthesise",
-    "to_frequency",
-    "to_time",
-]
-
-
-def construct(
-    problem: PropagationProblem,
-    request: RunRequest,
-    *,
-    grid: TimeGrid | None = None,
-    modes: Sequence[Mode] | None = None,
-    profiles: Mapping[str, ZProfile] | None = None,
-    tdse_binding: TDSEBinding | None = None,
-    options: ExecutionOptions | None = None,
-) -> NumpyRefBackend:
-    """Construct the reference for a problem, as the registry selects it.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem to step.
-    request : solprop.translate.run_request.RunRequest
-        The run's policies.
-    grid : solprop.grid.TimeGrid or None, optional
-        The grid the state lives on.
-    modes : collections.abc.Sequence or None, optional
-        The propagated modes.
-    profiles : collections.abc.Mapping or None, optional
-        The z-profiles keyed by statistic name.
-    tdse_binding : solprop.translate.tdse.TDSEBinding or None, optional
-        Driver-owned host response binding for a TDSE problem.
-    options : solprop.backends.session.ExecutionOptions or None, optional
-        The run's execution options.
-
-    Returns
-    -------
-    NumpyRefBackend
-        The reference.
-    """
-    return NumpyRefBackend(
-        problem,
-        request,
-        grid=grid,
-        modes=modes,
-        profiles=profiles,
-        tdse_binding=tdse_binding,
-        options=options,
-    )
+__all__ = ["NumpyRefBackend"]

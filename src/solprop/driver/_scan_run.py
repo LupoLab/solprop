@@ -2,7 +2,23 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Build scan points, collect bounded output, and coordinate durable results."""
+"""Build scan points, collect bounded output, and coordinate durable results.
+
+The engine behind :func:`solprop.driver.scan.run_scan`. :func:`execute_scan` validates
+the retention options, resolves the executor (the CLI policy of
+:mod:`solprop.driver._scan_context`, else ``Local``) and hands it one ``_Job`` per point
+with a ``_Work``: the picklable per-point callable that builds the point's simulation,
+runs it into a ``_Capture`` and returns a :class:`~solprop.output.scan.PointResult`.
+``_Capture`` is a bounded memory output that keeps only the statistics, the selected
+field planes and the reductions. Results are committed on one of two paths: under
+``Local`` and ``Pool`` this process claims each point in its own
+:class:`~solprop.output.scan.ScanWriter` and commits it as it arrives (``_jobs``,
+``_collect``); under ``Queue`` and ``Slurm`` the controllers publish artifacts to the
+queue directory, which is collected into the scan file at the end
+(:func:`~solprop.driver.executors.queue.collect`). ``_Display`` and ``_ScanEvents``
+carry the outer progress display and a scan reporter's point events;
+:func:`launch_statistics` loads a probed backend's launch plane for resource admission.
+"""
 
 import copy
 import dataclasses
@@ -12,7 +28,7 @@ import logging
 import math
 import time
 import traceback
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -28,36 +44,30 @@ from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
 from solprop.driver._scan_context import current_executor
 from solprop.driver._scan_model import Scan, ScanPoint, name_seed
-from solprop.driver.executors import Batch, Executor, Local
+from solprop.driver.executors import Executor, Local
 from solprop.driver.executors._request import ScanRequest
 from solprop.driver.executors.pool import PlaneScalars, peak_rss
 from solprop.driver.executors.queue import Queue, collect
 from solprop.driver.executors.slurm import Slurm
-from solprop.driver.simulation import Simulation, SimulationRunner
-from solprop.exceptions import DriverError, OutputError, StopRequested
+from solprop.driver.runner import SimulationRunner
+from solprop.driver.simulation import Simulation
+from solprop.exceptions import DriverError, ExecutorError, OutputError, StopRequested
 from solprop.fourier import spectrum_to_optics
 from solprop.log import (
     BarReporter,
-    InterruptibleReporter,
     NullScanReporter,
     ProgressChoice,
     ProgressReporter,
     ScanReporter,
     StopFlag,
-    SummarisingReporter,
-    WatchingScanReporter,
     is_interactive,
 )
 from solprop.output.hdf5 import HDF5Output, _dataset, open_file
 from solprop.output.memory import MemoryOutput
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import RecipeRecord, SavedPlane
 from solprop.output.scan import PointResult, ScanWriter
-from solprop.output.schema import (
-    FieldRetention,
-    RecipeRecord,
-    RunMetadata,
-    SavedPlane,
-    field_retention_refusal,
-)
+from solprop.output.store import FieldRetention, field_retention_refusal
 from solprop.processing.scans import Reduction, ScanOutput, _Builtin, _provenance
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import tdse_of
@@ -106,7 +116,7 @@ def launch_statistics(
     assembled with: the builders' own is in true sqrt(W), while ``initial.noise0``
     is already divided by the entrance weight.
 
-    - Returns: the launch plane's statistics, without a batch axis.
+    - Returns: the launch plane's statistics.
     """
     session = start_session(
         backend, problem, backend.request, Start.entrance(problem), owns=False
@@ -167,7 +177,7 @@ class _Capture(MemoryOutput):
         """Initialize the declared scan component."""
         super().__init__(block=1)
         self.options = options
-        self.count = len(simulation.settings.save_planes) + 1
+        self.count = len(np.asarray(simulation.settings.save_planes)) + 1
         problem = simulation.translate()
         self._field_shape = tuple(problem.shape)
         self.selected = (
@@ -371,13 +381,11 @@ class _ScanEvents:
     def begin(self, point: ScanPoint) -> ProgressReporter | None:
         """Report a point's start and return the reporter for its run, if any.
 
-        - Returns: the reporter :meth:`solprop.log.WatchingScanReporter.point_reporter`
+        - Returns: the reporter :meth:`solprop.log.ScanReporter.point_reporter`
           returned, or ``None``.
         """
         self.started.add(point.index)
         self.reporter.point_started(point.index, point)
-        if not isinstance(self.reporter, WatchingScanReporter):
-            return None
         watcher = self.reporter.point_reporter(point.index)
         if watcher is not None:
             self.watchers[point.index] = watcher
@@ -399,8 +407,7 @@ class _ScanEvents:
         if watcher is None:
             return
         if call == "summary":
-            if isinstance(watcher, SummarisingReporter):
-                watcher.summary(cast(str, args[0]))
+            watcher.summary(cast(str, args[0]))
         elif call == "started":
             z_start, z_end, n_planes = cast(tuple[float, float, int], args)
             watcher.started(z_start, z_end, n_planes)
@@ -409,12 +416,12 @@ class _ScanEvents:
             watcher.plane(z, summary)
         elif call == "finished":
             watcher.finished(cast(float, args[0]))
-        elif call == "interrupted" and isinstance(watcher, InterruptibleReporter):
+        else:  # "interrupted", the last of the five calls a worker sends
             z, stopped, text = cast(tuple[float, bool, str], args)
             error: BaseException = (
                 StopRequested(stop)
                 if stopped and stop is not None
-                else DriverError(f"scan point {index} was interrupted: {text}")
+                else ExecutorError(f"scan point {index} was interrupted: {text}")
             )
             watcher.interrupted(z, error)
 
@@ -509,14 +516,6 @@ class _Work:
             job.point.index, "stopped", error=STOPPED, wall_time=wall_time
         )
 
-    def run_batch(self, jobs: Iterable[_Job], executor: Batch) -> Iterator[PointResult]:
-        """Delegate compatible jobs to the common lockstep scan driver."""
-        from solprop.driver._scan_batch import (  # noqa: PLC0415 - shared worker types
-            execute,
-        )
-
-        yield from execute(jobs, self, executor)
-
     def simulation(self, job: _Job) -> Simulation:
         """Construct a simulation and give its noise the point's seed.
 
@@ -545,7 +544,7 @@ class _Work:
             name_seed(self.scan_name, point.index) if point.seed is None else point.seed
         )
         requested = self.options.stats
-        available = simulation._run_request().observation.stats.names
+        available = simulation.run_request().observation.stats.names
         if not isinstance(requested, str) and set(requested) - set(available):
             raise DriverError(
                 "requested scan statistics are not collected by the simulation"
@@ -582,7 +581,7 @@ class _Work:
         backend = select(
             simulation.settings.backend,
             simulation.translate(),
-            simulation._run_request(),
+            simulation.run_request(),
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -615,7 +614,7 @@ class _Work:
         - ``statistics``: one plane of statistics with resolved species and mode axes.
         - Returns: retained array bytes; adaptive periodic rows use the memory headroom.
         """
-        count = len(simulation.settings.save_planes) + 1
+        count = len(np.asarray(simulation.settings.save_planes)) + 1
         selected = (
             count
             if self.options.fields == "all"
@@ -632,7 +631,7 @@ class _Work:
             for name, value in statistics.items()
             if keep == "all" or (not isinstance(keep, str) and name in keep)
         )
-        request = simulation._run_request()
+        request = simulation.run_request()
         spec = request.observation.stats
         schedule = request.stepper.schedule
         periodic_bytes = 0
@@ -903,7 +902,7 @@ def execute_scan(
         build,
         options,
         scan.name,
-        watched=display is None and isinstance(progress, WatchingScanReporter),
+        watched=display is None,
         stop=stop,
         events=events,
         keeps_backend=isinstance(executor, Local),

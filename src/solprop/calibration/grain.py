@@ -4,19 +4,15 @@
 
 """Operation-grain candidates from the work sizes the calibration problems run (SEP 46).
 
-Each CPU operation class threads by its work: serially below its threshold, on the
-medium width below its full size, on its pool's capacity from there
-(``_execution.ExecutionRecord``). A workspace's ``execution_sizing`` records every
-operation it runs, with its class, work and width. A threshold or full size matters
-only where it falls between two work sizes the problems actually run, so the
-candidates of a class are its one-step moves past the nearest of them: thread one
-more size, serialise one more, widen one more to the full pool, narrow one more to
-the medium width. At most four a class (section 6.5); a candidate that changes no
-operation's width is left out. The medium width and the compact team take a short
-ladder of their own. Each candidate is then timed on the problems it changes, and
-§6.5's rule decides (:mod:`solprop.calibration.selection`).
-
-Every function here is pure.
+:func:`operations` reads a workspace's ``execution_sizing`` into :class:`Operation`
+rows (class, work, width), and :func:`width` is the width a native execution record
+(``Record``) gives one. :func:`proposals` makes each class's :class:`Candidate` moves
+past the nearest work sizes the problems actually run, at most four a class;
+:func:`affected` says whether a candidate changes any of a problem's operations, and
+:func:`best` keeps each setting's admitted candidate with the lowest score.
+:data:`TIMED` and :data:`SHAPE_MOVES` name the classes and the shape settings moved.
+Every function here is pure. The candidate rule is in ``docs/dev/backends.md``
+(section 3.4a).
 """
 
 from __future__ import annotations

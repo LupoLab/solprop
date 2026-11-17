@@ -4,48 +4,25 @@
 
 r"""Model the hollow planar (slab) waveguide: two plates, a gas-filled gap, uniform y.
 
-Two parallel dielectric or metal plates at :math:`x = \pm a` guide light in x and
-leave it free in y. This module models the guide **uniform in y**: the field is a plane
-wave in y, the mode is the one-wall-pair limit :math:`b \to \infty` of the rectangular
-guide of :mod:`solprop.modes.rectangular`, and every integral over the cross-section
-is an integral over x **per metre of y**. A run on these modes reports power in W/m
-and energy in J/m (``transverse_measure = "per_unit_width"``); intensities stay W/m².
+:class:`SlabMode` is one mode of two parallel dielectric or metal plates at
+:math:`x = \pm a`, uniform in y: the one-wall-pair limit :math:`b \to \infty` of the
+rectangular guide of :mod:`solprop.modes.rectangular` (Laakmann and Steier's eq. (5),
+which is Miyagi, Hongo and Kawakami's eq. (19) and Arnold et al.'s eqs. (2)-(3)),
+whose wall-pair terms it shares. :data:`SlabPolarisation` names the family: **TE** has
+E along y, parallel to the plates, and **TM** along x. Every integral over the
+cross-section is over x **per metre of y**, so a run on these modes reports power in
+W/m and energy in J/m (the ``transverse_measure`` ``"per_unit_width"``); intensities
+stay W/m².
 
-The model is Laakmann and Steier's eq. (5) [1]_ with :math:`b \to \infty`, which is
-Miyagi, Hongo and Kawakami's eq. (19) [2]_ and Arnold et al.'s eqs. (2)-(3) [3]_:
+- :func:`gaussian_coupling` and :func:`gaussian_projection` project a Gaussian beam
+  in x onto a slab set; :func:`per_unit_width_to_gaussian` and
+  :func:`gaussian_to_per_unit_width` convert a per-unit-width quantity to and from a
+  Gaussian beam in y.
+- :class:`PlanarGrid` is the hybrid planar transverse grid: slab modes in x, samples
+  in y, which resolves the free direction a uniform slab cannot show.
 
-.. math::
-
-   \kappa_p = \frac{p\pi}{2a}\Big(1 - \frac{i\,q}{k a}\Big),\qquad
-   n_{\rm eff}^2 = \epsilon_{\rm co} - \frac{\kappa_p^2}{k^2},\qquad
-   q_{\rm TE} = \frac{1}{s},\quad
-   q_{\rm TM} = \frac{\epsilon_{\rm cl}}{\epsilon_{\rm co}\, s},
-
-with :math:`s = \sqrt{\epsilon_{\rm cl} - \epsilon_{\rm co}}` the filled-core
-contrast and :math:`\epsilon_{\rm cl}/\epsilon_{\rm co}` the TM-like permittivity
-ratio of a filled core, both shared with the rectangular guide rather than restated.
-To first order the field attenuation is
-:math:`\alpha_p = (1/a)(p\lambda/4a)^2\,\mathrm{Re}\,q`, so the loss goes as
-:math:`p^2` and :math:`a^{-3}`, and TM/TE is :math:`\epsilon_{\rm cl}/\epsilon_{\rm co}`
-for glass and about :math:`n^2 + \kappa^2` for a metal (Miyagi eq. 36). **TE** has its
-electric field along y, parallel to the plates -- the low-loss polarisation every
-planar compressor uses; **TM** has it along x, normal to them.
-
-**What a slab uniform in y cannot show.** Whole-beam self-focusing, filamentation and
-the modulational instability in the free direction set the energy limit of real
-planar compressors (Arnold et al. 2009, stable to :math:`B \approx 15.5`). A field
-uniform in y has no y structure to focus or break up, so none of that appears here.
-The manual page is ``docs/guide/waveguides/planar.md`` (section "Hollow planar
-waveguides").
-
-References
-----------
-.. [1] K. D. Laakmann and W. H. Steier, Appl. Opt. 15, 1334-1340 (1976),
-       doi:10.1364/AO.15.001334.
-.. [2] M. Miyagi, A. Hongo and S. Kawakami, IEEE J. Quantum Electron. QE-19,
-       136-145 (1983), doi:10.1109/JQE.1983.1071837.
-.. [3] C. L. Arnold et al., New J. Phys. 12, 073015 (2010),
-       doi:10.1088/1367-2630/12/7/073015.
+The model, its loss, its validity and the references are in
+``docs/guide/waveguides/planar.md``.
 """
 
 import math
@@ -53,7 +30,7 @@ import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import KW_ONLY, dataclass, field, replace
 from types import MappingProxyType
-from typing import Final, Literal, cast
+from typing import ClassVar, Final, Literal, cast
 
 import numpy as np
 from jaxtyping import Complex, Float
@@ -63,7 +40,7 @@ from solprop._ownership import frozen_copy
 from solprop.constants import EPS0, C
 from solprop.exceptions import GridError, ModeError
 from solprop.grid import _check_fraction, _periodic_axis
-from solprop.modes.fill import LossSpec, _sqrt1p_minus_one
+from solprop.modes.fill import LossFunction
 from solprop.modes.protocol import (
     ChannelLabel,
     CrossSection,
@@ -79,9 +56,9 @@ from solprop.modes.quadrature import (
     quadrature_rule,
     transverse_quadrature,
 )
-from solprop.modes.rectangular import _RectTerms, _transverse_term, _WallPairFill
+from solprop.modes.rectangular import _WallPairFill
 from solprop.physdata.gases import Gas
-from solprop.physdata.glasses import GlassIndex, fused_silica
+from solprop.physdata.glasses import GlassIndex
 from solprop.physdata.mixtures import Mixture
 from solprop.physdata.sellmeier import GasSusceptibility
 from solprop.profiles import Constant, ZProfile, _temperature_text, as_profile
@@ -118,8 +95,8 @@ class SlabMode(_WallPairFill):
     The plates are at ``x = +-a`` and y is free. The profile is ``cos(p pi x / 2a)``
     for odd ``p`` and ``sin(p pi x / 2a)`` for even ``p`` inside the gap and zero
     outside; the effective index is Laakmann and Steier's one-wall-pair form with
-    the filled-core contrast (module docstring). Everything the mode integrates is
-    **per metre of y** (:attr:`transverse_measure`).
+    the filled-core contrast (``docs/guide/waveguides/planar.md``). Everything the
+    mode integrates is **per metre of y** (:attr:`transverse_measure`).
 
     Attributes
     ----------
@@ -127,9 +104,9 @@ class SlabMode(_WallPairFill):
         Half the plate separation, ``a``, in m, positive. A path along z is a
         scale-invariant taper: the profile is a function of ``x / a(z)``.
     gas : Gas or str or None
-        Legacy gas declaration; None means vacuum unless a mixture is supplied.
+        The fill gas; None means vacuum unless a mixture is supplied.
     pressure : float or ZProfile
-        Legacy gas pressure in bar, non-negative.
+        Absolute fill pressure in **bar**, non-negative, or a path of it along z.
     order : int
         Mode order ``p >= 1``; odd orders are symmetric about the mid-plane, so a
         centred launch couples only to them.
@@ -138,24 +115,30 @@ class SlabMode(_WallPairFill):
         plates, and the low loss; ``"tm"`` has it along x, normal to them, and a
         loss larger by the wall's ``eps_cl / eps_co`` for glass. The two are
         distinct modes with their own effective index.
-    loss : bool or float or callable
-        Shared hollow-mode policy: model loss, no loss, a non-negative model scale,
-        or an absolute power attenuation in 1/m.
+    alpha : float or callable or None
+        An absolute power attenuation coefficient in 1/m that replaces the model's
+        loss, a number or a callable ``alpha(omega)``, as on
+        :class:`~solprop.modes.capillary.MarcatiliMode`; ``None`` (the default)
+        keeps the model's loss.
+    loss_scale : float
+        Multiplies the model's own loss: ``1.0`` (the default) is the model, ``0.0``
+        lossless. Finite and non-negative; refused beside an ``alpha``.
     cladding : GlassIndex or complex or None
         Plate index, positive imaginary part for absorption: a glass, a metal of
         :mod:`solprop.physdata.metals`, or a constant complex number. None selects
         fused silica.
     temperature : float, ZProfile or None
-        Positive legacy fill temperature in K, or a path of it along z in m, which
+        Positive fill temperature in K, or a path of it along z in m, which
         the density follows. ``None`` (the default) is 293.15 K for a gas and
         the mixture's own beside a mixture; a different one beside it is refused.
     susceptibility : GasSusceptibility or None
-        Explicit legacy gas susceptibility; ``None`` takes the built-in gas's.
+        Explicit gas susceptibility; ``None`` takes the built-in gas's.
     mixture : Mixture or None
-        Ordered material populations; excludes competing legacy fill arguments.
+        Ordered material populations; excludes gas, pressure and susceptibility.
     width_x : ZProfile
-        The resolved half-gap path in m. It carries the rectangular guide's name for
-        its x half-width, which this is, so that the geometry-path walkers of
+        The resolved half-gap path a(z) in m: despite the name, half the plate
+        separation, as `half_gap` declares it. It carries the rectangular guide's
+        name for its x half-width, which this is, so that the geometry-path walkers of
         :data:`solprop.modes.protocol.GEOMETRY_PATH_NAMES` find its kinks.
     density : ZProfile
         Total number-density path in m^-3.
@@ -189,7 +172,8 @@ class SlabMode(_WallPairFill):
     _: KW_ONLY
     order: int = 1
     polarisation: SlabPolarisation = "te"
-    loss: LossSpec = True
+    alpha: float | LossFunction | None = None
+    loss_scale: float = 1.0
     cladding: GlassIndex | complex | None = None
     temperature: float | ZProfile | None = None
     susceptibility: GasSusceptibility | None = None
@@ -199,6 +183,13 @@ class SlabMode(_WallPairFill):
     cladding_index: GlassIndex | complex = field(init=False, repr=False)
     model: Literal["full", "reduced"] = field(init=False, default="full", repr=False)
     _gain_warned: bool = field(init=False, default=False, repr=False)
+    _MODEL: ClassVar[str] = "the slab"
+
+    # The index methods are the shared wall-pair base's; named here, so that the API
+    # reference documents them on this class, as it documents no private base.
+    neff = _WallPairFill.neff
+    neff_minus_one = _WallPairFill.neff_minus_one
+    dneff_domega = _WallPairFill.dneff_domega
 
     def __post_init__(self) -> None:
         """Validate the mode and resolve the gap and material paths.
@@ -209,10 +200,6 @@ class SlabMode(_WallPairFill):
             If the order, the polarisation, the gap or the fill declaration is
             invalid.
         """
-        # The once-per-mode validity flag: an attribute rather than a field, so the
-        # declared fields stay what they were, and a list so that the shallow copies
-        # `at_parameters` makes share it (`_WallPairFill._warn_validity`).
-        object.__setattr__(self, "_validity_warned", [False])
         # bool is an int in Python; True is not a mode order.
         if (
             not isinstance(self.order, int)
@@ -230,21 +217,7 @@ class SlabMode(_WallPairFill):
             )
         self._check_fill_arguments()
         object.__setattr__(self, "width_x", as_profile(self.half_gap))
-        self._resolve_fill()
-        object.__setattr__(
-            self,
-            "cladding_index",
-            fused_silica() if self.cladding is None else self.cladding,
-        )
-        positions = np.unique(
-            np.concatenate(
-                (self.width_x.breakpoints, np.asarray(self.width_x.z_span), [0.0])
-            )
-        )
-        for position in positions:
-            if math.isfinite(float(position)):
-                self._half_gap(float(position))
-        self._warn_loss_derivative()
+        self._resolve_walls(self.width_x)
 
     def _half_gap(self, z: float) -> float:
         """Return the positive half-gap at one longitudinal position.
@@ -258,6 +231,15 @@ class SlabMode(_WallPairFill):
                 f"a slab half-gap must be positive and finite, got {a!r} at z = {z!r}"
             )
         return a
+
+    def _walls(self, z: float) -> tuple[tuple[float, int, Literal["te", "tm"]], ...]:
+        """Return the one wall pair at z.
+
+        E parallel to the plates is the TE-like (s) reflection, E normal to them the
+        TM-like (p) one: the rectangular guide's y-polarised mode sees te on its x
+        walls, which is this TE mode in the limit b -> infinity.
+        """
+        return ((self._half_gap(z), self.order, self.polarisation),)
 
     @property
     def transverse_measure(self) -> TransverseMeasure:  # numpydoc ignore=RT01
@@ -311,11 +293,6 @@ class SlabMode(_WallPairFill):
         return frozen
 
     @property
-    def z_constant(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the gap and every material path are constant."""
-        return all(path.is_constant for path in self.parameter_paths.values())
-
-    @property
     def radius_is_constant(self) -> bool:  # numpydoc ignore=RT01
         """The transform's geometry-constant trait for the slab.
 
@@ -333,15 +310,6 @@ class SlabMode(_WallPairFill):
         ``sqrt(a(0) / a(z))`` (:func:`solprop.modes.quadrature.taper_scale`).
         """
         return True
-
-    @property
-    def polarisation_degenerate(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the two polarisations share one effective index.
-
-        False: TE and TM take different wall coefficients, so they are distinct
-        modes and need a row each, as the rectangular partners do.
-        """
-        return False
 
     @property
     def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
@@ -397,103 +365,6 @@ class SlabMode(_WallPairFill):
         """
         return replace(self, polarisation="tm" if self.polarisation == "te" else "te")
 
-    def _model_values(
-        self, terms: _RectTerms, a: float
-    ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
-        """Evaluate the one-wall-pair reflection model before the loss policy.
-
-        - ``a``: positive half-gap in m.
-        - Returns: refractivity and its frequency derivative in s/rad.
-        """
-        te, dte, tm, dtm = self._wall_coefficients(terms)
-        # E parallel to the plates is the TE-like (s) reflection, E normal to them
-        # the TM-like (p) one: the rectangular guide's y-polarised mode sees te on
-        # its x walls, which is this TE mode in the limit b -> infinity.
-        q, dq = (te, dte) if self.polarisation == "te" else (tm, dtm)
-        decrement, ddecrement = _transverse_term(terms.omega, a, self.order, q, dq)
-        argument = terms.chi - decrement
-        # The rationalised sqrt(1 + argument) - 1, as the rectangular guide forms
-        # it, for the large-gap limit where the refractivity is tiny.
-        refractivity = _sqrt1p_minus_one(argument)
-        derivative = (terms.dchi - ddecrement) / (2 * (1 + refractivity))
-        if not (np.all(np.isfinite(refractivity)) and np.all(np.isfinite(derivative))):
-            raise ModeError("the slab model produced non-finite values")
-        return np.asarray(refractivity), np.asarray(derivative)
-
-    def _values(
-        self, omega: Float[np.ndarray, " n_omega"], z: float
-    ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
-        """Apply the shared loss policy and floor to the local model.
-
-        - ``omega``: positive frequencies in rad/s.
-        - ``z``: position in m.
-        - Returns: refractivity and its derivative in s/rad after loss and floor
-          policies.
-        """
-        a = self._half_gap(z)
-        terms = self._terms(omega, z)
-        values, derivative = self._model_values(terms, a)
-        self._warn_validity(terms, ((a, self.order, self.polarisation),))
-        return self._floored(*self._apply_loss(omega, values, derivative))
-
-    def neff(
-        self, omega: Float[np.ndarray, " n_omega"], z: float = 0.0
-    ) -> Complex[np.ndarray, " n_omega"]:
-        """Return the effective index with positive imaginary part for attenuation.
-
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Positive frequencies in rad/s.
-        z : float, optional
-            Position in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Complex effective index, shape (n_omega,).
-        """
-        return 1 + self._values(omega, z)[0]
-
-    def neff_minus_one(
-        self, omega: Float[np.ndarray, " n_omega"], z: float = 0.0
-    ) -> Complex[np.ndarray, " n_omega"]:
-        """Return the refractivity directly from the small square-root argument.
-
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Positive frequencies in rad/s.
-        z : float, optional
-            Position in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Complex ``n_eff - 1``, without subtracting unity from the index.
-        """
-        return self._values(omega, z)[0]
-
-    def dneff_domega(
-        self, omega: Float[np.ndarray, " n_omega"], z: float = 0.0
-    ) -> Complex[np.ndarray, " n_omega"]:
-        """Return the analytic derivative including core and wall material slopes.
-
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Positive frequencies in rad/s.
-        z : float, optional
-            Position in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Complex index derivative in s/rad; only a slope-free loss callable uses
-            the shared numerical loss derivative.
-        """
-        return self._values(omega, z)[1]
-
     def aeff(self, z: float = 0.0) -> float:
         """Return the closed-form effective width, per unit width in y.
 
@@ -537,7 +408,7 @@ class SlabMode(_WallPairFill):
         Returns
         -------
         str
-            For example ``SlabMode(TE1, gap 127 um, Ar 1 bar, loss=True)``.
+            For example ``SlabMode(TE1, gap 127 um, Ar 1 bar, loss=model)``.
         """
         gap = 2.0 * float(self.width_x(np.array([0.0]))[0])
         return line(
@@ -856,7 +727,7 @@ _MINIMUM_X_NODES: Final = 32
 """Floor on a planar grid's default x node count.
 
 The same floor, and the same eight nodes per mode, as the modal route's
-``solprop.driver.simulation.default_radial_order`` gives a slab set, so that the
+``solprop.driver.routes.hollow.default_radial_order`` gives a slab set, so that the
 hybrid transform and ``from_waveguide`` sample the plates on the same default rule;
 a test holds the two equal.
 """

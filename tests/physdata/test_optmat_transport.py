@@ -46,7 +46,7 @@ def test_pure_properties_are_optmats(gas):
         cp / (cp - GAS_CONSTANT), rel=1e-15
     )
     real = equation_of_state(gas).speed_of_sound(State(2e5, 294.0))
-    assert sound_speed(chosen, 294.0, 2.0) == real
+    assert sound_speed(chosen, 2.0, 294.0) == real
 
 
 def test_a_mixture_takes_optmats_wilke_rule():
@@ -64,7 +64,7 @@ def test_a_mixture_takes_optmats_wilke_rule():
         viscosity(composition, 300.0), rel=1e-15
     )
     with pytest.raises(MaterialError, match="pure gas only"):
-        sound_speed(composition, 300.0, 1.0)
+        sound_speed(composition, 1.0, 300.0)
 
 
 def test_air_takes_its_constituents_transport():
@@ -116,14 +116,14 @@ def test_temperature_range_is_optmats_and_refused_outside():
     with pytest.raises(MaterialError, match="by optmat"):
         heat_capacity_ratio(chosen, math.nan)
     with pytest.raises(MaterialError, match="pressure must be positive"):
-        sound_speed(chosen, 294.0, 0.0)
+        sound_speed(chosen, 0.0, 294.0)
     with pytest.raises(MaterialError, match="pressure must be positive"):
         OptmatGas("N2O").sound_speed(-1.0, 294.0)
 
 
 def test_sound_speed_refuses_a_condensed_state():
     with pytest.raises(MaterialError, match="saturation pressure"):
-        sound_speed(selected("SF6"), 294.0, 30.0)
+        sound_speed(selected("SF6"), 30.0, 294.0)
 
 
 def test_a_provisional_viscosity_warns_once_per_flow():

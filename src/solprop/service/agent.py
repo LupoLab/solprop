@@ -4,42 +4,21 @@
 
 """The helper on a machine: ``python -m solprop.service.agent`` (design 13.4).
 
-A window reaches a machine through one helper, started over SSH (or as a plain child
-on the window's own computer), and speaks to it in frames
-(:mod:`solprop.service.frames`) on the helper's standard input and output. The helper
-keeps nothing the window needs kept: runs are files in their folders
-(:mod:`solprop.service.record`), their states are read from those
-(:mod:`solprop.service.runs`), and a helper that is killed, or whose connection drops,
-is replaced by the next one started with nothing lost.
+A window reaches a machine through one helper, started over SSH (or as a plain child on
+the window's own computer), and speaks to it in frames (:mod:`solprop.service.frames`)
+on the helper's standard input and output. The helper keeps nothing the window needs
+kept: runs are files in their folders (:mod:`solprop.service.record`), their states are
+read from those (:mod:`solprop.service.runs`), and a helper that is killed, or whose
+connection drops, is replaced by the next one started with nothing lost.
 
-The first frame the helper writes is its ``hello``: the protocol and solprop versions,
-the machine and whether Slurm is on it. Then each request is a frame
-``{"id", "kind", "body"}``, answered by ``{"kind": "reply", "id", "value"}`` or
-``{"kind": "error", "id", "message"}``. Two kinds of frame come unasked:
-``{"kind": "events", "folder", "events", "offset"}`` for a run being followed, and
-``{"kind": "kernel_reply", "reply"}`` for a kernel request.
+- :func:`hello` is the first frame it writes; :class:`Agent` answers one window's
+  requests, by kind (:data:`REQUESTS`: list, start, follow, stop, cancel and remove
+  runs, move files, report Slurm, and forward requests to a kernel it hosts).
+- :func:`serve` answers a stream until it ends, and :func:`main` runs the helper on
+  this process's standard streams.
 
-The requests (:data:`REQUESTS`):
-
-``list_runs`` ``{workspace}``
-    Every run in a workspace with its state (:func:`~solprop.service.runs.list_runs`).
-``start`` ``{spec, launcher, python?, resources?}``
-    Prepare a run's folder and start it, directly or through Slurm; its summary.
-``follow`` ``{folder, offset}`` and ``unfollow`` ``{folder}``
-    Send a run's recorded events from a place on, as they are written, until it ends.
-``stop`` ``{folder}``, ``cancel`` ``{folder}``
-    Ask a run to stop (its stop file), or end its job (``scancel``, or ``SIGTERM``).
-``remove`` ``{folder}``
-    Delete an ended run's folder.
-``stat`` ``{path}``, ``fetch`` ``{path, offset, size}``,
-``put`` ``{path, data, append}``
-    A file's size, a piece of it, or a piece written to it: a copy of a run's results,
-    or a data file a recipe reads.
-``slurm_info``
-    The partitions Slurm offers here.
-``kernel`` ``{request}``
-    A request for the kernel the helper hosts on this machine, answered as a
-    ``kernel_reply``: checks, previews and readings of this machine's results files.
+The frames, every request with its body, and the frames that come unasked are in
+``docs/dev/gui/design.md`` (13.4, "The helper").
 """
 
 import contextlib
@@ -59,7 +38,7 @@ import numpy as np
 from solprop.service.frames import Readable, Writable, read_frame, write_frame
 from solprop.service.machines import CHUNK
 from solprop.service.messages import PROTOCOL, Reply, Request, ServiceError
-from solprop.service.record import read_events, request_stop
+from solprop.service.record import read_events, read_status, request_stop
 from solprop.service.worker import spec_from_value
 
 __all__ = [
@@ -283,11 +262,16 @@ class Agent:
         memory, its job cancelled) is said ``lost``, from its state
         (:func:`~solprop.service.runs.summarise`) checked every
         :data:`LIVENESS_PERIOD` seconds while its record stays quiet.
+
+        The terminal event is sent only once the run's summary records its ending
+        (:mod:`solprop.service.record`), so a window that hears a run has ended finds
+        it ended in a list of runs and can continue it at once; a run that goes
+        between the two has its terminal event sent as it wrote it.
         """
         checked = time.monotonic()
         while not done.is_set():
             try:
-                events, offset = read_events(folder, offset)
+                events, after = read_events(folder, offset)
             except ServiceError as error:
                 self.send(
                     {
@@ -297,6 +281,15 @@ class Agent:
                     }
                 )
                 return
+            held = any(e.terminal for e in events) and not _ending_recorded(folder)
+            if held and time.monotonic() - checked >= LIVENESS_PERIOD:
+                checked = time.monotonic()
+                held = _lost(folder) is None
+            if held:
+                # Read again: the run is still letting go of its record.
+                done.wait(period)
+                continue
+            offset = after
             if events:
                 self.send(
                     {
@@ -574,6 +567,11 @@ class Agent:
                 self._kernel.close()
 
 
+def _ending_recorded(folder: Path) -> bool:
+    """Return whether a run's summary records its ending, its record let go."""
+    return "ending" in (read_status(folder) or {})
+
+
 def _lost(folder: Path) -> str | None:
     """Return why a run that recorded no ending has gone, or ``None`` while it lives.
 
@@ -594,9 +592,9 @@ def _lost(folder: Path) -> str | None:
 def _remove_tree(folder: Path, tries: int = 20) -> None:
     """Delete a run's folder, once its process has let go of its files.
 
-    A run that has recorded its ending may still be writing its last summary as its
-    process leaves, and Windows refuses to delete a file that is open; so the folder
-    is tried again for a few seconds.
+    A run that has recorded its ending may still hold its log as its process leaves,
+    and Windows refuses to delete a file that is open; so the folder is tried again
+    for a few seconds.
 
     - ``tries``: how many times to try, a quarter of a second apart.
     """

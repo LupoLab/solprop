@@ -24,8 +24,8 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
-from driver.test_native_coupled_flow import native_class, propagate
-from driver.test_native_moving_guide import CASES
+from coupled_flow_cases import native_class, propagate
+from moving_guide_cases import CASES
 
 # The doctest collection imports every module under tests/, and the arguments it
 # was given are not case names: only a subprocess run writes the states.

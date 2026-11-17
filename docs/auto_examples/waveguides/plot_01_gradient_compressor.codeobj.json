@@ -798,6 +798,13 @@
   {
    "is_class": false,
    "is_explicit": false,
+   "module": "solprop.tools.capillary",
+   "module_short": "solprop.tools",
+   "name": "SolitonParams"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
    "module": "solprop.tools",
    "module_short": "solprop.tools",
    "name": "SolitonParams"
@@ -984,8 +991,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.metadata"
   },
   {
@@ -1049,8 +1056,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.metadata"
   },
   {

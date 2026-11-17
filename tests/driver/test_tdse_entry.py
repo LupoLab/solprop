@@ -16,11 +16,16 @@ import pytest
 from tests.driver.test_sep12_sep14_integration import _Binding
 from tests.hacc_cases import hacc_response, plain, preset_basis
 
-import solprop.driver.simulation as simulation_module
-from record_numbers import assert_record_numbers, record_skeleton, skeleton_hash
+import solprop.driver.routes.hollow as hollow_route
+from record_numbers import (
+    assert_record_numbers,
+    record_skeleton,
+    skeleton_hash,
+    with_former_names,
+)
 from solprop.driver import Simulation, prop_capillary
 from solprop.driver import tdse as runtime
-from solprop.driver.simulation import SimulationSettings
+from solprop.driver.settings import SimulationSettings
 from solprop.exceptions import (
     DriverError,
     MaterialRangeWarning,
@@ -36,7 +41,7 @@ from solprop.nonlinear.tdse import (
     TDSESampling,
 )
 from solprop.output import MemoryOutput
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.stats import StatsSpec
 from solprop.translate.routes import tdse_descriptor
 from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
@@ -83,14 +88,13 @@ def _capillary(**changes):
 def test_tdse_keyword_builds_the_one_response_run_in_one_step(caplog):
     response = _sae()
     execution = TDSEExecution(max_atomic_calls=7)
-    with caplog.at_level(logging.INFO, logger="solprop.driver.simulation"):
+    with caplog.at_level(logging.INFO, logger="solprop.driver.tdse_run"):
         simulation = _capillary(tdse=response, tdse_execution=execution)
     assert simulation.responses == (response,)
     assert simulation.settings.tdse_execution == execution
-    assert simulation.settings.backend == "numpy_ref"
-    assert "resolves to numpy_ref" in caplog.text
+    assert simulation.settings.backend == "native"
     record = plain(simulation.configuration["tdse_entry"])
-    assert record["backend"] == {"requested": "auto", "resolved": "numpy_ref"}
+    assert record["backend"] == {"requested": "auto", "resolved": "native"}
     assert record["model"] == "sae"
     assert tdse_descriptor(simulation.translate().route) is not None
     # A default execution record is taken when none is given.
@@ -125,10 +129,10 @@ def test_lower_level_construction_refuses_an_unresolved_window_before_any_provid
 ):
     parent = _capillary(tdse=_sae())
 
-    def unexpected():
-        pytest.fail("the provider was loaded")
+    def unexpected(**options):
+        pytest.fail("the provider's worker was started")
 
-    monkeypatch.setattr(runtime, "_load_provider", unexpected)
+    monkeypatch.setattr(runtime, "_open_provider", unexpected)
     simulation = Simulation(
         parent.grid,
         parent.modes,
@@ -167,7 +171,7 @@ def test_tdse_execution_alone_and_a_foreign_record_are_refused():
     with pytest.raises(DriverError, match="tdse_execution requires"):
         _capillary(tdse_execution=TDSEExecution())
     # The record's own check, beneath the test session's annotation checker.
-    entry = inspect.unwrap(simulation_module._tdse_entry)
+    entry = inspect.unwrap(hollow_route._tdse_entry)
     with pytest.raises(DriverError, match="must be a TDSEGasResponse"):
         entry(
             object(),
@@ -183,9 +187,10 @@ def test_tdse_execution_alone_and_a_foreign_record_are_refused():
         )
 
 
-def test_explicit_incompatible_settings_keep_their_existing_refusals():
-    with pytest.raises(DriverError, match=r"explicit backend='numpy_ref'.*native"):
-        _capillary(tdse=_sae(), backend="native")
+def test_an_explicit_backend_is_kept_for_a_tdse_run():
+    # Both backends run the TDSE response (SEP 49).
+    for backend in ("native", "numpy_ref"):
+        assert _capillary(tdse=_sae(), backend=backend).settings.backend == backend
 
 
 def test_statistics_default_excludes_what_a_tdse_response_cannot_supply():
@@ -204,16 +209,19 @@ def test_statistics_default_excludes_what_a_tdse_response_cannot_supply():
 def test_tdse_output_defaults_and_their_explicit_overrides():
     final_only = _capillary(tdse=_sae())
     assert final_only.settings.step_planes == 1
-    assert tuple(final_only.settings.save_planes) == (_LENGTH,)
+    assert tuple(np.asarray(final_only.settings.save_planes)) == (_LENGTH,)
     entry = plain(final_only.configuration["tdse_entry"])
     assert entry["requested_planes"] == "final_only"
     assert entry["step_planes"] == {"requested": None, "resolved": 1}
     no_steps = _capillary(tdse=_sae(), step_planes=0)
     assert no_steps.settings.step_planes == 0
     planes = _capillary(tdse=_sae(), n_save=5)
-    assert len(planes.settings.save_planes) == 4 and planes.settings.step_planes == 1
+    assert (
+        len(np.asarray(planes.settings.save_planes)) == 4
+        and planes.settings.step_planes == 1
+    )
     explicit = _capillary(tdse=_sae(), save_planes=[_LENGTH / 2, _LENGTH])
-    assert tuple(explicit.settings.save_planes) == (_LENGTH / 2, _LENGTH)
+    assert tuple(np.asarray(explicit.settings.save_planes)) == (_LENGTH / 2, _LENGTH)
     assert plain(explicit.configuration["tdse_entry"])["requested_planes"] == (
         "explicit"
     )
@@ -223,12 +231,13 @@ def test_tdse_output_defaults_and_their_explicit_overrides():
 
 # Computed on the base commit of SEP 20 Phase 1: a rate-based capillary call without
 # `tdse` builds this exact configuration, responses, itinerary and statistics. A change
-# of optmat's models would legitimately move it; recompute it there, not here. Until
-# SEP 25 one SHA-256 pinned the whole record, last bits of its derived numbers
-# included, which another platform's libm and FFT move. Its structure is still hashed
+# of optmat's models would legitimately move it, as optmat 0.10's versioned equations
+# of state did; recompute it there, not here. Until SEP 25 one SHA-256 pinned the whole
+# record, last bits of its derived numbers included, which another platform's libm and
+# FFT move. Its structure is still hashed
 # exactly; its numbers are stored beside this test (recorded from the state the
 # former digest certified) and compared within a bound (tests/record_numbers.py).
-_UNCHANGED = "fe3cea40a780789cb5b8a8d3da0d4cb1abf5aea0654ad6da91c80a2f82f6d9b8"
+_UNCHANGED = "fa82edecbf9b7c1b03cac3e0229915882eb133035b98d541e14cde448a1840ca"
 
 
 def test_without_tdse_a_representative_call_is_unchanged():
@@ -253,14 +262,14 @@ def test_without_tdse_a_representative_call_is_unchanged():
     record = {
         "configuration": serialise(simulation.configuration),
         "responses": serialise(list(simulation.responses)),
-        "save_planes": [float(x) for x in simulation.settings.save_planes],
+        "save_planes": [float(x) for x in np.asarray(simulation.settings.save_planes)],
         "step_planes": simulation.settings.step_planes,
         "backend": simulation.settings.backend,
         "stats": list(stats.names),
         "tdse_execution": simulation.settings.tdse_execution,
     }
     skeleton, numbers, floors = record_skeleton(
-        json.loads(json.dumps(record, sort_keys=True, default=repr))
+        with_former_names(json.loads(json.dumps(record, sort_keys=True, default=repr)))
     )
     assert skeleton_hash(skeleton) == _UNCHANGED
     assert_record_numbers(
@@ -270,7 +279,7 @@ def test_without_tdse_a_representative_call_is_unchanged():
         / "test_without_tdse_a_representative_call_is_unchanged.npz",
     )
     assert simulation.settings.step_planes == 0
-    assert len(simulation.settings.save_planes) == 200
+    assert len(np.asarray(simulation.settings.save_planes)) == 200
 
 
 def test_prop_capillary_forwards_the_tdse_keywords(monkeypatch):

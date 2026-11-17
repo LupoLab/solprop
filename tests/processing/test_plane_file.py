@@ -102,7 +102,10 @@ def assert_same_plane(loaded: FieldPlane, plane: FieldPlane) -> None:
 def test_a_modal_plane_comes_back_whole(tmp_path):
     output = capillary().run(progress="none")
     plane = field_plane(output)
-    assert_same_plane(round_trip(plane, tmp_path), plane)
+    loaded = round_trip(plane, tmp_path)
+    assert_same_plane(loaded, plane)
+    # Read without its source, a script's plane has no basis identity, and keeps none.
+    assert plane.basis.identity is None and loaded.basis.identity is None
 
 
 def test_a_modal_plane_with_its_profiles_comes_back_whole(tmp_path):
@@ -169,7 +172,7 @@ def test_a_dense_metric_comes_back(tmp_path):
 
 def test_a_loaded_plane_launches_as_the_original_does(tmp_path):
     simulation = capillary()
-    plane = field_plane(simulation.run(progress="none"))
+    plane = field_plane(simulation.run(progress="none"), source=simulation)
     port = simulation.input_port()
     model = CouplingModel("same_basis")
     direct = couple(plane, port, model=model)

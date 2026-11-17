@@ -20,7 +20,7 @@ The norm decides every step, so a wrong one moves every adaptive run. Two levels
   its own stages: the state's one-step bound over the controller's scale.
 
 Native's trials are its state's own (``rk_trial`` on the uploaded stage tables,
-scored by ``rk_score`` or ``rk_weighted_score``), called on the backend's native state
+scored by ``rk_score`` or ``weighted_score``), called on the backend's workspace
 directly: SEP 47 phase 5 retired the backend's driver calls, and a state after a real
 propagation is the one the backend's session leaves.
 """
@@ -32,12 +32,13 @@ import numpy as np
 import pytest
 
 from bounds import EPS, gamma, higham_gamma
+from builders import load_reference, reference_trial
 from sessions.runs import load_native, native_trial, run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stepper import PIController
 
 native = pytest.importorskip("solprop_native")
-core = pytest.importorskip("solprop_native._core")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 STEP_RELATIVE = 16 * EPS
 """The one-step rung of ``accuracy.md`` section 7, relative to the state."""
@@ -62,15 +63,18 @@ def _score(backend, run_request, partials):
     controller = run_request.stepper.controller
     partials = np.ascontiguousarray(partials, dtype=np.float64)
     if controller.weights is None:
-        return float(core.rk_score(partials, controller.rtol, controller.atol))
-    state = backend._native_state
-    state.rk_weights_configure([float(value) for value in controller.weights])
-    return float(state.rk_weighted_score(partials, controller.rtol, controller.atol))
+        return float(_testing.rk_score(partials, controller.rtol, controller.atol))
+    weights = np.ascontiguousarray(controller.weights, dtype=np.float64)
+    return float(
+        _testing.weighted_score(
+            backend._workspace, partials, controller.rtol, controller.atol, weights
+        )
+    )
 
 
 def _field(backend, problem):
     """Return native's state on the host, in the problem's shape."""
-    return np.asarray(backend._native_state.field_to_host()).reshape(problem.shape)
+    return np.asarray(_testing.field(backend._workspace)).reshape(problem.shape)
 
 
 def _native_trial(problem, run_request, grid, dz):
@@ -82,18 +86,18 @@ def _native_trial(problem, run_request, grid, dz):
 
 
 def _operands(backend, reference, problem, run_request, dz):
-    """Return native's stages and state, and the reference's propagator, 4-D."""
+    """Return native's stages and state, and the reference's propagator."""
     tableau = run_request.stepper.tableau
-    state = backend._native_state
-    shape = (1, *problem.shape)
+    state = backend._workspace
+    shape = problem.shape
     stages = [
-        np.asarray(state.stage_to_host(index)).reshape(shape)
+        np.asarray(_testing.stage_to_host(state, index)).reshape(shape)
         for index in range(len(tableau.nodes))
     ]
-    reference.set_initial(problem.initial.field0, None)
-    reference._trial_step(0.0, dz)
-    step = reference._stage_scalars(0.0, dz)
-    propagator = np.exp(reference._exponents(0.0, dz)(1.0, step))
+    load_reference(reference)
+    reference_trial(reference, 0.0, dz)
+    step = reference.workspace.stage_scalars(0.0, dz)
+    propagator = np.exp(reference.workspace.exponents()(1.0, step))
     return stages, propagator
 
 
@@ -112,7 +116,7 @@ def _difference(stages, weights, propagator, dz):
 def test_the_rk_norm_is_the_reference_norm_of_native_s_operands(
     capillary_problem, field_grid, dz, record_property
 ):
-    """The masked norm against ``passes.error_norm``, the bound fixed from operands."""
+    """The masked norm against ``error_norm``, the bound fixed from operands."""
     problem, run_request = _problem(capillary_problem)
     assert not np.all(problem.grids.norm_mask), "the mask has to act"
     reference = NumpyRefBackend(problem, run_request, grid=field_grid)
@@ -123,9 +127,9 @@ def test_the_rk_norm_is_the_reference_norm_of_native_s_operands(
             stages, run_request.stepper.tableau.error_weights, propagator, dz
         )
         before = problem.initial.field0
-        backend._native_state.finish(dz)
+        _testing.finish(backend._workspace, dz)
         after = _field(backend, problem)
-        wanted = reference._error_norm(carried, before[None], after[None])
+        wanted = reference.workspace.error_norm(carried, before, after)
         controller = run_request.stepper.controller
         mask = problem.grids.norm_mask
         scale = float(
@@ -150,13 +154,22 @@ def test_the_rk_norm_is_the_reference_norm_of_native_s_operands(
 def test_a_whole_trial_scores_as_the_reference_s_trial_does(
     capillary_problem, field_grid, dz, record_property
 ):
-    """Each backend's own stages: the state's one-step rung over the scale."""
+    """Each backend's own engine and stages: the state's one-step rung over the scale.
+
+    Both trials go through solprop's ``RungeKuttaEngine`` protocol: the reference's
+    engine over its workspace, native's over its own (``_testing.engines``).
+    """
     problem, run_request = _problem(capillary_problem)
     reference = NumpyRefBackend(problem, run_request, grid=field_grid)
-    backend, score = _native_trial(problem, run_request, field_grid, dz)
+    backend = native.NativeBackend(problem, run_request, grid=field_grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        wanted, _ = reference._trial_step(0.0, dz)
+        engines = _testing.engines(load_native(backend, problem.initial.field0))
+        try:
+            score = engines.rk_trial(0.0, dz)
+        finally:
+            engines.close()
+        load_reference(reference)
+        wanted, _ = reference_trial(reference, 0.0, dz)
     finally:
         backend.close()
         reference.close()
@@ -176,7 +189,7 @@ def test_each_norm_is_read_from_its_own_state(capillary_problem, field_grid):
         load_native(backend, problem.initial.field0)
         partials = native_trial(backend, 0.0, dz)
         old, new = float(partials[0].sum()), float(partials[1].sum())
-        backend._native_state.finish(dz)
+        _testing.finish(backend._workspace, dz)
         after = _field(backend, problem)
     finally:
         backend.close()
@@ -219,7 +232,7 @@ def test_the_weighted_residual_divides_each_bin_before_the_norm(
         carried, rounding = _difference(
             stages, run_request.stepper.tableau.error_weights, propagator, dz
         )
-        partials = backend._native_state.weighted_error(weights)
+        partials = _testing.weighted_error(backend._workspace, weights)
         got = math.sqrt(float(np.sum(partials)))
     finally:
         backend.close()
@@ -251,8 +264,8 @@ def test_a_weighted_controller_scores_as_the_reference_s_does(
     reference = NumpyRefBackend(problem, run_request, grid=field_grid)
     backend, score = _native_trial(problem, run_request, field_grid, dz)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        wanted, _ = reference._trial_step(0.0, dz)
+        load_reference(reference)
+        wanted, _ = reference_trial(reference, 0.0, dz)
     finally:
         backend.close()
         reference.close()
@@ -287,24 +300,24 @@ def test_the_recycled_stage_is_the_one_it_replaces(
     backend = native.NativeBackend(problem, run_request, grid=field_grid)
     try:
         landed = run(backend, problem, run_request)
-        state = backend._native_state
-        assert state.fsal_ready
+        state = backend._workspace
+        assert backend._diagnostics()["fsal_ready"]
         z = float(landed.observations[-1].z)
         assert z == 0.02
         history = [one for one in landed.histories if one.n_steps][-1]
         assert history.accepted[-1]
         dz = float(history.dz[-1])
-        before = state.rk_source_evaluations
+        before = backend._diagnostics()["rk_source_evaluations"]
         native_trial(backend, z, dz)
         # Six evaluations: the first stage was not evaluated, it was recycled.
-        assert state.rk_source_evaluations == before + 6
-        recycled = np.asarray(state.stage_to_host(0)).copy()
+        assert backend._diagnostics()["rk_source_evaluations"] == before + 6
+        recycled = np.asarray(_testing.stage_to_host(state, 0)).copy()
         # The same stage from scratch, at the same state and step.
-        state.clear_fsal()
-        before = state.rk_source_evaluations
+        _testing.clear_fsal(state)
+        before = backend._diagnostics()["rk_source_evaluations"]
         native_trial(backend, z, dz)
-        assert state.rk_source_evaluations == before + 7
-        fresh = np.asarray(state.stage_to_host(0)).copy()
+        assert backend._diagnostics()["rk_source_evaluations"] == before + 7
+        fresh = np.asarray(_testing.stage_to_host(state, 0)).copy()
         gap = float(np.linalg.norm(recycled - fresh) / np.linalg.norm(fresh))
         # The derivative's sensitivity to an elementwise relative perturbation of the
         # state, of the size and kind rounding makes: a measured conditioning estimate,
@@ -314,9 +327,9 @@ def test_the_recycled_stage_is_the_one_it_replaces(
         delta = 1e-11
         field = _field(backend, problem).copy()
         field *= 1.0 + delta * np.exp(2j * np.pi * rng.random(field.shape))
-        load_native(backend, field, clear_fsal=False)
+        load_native(backend, field)
         native_trial(backend, z, dz)
-        moved = np.asarray(state.stage_to_host(0))
+        moved = np.asarray(_testing.stage_to_host(state, 0))
         sensitivity = float(np.linalg.norm(moved - fresh) / np.linalg.norm(fresh))
         sensitivity /= delta
     finally:

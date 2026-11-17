@@ -4,9 +4,12 @@
 
 """A recipe written out as the plain Python script a person would write (SEP 41, S1).
 
-The script is the way out of a recipe for whatever a recipe cannot hold: a custom
-pulse, a callable, an unregistered type. It makes the same run: the same simulation,
-hash included, and the same execution settings, which the hash does not cover.
+:func:`script` writes it: a ``_Writer`` renders each recipe value as a Python
+expression and collects what the script must import, and ``_Pinned`` holds the solver
+calls that set the pinned values before the route's call. The script is the way out of
+a recipe for whatever a recipe cannot hold: a custom pulse, a callable, an unregistered
+type. It makes the same run: the same simulation, hash included, and the same execution
+settings, which the hash does not cover.
 """
 
 from collections.abc import Mapping
@@ -15,6 +18,9 @@ from typing import TYPE_CHECKING, Final
 
 from solprop.recipe.document import NONE
 from solprop.recipe.errors import RecipeError
+from solprop.recipe.metadata import parameters, surface
+from solprop.recipe.paths import parse_path, set_path
+from solprop.recipe.pins import read_pins
 from solprop.recipe.registry import (
     REGISTRY,
     BuildContext,
@@ -140,8 +146,6 @@ def script(
     str
         The script.
     """
-    from solprop.recipe.metadata import parameters  # noqa: PLC0415 - cycle
-
     writer = _Writer(recipe)
     table = parameters(recipe.route)
     document = recipe.to_dict()
@@ -153,6 +157,9 @@ def script(
         # A value built on the grid needs it by name: bind the grid first.
         prelude.append(f"grid = {writer.expression(grid, None, 'grid')}")
         writer.grid = "grid"
+    if "length" in table and "length" not in document["build"]:
+        # The route's length is required, None where the grid supplies it (SEP 51).
+        lines.append(f"{_INDENT}length=None,")
     for name, value in document["build"].items():
         entry = table[name]
         if writer.grid is not None and name == "grid":
@@ -174,6 +181,8 @@ def script(
     execution = dict(document.get("execution", {}))
     target = repr(output)
     title = recipe.title or f"a {recipe.route} run"
+    # The route's entry point: the radial route's is the free-space one.
+    entry = surface(recipe.route).__name__.removeprefix("from_")
     header = [f'"""{title}, written from its recipe by solprop."""', ""]
     if execution:
         writer.need("solprop.driver", "Simulation")
@@ -182,7 +191,7 @@ def script(
             for key, item in execution.items()
         )
         body = [
-            f"simulation = Simulation.from_{recipe.route}(",
+            f"simulation = Simulation.from_{entry}(",
             *lines,
             ")",
         ]
@@ -193,8 +202,8 @@ def script(
         )
         body.append(f"output = simulation.run({target})")
     else:
-        writer.need("solprop.driver", f"prop_{recipe.route}")
-        body = [f"output = prop_{recipe.route}(", *lines]
+        writer.need("solprop.driver", f"prop_{entry}")
+        body = [f"output = prop_{entry}(", *lines]
         if output is not None:
             body.append(f"{_INDENT}output={target},")
         body.append(")")
@@ -233,8 +242,6 @@ def _pins(
     value it solves to now, with the pin in a comment: the pulse object cannot be
     built without its energy.
     """
-    from solprop.recipe.pins import read_pins  # noqa: PLC0415 - cycle
-
     pins = read_pins(recipe)
     lines: list[str] = []
     keywords: list[str] = []
@@ -286,8 +293,6 @@ def _array_pins(
     - ``build``: its ``[build]`` table.
     - Returns: the table, unchanged when no such pin exists.
     """
-    from solprop.recipe.paths import parse_path, set_path  # noqa: PLC0415 - cycle
-
     paths = [path for path in recipe.to_dict().get("pins", {}) if "[" in path]
     if not paths:
         return build

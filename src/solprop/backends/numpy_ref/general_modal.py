@@ -5,9 +5,9 @@
 r"""The general modal guide's nonlinear source, on the reference backend.
 
 This is a **second execution path beside** :mod:`solprop.backends.numpy_ref.passes`, not
-an extension of it: the legacy pipeline synthesises with one real static matrix in the
-time domain, and a general guide's synthesis is a complex, frequency-dependent map of
-three Cartesian components, so it happens in the frequency domain instead.
+an extension of it: the channel node pipeline synthesises with one real static matrix in
+the time domain, and a general guide's synthesis is a complex, frequency-dependent map
+of three Cartesian components, so it happens in the frequency domain instead.
 
 The pipeline of one stage, for a chunk of quadrature nodes:
 
@@ -30,7 +30,7 @@ The pipeline of one stage, for a chunk of quadrature nodes:
    (:func:`solprop.translate.responses.isotropic_kerr_tensor`). A node whose region
    names no response has no polarisation. Which field ``E`` is here is the record's
    own declaration, read back from its ``model_id``: the **real** field ``Re E_a``
-   for the real cubic ``P = eps0 chi3 (E.E) E``, which is the legacy field route's
+   for the real cubic ``P = eps0 chi3 (E.E) E``, which is the channel field route's
    model and radiates the third harmonic, or the analytic signal itself for
    ``P = eps0 chi3 (2 |E|^2 E + (E.E) E*) / 4``, which carries the fundamental band
    alone. The tensor carries the normalisation that belongs to each. The analytic
@@ -49,7 +49,7 @@ The pipeline of one stage, for a chunk of quadrature nodes:
 The crop scale ``n_t / n_to`` stays in ``responses.prefactor``, where it is on every
 route, and the spectral collar
 and the interaction picture are applied by the shared
-:func:`solprop.backends.numpy_ref.passes.stage_output`.
+:func:`solprop.backends.numpy_ref.passes.stepping.stage_output`.
 
 **The delayed response.** A material region may declare the silica tensor Raman model
 beside its Kerr response (:class:`solprop.nonlinear.raman.SilicaTensorResponse`), and
@@ -164,6 +164,10 @@ class GeneralMaps:
         three-component field, whose cubic carries the third harmonic. Read from
         the record's ``model_id`` by :func:`solprop.translate.general.node_kerr_form`;
         `tensor` already carries the normalisation that goes with it.
+    synthesis_terms, projection_terms : numpy.ndarray or None
+        A moving guide's map coefficients, flattened over ``(n_intervals, n_deg)`` in
+        the order of the stage bundle's ``transform_weights``, which :meth:`at`
+        combines into the maps at a position; ``None`` for a constant guide.
     dispersive : solprop.translate.responses.DispersiveKerrTerms or None
         The gas regions' dispersive channels (SEP 6), each acting at the nodes of
         its own region, or ``None``.
@@ -459,7 +463,8 @@ def delayed_polarisation(
     ----------
     field : numpy.ndarray
         The local field at the chunk's nodes, shape ``(n_nodes, 3, n_to)``, V/m:
-        the real field for the real cubic and the analytic signal otherwise.
+        the real field for the real cubic and the analytic signal otherwise. Only
+        its real part is read: the delayed term multiplies the real field.
     pair : numpy.ndarray
         The **real** drive ``Q_kl``, shape ``(n_nodes, 3, 3, n_to)``, V²/m².
     maps : GeneralMaps

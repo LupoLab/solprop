@@ -6,9 +6,8 @@
 
 The SI model of :class:`solprop.physdata.nonlinear_data.DispersiveKerrModel` is checked
 against optmat's own ``gamma3`` for every gas optmat fits, by the conversion check of
-SEP 6's Phase 0 (``tests/sep6_quartets.py``, ``si_adapter``), and the region
-classification of section 4.10 against the band edges and leg bounds optmat's support
-record gives.
+SEP 6's Phase 0, and the region classification of section 4.10 against the band edges
+and leg bounds optmat's support record gives.
 """
 
 import dataclasses
@@ -20,7 +19,6 @@ import pytest
 from optmat.exceptions import ModelRangeWarning
 from optmat.gas.nonlinear import hyperpolarizability_models
 
-from sep6_quartets import GASES
 from solprop.constants import C
 from solprop.exceptions import MaterialError
 from solprop.nonlinear.mixtures import electronic_response
@@ -28,6 +26,25 @@ from solprop.nonlinear.responses import DispersiveKerrResponse, KerrResponse
 from solprop.physdata import MaterialSelection, Species, species
 from solprop.physdata.nonlinear_data import DispersiveKerrModel, OptmatKerr
 from solprop.physdata.selection import DISPERSIVE_POLICIES, ELECTRONIC_POLICIES
+
+# The fifteen gases optmat fits a hyperpolarizability model for.
+GASES = (
+    "He",
+    "Ne",
+    "Ar",
+    "Kr",
+    "Xe",
+    "H2",
+    "D2",
+    "N2",
+    "O2",
+    "CO2",
+    "CH4",
+    "SF6",
+    "CO",
+    "N2O",
+    "O3",
+)
 
 # Phase 0 measured 3.3e-16 for the same comparison: one evaluation each of the
 # polynomial in double precision; 1e-14 leaves a factor of 30 for another platform.

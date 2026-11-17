@@ -27,7 +27,7 @@ from solprop.modes import MarcatiliMode, transverse_quadrature
 from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse
 from solprop.stepper import PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 
 pytest.importorskip("solprop_native.session")
 
@@ -39,7 +39,7 @@ def _problem(n_r: int):
     """Return the three-mode Kerr run of ``test_numpy_ref_multimode.py`` on `n_r`."""
     grid = FieldGrid.from_limits(0.2, 800e-9, (300e-9, 3e-6), 100e-15)
     modes = [
-        MarcatiliMode(125e-6, "He", 1.0, m=m, cladding=1.45, loss=False)
+        MarcatiliMode(125e-6, "He", 1.0, m=m, cladding=1.45, loss_scale=0.0)
         for m in (1, 2, 3)
     ]
     rule = transverse_quadrature(modes, n_r=n_r, radial_rule="gauss_kronrod")

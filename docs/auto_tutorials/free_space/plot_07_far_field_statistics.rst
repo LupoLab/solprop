@@ -78,7 +78,7 @@ of 0.8 mm, twenty waists, puts six lattice points across the far-field radius.
     from solprop.driver import SimulationSettings, prop_free
     from solprop.grid import EnvelopeGrid, FreeGrid
     from solprop.nonlinear.responses import KerrResponse
-    from solprop.output.schema import SavedPlane
+    from solprop.output.records import SavedPlane
     from solprop.physdata.nonlinear_data import chi3_from_n2
     from solprop.pulses import GaussianPulse
     from solprop.spatial import (
@@ -372,7 +372,7 @@ statistic here weights it.
  .. code-block:: none
 
 
-    <matplotlib.colorbar.Colorbar object at 0x6fb1c4a6900>
+    <matplotlib.colorbar.Colorbar object at 0x114fb1400>
 
 
 
@@ -423,7 +423,7 @@ peaks near the coherence length :math:`\pi/|\Delta k|` and falls back.
     coherence length pi/|dk| = 0.69 mm
     signal peaks at z = 0.750 mm
 
-    <matplotlib.legend.Legend object at 0x6fb15447230>
+    <matplotlib.legend.Legend object at 0x114c98980>
 
 
 
@@ -639,8 +639,8 @@ to the beam spectrum needs no further normalisation.
 
  .. code-block:: none
 
-    collect against the run: 2.5e-16
-    from the definition against the run, largest difference in collected fraction: 2.8e-16
+    collect against the run: 6.2e-16
+    from the definition against the run, largest difference in collected fraction: 2.2e-16
 
 
 
@@ -694,7 +694,7 @@ transmission of the exit face into air is not modelled.
 
     quadrants against the beam spectrum: 3.2e-16
     towards +x 1.3721e-07 J, towards -x 1.3708e-07 J; upper 1.5409e-07 J, lower 1.2020e-07 J
-    exit energy 2.742885e-07 J; beam spectrum integral 2.742885e-07 J; relative difference 6.0e-15
+    exit energy 2.742885e-07 J; beam spectrum integral 2.742885e-07 J; relative difference 3.9e-15
 
 
 
@@ -752,7 +752,7 @@ the evanescent, material and custom channels are exactly zero.
 
     energy drop 1.5701e-08 J; absorbed 1.5704e-08 J
     evanescent, material and custom channels: 0.0 J/m; transverse at the exit 7.6e-10 J/m
-    tutorial run time: 21.9 s
+    tutorial run time: 2.1 s
 
 
 
@@ -770,7 +770,7 @@ far-zone and Fourier-plane conditions and the paraxial error;
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 22.151 seconds)
+   **Total running time of the script:** (0 minutes 2.134 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_07_far_field_statistics.py:

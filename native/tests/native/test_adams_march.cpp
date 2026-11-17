@@ -8,7 +8,7 @@
 // policy is refused by the field at fault, that a run on a toy engine keeps its
 // ledger and lands on its target, and where a stop request ends a call (SEP 47).
 
-#include "solprop_native/adams_march.hpp"
+#include "solprop_native/march/adams_march.hpp"
 
 #include <gtest/gtest.h>
 
@@ -106,6 +106,16 @@ TEST(AdamsMarch, APolicyIsRefusedByTheFieldAtFault) {
     EXPECT_NE(std::string(error.what()).find("safety"), std::string::npos);
   }
   EXPECT_NO_THROW(march::validate(policy()));
+}
+
+// A history past `max_history` would overrun the stencil's fixed arrays, so a state
+// that holds one is refused wherever it crosses: the bindings and a run's start.
+TEST(AdamsMarch, AStateWhoseHistoryOverrunsTheStencilIsRefused) {
+  march::State state;
+  state.history.resize(march::max_history);
+  EXPECT_NO_THROW(march::validate(state));
+  state.history.emplace_back();
+  EXPECT_THROW(march::validate(state), std::invalid_argument);
 }
 
 TEST(AdamsMarch, ARunKeepsItsLedgerAndLandsOnItsTarget) {

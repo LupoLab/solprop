@@ -5,7 +5,7 @@
 """SEP 6's dispersive electronic response: the fused path's cases and their bound.
 
 The capillary, mode-averaged and radial problems, the measurements and the rounding
-bound of a compiled backend's ladder (``test_native_dispersive_kerr.py``) against
+bound of native's rows of the case catalogue (``dispersive_rows.py``) against
 ``numpy_ref``, which applies the multipliers at every node and is the oracle.
 
 **The bounds are derived from summation lengths.** One evaluation of the constant
@@ -20,7 +20,6 @@ they are a transform looser than they need be. The reference takes as many again
 every node, so each count is doubled. Each test states what it was measured against.
 """
 
-import dataclasses
 import math
 import warnings
 from collections.abc import Mapping
@@ -31,20 +30,20 @@ import numpy as np
 from bounds import gamma
 from sessions.runs import run as session_run
 from sessions.runs import summary as run_summary
-from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.modes import MarcatiliMode, transverse_quadrature
 from solprop.nonlinear.responses import DispersiveKerrResponse
-from solprop.physdata import MaterialSelection
+from solprop.physdata import MaterialSelection, Mixture
 from solprop.physdata.nonlinear_data import OptmatKerr
+from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, Multistep, PIController
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 EPS = np.finfo(float).eps
@@ -69,7 +68,8 @@ GRID_CASES: dict[str, dict[str, Any]] = {
 def capillary(
     evaluator: str,
     *,
-    gas: str | Mapping[str, float] = "Ar",
+    gas: str | Mapping[str, float] | Mixture = "Ar",
+    pressure: float | None = 2.0,
     stepped: bool = False,
     **overrides: object,
 ) -> Simulation:
@@ -77,7 +77,8 @@ def capillary(
 
     Its quadrature has 33 nodes with an embedded rule. A stepped one takes the
     split-step absorber, whose collar is stable at a tenth of the guide, and ten fixed
-    steps. Nitrogen's band starts at 180 nm, inside its index fit.
+    steps. Nitrogen's band starts at 180 nm, inside its index fit. A fill carries its
+    own pressures (``pressure=None``).
     """
     arguments: dict[str, Any] = {
         "wavelength": 800e-9,
@@ -99,8 +100,16 @@ def capillary(
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
         return Simulation.from_capillary(
-            75e-6, LENGTH, gas, 2.0, **{"noise": None, **arguments}
+            75e-6, LENGTH, gas, pressure, **{"noise": None, **arguments}
         )
+
+
+def falling(evaluator: str, helium_end: float, argon_end: float) -> Simulation:
+    """Return helium from 2 bar and argon from 0.5 bar, linear along z, stepped."""
+    fill = Mixture.partial_pressures(
+        {"He": Linear(2.0, helium_end, LENGTH), "Ar": Linear(0.5, argon_end, LENGTH)}
+    )
+    return capillary(evaluator, gas=fill, pressure=None, stepped=True)
 
 
 def grid_for(envelope: bool) -> FieldGrid | EnvelopeGrid:
@@ -121,7 +130,7 @@ def averaged(
     mode, a 24-point radial rule, an elliptical launch.
     """
     grid = grid_for(envelope)
-    mode = MarcatiliMode(75e-6, cladding=1.45, loss=False)
+    mode = MarcatiliMode(75e-6, cladding=1.45, loss_scale=0.0)
     pulse = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=2e-6).build(grid)
     start = pulse
     quadrature = None
@@ -188,40 +197,6 @@ def radial(
 # --- the measurements ------------------------------------------------------------
 
 
-@dataclasses.dataclass(frozen=True)
-class Evaluation:
-    """One source evaluation's projected polarisation spectrum on both rules."""
-
-    projected: np.ndarray
-    coarse: np.ndarray | None
-
-
-def reference_evaluation(
-    problem: PropagationProblem,
-    run_request,
-    grid: Any,
-    options: ExecutionOptions | None = None,
-) -> Evaluation:
-    """Evaluate the reference's source once at the launch: its projected spectra.
-
-    The reference keeps both rules' projections of its last evaluation in time; their
-    unnormalised transforms are what a compiled backend's stage holds in frequency,
-    where the response joins every other's.
-    """
-    backend = NumpyRefBackend(problem, run_request, grid=grid, options=options)
-    forward = np.fft.rfft if problem.grid_kind == "field" else np.fft.fft
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend._adams_lab_source(problem.initial.field0[None], 0.0)
-        coarse = backend._last_coarse
-        return Evaluation(
-            forward(np.asarray(backend._last_projected), axis=-1),
-            None if coarse is None else forward(np.asarray(coarse), axis=-1),
-        )
-    finally:
-        backend.close()
-
-
 def run(
     backend_class: type,
     problem: PropagationProblem,
@@ -236,22 +211,14 @@ def run(
     """
     backend = backend_class(problem, run_request, grid=grid, **options)
     try:
-        # The step driver's march computed no statistic, which a case's profiles
-        # would be needed for.
+        # The march alone, with no statistic, which a case's profiles would be
+        # needed for.
         result = session_run(
             backend, problem, backend.request.for_run(stats=StatsSpec())
         )
         return result.fields[-1], run_summary(result)
     finally:
         backend.close()
-
-
-def disagreement(ours: np.ndarray, theirs: np.ndarray) -> float:
-    """Return the relative L2 difference of two arrays of the same size."""
-    ours, theirs = np.ravel(ours), np.ravel(theirs)
-    scale = float(np.linalg.norm(theirs))
-    assert scale > 0
-    return float(np.linalg.norm(ours - theirs) / scale)
 
 
 def evaluation_bound(problem: PropagationProblem) -> float:

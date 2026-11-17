@@ -22,7 +22,7 @@ import functools
 import math
 import warnings
 from types import SimpleNamespace
-from typing import Literal
+from typing import Any, Literal, cast
 
 import mpmath
 import numpy as np
@@ -31,10 +31,13 @@ from scipy.integrate import quad
 from scipy.linalg import expm
 
 import flow_parity
+from backends.carrier_frame_cases import WINDOW, capillary, gradient
 from backends.conftest import EQUIVALENCE_BACKENDS
 from bounds import EPS, assert_within, carrier_increment_budget
-from sessions.runs import adams_ledger, run
-from solprop.backends.events import ObservationKind
+from builders import stage_helpers
+from sessions.executors import IDENTITY, Started, drive
+from sessions.runs import adams_ledger, bare, final_field, run
+from solprop.backends.events import ObservationKind, ObservationReady
 from solprop.backends.exponential import (
     CarrierReference,
     _carrier_refusal,  # pyright: ignore[reportPrivateUsage]
@@ -45,20 +48,20 @@ from solprop.backends.exponential import (
     phi_functions,
     refuse_carrier_frame,
 )
-from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.multistep import (
+from solprop.backends.numpy_ref.adams_kernels import (
     CoupledBlock,
     ExponentialKernels,
-    HostHistory,
     coupled_moments,
 )
-from solprop.boundaries import absorber
+from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
+from solprop.backends.numpy_ref.multistep import HostHistory
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BackendError, SolpropWarning, StepperError
-from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
-from solprop.linear import Frame
+from solprop.grid import EnvelopeGrid, FreeGrid
 from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
@@ -69,7 +72,7 @@ from solprop.stepper.multistep import (
     Multistep,
     lagrange_coefficients,
 )
-from solprop.translate.coupled import schur_blocks, schur_eigenbasis
+from solprop.translate.coupled import schur_blocks
 from solprop.translate.stage import scalars
 
 COMPILED: dict[str, type] = dict(EQUIVALENCE_BACKENDS)
@@ -80,83 +83,12 @@ SCALAR = Multistep(carrier_frame="scalar")
 
 # --- fixtures -------------------------------------------------------------------------
 
-THG = {"field": None, "envelope": False, "envelope_thg": True}
-"""The third-harmonic choice per grid: the field grid's default (on), off, on."""
-
-
-@functools.cache
-def capillary(
-    integrator: Multistep | RungeKutta,
-    length: float = 2e-3,
-    *,
-    n_save: int = 5,
-    interpolate: bool = True,
-    rtol: float = 1e-8,
-    grid_kind: str = "field",
-    energy: float = 1e-7,
-    modes: int = 1,
-    frame_offset: float = 0.0,
-    collar: str = "spectral",
-) -> Simulation:
-    """Return a 16 um, 40 bar hydrogen capillary on a 200 fs grid: kappa near -5.5e3/m.
-
-    The dense gas of SEP 35's cases C and D, reduced: Kerr only (no Raman, no plasma),
-    so that a short window runs in seconds. `frame_offset` moves a fixed custom frame's
-    reference frequency by that fraction of the grid's. `collar` is ``"spectral"`` (no
-    temporal collar: a manufactured source replaces the whole source, the collar's
-    term with it), ``"weak"`` (a 1 m reference length, so that accuracy sets a short
-    window's step) or ``"default"`` (the window's own in-stage collar, which then binds
-    the step: 1.4 um at PEC5/6 on 3 mm).
-    """
-    limits = (200e-9, 2e-6)
-    grid = (
-        FieldGrid.from_limits(length, 800e-9, limits, 200e-15)
-        if grid_kind == "field"
-        else EnvelopeGrid.from_limits(
-            length, 800e-9, limits, 200e-15, thg=grid_kind == "envelope_thg"
-        )
-    )
-    collars = {
-        "spectral": absorber(grid, temporal=False),
-        "weak": absorber(grid, boundary_length=1.0),
-        "default": None,
-    }
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", SolpropWarning)
-        simulation = Simulation.from_capillary(
-            16e-6,
-            length,
-            "H2",
-            40.0,
-            grid=grid,
-            wavelength=800e-9,
-            fwhm=30e-15,
-            energy=energy,
-            modes=modes,
-            rtol=rtol,
-            atol=1e-12,
-            noise=None,
-            backend="numpy_ref",
-            n_save=n_save,
-            integrator=integrator,
-            raman=False,
-            plasma=False,
-            thg=THG[grid_kind],
-            interpolate_planes=interpolate,
-            absorber=collars[collar],
-        )
-    if frame_offset:
-        simulation.frame = Frame(
-            grid.omega0 * (1.0 + frame_offset), subtract_beta0=False, beta1=None
-        )
-    return simulation
-
 
 def reference_rate(problem) -> float:
     """Return ``Im D`` at the reference bin of a constant operator, 1/m (``-kappa``)."""
     grids = problem.grids
     index = _nearest_bin(grids.omega, grids.omega0)
-    return float(problem.linear.phi_constant[0, 0, 0, index].imag)
+    return float(problem.linear.phi_constant[0, 0, index].imag)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -247,7 +179,7 @@ def march(
     native run (``None``) keeps natively.
     """
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     if changes:
         run_request = run_request.with_stepper(
             dataclasses.replace(run_request.stepper, **changes)
@@ -270,7 +202,7 @@ def march(
                 del lab, purpose
                 return source.source(position)
 
-            backend._adams_lab_source = lab_source  # pyright: ignore[reportAttributeAccessIssue]
+            backend.workspace.lab_source = lab_source  # pyright: ignore[reportAttributeAccessIssue]
         start = problem.initial.field0
         record: dict[str, object] = {}
         result = run(backend, problem, run_request, record=record)
@@ -290,7 +222,7 @@ def march(
                     / float(np.max(np.abs(exact * active)))
                 )
         attempts = result.joined[0]
-        march = getattr(backend, "_adams", None) if _on_host(backend) else None
+        march = _adams_march(backend)
         return SimpleNamespace(
             fields=fields,
             errors=errors,
@@ -304,8 +236,16 @@ def march(
 
 
 def _on_host(backend) -> bool:
-    """Return whether a backend is the reference, whose march is its own driver's."""
+    """Return whether a backend is the reference, whose march a test can read."""
     return backend.name == "numpy_ref"
+
+
+def _adams_march(backend):
+    """Return the reference's last run's Adams march, or ``None`` for any other."""
+    if not _on_host(backend):
+        return None
+    march = backend.march
+    return march if isinstance(march, HostAdamsMarch) else None
 
 
 def _ledger(backend, record) -> CallLedger | None:
@@ -369,7 +309,7 @@ def test_the_refusals_name_the_policy_and_the_route():
 
 def test_a_backend_refuses_what_it_does_not_deliver():
     simulation = capillary(SCALAR)
-    problem, stepper = simulation.translate(), simulation._run_request().stepper
+    problem, stepper = simulation.translate(), simulation.run_request().stepper
     with pytest.raises(BackendError, match="carrier_frame='scalar'"):
         refuse_carrier_frame(problem, stepper, "a backend")
     refuse_carrier_frame(problem, stepper, "numpy_ref", delivered=frozenset({"scalar"}))
@@ -383,7 +323,7 @@ def test_a_compiled_cpu_backend_accepts_the_shift(backend_name):
     for method in (OFF, SCALAR):
         built = capillary(method)
         COMPILED[backend_name](
-            built.translate(), built._run_request(), grid=built.grid, modes=built.modes
+            built.translate(), built.run_request(), grid=built.grid, modes=built.modes
         ).close()
 
 
@@ -472,22 +412,21 @@ def test_the_policy_is_inert_where_no_carrier_phase_is_kept():
     assert inactive is not None and not inactive.active
     assert f"({nearest}) is inactive" in inactive.reason
     with pytest.raises(BackendError, match="inert"):
-        inactive.shift(np.zeros((1, 1, 1, 3), dtype=complex))
-    assert inactive.phase(np.ones((1, 1, 1, 3), dtype=complex)) == 0.0
+        inactive.shift(np.zeros((1, 1, 3), dtype=complex))
+    assert inactive.phase(np.ones((1, 1, 3), dtype=complex)) == 0.0
 
 
-def test_the_shift_is_per_member_and_the_cap_reads_the_largest():
-    exponent = np.zeros((2, 3, 2, 4), dtype=complex)
-    exponent[0, 0, 0, 1] = -0.1 + 0.3j
-    exponent[1, 0, 0, 1] = -0.2 - 0.7j
+def test_the_shift_and_the_cap_read_the_reference_element():
+    exponent = np.zeros((3, 2, 4), dtype=complex)
+    exponent[0, 0, 1] = -0.2 - 0.7j
     # Other modes and polarisations never set the shift.
-    exponent[:, 1:, :, :] = 5j
-    exponent[:, :, 1, :] = 9j
+    exponent[1:, :, :] = 5j
+    exponent[:, 1, :] = 9j
     reference = CarrierReference("scalar", 1, 1.0, "")
     shift = reference.shift(exponent)
-    assert shift.shape == (2, 1, 1, 1)
+    assert shift.shape == (1, 1, 1)
     # Imaginary only: the loss is never shifted (section 10).
-    assert shift.ravel().tolist() == [0.3j, -0.7j]
+    assert shift.ravel().tolist() == [-0.7j]
     assert reference.phase(exponent) == pytest.approx(0.7)
 
 
@@ -550,10 +489,10 @@ def test_the_dense_formula_is_the_integral_it_stands_for():
     # nodes, a lossy rotating exponent and an imaginary shift, at interior fractions
     # and the endpoint: the production moments and passes.
     nodes = np.array([1.0, 0.0, -0.7, -1.9])
-    x = np.array([-0.4 + 7.0j, -1.5 + 0.3j]).reshape((1, 1, 1, 2))
+    x = np.array([-0.4 + 7.0j, -1.5 + 0.3j]).reshape((1, 1, 2))
     sigma = 2.3j
     rng = np.random.default_rng(4)
-    samples = rng.normal(size=(4, 1, 1, 1, 2)) + 1j * rng.normal(size=(4, 1, 1, 1, 2))
+    samples = rng.normal(size=(4, 1, 1, 2)) + 1j * rng.normal(size=(4, 1, 1, 2))
     rotated = [
         np.exp(sigma * (1 - node)) * one
         for node, one in zip(nodes, samples, strict=True)
@@ -565,18 +504,18 @@ def test_the_dense_formula_is_the_integral_it_stands_for():
     def polynomial(theta, element):
         """The rotated samples' interpolant at ``theta``."""
         basis = np.array([theta**k for k in range(count)])
-        values = np.array([one[0, 0, 0, element] for one in rotated])
+        values = np.array([one[0, 0, element] for one in rotated])
         return (coefficients @ basis) @ values
 
     for xi in (0.2, 0.63, 1.0):
         moments = kernels.moments(xi * (x - sigma), count)
         powers = np.array([xi ** (k + 1) for k in range(count)])
-        scaled = moments * powers.reshape((count, 1, 1, 1, 1))
+        scaled = moments * powers.reshape((count, 1, 1, 1))
         found = np.exp(-sigma * (1 - xi)) * kernels.apply(
             scaled, coefficients, rotated, 1.0
         )
         for element in range(2):
-            rate = complex(x[0, 0, 0, element])
+            rate = complex(x[0, 0, element])
 
             def integrand(s, part, rate=rate, element=element, xi=xi):
                 value = (
@@ -590,7 +529,7 @@ def test_the_dense_formula_is_the_integral_it_stands_for():
                 quad(integrand, 0.0, xi, args=(0,), epsabs=1e-15, epsrel=1e-13)[0],
                 quad(integrand, 0.0, xi, args=(1,), epsabs=1e-15, epsrel=1e-13)[0],
             )
-            assert abs(found[0, 0, 0, element] - exact) <= 1e-13 * max(1.0, abs(exact))
+            assert abs(found[0, 0, element] - exact) <= 1e-13 * max(1.0, abs(exact))
 
 
 # --- aliasing and resolution (section 4.3) --------------------------------------------
@@ -754,7 +693,7 @@ def test_the_adaptive_march_resolves_what_the_shift_leaves(kind):
     # the controller's variable steps, and then replayed on its own accepted steps.
     simulation = capillary(SCALAR, rtol=1e-6, n_save=2, interpolate=False)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     source = (
         manufactured(problem, harmonic=0.1)
         if kind == "mixed"
@@ -806,9 +745,6 @@ def test_the_policy_is_the_present_arithmetic_where_inert():
 
 
 # --- physical windows: grids, collar, launches, a custom frame ------------------------
-
-WINDOW = 3e-3
-"""A short physical window, m: a strong 2 uJ pulse broadening in 40 bar of hydrogen."""
 
 
 @functools.cache
@@ -915,49 +851,20 @@ def test_a_custom_frame_changes_only_how_much_rotation_is_removed():
 # --- varying operators (section 4.5) --------------------------------------------------
 
 
-@functools.cache
-def gradient(integrator, rtol: float) -> Simulation:
-    """Return a 3 mm hydrogen gradient, 40 to 20 bar, weak collar: varying operator."""
-    grid = FieldGrid.from_limits(WINDOW, 800e-9, (200e-9, 2e-6), 200e-15)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", SolpropWarning)
-        return Simulation.from_capillary(
-            16e-6,
-            WINDOW,
-            "H2",
-            (40.0, 20.0),
-            grid=grid,
-            wavelength=800e-9,
-            fwhm=30e-15,
-            energy=2e-6,
-            modes=1,
-            rtol=rtol,
-            atol=1e-12,
-            noise=None,
-            backend="numpy_ref",
-            n_save=2,
-            integrator=integrator,
-            raman=False,
-            plasma=False,
-            absorber=absorber(grid, boundary_length=1.0),
-        )
-
-
 def gradient_run(
     method, compensation: Literal["transported", "untransported"] = "transported"
 ):
     """Run the gradient window with the given compensation; return field and march."""
     simulation = gradient(method, 1e-8)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NumpyRefBackend(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        backend._adams = HostAdamsMarch(backend, method, compensation=compensation)
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
-        return backend.observe().require_field(), backend._adams
+        backend._use_adams(method, compensation=compensation)
+        field = final_field(backend, problem, bare(run_request), ended=True)
+        return field, cast("Any", backend.march)
     finally:
         backend.close()
 
@@ -970,7 +877,8 @@ def test_a_varying_operator_is_compensated_under_the_frame(compensation):
     # samples. Both against a converged Runge-Kutta reference.
     reference = march(gradient(RungeKutta(), 1e-11)).fields[-1]
     field, run = gradient_run(SCALAR, compensation)
-    assert run._engine.compensated and shifted(run)
+    assert run is not None
+    assert cast("Any", run._engine).compensated and shifted(run)
     assert relative(field, reference) < 1e-8 * run.ledger.accepted_steps
 
 
@@ -997,14 +905,14 @@ def shifted_moment(shifted: np.ndarray, k: int) -> np.ndarray:
 
 def test_the_shifted_block_keeps_the_true_flow():
     # Moments of h B - sigma I by quadrature, and the flow exp(h B) itself, not the
-    # shifted block's: a nonnormal block, on the augmented and eigenbasis paths.
+    # shifted block's: a nonnormal block.
     rng = np.random.default_rng(35)
     generator = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
     generator[np.tril_indices(3, -1)] *= 0.05
     vectors, triangular = schur_blocks(generator[:, :, np.newaxis])
     diagonal = -0.4 + 2.5j
-    exponent = np.full((1, 3, 1, 1), diagonal)
-    sigma = np.full((1, 1, 1, 1), 2.1j)
+    exponent = np.full((3, 1, 1), diagonal)
+    sigma = np.full((1, 1, 1), 2.1j)
     block = CoupledBlock(
         active=np.array([True]), vectors=vectors, triangular=triangular, section=0
     )
@@ -1012,13 +920,11 @@ def test_the_shifted_block_keeps_the_true_flow():
     total = diagonal * np.eye(3) + dz * generator
     shifted = total - 2.1j * np.eye(3)
     exact = [shifted_moment(shifted, k) for k in range(4)]
-    routed = dataclasses.replace(block, basis=schur_eigenbasis(vectors, triangular))
-    for candidate in (block, routed):
-        moments = coupled_moments(exponent, 4, candidate, dz, carrier=sigma)
-        np.testing.assert_allclose(moments.flow_matrix[0], expm(total), atol=1e-13)
-        np.testing.assert_allclose(moments.flow_scalar, np.exp(exponent), rtol=1e-15)
-        for k in range(4):
-            np.testing.assert_allclose(moments.matrices[k, 0], exact[k], atol=1e-11)
+    moments = coupled_moments(exponent, 4, block, dz, carrier=sigma)
+    np.testing.assert_allclose(moments.flow_matrix[0], expm(total), atol=1e-13)
+    np.testing.assert_allclose(moments.flow_scalar, np.exp(exponent), rtol=1e-15)
+    for k in range(4):
+        np.testing.assert_allclose(moments.matrices[k, 0], exact[k], atol=1e-11)
 
 
 def coupled_run(name, integrator, rtol, backend_class=NumpyRefBackend):
@@ -1042,7 +948,7 @@ def coupled_run(name, integrator, rtol, backend_class=NumpyRefBackend):
             simulation.settings, integrator=integrator
         )
         problem = simulation.translate()
-        run_request = simulation._run_request()
+        run_request = simulation.run_request()
     backend = backend_class(
         problem,
         run_request,
@@ -1053,7 +959,7 @@ def coupled_run(name, integrator, rtol, backend_class=NumpyRefBackend):
     try:
         record: dict[str, object] = {}
         field = run(backend, problem, run_request, record=record).fields[-1]
-        march = getattr(backend, "_adams", None) if _on_host(backend) else None
+        march = _adams_march(backend)
         return field, SimpleNamespace(march=march, ledger=_ledger(backend, record))
     finally:
         backend.close()
@@ -1080,19 +986,24 @@ def test_coupled_sections_agree_with_runge_kutta_under_the_frame(name, bound):
 def test_a_snapshot_continues_only_under_its_own_policy():
     simulation = capillary(SCALAR, energy=1e-6, interpolate=False, n_save=3)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     planes = [float(z) for z in run_request.stepper.save_planes]
     first = NumpyRefBackend(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
+    held = {}
+
+    def keep(session, batch):
+        # The method history at the second plane, as a snapshot service takes it.
+        for event in batch.events:
+            if isinstance(event, ObservationReady) and event.z == planes[1]:
+                held["stored"] = session.march_snapshot(event.ticket)
+
     try:
-        first.set_initial(problem.initial.field0, None)
-        first.propagate_to(planes[1])
-        stored = first.march_snapshot()
-        first.propagate_to(planes[-1])
-        continued = first.observe().require_field()
+        continued = run(first, problem, bare(run_request), between=keep).fields[-1]
     finally:
         first.close()
+    stored = held.get("stored")
     assert stored is not None
     # Under the same policy the saved history continues; with the same steps, orders
     # and history it agrees with the in-memory continuation within a rounding budget
@@ -1101,12 +1012,15 @@ def test_a_snapshot_continues_only_under_its_own_policy():
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        second.set_initial(problem.initial.field0, None, z=stored.z)
-        assert second.restore_march(stored) is None
-        second.propagate_to(planes[-1])
-        resumed = second.observe().require_field()
-        assert second._adams is not None
-        steps = second._adams.ledger.accepted_steps
+        session = start_session(
+            second, problem, bare(run_request), _resumed(stored, planes), owns=False
+        )
+        try:
+            assert cast("Any", session).march_refusal is None
+            resumed = drive(Started(session), export=IDENTITY).fields[-1]
+        finally:
+            session.close()
+        steps = cast("Any", second.march).ledger.accepted_steps
     finally:
         second.close()
     assert_within(resumed, continued, max(steps, 1) * 512 * EPS, what="resumed history")
@@ -1119,11 +1033,29 @@ def test_a_snapshot_continues_only_under_its_own_policy():
             problem, other, grid=simulation.grid, modes=simulation.modes
         )
         try:
-            backend.set_initial(problem.initial.field0, None, z=stored.z)
-            reason = backend.restore_march(stored)
+            session = start_session(
+                backend, problem, other, _resumed(stored, planes), owns=False
+            )
+            reason = cast("Any", session).march_refusal
+            session.close()
         finally:
             backend.close()
         assert reason is not None and "scalar-frame" in reason
+
+
+def _resumed(stored, planes):
+    """Return the start of a resume from a snapshot at a saved plane.
+
+    Its own plane is observed again, so that a resume at the last plane still reports
+    the state it holds.
+    """
+    return Start(
+        field=np.array(stored.state),
+        z=stored.z,
+        plane_index=planes.index(stored.z) + 1,
+        march=stored,
+        resume=True,
+    )
 
 
 # --- the parity rounding budget -------------------------------------------------------
@@ -1138,14 +1070,12 @@ def test_the_rounding_budget_bounds_one_shifted_increment():
     count = len(nodes)
     exponent = (
         rng.normal(size=6) * 0.3 - 0.05 + 1j * rng.uniform(-40.0, 40.0, size=6)
-    ).reshape((1, 1, 1, 6))
+    ).reshape((1, 1, 6))
     sigma = 0.9j  # under the cap
-    samples = rng.normal(size=(count, 1, 1, 1, 6)) + 1j * rng.normal(
-        size=(count, 1, 1, 1, 6)
-    )
+    samples = rng.normal(size=(count, 1, 1, 6)) + 1j * rng.normal(size=(count, 1, 1, 6))
     shifted = exponent - sigma
     moments = ExponentialKernels().moments(shifted, count)
-    rotated = np.exp(sigma * (1.0 - nodes)).reshape((count, 1, 1, 1, 1)) * samples
+    rotated = np.exp(sigma * (1.0 - nodes)).reshape((count, 1, 1, 1)) * samples
     found = sum(
         moments[k] * np.tensordot(coefficients[:, k], rotated, axes=1)
         for k in range(count)
@@ -1154,15 +1084,15 @@ def test_the_rounding_budget_bounds_one_shifted_increment():
         exact = np.array(
             [
                 exact_increment(
-                    complex(exponent[0, 0, 0, element]) - sigma,
+                    complex(exponent[0, 0, element]) - sigma,
                     sigma,
                     nodes,
                     coefficients,
-                    samples[:, 0, 0, 0, element],
+                    samples[:, 0, 0, element],
                 )
                 for element in range(6)
             ]
-        ).reshape((1, 1, 1, 6))
+        ).reshape((1, 1, 6))
     budget = carrier_increment_budget(
         coefficients, moments, samples, nodes, sigma, shifted
     )
@@ -1207,36 +1137,10 @@ def test_the_moments_at_the_reference_bin_take_the_near_branch():
 
 
 # --- the compiled backends (phases 2 and 3) ----------------------------------------
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("backend_name", sorted(COMPILED))
-def test_a_compiled_backend_follows_the_reference_on_a_matched_window(backend_name):
-    # A physical window replayed on the reference's own accepted steps at a fixed
-    # order, so both run the same discrete method and history (SEP 25): they differ
-    # by rounding alone, 512 eps a step relative to the field.
-    method = Multistep(variable_order=False, carrier_frame="scalar")
-    simulation = capillary(
-        method,
-        WINDOW,
-        rtol=1e-8,
-        energy=2e-6,
-        n_save=2,
-        interpolate=False,
-        collar="weak",
-    )
-    adaptive = march(simulation)
-    steps = adaptive.steps.copy()
-    steps[-1] = WINDOW - float(np.sum(steps[:-1]))
-    schedule = FixedSchedule(steps)
-    expected = march(simulation, schedule=schedule)
-    found = march(simulation, schedule=schedule, backend_class=COMPILED[backend_name])
-    assert_within(
-        found.fields[-1],
-        expected.fields[-1],
-        len(steps) * 512 * EPS,
-        what=f"{backend_name} against numpy_ref",
-    )
+#
+# The matched window and the gradient, replayed on the reference's accepted steps,
+# are the catalogue's rows ``ladder carrier frame matched ...``
+# (``backends/ladder_rows.py``).
 
 
 @pytest.mark.medium
@@ -1297,15 +1201,18 @@ def test_the_chord_is_the_engine_s_exponent_at_the_reference(backend_name, opera
     assert reference is not None and reference.chord is not None
     assert reference.bin is not None
     backend = backends[backend_name](
-        problem, simulation._run_request(), grid=simulation.grid, modes=simulation.modes
+        problem, simulation.run_request(), grid=simulation.grid, modes=simulation.modes
     )
     try:
         for z1, z2 in ((0.0, 1e-4), (1e-3, 1.7e-3)):
             # The stage's scalars as either backend's march forms them, and the
             # backend's own exponent of them.
-            bundle = scalars(problem, z1, z2, helpers=backend.helpers)
-            full = backend._delta_phi(bundle)
-            expected = np.asarray(full)[:, 0, 0, reference.bin]
+            bundle = scalars(problem, z1, z2, helpers=stage_helpers(backend))
+            owner = getattr(backend, "workspace", None)
+            full = (
+                backend._delta_phi(bundle) if owner is None else owner.delta_phi(bundle)
+            )
+            expected = np.asarray(full)[0, 0, reference.bin]
             found = reference.chord.exponent(z1, z2)
             # The same representation evaluated at one element: a few roundings of the
             # exponent (an expansion's combination, a constant's product).
@@ -1313,25 +1220,3 @@ def test_the_chord_is_the_engine_s_exponent_at_the_reference(backend_name, opera
             assert np.all(np.abs(found - expected) <= bound), (found, expected)
     finally:
         backend.close()
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("backend_name", sorted(COMPILED))
-def test_a_compiled_backend_follows_the_reference_on_a_gradient(backend_name):
-    # The transported compensation beside the shift (section 4.5), on the reference's
-    # own accepted steps at a fixed order: rounding alone, 512 eps a step.
-    method = Multistep(variable_order=False, carrier_frame="scalar")
-    simulation = gradient(method, 1e-8)
-    adaptive = march(simulation)
-    assert adaptive.march._engine.compensated
-    steps = adaptive.steps.copy()
-    steps[-1] = WINDOW - float(np.sum(steps[:-1]))
-    schedule = FixedSchedule(steps)
-    expected = march(simulation, schedule=schedule)
-    found = march(simulation, schedule=schedule, backend_class=COMPILED[backend_name])
-    assert_within(
-        found.fields[-1],
-        expected.fields[-1],
-        len(steps) * 512 * EPS,
-        what=f"{backend_name} against numpy_ref on a gradient",
-    )

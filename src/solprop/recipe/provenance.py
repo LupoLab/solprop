@@ -5,13 +5,15 @@
 """The recipe a run records: the authored text, the resolved one, and the data files.
 
 A run built from a recipe writes a ``recipe`` group in its output, once, at its first
-start (SEP 41, S2). The **authored** recipe is the text as loaded, or its canonical
-TOML once edited. The **resolved** recipe is what rebuilds the run: the authored keys,
-the noise seed that was drawn, each keyword the metadata marks resolvable at the value
-the build used, and ``[execution]`` from the settings at run start. A keyword is
-resolvable only where its value written back gives the same record; the rest stay
-with the build, so a later solprop's default cannot move a resolvable one, and the
-resume gate notices the others.
+start (SEP 41, S2); :func:`record` builds its
+:class:`~solprop.output.records.RecipeRecord`, embedding data files up to
+:data:`EMBED_LIMIT`. The **authored** recipe is the text as loaded, or its canonical
+TOML once edited. The **resolved** recipe (:func:`resolved_document`) is what rebuilds
+the run: the authored keys, the noise seed that was drawn, each keyword the metadata
+marks resolvable at the value the build used, and ``[execution]`` from the settings at
+run start. A keyword is resolvable only where its value written back gives the same
+record; the rest stay with the build, so a later solprop's default cannot move a
+resolvable one, and the resume gate notices the others.
 """
 
 from collections.abc import Iterator, Mapping
@@ -20,8 +22,9 @@ from typing import TYPE_CHECKING, Final
 
 import numpy as np
 
+from solprop.driver.routes.general import GAS_KEYWORD_DEFAULTS
 from solprop.nonlinear.raman import RamanResponse
-from solprop.output.schema import RecipeFile, RecipeRecord
+from solprop.output.records import RecipeFile, RecipeRecord
 from solprop.recipe.document import (
     FORMAT,
     Document,
@@ -30,7 +33,7 @@ from solprop.recipe.document import (
     encode_integer,
     read_data_file,
 )
-from solprop.recipe.metadata import REQUIRED, parameters
+from solprop.recipe.metadata import OBJECT_ROUTES, REQUIRED, parameters
 
 if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
@@ -110,14 +113,10 @@ def _used(
     if build.get("provider") is not None:
         # A general guide takes its physics from the guide: the route refuses these
         # beside a provider, so the resolved text must not name them.
-        from solprop.driver.simulation import (  # noqa: PLC0415 - layer above
-            _GAS_KEYWORD_DEFAULTS,
-        )
-
         values = {
             name: value
             for name, value in values.items()
-            if name not in _GAS_KEYWORD_DEFAULTS
+            if name not in GAS_KEYWORD_DEFAULTS
         }
     return values
 
@@ -150,8 +149,18 @@ def resolved_document(
         entry = table.get(name)
         if entry is not None and entry.resolvable and name not in build:
             build[name] = value
-    # save_planes is resolvable on every route, so the planes n_save stood for are now
-    # written out.
+    # The run's resolved positions, ending at its length, replace whatever selector
+    # was authored or defaulted (SEP 51 section 5.9), at the level the route reads
+    # them: a later change of a default count cannot change the rebuilt run.
+    planes = np.asarray(simulation.settings.save_planes, dtype=float).tolist()
+    nested = build.get("settings")
+    if recipe.route in OBJECT_ROUTES and isinstance(nested, Mapping):
+        settings_table = dict(nested)
+        settings_table.pop("n_save", None)
+        settings_table["save_planes"] = planes
+        build["settings"] = settings_table
+    else:
+        build["save_planes"] = planes
     build.pop("n_save", None)
     noise = simulation.noise
     if noise is not None and noise.seed is not None and "seed" not in build:
@@ -227,7 +236,7 @@ def record(
 
     Returns
     -------
-    solprop.output.schema.RecipeRecord
+    solprop.output.records.RecipeRecord
         The authored and resolved texts, and the data files.
     """
     # A pinned recipe builds through its resolved copy, which remembers the authored

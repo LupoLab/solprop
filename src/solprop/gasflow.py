@@ -2,49 +2,28 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Steady gas flow in a hollow fibre: the fill, the choked end and the flow regime.
+"""Steady gas flow in a hollow fibre: the fill, the choked end and the flow regime.
 
-A hollow fibre filled from gas cells at its ends carries a steady laminar flow. For an
-isothermal ideal gas in Poiseuille flow the mass flow is constant along each stage and
-proportional to :math:`a^4\,p\,\mathrm{d}p/\mathrm{d}z`, which makes :math:`p^2` linear
-in the hydraulic resistance :math:`R = \int a^{-4}\,\mathrm{d}z`
-(:class:`solprop.profiles.PressureGradient`, Pennetta et al., APL Photonics 4, 056105
-(2019), eq. 6). The PV throughput of a stage is
+The steady laminar (Poiseuille) flow of an ideal gas fed from cells at a fibre's ends,
+with ``p^2`` linear in the hydraulic resistance of the bore
+(:func:`solprop.profiles.hydraulic_integral`).
 
-.. math:: Q = \frac{\pi\,(p_h^2 - p_l^2)}{16\,\eta\,R}.
+- **The fill**: :func:`steady_fill` builds a taper-aware
+  :class:`~solprop.profiles.PressureGradient`, raises an outer vacuum end to its choked
+  pressure unless told otherwise (:data:`VacuumEnd`), and checks the flow regime,
+  warning (:class:`~solprop.exceptions.GasFlowWarning`) past
+  :data:`REYNOLDS_LAMINAR_LIMIT` or the Knudsen limits; :func:`temperature_weight` is
+  the flow weight ``eta(T) T`` along a temperature path.
+- **The report**: :func:`flow_report` returns a :class:`FlowReport` of a fill, one
+  :class:`StageFlow` per stage.
+- **Closed forms**: :func:`throughput`, :func:`choked_pressure`, :func:`mass_flow`,
+  :func:`reynolds_number`, :func:`knudsen_number`, and :func:`chamber_pressure`, the
+  pressure at which a pump removes a throughput.
 
-**Choked ends.** An end that exhausts into a pumped chamber cannot pass more than the
-sonic throughput :math:`p_e \pi a_e^2 c`. Equating the two, as HiSol.jl's
-``choked_pressure`` does (which then drops :math:`p_e^2`), gives
-
-.. math:: k (p_h^2 - p_e^2) = p_e, \quad k = \frac{1}{16\,\eta\,c\,a_e^2 R}, \quad
-   p_e = \frac{2 k p_h^2}{1 + \sqrt{1 + 4 k^2 p_h^2}},
-
-solved here in that non-cancelling form. :func:`steady_fill` applies
-:math:`\max(\text{declared}, \text{choked}, \text{floor})` at each outer end that is the
-low end of its stage: a fill "to vacuum" ends at its choked pressure, not at zero and
-not at a numerical floor. ``c`` is the adiabatic sound speed at the fill temperature,
-as HiSol takes it; an independent integration of the one-dimensional compressible
-flow (``tests/test_gasflow.py``) brackets the result between an isothermal and an
-adiabatic wall, which is why the adiabatic speed is kept (``docs/dev/decisions.md``).
-
-**Flow regime.** Gebhardt et al., Opt. Express 29, 6957 (2021), measured output-beam
-instabilities in differentially pumped capillaries from :math:`Re \approx 2040`, worst
-near 2400, and recommend :math:`Re < 2000` (their eq. 4); the laminar fill itself is not
-valid there. With :math:`Re = 4\dot m/(\pi d \eta)` and the mass flow constant along a
-stage, the narrowest point of a taper has the largest Reynolds number. At the other
-extreme the gas stops being a continuum: with :math:`Kn = \lambda / d`, first-order
-wall slip raises the throughput by :math:`8\,Kn`, and above 0.1 the flow is
-transitional. :func:`steady_fill` warns
-(:class:`~solprop.exceptions.GasFlowWarning`) for a Reynolds number above 2000, for a
-stage whose Knudsen number at its mean pressure and narrowest bore exceeds 0.01, or for
-one with more than 1 % of its gas where the Knudsen number exceeds 0.1, and otherwise
-logs the exit's Knudsen number. It does not replace the laminar law: a turbulent or
-rarefied fill is out of scope.
-
-Pressures are in **bar** at this interface (``docs/dev/conventions.md`` section 1);
-throughputs are in Pa m^3 s^-1, with :func:`mbar_litres_per_second` and
-:func:`standard_litres_per_minute` for the units vacuum practice quotes.
+Pressures are in **bar** (``docs/dev/conventions.md`` §1); throughputs are in Pa m^3
+s^-1, with :func:`mbar_litres_per_second` and :func:`standard_litres_per_minute` for the
+units vacuum practice quotes. The manual page ``docs/guide/waveguides/profiles.md``,
+"Steady-flow fills", derives the choke and the regime limits and gives their sources.
 """
 
 import dataclasses
@@ -55,7 +34,6 @@ import math
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Final, Literal, get_args
 
 import numpy as np
@@ -66,6 +44,7 @@ from scipy.integrate import quad
 from scipy.optimize import brentq
 
 from solprop._display import Displayed, engineering, line
+from solprop._validation import PACKAGE_FILES, choice, positive
 from solprop.constants import BAR, K_B, N_A, ROOM_TEMPERATURE, STD_ATMOSPHERE
 from solprop.exceptions import GasFlowWarning, MaterialError, TranslationError
 from solprop.physdata.mixtures import Mixture
@@ -201,13 +180,6 @@ _VISCOSITY_CHECKS: Final = 4
 """Check points per degree at which a trial viscosity law is compared with direct calls:
 ``4 d + 1`` evenly spaced temperatures, never the interpolation nodes themselves."""
 
-_PACKAGE_FILES: Final = (str(Path(__file__).resolve().parent),)
-"""Frames a flow warning skips, so that it names the caller's line, not solprop's.
-
-A fill is built several calls deep inside the package (a constructor, the mixture, the
-builder), and no fixed ``stacklevel`` reaches the user's code from all of them.
-"""
-
 
 @dataclass(frozen=True)
 class _FlowGas:
@@ -246,7 +218,7 @@ class _FlowGas:
             composition=composition,
             temperature=float(temperature),
             viscosity=viscosity(composition, temperature),
-            sound_speed=sound_speed(composition, temperature),
+            sound_speed=sound_speed(composition, temperature=temperature),
             molar_mass=molar_mass(composition),
         )
 
@@ -406,24 +378,6 @@ def _viscosity_law(
     )
 
 
-def _positive(value: float, what: str) -> float:
-    """Return a finite positive number, or refuse it by name."""
-    number = float(value)
-    if not (math.isfinite(number) and number > 0.0):
-        raise TranslationError(f"{what} must be finite and positive, got {value}")
-    return number
-
-
-def _checked_choice(value: object, name: str, choices: tuple[str, ...]) -> None:
-    """Refuse, by name, a keyword outside its literal choices.
-
-    The annotations already say which strings are allowed; this is the check a caller
-    without a type checker meets.
-    """
-    if value not in choices:
-        raise TranslationError(f"{name} must be one of {choices}, got {value!r}")
-
-
 def _choked_from(high_pa: float, factor: float) -> float:
     """Solve ``k (p_h^2 - p_e^2) = p_e`` for the exit pressure without cancellation.
 
@@ -461,7 +415,7 @@ def _resistance(radius: float | ZProfile, length: float) -> tuple[ZProfile, floa
     - Returns: the radius as a path, and ``int_0^length a^-4 dz`` in m^-3.
     """
     path = as_profile(radius)
-    edges = np.array([0.0, _positive(length, "length in m")])
+    edges = np.array([0.0, positive(length, "length in m", TranslationError)])
     return path, float(hydraulic_integral(path, edges)[0])
 
 
@@ -572,7 +526,8 @@ def choked_pressure(
     -------
     float
         The exit pressure in bar below which the exit throughput would exceed the
-        sonic limit; the module docstring gives the relation.
+        sonic limit; ``docs/guide/waveguides/profiles.md``, "A vacuum end is
+        choked", gives the relation.
 
     Raises
     ------
@@ -589,7 +544,7 @@ def choked_pressure(
     >>> f"{choked_pressure('Ar', 15e-6, 1.0, 20.0) * 1e3:.1f}"
     '79.1'
     """
-    _checked_choice(exit_end, "exit_end", ("start", "end"))
+    choice(exit_end, "exit_end", ("start", "end"), TranslationError)
     flow = _FlowGas.of(gas, temperature)
     path, resistance = _resistance(radius, length)
     position = 0.0 if exit_end == "start" else float(length)
@@ -601,14 +556,14 @@ def choked_pressure(
 def mass_flow(
     gas: Composition | Mixture,
     throughput: float,
-    pressure_bar: float,
+    pressure: float,
     *,
     temperature: float = ROOM_TEMPERATURE,
 ) -> float:
     """Return the mass flow carried by a PV throughput measured at a given pressure.
 
     ``mdot = Q rho(p, T) / p`` with the real-gas mass density at the reference state
-    ``(pressure_bar, temperature)``; a mixture sums its species' partial densities. A
+    ``(pressure, temperature)``; a mixture sums its species' partial densities. A
     throughput is conventionally quoted at the low-pressure end, where the gas is
     close to ideal and this is ``Q M / (R T)``, which is also the limit taken at zero
     pressure.
@@ -619,7 +574,7 @@ def mass_flow(
         One built-in gas, gases to mole fractions, or a mixture with a shared fill.
     throughput : float
         PV throughput in Pa m^3 s^-1, >= 0.
-    pressure_bar : float
+    pressure : float
         Pressure in bar at which the throughput is measured, >= 0.
     temperature : float, optional
         Gas temperature in K.
@@ -644,23 +599,21 @@ def mass_flow(
     """
     flow = _FlowGas.of(gas, temperature)
     rate = _checked_pressure(throughput, "throughput")
-    return rate * _mass_per_pv(flow, _checked_pressure(pressure_bar, "pressure_bar"))
+    return rate * _mass_per_pv(flow, _checked_pressure(pressure, "pressure"))
 
 
-def _mass_per_pv(flow: _FlowGas, pressure_bar: float) -> float:
+def _mass_per_pv(flow: _FlowGas, pressure: float) -> float:
     """Return ``rho / p`` in kg per Pa m^3 at a pressure, real-gas where it matters.
 
-    - ``pressure_bar``: pressure in bar, >= 0.
+    - ``pressure``: pressure in bar, >= 0.
     """
-    if pressure_bar == 0.0:
+    if pressure == 0.0:
         return flow.molar_mass / (_GAS_CONSTANT * flow.temperature)
     total = math.fsum(
-        member.density(fraction * pressure_bar, flow.temperature)
-        * member.molar_mass
-        / N_A
+        member.density(fraction * pressure, flow.temperature) * member.molar_mass / N_A
         for member, fraction in _composition(flow.composition, "density")
     )
-    return total / (pressure_bar * BAR)
+    return total / (pressure * BAR)
 
 
 def reynolds_number(
@@ -731,7 +684,7 @@ def _reynolds(
 
 def knudsen_number(
     gas: Composition | Mixture,
-    pressure_bar: ArrayLike | float,
+    pressure: ArrayLike | float,
     radius: ArrayLike | float,
     *,
     temperature: float = ROOM_TEMPERATURE,
@@ -742,10 +695,10 @@ def knudsen_number(
     ----------
     gas : Gas, str, Species, Mapping or Mixture
         One built-in gas, gases to mole fractions, or a mixture with a shared fill.
-    pressure_bar : array_like or float
+    pressure : array_like or float
         Pressure in bar, >= 0; zero gives an infinite Knudsen number.
     radius : array_like or float
-        Core radius in m, > 0, broadcast against `pressure_bar`.
+        Core radius in m, > 0, broadcast against `pressure`.
     temperature : float, optional
         Gas temperature in K.
 
@@ -768,7 +721,7 @@ def knudsen_number(
     >>> f"{float(knudsen_number('N2', 0.01, 250e-6)):.4f}"
     '0.0130'
     """
-    pressures = np.asarray(pressure_bar, dtype=float)
+    pressures = np.asarray(pressure, dtype=float)
     radii = np.asarray(radius, dtype=float)
     if not np.all(np.isfinite(pressures)) or np.any(pressures < 0.0):
         raise TranslationError("pressures must be finite and not negative")
@@ -818,7 +771,9 @@ def chamber_pressure(
     """
     rate = _checked_pressure(throughput, "throughput")
     if not callable(pump_speed):
-        return rate / _positive(pump_speed, "pump speed in m^3/s") / BAR
+        return (
+            rate / positive(pump_speed, "pump speed in m^3/s", TranslationError) / BAR
+        )
     if rate == 0.0:
         return 0.0
     excess = functools.partial(_pump_excess, pump_speed=pump_speed, rate=rate)
@@ -832,17 +787,17 @@ def chamber_pressure(
 
 
 def _pump_excess(
-    pressure_bar: float, *, pump_speed: Callable[[float], float], rate: float
+    pressure: float, *, pump_speed: Callable[[float], float], rate: float
 ) -> float:
     """Return a pump's throughput less the gas's at a chamber pressure.
 
-    - ``pressure_bar``: chamber pressure in bar.
+    - ``pressure``: chamber pressure in bar.
     - ``pump_speed``: pumping speed in m^3 s^-1 as a function of the pressure in bar.
     - ``rate``: the gas throughput in Pa m^3 s^-1.
     - Returns: ``p S(p) - Q`` in Pa m^3 s^-1.
     """
-    speed = _positive(pump_speed(pressure_bar), "pump speed in m^3/s")
-    return pressure_bar * BAR * speed - rate
+    speed = positive(pump_speed(pressure), "pump speed in m^3/s", TranslationError)
+    return pressure * BAR * speed - rate
 
 
 def mbar_litres_per_second(throughput: float) -> float:
@@ -899,7 +854,9 @@ def standard_litres_per_minute(
     >>> f"{standard_litres_per_minute(1.0, 273.15):.4f}"
     '0.5922'
     """
-    scale = STANDARD_TEMPERATURE / _positive(temperature, "temperature in K")
+    scale = STANDARD_TEMPERATURE / positive(
+        temperature, "temperature in K", TranslationError
+    )
     return float(throughput) * scale / STANDARD_PRESSURE * 1000.0 * 60.0
 
 
@@ -1573,7 +1530,7 @@ def steady_fill(
     >>> f"{fill.pressures[-1] * 1e3:.2f} mbar"
     '41.18 mbar'
     """
-    _checked_choice(vacuum_end, "vacuum_end", get_args(VacuumEnd))
+    choice(vacuum_end, "vacuum_end", get_args(VacuumEnd), TranslationError)
     edges = _checked_edges(positions, "steady_fill")
     declared = _checked_pressures(edges, pressures_bar)
     path = as_profile(radius)
@@ -1677,7 +1634,7 @@ def _check_regime(report: FlowReport) -> None:
             "bore",
             GasFlowWarning,
             stacklevel=2,
-            skip_file_prefixes=_PACKAGE_FILES,
+            skip_file_prefixes=PACKAGE_FILES,
         )
     for stage in report.stages:
         span = f"{stage.start:.4g} m to {stage.end:.4g} m"
@@ -1697,7 +1654,7 @@ def _check_regime(report: FlowReport) -> None:
                 "more",
                 GasFlowWarning,
                 stacklevel=2,
-                skip_file_prefixes=_PACKAGE_FILES,
+                skip_file_prefixes=PACKAGE_FILES,
             )
         else:
             logger.info(

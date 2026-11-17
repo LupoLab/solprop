@@ -4,31 +4,28 @@
 
 """Check a haCC model's weak-field linear response against optmat's helium (SEP 20).
 
-Because the haCC current is the whole atom's and nothing rescales it, every haCC
-configuration is checked before propagation (SEP 20 sections 4.8, 4.9 and 5.4). A
-fixed synthetic weak pulse drives one row; the per-atom first-order dipole
-``p_1 = j_1 / (i omega)`` gives the model's susceptibility
-``alpha_haCC = p_1 / (eps0 E)`` in m^3, and the ratio
-``kappa_1 = alpha_optmat / alpha_haCC`` is formed over the supported band. Its largest
-``|kappa_1 - 1|`` passes, warns or refuses; an invalid extraction always refuses. The
-measured values are cached per configuration and provider revision, never per build.
-
-The cubic ratio kappa_3 is evidence only (validation level L3), extracted by
-:func:`cubic_evidence` over the fundamental band and never part of the gate.
-
-Fourier convention. Inside this module a hat is NumPy's forward DFT, under which
-``d/dt`` becomes ``+i omega`` (the internal convention of
-``docs/dev/conventions.md`` section 2). optmat's susceptibility is in the optics
-convention, so its complex value is conjugated before comparison; the real and
-imaginary parts are compared together, never the real part alone.
+Every haCC configuration is checked before propagation (SEP 20 sections 4.8, 4.9 and
+5.4): :func:`protocol_field` is the fixed synthetic weak pulse, :func:`reduce_linear`
+forms ``kappa_1 = alpha_optmat / alpha_haCC`` from the first-order current as a
+:class:`LinearReduction`, and :func:`evaluate_consistency` takes it from the cache
+(:func:`cache_directory`, per configuration and provider revision) or one diagnostic
+call (a :class:`DiagnosticSource`) and decides a :class:`ConsistencyResult`, which
+:func:`apply_outcome` turns into a warning or a refusal and :func:`describe` words.
+:func:`gate_run` runs the gate before a run (on a :class:`GateBinding`) and
+:func:`check_consistency` on its own. :func:`cubic_evidence` extracts the cubic ratio
+kappa_3 as :class:`CubicEvidence` only, never part of the gate. Fourier convention:
+inside this module a hat is NumPy's forward DFT, under which ``d/dt`` becomes
+``+i omega`` (the internal convention of ``docs/dev/conventions.md`` section 2);
+optmat's susceptibility is in the optics convention, so its complex value is conjugated
+before comparison, and the real and imaginary parts are compared together, never the
+real part alone. The thresholds are in the manual, ``docs/guide/media/tdse.md`` ("The
+weak-field consistency check").
 """
 
-import hashlib
 import json
 import logging
 import math
 import os
-import tempfile
 import time
 import uuid
 import warnings
@@ -42,6 +39,8 @@ from jaxtyping import Complex, Float
 
 import solprop
 import solprop.driver.tdse as tdse_runtime
+from solprop._durable import write_atomic
+from solprop._identity import canonical_digest
 from solprop.constants import EPS0, C
 from solprop.exceptions import (
     BackendError,
@@ -356,8 +355,7 @@ def cache_directory() -> Path:
 
 def _key(inputs: Mapping[str, object]) -> str:
     """Digest the cache key's canonical inputs."""
-    encoded = json.dumps(inputs, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    return hashlib.sha256(encoded.encode()).hexdigest()
+    return canonical_digest(inputs, finite=True)
 
 
 def _reduction_from(record: object) -> LinearReduction | None:
@@ -464,16 +462,7 @@ def _read_cache(
 def _write_cache(path: Path, entry: Mapping[str, object]) -> None:
     """Write a cache entry atomically: a temporary file, then a rename."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary = tempfile.mkstemp(
-        dir=path.parent, prefix=f".{path.stem}.", suffix=".tmp"
-    )
-    try:
-        with os.fdopen(handle, "w", encoding="utf-8") as stream:
-            json.dump(entry, stream, sort_keys=True, allow_nan=False)
-        Path(temporary).replace(path)
-    except BaseException:
-        Path(temporary).unlink(missing_ok=True)
-        raise
+    write_atomic(path, json.dumps(entry, sort_keys=True, allow_nan=False))
 
 
 @dataclass(frozen=True)
@@ -902,7 +891,7 @@ def check_consistency(
             basis,
             response.consistency,
             reference_wavelength=reference_wavelength,
-            provider_revision=tdse_runtime.pinned_revision(),
+            provider_revision=tdse_runtime.provider_revision(build),
             computed_on={
                 "execution_space": native.get("execution_space")
                 if isinstance(native, dict)
@@ -946,7 +935,6 @@ def _open_check_archive(
             "label": basis.label,
             "protocol": PROTOCOL_VERSION,
             "execution": asdict(execution),
-            "provider_pin": tdse_runtime.pinned_revision(),
         },
     )
 

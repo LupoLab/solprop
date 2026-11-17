@@ -2,15 +2,24 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Post-processing of saved runs.
+"""Post-processing of saved runs, in the optics convention and in SI units.
 
-Read a run back through the :class:`solprop.output.schema.Output` protocol -- a memory
-handler or an HDF5 file, through the same accessors -- and get fields, spectra, spectral
-densities, pulse metrics and the coherence of an ensemble, in the optics convention and
-in SI units. The manual page is ``docs/guide/results/processing.md``.
+Every reader takes an :class:`solprop.output.store.Output` -- a memory handler or an
+HDF5 file, through the same accessors -- and nothing here touches a backend or applies a
+window the call did not ask for. The package re-exports the public names of:
 
-Nothing here touches a backend, and no window is ever applied unless the call asks for
-one.
+- :mod:`~solprop.processing.axes` (axes and layout rebuilt from the grid record),
+  :mod:`~solprop.processing.fields` (fields, spectra, densities, spectrograms),
+  :mod:`~solprop.processing.time` (pulse metrics), :mod:`~solprop.processing.spectra`
+  (instrument resolution and bandpass windows) and :mod:`~solprop.processing.coherence`;
+- :mod:`~solprop.processing.compression` (linear-optics compressors);
+- :mod:`~solprop.processing.beams` (radial beams), :mod:`~solprop.processing.modal`
+  (E and H of a general modal run), :mod:`~solprop.processing.mixtures` (populations
+  and deposition), :mod:`~solprop.processing.planes` and
+  :mod:`~solprop.processing.plane_file` (one plane, for a map or another run);
+- :mod:`~solprop.processing.scans` (scan reductions and the scan reader).
+
+The manual page is ``docs/guide/results/processing.md``.
 """
 
 from solprop.processing._examples import example_output

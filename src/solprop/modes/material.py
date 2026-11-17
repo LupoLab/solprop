@@ -2,7 +2,21 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Describe material laws and region ownership independently of longitudinal paths."""
+"""Describe material laws and region ownership independently of longitudinal paths.
+
+The material vocabulary of a general modal guide
+(:class:`~solprop.modes.guide.ModalGuide`): what each annular region is made of and
+which nonlinear responses it carries, with no reference to how the geometry moves.
+
+- :class:`PermittivityLaw` is the protocol of a relative-permittivity law;
+  :class:`IndexMaterial` adapts a glass or a constant index to it.
+- :class:`MaterialRegion` assigns one law and its responses to an annulus; the
+  responses (:data:`MaterialResponse`) are :class:`MaterialKerr` (a declared
+  ``chi3``), :class:`GasKerr` (the fill's own) and the silica Raman pair.
+- :data:`MEASURED_DIGITS` and :func:`quantised_measurement` round measured floats
+  before they enter a run's identity. The module also owns the structural
+  ``JsonValue`` alias, as the leaf both the modes package and the output layer import.
+"""
 
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -34,13 +48,13 @@ __all__ = [
 ]
 
 # This module owns the package's structural JSON value domain, because it is the
-# leaf both the modes package and `solprop.output.schema` can import: the schema
-# imports `solprop.modes.protocol`, so defining the alias there instead would
-# close an import cycle through the output layer.
+# leaf both the modes package and `solprop.output` can import: the output records
+# import `solprop.modes.protocol`, so defining the alias there instead would close
+# an import cycle through the output layer.
 type JsonValue = (
     bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
 )
-"""Anything :func:`solprop.output.schema.serialise` may return, and therefore
+"""Anything :func:`solprop.output.serialisation.serialise` may return, and therefore
 anything JSON can carry. Re-exported by that module, which owns the file format."""
 
 MEASURED_DIGITS = 6
@@ -272,10 +286,10 @@ class MaterialKerr(Displayed):
     channels were solved with: the conversion asks
     :attr:`MaterialRegion.material` for its permittivity and nothing else. The
     two must therefore be the same material, which
-    :class:`solprop.modes.guide.StepIndexProvider` checks at construction against
-    :data:`solprop.modes.guide.MATERIAL_AGREEMENT_RTOL` -- a core region declared
-    at 2.0 beside channels solved at 1.45 would otherwise convert a declared
-    ``n2`` to a ``chi3`` 90 % too large.
+    :class:`solprop.modes.stepindex_vector.StepIndexProvider` checks at construction
+    against :data:`solprop.modes.stepindex_vector.MATERIAL_AGREEMENT_RTOL` -- a core
+    region declared at 2.0 beside channels solved at 1.45 would otherwise convert a
+    declared ``n2`` to a ``chi3`` 90 % too large.
 
     Attributes
     ----------

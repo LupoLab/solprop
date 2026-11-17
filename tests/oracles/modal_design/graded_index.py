@@ -14,8 +14,6 @@ from itertools import pairwise
 import numpy as np
 from scipy import linalg, optimize, special
 
-from modal_design.evidence import run
-
 
 @dataclass(frozen=True)
 class Grin:
@@ -192,67 +190,3 @@ def layer_profile(profile, beta, layers, family, points):
         field[0] * special.kv(1, decay * points[outer]) / special.kv(1, decay)
     )
     return result
-
-
-def study(full):
-    """Refine finite-core parabolic/non-parabolic TE/TM and LP mode groups."""
-    levels = (96, 192, 384) if full else (64, 128, 256)
-    rows = []
-    for quartic in (0.0, 0.25):
-        profile = Grin(quartic=quartic)
-        for family in ("TE", "TM"):
-            for count in levels:
-                values, vectors, points, mass = variational(profile, count, family)
-                layered = layer_root(profile, values[0], count, family)
-                reference = layer_profile(profile, layered, count, family, points)
-                reference /= np.sqrt(np.vdot(reference, mass @ reference).real)
-                overlap = abs(np.vdot(vectors[:, 0], mass @ reference))
-                rows.append(
-                    {
-                        "quartic": quartic,
-                        "family": family,
-                        "resolution": count,
-                        "fem_beta_radius": values,
-                        "layer_beta_radius": layered,
-                        "relative_difference": abs(values[0] - layered) / layered,
-                        "profile_overlap_defect": abs(1 - overlap),
-                    }
-                )
-        for order in (0, 1, 2):
-            values, _, _, _ = variational(profile, levels[-1], "LP", order=order)
-            oscillator = (
-                2
-                * profile.wave_number
-                * profile.centre
-                * np.sqrt(2 * profile.contrast)
-                * (2 * np.arange(4) + order + 1)
-            )
-            ideal = np.sqrt((profile.wave_number * profile.centre) ** 2 - oscillator)
-            rows.append(
-                {
-                    "quartic": quartic,
-                    "family": "LP",
-                    "order": order,
-                    "beta_radius": values,
-                    "ideal_parabolic_beta_radius": ideal,
-                    "finite_core_difference": values - ideal,
-                }
-            )
-        if full:
-            for extent in (1.5, 2.0, 3.0):
-                values, _, _, _ = variational(
-                    profile, int(192 * extent), "TE", extent=extent
-                )
-                rows.append(
-                    {
-                        "quartic": quartic,
-                        "family": "TE_domain",
-                        "extent": extent,
-                        "beta_radius": values,
-                    }
-                )
-    return rows
-
-
-if __name__ == "__main__":
-    run(study)

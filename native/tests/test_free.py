@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -21,17 +21,49 @@ from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend, _core
-from solprop_native.backend import (
-    _native_problem,  # pyright: ignore[reportPrivateUsage]
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
+from solprop_native._lowering import (
+    _lower,  # pyright: ignore[reportPrivateUsage]
+    _LowerPlan,  # pyright: ignore[reportPrivateUsage]
 )
+
+_GROUP = {
+    "n_x": "spatial",
+    "n_y": "spatial",
+    "n_p": "spatial",
+    "n_omega": "dims",
+    "n_to": "dims",
+    "node_chunk": "dims",
+    "n_pol_state": "dims",
+    "projection_matrix": "transform",
+    "projection_coarse_matrix": "transform",
+}
+
+
+def _path(name: str) -> tuple[str, str]:
+    """The native problem's group and field of a flat payload name."""
+    if name.startswith("spatial_"):
+        return "spatial", name.removeprefix("spatial_")
+    return _GROUP[name], name
+
+
+def _field(payload: _core.Problem, name: str) -> Any:
+    group, field = _path(name)
+    return getattr(getattr(payload, group), field)
+
+
+def _set(payload: _core.Problem, name: str, value: object) -> None:
+    group, field = _path(name)
+    setattr(getattr(payload, group), field, value)
 
 
 @pytest.fixture
-def free_payload(phase_a_case: PhaseACase) -> dict[str, object]:
+def free_payload(phase_a_case: PhaseACase) -> _core.Problem:
     _, base_request, grid = phase_a_case
     space = FreeGrid(1e-3, 4, 1.5e-3, 6, collar_fraction=0)
     problem, run_request = assemble(
@@ -50,11 +82,13 @@ def free_payload(phase_a_case: PhaseACase) -> dict[str, object]:
         problem, run_request, grid=grid, options=ExecutionOptions(node_chunk=5)
     )
     try:
-        return _native_problem(
+        return _lower(
             problem,
             run_request,
-            backend._terms,  # pyright: ignore[reportPrivateUsage]
-            node_chunk=backend.node_chunk,
+            _LowerPlan(
+                terms=backend._terms,  # pyright: ignore[reportPrivateUsage]
+                node_chunk=backend.node_chunk,
+            ),
         )
     finally:
         backend.close()
@@ -80,18 +114,22 @@ def free_payload(phase_a_case: PhaseACase) -> dict[str, object]:
 )
 @pytest.mark.parametrize("spoiling", ["length", "nonfinite", "dtype"])
 def test_free_native_vectors_reject_invalid_data(
-    free_payload: dict[str, object], name: str, spoiling: str
+    free_payload: _core.Problem, name: str, spoiling: str
 ) -> None:
-    values = np.array(cast(np.ndarray, free_payload[name]), copy=True)
+    values = np.array(_field(free_payload, name), copy=True)
     if spoiling == "length":
         values = values[:-1]
     elif spoiling == "nonfinite":
         values[0] = np.nan
     else:
         values = values.astype(np.complex64 if np.iscomplexobj(values) else np.float32)
-    free_payload[name] = values
+
+    def _spoil() -> None:
+        _set(free_payload, name, values)
+        _core.Workspace(free_payload)
+
     with pytest.raises((TypeError, ValueError)):
-        _core.State(free_payload)
+        _spoil()
 
 
 @pytest.mark.parametrize(
@@ -106,33 +144,37 @@ def test_free_native_vectors_reject_invalid_data(
     ],
 )
 def test_free_native_axes_and_clamp_are_checked(
-    free_payload: dict[str, object], name: str, value: float
+    free_payload: _core.Problem, name: str, value: float
 ) -> None:
-    free_payload[name] = value
+    def _spoil() -> None:
+        _set(free_payload, name, value)
+        _core.Workspace(free_payload)
+
     with pytest.raises((TypeError, ValueError)):
-        _core.State(free_payload)
+        _spoil()
 
 
 def test_the_far_field_payload_belongs_to_free_space(
-    free_payload: dict[str, object], planar_payload: dict[str, object]
+    free_payload: _core.Problem, planar_payload: _core.Problem
 ) -> None:
     """solprop SEP 23: the axes and the slot count are free space's alone."""
-    assert free_payload["spatial_far_field_slots"] == 0
-    assert cast(np.ndarray, free_payload["spatial_k_x"]).shape == (4,)
-    assert cast(np.ndarray, free_payload["spatial_k_y"]).shape == (6,)
+    assert free_payload.spatial.far_field_slots == 0
+    assert free_payload.spatial.k_x.shape == (4,)
+    assert free_payload.spatial.k_y.shape == (6,)
+    planar_payload.spatial.far_field_slots = 3
     with pytest.raises(ValueError, match="belong to free space"):
-        _core.State(planar_payload | {"spatial_far_field_slots": 3})
+        _core.Workspace(planar_payload)
 
 
 def test_free_native_ledger_retains_one_transverse_volume_and_chunked_time(
-    free_payload: dict[str, object],
+    free_payload: _core.Problem,
 ) -> None:
-    state = _core.State(free_payload)
+    state = _core.Workspace(free_payload)
     try:
-        ledger = state.memory_ledger()
+        ledger = state.diagnostics()["memory_ledger"]
         omega, time = (
-            int(cast(int, free_payload["n_omega"])),
-            int(cast(int, free_payload["n_to"])),
+            free_payload.dims.n_omega,
+            free_payload.dims.n_to,
         )
         assert ledger["transverse_scratch"] == 24 * omega * 16
         assert ledger["modal_time"] == 5 * time * 16
@@ -141,7 +183,7 @@ def test_free_native_ledger_retains_one_transverse_volume_and_chunked_time(
         assert ledger["fixed_phi_terms"] == ledger["fixed_prefactor_terms"] == 0
         assert ledger["transform_matrices"] == 0
         expected = sum(
-            cast(np.ndarray, free_payload[name]).nbytes
+            _field(free_payload, name).nbytes
             for name in (
                 "spatial_k_squared",
                 "spatial_k_squared_low",
@@ -161,76 +203,91 @@ def test_free_native_ledger_retains_one_transverse_volume_and_chunked_time(
         state.close()
 
 
+def _with_adams(payload: _core.Problem, slots: int, *, dense: bool) -> _core.Problem:
+    """Return `payload`, this test's own, with a resident Adams history in its setup."""
+    held: Any = payload
+    held.adams = {
+        "slots": slots,
+        "compensated": False,
+        "interpolate": dense,
+        "fused": False,
+        "rtol": 1e-6,
+        "atol": 1e-12,
+        "weights": np.empty(0),
+    }
+    return held
+
+
 @pytest.mark.parametrize("slots", [3, 7, 8])
-def test_adams_dense_storage_is_optional_and_reallocation_is_idempotent(
-    free_payload: dict[str, object], slots: int
+@pytest.mark.parametrize("dense", [False, True])
+def test_adams_dense_storage_is_optional(
+    free_payload: _core.Problem, slots: int, dense: bool
 ) -> None:
-    state = _core.State(free_payload)
+    state = _core.Workspace(_with_adams(free_payload, slots, dense=dense))
     try:
-        field_bytes = state.memory_ledger()["state"]
-        omega = int(cast(int, free_payload["n_omega"]))
+        ledger = state.diagnostics()["memory_ledger"]
+        field_bytes = ledger["state"]
+        omega = free_payload.dims.n_omega
         initial = np.zeros(field_bytes // 16, dtype=np.complex128)
-        state.set_initial(initial, np.empty(0, dtype=np.complex128))
-        for dense in (False, True, True, False):
-            state.adams_allocate(slots, False, dense)
-            expected = (2 * slots + 4 + (slots + 4 if dense else 0)) * field_bytes
-            assert state.memory_ledger()["adams_history"] == expected + 8 * omega
-            if dense:
-                state.adams_hold()
-                state.adams_restore()
-                np.testing.assert_array_equal(
-                    state.field_to_host().reshape(-1), initial
-                )
-            else:
-                with pytest.raises(RuntimeError, match="dense observation storage"):
-                    state.adams_hold()
-                with pytest.raises(RuntimeError, match="dense observation storage"):
-                    state.adams_restore()
+        _testing.load(state, initial, np.empty(0, dtype=np.complex128))
+        expected = (2 * slots + 4 + (slots + 4 if dense else 0)) * field_bytes
+        # The divisor row, and the controller's magnitude sum the setup's scale forms.
+        assert ledger["adams_history"] == expected + 8 * omega + 8
+        if dense:
+            _testing.adams_hold(state)
+            _testing.adams_restore(state)
+            np.testing.assert_array_equal(
+                np.asarray(_testing.field(state)).reshape(-1), initial
+            )
+        else:
+            with pytest.raises(RuntimeError, match="dense observation storage"):
+                _testing.adams_hold(state)
+            with pytest.raises(RuntimeError, match="dense observation storage"):
+                _testing.adams_restore(state)
     finally:
         state.close()
         state.close()
 
 
 def test_adams_rows_cross_to_the_host_and_back_exactly(
-    free_payload: dict[str, object],
+    free_payload: _core.Problem,
 ) -> None:
     # solprop SEP 29 G2: the resident history's rows are exported for a resume and
     # installed again; a copy, so exact, and refused by name, extent, dtype and order
     # before anything is copied.
-    state = _core.State(free_payload)
+    state = _core.Workspace(_with_adams(free_payload, 3, dense=False))
     try:
-        columns = state.memory_ledger()["state"] // 16
-        omega = int(cast(int, free_payload["n_omega"]))
-        state.set_initial(
-            np.zeros(columns, dtype=np.complex128), np.empty(0, dtype=np.complex128)
+        diagnostics = state.diagnostics()
+        columns = diagnostics["memory_ledger"]["state"] // 16
+        omega = free_payload.dims.n_omega
+        _testing.load(
+            state,
+            np.zeros(columns, dtype=np.complex128),
+            np.empty(0, dtype=np.complex128),
         )
-        state.adams_allocate(3, False, False)
-        assert state.adams_row_names() == ["store"]
+        assert diagnostics["history_rows"] == ["store"]
         shape = (3, columns // omega, omega)
         rng = np.random.default_rng(29)
         rows = rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
-        state.adams_rows_from_host("store", rows)
-        back = state.adams_rows_to_host("store")
+        _testing.adams_rows_from_host(state, "store", rows)
+        back = _testing.adams_rows_to_host(state, "store")
         assert back.shape == shape
         assert back.dtype == np.complex128
         np.testing.assert_array_equal(back, rows)
         with pytest.raises(ValueError, match="must have shape"):
-            state.adams_rows_from_host("store", rows[:2])
+            _testing.adams_rows_from_host(state, "store", rows[:2])
         with pytest.raises(ValueError, match="must have shape"):
-            state.adams_rows_from_host("store", rows.reshape(3, -1))
+            _testing.adams_rows_from_host(state, "store", rows.reshape(3, -1))
         with pytest.raises(TypeError):
-            state.adams_rows_from_host(
-                "store",
-                rows.real.copy(),  # pyright: ignore[reportArgumentType]
-            )
+            _testing.adams_rows_from_host(state, "store", cast("Any", rows.real.copy()))
         with pytest.raises(TypeError):
-            state.adams_rows_from_host("store", np.asfortranarray(rows))
+            _testing.adams_rows_from_host(state, "store", np.asfortranarray(rows))
         with pytest.raises(ValueError, match="unknown Adams history row"):
-            state.adams_rows_to_host("slopes")
+            _testing.adams_rows_to_host(state, "slopes")
         with pytest.raises(RuntimeError, match="not allocated"):
-            state.adams_rows_to_host("states")
+            _testing.adams_rows_to_host(state, "states")
         # Nothing was copied by a refused call.
-        np.testing.assert_array_equal(state.adams_rows_to_host("store"), rows)
+        np.testing.assert_array_equal(_testing.adams_rows_to_host(state, "store"), rows)
     finally:
         state.close()
 
@@ -387,18 +444,20 @@ def test_the_hybrid_planar_kind_matches_the_reference(phase_a_case: PhaseACase) 
 
 
 @pytest.fixture
-def planar_payload(phase_a_case: PhaseACase) -> dict[str, object]:
+def planar_payload(phase_a_case: PhaseACase) -> _core.Problem:
     _, base_request, grid = phase_a_case
     space, problem, run_request = _planar_problem(grid, base_request.stepper.controller)
     backend = NativeBackend(
         problem, run_request, grid=grid, options=_planar_options(space)
     )
     try:
-        return _native_problem(
+        return _lower(
             problem,
             run_request,
-            backend._terms,  # pyright: ignore[reportPrivateUsage]
-            node_chunk=backend.node_chunk,
+            _LowerPlan(
+                terms=backend._terms,  # pyright: ignore[reportPrivateUsage]
+                node_chunk=backend.node_chunk,
+            ),
         )
     finally:
         backend.close()
@@ -418,32 +477,34 @@ def planar_payload(phase_a_case: PhaseACase) -> dict[str, object]:
     ],
 )
 def test_the_planar_native_payload_is_checked(
-    planar_payload: dict[str, object], name: str, value: int | str
+    planar_payload: _core.Problem, name: str, value: int | str
 ) -> None:
     """The planar axes, whole-row chunks, scalar state and wall terms are validated."""
-    kappa = np.array(cast(np.ndarray, planar_payload["spatial_kappa_sq"]), copy=True)
-    if value == "present":
-        planar_payload[name] = np.array(
-            cast(np.ndarray, planar_payload["projection_matrix"]), copy=True
-        )
-    elif value == "short":
-        planar_payload[name] = kappa[:-1]
-    elif value == "nonfinite":
-        kappa[0] = np.nan
-        planar_payload[name] = kappa
-    else:
-        planar_payload[name] = value
+    kappa = planar_payload.spatial.kappa_sq
+
+    def _spoil() -> None:
+        if value == "present":
+            _set(planar_payload, name, planar_payload.transform.projection_matrix)
+        elif value == "short":
+            _set(planar_payload, name, kappa[:-1])
+        elif value == "nonfinite":
+            kappa[0] = np.nan
+            _set(planar_payload, name, kappa)
+        else:
+            _set(planar_payload, name, value)
+        _core.Workspace(planar_payload)
+
     with pytest.raises((TypeError, ValueError)):
-        _core.State(planar_payload)
+        _spoil()
 
 
 def test_a_free_payload_with_slab_channels_is_refused(
-    free_payload: dict[str, object],
+    free_payload: _core.Problem,
 ) -> None:
     """Slab channels turn a plane into the planar kind, whose shapes it lacks."""
-    free_payload["n_p"] = 1
-    free_payload["spatial_kappa_sq"] = np.zeros(
-        int(cast(int, free_payload["n_omega"])), dtype=np.complex128
+    free_payload.spatial.n_p = 1
+    free_payload.spatial.kappa_sq = np.zeros(
+        free_payload.dims.n_omega, dtype=np.complex128
     )
     with pytest.raises(ValueError, match="hybrid planar"):
-        _core.State(free_payload)
+        _core.Workspace(free_payload)

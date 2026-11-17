@@ -5,6 +5,7 @@
 """Exercise interior launches and restartable stops on tiny optical problems."""
 
 import dataclasses
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -13,16 +14,21 @@ from tests.backends.test_tdse_march import ManufacturedBinding
 from tests.driver.test_resume import run_until
 from tests.driver.test_run import NullBackend
 
+from builders import load_reference
 from solprop.backends.ledger import CallLedger
-from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.protocol import stepping
+from solprop.backends.numpy_ref.session import HostSession
+from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings, run_problem
+from solprop.driver import inputs as inputs_module
+from solprop.driver import resume as resume_module
+from solprop.driver import runner as runner_module
 from solprop.driver import simulation as simulation_module
 from solprop.driver import tdse as runtime_module
+from solprop.driver import tdse_run as tdse_run_module
 from solprop.exceptions import (
     DriverError,
     ResponseBudgetError,
@@ -30,6 +36,7 @@ from solprop.exceptions import (
 )
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.linear import Frame
+from solprop.modes.wall import CoherentWall
 from solprop.noise import NoiseRealisation
 from solprop.nonlinear.tdse import (
     TDSEBasis,
@@ -44,11 +51,12 @@ from solprop.output import (
     RunOutcome,
     SavedPlane,
     StepHistory,
-    TerminalCheckpoint,
     resume,
 )
 from solprop.output.hdf5 import ResumeState
-from solprop.output.schema import Convention, RunMetadata, serialise
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import Convention, TerminalCheckpoint
+from solprop.output.serialisation import serialise
 from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
@@ -140,7 +148,7 @@ def test_with_input_retains_absolute_tables_and_filters_only_explicit_launch():
     original = simulation.translate()
     launch = simulation.with_input(simulation._field0, initial_z=5e-6)
     problem = launch.translate()
-    run_request = launch._run_request()
+    run_request = launch.run_request()
     assert launch.initial_z == problem.initial.z == 5e-6
     assert problem.linear is original.linear
     assert launch.grid is simulation.grid
@@ -302,7 +310,7 @@ def test_a_real_input_is_recorded_as_given_so_an_older_file_resumes(tmp_path):
     # same, and a file written then resumes now.
     real = np.ascontiguousarray(np.real(_column_field()))
     before = _free_from(real)
-    before.initial = real  # what the simulation recorded before it copied its input
+    before._initial = real  # what the simulation recorded before it copied its input
     path = tmp_path / "part.h5"
     run_until(before, path, after=1)
     after = _free_from(real.copy())
@@ -324,7 +332,7 @@ def test_an_input_s_dtype_is_recorded_byte_order_and_all(dtype):
     given = _column_field()
     given = (np.real(given) if dtype.endswith("f8") else given).astype(dtype)
     before = _free_from(given)
-    before.initial = given  # what the simulation recorded before it copied its input
+    before._initial = given  # what the simulation recorded before it copied its input
     after = _free_from(given.copy())
     assert isinstance(after.initial, np.ndarray)
     assert after.initial.dtype == np.dtype(dtype)
@@ -501,10 +509,15 @@ def _loaded(backend, problem, run_request, start) -> int:
     return start.plane_index
 
 
+def _position(backend) -> float:
+    """Return where the reference's last session left its march, m."""
+    return float(backend.march.state.z)
+
+
 def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path):
     simulation = tiny_simulation()
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     memory = MemoryOutput()
     memory.open(simulation.metadata())
     memory.save(SavedPlane(z=0.0, field=simulation._field0))
@@ -524,17 +537,17 @@ def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path
                 backend,
                 problem,
                 run_request,
-                simulation._start(backend, problem, state),
+                resume_module._start(simulation, problem, state),
             )
             == 0
         )
-        assert stepping(backend).observe().z == 5e-6
+        assert _position(backend) == 5e-6
         assert state.checkpoint is not None
         invalid = dataclasses.replace(
             state, checkpoint=dataclasses.replace(state.checkpoint, next_save_index=1)
         )
         with pytest.raises(DriverError, match="next_save_index"):
-            simulation._start(backend, problem, invalid)
+            resume_module._start(simulation, problem, invalid)
     finally:
         backend.close()
 
@@ -547,7 +560,7 @@ def test_ordinary_resume_without_outcome_restores_plane_and_starts_fresh_ledgers
         simulation.settings, save_planes=[5e-6, 1e-5]
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     memory = MemoryOutput()
     memory.open(simulation.metadata())
     memory.save(SavedPlane(z=0.0, field=simulation._field0))
@@ -565,17 +578,17 @@ def test_ordinary_resume_without_outcome_restores_plane_and_starts_fresh_ledgers
                 backend,
                 problem,
                 run_request,
-                simulation._start(backend, problem, state),
+                resume_module._start(simulation, problem, state),
             )
             == 1
         )
-        observed = stepping(backend).observe()
-        assert observed.z == 5e-6
+        observed = cast("Any", backend).workspace.committed()
+        assert _position(backend) == 5e-6
         assert_array_equal(
-            observed.require_field()[..., problem.grids.active_mask],
+            observed[..., problem.grids.active_mask],
             problem.initial.field0[..., problem.grids.active_mask],
         )
-        assert np.all(observed.require_field()[..., ~problem.grids.active_mask] == 0)
+        assert np.all(observed[..., ~problem.grids.active_mask] == 0)
         assert backend.metadata()["response_calls"] == CallLedger().to_record()
     finally:
         backend.close()
@@ -587,20 +600,21 @@ def test_statistics_failure_keeps_drained_history_without_retrying_statistics(
 ):
     simulation = tiny_simulation()
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = select(
         "numpy_ref", problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     calls = []
-    original = NumpyRefBackend.stats
+    # The session evaluates every observation's statistics on its workspace.
+    original = NumpyWorkspace.stats
 
-    def fail_second(self, spec):
+    def fail_second(self, spec, z):
         calls.append(1)
         if len(calls) == 2:
             raise DriverError("manufactured statistics failure")
-        return original(self, spec)
+        return original(self, spec, z)
 
-    monkeypatch.setattr(NumpyRefBackend, "stats", fail_second)
+    monkeypatch.setattr(NumpyWorkspace, "stats", fail_second)
     memory = MemoryOutput()
     try:
         with pytest.raises(DriverError, match="manufactured statistics failure"):
@@ -651,7 +665,8 @@ def test_backend_construction_failure_closes_owned_binding(
     def refuse(*args, **kwargs):
         raise DriverError("manufactured backend construction failure")
 
-    monkeypatch.setattr(simulation_module, "select", refuse)
+    for module in (simulation_module, runner_module):
+        monkeypatch.setattr(module, "select", refuse)
     with pytest.raises(DriverError, match="construction failure"):
         simulation.run(progress="none")
     assert closed == ["binding"]
@@ -711,8 +726,8 @@ def test_tdse_does_not_guess_how_to_resample_custom_absorbers(atomic_simulation)
 
 def test_tdse_refuses_implicit_execution_and_dense_saves(atomic_simulation):
     simulation = atomic_simulation
-    with pytest.raises(DriverError, match="explicit backend='numpy_ref'"):
-        dataclasses.replace(simulation.settings, backend="auto")
+    # backend="auto" runs a TDSE response on native (SEP 49): no refusal.
+    assert dataclasses.replace(simulation.settings, backend="auto").backend == "native"
     with pytest.raises(DriverError, match="tdse_execution"):
         simulation.settings = dataclasses.replace(
             simulation.settings, tdse_execution=None
@@ -784,7 +799,8 @@ def test_tdse_completed_resume_prepares_no_resources(
         raise AssertionError("completed output needs no new resources")
 
     monkeypatch.setattr(runtime_module, "prepare_binding", forbidden)
-    monkeypatch.setattr(simulation_module, "select", forbidden)
+    for module in (simulation_module, runner_module):
+        monkeypatch.setattr(module, "select", forbidden)
     output = atomic_simulation.run(path, resume=True, progress="none")
     assert output.n_saved == 2
 
@@ -795,21 +811,22 @@ def test_resume_saves_checkpoint_on_missing_final_plane_before_completion(
 ):
     simulation = tiny_simulation()
     path = tmp_path / "missing-final.h5"
-    original = NumpyRefBackend.stats
+    # The session evaluates every observation's statistics on its workspace.
+    original = NumpyWorkspace.stats
     attempts = []
 
-    def fail_final(self, spec):
+    def fail_final(self, spec, z):
         attempts.append(1)
         if len(attempts) == 2:
             raise DriverError("manufactured final statistics failure")
-        return original(self, spec)
+        return original(self, spec, z)
 
-    monkeypatch.setattr(NumpyRefBackend, "stats", fail_final)
+    monkeypatch.setattr(NumpyWorkspace, "stats", fail_final)
     with pytest.raises(DriverError, match="final statistics"):
         simulation.run(path, progress="none")
     first = resume(path)
     assert first.n_saved == 1 and first.plane.z == 1e-5
-    monkeypatch.setattr(NumpyRefBackend, "stats", original)
+    monkeypatch.setattr(NumpyWorkspace, "stats", original)
     simulation.run(path, resume=True, progress="none")
     finished = resume(path)
     assert finished.n_saved == 2
@@ -859,7 +876,7 @@ def test_a_logical_ledger_continues_under_another_integrator():
     # installed in a Runge-Kutta march (SEP 42 section 5.6).
     simulation = tiny_simulation(max_calls=None)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     run_request = run_request.with_stepper(
         dataclasses.replace(run_request.stepper, integrator=None)
     )
@@ -870,7 +887,7 @@ def test_a_logical_ledger_continues_under_another_integrator():
     state = ResumeState(
         simulation.metadata(), saved, 1, StepHistory.empty(), outcome=outcome
     )
-    assert simulation_module._validate_resume(problem, run_request, state, None) == 0
+    assert resume_module._validate_resume(problem, run_request, state, None) == 0
 
 
 @pytest.mark.parametrize("case", ["outside", "field", "cap", "atomic"])
@@ -901,9 +918,7 @@ def test_resume_rejects_incompatible_state_before_backend_allocation(case):
         simulation.metadata(), saved, 1, StepHistory.empty(), outcome=outcome
     )
     with pytest.raises(DriverError, match=message):
-        simulation_module._validate_resume(
-            problem, simulation._run_request(), state, None
-        )
+        resume_module._validate_resume(problem, simulation.run_request(), state, None)
 
 
 @pytest.mark.parametrize("case", ["unused", "mixed", "missing"])
@@ -939,10 +954,10 @@ def test_tdse_settings_revalidation_refuses_unsupported_execution(
     simulation = atomic_simulation
     settings = simulation.settings
     if case == "unused":
-        simulation.responses = ()
+        simulation._responses = ()
         message = "requires a TDSEGasResponse"
     elif case == "noise":
-        simulation.noise = NoiseRealisation(
+        simulation._noise = NoiseRealisation(
             np.zeros_like(simulation._field0), 1, "modified"
         )
         message = "modified"
@@ -950,13 +965,13 @@ def test_tdse_settings_revalidation_refuses_unsupported_execution(
         settings = dataclasses.replace(settings, absorber_scheme="split_step")
         message = "in-stage temporal collar"
     else:
-        simulation.wall = object()
+        simulation._wall = CoherentWall()
         message = "uncoupled modal capillary"
     with pytest.raises(DriverError, match=message):
-        simulation_module._check_tdse_execution(simulation, settings)
+        tdse_run_module._check_tdse_execution(simulation, settings)
 
 
-class LegacyOutput:
+class UncheckpointedOutput:
     """Delegate ordinary output while deliberately offering no checkpoint protocol."""
 
     def __init__(self):
@@ -996,6 +1011,9 @@ class LegacyOutput:
     def fields(self, convention: Convention = "optics"):
         return self.stored.fields(convention)
 
+    def plane_field(self, index, convention: Convention = "optics"):
+        return self.stored.plane_field(index, convention)
+
 
 @pytest.mark.parametrize("entry", ["simulation", "run_problem"])
 def test_tdse_requires_checkpoint_output_before_preparing_native_resources(
@@ -1007,12 +1025,12 @@ def test_tdse_requires_checkpoint_output_before_preparing_native_resources(
     monkeypatch.setattr(runtime_module, "prepare_binding", forbidden)
     with pytest.raises(DriverError, match="terminal checkpoints"):
         if entry == "simulation":
-            atomic_simulation.run(LegacyOutput(), progress="none")
+            atomic_simulation.run(UncheckpointedOutput(), progress="none")
         else:
             run_problem(
                 atomic_simulation.translate(),
-                NullBackend(request=atomic_simulation._run_request()),
-                LegacyOutput(),
+                NullBackend(request=atomic_simulation.run_request()),
+                UncheckpointedOutput(),
                 start=Start.entrance(atomic_simulation.translate()),
                 metadata=atomic_simulation.metadata(),
                 progress="none",
@@ -1031,13 +1049,13 @@ def test_a_handler_that_keeps_nothing_is_refused_a_tdse_run(
 
 
 @pytest.mark.medium
-def test_legacy_custom_output_retains_ordinary_success_and_failure_behavior():
+def test_a_custom_output_without_checkpoints_retains_ordinary_success_and_failure():
     simulation = tiny_simulation()
-    output = LegacyOutput()
+    output = UncheckpointedOutput()
     simulation.run(output, progress="none")
     assert output.n_saved == 2
     limited = tiny_simulation(max_calls=1)
-    stopped = LegacyOutput()
+    stopped = UncheckpointedOutput()
     with pytest.raises(ResponseBudgetError):
         limited.run(stopped, progress="none")
     assert stopped.n_saved == 1
@@ -1148,7 +1166,7 @@ def test_a_resume_without_an_outcome_loads_the_field_without_restoring_ledgers(
 ):
     simulation = tiny_simulation()
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     state = ResumeState(
         simulation.metadata(),
         SavedPlane(z=5e-6, field=simulation._field0),
@@ -1159,7 +1177,8 @@ def test_a_resume_without_an_outcome_loads_the_field_without_restoring_ledgers(
     def forbidden(*args, **kwargs):
         raise AssertionError("a file without an outcome carries no call ledgers")
 
-    monkeypatch.setattr(NumpyRefBackend, "restore_call_ledgers", forbidden)
+    # The reference's session restores a start's ledgers.
+    monkeypatch.setattr(HostSession, "_restore_ledgers", forbidden)
     backend = select(
         "numpy_ref", problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
@@ -1169,11 +1188,11 @@ def test_a_resume_without_an_outcome_loads_the_field_without_restoring_ledgers(
                 backend,
                 problem,
                 run_request,
-                simulation._start(backend, problem, state),
+                resume_module._start(simulation, problem, state),
             )
             == 0
         )
-        assert stepping(backend).observe().z == state.plane.z
+        assert _position(backend) == state.plane.z
     finally:
         backend.close()
 
@@ -1212,7 +1231,7 @@ def test_interior_atomic_budget_message_matches_terminal_checkpoint(
 
 def test_spatial_resume_retains_physical_field_without_modal_normalisation(monkeypatch):
     grid = FieldGrid.from_limits(1e-5, 800e-9, (600e-9, 1.2e-6), 60e-15)
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid,
         RadialGrid(3e-4, 8),
         SpatialMedium(),
@@ -1228,13 +1247,12 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
         noise=None,
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = select(
         "numpy_ref", problem, run_request, grid=grid, modes=simulation.modes
     )
     try:
-        stepping(backend).set_initial(problem.initial.field0, None)
-        field = stepping(backend).observe().require_field().copy()
+        field = load_reference(backend).copy()
         state = ResumeState(
             simulation.metadata(),
             SavedPlane(z=5e-6, field=field),
@@ -1245,19 +1263,19 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
         def forbidden(*args, **kwargs):
             raise AssertionError("spatial physical fields have no modal power weight")
 
-        monkeypatch.setattr(simulation_module, "power_amplitude", forbidden)
+        for module in (inputs_module, resume_module):
+            monkeypatch.setattr(module, "power_amplitude", forbidden)
         assert (
             _loaded(
                 backend,
                 problem,
                 run_request,
-                simulation._start(backend, problem, state),
+                resume_module._start(simulation, problem, state),
             )
             == 0
         )
-        restored = stepping(backend).observe()
-        assert restored.z == state.plane.z
-        assert_array_equal(restored.require_field(), field)
+        assert _position(backend) == state.plane.z
+        assert_array_equal(cast("Any", backend).workspace.committed(), field)
     finally:
         backend.close()
 

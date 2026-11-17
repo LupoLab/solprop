@@ -36,7 +36,7 @@ selection it is the tracking set:
 | `argon_blueshift_envelope` | `prop_capillary` | the same on the envelope grid | 1, production |
 | `h2_raman_averaged` | `prop_capillary` | H2 soliton self-frequency shift, 0.4 m | 1, production |
 | `ctc` | `prop_capillary` | H2 comb-to-continuum, three modes, 0.13 m | production |
-| `radial_filament_256` | `prop_radial` | Ar filament, 256 radial nodes, 3 cm | 1, production |
+| `radial_filament_256` | `prop_free` | Ar filament, 256 radial nodes, 3 cm | 1, production |
 | `grin_nonlinear` | `prop_waveguide` | four-channel graded-index fibre, 2 cm | production |
 | `kerr_beam_384` | `prop_free` | fused-silica Kerr beam, 384², four fixed RK4IP steps | production |
 | `kerr_beam_192` | `prop_free` | the same at 192² | 1 |
@@ -158,8 +158,9 @@ with at least three repeats, and only when:
   native run, a native build from a commit after which nothing under `native/`
   changed but its documentation and tests;
 - nothing under `src/`, `native/` or `benchmarks/` is uncommitted (the history files
-  aside, so one checkout can record several runs), unless `--allow-dirty`, whose rows
-  are marked dirty;
+  aside, so one checkout can record several runs), and the native build was not made
+  from a modified tree (its commit stamped `+dirty`; the history files do not count
+  here either), unless `--allow-dirty`, which admits both and marks the rows dirty;
 - `SOLPROP_FFTW_PLAN` is unset: a row does not record how it planned, and measured
   planning changes its construction time and its median.
 
@@ -174,10 +175,13 @@ run: its date, solprop version, the configurations it ran and how many started o
 busy machine, and its change against the first and the previous recorded runs. A
 change is the geometric mean of median-time ratios (below one is faster) over the
 configurations both runs share, counted in brackets. Two rows are the same
-configuration only with the same number of memory (NUMA) domains spanned, threading
-policy, case revision, stepper, resolved integrator, tolerances and noise model. A
-changed library default therefore starts a new series rather than reading as a
-speed-up, and so does an allocation spread over more memory domains than usual: on a
+configuration only with the same native build profile (the first field of
+`native_build`: `distribution` for a wheel, `local` for a build from source), number
+of memory (NUMA) domains spanned, threading policy, case revision, stepper, resolved
+integrator, tolerances and noise model. A changed library default therefore starts a
+new series rather than reading as a speed-up, and so does a local build after wheel
+rows (a compiler or library update inside the wheel still compares: it is part of
+what a release ships), or an allocation spread over more memory domains than usual: on a
 cluster, keep the cores together (`--distribution=block:block` under Slurm).
 
 ## Recorded hardware
@@ -264,6 +268,13 @@ uv run python -m benchmarks ab --set tracking --threads 16 --production 16 \
 
 The same command with `SOLPROP_CALIBRATION=off` in both arms is its A/A control.
 
+**The window.** A timed run starts once the backend's load of the launch returns, as the
+recorded history's does. `SOLPROP_BENCHMARK_WINDOW=run`, given to both arms with
+`--baseline-env` and `--candidate-env`, starts it before the load, so that a build that
+loads the state inside the session's start (native's `Workspace.start(run)` since SEP 52)
+is timed over the same work as one that loads it before. The tracking history never
+sets it.
+
 Selection works as for `track`. `--length` runs that fraction of each guide, from the
 entrance, for quick iteration. Each round runs every configuration once with each
 build, one worker each, and alternates which build goes first; `--rounds` sets the
@@ -296,7 +307,6 @@ uv run python -m benchmarks ab --set sep47 --threads 1 --counters \
 | `snapshots_idle`, `snapshots_sparse`, `snapshots_every` | the same fibre to HDF5 with `step_planes=1` and a `SnapshotController` never asked, asked after every eighth accepted step, or asked at every accepted endpoint | a plane at every step; 0, 5 and 42 snapshots published |
 | `with_input_repeat` | three runs of the fibre with other peak powers through `Simulation.with_input` | three preparations from one translation |
 | `scan_local` | `run_scan` of four peak powers on `Local`, built with `with_input`, field-free | four points, no field copied to the host |
-| `group_batch` | the same four points on `Batch(4)`, replaying ten 1.6 mm steps with the split-step collar | ten common steps of four members |
 | `radial_filament_256_{saved,free}_{memory,hdf5}` | the radial filament's first 3 mm, four planes, every field kept or none, to memory or to HDF5 | four planes, transverse-edge reads and collar checks |
 | `cartesian_filament_128_{saved,free}_{memory,hdf5}` | the Cartesian filament's first 1 mm, likewise | the same on a 128² grid |
 | `taper_flow_4`, `taper_flow_17` | 40 µm of a He capillary tapering from 50 to 48 µm with taper coupling, 4 or 17 modes | a coupled flow on the native Adams march, and one wider than 16 channels, whose host passes hold each bin's channel vectors in a row of their own (a device build's passes hold none) |
@@ -318,70 +328,42 @@ fields at production sizes (`radial_filament_512`, `cartesian_filament_256`).
 repetition after the timed ones with the native adapter's counters on, reported as the
 receipt's `counted` and, in `ab`'s summary, per arm; counting therefore costs no timed
 repetition anything. With counting off, the adapter's path is the one before the
-counters except for a single attribute test per native call (a march call, a plane, a
-statistics call, an edge read, a field crossing or load, a low-storage or group step, a
-native session's `advance` or export): the per-attempt hooks are installed only while
-counting, and nothing else is computed, so no ledger entry was taken for them.
+counters except for a single attribute test per native session `advance`, export,
+snapshot or load, and nothing per attempt, so no ledger entry was taken for them.
 
 A native run is served by the native execution session
-(`solprop_native.session.NativeSession`), the only native executor since SEP 47 phase
-5. The record keeps the keys the transitional bridge's runs were counted under, so that
-an arm measured before phase 5 can be compared key for key with one after; the
-session's own keys start `session_`. The record (`solprop_native._counters`, private to
+(`solprop_native.session.NativeSession`), which steps, observes and reads its edges
+natively; its keys start `session_`. The record (`solprop_native._counters`, private to
 the harness) holds:
 
-- `native_returns`: every return to Python, by cause. For a native march called from
-  Python (the backend's own march, which no run takes since phase 5), a call's reason (`reached`, `monitor` for a boundary-monitor check by distance, `bound`
-  for its attempt or time limit, `watch`, `capacity` and the errors), with `host_step`
-  split by the driver's work due on its last step: `statistics`, `step_planes`,
-  `monitor` (the check by steps), `transverse` (a collar's per-step current) or
-  `transverse_read`, joined with `+` when several fall due together; then
-  `host_attempt` for each attempt solprop's own loop steps, `low_storage_step` for the
-  low-storage march.
-  A native session returns once per `advance`, by its batch's event:
+- `native_returns`: every return to Python, once per `advance`, by its batch's event:
   `session_observation`, `session_snapshot` (a requested snapshot serviced),
   `session_warning`, `session_terminal`, or `session_progress` with its cause,
   `session_progress:buffer` (the attempt or row buffer filled),
   `session_progress:work_limit` (the caller's attempt bound) or
-  `session_progress:deadline` (its time bound). Members of the native group session are
-  native sessions and are counted so. A periodic row, a collar check, an edge read or a
-  low-storage step is never a session return (SEP 47 section 7.3);
-- `march_calls`: native march calls by march, `adams_march` and `rk_march` from Python
-  on the bridge, and the native session's own calls inside its `advance`, read from its
-  status, as `session_adams`, `session_runge_kutta` or `session_low_storage`;
-- `attempts` and `accepted` (native march, native session and host attempts together;
-  a session's from its delivered chunks), `march_attempts`, `host_attempts`,
-  `low_storage_steps` and `group_steps` (a group's common steps);
-- `planes` (calls of `propagate_to` on the bridge, observations after the launch in a
-  session), `statistics_rows` (periodic rows, wherever taken) and
-  `statistics_evaluations` (rows and plane statistics together), and
-  `transverse_reads` (reads of the edge's faces or a collar's current made through
-  Python: a native session reads its edge natively, so none);
-- `field_crossings` with `field_bytes`: fields copied to the host, by where. On the
-  bridge at a plane (`plane`), at every accepted step of a host Adams engine (`step`)
-  or at its load (`load`); in a session, each observation's field exported into its
-  destination in one native pass (`export`; a recipe asked again for the same batch is
-  served from the first and not counted) and an Adams march's state and history copied
-  for a snapshot (`snapshot`);
+  `session_progress:deadline` (its time bound). A periodic row, a collar check, an edge
+  read or a low-storage step is never a session return (SEP 47 section 7.3);
+- `march_calls`: the native session's own march calls inside its `advance`, read from
+  its status, as `session_adams`, `session_runge_kutta` or `session_low_storage`;
+- `attempts` and `accepted`, from the session's delivered chunks;
+- `planes` (observations after the launch), `statistics_rows` (periodic rows) and
+  `statistics_evaluations` (rows and plane statistics together);
+- `field_crossings` with `field_bytes`: fields copied to the host, by where: each
+  observation's field exported into its destination in one native pass (`export`; a
+  recipe asked again for the same batch is served from the first and not counted) and
+  an Adams march's state and history copied for a snapshot (`snapshot`);
 - `field_loads` with `load_bytes`: host fields loaded into the native state, by where:
-  `start` (a run's start or resume, on either path) and `restore` (the Adams march's
-  reload after a dense observation or at a method history's restore). solprop's host
-  Adams engine reloads its masked state at every step, which is not counted; its `step`
-  crossings mark that route.
+  `start` (a run's start or resume) and `restore` (the Adams march's history restored
+  at a resume).
 
 The run's own record adds the planes saved and, for a snapshot case, the snapshots
-published; the peak resident memory is the worker's, as for every row. A host attempt
-makes several native calls, which are not counted one by one; a group run's counts
-include each point's resource probe, a native session that returns at its launch; and a
-device's launches,
-transfers and allocations are not counted: they need a profiler. Counts explain a
+published; the peak resident memory is the worker's, as for every row. A device's
+launches, transfers and allocations are not counted: they need a profiler. Counts explain a
 timing and do not replace it; check that both arms hold the same events before
 comparing their times (SEP 47 section 7.2).
 
-A scan or group repetition builds its own backends, so its worker builds none beforehand
-and warms up with one whole untimed repetition. `scan_local` watches each point's run
-to count its steps; `Batch` watches none, so `group_batch`'s steps are counted only by
-`--counters`, and `ab` reports its work as `unchecked` rather than `same`. Where a
-repetition keeps no final field (field-free planes, a scan), finiteness is read from
+A scan repetition builds its own backends, so its worker builds none beforehand and
+warms up with one whole untimed repetition. `scan_local` watches each point's run to
+count its steps. Where a repetition keeps no final field (field-free planes, a scan), finiteness is read from
 its last plane's statistics and the repeat difference is not defined; `track` treats
 either gap as unchecked, never as consistent.

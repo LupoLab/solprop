@@ -4,34 +4,33 @@
 
 """Name the material models a run takes from optmat, and record the ones it resolved.
 
-A :class:`MaterialSelection` is the small immutable choice a caller makes: which
-linear, electronic, Raman and ionisation models, at which carrier, under which
-approximation policies. ``"recommended"`` is optmat's recommended model of each
-material; a model name selects another one from optmat's registry, and an optmat model
-object is taken as it is. The selection holds names and policies, never data: the
-models are resolved where a species or a solid is built.
+- :class:`MaterialSelection` is the small immutable choice a caller makes: which linear,
+  electronic, Raman and ionisation models, at which carrier, under which approximation
+  policies (``STATUSES``, ``ELECTRONIC_POLICIES``, ``RAMAN_POLICIES``, ...). It holds
+  names and policies, never data: models are resolved where a species or solid is built.
+- :class:`MaterialRecord` is what a resolved model leaves behind, optmat's identity of
+  it in plain values; every optmat-backed object exposes its records as
+  ``material_records``. :class:`OptmatModel` and :class:`ModelIdentityLike` are the
+  protocols it reads.
+- :class:`MaterialManifest` is a run's whole material record (the optmat version, the
+  records, species, compositions, solids, policies and measurements such as each
+  :class:`DiluteScalingCheck`), whose identities and policies enter the run's resume
+  key; :func:`hashed_document` is its hashed part. :class:`MaterialLog` collects what
+  one evaluation context warned about.
 
-A :class:`MaterialRecord` is what a resolved model leaves behind: optmat's identity of
-it (name, quantity, material, content digest and status) in plain values, ready for a
-run's manifest. Every optmat-backed object solprop builds exposes its records as
-``material_records``.
-
-A :class:`MaterialManifest` is a run's whole material record: the optmat version, every
-resolved model's record, the species, compositions and solids with their axes, the
-policies in force and what was measured about them. Its identities and policies enter
-the run's resume key; see :doc:`/guide/results/output`.
-
-This module imports nothing from optmat, so building a selection costs nothing; see
-:doc:`/guide/media/materials` for the models, their statuses and the warnings they
-raise.
+This module imports nothing from optmat, so building a selection costs nothing. See
+:doc:`/guide/media/material-selection` for the choices and
+:doc:`/guide/results/provenance` for the manifest.
 """
 
-import json
 import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Final, Protocol, cast, runtime_checkable
 
+import numpy as np
+
+from solprop._identity import canonical_json
 from solprop.exceptions import MaterialError
 
 __all__ = [
@@ -533,27 +532,26 @@ class DiluteScalingCheck:
         }
 
 
-def _canonical(value: object) -> str:
-    """Return plain values as canonical JSON, for ordering and deduplication.
-
-    - ``value``: plain values: mappings, sequences, strings, numbers, None.
-    """
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
-
-
 def _plain(value: object) -> object:
-    """Return a value with tuples as lists and mappings as dicts, recursively."""
+    """Return a value with tuples as lists and mappings as dicts, recursively.
+
+    A NumPy scalar becomes the Python value it holds, as in its canonical JSON
+    (:func:`solprop._identity.canonical_json`), so an entry compares and stores as it
+    is identified.
+    """
     if isinstance(value, Mapping):
         return {str(key): _plain(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_plain(item) for item in value]
+    if isinstance(value, np.bool_ | np.integer | np.floating):
+        return value.item()
     return value
 
 
 def _entries(values: Iterable[Mapping[str, object]]) -> tuple[dict[str, object], ...]:
     """Return entries as plain dicts, each once, sorted by their canonical JSON."""
     distinct = {
-        _canonical(_plain(entry)): cast("dict[str, object]", _plain(entry))
+        canonical_json(_plain(entry)): cast("dict[str, object]", _plain(entry))
         for entry in values
     }
     return tuple(distinct[key] for key in sorted(distinct))
@@ -655,7 +653,7 @@ class MaterialManifest:
 
     Built once per run from its mixtures, modes and solids
     (:func:`solprop.driver.material_output.material_manifest`) and stored in its
-    :class:`~solprop.output.schema.RunMetadata`. A run with no optmat-backed object
+    :class:`~solprop.output.metadata.RunMetadata`. A run with no optmat-backed object
     and no selection has the empty manifest, ``MaterialManifest()``.
 
     Two parts are distinguished. The **identities and policies** -- the optmat

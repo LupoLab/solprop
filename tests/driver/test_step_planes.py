@@ -22,7 +22,7 @@ from bounds import assert_work_within
 from march_bounds import TIGHTER, assert_in_envelope
 from solprop.backends import available
 from solprop.driver import Simulation
-from solprop.driver.simulation import _interpolated
+from solprop.driver.resume import _interpolated
 from solprop.exceptions import TranslationError
 from solprop.log import NullReporter
 from solprop.output.hdf5 import resume

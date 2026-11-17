@@ -39,10 +39,6 @@ __all__ = ["main", "measure"]
 
 _TIMED = frozenset(
     {
-        "adams_march_run",
-        "rk_march_run",
-        "statistics",
-        "spatial_statistics",
         "field_to_host",
         "advance",
         "export",
@@ -102,7 +98,7 @@ def _prepare(name: str, fraction: float, *, admitted: bool) -> tuple[Any, Any, A
     )
     simulation = build(configuration)
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     retention = field_retention(
         request, simulation.settings.fields, simulation.settings.field_planes
     )
@@ -216,7 +212,7 @@ def _once(
             _counters.disable()
     # The field bytes through the state's crossings, each way (SEP 44): a device's
     # plane exports and loads, or a host build's copies.
-    to_host, from_host = session._backend._native_state.crossed_bytes()
+    to_host, from_host = session._backend._diagnostics()["crossed_bytes"]
     record: dict[str, Any] = {
         "crossed_to_host": int(to_host),
         "crossed_from_host": int(from_host),

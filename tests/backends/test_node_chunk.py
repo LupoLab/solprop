@@ -24,9 +24,9 @@ import numpy as np
 import pytest
 
 import vector_raman_cases
+from backends import edge_collar_cases as collar
 from backends import host_cases_envelope_plasma as envelope_cases
-from backends import test_native_edge_collar as collar
-from backends import test_radial_nonlinear as radial_cases
+from backends import spatial_cases as radial_cases
 from driver.test_prop_capillary import build as capillary
 from solprop.backends.node_chunk import (
     BUFFERS_PER_NODE,
@@ -52,8 +52,8 @@ from solprop.profiles import Constant
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
-from solprop.translate.problem import assemble
 from solprop.translate.stage import terms
 
 pytestmark = [
@@ -155,10 +155,10 @@ def _builders():
     }
     for route in ("radial", "line", "free", "planar"):
         builders[f"collar-{route}"] = functools.partial(
-            lambda route: collar._case(route).translate(), route
+            lambda route: collar.collar_case(route).translate(), route
         )
         builders[f"collar-kerr-{route}"] = functools.partial(
-            lambda route: collar._case(route, kerr=True).translate(), route
+            lambda route: collar.collar_case(route, kerr=True).translate(), route
         )
     for kind in ("radial", "free", "line"):
         builders[f"plasma-{kind}"] = functools.partial(_held_plasma, kind)
@@ -233,7 +233,7 @@ def test_the_plan_is_the_translation_s_former_chunk(name):
 def multimode_run():
     """A three-mode capillary on nine nodes, with no response admission."""
     simulation = capillary(modes=3, plasma=False)
-    return simulation.translate(), simulation._run_request()
+    return simulation.translate(), simulation.run_request()
 
 
 @pytest.fixture(scope="module")
@@ -447,8 +447,18 @@ def native_backend():
     return pytest.importorskip("solprop_native.backend")
 
 
-def test_native_lowering_keeps_the_host_chunk_and_whole_planar_rows(native_backend):
-    lower = native_backend.native_node_chunk
+@pytest.fixture(scope="module")
+def native_device():
+    return pytest.importorskip("solprop_native._device")
+
+
+@pytest.fixture(scope="module")
+def native_lowering():
+    return pytest.importorskip("solprop_native._lowering")
+
+
+def test_native_lowering_keeps_the_host_chunk_and_whole_planar_rows(native_device):
+    lower = native_device.native_node_chunk
     for name in ("collar-free", "collar-radial", "plasma-line", "capillary-3-modes"):
         problem = BUILDERS[name]()
         for budget in (None, 2**21, 2**23):
@@ -464,9 +474,7 @@ def test_native_lowering_keeps_the_host_chunk_and_whole_planar_rows(native_backe
         assert lower(planar, plan, device=False) == rows * n_x
 
 
-def test_the_device_rule_applies_to_an_automatic_plan_alone(
-    native_backend, monkeypatch
-):
+def test_the_device_rule_applies_to_an_automatic_plan_alone(native_device, monkeypatch):
     """A later qualified device default changes `device_node_chunk` and nothing else."""
     problem = BUILDERS["collar-free"]()
     calls = []
@@ -476,8 +484,8 @@ def test_the_device_rule_applies_to_an_automatic_plan_alone(
         calls.append(planned)
         return problem.transform.n_nodes
 
-    monkeypatch.setattr(native_backend, "device_node_chunk", larger)
-    lower = native_backend.native_node_chunk
+    monkeypatch.setattr(native_device, "device_node_chunk", larger)
+    lower = native_device.native_node_chunk
     automatic = plan_node_chunk(problem, ExecutionOptions())
     explicit = plan_node_chunk(problem, ExecutionOptions(node_budget=2**18))
     forced = plan_node_chunk(problem, ExecutionOptions(node_chunk=3))
@@ -489,14 +497,14 @@ def test_the_device_rule_applies_to_an_automatic_plan_alone(
     assert calls == [automatic.chunk]
     # A host build knows no free device bytes: the host plan's chunk.
     monkeypatch.undo()
-    assert native_backend.device_node_chunk(problem, 7, None) == 7
+    assert native_device.device_node_chunk(problem, 7, None) == 7
 
 
-def test_the_device_rule_budgets_a_share_of_the_free_device_bytes(native_backend):
+def test_the_device_rule_budgets_a_share_of_the_free_device_bytes(native_device):
     """One chunk where a quarter of the free bytes holds it, else the largest that
     does, never below the host plan's chunk (solprop issue #361)."""
-    rule = native_backend.device_node_chunk
-    share = native_backend.DEVICE_BUDGET_SHARE
+    rule = native_device.device_node_chunk
+    share = native_device.DEVICE_BUDGET_SHARE
     problem = BUILDERS["collar-free"]()
     n_nodes = problem.transform.n_nodes
     narrow = plan_node_chunk(problem, ExecutionOptions(node_budget=2**18)).chunk
@@ -515,8 +523,8 @@ def test_the_native_backend_executes_and_records_its_lowered_chunk(native_backen
         NativeBackend,
     )
 
-    simulation = collar._case("planar")
-    problem, run_request = simulation.translate(), simulation._run_request()
+    simulation = collar.collar_case("planar")
+    problem, run_request = simulation.translate(), simulation.run_request()
     geometry = problem.transform.geometry
     assert geometry is not None
     n_x = geometry.shape[0]
@@ -532,14 +540,14 @@ def test_the_native_backend_executes_and_records_its_lowered_chunk(native_backen
     assert record["node_chunk_rule"] in {"host", "device"}
 
 
-def test_a_general_guide_takes_the_plan_s_budget(native_backend):
+def test_a_general_guide_takes_the_plan_s_budget(native_lowering):
     """The general route's own chunk at the plan's budget, the same on both backends."""
     from backends.dispersive_route_cases import (  # noqa: PLC0415
         ARGON_FILL,
         general_problem,
         strand,
     )
-    from solprop.backends.numpy_ref.backend import _general_maps  # noqa: PLC0415
+    from solprop.backends.numpy_ref.source import _general_maps  # noqa: PLC0415
 
     problem, run_request, _ = general_problem(strand(ARGON_FILL), "symmetric", "real")
     automatic = plan_node_chunk(problem)
@@ -552,14 +560,16 @@ def test_a_general_guide_takes_the_plan_s_budget(native_backend):
     assert general_planned_chunk(problem, forced) == 2
     whole = _general_maps(problem, automatic)
     assert whole is not None and whole.node_chunk > 1
-    payload = native_backend._native_problem(
-        problem, run_request, terms(problem), general_chunk=2
+    payload = native_lowering._lower(
+        problem,
+        run_request,
+        native_lowering._LowerPlan(terms=terms(problem), general_chunk=2),
     )
-    assert payload["general_node_chunk"] == 2
+    assert payload.general.node_chunk == 2
     assert (
-        native_backend._native_problem(problem, run_request, terms(problem))[
-            "general_node_chunk"
-        ]
+        native_lowering._lower(
+            problem, run_request, native_lowering._LowerPlan(terms=terms(problem))
+        ).general.node_chunk
         == whole.node_chunk
     )
 

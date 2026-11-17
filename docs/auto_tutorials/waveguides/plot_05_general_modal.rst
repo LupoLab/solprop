@@ -33,7 +33,7 @@ vector coefficient, which carries the longitudinal field and the
 ``|E.E|^2`` term, agrees with the scalar ``n2 omega / (c A_eff)`` to a fraction of
 a per cent here. On a sub-micron strand the two differ by a quarter.
 
-.. GENERATED FROM PYTHON SOURCE LINES 21-63
+.. GENERATED FROM PYTHON SOURCE LINES 21-65
 
 .. code-block:: Python
 
@@ -42,6 +42,7 @@ a per cent here. On a sub-micron strand the two differ by a quarter.
     import numpy as np
 
     from solprop import fourier
+    from solprop.boundaries import DEFAULT_BOUNDARY_N, absorber
     from solprop.constants import C
     from solprop.driver import prop_gnlse, prop_waveguide
     from solprop.grid import EnvelopeGrid, FieldGrid
@@ -52,9 +53,9 @@ a per cent here. On a sub-micron strand the two differ by a quarter.
         ModalGuide,
         StepIndexMode,
     )
+    from solprop.modes.tables import channel_area, sample_modal_table
     from solprop.nonlinear.normalisation import modal_kerr_coefficient
     from solprop.physdata import chi3_from_n2, n2_from_chi3
-    from solprop.translate.modal_tables import channel_area, sample_modal_table
 
     LENGTH = 2e-5
     """Twenty microns, in about ten accepted steps.
@@ -63,13 +64,14 @@ a per cent here. On a sub-micron strand the two differ by a quarter.
     route: it is the explicit in-stage temporal collar (see "Boundaries" in the model
     documentation), whose
     rate is set by the length the *grid* was built for, and whose stable step is set
-    by that rate. A general modal step is expensive, so this example builds its
-    grids for a millimetre -- a gentle collar -- and propagates twenty microns of it,
-    to stay inside the documentation build's budget.
+    by that rate. A general modal step is expensive, so this example propagates
+    twenty microns -- a run ends at its grid's length, so its grids are built for
+    twenty microns -- and keeps the collar a millimetre's grid would have, a gentle one,
+    through ``boundary_length``, to stay inside the documentation build's budget.
     """
 
     WINDOW_LENGTH = 1e-3
-    """Length the grids and their collar are declared for, m."""
+    """Length the collar's rate is declared for, m."""
 
     N2 = 2.6e-20
     CHI3 = chi3_from_n2(N2, 1.45)
@@ -92,13 +94,13 @@ a per cent here. On a sub-micron strand the two differ by a quarter.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 64-67
+.. GENERATED FROM PYTHON SOURCE LINES 66-69
 
 The guide: a 4 um core at a 0.01 index step, with the Kerr response declared on
 the core region and nothing on the cladding, which is how a linear cladding is
 said to be linear.
 
-.. GENERATED FROM PYTHON SOURCE LINES 67-98
+.. GENERATED FROM PYTHON SOURCE LINES 69-100
 
 .. code-block:: Python
 
@@ -155,13 +157,13 @@ said to be linear.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 99-102
+.. GENERATED FROM PYTHON SOURCE LINES 101-104
 
 The vector coefficient, and the scalar one the GNLSE would use. ``metric=`` is
 the channel's own sampled Poynting flux -- the metric the route's projection
 map contracts with -- so the coefficient is the same statement that map makes.
 
-.. GENERATED FROM PYTHON SOURCE LINES 102-117
+.. GENERATED FROM PYTHON SOURCE LINES 104-119
 
 .. code-block:: Python
 
@@ -194,7 +196,7 @@ map contracts with -- so the coefficient is the same statement that map makes.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 118-131
+.. GENERATED FROM PYTHON SOURCE LINES 120-133
 
 A short run through each route, and each one's own dispersion-only
 reference: a guide whose regions declare no response, and gamma = 0.
@@ -210,7 +212,7 @@ the
 general modal manual page says why — so what the
 comparison measures is the two routes and not the choice of form.
 
-.. GENERATED FROM PYTHON SOURCE LINES 131-183
+.. GENERATED FROM PYTHON SOURCE LINES 133-193
 
 .. code-block:: Python
 
@@ -240,18 +242,26 @@ comparison measures is the two routes and not the choice of form.
         "dz_init": LENGTH / 10,
     }
     channel = guide.mode_collection.modes[0]
+    # The runs' grids sample as the guide's did, over the twenty microns they propagate,
+    # with the collar of a millimetre.
+    run_grid = FieldGrid.from_limits(LENGTH, 835e-9, (790e-9, 890e-9), 200e-15)
+    run_envelope_grid = EnvelopeGrid.from_limits(LENGTH, 835e-9, (790e-9, 890e-9), 200e-15)
+    gentle = WINDOW_LENGTH / DEFAULT_BOUNDARY_N
+    field = {"grid": run_grid, "absorber": absorber(run_grid, boundary_length=gentle)}
+    envelope = {
+        "grid": run_envelope_grid,
+        "absorber": absorber(run_envelope_grid, boundary_length=gentle),
+    }
     runs = {
         "general": prop_waveguide(
-            (), LENGTH, provider=guide, grid=grid, kerr_form="analytic", **common
+            (), LENGTH, provider=guide, kerr_form="analytic", **field, **common
         ),
         "general, linear": prop_waveguide(
-            (), LENGTH, provider=linear_guide, grid=grid, kerr_form="analytic", **common
+            (), LENGTH, provider=linear_guide, kerr_form="analytic", **field, **common
         ),
-        "gnlse": prop_gnlse(
-            gamma, LENGTH, grid=envelope_grid, fibre=channel, shock=True, **common
-        ),
+        "gnlse": prop_gnlse(gamma, LENGTH, fibre=channel, shock=True, **envelope, **common),
         "gnlse, linear": prop_gnlse(
-            0.0, LENGTH, grid=envelope_grid, fibre=channel, shock=True, **common
+            0.0, LENGTH, fibre=channel, shock=True, **envelope, **common
         ),
     }
 
@@ -280,14 +290,14 @@ comparison measures is the two routes and not the choice of form.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 184-188
+.. GENERATED FROM PYTHON SOURCE LINES 194-198
 
 In the internal FFT convention both routes turn by ``-gamma P(t) L``
 (the public optics-convention phase has the opposite sign), plotted against the
 local power
 so that the two grids' different time samples fall on one curve.
 
-.. GENERATED FROM PYTHON SOURCE LINES 188-213
+.. GENERATED FROM PYTHON SOURCE LINES 198-223
 
 .. code-block:: Python
 
@@ -328,7 +338,7 @@ so that the two grids' different time samples fall on one curve.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 214-221
+.. GENERATED FROM PYTHON SOURCE LINES 224-231
 
 Related reading
 ---------------
@@ -341,7 +351,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 4.537 seconds)
+   **Total running time of the script:** (0 minutes 10.622 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_05_general_modal.py:

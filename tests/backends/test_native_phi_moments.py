@@ -33,14 +33,16 @@ from backends.test_exponential_weights import (
     natural_scale,
 )
 from bounds import EPS
+from sessions.runs import native_stage_rows
 from solprop.backends.exponential import MAX_PHI_ORDER
 from solprop.grid import EnvelopeGrid
 from solprop.nonlinear.gnlse import problem_from
 from solprop.pulses import SechPulse
 from solprop.stepper import Multistep, PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 
 native = pytest.importorskip("solprop_native")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 VALUES = np.array([*ARGUMENTS, *SQUARING_EDGES])
 """The arguments of ``test_exponential_weights.py``'s own kernel test."""
@@ -87,20 +89,36 @@ def read_moments(module, grid, values):
     assert active.size >= values.size
     bins = active[: values.size]
     backend_module = module.backend
+    lowering = module._lowering
     backend = module.NativeBackend(problem, run_request, grid=grid)
     try:
         # The payload and the step's resident rows are the backend's own; the state
         # they open is this test's, so nothing is loaded into the backend's.
-        payload = backend_module._native_problem(
-            problem, run_request, backend._terms, None, None
+        payload = lowering._lower(
+            problem, run_request, lowering._LowerPlan(terms=backend._terms)
         )
-        arrays, material = backend._resident_arrays(0.0, 1e-3)
+        arrays, material = native_stage_rows(backend, 0.0, 1e-3)
     finally:
         backend.close()
-    terms = np.zeros_like(payload["phi_terms"])
+    terms = np.zeros_like(payload.linear.phi_terms).reshape(
+        payload.linear.n_phi_terms, -1, payload.dims.n_omega
+    )
     assert terms.shape[1] == 1
     terms[0, 0, bins] = values
-    state = backend_module._core.State(payload | {"phi_terms": terms})
+    payload.linear.phi_terms = terms
+    # The resident history this test reads, uncompensated, with no steps kept for
+    # interpolation; its controller's scale is never read.
+    controller = run_request.stepper.controller
+    payload.adams = {
+        "slots": SLOTS,
+        "compensated": False,
+        "interpolate": False,
+        "fused": False,
+        "rtol": float(controller.rtol),
+        "atol": float(controller.atol),
+        "weights": np.empty(0),
+    }
+    state = backend_module._core.Workspace(payload)
     try:
         (phi_delta, *rest) = arrays
         step = np.zeros_like(phi_delta)
@@ -112,15 +130,15 @@ def read_moments(module, grid, values):
         empty = np.empty(0, dtype=np.float64)
         width = SLOTS
         out = np.zeros((values.size, MAX_PHI_ORDER), dtype=complex)
-        state.adams_allocate(SLOTS, False, False)
         store = np.zeros((SLOTS, 1, n_omega), dtype=complex)
         store[0] = 1.0
         for k in range(MAX_PHI_ORDER):
-            state.set_initial(zero, np.empty(0, dtype=complex))
-            state.adams_rows_from_host("store", store)
+            _testing.load(state, zero, np.empty(0, dtype=complex))
+            _testing.adams_rows_from_host(state, "store", store)
             corrector = np.zeros((width, width))
             corrector[1, k] = 1.0
-            state.adams_exponential_trial(
+            _testing.adams_exponential_trial(
+                state,
                 1.0,
                 np.arange(width - 1, dtype=np.uint64),
                 np.zeros(1),
@@ -140,10 +158,10 @@ def read_moments(module, grid, values):
                 empty,
                 empty,
             )
-            state.adams_exponential_accept(
-                1.0, width - 1, np.empty(0, dtype=np.uint64), False
+            _testing.adams_exponential_accept(
+                state, 1.0, width - 1, np.empty(0, dtype=np.uint64), False
             )
-            out[:, k] = np.asarray(state.field_to_host()).reshape(-1)[bins]
+            out[:, k] = np.asarray(_testing.field(state)).reshape(-1)[bins]
     finally:
         state.close()
     return out

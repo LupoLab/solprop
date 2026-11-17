@@ -4,26 +4,25 @@
 
 """Strong-field ionisation: the rate protocol, its conventions and diagnostics.
 
-The rate ``W(|E|)`` is the probability per unit time that one atom loses its outermost
-electron in a field of amplitude ``|E|``. It is the input to the plasma response: the
-ionised fraction is ``1 - exp(-int W dt)`` and the energy the field pays for each
-electron is the energy per event.
+The rate ``W(|E|)`` is the probability per unit time that one atom or molecule loses its
+outermost electron in a field of amplitude ``|E|``: per particle, in s^-1, for a field
+in V/m. solprop keeps no rate formula of its own (SEP 3, D1); every built-in rate is one
+of optmat's (:class:`solprop.nonlinear.optmat_rates.OptmatRate`), and a caller may
+supply any rate meeting the contract held here, or a tabulated
+:class:`solprop.translate.ionisation.RateTable`.
 
-solprop keeps no ionisation-rate formula of its own (SEP 3, D1). Every rate of a
-built-in gas, and of a custom species from explicit parameters, is one of optmat's
-rate models, adapted by :class:`solprop.nonlinear.optmat_rates.OptmatRate`; a caller may
-also supply any object satisfying :class:`IonisationRate` (or the narrower
-:class:`EvaluableRate`), or a tabulated :class:`solprop.translate.ionisation.RateTable`.
-This module holds the contract they meet, their optical-cycle conventions, the energy
-binding of the plasma loss (:func:`bind_rate_energy`), the rate ceiling
-:data:`MAX_RATE`, and the diagnostics :func:`keldysh`,
-:func:`barrier_suppression_field` and :func:`ionisation_fraction`.
+- **The contract**: :class:`IonisationRate` and the narrower :class:`EvaluableRate`,
+  read by :func:`rate_convention` (the optical-cycle convention), :func:`rate_species`
+  and :func:`rate_energy`; :func:`bind_rate_energy` binds the energy the plasma loss
+  pays per event. A rate is exactly zero below its threshold field and clipped at
+  :data:`MAX_RATE`, so a diverged step cannot put a NaN into the plasma column
+  (``docs/dev/stepper.md`` §10, trap 9); :data:`RateConvention` names the conventions.
+- **Integration**: :class:`RunningIntegral`, the running-integral rule of field-grid
+  plasma, with :data:`IntegrationPolicy`.
+- **Diagnostics**: :func:`keldysh`, :func:`barrier_suppression_field` and
+  :func:`ionisation_fraction`, ``1 - exp(-int W dt)``.
 
-The manual page is ``docs/guide/media/ionisation.md``. Rates are per atom or molecule,
-in
-s^-1, for a field amplitude in V/m, and are exactly zero below the rate's threshold
-field and clipped at its ceiling so that a diverged step cannot put a NaN into the
-plasma column (``docs/dev/stepper.md`` section 10, trap 9).
+The manual page is ``docs/guide/media/ionisation.md``.
 """
 
 import dataclasses
@@ -178,7 +177,7 @@ class IonisationRate(Protocol):
 
 
 def rate_convention(rate: EvaluableRate) -> RateConvention:
-    """Read an explicit optical-cycle convention without guessing for legacy rates.
+    """Read a rate's declared optical-cycle convention, never guessing one.
 
     Parameters
     ----------

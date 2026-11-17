@@ -91,7 +91,7 @@ def test_rectangular_contour_derivative_and_material_chain(polarisation):
     for phase in np.arange(64) * 2 * np.pi / 64:
         offset = 0.1 * omega * np.exp(1j * phase)
         value = mode._model_values(
-            replace(terms, omega=omega + offset), 50e-6, 12.5e-6
+            replace(terms, omega=omega + offset), mode._walls(0.0)
         )[0]
         total = total + value / offset
     # Existing capillary contour tolerance: float rounding amplified by the
@@ -192,7 +192,7 @@ def test_rectangular_fem_checked_values_from_luna_test_file():
         n=1,
         m=1,
         polarisation="x",
-        loss=True,
+        loss_scale=1.0,
         cladding=silver(model="table/Ag"),
     )
     omega = 2 * np.pi * C / np.asarray([210e-9, 800e-9])
@@ -233,7 +233,8 @@ def test_rectangular_fem_checked_values_from_luna_test_file():
         ({"m": 0}, "indices"),
         ({"half_width_x": 0.0}, "half-widths"),
         ({"half_width_y": float("nan")}, "half-widths"),
-        ({"loss": -1.0}, "loss scale"),
+        ({"loss_scale": -1.0}, "loss_scale"),
+        ({"alpha": 1.0, "loss_scale": 2.0}, "not both"),
         ({"temperature": 0.0}, "temperature"),
     ],
 )
@@ -265,7 +266,7 @@ def test_rectangular_remaining_validation_and_mixture_paths():
     terms = mode._terms(np.asarray([2e15]), 0.0)
     with pytest.raises(ModeError, match="non-finite"):
         mode._model_values(
-            replace(terms, dwall=np.asarray([complex(np.nan)])), 50e-6, 12.5e-6
+            replace(terms, dwall=np.asarray([complex(np.nan)])), mode._walls(0.0)
         )
     mixture = Mixture.fill({"He": 0.25, "Ar": 0.75}, 2.0)
     filled = mode.with_mixture(mixture)
@@ -287,14 +288,14 @@ def test_rectangular_luna_witness_at_matched_material_indices():
             m=case["m"],
             polarisation=case["polarisation"],
             cladding=complex(*case["wall"]),
-            loss=True,
+            loss_scale=1.0,
         )
         omega = np.asarray([2 * np.pi * C / case["wavelength"]])
         terms = replace(
             mode._terms(omega, 0.0),
             chi=np.asarray([complex(*case["core"]) ** 2 - 1]),
         )
-        value = 1 + mode._model_values(terms, 50e-6, 12.5e-6)[0]
+        value = 1 + mode._model_values(terms, mode._walls(0.0))[0]
         # Identical material samples isolate the algebra from gas and metal data;
         # expm1/log1p versus sqrt differs by a few rounded complex operations.
         assert_allclose(value, complex(*case["neff"]), rtol=1e-15, atol=0)
@@ -335,13 +336,13 @@ def test_rectangular_loss_floor_gain_and_refractivity(caplog):
     mode = RectMode(50e-6, 12.5e-6)
     omega = np.asarray([2 * np.pi * C / 800e-9])
     base = mode.neff(omega)
-    for specification, factor in ((False, 0.0), (0.25, 0.25)):
-        changed = replace(mode, loss=specification)
+    for factor in (0.0, 0.25):
+        changed = replace(mode, loss_scale=factor)
         assert_allclose(np.real(changed.neff(omega)), np.real(base), rtol=0, atol=0)
         assert_allclose(
             np.imag(changed.neff(omega)), factor * np.imag(base), rtol=0, atol=0
         )
-    absolute = replace(mode, loss=lambda values: np.full_like(values, 2.0))
+    absolute = replace(mode, alpha=lambda values: np.full_like(values, 2.0))
     assert "no 'derivative'" in caplog.text
     assert_allclose(np.imag(absolute.neff(omega)), C / omega, rtol=0, atol=0)
     assert_allclose(

@@ -40,6 +40,7 @@ from backends.far_field_cases import (
 from backends.forced_threads import assert_threaded
 from backends.matched import native_thread_fields
 from bounds import assert_within, gamma
+from builders import grid_at
 from sessions.executors import IDENTITY
 from sessions.runs import launched, load_native
 from solprop.backends import select
@@ -62,6 +63,9 @@ from solprop.stepper import PIController, RungeKutta
 from solprop.translate.problem import Translation
 from solprop.translate.spatial import aperture_tables
 
+_testing = pytest.importorskip("solprop_native._core")._testing
+native_statistics = pytest.importorskip("solprop_native._statistics")
+
 solprop_native = pytest.importorskip("solprop_native")
 NativeBackend = solprop_native.NativeBackend
 
@@ -82,8 +86,10 @@ def problem_of(
     boundary=None,
 ):
     """The kernel problem of one state and its statistics, for Kokkos."""
+    # A run ends at its grid's length (SEP 51): the run's grid is cut at its plane,
+    # and the collar is the given grid's own, so its rates are kept.
     simulation = Simulation.from_free(
-        grid,
+        grid_at(grid, 1e-4),
         space,
         SpatialMedium(1 + 1e-6j) if medium is None else medium,
         [],
@@ -101,7 +107,7 @@ def problem_of(
         ),
         noise=None,
     )
-    return Translation(simulation.translate(), simulation._run_request())
+    return Translation(simulation.translate(), simulation.run_request())
 
 
 def native_stats(problem, run_request, grid, field, names):
@@ -256,44 +262,40 @@ def test_the_native_shapes_sum_each_half_plane_and_its_complement_to_the_beam():
         assert_within(np.sum(spectra, axis=0), beam, bound, elementwise=True)
 
 
-def test_the_native_pass_matches_the_reference_on_a_line_of_shapes():
-    grid = time_grid("envelope")
-    space = LineGrid(8e-3, 130, collar_fraction=0)  # three blocks of columns
-    apertures = ApertureSet(
-        centres=[[6e-5, 0.0], [6e-5, 0.0], [2e-5, 0.0], [-1e-4, 0.0]],
-        diameters=[0.0, 0.0, 0.0, 3e-4],
-        distances=[DISTANCE] * 4,
-        edges=[1e-5, 1e-5, 1e-5, 2e-5],
-        shapes=("half_plane_x_ge", "half_plane_x_lt", "rectangle", "circle"),
-        extents=[[0.0, 0.0], [0.0, 0.0], [1.6e-4, 1.6e-4], [0.0, 0.0]],
-        profile="rcos",
-        weighting="quadrature",
-    )
-    regions = np.array([[-np.inf, 0.0, -1.0, 1.0], [0.0, 2e4, -np.inf, np.inf]])
-    spec = spec_of(apertures, regions=regions)
-    field = random_field(space, 1, grid, seed=11)
-    problem, run_request = problem_of(grid, space, field, spec)
-    tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
-    values, field = native_stats(problem, run_request, grid, field, WITH_AXIS)
-    assert_matches(
-        values,
-        reference(WITH_AXIS, grid, problem, field, tables),
-        magnitudes(WITH_AXIS, grid, problem, field, tables),
-        problem,
-    )
+LINE_APERTURES = {
+    "shapes": (
+        8e-3,
+        ApertureSet(
+            centres=[[6e-5, 0.0], [6e-5, 0.0], [2e-5, 0.0], [-1e-4, 0.0]],
+            diameters=[0.0, 0.0, 0.0, 3e-4],
+            distances=[DISTANCE] * 4,
+            edges=[1e-5, 1e-5, 1e-5, 2e-5],
+            shapes=("half_plane_x_ge", "half_plane_x_lt", "rectangle", "circle"),
+            extents=[[0.0, 0.0], [0.0, 0.0], [1.6e-4, 1.6e-4], [0.0, 0.0]],
+            profile="rcos",
+            weighting="quadrature",
+        ),
+    ),
+    "circles": (
+        4e-4,
+        ApertureSet(
+            centres=[[0.0, 0.0], [1.2e-3, 0.0]],
+            diameters=[1e-3, 6e-4],
+            distances=[DISTANCE, 0.5],
+            edges=[5e-5, 5e-5],
+            profile="rcos",
+            weighting="quadrature",
+        ),
+    ),
+}
+"""A line's half-width and apertures: the shaped rows, and two circles' slits."""
 
 
-def test_the_native_pass_matches_the_reference_on_a_line():
+@pytest.mark.parametrize("name", list(LINE_APERTURES))
+def test_the_native_pass_matches_the_reference_on_a_line(name):
+    width, apertures = LINE_APERTURES[name]
     grid = time_grid("envelope")
-    space = LineGrid(4e-4, 130, collar_fraction=0)  # three blocks of columns
-    apertures = ApertureSet(
-        centres=[[0.0, 0.0], [1.2e-3, 0.0]],
-        diameters=[1e-3, 6e-4],
-        distances=[DISTANCE, 0.5],
-        edges=[5e-5, 5e-5],
-        profile="rcos",
-        weighting="quadrature",
-    )
+    space = LineGrid(width, 130, collar_fraction=0)  # three blocks of columns
     regions = np.array([[-np.inf, 0.0, -1.0, 1.0], [0.0, 2e4, -np.inf, np.inf]])
     spec = spec_of(apertures, regions=regions)
     field = random_field(space, 1, grid, seed=11)
@@ -763,7 +765,8 @@ def test_a_native_run_forms_the_statistics_at_planes_and_between_them():
 
     def simulation_on(backend):
         return Simulation.from_free(
-            grid,
+            # Cut at the last plane (SEP 51); the collar keeps the full grid's rates.
+            grid_at(grid, 2e-4),
             space,
             SpatialMedium(1 + 1e-6j),
             [],
@@ -833,27 +836,39 @@ def test_the_native_refusals_name_what_is_missing():
     problem, run_request = problem_of(grid, space, field, spec_of(holes("tanh")))
     owner = NativeBackend(problem, run_request, grid=grid)
     try:
-        native = load_native(owner, field, clear_fsal=False)
+        native = load_native(owner, field)
         apertures = np.zeros((1, NATIVE_CONSTANTS + grid.n_omega))
         unknown = apertures.copy()
         unknown[0, 8] = 7.0  # a profile code past supergauss
         regions = np.empty((0, 4))
         with pytest.raises(ValueError, match="flags"):
-            native.aperture_statistics(16, apertures, 2, regions, 1.0)
+            _testing.aperture_statistics(native, 16, apertures, 2, regions, 1.0)
         with pytest.raises(ValueError, match="profile"):
-            native.aperture_statistics(512, unknown, 2, regions, 1.0)
+            _testing.aperture_statistics(native, 512, unknown, 2, regions, 1.0)
         with pytest.raises(ValueError, match="rows"):
-            native.aperture_statistics(512, apertures[:, :-1], 2, regions, 1.0)
+            _testing.aperture_statistics(
+                native, 512, apertures[:, :-1], 2, regions, 1.0
+            )
         with pytest.raises(ValueError, match="regions"):
-            native.aperture_statistics(256, apertures, 2, np.empty((1, 3)), 1.0)
+            _testing.aperture_statistics(
+                native, 256, apertures, 2, np.empty((1, 3)), 1.0
+            )
         with pytest.raises(ValueError, match="NaN"):
-            native.aperture_statistics(256, apertures, 2, np.full((1, 4), np.nan), 1.0)
+            _testing.aperture_statistics(
+                native, 256, apertures, 2, np.full((1, 4), np.nan), 1.0
+            )
         with pytest.raises(TypeError):
-            native.aperture_statistics(
-                512, apertures.astype(np.float32), 2, regions, 1.0
+            _testing.aperture_statistics(
+                native, 512, apertures.astype(np.float32), 2, regions, 1.0
             )
         # The far-field statistics without tables formed for them.
         with pytest.raises(BackendError, match="tables"):
-            owner._far_field_statistics({"beam_spectrum"}, StatsSpec(names=("energy",)))
+            native_statistics.lower(
+                problem,
+                StatsSpec(names=("energy",)),
+                ("beam_spectrum",),
+                grid=grid,
+                z_end=float(run_request.stepper.z_end),
+            )
     finally:
         owner.close()

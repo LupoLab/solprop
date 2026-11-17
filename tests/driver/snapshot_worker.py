@@ -14,7 +14,7 @@ import pytest
 from tests.driver.test_snapshots import Requests, _run, _simulation
 from tests.hacc_cases import alpha_law, install, plain
 
-from solprop.driver import run as run_module
+from solprop.driver import session_loop as session_loop_module
 from solprop.exceptions import RunTerminated
 from solprop.output import (
     HDF5Output,
@@ -32,7 +32,7 @@ def install_signal_phase(patch, phase, signal_once):
     if phase == "checkpoint":
         save_march = HDF5Output.save_march
         # Force history persistence into the snapshot transaction itself.
-        patch.setattr(run_module, "MARCH_SNAPSHOT_AUTO_BYTES", 0)
+        patch.setattr(session_loop_module, "MARCH_SNAPSHOT_AUTO_BYTES", 0)
 
         def write(self, snapshot):
             signal_once()

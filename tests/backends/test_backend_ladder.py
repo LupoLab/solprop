@@ -8,7 +8,11 @@ The ladder of ``docs/dev/backends.md`` section 3.7 -- one linear application, on
 eight steps, a full run, a capillary with an absorber and a kink, the analytic field
 family -- and repeatability and a resume on the same schedules. Each rung's measurement
 is recorded with its bound in the ``backend_equivalence`` study
-(``docs/dev/accuracy.md`` section 7). Rows of the retired ``numba_cpu`` backend, written
+(``docs/dev/accuracy.md`` section 7). The one step and the eight steps are the
+catalogue's rows ``ladder soliton ...`` (``backends/ladder_rows.py``), which write the
+same record; the linear application, the full run and the analytic family are adaptive
+(#809), and the capillary holds each of its two planes to its own norm, which no rung
+reads, so they stay here. Rows of the retired ``numba_cpu`` backend, written
 when these tests also ran on it, stay in that record as evidence of what it measured.
 
 **The bounds are derived, not fitted.** The reference and a compiled backend perform the
@@ -39,6 +43,8 @@ from bounds import (
 from convergence_records import record
 from convergence_studies import BACKEND_EQUIVALENCE
 from sessions.runs import run as session_run
+from solprop.backends.events import ObservationReady
+from solprop.backends.export import ExportRecipe
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
 from solprop.stepper import FixedSchedule, PIController
@@ -62,7 +68,7 @@ def spm_field_problem(field_grid):
     from solprop.profiles import Constant  # noqa: PLC0415
     from solprop.pulses import GaussianPulse  # noqa: PLC0415
     from solprop.stepper.controller import PIController  # noqa: PLC0415
-    from solprop.translate.problem import assemble  # noqa: PLC0415
+    from solprop.translate.assembly import assemble  # noqa: PLC0415
 
     mode = MarcatiliMode(125e-6, "He", Constant(1.0), cladding=1.45)
     start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-6).build(field_grid)
@@ -167,57 +173,6 @@ def test_the_linear_flow_is_the_reference_s(
         measured,
         32 * EPS,
     )
-
-
-def test_one_step_of_the_soliton_agrees(
-    equivalence_backend_class,
-    equivalence_backend_name,
-    soliton_problem,
-    soliton_grid,
-    request,
-):
-    """Rung P1, one step: one nonlinear evaluation through the whole pipeline."""
-    problem, run_request = soliton_problem(
-        soliton_grid,
-        3,
-        save_planes=[1e-3],
-        schedule=FixedSchedule.uniform(0.0, 1e-3, 1e-3),
-    )
-    ours, _ = run(equivalence_backend_class, problem, run_request, soliton_grid, [1e-3])
-    theirs, _ = run(NumpyRefBackend, problem, run_request, soliton_grid, [1e-3])
-    # One step is seven stages of a few complex products and two transforms each;
-    # 16 eps by Higham on log2(8192), measured 2.4e-16 on the retired numba_cpu.
-    measured = disagreement(ours[0], theirs[0])
-    bound = ladder_bound(equivalence_backend_name, 16 * EPS, soliton_grid.n_to, 7)
-    assert measured < bound
-    rung(request, equivalence_backend_name, "one step", 1, measured, bound)
-
-
-def test_eight_steps_of_the_soliton_agree(
-    equivalence_backend_class,
-    equivalence_backend_name,
-    soliton_problem,
-    soliton_grid,
-    request,
-):
-    """Rung P1, eight steps: the accumulation over a schedule, not one evaluation."""
-    problem, run_request = soliton_problem(
-        soliton_grid,
-        3,
-        save_planes=[8e-3],
-        schedule=FixedSchedule.uniform(0.0, 8e-3, 1e-3),
-    )
-    ours, summaries = run(
-        equivalence_backend_class, problem, run_request, soliton_grid, [8e-3]
-    )
-    theirs, reference = run(NumpyRefBackend, problem, run_request, soliton_grid, [8e-3])
-    assert summaries[0].n_steps == reference[0].n_steps == 8
-    measured = disagreement(ours[0], theirs[0])
-    bound = ladder_bound(
-        equivalence_backend_name, 8 * 16 * EPS, soliton_grid.n_to, 8 * 7
-    )
-    assert measured < bound
-    rung(request, equivalence_backend_name, "eight steps", 2, measured, bound)
 
 
 def test_a_full_adaptive_run_meets_the_reference_s_accuracy(
@@ -370,7 +325,7 @@ def test_two_runs_agree(equivalence_backend_class, soliton_problem, soliton_grid
     """Repeatability: two runs of the eight-step rung on its fixed schedule.
 
     The same discrete computation twice, so the rung's own budget holds (``8 x 16
-    eps``, :func:`test_eight_steps_of_the_soliton_agree`) and nothing more is promised:
+    eps``, the catalogue's ``ladder soliton eight steps``) and nothing more is promised:
     a threaded reduction may order its sums differently from one run to the next.
     """
     problem, run_request = soliton_problem(
@@ -414,16 +369,24 @@ def test_a_resume_continues_where_the_run_stopped(
     assert disagreement(resumed, whole[1]) < 32 * EPS
 
 
-def test_the_observation_hook_is_the_identity_on_the_reference(
-    soliton_problem, narrow_grid
-):
-    """The device-state hook cannot copy or perturb the reference's state."""
+def test_the_observation_is_the_reference_s_state(soliton_problem, narrow_grid):
+    """A session's observation neither copies a perturbed state nor perturbs it."""
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[0.01])
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        state = backend._require_state()
-        assert backend._observed_field(state) is state
-        assert np.array_equal(backend.observe().require_field(), state[0])
+        session = backend.prepare(problem, run_request).start(
+            Start.entrance(problem), owns=False
+        )
+        try:
+            launch = session.advance()
+            state = backend.workspace.committed()
+            event = launch.events[0]
+            assert isinstance(event, ObservationReady)
+            ticket = event.ticket
+            observed = session.export(ticket, ExportRecipe(power=False, optics=False))
+            assert np.array_equal(observed, state)
+            assert backend.workspace.committed() is state
+        finally:
+            session.close()
     finally:
         backend.close()

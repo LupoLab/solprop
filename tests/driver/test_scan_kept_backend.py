@@ -19,7 +19,7 @@ import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_points_matched
-from solprop.driver import Simulation, _scan_batch, _scan_run, simulation
+from solprop.driver import Simulation, _scan_run, runner, simulation
 from solprop.driver.executors import Local, Pool
 from solprop.driver.scan import Scan, run_scan
 from solprop.grid import EnvelopeGrid
@@ -93,7 +93,8 @@ def made(monkeypatch):
         backends.append(original(*arguments, **keywords))
         return backends[-1]
 
-    monkeypatch.setattr(simulation, "select", watched)
+    for module in (simulation, runner):
+        monkeypatch.setattr(module, "select", watched)
     return backends
 
 
@@ -191,7 +192,7 @@ def test_a_failed_point_takes_the_kept_backend_with_it(
     builder = partial(with_pulse, base())
     reference = run_scan(SCAN, builder, output=tmp_path / "alone.h5", **OPTIONS)
     made.clear()
-    original = _scan_batch._Capture.save
+    original = _scan_run._Capture.save
 
     def capture(self, plane):
         if self.metadata.noise.seed == SCAN.point(1).seed:
@@ -199,7 +200,7 @@ def test_a_failed_point_takes_the_kept_backend_with_it(
         original(self, plane)
 
     with monkeypatch.context() as patched:
-        patched.setattr(_scan_batch._Capture, "save", capture)
+        patched.setattr(_scan_run._Capture, "save", capture)
         result = run_scan(SCAN, builder, output=tmp_path / "scan.h5", **OPTIONS)
     assert result.status.tolist() == ["done", "failed", "done"]
     assert "deliberate capture failure" in str(result.point(1)["error"])

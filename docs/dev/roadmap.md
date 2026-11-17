@@ -35,13 +35,6 @@ being implemented.
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
 
-- [SEP 49 — The TDSE response on native](seps/sep-0049-tdse-on-native.md):
-  the TDSE response on the native CPU build through a host source hook, the one Python
-  call admitted inside a native trial (device builds refuse it), with the host source
-  assembly shared by both backends and the atomic provider in a worker process of its
-  own, which `numpy_ref`'s TDSE runs use too. `numpy_ref` stays a complete backend.
-  TDSE physics, a compiled TDSE source and device TDSE runs remain out of scope.
-
 ## Draft enhancement proposals
 
 SEPs under discussion; their scope may change and implementation has not been accepted.

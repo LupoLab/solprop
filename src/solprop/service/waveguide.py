@@ -20,17 +20,18 @@ from solprop.constants import C
 from solprop.exceptions import SolpropError
 from solprop.modes import base
 from solprop.recipe import Recipe
-from solprop.service.design import _CHART_KEYWORDS
-from solprop.service.explore import QUANTITIES, quantity_values
-from solprop.service.sheet import (
+from solprop.service._curves import (
     CURVE_POINTS,
-    _curve_range,
-    _reach_of,
-    _shortest_wave,
-    _wave_window,
-    _zero_near,
-    capillary_sheet,
+    curve_range,
+    reach_of,
+    shortest_wave,
+    wave_window,
+    zero_near,
 )
+from solprop.service._payload import Payload
+from solprop.service.design import PRESSURE_ZDW_KEYWORDS
+from solprop.service.explore import QUANTITIES, quantity_values
+from solprop.service.sheet import capillary_sheet
 from solprop.tools import capillary_design, phase_mismatch, pressure_zdw
 
 __all__ = [
@@ -41,7 +42,6 @@ __all__ = [
     "waveguide_solve",
 ]
 
-Payload = Mapping[str, object]
 
 _EXAMPLES: Final = {"capillary": "rdw", "antiresonant": "antiresonant_fibre"}
 """The example each guide starts from."""
@@ -100,7 +100,7 @@ def _curve_of(
     """
     mode = recipe.build().modes[0]
     pump = float(recipe.keywords()["wavelength"])  # pyright: ignore[reportArgumentType]
-    wavelength = np.geomspace(*_curve_range(recipe, pump), CURVE_POINTS)
+    wavelength = np.geomspace(*curve_range(recipe, pump), CURVE_POINTS)
     omega = 2.0 * math.pi * C / wavelength
     quantity = _SOURCES[key]
     match quantity.source:
@@ -184,7 +184,7 @@ def waveguide_curves(payload: Payload) -> dict[str, object]:
             continue
         x = wavelength * 1e9
         pump = float(recipe.keywords()["wavelength"]) * 1e9  # pyright: ignore[reportArgumentType]
-        zero = _zero_near(wavelength, dispersion, pump * 1e-9)
+        zero = zero_near(wavelength, dispersion, pump * 1e-9)
         curves.append(
             {
                 "value": value,
@@ -195,7 +195,7 @@ def waveguide_curves(payload: Payload) -> dict[str, object]:
     limit = None
     drawn = [np.asarray(curve["y"], dtype=float) for curve in curves if "y" in curve]
     if drawn and key in ("beta2", "dispersion", "beta3", "mismatch"):
-        limit = _reach_of(np.max(np.abs(drawn), axis=0), x * 1e-9, pump * 1e-9)
+        limit = reach_of(np.max(np.abs(drawn), axis=0), x * 1e-9, pump * 1e-9)
     return {"x": x, "pump": pump, "key": key, "limit": limit, "curves": curves}
 
 
@@ -242,7 +242,7 @@ def waveguide_numbers(payload: Payload) -> dict[str, object]:
             "fission_length",
         ):
             reply[key] = sheet[key]
-        reply["rdw"] = _shortest_wave(
+        reply["rdw"] = shortest_wave(
             mode,
             pump,
             beta2=float(sheet["beta2"]),  # pyright: ignore[reportArgumentType]
@@ -250,7 +250,7 @@ def waveguide_numbers(payload: Payload) -> dict[str, object]:
             gamma=float(sheet["gamma"]),  # pyright: ignore[reportArgumentType]
             fwhm=float(sheet["fwhm"]),  # pyright: ignore[reportArgumentType]
             shape=str(sheet["shape"]),
-            limits=_wave_window(recipe, pump),
+            limits=wave_window(recipe, pump),
         )
     return reply
 
@@ -274,7 +274,7 @@ def waveguide_solve(payload: Payload) -> dict[str, object]:
     gas: object = keywords["gas"]
     fill = {
         name: keywords[name]
-        for name in _CHART_KEYWORDS
+        for name in PRESSURE_ZDW_KEYWORDS
         if keywords.get(name) is not None
     }
     order = payload.get("soliton_order")

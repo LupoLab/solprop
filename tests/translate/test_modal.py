@@ -18,12 +18,12 @@ from solprop.nonlinear.responses import KerrResponse
 from solprop.profiles import Linear, PressureGradient
 from solprop.pulses import SechPulse
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.modal import (
     Transform,
     mode_averaged_transform,
     multimode_transform,
 )
-from solprop.translate.problem import assemble
 from solprop.translate.responses import compile_responses
 
 pytestmark = pytest.mark.filterwarnings(

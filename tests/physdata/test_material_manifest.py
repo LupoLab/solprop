@@ -91,6 +91,13 @@ def test_entries_are_deduplicated_and_sorted_whatever_their_order():
     assert left.species == right.species == ({"label": "a"}, {"label": "b"})
 
 
+def test_an_entry_s_numpy_scalars_are_kept_as_python_values():
+    entry = {"label": "Ar", "scaled": np.float64(0.0) == 0.0, "index": np.int64(2)}
+    (kept,) = manifest(species=(entry,)).species
+    assert kept == {"label": "Ar", "scaled": True, "index": 2}
+    assert type(kept["scaled"]) is bool and type(kept["index"]) is int
+
+
 def test_records_sharing_a_name_are_keyed_apart_by_number():
     # A curated model and its override share their material, kind and name.
     keys = sorted(manifest().hashed()["records"])

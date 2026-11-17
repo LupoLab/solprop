@@ -184,7 +184,7 @@ For the full filament and crossing-beam lessons, begin with the
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="A collimated 800 nm, 30 fs beam of 1 mm waist and 0.2 mJ, in 1 bar of argon, on a radial (Hankel) grid, below the critical power for self-focusing. Over 50 cm the Kerr lens offsets about half of the beam&#x27;s diffraction: its second-moment radius grows by 0.45 %, where diffraction alone (a Rayleigh length of 3.9 m) gives 0.81 %. The run is a plain prop_radial, every argument an object a recipe writes as a table, and it is the call the radial route&#x27;s example recipe mirrors (``Recipe.example(&quot;radial_kerr&quot;)``).">
+    <div class="sphx-glr-thumbcontainer" tooltip="A collimated 800 nm, 30 fs beam of 1 mm waist and 0.2 mJ, in 1 bar of argon, on a radial (Hankel) grid, below the critical power for self-focusing. Over 50 cm the Kerr lens offsets about half of the beam&#x27;s diffraction: its second-moment radius grows by 0.45 %, where diffraction alone (a Rayleigh length of 3.9 m) gives 0.81 %. The run is a plain prop_free, every argument an object a recipe writes as a table, and it is the call the radial route&#x27;s example recipe mirrors (``Recipe.example(&quot;radial_kerr&quot;)``).">
 
 .. only:: html
 
@@ -218,7 +218,7 @@ For the full filament and crossing-beam lessons, begin with the
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="A collimated 800 nm, 30 fs beam of 300 µm waist and 0.88 mJ in 1 bar of argon, about three times the critical power: it collapses, the plasma arrests the collapse, and a filament forms. The run is a plain prop_radial, every argument an object a recipe writes as a table, and it is the call the filament&#x27;s example recipe mirrors (``Recipe.example(&quot;filament&quot;)``). The lesson /introduction/lessons/plot_03_filament explains the physics; this page shows what a radial file can be asked for afterwards: the beam&#x27;s characteristic numbers, its spectrum across the beam and on the axis, and its far field. Each reader takes only the file.">
+    <div class="sphx-glr-thumbcontainer" tooltip="A collimated 800 nm, 30 fs beam of 300 µm waist and 0.88 mJ in 1 bar of argon, about three times the critical power: it collapses, the plasma arrests the collapse, and a filament forms. The run is a plain prop_free, every argument an object a recipe writes as a table, and it is the call the filament&#x27;s example recipe mirrors (``Recipe.example(&quot;filament&quot;)``). The lesson /introduction/lessons/plot_03_filament explains the physics; this page shows what a radial file can be asked for afterwards: the beam&#x27;s characteristic numbers, its spectrum across the beam and on the axis, and its far field. Each reader takes only the file.">
 
 .. only:: html
 

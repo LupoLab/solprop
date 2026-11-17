@@ -47,6 +47,7 @@ from solprop.nonlinear.responses import KerrResponse
 from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse, SechPulse
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.chebyshev import PiecewiseChebyshev, build
 from solprop.translate.expansion import ParameterExpansion
 from solprop.translate.linop import LinearOperator, delta_phi
@@ -55,7 +56,6 @@ from solprop.translate.problem import (
     Flags,
     PropagationProblem,
     Translation,
-    assemble,
     validate_run,
 )
 from solprop.translate.responses import prefactor_at
@@ -269,9 +269,8 @@ def zero_kerr():
     return KerrResponse(chi3=0.0, thg=False)
 
 
-@pytest.fixture(scope="session")
-def substitute():
-    """Return ``(base, **groups) -> PropagationProblem``, replacing contract groups.
+def replace_groups(base, *, flags=None, validate=True, run_request=None, **groups):
+    """Return `base` with contract groups replaced, its flags re-derived.
 
     The flags are re-derived from the substituted content by
     :meth:`solprop.translate.problem.Flags.from_content`, so they cannot disagree with
@@ -281,36 +280,38 @@ def substitute():
     yet build -- a plasma or Raman term -- which is precisely what a backend has to
     refuse.
     """
+    parts = {
+        "grids": base.grids,
+        "linear": base.linear,
+        "responses": base.responses,
+        "initial": base.initial,
+        "route": base.route,
+    } | groups
+    derived = flags or Flags.from_content(
+        base.shape,
+        parts["linear"],
+        parts["route"].transform,
+        parts["responses"],
+        parts["initial"],
+    )
+    problem = PropagationProblem(
+        grid_kind=base.grid_kind,
+        shape=base.shape,
+        flags=derived,
+        split_crossing=base.split_crossing,
+        **parts,
+    )
+    if validate:
+        if run_request is None:
+            problem.validate()
+        else:
+            validate_run(problem, run_request)
+    return problem
 
-    def replace_groups(base, *, flags=None, validate=True, run_request=None, **groups):
-        parts = {
-            "grids": base.grids,
-            "linear": base.linear,
-            "responses": base.responses,
-            "initial": base.initial,
-            "route": base.route,
-        } | groups
-        derived = flags or Flags.from_content(
-            base.shape,
-            parts["linear"],
-            parts["route"].transform,
-            parts["responses"],
-            parts["initial"],
-        )
-        problem = PropagationProblem(
-            grid_kind=base.grid_kind,
-            shape=base.shape,
-            flags=derived,
-            split_crossing=base.split_crossing,
-            **parts,
-        )
-        if validate:
-            if run_request is None:
-                problem.validate()
-            else:
-                validate_run(problem, run_request)
-        return problem
 
+@pytest.fixture(scope="session")
+def substitute():
+    """Return :func:`replace_groups`, which replaces a problem's contract groups."""
     return replace_groups
 
 
@@ -360,7 +361,7 @@ def synthetic_expansion():
             build(weights_of, z0, z1, tol=tol, mandatory_breakpoints=kinks)
         )
         stacked = np.stack(
-            [np.asarray(one, dtype=complex).reshape(1, 1, 1, -1) for one in terms]
+            [np.asarray(one, dtype=complex).reshape(1, 1, -1) for one in terms]
         )
         expansion = ParameterExpansion(
             parameters=("synthetic",),

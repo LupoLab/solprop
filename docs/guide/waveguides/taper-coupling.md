@@ -22,7 +22,7 @@ b' = \bigl(iB(z) - C(z)\bigr)\,b,
 
 the walled generator with the wall term $H$ zero, except that $B$ is each channel's
 **own** propagation constant $\beta_n = n_{\rm eff}\,\omega/c$ — the Marcatili index of
-whatever `model=` and `loss=` the modes declare, lossless or not — rather than the wall
+whatever `model=`, `alpha=` and `loss_scale=` the modes declare, lossless or not — rather than the wall
 block's paraxial condensation of it, so that with $C$ dropped the flow propagates
 exactly what the adiabatic route propagates. The assembly is the varying wall's: the
 cumulative $\Phi$ carries the lowest channel for every channel, the flow's diagonal the
@@ -31,7 +31,7 @@ channel's normalisation term, frozen per section of the operator's own table wit
 variation and $\sqrt{w_n/w_m}\,C_{mn}$ in the explicit residual. It applies to the
 contiguous $\mathrm{HE}_{11}$ to $\mathrm{HE}_{1N}$ set of plain capillary modes,
 $N \ge 2$, whose radius varies
-({py:func}`~solprop.modes.capillary.taper_coupling_block`); a pressure gradient moves no
+({py:func}`~solprop.modes.wall.taper_coupling_block`); a pressure gradient moves no
 mode shape and needs none. `taper_coupling=False` on
 {py:func}`~solprop.driver.interface.prop_capillary`,
 {py:func}`~solprop.driver.interface.prop_waveguide`,

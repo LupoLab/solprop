@@ -4,7 +4,7 @@ A saved result needs the grid, field convention, material models, response choic
 
 ## The metadata schema
 
-{py:class}`~solprop.output.schema.RunMetadata` is a frozen record with these parts:
+{py:class}`~solprop.output.metadata.RunMetadata` is a frozen record with these parts:
 
 ```{eval-rst}
 .. list-table::
@@ -14,13 +14,13 @@ A saved result needs the grid, field convention, material models, response choic
    * - field
      - what it holds
    * - ``grid``
-     - A :py:class:`~solprop.output.schema.GridRecord`: the scalars that rebuild the
+     - A :py:class:`~solprop.output.records.GridRecord`: the scalars that rebuild the
        frequency axis — kind, sizes, spacings, the reference frequency, the band limits.
        Scalars only, so the record stays small and the digest cheap. Elsewhere in the
        record a large array is a reference to its bytes, stored beside the text
        (:doc:`the file's layout <output>`).
    * - ``modes``
-     - One :py:class:`~solprop.output.schema.ModeRecord` per propagated mode: its class,
+     - One :py:class:`~solprop.output.records.ModeRecord` per propagated mode: its class,
        its effective area, its serialised configuration and its ``label``, the physical
        channel that row of the mode axis is, as
        :py:meth:`~solprop.modes.protocol.ChannelLabel.as_mapping` writes it.
@@ -60,14 +60,22 @@ A saved result needs the grid, field convention, material models, response choic
        native source filter with its temporal-collar geometry. No native runtime
        handle is stored.
    * - ``stepper``
-     - A :py:class:`~solprop.output.schema.StepperRecord`: the tableau by name, the
+     - A :py:class:`~solprop.output.records.StepperRecord`: the tableau by name, the
        controller, the step limits, and the fixed schedule actually taken, so a run
        can be replayed step for step.
    * - ``noise``
-     - A :py:class:`~solprop.output.schema.NoiseRecord`: the model, the seed and the
+     - A :py:class:`~solprop.output.records.NoiseRecord`: the model, the seed and the
        realisation itself, so an ensemble member is reproducible.
+   * - ``noise_resolution``
+     - A :py:class:`~solprop.output.records.NoiseResolution`: the noise model asked
+       for, the one the run carries and why a default resolved to none
+       (:doc:`noise <../media/noise>`).
+   * - ``defaults``
+     - A :py:class:`~solprop.output.records.DefaultsResolution`: which of the
+       integrator, the tolerance and the collar's scheme took the route's default, and
+       which route's row that was.
    * - ``backend``
-     - A :py:class:`~solprop.output.schema.BackendRecord`: what executed the run -- the
+     - A :py:class:`~solprop.output.provenance.BackendRecord`: what executed the run -- the
        backend's name, the propagator mode it resolved, and its threading and planning
        settings (:doc:`running <run-access>`).
    * - ``versions``, ``git``, ``created``
@@ -78,20 +86,27 @@ A saved result needs the grid, field convention, material models, response choic
        (`SEP 31 <../../dev/seps/archive/sep-0031-simulation-coupling.html>`_): the carrier, the
        frame integral of the terms the linear operator removed (exact Chebyshev
        antiderivatives of the frame's ``beta_0`` and ``beta_1`` tables, with the frequency
-       origin of the linear term), the reference origin of the run's path, the parent
-       plane of a run launched from one, and the basis identity at each planned plane.
+       origin of the linear term), the reference origin of the run's path, and the
+       parent plane of a run launched from one. It holds no basis identity: a plane's
+       basis is derived when the plane is read.
        :func:`~solprop.coupling.plane.reference_at` rebuilds any saved plane's phase and time
        reference from it alone; :func:`~solprop.processing.planes.field_plane` reads it
        (:doc:`coupling simulations <../workflows/coupling>`).
+   * - ``transverse``
+     - A free-space run's resolved transverse boundary: the safety ramp's start and
+       strength, and a collar's strength, band, threshold and step limit; ``None``
+       without a transverse boundary.
    * - ``schema_version``, ``spectral_convention``, ``field_layout``
-     - The version of this record layout (currently 24), the sign convention of the
+     - The version of this record layout (currently 4), the sign convention of the
        stored field (always ``"optics"``) and the axis order of the stored field.
 ```
 
-`backend`, `versions`, `git`, `created` and `reference` are outside the
-[resume key](resuming.md): the plane-reference record is derived from the hashed
-problem, and a run launched from another plane carries its inherited origin and parent
-in `configuration["coupling"]`, which is inside it. Every other part is inside it, the material manifest's identities and policies included.
+`noise_resolution`, `defaults`, `backend`, `versions`, `git`, `created`, `reference`
+and `transverse` are outside the [resume key](resuming.md): the plane-reference and
+transverse records are derived from the hashed problem, the resolved noise model is in
+the hashed noise record already, and a run launched from another plane carries its
+inherited origin and parent in `configuration["coupling"]`, which is inside it. Every
+other part is inside it, the material manifest's identities and policies included.
 `versions` names optmat's full version string beside solprop's, NumPy's, SciPy's,
 h5py's and Python's.
 
@@ -99,7 +114,7 @@ h5py's and Python's.
 
 The metadata says how the run started; the **execution record** says how each
 execution of it ran. An HDF5 file keeps it at `/meta/outcome`
-({py:class}`~solprop.output.schema.RunOutcome`, read as `stored.outcome`), and
+({py:class}`~solprop.output.records.RunOutcome`, read as `stored.outcome`), and
 `outcome.execution` holds, beside the backend's own report (its pools and plans):
 
 - `host`: `system`, `release`, `machine` (the architecture), `cpu_model`,
@@ -109,14 +124,16 @@ execution of it ran. An HDF5 file keeps it at `/meta/outcome`
 - `resources`: `wall_time_s` and `cpu_time_s` since the run started (CPU time is
   every thread's), and `peak_rss_bytes`, the process's largest resident memory so far.
   The peak is the process's: in a session that runs several cases it includes the
-  earlier ones, and a device's own memory is not in it. On Windows the peak, like
-  the host's `memory_bytes`, is `None`.
+  earlier ones, and a device's own memory is not in it. On Windows the peak is the
+  process's peak working set. Either value is `None` where the operating system
+  refuses the query.
 
 The record is rewritten at every save plane, so a run killed between planes keeps its
 time and memory up to its last plane. A resumed run's earlier executions stay in
 `outcome.previous_executions`, each with its own machine and resources, so a run
 continued on another machine says so. Gathering these costs one query of the machine
-per process and one `getrusage` call per save plane.
+per process and one peak-memory query (`getrusage`, or Windows' process memory
+counters) per save plane.
 
 ```{code-block} python
 from solprop.output import open_file
@@ -195,15 +212,15 @@ Some of what a run learns about its materials is known only once it has closed. 
 record is written before the first plane, so it cannot hold it, and it must not: the
 record is the run's identity, and the identity of a run cannot depend on how far it
 got. Such results are **post-run annotations**: plain JSON, by name, written beside the
-record when the run closes and **outside the configuration hash**, so the resume gate,
-a scan's reuse of a completed point and the record's digest are exactly what they were.
+record after it, most when the run closes, and **outside the configuration hash**, so
+the resume gate, a scan's reuse of a completed point and the record's digest are exactly what they were.
 Both handlers carry them (`handler.annotations`, a mapping by name;
 `handler.annotate(name, value)` writes one, replacing one of the same name, and a
 closed file is reopened briefly for it), `MemoryOutput.to_file` copies them, and
 {py:func}`~solprop.output.hdf5.open_file` reads them back. A file without any reads with
 an empty mapping.
 
-One is defined, {py:data}`~solprop.output.schema.PEAK_FIELDS_ANNOTATION`
+Three are defined. The first is {py:data}`~solprop.output.metadata.PEAK_FIELDS_ANNOTATION`
 (`"material_peak_fields"`): the material manifest's post-run diagnostic of a run with
 optmat ionisation rates ([ionisation](../media/ionisation.md#rates-from-optmat)), one mapping
 per population — the largest field it reached against its model's maximum field, and
@@ -213,22 +230,28 @@ rate writes none.
 
 ```{code-block} python
 from solprop.output import open_file
-from solprop.output.schema import PEAK_FIELDS_ANNOTATION
+from solprop.output.metadata import PEAK_FIELDS_ANNOTATION
 
 with open_file("run.h5") as stored:
     (report,) = stored.annotations.get(PEAK_FIELDS_ANNOTATION, [])
     report["largest_field"], report["reached_maximum"], report["departure"]
 ```
 
+{py:data}`~solprop.output.metadata.INTERPOLATED_RESUMES_ANNOTATION`
+(`"interpolated_resumes"`) lists the positions, in metres, of the interpolated save
+planes a densely observed run was continued from with `resume="interpolated"`
+([resuming](resuming.md)). Each is written before the continuation's first step, so a
+session stopped or failed later still records it.
+
 The run's [start-of-run summary](../performance/progress.md#what-a-run-says-before-it-starts)
-is kept the same way, as {py:data}`~solprop.output.schema.RUN_SUMMARY_ANNOTATION`
+is kept the same way, as {py:data}`~solprop.output.metadata.RUN_SUMMARY_ANNOTATION`
 (`"run_summary"`): written when the run starts rather than when it closes, a list with
 one `{"title", "rows"}` mapping per start, so a resumed run adds its continuation's. It
 is a description for a person, built from the record and the backend's execution facts.
 
 ## Serialising the physics, and admitting what will not serialise
 
-{py:func}`~solprop.output.schema.serialise` is total and idempotent. Dataclasses become
+{py:func}`~solprop.output.serialisation.serialise` is total and idempotent. Dataclasses become
 tagged dictionaries of their constructor fields, enumerations carry their qualified class
 name as well as their value, NumPy arrays become nested lists with their dtype (a complex
 array splitting into real and imaginary parts, since JSON has no complex number), and
@@ -254,5 +277,5 @@ changes the hash. This covers tabulated cladding glasses, among others.
 A file records the resolved configuration, the package versions, and the commit with a
 dirty flag — never the source text, which would make every file carry a copy of the
 package. When there is no checkout, or git is absent, or the
-command fails, {py:meth}`~solprop.output.schema.GitProvenance.detect` returns `None`
+command fails, {py:meth}`~solprop.output.provenance.GitProvenance.detect` returns `None`
 rather than a sentence dressed up as a hash.

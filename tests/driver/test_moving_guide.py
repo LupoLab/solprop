@@ -36,16 +36,25 @@ from modal_provider_cases import (
     GENERAL_CHI3,
     general_guide,
     grin_grid,
-    grin_provider,
     make_provider,
 )
+from moving_guide_cases import (
+    GRIN_PULSE,
+    KINK,
+    LENGTH,
+    STEP_RADIUS,
+    STEPS,
+    grin_taper,
+    kinked_radius,
+    moving_simulation,
+    step_grid,
+)
+from sessions.runs import bare, final_field
 from solprop.backends import select
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
-from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.constants import C
 from solprop.driver import Simulation, prop_gnlse
 from solprop.exceptions import (
-    BackendError,
     DriverError,
     ModeError,
     OutputError,
@@ -62,11 +71,13 @@ from solprop.modes.guide import (
     provider_channels,
 )
 from solprop.modes.material import MaterialKerr
+from solprop.modes.path import path_rule, path_snapshot
+from solprop.modes.tables import apply_channel_basis, channel_area
 from solprop.nonlinear.gnlse import GnlseProblem, SpecifiedMode, _warn_surrogate_area
 from solprop.nonlinear.normalisation import modal_kerr_coefficient
 from solprop.output.hdf5 import check_cache, resume
 from solprop.output.memory import MemoryOutput
-from solprop.output.schema import ModeRecord
+from solprop.output.records import ModeRecord
 from solprop.processing.modal import (
     _plane_reference,
     _plane_rule,
@@ -74,91 +85,17 @@ from solprop.processing.modal import (
     magnetic_field,
     plane_nodes,
     reconstructed_flux,
+    reference_tables,
 )
 from solprop.profiles import Linear, PiecewiseLinear, ZProfile
 from solprop.stats import analytic_field
 from solprop.stepper import FixedSchedule, RungeKutta
 from solprop.translate.admission import check_general_route
+from solprop.translate.assembly import _carrier
 from solprop.translate.coupled import flow_weights, residual_truncation
 from solprop.translate.general import general_modal_route
-from solprop.translate.modal_path import path_rule, path_snapshot
-from solprop.translate.modal_tables import apply_channel_basis, channel_area
-from solprop.translate.problem import MOVING_FLOW_CERTIFICATE, _carrier
 from solprop.translate.stage import scalars
-
-LENGTH = 1e-3
-"""Length of every run here, m: a millimetre."""
-
-STEPS = 10
-"""Steps of every default-tier run."""
-
-KINK = 4e-4
-"""The kinked taper's corner, m: a multiple of ``LENGTH / STEPS``."""
-
-GRIN_PULSE = {
-    "wavelength": 1.03e-6,
-    "fwhm": 60e-15,
-    "energy": 1e-12,
-    "shape": "gauss",
-}
-
-
-def grin_knots(count=13):
-    """Return knots over the graded-index grid's active band, in rad/s."""
-    grid = grin_grid()
-    active = grid.omega[grid.active_mask]
-    return np.linspace(0.99 * float(active[0]), 1.01 * float(active[-1]), count)
-
-
-def grin_taper(radius, *, kerr=False, sections=1, knots=13):
-    """Return the graded-index sector on a declared radius path, as a guide."""
-    provider = dataclasses.replace(
-        grin_provider(
-            elements=32, kerr=MaterialKerr(chi3=GENERAL_CHI3) if kerr else None
-        ),
-        radius=radius,
-    )
-    frequencies = grin_knots(knots)
-    return ModalGuide.from_provider(
-        provider,
-        frequencies,
-        nodes=provider.node_rule(float(frequencies[0]), 0.0, n_r=2),
-        sections=sections,
-    )
-
-
-def kinked_radius():
-    """Return the kinked taper: 25 um, 24 um by the corner, 22.5 um at the end."""
-    return PiecewiseLinear(
-        np.array([0.0, KINK, LENGTH]), np.array([25e-6, 24e-6, 22.5e-6])
-    )
-
-
-def build(guide, grid, *, steps=STEPS, length=LENGTH, **overrides):
-    """Return a general modal simulation of a guide on a fixed schedule."""
-    simulation = Simulation.from_waveguide(
-        (),
-        length,
-        provider=guide,
-        grid=grid,
-        **(
-            {
-                "noise": None,
-                **{
-                    "save_planes": [length],
-                    "dz_max": length / steps,
-                    "dz_init": length / steps,
-                    "schedule": FixedSchedule(np.full(steps, length / steps)),
-                    "backend": "numpy_ref",
-                }
-                | GRIN_PULSE
-                | overrides,
-            }
-        ),
-    )
-    # The subject is the moving guide; the 60 fs pulse fills its window to the edge.
-    simulation.settings = dataclasses.replace(simulation.settings, boundary_check=None)
-    return simulation
+from solprop.translate.validation import MOVING_FLOW_CERTIFICATE
 
 
 @pytest.fixture(scope="module")
@@ -171,7 +108,7 @@ def kinked():
 def kinked_problem(kinked):
     """Its ten-step problem, with no absorber, and the grid."""
     grid = grin_grid()
-    simulation = build(kinked, grid)
+    simulation = moving_simulation(kinked, grid)
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     return simulation, simulation.translate()
 
@@ -199,7 +136,7 @@ def test_the_problem_carries_moving_maps_a_frozen_flow_and_the_kink(kinked_probl
     assert problem.linear.hard_kinks.tolist() == [KINK]
     phi = problem.linear.phi_expansion
     assert phi is not None
-    assert np.array_equal(phi.terms[:, :, 0], phi.terms[:, :, 1])
+    assert np.array_equal(phi.terms[:, 0], phi.terms[:, 1])
     bundle = scalars(problem, 0.0, 0.55 * LENGTH)
     assert bundle.transform_weights is not None
     assert bundle.transform_weights.shape == (10,)
@@ -229,9 +166,9 @@ def test_a_moving_guide_runs_ten_steps_end_to_end_and_records_its_path(
     named; :func:`test_a_moving_guide_conserves_its_energy_under_the_default` runs the
     default.
     """
-    simulation = build(kinked, grin_grid(), integrator=RungeKutta())
+    simulation = moving_simulation(kinked, grin_grid(), integrator=RungeKutta())
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
-    problem, run_request = simulation.translate(), simulation._run_request()
+    problem, run_request = simulation.translate(), simulation.run_request()
     run = cast("MemoryOutput", simulation.run(progress="none"))
     energy = [float(np.sum(plane.stats["physical_energy"])) for plane in run.planes()]
     assert len(energy) == 2
@@ -259,7 +196,7 @@ def test_a_moving_guide_runs_ten_steps_end_to_end_and_records_its_path(
         kinked, grin_grid(), z_max=LENGTH, omega_reference=float(grin_grid().omega0)
     ).tables
     nodes = path_rule(kinked.field_provider, sampling.nodes, LENGTH).weights.size
-    assert electric_field(run, tables, plane=-1, guide=kinked).shape == (
+    assert electric_field(run, tables=tables, plane=-1, guide=kinked).shape == (
         nodes,
         3,
         grin_grid().n_t,
@@ -271,24 +208,8 @@ def test_both_backends_admit_moving_maps(kinked_problem):
     simulation, problem = kinked_problem
     check_general_route(problem)
     pytest.importorskip("solprop_native")
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     select("native", problem, run_request, grid=simulation.grid).close()
-
-
-def test_a_lockstep_batch_refuses_a_moving_guide(kinked_problem):
-    """The batch applies neither half of a flow, so a member carrying one is refused."""
-    simulation, problem = kinked_problem
-    run_request = simulation._run_request()
-    member = NumpyRefBackend(
-        problem,
-        run_request,
-        grid=simulation.grid,
-        modes=list(simulation.modes),
-        profiles=None,
-    )
-    with pytest.raises(BackendError, match="lockstep batch does not execute"):
-        NumpyBatchBackend([member])
-    member.close()
 
 
 def test_the_modified_noise_model_is_refused_beside_a_moving_guide(kinked):
@@ -297,19 +218,21 @@ def test_the_modified_noise_model_is_refused_beside_a_moving_guide(kinked):
     The input draw is admitted (``tests/driver/test_coupled_input_noise.py``).
     """
     with pytest.raises(TranslationError, match="refuses the 'modified' noise model"):
-        build(kinked, grin_grid(), noise="modified", seed=3).translate()
+        moving_simulation(kinked, grin_grid(), noise="modified", seed=3).translate()
 
 
 def test_a_fixed_schedule_straddling_the_kink_is_refused(kinked):
     """Seven steps over the millimetre do not land on the corner at 0.4 mm."""
     with pytest.raises((DriverError, TranslationError), match="hard kink"):
-        build(kinked, grin_grid(), steps=7).translate()
+        moving_simulation(kinked, grin_grid(), steps=7).translate()
 
 
 def test_a_run_longer_than_the_declared_path_is_refused(kinked):
     """The geometry is declared over the provider's z domain and not past it."""
     with pytest.raises((DriverError, TranslationError, Exception), match="path"):
-        build(kinked, grin_grid(z_end=2 * LENGTH), length=2 * LENGTH).translate()
+        moving_simulation(
+            kinked, grin_grid(z_end=2 * LENGTH), length=2 * LENGTH
+        ).translate()
 
 
 @pytest.mark.medium
@@ -319,11 +242,11 @@ def test_a_resume_across_a_changed_path_is_refused_by_the_field_that_moved(
     """Two sections per kink interval is a different guide, and the file says so."""
     grid = grin_grid()
     written = tmp_path / "moving.h5"
-    first = build(kinked, grid)
+    first = moving_simulation(kinked, grid)
     first.settings = dataclasses.replace(first.settings, absorber=None)
     first.run(written, progress="none")
     stored = resume(written).metadata
-    other = build(grin_taper(kinked_radius(), kerr=True, sections=2), grid)
+    other = moving_simulation(grin_taper(kinked_radius(), kerr=True, sections=2), grid)
     other.settings = dataclasses.replace(other.settings, absorber=None)
     metadata = other.metadata()
     changed = stored.differences(metadata)
@@ -360,20 +283,22 @@ def _single_bin(guide, grid, length, steps, index, **overrides):
     absorber is a convolution in frequency and would attenuate the channels' spectra
     differently.
     """
-    simulation = build(guide, grid, steps=steps, length=length, **overrides)
+    simulation = moving_simulation(guide, grid, steps=steps, length=length, **overrides)
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     state = np.zeros_like(problem.initial.field0)
     state[0, 0, index] = 1e-9
     problem = dataclasses.replace(
         problem, initial=dataclasses.replace(problem.initial, field0=state)
     )
     backend = NumpyRefBackend(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(length)
-    final = backend.observe().require_field()[:, 0, index].copy()
-    backend.close()
+    try:
+        final = final_field(backend, problem, bare(run_request), ended=True)
+    finally:
+        backend.close()
+    assert final_z(run_request) == length
+    final = final[:, 0, index].copy()
     return final / 1e-9, problem, run_request
 
 
@@ -430,14 +355,14 @@ def test_a_moving_guide_conserves_its_energy_under_the_default(kinked):
     (ADR-042, ADR-044), where the controller scores it. Measured 5.2e-11 in 103
     steps at ``rtol=1e-8``; the bound is twenty times that.
     """
-    simulation = build(kinked, grin_grid(), schedule=None, rtol=1e-8)
+    simulation = moving_simulation(kinked, grin_grid(), schedule=None, rtol=1e-8)
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     run = cast("MemoryOutput", simulation.run(progress="none"))
     energy = [float(np.sum(plane.stats["physical_energy"])) for plane in run.planes()]
     assert abs(energy[-1] / energy[0] - 1.0) < 1e-9
 
 
-@pytest.mark.medium
+@pytest.mark.slow
 def test_a_slow_taper_is_adiabatic_its_conversion_falling_as_one_over_its_length():
     """No conversion in the adiabatic limit, and each mode's own phase.
 
@@ -457,9 +382,8 @@ def test_a_slow_taper_is_adiabatic_its_conversion_falling_as_one_over_its_length
     channel, bounded by ``|b_2/b_1|``; plus the path's own held-out error times
     ``|beta| L``.
 
-    The runs are linear and the bound is the Runge-Kutta march's frozen-residual
-    truncation, so the march is named: the default Adams history samples the flow's
-    residual with the source, and with none steps the frozen block alone (ADR-042).
+    The bound is the Runge-Kutta march's frozen-residual truncation, so the march is
+    named.
     """
     grid = grin_grid()
     index = int(np.argmin(abs(grid.omega - grid.omega0)))
@@ -522,8 +446,7 @@ def test_a_graded_index_taper_converts_and_converges_under_step_refinement():
     and 40 steps fall faster than 16 per halving, so the embedded pair integrates the
     explicit residual -- the moving generator and the whole connection -- at its own
     high order, and the ten-step answer is within 1e-8 of the forty-step one. The
-    order is the Runge-Kutta march's: the default Adams history samples the flow's
-    residual with the source, and with none steps the frozen block alone (ADR-042).
+    order is the Runge-Kutta march's, so the march is named.
     """
     grid = grin_grid()
     index = int(np.argmin(abs(grid.omega - grid.omega0)))
@@ -543,10 +466,6 @@ def test_a_graded_index_taper_converts_and_converges_under_step_refinement():
 # ------------------------------------------------- the step-index validations (slow)
 
 
-STEP_RADIUS = Linear(4e-6, 3.6e-6, LENGTH)
-"""A 10 % step-index taper: two HE_1m channels bound over the whole active band."""
-
-
 STEP_BASIS = pytest.mark.filterwarnings(
     "ignore::solprop.exceptions.GeneralModalBasisWarning"
 )
@@ -558,11 +477,6 @@ at a bin these single-bin and 835 nm runs never occupy. The gate the route appli
 weighted by the launch, passes; the warning covers the whole active band, which a
 broadening run may reach.
 """
-
-
-def step_grid():
-    """Return the 835 nm grid the step-index cases propagate on."""
-    return FieldGrid.from_limits(LENGTH, 835e-9, (815e-9, 860e-9), 60e-15)
 
 
 def step_guide(descriptors, *, basis_block=None, blocks=()):
@@ -588,11 +502,7 @@ def _step_run(guide, steps, index, launch=None):
     """Return a step-index linear single-bin run's final amplitudes.
 
     On the Runge-Kutta march, whose embedded pair integrates the flow's explicit
-    residual at its own order: a linear run has no source, so the default Adams history
-    would step the frozen block alone, at second order and unseen by its controller
-    (``docs/guide/numerics/adams.md``, a coupled flow with no source), and these bounds
-    are
-    the march's.
+    residual at its own order, on a fixed schedule: these bounds are the march's.
     """
     grid = step_grid()
     simulation = Simulation.from_waveguide(
@@ -614,7 +524,7 @@ def _step_run(guide, steps, index, launch=None):
     )
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     state = np.zeros_like(problem.initial.field0)
     if launch is None:
         state[0, 0, index] = 1e-9
@@ -624,11 +534,18 @@ def _step_run(guide, steps, index, launch=None):
         problem, initial=dataclasses.replace(problem.initial, field0=state)
     )
     backend = NumpyRefBackend(problem, run_request, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(LENGTH)
-    final = backend.observe().require_field()[:, 0, index].copy()
-    backend.close()
+    try:
+        final = final_field(backend, problem, bare(run_request), ended=True)
+    finally:
+        backend.close()
+    assert final_z(run_request) == LENGTH
+    final = final[:, 0, index].copy()
     return final / 1e-9, problem, run_request
+
+
+def final_z(run_request):
+    """Return the end of a run's itinerary, m: its last save plane."""
+    return float(run_request.stepper.save_planes[-1])
 
 
 def _dense_reference(provider, omega, *, basis=None, samples=33):
@@ -844,10 +761,12 @@ def test_the_connection_is_stored_unconjugated_as_a_complex_basis_decides(
     wrong_problem = dataclasses.replace(problem)
     object.__setattr__(wrong_problem, "linear", linear)
     backend = NumpyRefBackend(wrong_problem, run_request, grid=grid)
-    backend.set_initial(wrong_problem.initial.field0, None)
-    backend.propagate_to(LENGTH)
-    wrong = backend.observe().require_field()[:, 0, index] / 1e-9
-    backend.close()
+    try:
+        wrong = final_field(backend, wrong_problem, bare(run_request), ended=True)
+    finally:
+        backend.close()
+    assert final_z(run_request) == LENGTH
+    wrong = wrong[:, 0, index] / 1e-9
     wrong_departure = float(np.max(abs(wrong[1:] / wrong[0] - expected)))
     record_property("tc801_conjugated_departure", wrong_departure)
     # Conjugating flips the sign of the imaginary couplings, so the channels they fill
@@ -1129,6 +1048,16 @@ def kinked_run(kinked):
     return run, tables
 
 
+def test_a_moving_guide_s_reference_is_rebuilt_along_its_path(kinked, kinked_run):
+    """The rebuild of a path-sampled guide is the route's own, to the bit."""
+    run, tables = kinked_run
+    rebuilt = reference_tables(run, guide=kinked)
+    assert np.array_equal(
+        reconstructed_flux(run, tables=rebuilt, plane=-1, guide=kinked),
+        reconstructed_flux(run, tables=tables, plane=-1, guide=kinked),
+    )
+
+
 def _constant_reference(radius):
     """Return a constant guide of one radius and its reference tables."""
     grid = grin_grid()
@@ -1166,7 +1095,7 @@ def test_a_moving_guide_s_plane_is_reconstructed_on_that_plane_s_own_modes(
         (magnetic_field, "magnetic"),
     ):
         rebuilt = accessor(
-            run, tables, z=MID, analytic=True, convention="fft", guide=kinked
+            run, tables=tables, z=MID, analytic=True, convention="fft", guide=kinked
         )
         expected = analytic_field(
             grid, np.einsum("qcmw,mw->qcw", getattr(reference, stored)[0], amplitudes)
@@ -1220,7 +1149,7 @@ def test_a_moving_guide_s_reconstructed_flux_integrates_to_its_physical_energy(
         (reference.electric[0], reference.magnetic[0]), reference.weights[0]
     )
     record_property("gram_departure", bound)
-    flux = reconstructed_flux(run, tables, plane=index, guide=kinked)
+    flux = reconstructed_flux(run, tables=tables, plane=index, guide=kinked)
     integrated = float(np.sum(flux)) * float(grid.dt)
     recorded = float(np.ravel(run.planes()[index].stats["physical_energy"])[0])
     departure = abs(integrated - recorded) / recorded
@@ -1251,15 +1180,17 @@ def test_a_moving_plane_s_nodes_are_where_its_flux_density_lives(kinked, kinked_
     """
     run, tables = kinked_run
     index = int(np.argmin(np.abs(run["z"] - MID)))
-    xy, weights = plane_nodes(run, tables, z=MID, guide=kinked)
+    xy, weights = plane_nodes(run, tables=tables, z=MID, guide=kinked)
     moved = path_rule(kinked.field_provider, kinked.sampling.nodes, MID)
     np.testing.assert_array_equal(xy, moved.xy)
     np.testing.assert_array_equal(weights, moved.weights)
-    entrance, _ = plane_nodes(run, tables, plane=0, guide=kinked)
+    entrance, _ = plane_nodes(run, tables=tables, plane=0, guide=kinked)
     np.testing.assert_array_equal(entrance, kinked.sampling.nodes.xy)
     assert not np.array_equal(entrance, xy)
-    density = reconstructed_flux(run, tables, plane=index, density=True, guide=kinked)
-    flux = reconstructed_flux(run, tables, plane=index, guide=kinked)
+    density = reconstructed_flux(
+        run, tables=tables, plane=index, density=True, guide=kinked
+    )
+    flux = reconstructed_flux(run, tables=tables, plane=index, guide=kinked)
     # One weighted sum over the node axis on each side: rounding, 64 eps of cover.
     np.testing.assert_allclose(
         weights @ density, flux, rtol=0, atol=64 * np.finfo(float).eps * flux.max()

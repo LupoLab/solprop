@@ -369,7 +369,7 @@
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.nonlinear.optmat_rates",
-   "module_short": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear",
    "name": "OptmatRate"
   },
   {
@@ -390,7 +390,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.nonlinear.optmat_rates",
-   "module_short": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear",
    "name": "OptmatRate"
   }
  ],
@@ -610,7 +610,7 @@
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "solprop.driver.simulation",
+   "module": "solprop.driver.settings",
    "module_short": "solprop.driver",
    "name": "SimulationSettings"
   },
@@ -697,7 +697,7 @@
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.modes.fill",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.fill",
    "name": "GasFillMixin"
   },
   {
@@ -1252,7 +1252,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.provenance",
    "module_short": "solprop.output",
    "name": "BackendRecord"
   },
@@ -1611,6 +1611,15 @@
    "name": "int"
   }
  ],
+ "centre_row": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
  "clean": [
   {
    "is_class": false,
@@ -1638,16 +1647,37 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.spatial",
-   "module_short": "solprop.spatial",
-   "name": "SpatialMedium"
+   "module": "solprop.driver.simulation",
+   "module_short": "solprop.driver",
+   "name": "Simulation.medium"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.driver",
+   "module_short": "solprop.driver",
+   "name": "Simulation.medium"
   },
   {
    "is_class": false,
    "is_explicit": false,
    "module": "solprop",
    "module_short": "solprop",
-   "name": "SpatialMedium"
+   "name": "Simulation.medium"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.medium"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.medium"
   }
  ],
  "clean.run": [
@@ -1744,8 +1774,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.fields"
   },
   {
@@ -1809,8 +1839,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.metadata"
   },
   {
@@ -2368,6 +2398,22 @@
    "module": "solprop.fourier",
    "module_short": "solprop.fourier",
    "name": "oversample"
+  }
+ ],
+ "fourier.spectrum_to_optics": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.fourier",
+   "module_short": "solprop.fourier",
+   "name": "spectrum_to_optics"
   }
  ],
  "fwhm": [
@@ -4961,8 +5007,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.fields"
   },
   {

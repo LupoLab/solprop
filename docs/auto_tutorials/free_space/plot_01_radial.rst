@@ -101,7 +101,7 @@ numerical guard band extends beyond the published gas-index fit.
     weak_launch = weak_pulse.build(grid, space, medium=SpatialMedium())
     entrance = SpatialFlux.resolve(grid, space, medium)
     weak_launch *= np.sqrt(2e-9 / spatial_energy(weak_launch, entrance))
-    weak = Simulation.from_radial(
+    weak = Simulation.from_free(
         grid, space, medium, responses, weak_launch, settings=settings, noise=None
     ).run()
 
@@ -156,7 +156,7 @@ Gaussian.
         dz_max=diagnostic_length / 12,
         stats=spec,
     )
-    diagnostic = Simulation.from_radial(
+    diagnostic = Simulation.from_free(
         diagnostic_grid,
         space,
         medium,
@@ -236,7 +236,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.309 seconds)
+   **Total running time of the script:** (0 minutes 0.252 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_01_radial.py:

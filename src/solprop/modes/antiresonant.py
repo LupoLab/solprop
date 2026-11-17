@@ -4,26 +4,32 @@
 
 """Single-ring tube-lattice modes with the Vincetti empirical fits.
 
-The transverse field and protocol area remain Marcatili's. The spectral model follows
-the published Vincetti fits (``docs/guide/waveguides/antiresonant.md``): where the
-printed papers and earlier published implementations of them, pyJCMwave among them,
-differ,
-``CONVENTIONS`` names the choice and ``LEGACY_CONVENTIONS`` the form those
-implementations share, so that a test can assemble the latter from the same building
-blocks. The constants are transcribed from the three papers; the 2016 paper's
-equations were read from a degraded text extraction and have not been checked against
-the typeset page.
+:class:`VincettiMode` is a :class:`~solprop.modes.capillary.MarcatiliMode` whose loss
+and dispersion follow the published Vincetti fits for the ring of tubes a
+:class:`TubeLattice` describes; the transverse field and protocol area remain
+Marcatili's. :func:`tube_gap`, :func:`core_radius_from_gap` and
+:func:`tube_radius_from_gap` convert between the lattice's radii and gap. The
+module-level constants are the fits' coefficients, transcribed from the three papers,
+and the ``VALIDATED_*`` ranges of the fibres they were validated on.
+
+Where the printed papers and earlier published implementations of them, pyJCMwave
+among them, differ, ``CONVENTIONS`` names the choice and ``LEGACY_CONVENTIONS`` the
+form those implementations share, so that a test can assemble the latter from the same
+building blocks. The 2016 paper's equations were read from a degraded text extraction
+and have not been checked against the typeset page. The manual page is
+``docs/guide/waveguides/antiresonant.md``.
 """
 
 import logging
 import math
 from dataclasses import dataclass, replace
-from typing import Final
+from typing import ClassVar, Final
 
 import numpy as np
 from jaxtyping import Float, Inexact
 
 from solprop._display import Displayed, engineering, line
+from solprop._validation import positive
 from solprop.constants import C
 from solprop.exceptions import ModeError
 from solprop.modes.capillary import MarcatiliMode, MarcatiliTerms
@@ -144,15 +150,6 @@ CONVENTIONS: Final = _Conventions(RADIUS_COEFFICIENT, True, True, True)
 LEGACY_CONVENTIONS: Final = _Conventions(20.0, False, False, False)
 
 
-def _positive(value: float, name: str) -> None:
-    """Check a positive finite dimension.
-
-    - ``value``: dimension in m.
-    """
-    if not math.isfinite(value) or value <= 0:
-        raise ModeError(f"{name} must be positive and finite, got {value}")
-
-
 def _tube_angle(n_tubes: int) -> float:
     """Return the sine of half the angular tube spacing.
 
@@ -163,7 +160,7 @@ def _tube_angle(n_tubes: int) -> float:
     return math.sin(math.pi / n_tubes)
 
 
-def tube_gap(core_radius: float, tube_radius: float, n_tubes: int) -> float:
+def tube_gap(core_radius: float, *, tube_radius: float, n_tubes: int) -> float:
     """Return the gap between neighbouring tubes.
 
     Parameters
@@ -185,12 +182,12 @@ def tube_gap(core_radius: float, tube_radius: float, n_tubes: int) -> float:
     ModeError
         If a radius is not positive and finite or the count is invalid.
     """
-    _positive(core_radius, "core_radius")
-    _positive(tube_radius, "tube_radius")
+    positive(core_radius, "core_radius", ModeError)
+    positive(tube_radius, "tube_radius", ModeError)
     return 2 * ((core_radius + tube_radius) * _tube_angle(n_tubes) - tube_radius)
 
 
-def core_radius_from_gap(tube_radius: float, n_tubes: int, gap: float) -> float:
+def core_radius_from_gap(tube_radius: float, *, n_tubes: int, gap: float) -> float:
     """Return the inscribed core radius for a tube gap.
 
     Parameters
@@ -212,12 +209,12 @@ def core_radius_from_gap(tube_radius: float, n_tubes: int, gap: float) -> float:
     ModeError
         If the geometry is invalid.
     """
-    _positive(tube_radius, "tube_radius")
+    positive(tube_radius, "tube_radius", ModeError)
     _check_gap(gap)
     return (tube_radius + gap / 2) / _tube_angle(n_tubes) - tube_radius
 
 
-def tube_radius_from_gap(core_radius: float, n_tubes: int, gap: float) -> float:
+def tube_radius_from_gap(core_radius: float, *, n_tubes: int, gap: float) -> float:
     """Return the outer tube radius for an inscribed core and gap.
 
     Parameters
@@ -239,11 +236,11 @@ def tube_radius_from_gap(core_radius: float, n_tubes: int, gap: float) -> float:
     ModeError
         If the geometry is invalid.
     """
-    _positive(core_radius, "core_radius")
+    positive(core_radius, "core_radius", ModeError)
     _check_gap(gap)
     sine = _tube_angle(n_tubes)
     radius = (core_radius * sine - gap / 2) / (1 - sine)
-    _positive(radius, "tube_radius implied by gap")
+    positive(radius, "tube_radius implied by gap", ModeError)
     return radius
 
 
@@ -315,8 +312,8 @@ class TubeLattice(Displayed):
             If dimensions or counts cannot describe hollow tubes, or more fit terms
             are asked for than the cutoff fits support.
         """
-        _positive(self.wall_thickness, "wall_thickness")
-        _positive(self.tube_radius, "tube_radius")
+        positive(self.wall_thickness, "wall_thickness", ModeError)
+        positive(self.tube_radius, "tube_radius", ModeError)
         _tube_angle(self.n_tubes)
         if self.wall_thickness >= self.tube_radius:
             raise ModeError("wall_thickness must be smaller than tube_radius")
@@ -344,12 +341,13 @@ class TubeLattice(Displayed):
         float
             Gap in m, negative for overlapping tubes.
         """
-        return tube_gap(core_radius, self.tube_radius, self.n_tubes)
+        return tube_gap(core_radius, tube_radius=self.tube_radius, n_tubes=self.n_tubes)
 
     @classmethod
     def from_inner_diameter_ratio(
         cls,
         core_radius: float,
+        *,
         wall_thickness: float,
         inner_diameter_ratio: float,
         n_tubes: int,
@@ -379,8 +377,8 @@ class TubeLattice(Displayed):
         ModeError
             If dimensions are invalid or neighbouring tubes overlap.
         """
-        _positive(core_radius, "core_radius")
-        _positive(inner_diameter_ratio, "inner_diameter_ratio")
+        positive(core_radius, "core_radius", ModeError)
+        positive(inner_diameter_ratio, "inner_diameter_ratio", ModeError)
         lattice = cls(
             wall_thickness, core_radius * inner_diameter_ratio + wall_thickness, n_tubes
         )
@@ -389,7 +387,7 @@ class TubeLattice(Displayed):
 
     @classmethod
     def from_gap(
-        cls, core_radius: float, gap: float, n_tubes: int, wall_thickness: float
+        cls, core_radius: float, *, gap: float, n_tubes: int, wall_thickness: float
     ) -> "TubeLattice":
         """Construct a lattice from a core radius and gap.
 
@@ -410,7 +408,9 @@ class TubeLattice(Displayed):
             Lattice with the implied outer radius and eight fit terms.
         """
         return cls(
-            wall_thickness, tube_radius_from_gap(core_radius, n_tubes, gap), n_tubes
+            wall_thickness,
+            tube_radius_from_gap(core_radius, n_tubes=n_tubes, gap=gap),
+            n_tubes,
         )
 
     def core_radius_for(self, gap: float) -> float:
@@ -426,7 +426,7 @@ class TubeLattice(Displayed):
         float
             Inscribed core radius in m.
         """
-        return core_radius_from_gap(self.tube_radius, self.n_tubes, gap)
+        return core_radius_from_gap(self.tube_radius, n_tubes=self.n_tubes, gap=gap)
 
 
 @dataclass(frozen=True)
@@ -649,7 +649,7 @@ def _resonance_sums(
     )
 
 
-@dataclass(frozen=True, kw_only=True, repr=False)
+@dataclass(frozen=True, eq=False, kw_only=True, repr=False)
 class VincettiMode(MarcatiliMode):
     """Model a single-ring tube-lattice fibre with the Vincetti fits.
 
@@ -676,6 +676,7 @@ class VincettiMode(MarcatiliMode):
     """
 
     lattice: TubeLattice
+    _INDEX_IS_MARCATILI: ClassVar[bool] = False
 
     def _check_arguments(self) -> None:
         """Validate the parent inputs and the tube geometry."""
@@ -924,7 +925,7 @@ class VincettiMode(MarcatiliMode):
         -------
         str
             For example ``VincettiMode(HE11, a=15 um, t=180 nm, r_ext=9 um, N=6,
-            Ar 1 bar, loss=True)``; a gradient shows its pressure at ``z = 0``.
+            Ar 1 bar, loss=model)``; a gradient shows its pressure at ``z = 0``.
         """
         radius = float(self.core_radius(np.array([0.0]))[0])
         if self.gas is None:
@@ -936,5 +937,5 @@ class VincettiMode(MarcatiliMode):
             f"VincettiMode({self.kind}{self.n}{self.m}, a={radius * 1e6:g} um, "
             f"t={self.lattice.wall_thickness * 1e9:g} nm, "
             f"r_ext={self.lattice.tube_radius * 1e6:g} um, "
-            f"N={self.lattice.n_tubes}, {fill}, loss={self.loss!r})"
+            f"N={self.lattice.n_tubes}, {fill}, loss={self._loss_text()})"
         )

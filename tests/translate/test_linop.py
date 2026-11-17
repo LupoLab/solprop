@@ -124,7 +124,7 @@ def test_a_constant_operator_is_one_interval_of_degree_one():
     assert table.phi_degrees.tolist() == [1]
     assert table.phi_representation == "constant"
     assert table.phi_coefficients is not None
-    assert table.phi_coefficients.shape == (1, 2, 1, 1, 1, 3)
+    assert table.phi_coefficients.shape == (1, 2, 1, 1, 3)
     assert table.z_span == (0.0, 2.0 * (1.0 + DEFAULT_MARGIN))
 
 
@@ -144,7 +144,9 @@ def test_the_constant_propagator_is_exactly_the_exponential_of_d_times_h(pair):
 
 def test_a_z_constant_mode_takes_the_constant_path():
     grid = EnvelopeGrid.from_limits(1.0, 1030e-9, (700e-9, 2e-6), 2e-12)
-    mode = SpecifiedMode.from_taylor([0.0, 0.0, 2e-26], omega_ref=grid.omega0, loss=0.3)
+    mode = SpecifiedMode.from_taylor(
+        [0.0, 0.0, 2e-26], omega_ref=grid.omega0, alpha=0.3
+    )
     frame = Frame.comoving(grid)
     table = build_phi(mode, grid, frame, z_max=1.0)
     assert table.phi_representation == "constant"
@@ -155,14 +157,14 @@ def test_a_z_constant_mode_takes_the_constant_path():
 
 def test_the_constant_path_broadcasts_over_polarisation():
     table = constant_phi(np.array([-1j, -2j]), 1.0, n_pol=2)
-    assert table.value_shape == (1, 1, 2, 2)
+    assert table.value_shape == (1, 2, 2)
     assert table.phi_constant is not None
-    assert np.array_equal(table.phi_constant[0, 0, 0], table.phi_constant[0, 0, 1])
+    assert np.array_equal(table.phi_constant[0, 0], table.phi_constant[0, 1])
 
 
 def test_the_constant_path_accepts_the_canonical_layout():
-    operator = np.zeros((1, 2, 1, 4), dtype=complex)
-    assert constant_phi(operator, 1.0).value_shape == (1, 2, 1, 4)
+    operator = np.zeros((2, 1, 4), dtype=complex)
+    assert constant_phi(operator, 1.0).value_shape == (2, 1, 4)
 
 
 def test_the_unitary_phase_of_a_constant_operator_is_the_imaginary_exponent():
@@ -378,7 +380,7 @@ def test_the_comoving_frame_holds_the_pulse_in_the_window(field_grid, gradient_m
 
     def centroid(frame):
         table = build_phi(gradient_mode, field_grid, frame, z_max=0.2)
-        state = np.exp(delta_phi(table, 0.0, 0.2)[0, 0, 0]) * start[0, 0]
+        state = np.exp(delta_phi(table, 0.0, 0.2)[0, 0]) * start[0, 0]
         signal = fourier.analytic_signal(fourier.inverse(state, kind="field"))
         power = np.abs(signal) ** 2
         return float(np.sum(field_grid.t * power) / np.sum(power))
@@ -435,7 +437,7 @@ def test_every_mode_of_a_set_is_written_in_the_first_mode_s_frame(field_grid):
     modes = tuple(MarcatiliMode(125e-6, "He", 1.0, m=m) for m in (1, 2, 3))
     frame = Frame.comoving(field_grid)
     sampler = _operator_sampler(modes, field_grid, frame, 1, DEFAULT_LOSS_POLICY, None)
-    operator = sampler(0.0)[0, :, 0, :]
+    operator = sampler(0.0)[:, 0, :]
     active = field_grid.active_mask
     omega = field_grid.omega[active]
     shared = frame_quantities(modes[0], frame, 0.0)[1]
@@ -479,7 +481,7 @@ def test_an_envelope_set_shares_the_first_mode_s_carrier_phase_too():
     assert frame.subtract_beta0
     operator = _operator_sampler(modes, grid, frame, 1, DEFAULT_LOSS_POLICY, None)(0.0)
     carrier = int(np.argmin(abs(grid.omega - grid.omega0)))
-    columns = operator[0, :, 0, carrier]
+    columns = operator[:, 0, carrier]
     # The reference mode is exactly in its own frame at the carrier; the loss is all
     # that is left of it, and the bound is the round-off of beta ~ 8e6 - beta_0.
     assert abs(np.imag(columns[0])) < 1e-6
@@ -499,7 +501,7 @@ def test_a_frame_given_both_quantities_is_used_as_it_is(field_grid):
     fixed = Frame(field_grid.omega0, subtract_beta0=False, beta0=0.0, beta1=0.0)
     operator = _operator_sampler(
         modes, field_grid, fixed, 1, DEFAULT_LOSS_POLICY, None
-    )(0.0)[0, :, 0, :]
+    )(0.0)[:, 0, :]
     active = field_grid.active_mask
     omega = field_grid.omega[active]
     for index, mode in enumerate(modes):
@@ -532,13 +534,13 @@ def test_the_tolerance_is_raised_to_the_measured_round_off_floor(
 
 
 def test_the_round_off_floor_of_an_exact_operator_is_zero():
-    constant = np.array([[[[1.0 + 0j, 2.0]]]])
+    constant = np.array([[[1.0 + 0j, 2.0]]])
     assert _roundoff_floor(lambda z: constant, 1.0) == 0.0
 
 
 def test_the_round_off_floor_of_a_vanishing_operator_is_zero():
     """A probe where the operator is identically zero has no scale, and is skipped."""
-    zeros = np.zeros((1, 1, 1, 4), dtype=complex)
+    zeros = np.zeros((1, 1, 4), dtype=complex)
     assert _roundoff_floor(lambda z: zeros, 1.0) == 0.0
 
 
@@ -681,13 +683,13 @@ def test_a_square_root_vacuum_end_keeps_its_fitted_table():
 
 
 def test_verify_phi_reports_agreement_for_an_exact_table():
-    operator = np.array([[[[-1j, -2j]]]])
+    operator = np.array([[[-1j, -2j]]])
     table = constant_phi(operator, 1.0)
     assert verify_phi(table, lambda z: operator, [(0.0, 1.0), (0.2, 0.6)]) < 1e-14
 
 
 def test_verify_phi_reports_the_absolute_deviation_when_the_operator_vanishes():
-    zeros = np.zeros((1, 1, 1, 2), dtype=complex)
+    zeros = np.zeros((1, 1, 2), dtype=complex)
     table = constant_phi(zeros, 1.0)
     assert verify_phi(table, lambda z: zeros, [(0.0, 1.0)]) == 0.0
 
@@ -776,57 +778,42 @@ def test_the_tables_translation_builds_are_held_and_not_copied_again():
     assert tabulated.hard_kinks.size and is_held(tabulated.hard_kinks)
 
 
-def test_the_group_refuses_a_breakpoint_count_that_does_not_match():
-    with pytest.raises(TranslationError, match="phi_breakpoints has"):
-        LinearOperator(
-            phi_representation="table",
-            phi_breakpoints=np.array([0.0, 0.5, 1.0]),
-            phi_coefficients=np.zeros((1, 2, 1, 1, 1, 3), dtype=complex),
-            phi_degrees=np.array([1]),
-            hard_kinks=np.empty(0),
-            phi_constant=None,
-        )
-
-
-def test_the_group_refuses_a_degree_count_that_does_not_match():
-    """The degrees say how many intervals there are; the coefficients must agree."""
-    with pytest.raises(TranslationError, match="phi_degrees has"):
-        LinearOperator(
-            phi_representation="table",
-            phi_breakpoints=np.array([0.0, 1.0]),
-            phi_coefficients=np.zeros((2, 2, 1, 1, 1, 3), dtype=complex),
-            phi_degrees=np.array([1]),
-            hard_kinks=np.empty(0),
-            phi_constant=None,
-        )
-
-
+# Each row changes members of a one-interval table group (the base below) and names
+# the refusal. The degrees say how many intervals there are; the coefficients must
+# agree.
 @pytest.mark.parametrize(
-    ("kind", "constant"),
-    [("constant", None), ("table", np.zeros((1, 1, 1, 3), dtype=complex))],
+    ("changes", "message"),
+    [
+        ({"phi_breakpoints": np.array([0.0, 0.5, 1.0])}, "phi_breakpoints has"),
+        (
+            {"phi_coefficients": np.zeros((2, 2, 1, 1, 3), dtype=complex)},
+            "phi_degrees has",
+        ),
+        ({"phi_representation": "constant"}, "phi_constant must be present"),
+        (
+            {"phi_constant": np.zeros((1, 1, 3), dtype=complex)},
+            "phi_constant must be present",
+        ),
+        (
+            {
+                "phi_representation": "constant",
+                "phi_constant": np.zeros((1, 1, 4), dtype=complex),
+            },
+            "phi_constant has shape",
+        ),
+    ],
 )
-def test_the_group_refuses_a_constant_that_disagrees_with_the_kind(kind, constant):
-    with pytest.raises(TranslationError, match="phi_constant must be present"):
-        LinearOperator(
-            phi_representation=kind,
-            phi_breakpoints=np.array([0.0, 1.0]),
-            phi_coefficients=np.zeros((1, 2, 1, 1, 1, 3), dtype=complex),
-            phi_degrees=np.array([1]),
-            hard_kinks=np.empty(0),
-            phi_constant=constant,
-        )
-
-
-def test_the_group_refuses_a_constant_of_the_wrong_shape():
-    with pytest.raises(TranslationError, match="phi_constant has shape"):
-        LinearOperator(
-            phi_representation="constant",
-            phi_breakpoints=np.array([0.0, 1.0]),
-            phi_coefficients=np.zeros((1, 2, 1, 1, 1, 3), dtype=complex),
-            phi_degrees=np.array([1]),
-            hard_kinks=np.empty(0),
-            phi_constant=np.zeros((1, 1, 1, 4), dtype=complex),
-        )
+def test_the_group_refuses_inconsistent_members(changes, message):
+    members = {
+        "phi_representation": "table",
+        "phi_breakpoints": np.array([0.0, 1.0]),
+        "phi_coefficients": np.zeros((1, 2, 1, 1, 3), dtype=complex),
+        "phi_degrees": np.array([1]),
+        "hard_kinks": np.empty(0),
+        "phi_constant": None,
+    } | changes
+    with pytest.raises(TranslationError, match=message):
+        LinearOperator(**members)
 
 
 def test_the_group_reports_its_size_and_its_polynomial():
@@ -865,7 +852,7 @@ def test_a_path_shared_by_two_modes_is_resolved_once(field_grid):
     # table carries the operator of both modes.
     assert len(paths) == 2
     table = build_phi(modes, field_grid, Frame.comoving(field_grid), z_max=0.2, n_pol=1)
-    assert table.value_shape[1] == 2
+    assert table.value_shape[0] == 2
     same = declared_paths([modes[0], modes[0]])
     assert len(same) == 1
 
@@ -1034,7 +1021,7 @@ def test_two_modes_of_one_fibre_share_one_parameter_axis(field_grid):
     assert sorted(varying) == ["density"]
     table = build_phi(modes, field_grid, Frame.comoving(field_grid), z_max=0.2)
     assert table.phi_representation == "expansion"
-    assert table.value_shape[1] == 2
+    assert table.value_shape[0] == 2
 
 
 def test_an_expansion_that_cannot_be_built_is_refused_when_it_is_demanded(field_grid):
@@ -1082,8 +1069,8 @@ def test_the_floor_is_measured_in_the_acceptance_tests_own_norm():
     small = 1.0
 
     def operator_at(z):
-        noise = rng.normal(scale=1e-4, size=(1, 1, 1, 2))
-        return np.array([[[[large, small]]]]) * (1.0 + 1e-9 * z) + noise
+        noise = rng.normal(scale=1e-4, size=(1, 1, 2))
+        return np.array([[[large, small]]]) * (1.0 + 1e-9 * z) + noise
 
     floor = _roundoff_floor(operator_at, 1.0)
     # The small column's own noise is 1e-4 of itself; the large column's is 1e-8 of
@@ -1095,60 +1082,21 @@ def test_the_floor_is_measured_in_the_acceptance_tests_own_norm():
 # ------------------------------------------------------ the size the change is for
 
 
-def ctc_sized_problem(length=1.5):
-    """Return ``(grid, modes)`` at the comb-to-continuum target's size.
-
-    The target is a 16 um bore, 1.5 m, hydrogen, six HE_1m modes, 170 nm to 4 um on a 4
-    ps window -- a field grid of 16 385 bins. Its fill is a constant 40 bar, which would
-    take the exact constant path and have no table to compare, so the fill here is a
-    gradient of the same size: what is measured is the representation's cost at that
-    shape.
-    """
-    grid = FieldGrid.from_limits(length, 515e-9, (170e-9, 4e-6), 4e-12)
-    fill = PressureGradient.two_point(length, 40.0, 0.4)
-    return grid, [MarcatiliMode(16e-6, "H2", fill, m=m) for m in range(1, 7)]
-
-
-@pytest.mark.benchmark
-def test_the_ctc_sized_problem_costs_a_fraction_of_the_version_two_table():
-    """The gigabyte, measured both ways at the size that motivated the change.
-
-    Measured once: the z table is 8 intervals of degree 64 and 792.0 MB, built in 3.53
-    s, with `delta_phi` at 17.80 ms; the expansion is 33 terms and 49.7 MB, built in
-    0.88 s, with `delta_phi` at 1.20 ms. With the prefactor's 759.0 MB beside it the
-    version-2 pair is 1.55 GB, the order of a gigabyte that motivated the expansion; the
-    pair of expansions is 64.8 MB.
-
-    Marked `benchmark` because it builds the gigabyte for real, so no lane runs it; run
-    it by hand with
-    ``pytest tests/translate/test_linop.py -m benchmark``. The slow lane guards the same
-    property at a reduced size below.
-    """
-    grid, modes = ctc_sized_problem()
-    assert grid.n_omega == 16385
-    frame = Frame.comoving(grid)
-    expansion = build_phi(modes, grid, frame, z_max=1.5)
-    table = build_phi(modes, grid, frame, z_max=1.5, representation="table")
-    assert expansion.phi_representation == "expansion"
-    # An order of magnitude, against the sixteen measured: the assertion is what the
-    # change is for and not the machine it was measured on.
-    assert expansion.nbytes * 10 < table.nbytes
-    assert table.nbytes > 500 * 2**20
-    rng = np.random.default_rng(20260906)
-    worst = 0.0
-    for _ in range(10):
-        z1, z2 = sorted(rng.uniform(0.0, 1.5, 2))
-        reference = delta_phi(table, z1, z2)
-        deviation = np.abs(delta_phi(expansion, z1, z2) - reference)
-        worst = max(worst, float(np.max(deviation)) / float(np.max(np.abs(reference))))
-    # The round-off floor of this operator is 5.4e-9, so both are built to 5.4e-7 and
-    # may differ by it; measured 5.0e-9, a hundred times inside the bound.
-    assert worst < 5.4e-7
-
-
 @pytest.mark.slow
 def test_the_expansion_is_a_fraction_of_the_z_table_at_the_ctc_shape():
-    """The same property as the benchmark, at a size the slow lane can afford."""
+    """The expansion is a fraction of the z table at the comb-to-continuum shape.
+
+    A 0.2 m, 0.4 ps cut of the full target (16 um bore, 1.5 m of hydrogen falling from
+    40 to 0.4 bar, six HE_1m modes, 170 nm to 4 um on a 4 ps window, 16 385 bins),
+    which the slow lane can afford. At the full size, measured once by hand: the z table
+    is 8 intervals of degree 64 and 792.0 MB, built in 3.53 s, ``delta_phi`` 17.80 ms;
+    the expansion is 33 terms and 49.7 MB, built in 0.88 s, ``delta_phi`` 1.20 ms; the
+    two agree to 5.0e-9 of the peak over ten random intervals (both built to 5.4e-7).
+    With the prefactor's 759.0 MB the version-2 pair is 1.55 GB against 64.8 MB for the
+    pair of expansions. To repeat it, build both representations with
+    ``FieldGrid.from_limits(1.5, 515e-9, (170e-9, 4e-6), 4e-12)`` and the fill
+    ``PressureGradient.two_point(1.5, 40.0, 0.4)``; it needs about 1.6 GB.
+    """
     grid = FieldGrid.from_limits(0.2, 515e-9, (170e-9, 4e-6), 4e-13)
     fill = PressureGradient.two_point(0.2, 40.0, 0.4)
     modes = [MarcatiliMode(16e-6, "H2", fill, m=m) for m in range(1, 7)]

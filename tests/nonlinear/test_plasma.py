@@ -607,14 +607,21 @@ def test_an_envelope_grid_is_rejected(response):
         )
 
 
-def test_a_complex_array_is_rejected(response):
-    with pytest.raises(GridError, match="real field"):
-        response.evaluate(np.zeros((1, 8), dtype=complex), 1.0, dt=1e-16, kind="field")
-
-
-def test_too_many_polarisation_components_are_rejected(response):
-    with pytest.raises(GridError, match="n_pol must be 1 or 2"):
-        response.evaluate(np.zeros((3, 8)), 1.0, dt=1e-16, kind="field")
+@pytest.mark.parametrize(
+    ("field", "density", "dt", "match"),
+    [
+        (np.zeros((1, 8), dtype=complex), 1.0, 1e-16, "real field"),
+        (np.zeros((3, 8)), 1.0, 1e-16, "n_pol must be 1 or 2"),
+        (np.zeros((1, 8)), 1.0, 0.0, "dt must be positive"),
+        (np.zeros((1, 8)), 1.0, -1e-16, "dt must be positive"),
+        (np.zeros((1, 8)), 1.0, math.inf, "dt must be positive"),
+        (np.zeros((1, 8)), 1.0, math.nan, "dt must be positive"),
+        (np.zeros((1, 8)), -1.0, 1e-16, "density must be non-negative"),
+    ],
+)
+def test_a_bad_field_step_or_density_is_rejected(response, field, density, dt, match):
+    with pytest.raises(GridError, match=match):
+        response.evaluate(field, density, dt=dt, kind="field")
 
 
 @pytest.mark.parametrize("shape", [(8,), (1, 2, 8)])
@@ -622,17 +629,6 @@ def test_an_array_that_is_not_two_dimensional_is_rejected(shape):
     # Through the guard directly: the jaxtyping hook rejects the rank first.
     with pytest.raises(GridError, match="field_t must have shape"):
         _check_plasma(np.zeros(shape), "field", 1e-16)
-
-
-@pytest.mark.parametrize("bad", [0.0, -1e-16, math.inf, math.nan])
-def test_a_bad_time_step_is_rejected(bad, response):
-    with pytest.raises(GridError, match="dt must be positive"):
-        response.evaluate(np.zeros((1, 8)), 1.0, dt=bad, kind="field")
-
-
-def test_a_negative_density_is_rejected(response):
-    with pytest.raises(GridError, match="density must be non-negative"):
-        response.evaluate(np.zeros((1, 8)), -1.0, dt=1e-16, kind="field")
 
 
 @pytest.mark.parametrize("bad", [-0.1, 1.1])

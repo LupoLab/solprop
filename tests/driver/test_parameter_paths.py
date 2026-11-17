@@ -184,7 +184,7 @@ REFUSALS = [
         lambda: _gnlse(save_planes=[0.01, 0.005], n_save=None),
         DriverError,
         "save_planes",
-        "positive and increasing",
+        "must increase strictly",
         id="gnlse-planes-order",
     ),
     pytest.param(
@@ -258,13 +258,6 @@ REFUSALS = [
         ("raman", "kerr"),
         "needs kerr=True",
         id="capillary-raman-kerr",
-    ),
-    pytest.param(
-        lambda: _hollow(polarisation="x"),
-        DriverError,
-        "polarisation",
-        "this path is scalar",
-        id="capillary-polarisation",
     ),
     pytest.param(
         lambda: _hollow(modes=0),
@@ -363,9 +356,9 @@ REFUSALS = [
         id="capillary-wall-taper",
     ),
     pytest.param(
-        lambda: _hollow(wall=CoherentWall(), loss=False),
+        lambda: _hollow(wall=CoherentWall(), loss_scale=0.0),
         DriverError,
-        ("wall", "loss"),
+        ("wall", "loss_scale"),
         "is the loss model",
         id="capillary-wall-loss",
     ),
@@ -430,7 +423,7 @@ REFUSALS = [
         lambda: _hollow(fwhm=-1.0),
         PulseError,
         "fwhm",
-        "finite positive number",
+        "finite and positive",
         id="capillary-pulse-duration",
     ),
     pytest.param(
@@ -521,7 +514,7 @@ def test_the_boundary_warning_names_the_boundary_check() -> None:
 
 
 def test_an_inner_refusal_that_names_its_keyword_keeps_it() -> None:
-    from solprop.driver.simulation import _about  # noqa: PLC0415 - a private seam
+    from solprop.driver.routes.keywords import _about  # noqa: PLC0415 - a private seam
 
     with pytest.raises(DriverError) as caught, _about("pulses"):
         raise DriverError("refused", parameter="pulses[0].energy")

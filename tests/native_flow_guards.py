@@ -6,11 +6,10 @@
 
 The native state refuses a flow action whose exponent needs too many squarings, and a
 step whose measured conditioning exceeds the flow's certificate, with the messages
-these functions raise (``flow_guard_configure``). Until SEP 47's phase 5 the backend
+these functions raise (``Workspace::guard_flow``). Until SEP 47's phase 5 the backend
 also ran them itself on its host-packed Runge-Kutta trial; that path is gone, and the
-transcription lives here, read against the backend's constants at call time, so the
-native guards stay held to solprop's reference rule
-(``numpy_ref.backend._flow_squarings`` and ``_check_flow_conditioning``).
+transcription lives here, so the native guards stay held to solprop's reference rule
+(``numpy_ref.coupled_flow._flow_squarings`` and ``check_flow_conditioning``).
 """
 
 import math
@@ -18,26 +17,32 @@ from typing import Any
 
 import numpy as np
 
+from solprop.backends.exponential import FLOW_MAX_SQUARINGS, FLOW_TAYLOR_SCALE
 from solprop.exceptions import BackendError
 
 
-def flow_squarings(backend: Any, largest: float) -> None:
+def flow_squarings(
+    largest: float,
+    *,
+    scale: float = FLOW_TAYLOR_SCALE,
+    admitted: int = FLOW_MAX_SQUARINGS,
+) -> None:
     """Refuse a length whose exponent would need more squarings than admitted.
 
     Parameters
     ----------
-    backend : module
-        ``solprop_native.backend``, whose ``_TAYLOR_SCALE`` and
-        ``_MAX_FLOW_SQUARINGS`` are read now.
     largest : float
         The section's largest row-sum norm times the length.
+    scale : float, optional
+        The row-sum norm the exponent is scaled below, solprop's by default.
+    admitted : int, optional
+        The most squarings admitted, solprop's by default.
 
     Raises
     ------
     solprop.exceptions.BackendError
         Past the admitted squarings, with the native message.
     """
-    scale, admitted = backend._TAYLOR_SCALE, backend._MAX_FLOW_SQUARINGS
     squarings = 0
     if largest > scale:
         squarings = math.ceil(math.log2(largest / scale))

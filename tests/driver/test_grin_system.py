@@ -22,6 +22,7 @@ from typing import cast
 import numpy as np
 import pytest
 
+from builders import grid_at, held_collar
 from modal_provider_cases import (
     GENERAL_CHI3,
     grin_grid,
@@ -29,17 +30,17 @@ from modal_provider_cases import (
     parabolic_beta,
 )
 from solprop import fourier
-from solprop.backends.numpy_ref.backend import _general_maps
 from solprop.backends.numpy_ref.general_modal import general_source
+from solprop.backends.numpy_ref.source import _general_maps
 from solprop.constants import EPS0
 from solprop.driver import Simulation
 from solprop.exceptions import GeneralModalBasisWarning, TranslationError
 from solprop.modes.material import MaterialKerr
+from solprop.modes.tables import DEFAULT_GRAM_ATOL, sample_modal_table
 from solprop.output.memory import MemoryOutput
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.general import general_modal_route
-from solprop.translate.modal_tables import DEFAULT_GRAM_ATOL, sample_modal_table
-from solprop.translate.problem import assemble
 
 SPARSE_LONG_END = pytest.mark.filterwarnings(
     "ignore::solprop.exceptions.GeneralModalBasisWarning"
@@ -177,11 +178,15 @@ def test_grin_self_imaging(grid, linear_guide, imaging, record_property):
     record_property("grin_phase_budget_rad", turn)
     record_property("grin_interpolation_budget_rad", interpolation)
     length, centre = imaging["length"], imaging["index"]
+    # A run ends at its grid's length (SEP 51): the millimetre grid cut at the
+    # imaging length, with the collar the millimetre gave.
+    window = grid_at(grid, length)
     simulation = Simulation.from_waveguide(
         (),
         length,
         provider=linear_guide,
-        grid=grid,
+        grid=window,
+        absorber=held_collar(window, grid.length),
         wavelength=1.03e-6,
         fwhm=40e-15,
         energy=1e-15,

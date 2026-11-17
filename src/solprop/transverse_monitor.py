@@ -4,26 +4,23 @@
 
 """The boundary monitor's transverse edge (SEP 40 section 5.3).
 
-A free-space run has a wall or a wrap at its grid's outer size. With no real-space
-collar, whatever reaches the edge comes back, so reaching it is the failure: the
-monitor judges, per face, the energy in the outer 5 % of the *outer* size, its largest
-reading above its launch value, less a noise allowance, at the levels of
-:class:`solprop.monitor.BoundaryCheck`. With a collar, reaching the edge is intended and
-what returns is the failure; the outward shares are recorded at INFO and the collar's
-removal is credited.
+A free-space run has a wall or a wrap at its grid's outer size. :class:`TransverseEdge`
+watches it, per face, at the levels of :class:`solprop.monitor.BoundaryCheck`. With no
+real-space collar, whatever reaches the edge comes back, so reaching it is the failure:
+it judges the energy in the outer :data:`GUARD` of the *outer* size, its largest
+reading above its launch value, less a noise allowance (:data:`NOISE_FACTOR`). With a
+collar, reaching the edge is intended and what returns is the failure; the outward
+shares are recorded at INFO and the collar's removal is credited. Reads are spaced so
+that light cannot cross the edge unseen between two of them, ``min(L/16, 4 g / v_q)``
+with ``g`` the guard's width and ``v_q`` the reach of the current spectrum
+(:data:`READS`, :data:`BACKSTOP_READS`, :data:`REACH_GROWTH`), and the spacing is a
+ceiling on the step. The safety ramp's removal is credited per read interval. Every
+run reports a ``TransverseStatus``; only ``clear`` is a clean verdict.
 
-Reads are spaced so that light cannot cross the edge unseen between two of them,
-``min(L/16, 4 g / v_q)`` with ``g`` the guard's width and ``v_q`` the reach of the
-current spectrum, and the spacing is a ceiling on the step. The safety ramp's removal
-is credited per read interval and judged above the realised input noise's own share.
-Every run reports a ``transverse_status``; only ``clear`` is a clean verdict.
-
-A backend reduces its committed spectral state where the state lives and hands the edge
-an ``_EdgeReading``, numbers and never the field. ``_HostEdgeReduction`` is the
-reference, on a host copy of the state, and everything else here is the same on every
-backend: the faces, the weights, the spacing, the ledgers and the judgement (SEP 44). A
-backend that does not read the edge leaves the run ``unwatched``, which it says before
-the first step.
+A backend reduces its committed spectral state where the state lives and hands the
+edge an ``_EdgeReading``, numbers and never the field; ``_HostEdgeReduction`` is the
+reference, and everything else here (the faces, weights, spacing, ledgers and
+judgement) is the same on every backend (SEP 44).
 """
 
 from __future__ import annotations
@@ -78,22 +75,10 @@ NOISE_FACTOR = 8.0
 _SMALL_TRANSFORM = 2**18
 """Host transforms below this many elements run on one thread."""
 
-TransverseStatus = Literal[
-    "clear", "warned", "stopped", "insensitive", "coarse", "unwatched", "off"
-]
+TransverseStatus = Literal["clear", "warned", "stopped", "insensitive", "coarse", "off"]
 
 # What the edge reports, one text for every owner of its decisions: the edge here and a
 # backend whose session judges natively (SEP 47 section 6.4).
-
-_UNWATCHED_REASON = "this backend does not read the transverse edge"
-"""The ``transverse_reason`` of a run whose backend does not read the edge."""
-
-_UNWATCHED_MESSAGE = (
-    "this backend does not read the transverse edge of a free-space run: "
-    "the run is unwatched there and cannot report a clean verdict; "
-    "solprop's own backends read it (SEP 40 section 5.3)"
-)
-"""The warning such a run issues before its first step."""
 
 
 def _ramp_band_message(share: float, *, stop: bool) -> str:
@@ -612,7 +597,7 @@ class _HostEdgeReduction:
     """The reference reductions of the edge, on a host copy of a state (SEP 44).
 
     A backend whose state lives elsewhere forms the same numbers there instead
-    (``HostDriver._edge_reading``), and is held to these.
+    (native's ``Resident::edge_reading``), and is held to these.
 
     Attributes
     ----------
@@ -624,6 +609,10 @@ class _HostEdgeReduction:
         A requested collar's lines; none without one.
     k_min : float
         The smallest wavenumber over the requested band, rad/m.
+    sink : list of Warning or None
+        Where the edge's warnings go instead of being issued, in order, for a session
+        that reports each as a ``WARNING`` barrier event (SEP 52 section 5.1);
+        ``None``, the default, issues them through :func:`warnings.warn`.
     """
 
     space: RadialGrid | FreeGrid | PlanarGrid
@@ -827,6 +816,7 @@ class TransverseEdge:
     length: float
     band: Int[np.ndarray, " n_band"]
     k_min: float
+    sink: list[Warning] | None = field(default=None, init=False, repr=False)
     _faces: tuple[_Face, ...] = field(init=False)
     _weights: np.ndarray = field(init=False)
     _columns: np.ndarray = field(init=False)
@@ -893,6 +883,17 @@ class TransverseEdge:
             space, self.tables, _edge_lines(space, self.design), self.k_min
         )
 
+    def _warn(self, message: str, stacklevel: int) -> None:
+        """Issue a boundary warning, or put it in the :attr:`sink` a session reports.
+
+        - ``stacklevel``: as the caller would pass to :func:`warnings.warn`.
+        """
+        warning = BoundaryWarning(message)
+        if self.sink is not None:
+            self.sink.append(warning)
+            return
+        warnings.warn(warning, stacklevel=stacklevel + 1)
+
     def _edge_tables(self) -> _EdgeTables:
         """Return the weights a state's node energies are summed with."""
         weights = self._weights
@@ -951,7 +952,7 @@ class TransverseEdge:
         """
         return self._resumed
 
-    def launch(  # noqa: PLR0912, PLR0915 - the launch and judgements, in order
+    def launch(
         self,
         reading: _EdgeReading,
         z: float,
@@ -959,7 +960,6 @@ class TransverseEdge:
         noise: Complex[np.ndarray, "n_modes n_pol n_omega"] | None,
         clean_columns: Float[np.ndarray, " n_columns"] | None = None,
         steps: Float[np.ndarray, " n_steps"] | None,
-        reads: bool,
         declared: bool,
     ) -> None:
         """Record the launch, judge it, and set the first read.
@@ -977,8 +977,6 @@ class TransverseEdge:
             judgement. ``None`` when there is no noise, or the launch was resumed.
         steps : numpy.ndarray or None
             A fixed schedule's steps, which the read spacing cannot limit.
-        reads : bool
-            Whether the backend reads the edge.
         declared : bool
             Whether the user declared content above ``discard_above``.
 
@@ -1000,12 +998,10 @@ class TransverseEdge:
                 )
             self._last_columns = self._column_power(columns)
             self._respace(self._last_columns, launch=True)
-            self._next = z + self._spacing_now if reads else math.inf
+            self._next = z + self._spacing_now
             self._last_rate = (z, self._collar_rate(reading))
             if reading.current is not None and self._launch > 0.0:
                 self._current_last = (z, reading.current / self._launch)
-            if not reads:
-                self._status = "unwatched"
             return
         assert reading.clip is not None and reading.totals is not None
         self._launch = float(reading.totals[0])
@@ -1014,25 +1010,17 @@ class TransverseEdge:
             self._next = math.inf
             return
         warn, stop = self.budget**2, (self.stop_factor * self.budget) ** 2
-        # About the launch, not the backend: judged whether or not the edge is read.
         self._judge_ramp_band(
             self._column_power(columns if clean_columns is None else clean_columns),
             stop,
             warn,
             declared=declared,
         )
-        if not reads:
-            self._status = "unwatched"
-            self._reason = _UNWATCHED_REASON
-            warnings.warn(_UNWATCHED_MESSAGE, BoundaryWarning, stacklevel=4)
-            return
         for index, face in enumerate(self._faces):
             self._baseline[index] = float(reading.faces[index]) / self._launch
             clipped = float(reading.clip[index]) / self._launch
             if clipped > warn:
-                warnings.warn(
-                    _clip_message(clipped, face.name), BoundaryWarning, stacklevel=4
-                )
+                self._warn(_clip_message(clipped, face.name), 4)
         if noise is not None:
             noise_nodes = self._weights * self.reduction.node_power(noise)
             eta = float(np.sum(noise_nodes)) / self._launch
@@ -1052,11 +1040,7 @@ class TransverseEdge:
             if self._allowance > warn:
                 self._status = "insensitive"
                 self._reason = _insensitive_reason(self._allowance)
-                warnings.warn(
-                    _insensitive_message(self._allowance),
-                    BoundaryWarning,
-                    stacklevel=4,
-                )
+                self._warn(_insensitive_message(self._allowance), 4)
         self._last_columns = self._column_power(columns)
         self._respace(self._last_columns, launch=True)
         spacing = self._spacing_now
@@ -1064,11 +1048,7 @@ class TransverseEdge:
         if steps is not None and steps.size and float(np.max(steps)) > spacing:
             self._status = "coarse" if self._status == "clear" else self._status
             self._largest_gap = float(np.max(steps))
-            warnings.warn(
-                _coarse_message(float(np.max(steps)), spacing),
-                BoundaryWarning,
-                stacklevel=4,
-            )
+            self._warn(_coarse_message(float(np.max(steps)), spacing), 4)
         self._last_rate = (z, self._collar_rate(reading))
         if self.every_step:
             self._launch_return(reading, noise)
@@ -1098,9 +1078,7 @@ class TransverseEdge:
         if share > stop:
             raise BoundaryError(_ramp_band_message(share, stop=True))
         if share > warn:
-            warnings.warn(
-                _ramp_band_message(share, stop=False), BoundaryWarning, stacklevel=5
-            )
+            self._warn(_ramp_band_message(share, stop=False), 5)
 
     def _collar_rate(self, reading: _EdgeReading) -> float:
         """Return a requested collar's removal rate, as a share of the launch per m."""
@@ -1213,10 +1191,9 @@ class TransverseEdge:
         Returns
         -------
         bool
-            False when nothing was launched, the edge is unwatched, or it was last
-            read at `z`.
+            False when nothing was launched, or the edge was last read at `z`.
         """
-        return self._launch > 0.0 and self._status != "unwatched" and z > self._last_z
+        return self._launch > 0.0 and z > self._last_z
 
     def read(self, reading: _EdgeReading, z: float) -> None:
         """Take a reading at a committed position, credit the removals and judge.
@@ -1283,9 +1260,7 @@ class TransverseEdge:
                 self._warned_at = z
                 if self._status in ("clear", "coarse"):
                     self._status = "warned"
-                warnings.warn(
-                    _face_message(face_name, z, judged), BoundaryWarning, stacklevel=4
-                )
+                self._warn(_face_message(face_name, z, judged), 4)
         self._judge_ramp_removal()
 
     # ------------------------------------------------------------------ a collar
@@ -1315,12 +1290,7 @@ class TransverseEdge:
         z : float
             Its position, m.
         """
-        if (
-            self.design is None
-            or not self.design.has_collar
-            or not self._launch > 0.0
-            or self._status == "unwatched"
-        ):
+        if self.design is None or not self.design.has_collar or not self._launch > 0.0:
             return
         share = current / self._launch
         if self._current_last is not None:
@@ -1383,9 +1353,7 @@ class TransverseEdge:
             self._warned = True
             self._warned_at = z
             self._status = "warned"
-            warnings.warn(
-                _return_message(returned, z, None), BoundaryWarning, stacklevel=5
-            )
+            self._warn(_return_message(returned, z, None), 5)
 
     def _judge_ramp_removal(self) -> None:
         """Warn, or stop, on what the safety ramp has removed (section 5.3, Q8).
@@ -1404,9 +1372,7 @@ class TransverseEdge:
             # Only a run below the warning throughout is clear (section 5.3).
             if self._status in ("clear", "coarse"):
                 self._status = "warned"
-            warnings.warn(
-                _ramp_removal_message(removed, None), BoundaryWarning, stacklevel=5
-            )
+            self._warn(_ramp_removal_message(removed, None), 5)
 
     def _stop_message(self, face: str, judged: float, z: float) -> str:
         """Return the stop's message, naming a size and a sample count to try.
@@ -1440,8 +1406,7 @@ class TransverseEdge:
     def status(self) -> TransverseStatus:  # numpydoc ignore=RT01
         """The run's transverse status (section 5.3).
 
-        ``clear``, ``warned``, ``stopped``, ``insensitive``, ``coarse`` or
-        ``unwatched``.
+        ``clear``, ``warned``, ``stopped``, ``insensitive`` or ``coarse``.
         """
         return self._status
 

@@ -140,8 +140,8 @@ def same_work(
 ) -> bool | None:
     """Whether both builds took one and the same (accepted, rejected) steps.
 
-    ``None`` when a repetition did not count its steps (a group on ``Batch``, which
-    watches no point's run): nothing was compared, which is not a match.
+    ``None`` when a repetition did not count its steps: nothing was compared, which
+    is not a match.
     """
     if any(None in steps for steps in baseline | candidate):
         return None

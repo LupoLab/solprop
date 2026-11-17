@@ -39,11 +39,15 @@ There are two different things called air, and only one of them is nonlinear.
   Raman data. Used as a species in a fill built by hand, such as
   `Mixture.fill({"Air": 1.0}, 1.0)`, it gives the right linear index but carries no
   Raman response under the default selection, refuses a Kerr response
-  (`Air (Air) has no Kerr data`) and refuses plasma, and an explicit Raman selection of
-  its label raises. On the keyword interfaces `kerr=False, raman=True` is refused for
-  every gas (`raman=True needs kerr=True`), and with `kerr=False` and `raman` unset the
-  fill runs with no nonlinear response at all and no warning, so a hand-built `Air` fill
-  is a linear medium; use `Mixture.air` for a nonlinear one.
+  (`Air (Air): Air has no Kerr data`) and refuses plasma, and an explicit Raman
+  selection of its label raises; each of these refusals names `Mixture.air`.
+  On the keyword interfaces `kerr=False, raman=True` is refused for every gas
+  (`raman=True needs kerr=True`). With `kerr=False` and `raman` unset the fill runs with
+  no nonlinear response at all only where plasma is off too: on an envelope grid
+  (`envelope=True`), where plasma is off by default and solprop logs once at INFO that
+  the fill is linear, or with an explicit `plasma=False`. On a field grid plasma is on
+  by default, so `kerr=False` alone still meets the plasma refusal. A hand-built `Air`
+  fill is a linear medium; use `Mixture.air` for a nonlinear one.
 - **`Mixture.air(pressure, ...)`** builds separate nitrogen, oxygen and argon
   populations (optmat's CIPM-2007 composition `"dry air (N2, O2, Ar)"`, renormalised
   over the three), each with its own dispersion, Kerr coefficient,
@@ -229,10 +233,10 @@ Frequency derivatives sum species derivatives before differentiating the square 
 The frame uses the real group delay. Positive imaginary index contributes loss; in
 the dilute limit gas intensity attenuation approaches `sum_s rho_s * sigma_s`.
 
-Capillary `loss=` controls total loss, including gas absorption: `False` removes it,
-a non-negative number scales it, and a callable replaces it. `loss=` does not touch the
-real shift of the mode index that the cladding causes, which stays as the mode model
-defines it.
+A capillary's `loss_scale=` scales its total loss, including gas absorption: `0`
+removes it and another non-negative number scales it; `alpha=` replaces it with an
+absolute attenuation. Neither touches the real shift of the mode index that the
+cladding causes, which stays as the mode model defines it.
 
 The operator has three possible representations:
 
@@ -470,9 +474,10 @@ Material absorption is attributed through `MarcatiliMode.absorption_by_species` 
 first order in susceptibility: `alpha_s = rho_s omega Im(gamma_s)/c`. The processing
 function multiplies this by spectral energy density and sums the modal contributions;
 spatial outputs use their spectral quadrature measure. Wall leakage and ionisation
-work are separate. `loss=False` removes all attributed loss, numeric `loss` scales it,
-and callable replacement of total loss has no justified species attribution. The
-last case is recorded explicitly and refused by the absorption accessor.
+work are separate. `loss_scale=0` removes all attributed loss, another `loss_scale`
+scales it, and an `alpha` replacing the total loss has no justified species
+attribution. The last case is recorded explicitly and refused by the absorption
+accessor.
 
 Node fluence is `epsilon_0 c/2` times the fine-grid temporal sum of the physical
 analytic flux, summed over polarisation. For a modal run that is

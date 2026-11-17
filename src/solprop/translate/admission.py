@@ -4,14 +4,16 @@
 
 """What the general modal route and the coupled flow execute, checked once.
 
-Both backends execute the same combinations of these leaves, so the list is part of the
-problem's validation (:meth:`solprop.translate.problem.PropagationProblem.validate`,
-which :func:`solprop.translate.problem.validate_run` runs where a backend is built):
-each refusal has one raise site, before any buffer is allocated. It holds the policy:
-the leaves' consistency with the state -- channel and component counts, axes, extents
--- is :meth:`~solprop.translate.problem.PropagationProblem.validate`'s own and runs
-first. A problem can be assembled by something other than
-:func:`solprop.translate.problem.assemble`, so nothing here relies on the assembly
+:func:`check_general_route` refuses, by name, each general modal or coupled-flow problem
+solprop does not run, and :func:`check_leaf_types` a general-modal leaf that is not its
+record type. Both backends execute the same combinations of these leaves, so the list
+is part of the problem's validation
+(:meth:`solprop.translate.problem.PropagationProblem.validate`, which
+:func:`solprop.translate.problem.validate_run` runs where a backend is built): each
+refusal has one raise site, before any buffer is allocated. The leaves' consistency
+with the state -- channel and component counts, axes, extents -- is ``validate``'s own
+and runs first. A problem can be assembled by something other than
+:func:`solprop.translate.assembly.assemble`, so nothing here relies on the assembly
 having refused it already.
 """
 
@@ -20,6 +22,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from solprop.exceptions import TranslationError
+from solprop.modes.tables import DEFAULT_GRAM_ATOL
 from solprop.translate.coupled import CoupledFlowTables, ModalMetricTables
 from solprop.translate.general import (
     MAX_DENSE_METRIC_DEPARTURE,
@@ -27,7 +30,7 @@ from solprop.translate.general import (
     metric_departure,
 )
 from solprop.translate.linop import LinearOperator
-from solprop.translate.modal_tables import DEFAULT_GRAM_ATOL, ModalTransformTables
+from solprop.translate.modal_tables import ModalTransformTables
 from solprop.translate.responses import RegionalResponseTables
 
 if TYPE_CHECKING:
@@ -42,7 +45,7 @@ def check_general_route(problem: "PropagationProblem") -> None:
     The coupled flow first: a metric or a table beside it is this route's refusal to
     make, not the general route's. Then the general modal route: the tables' own
     execution maps, an identity metric or the dense metric of a declared unitary change
-    of basis of one, the constant unit power weight, no legacy response beside the
+    of basis of one, the constant unit power weight, no channel response beside the
     route's own, per-region responses of a known model, and moving maps only beside the
     flow that carries their connection. Its field grid is the leaves' own structure's to
     require: a leaf's increasing frequency axis is ``grids.omega``, which an envelope
@@ -279,9 +282,9 @@ def _check_modal_route(problem: "PropagationProblem") -> None:
     **identity** metric -- the Poynting-normalised orthogonal basis the Gram gate
     certifies -- or the dense metric of a declared unitary change of basis of one, the
     constant unit power weight of a true-power amplitude, and the route's own
-    responses. A legacy response beside them is refused, because the route's source
-    replaces the node pipeline that would read it: it would be recorded and silently
-    not propagated.
+    responses. A channel response beside them is refused, because the route's source
+    replaces the channel node pipeline that would read it: it would be recorded and
+    silently not propagated.
     """
     tables = problem.transform.modal_tables
     metric = problem.linear.modal_metric
@@ -336,7 +339,7 @@ def _check_modal_route(problem: "PropagationProblem") -> None:
             f"{problem.linear.power_weight_representation}"
         )
         raise TranslationError(msg)
-    _check_legacy_responses(problem)
+    _check_channel_responses(problem)
     check_regional_responses(problem.responses.regional_responses)
 
 
@@ -408,10 +411,13 @@ def _check_moving_maps(problem: "PropagationProblem") -> None:
         raise TranslationError(msg)
 
 
-def _check_legacy_responses(problem: "PropagationProblem") -> None:
-    """Refuse a legacy response a general modal guide would carry and not propagate."""
+def _check_channel_responses(problem: "PropagationProblem") -> None:
+    """Refuse a channel response a general modal guide would carry and not propagate.
+
+    A channel response is one the channel routes' node pipeline evaluates.
+    """
     responses = problem.responses
-    legacy = [
+    carried = [
         name
         for name, present in (
             ("kerr_coefficients", responses.kerr_coefficients is not None),
@@ -428,12 +434,12 @@ def _check_legacy_responses(problem: "PropagationProblem") -> None:
         )
         if present
     ]
-    if legacy:
+    if carried:
         msg = (
             "solprop executes transform.modal_tables with its own "
-            "responses.regional_responses and no legacy response, and this problem "
-            f"also carries responses.{', responses.'.join(legacy)}: the general "
-            "route's source replaces the node pipeline that would read them, so they "
-            "would be recorded and not propagated"
+            "responses.regional_responses and no channel response, and this problem "
+            f"also carries responses.{', responses.'.join(carried)}: the general "
+            "route's source replaces the channel node pipeline that would read them, "
+            "so they would be recorded and not propagated"
         )
         raise TranslationError(msg)

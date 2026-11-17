@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 from march_bounds import assert_matched, march_bound
-from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.registry import available
 from solprop.backends.session import Start
 from solprop.driver import Simulation
@@ -74,7 +74,7 @@ def built(backend: str = "numpy_ref", *, fields: str = "none") -> Simulation:
 
 def _abandon_a_step(monkeypatch, *, after: int) -> None:
     """Raise out of the reference's step `after` source evaluations from the start."""
-    original = NumpyRefBackend._adams_lab_source
+    original = NumpyWorkspace.lab_source
     count = [0]
 
     def evaluate(self, lab, position, **keywords):
@@ -83,7 +83,7 @@ def _abandon_a_step(monkeypatch, *, after: int) -> None:
             raise AbandonedError
         return original(self, lab, position, **keywords)
 
-    monkeypatch.setattr(NumpyRefBackend, "_adams_lab_source", evaluate)
+    monkeypatch.setattr(NumpyWorkspace, "lab_source", evaluate)
 
 
 def test_a_step_abandoned_in_flight_leaves_no_checkpoint_and_says_why(
@@ -145,7 +145,7 @@ def test_a_stop_between_steps_checkpoints_as_ever(backend, tmp_path):
 def _abandon_natively(monkeypatch, *, after: int) -> None:
     """Fail the native session's step ``after + 1`` partway, its state overwritten.
 
-    The native engine's injected failure (``adams_march_fault``), armed as the session
+    The native engine's injected failure (``inject_fault``), armed as the session
     prepares the backend's state: the low-storage step raises after its passes and
     before its finish, the one way a native step is abandoned in flight.
     """
@@ -153,8 +153,12 @@ def _abandon_natively(monkeypatch, *, after: int) -> None:
     prepare = session._prepare
 
     def arming(self, backend, start):
+        from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+            _testing,
+        )
+
         prepared = prepare(self, backend, start)
-        backend._native_state.adams_march_fault("trial", after, "backend")
+        _testing.inject_fault(backend._workspace, "trial", after, "backend")
         return prepared
 
     monkeypatch.setattr(session, "_prepare", arming)
@@ -278,4 +282,4 @@ def test_a_step_abandoned_after_a_running_checkpoint_falls_back_to_it(
 
 def _translated(simulation):
     """Return a simulation's problem and its run's request."""
-    return simulation.translate(), simulation._run_request()
+    return simulation.translate(), simulation.run_request()

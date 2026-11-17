@@ -2,23 +2,24 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""A free-space plane, measured: what the live run, the Overview and the Plane show.
+"""Measure one free-space plane: the row the live run, the Overview and the Plane share.
 
-A spatial run's columns are field samples across the beam, which the modal readers
-refuse; it is measured by :mod:`solprop.spatial`'s functionals of the stored spectrum
-with the run's ``SpatialFlux`` (its grids and medium at the plane), and by the energy
-per frequency bin of the plane as ``processing.field_plane`` reads it. Both the run's
-worker (from the plane observer's ``PlaneView.stored`` and ``field_plane``) and the
-kernel (from the file) measure a plane here, so the live view and the results agree.
+A spatial run's columns are field samples, which the modal readers refuse; a plane is
+measured instead with :mod:`solprop.spatial`'s functionals and the run's
+``SpatialFlux``. Both the run's worker (:mod:`solprop.service.run`, from the plane
+observer's view) and the kernel (:mod:`solprop.service.results`, from the file) call
+:func:`beam_reading` here, so the live view and the results agree. Its three readings:
 
-Three readings make a free-space plane's row:
+- the energy per bin over the grid's active band, on wavelength and on frequency (per
+  bin, not a density, so either axis reads the same bins);
+- the axial power through the plane (``spatial_power``), within a bandpass if given;
+- the fluence across the beam's centre (``spatial_fluence``, :func:`across`): along r
+  for a radial grid, x for a line, and the row nearest y = 0 for a Cartesian grid.
 
-- the energy per bin over the grid's active band, on wavelength and on frequency
-  (energy per bin, not a density: the same bins read by either);
-- the axial power through the plane (``spatial_power``), within a bandpass if one is
-  given (the stored spectrum windowed by solprop's ``bandpass``);
-- the fluence across the beam's centre (``spatial_fluence``): along r for a radial
-  grid, along x for a line, and along the row nearest y = 0 for a Cartesian grid.
+:func:`profile_row` puts the fluence profile into a row, and :func:`beam_slice` gives
+the intensity across the centre against time. A radial, Cartesian or line beam's
+dedicated pages, read only from a finished file, are
+:mod:`solprop.service.radial_pages`.
 """
 
 from collections.abc import Mapping

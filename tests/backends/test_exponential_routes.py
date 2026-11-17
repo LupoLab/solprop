@@ -5,7 +5,7 @@
 """SEP 16 phase 2: the exponential formulation on every constant-operator route.
 
 The only route-specific part of the exponential formulation is its source sample,
-``HostDriver._adams_lab_source``: one evaluation of the route's own source pipeline,
+``NumpyWorkspace.lab_source``: one evaluation of the route's own source pipeline,
 untransported. On each route it must be the source the transported formulation
 evaluates when the anchor is the sample's own position, where the propagator is one;
 and a short run must reproduce the Runge-Kutta march's field. The routes are the
@@ -27,15 +27,13 @@ from bounds import (
     fft_bound,
 )
 from capability_routes import ROUTES
-from sessions.runs import adams_ledger
+from sessions.runs import adams_ledger, bare, final_field
 from sessions.runs import run as session_run
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
-
-pytestmark = pytest.mark.medium
 
 CONSTANT_ROUTES = [
     "gnlse",
@@ -62,9 +60,10 @@ def translated(route: str, integrator, rtol: float):
             "integrator": integrator,
         }
     )
-    return simulation, simulation.translate(), simulation._run_request()
+    return simulation, simulation.translate(), simulation.run_request()
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize("route", CONSTANT_ROUTES)
 def test_the_lab_frame_sample_is_the_route_source(route):
     simulation, problem, run_request = translated(
@@ -75,10 +74,10 @@ def test_the_lab_frame_sample_is_the_route_source(route):
     )
     try:
         rng = np.random.default_rng(5)
-        field = problem.initial.field0[None] * (1.0 + 0.1 * rng.standard_normal())
+        field = problem.initial.field0 * (1.0 + 0.1 * rng.standard_normal())
         position = 0.3 * float(run_request.stepper.save_planes[-1])
-        lab = backend._adams_lab_source(field, position)
-        transported, propagator = backend._adams_source(field, position, position)
+        lab = backend.workspace.lab_source(field, position)
+        transported, propagator = backend.workspace.source(field, position, position)
     finally:
         backend.close()
     # At equal anchor and position the transported source is multiplied by
@@ -88,7 +87,16 @@ def test_the_lab_frame_sample_is_the_route_source(route):
     assert_within(transported, lab, fft_bound(problem.grids.n_to), what="source")
 
 
-@pytest.mark.parametrize("route", CONSTANT_ROUTES)
+@pytest.mark.parametrize(
+    "route",
+    [
+        # slow by cost (#792): ~190 s on CI macOS; a functional check, not a witness
+        pytest.param(route, marks=pytest.mark.slow)
+        if route == "general guide (constant)"
+        else pytest.param(route, marks=pytest.mark.medium)
+        for route in CONSTANT_ROUTES
+    ],
+)
 def test_a_short_run_reproduces_runge_kutta(route):
     def final(integrator, rtol):
         simulation, problem, run_request = translated(route, integrator, rtol)
@@ -96,10 +104,7 @@ def test_a_short_run_reproduces_runge_kutta(route):
             problem, run_request, grid=simulation.grid, modes=simulation.modes
         )
         try:
-            backend.set_initial(problem.initial.field0, None)
-            for plane in run_request.stepper.save_planes:
-                backend.propagate_to(float(plane))
-            return backend.observe().require_field()
+            return final_field(backend, problem, bare(run_request), ended=True)
         finally:
             backend.close()
 
@@ -160,6 +165,7 @@ by 0.5 %, 1e-15 by 3 %, and 1e-14 takes its calls from 21 to 29 (23 to 31 multim
 """
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize("formulation", ["interaction", "exponential"])
 @pytest.mark.parametrize("route", CONSTANT_ROUTES)
 @pytest.mark.parametrize("backend_name", sorted(COMPILED_ADAMS))

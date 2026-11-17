@@ -12,9 +12,10 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from builders import load_reference, reference_trial
 from capability_routes import ROUTES
-from sessions.runs import load_native, native_trial
-from solprop.backends.protocol import stepping as host_stepping
+from sessions.runs import load_native
+from solprop.backends.numpy_ref.engines import NumpyRungeKutta
 from solprop.backends.registry import available, select
 from solprop.backends.session import SessionError, Start
 from solprop.driver import Simulation
@@ -31,6 +32,31 @@ def _built(name, backend):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
         return recipe.build()
+
+
+def low_storage_soliton(backend):
+    """Return an N = 1 soliton over 2 cm in eight fixed low-storage steps."""
+    length = 0.02
+    schedule = FixedSchedule.uniform(0.0, length, length / 8, save_planes=[length / 2])
+    return Simulation.from_gnlse(
+        0.11,
+        length,
+        [0.0, 0.0, -11.83e-27],
+        wavelength=835e-9,
+        wavelength_limits=(500e-9, 2e-6),
+        trange=1e-12,
+        width=100e-15,
+        peak_power=9.8,
+        shape="sech",
+        save_planes=[length / 2, length],
+        schedule=schedule,
+        integrator=LowStorageRungeKutta(),
+        backend=backend,
+        dz_max=schedule.max_step,
+        dz_init=schedule.max_step,
+        absorber=False,
+        noise=None,
+    )
 
 
 @pytest.mark.parametrize(
@@ -81,7 +107,7 @@ def test_the_output_size_counts_only_the_retained_fields():
 
 def test_a_low_storage_run_takes_four_calls_a_step():
     simulation = _built("soliton", "numpy_ref")
-    planes = list(simulation.settings.save_planes)
+    planes = list(np.asarray(simulation.settings.save_planes))
     schedule = FixedSchedule.uniform(
         0.0, planes[-1], planes[-1] / 200, save_planes=planes
     )
@@ -109,37 +135,20 @@ def test_a_low_storage_run_takes_four_calls_a_step():
 )
 def test_a_low_storage_estimate_times_the_march_s_own_step(backend, monkeypatch):
     # #492: the Runge-Kutta trial step isn't this march's; on native it has no views.
-    length = 0.02
-    schedule = FixedSchedule.uniform(0.0, length, length / 8, save_planes=[length / 2])
-    simulation = Simulation.from_gnlse(
-        0.11,
-        length,
-        [0.0, 0.0, -11.83e-27],
-        wavelength=835e-9,
-        wavelength_limits=(500e-9, 2e-6),
-        trange=1e-12,
-        width=100e-15,
-        peak_power=9.8,
-        shape="sech",
-        save_planes=[length / 2, length],
-        schedule=schedule,
-        integrator=LowStorageRungeKutta(),
-        backend=backend,
-        dz_max=schedule.max_step,
-        dz_init=schedule.max_step,
-        absorber=False,
-        noise=None,
-    )
+    simulation = low_storage_soliton(backend)
     taken = []
     build = estimate_module._timed_step
 
     def spy(constructed, problem, run_request):
         step, evaluations = build(constructed, problem, run_request)
-        monkeypatch.setattr(
-            constructed,
-            "_trial_step",
-            lambda *_: pytest.fail("a low-storage estimate took a trial step"),
-        )
+        # The reference's Runge-Kutta engine, built afresh for each run; native's
+        # trial runs inside its workspace, where nothing can be patched.
+        if constructed.name == "numpy_ref":
+            monkeypatch.setattr(
+                NumpyRungeKutta,
+                "trial",
+                lambda *_: pytest.fail("a low-storage estimate took a trial step"),
+            )
 
         def counted():
             taken.append(1)
@@ -158,7 +167,7 @@ def test_a_low_storage_estimate_times_the_march_s_own_step(backend, monkeypatch)
 def test_an_adams_run_takes_one_call_and_a_schedule_counts_its_total():
     assert _built("rdw", "numpy_ref").estimate().calls_per_step == 1
     simulation = _built("rdw", "numpy_ref")
-    planes = list(simulation.settings.save_planes)
+    planes = list(np.asarray(simulation.settings.save_planes))
     # Steps short enough for the Adams method's collar (h alpha / 2 below 0.0877).
     end = planes[-1]
     schedule = FixedSchedule.uniform(0.0, end, end / 2000, save_planes=planes)
@@ -196,7 +205,7 @@ BACKENDS = [
 
 def _backend(simulation):
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     return problem, select(
         simulation.settings.backend,
         problem,
@@ -207,24 +216,33 @@ def _backend(simulation):
     )
 
 
-def _native_committed_nothing(problem, probed, fresh, dz):
-    """Assert a native probe left its loaded state; return the native state's trial.
+def _native_trial(problem, fresh, dz):
+    """Return a fresh native workspace's trial from the launch, finished as kept.
 
-    The probed backend's native state holds the launch exactly, as a fresh native state
-    loaded with it does: nothing was committed. The trial is the same Runge-Kutta trial
-    from the launch, taken by a fresh native state itself on its staged rows and
-    finished as a kept step (SEP 47 phase 5: the native backend no longer steps or
-    observes outside its session).
+    The same Runge-Kutta trial from the launch the probe takes, taken by a fresh
+    native workspace's own engine (``_testing.engines``, SEP 52) and accepted.
     """
     assert problem.initial.noise0 is None
-    fresh._staged_rows()
-    state = load_native(fresh, problem.initial.field0, clear_fsal=False)
-    loaded = state.field_to_host()
-    held = probed._native_state.field_to_host()
+    _testing = pytest.importorskip("solprop_native._core")._testing
+    engines = _testing.engines(load_native(fresh, problem.initial.field0))
+    try:
+        engines.rk_trial(float(problem.initial.z), dz)
+        engines.rk_accept(dz)
+        return np.asarray(engines.field()).reshape(problem.shape)
+    finally:
+        engines.close()
+
+
+def _native_committed_nothing(problem, probed, fresh):
+    """Assert a native probe left its loaded state, the probe closed.
+
+    The probed backend's workspace holds the launch exactly, as a fresh workspace
+    loaded with it does: nothing was committed.
+    """
+    _testing = pytest.importorskip("solprop_native._core")._testing
+    loaded = _testing.field(load_native(fresh, problem.initial.field0))
+    held = _testing.field(probed._take_workspace())
     assert held.tobytes() == loaded.tobytes()
-    native_trial(fresh, float(problem.initial.z), dz)
-    state.finish(dz)
-    return np.asarray(state.field_to_host()).reshape(problem.shape)
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -242,7 +260,7 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
             probed.timing_probe(start)
         with pytest.raises(BackendError, match="take a trial"):
             probe.field()
-        dz = float(simulation._run_request().stepper.dz_init)
+        dz = float(simulation.run_request().stepper.dz_init)
         probe.trial()
         probe.trial(float(problem.initial.z), 0.5 * dz)
         half = probe.field()
@@ -254,30 +272,29 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
         with pytest.raises(BackendError, match="take a trial"):
             probe.field()
         if backend == "native":
-            trial = _native_committed_nothing(problem, probed, fresh, dz)
+            trial = _native_trial(problem, fresh, dz)
         else:
-            # Nothing was committed: no attempt, the launch position, the loaded state.
-            host_stepping(fresh).set_initial(
-                problem.initial.field0, None, z=problem.initial.z
+            # Nothing was committed: the probed workspace holds the loaded state.
+            expected = load_reference(
+                fresh, problem.initial.field0, z=problem.initial.z
             )
-            expected = host_stepping(fresh).observe()
-            observed = host_stepping(probed).observe()
-            assert observed.n_steps == 0
-            assert observed.z == problem.initial.z
-            assert observed.field is not None and expected.field is not None
-            assert np.array_equal(observed.field, expected.field)
+            observed = cast("Any", probed).workspace.committed()
+            assert np.array_equal(observed, expected)
             # The readback is the trial's own state as a kept step finishes it: the
             # same arithmetic again, on one thread layout in one process, so agreement
             # to a few roundings of the field's largest magnitude bounds it (SEP 25).
             stepping = cast("Any", fresh)  # the driver's own trial, as a kernel test
-            _, state = stepping._trial_step(float(problem.initial.z), dz)
-            trial = np.asarray(stepping._observed_field(stepping._finish(state, dz)))[0]
+            _, state = reference_trial(stepping, float(problem.initial.z), dz)
+            trial = np.asarray(stepping.workspace.finish(state, dz)[0])
         scale = float(np.max(np.abs(trial)))
         np.testing.assert_allclose(whole, trial, rtol=0.0, atol=64e-16 * scale)
         # A copy the probe owns: a later trial does not write to it.
         before = whole.copy()
         probe.trial(float(problem.initial.z), 0.25 * dz)
         assert np.array_equal(whole, before)
+        if backend == "native":
+            # Read once the probe is closed: it leases the workspace.
+            _native_committed_nothing(problem, probed, fresh)
     finally:
         probed.close()
         fresh.close()
@@ -285,27 +302,7 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
 
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_a_low_storage_probe_has_no_trial_field(backend):
-    length = 0.02
-    schedule = FixedSchedule.uniform(0.0, length, length / 8, save_planes=[length / 2])
-    simulation = Simulation.from_gnlse(
-        0.11,
-        length,
-        [0.0, 0.0, -11.83e-27],
-        wavelength=835e-9,
-        wavelength_limits=(500e-9, 2e-6),
-        trange=1e-12,
-        width=100e-15,
-        peak_power=9.8,
-        shape="sech",
-        save_planes=[length / 2, length],
-        schedule=schedule,
-        integrator=LowStorageRungeKutta(),
-        backend=backend,
-        dz_max=schedule.max_step,
-        dz_init=schedule.max_step,
-        absorber=False,
-        noise=None,
-    )
+    simulation = low_storage_soliton(backend)
     problem, probed = _backend(simulation)
     try:
         probe = probed.timing_probe(Start.entrance(problem))

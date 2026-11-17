@@ -18,7 +18,7 @@ from solprop.nonlinear.gnlse import SpecifiedMode
 from solprop.nonlinear.raman import DampedOscillator, RamanResponse, RamanTensorTerm
 from solprop.physdata.raman_types import Dephasing, Linewidth
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from vector_raman_tensor_oracle import (
     BUDGETS,
     JONES,

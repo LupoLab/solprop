@@ -52,8 +52,8 @@ from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
 from solprop.stepper.controller import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
-from solprop.translate.problem import assemble
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning"),
@@ -65,6 +65,7 @@ pytestmark = [
 ]
 
 solprop_native = pytest.importorskip("solprop_native")
+_testing = pytest.importorskip("solprop_native._core")._testing
 NativeBackend = solprop_native.NativeBackend
 
 NAMES = ("electron_density", "peak_ionisation_rate")
@@ -184,21 +185,19 @@ def step_by_step(backend, problem, run_request, *, recycle):
     next step's first, or dropped so that the next trial evaluates it afresh. Returns
     the state after the steps, and the steps taken.
     """
-    backend._staged_rows()
     state = load_native(backend, problem.initial.field0)
-    nodes = [float(node) for node in run_request.stepper.tableau.nodes]
     schedule = run_request.stepper.schedule
     assert schedule is not None
     edges = np.asarray(schedule.edges)
     for z, end in itertools.pairwise(edges):
         dz = float(end - z)
-        state.rk_trial(float(z), dz, nodes, prepare_only=False)
-        state.finish(dz)
+        _testing.rk_trial(state, float(z), dz)
+        _testing.finish(state, dz)
         if recycle:
-            state.promote_fsal()
+            _testing.promote_fsal(state)
         else:
-            state.clear_fsal()
-    field = np.asarray(state.field_to_host()).reshape(problem.shape).copy()
+            _testing.clear_fsal(state)
+    field = np.asarray(_testing.field(state)).reshape(problem.shape).copy()
     return field, edges.size - 1
 
 
@@ -241,7 +240,7 @@ def test_the_saving_does_not_change_the_answer():
         backend = NativeBackend(problem, run_request, grid=grid)
         try:
             field, taken = step_by_step(backend, problem, run_request, recycle=recycle)
-            return field, taken, backend._native_state.rk_source_evaluations
+            return field, taken, backend._diagnostics()["rk_source_evaluations"]
         finally:
             backend.close()
 
@@ -259,7 +258,7 @@ def test_the_saving_does_not_change_the_answer():
     try:
         session = session_run(backend, problem, run_request)
         assert committed_steps(session) == taken
-        assert backend._native_state.rk_source_evaluations == evaluated
+        assert backend._diagnostics()["rk_source_evaluations"] == evaluated
     finally:
         backend.close()
     if "1" in {

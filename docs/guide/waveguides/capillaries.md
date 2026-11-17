@@ -106,12 +106,13 @@ Launched into `HE_11` alone, the walled run puts energy into `HE_12` and `HE_13`
 incoherent one cannot, and what it leaves there is the Kerr overlap between the modes
 alone, many orders of magnitude smaller.
 
-**What the wall replaces.** It *is* the loss model: `loss=` must stay `True` (a scale,
-a curve or `False` beside a wall is refused rather than silently dropped), and
+**What the wall replaces.** It *is* the loss model: `alpha` and `loss_scale` must keep
+their defaults (an `alpha` or a `loss_scale` other than one beside a wall is refused
+rather than silently dropped), and
 `model="reduced"` is refused because the condensation inverts the full model's
 eigenvalue. A tube lattice (`lattice=`) is refused beside it: an antiresonant fibre's
 loss is its tubes' resonances, not a boundary condition at one radius. Two
-polarisations, a noise model and a fused batch are refused too, each by name.
+polarisations and a noise model are refused too, each by name.
 
 **Validity.** The condensation is quasi-static and paraxial. Three dimensionless ratios
 are computed for the highest retained mode over the band the run **scores** — the
@@ -261,14 +262,14 @@ a fixed bore moves no mode shape, so it carries no connection.
 A multimode capillary whose **radius** varies carries the connection **by default**,
 with or without a wall and lossless or not: the same frozen-residual flow as the walled
 taper, with the wall term zero and each mode's own propagation constant — its Marcatili
-index, with whatever `model=` and `loss=` it declares — on the diagonal. A lossless
-capillary (`loss=False`) is then a crude model of a low-loss anti-resonant fibre whose
+index, with whatever `model=`, `alpha=` and `loss_scale=` it declares — on the
+diagonal. A lossless capillary (`loss_scale=0.0`) is then a crude model of a low-loss anti-resonant fibre whose
 small-core tapers convert as they should. `taper_coupling=False` is the **explicit
 opt-out** to the adiabatic route, on which each mode follows its local shape and no
 power moves between them:
 
 ```python
-lossless = dict(common, loss=False, cladding=1.45)
+lossless = dict(common, loss_scale=0.0, cladding=1.45)
 coupled = prop_capillary(taper, length, "He", 1.0, **lossless)
 adiabatic = prop_capillary(taper, length, "He", 1.0, taper_coupling=False, **lossless)
 
@@ -299,7 +300,7 @@ adiabatic opt-out (dotted) converts nothing.
 What applies it, and what does not:
 
 * **Which sets.** The contiguous `HE_11` to `HE_1N` block of plain capillary modes,
-  `N >= 2`, on a varying radius ({func}`~solprop.modes.capillary.taper_coupling_block`).
+  `N >= 2`, on a varying radius ({func}`~solprop.modes.wall.taper_coupling_block`).
   One mode needs no connection, and a constant bore has none — a **pressure gradient**
   included, which changes each mode's index, carried on its own diagonal, but not its
   $J_0(u_m r/a)$ shape. A set the connection is not derived for (a tube lattice, a
@@ -380,7 +381,8 @@ print("HE_11, HE_12, EH_11, EH_12:", ", ".join(f"{share:.2e}" for share in share
 ```
 
 A supplied set carries its own geometry: the positional radius must agree with every
-mode's, and `model`, `loss` or `cladding` away from their defaults must be the modes' own;
+mode's, and `model`, `alpha`, `loss_scale` or `cladding` away from their defaults must be
+the modes' own;
 a disagreement is refused by name rather than silently ignored. A `TE_0m` or `TM_0m` launch has no field on the axis, so the
 ionisation table's default range is read from the peak over the axis and the run's own
 transverse nodes, where the plasma is evaluated; `ionisation_field_range=` still

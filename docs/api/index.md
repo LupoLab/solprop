@@ -20,13 +20,13 @@ In scripts and library code, import from the home modules listed below.
 
 | module | what it holds |
 |---|---|
-| {mod}`solprop.driver` | the entry points `prop_gnlse`, `prop_capillary`, `prop_waveguide`, `prop_radial`, `prop_free` and `prop_planar`, the `Simulation` object behind them, and `run_problem`, the loop over save planes that takes a translated problem, a constructed backend, an output handler and a `Start` (`solprop.backends.session.Start.entrance(problem)` for a fresh run), which the run loads into the backend, for a batch runner of your own |
+| {mod}`solprop.driver` | the entry points `prop_gnlse`, `prop_capillary`, `prop_waveguide`, `prop_free` and `prop_planar`, the `Simulation` object behind them (`Simulation.translate()` and `Simulation.run_request()` give the problem and the run request a backend is selected with), and `run_problem`, the loop over save planes that takes a translated problem, a constructed backend, an output handler and a `Start` (`solprop.backends.session.Start.entrance(problem)` for a fresh run), which the run loads into the backend, for a batch runner of your own |
 | {mod}`solprop.grid` | time and frequency grids (`FieldGrid`, `EnvelopeGrid`) and the free-space transverse grids (`RadialGrid`, `FreeGrid`, `LineGrid`) |
 | {mod}`solprop.pulses` | initial pulses: `GaussianPulse`, `SechPulse`, `CustomPulse`, `DataPulse`, `TimeDataPulse`, `load_spectrum` (a measured spectrum and phase from a text file), and spatial and planar pulses |
 | {mod}`solprop.profiles` | quantities that vary along z: radius, pressure and temperature profiles such as `PiecewiseLinear` and `PressureGradient` |
 | {mod}`solprop.gasflow` | the steady gas flow of a pressure gradient: `steady_fill`, choked ends, `flow_report` |
 | {mod}`solprop.boundaries` | absorbing boundaries in time and frequency |
-| {mod}`solprop.stepper` | the Runge–Kutta tableaux, the low-call Adams methods (`multistep`), the step-size controller and fixed step schedules (`FixedSchedule`) |
+| {mod}`solprop.stepper` | the Runge–Kutta tableaux, the low-call Adams methods (`multistep`), the step-size controller, fixed step schedules (`FixedSchedule`) and the stepper section a run request carries (`StepperSettings`) |
 | {mod}`solprop.noise` | shot-noise realisations |
 | {mod}`solprop.recipe` | recipes: a run written as TOML (`Recipe`, with `check`, `build`, `run`, `save` and `to_python`), values pinned to a design target (`solprop.recipe.pins`, `Recipe.resolve`, `Recipe.pin_roots`), the parameter metadata a front end reads (`parameters`), and the quantity parser and formatter (`solprop.recipe.quantity`) ([recipes and the command line](../guide/setup/recipes.md)) |
 | {mod}`solprop.driver.defaults` | the route defaults in one table (`ROUTE_DEFAULTS`): integrators, tolerances, noise and collar schemes, and the functions that resolve them |
@@ -36,7 +36,7 @@ In scripts and library code, import from the home modules listed below.
 
 | module | what it holds |
 |---|---|
-| {mod}`solprop.modes` | waveguide modes: Marcatili capillary modes and the `CoherentWall`, antiresonant, rectangular, slab and [tabulated](tabulated.md) modes, the step-index and graded-index providers, and `ModalGuide` for the general modal route |
+| {mod}`solprop.modes` | waveguide modes: Marcatili capillary modes and the `CoherentWall`, antiresonant, rectangular, slab and [tabulated](tabulated.md) modes, the step-index and graded-index providers, `ModalGuide` for the general modal route, and the derived quantities of any mode (`beta2`, `zdw`, `aeff`, `db_per_m`, … from {mod}`solprop.modes.base`, also exported by `solprop.modes`) |
 | {mod}`solprop.nonlinear` | the nonlinear responses — Kerr, Raman, plasma and ionisation — and the mode-averaged GNLSE |
 | {mod}`solprop.nonlinear.tdse` | frozen helium TDSE physics, calibration, sampling and execution declarations, the haCC basis, the atomic window and the consistency policy ([the TDSE response](../guide/media/tdse.md#declaring-a-response)) |
 | {mod}`solprop.driver.tdse` | atomic preset resolution (`basis_from_preset`, the haCC `hacc_preset` and `hacc_basis`); its binding interfaces are for developers |
@@ -68,7 +68,7 @@ In scripts and library code, import from the home modules listed below.
 | {mod}`solprop.sol` | the interactive namespace |
 | {mod}`solprop.log`, {mod}`solprop.driver.summary` | logging and progress reporting (`configure_logging`), and the summary a run shows before its first step |
 | {mod}`solprop.exceptions` | every error and warning solprop raises, under `SolpropError` and `SolpropWarning` |
-| {mod}`solprop.cli` | the `solprop` command: run, check and export a recipe, and launch a scan |
+| {mod}`solprop.cli` | the `solprop` command: run, resume, check and export a recipe, launch a scan, and calibrate the native backend |
 | {mod}`solprop.scan` | the command-line launcher of a scan script |
 
 **Internals.** {mod}`solprop.translate` turns the physics objects into the kernel problem
@@ -96,22 +96,32 @@ transport
    solprop
 ```
 
-## The loss specification and the evanescent floor
+## The loss keywords and the evanescent floor
 
 Every gas-filled hollow mode — the capillary's `MarcatiliMode`, the rectangular
-`RectMode`, the planar `SlabMode` and the antiresonant modes — takes its `loss=` in one
-vocabulary, `LossSpec`, and its full model floors the real part of the effective index
-at `EVANESCENT_INDEX_FLOOR` far below the band, where the square root would otherwise
-turn evanescent. Both are defined in {mod}`solprop.modes.fill` and are also importable
-from {mod}`solprop.modes.capillary` and {mod}`solprop.modes`; they are documented here
+`RectMode`, the planar `SlabMode`, the antiresonant `VincettiMode` and the tabulated
+hollow modes — takes its loss in one vocabulary, shared with `prop_capillary`, the
+`ModeCollection` factories and the capillary design tools:
+
+- `loss_scale` (default `1.0`) multiplies the model's own loss: `1.0` is the model,
+  `0.0` lossless. It must be finite and non-negative.
+- `alpha` (default `None`) replaces the model's loss by an **absolute** power
+  attenuation coefficient in 1/m: a number, or a callable `alpha(omega)`, which may
+  carry its analytic slope as a `derivative` attribute. Only the imaginary part of the
+  effective index changes, `Im n_eff = c alpha / (2 omega)`.
+
+The two are alternatives: an `alpha` beside a `loss_scale` other than one is refused.
+`StepIndexMode` and the GNLSE's `SpecifiedMode` have no model loss to scale, and take
+`alpha` alone, with `0.0` (lossless) as the default.
+
+The full model of a hollow mode floors the real part of the effective index at
+`EVANESCENT_INDEX_FLOOR` far below the band, where the square root would otherwise
+turn evanescent. It is defined in {mod}`solprop.modes.fill` and is also importable
+from {mod}`solprop.modes.capillary` and {mod}`solprop.modes`; it is documented here
 under both module paths.
 
 ```{eval-rst}
-.. autodata:: solprop.modes.fill.LossSpec
-
 .. autodata:: solprop.modes.fill.EVANESCENT_INDEX_FLOOR
-
-.. autodata:: solprop.modes.capillary.LossSpec
 
 .. autodata:: solprop.modes.capillary.EVANESCENT_INDEX_FLOOR
 ```

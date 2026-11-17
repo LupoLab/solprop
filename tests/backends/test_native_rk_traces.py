@@ -5,7 +5,7 @@
 """The native Runge-Kutta march against the decision corpus (SEP 45 section 7.2).
 
 ``tests/data/rk_traces.json.gz`` holds the decisions solprop's march made on scripted
-norms before SEP 45 refactored it. The native march (``native/src/rk_march.cpp``),
+norms before SEP 45 refactored it. The native march (``native/src/march/rk_march.cpp``),
 driven through its adapter on a scripted engine, must make every one of them: each
 attempt's step and norm, acceptance, landing, the start-up rule, the caps, natural
 stops, and how it stopped -- at a call's bound of one attempt, seven, and the default,
@@ -29,6 +29,7 @@ from tests.backends.native_trace_marches import TraceRungeKuttaMarch
 from tests.backends.rk_traces import Scenario, _HostHarness, same_trace
 
 from solprop.backends import available
+from solprop.backends.records import RungeKuttaPolicy
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper.schedule import FixedSchedule, reached
 
@@ -36,7 +37,7 @@ pytestmark = pytest.mark.skipif(
     "native" not in available(), reason="native is not installed"
 )
 backend_module = pytest.importorskip("solprop_native.backend")
-core = pytest.importorskip("solprop_native._core")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 CORPUS = Path(__file__).parents[1] / "data" / "rk_traces.json.gz"
 
@@ -104,7 +105,7 @@ class _NativeHarness(_HostHarness):
         self._natural_count += 1
 
 
-def _policy_free(harness: _NativeHarness) -> dict[str, object]:
+def _policy_free(harness: _NativeHarness) -> RungeKuttaPolicy:
     return TraceRungeKuttaMarch(harness)._policy()
 
 
@@ -122,7 +123,7 @@ def run_native(scenario: Scenario, max_attempts: int) -> dict[str, Any]:
     if schedule is not None:
         steps = np.ascontiguousarray(schedule.steps, dtype=np.float64)
         edges = np.ascontiguousarray(schedule.edges, dtype=np.float64)
-    runner = core.ScriptedRkMarch(policy, norms, scenario.h0 or 0.0, steps, edges)
+    runner = _testing.ScriptedRkMarch(policy, norms, scenario.h0 or 0.0, steps, edges)
     harness = _NativeHarness(scenario, runner)
     march = TraceRungeKuttaMarch(harness, runner=runner)
     march.MAX_ATTEMPTS = max_attempts

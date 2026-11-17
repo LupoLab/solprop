@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 __all__ = ["CallLedger", "Derivative", "budget_error", "source_absent"]
 
-_State = Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+_State = Complex[np.ndarray, "n_modes n_pol n_omega"]
 
 
 @dataclass
@@ -211,19 +211,6 @@ def _decoded_orders(runs: object, steps: int) -> list[int]:
 
     - ``runs``: the record's ``orders``: ``[order, count]`` pairs of positive integers.
     """
-    if (
-        isinstance(runs, list)
-        and runs
-        and all(isinstance(one, int) and not isinstance(one, bool) for one in runs)
-    ):
-        # Development builds between two releases share the output schema, and
-        # those before the encoding wrote one order per step (#80). Read as pairs,
-        # such a list would be refused for its shape alone; it is named instead.
-        raise BackendError(
-            "the record's predictor orders are in the flat form an earlier "
-            "development build wrote, one order per step, not the [order, count] "
-            "pairs this build reads: rerun the case, or read it with that build"
-        )
     if not isinstance(runs, list) or not all(
         isinstance(run, list)
         and len(run) == 2
@@ -257,7 +244,7 @@ class Derivative:
         Where the derivative was evaluated, m.
     value : numpy.ndarray or None
         The history store's row, complex128 of shape
-        ``(n_batch, n_modes, n_pol, n_omega)``, or ``None`` for an engine that keeps
+        ``(n_modes, n_pol, n_omega)``, or ``None`` for an engine that keeps
         its rows resident (the native state).
     identity : str
         Which field it was evaluated at: ``"accepted"``, or ``"predicted"`` for the

@@ -71,9 +71,9 @@ it.
 The condensation is onto the *complete* set of $J_0$ radial orders, so the block needs the
 contiguous set $\mathrm{HE}_{11}$ to $\mathrm{HE}_{1N}$ — `modes=N` on the capillary route
 builds exactly that — sharing one polarisation angle, one capillary model and one
-declared guide. A sparse set, a mixed family, two polarisations, the
-`modified` noise model and a fused batch are refused by name, each at the layer that
-owns the refusal. The `input` noise model is admitted
+declared guide. A sparse set, a mixed family, two polarisations and the
+`modified` noise model are refused by name, each at the layer that owns the
+refusal. The `input` noise model is admitted
 ([SEP 37](../../dev/seps/archive/sep-0037-noise-and-stepper-defaults.md), section 6): its
 draw is part of the launch, one photon per channel and bin in the $\mathrm{HE}_{1m}$
 set, which is orthonormal in true power (real Bessel profiles, orthogonal on the core,
@@ -85,8 +85,9 @@ beside it.
 
 Two settings are refused rather than quietly overridden, because the block *is* what they
 describe. **The wall is the loss model**: it replaces each channel's Marcatili
-attenuation, so `loss=` must be `True` — `False`, a scale or a measured curve beside a
-wall would otherwise vanish without a word, and is refused by name instead. And the
+attenuation, so `alpha` and `loss_scale` must keep their defaults — a `loss_scale` of
+zero or another scale, or a measured `alpha`, beside a wall would otherwise vanish
+without a word, and is refused by name instead. And the
 condensation inverts the **full** model's transverse eigenvalue, so `model="reduced"` is
 refused too. A tube lattice is refused for the same kind of reason: an antiresonant
 guide's loss is its tubes' resonances, not a Robin condition at one radius, so
@@ -101,7 +102,7 @@ channel, say how far the block is from its assumptions:
 
 They are computed over the **scored band** — the run's `grid.inband_mask`, the requested
 wavelength limits the step's error norm measures — and recorded on the run's identity.
-Above {attr}`~solprop.modes.capillary.CoherentWall.validity_limit` (default 0.25) the
+Above {attr}`~solprop.modes.wall.CoherentWall.validity_limit` (default 0.25) the
 block is refused, and above a tenth of it the construction warns, naming the ratio. The
 operator itself is built over the wider **active band** (`grid.active_mask`), whose
 spectral collar reaches half the lowest requested frequency; the collar is absorbed and
@@ -209,13 +210,13 @@ certificate the leaf carries — the Schur reconstruction residual and unitary d
 amplified by the departure from normality, and a bound
 $\exp(\Delta z_{\max}(\mu_{\max}-\mu_{\min}))$ on $\|U\|\,\|U^{-1}\|$ — is **checked**
 against the measured action at every step rather than trusted. A step whose
-$\|U\|\,\|U^{-1}\|$ exceeds {attr}`~solprop.modes.capillary.CoherentWall.condition_limit`
+$\|U\|\,\|U^{-1}\|$ exceeds {attr}`~solprop.modes.wall.CoherentWall.condition_limit`
 (default $10^4$, about nine e-foldings of attenuation of the lossiest retained channel in
 one step) is refused, because the inverse action carries the interaction-picture source
 back and an unbounded inverse would amplify it. Over ten steps the coupled route costs
 about 1.4 times the uncoupled one for a single channel and about 1.8 times for eight.
 
-{func}`~solprop.modes.capillary.wall_square_root_metric` builds the square-root model
+{func}`~solprop.modes.wall.wall_square_root_metric` builds the square-root model
 $c' = iBc$ and its candidate flux metric $W = (B+B^{\rm H})/2k$ as a **diagnostic**. Its
 identity $d(c^{\rm H}Wc)/dz = -c^{\rm H}(M-M^{\rm H})c/2ik$ is exact algebra for a
 constant real positive carrier and that is the whole of its domain: it does not establish
@@ -267,7 +268,7 @@ A **taper** or a **pressure gradient** is carried too; a taper without a wall ca
 the same connection ([the taper coupling without a wall](taper-coupling.md#the-taper-coupling-without-a-wall)). The run is cut into
 sections — the linear operator's own intervals, which already land on
 every declared corner of the radius and the fill, subdivided
-{attr}`~solprop.modes.capillary.CoherentWall.sections` times — and inside each one the
+{attr}`~solprop.modes.wall.CoherentWall.sections` times — and inside each one the
 *complete* generator is **frozen at the midpoint** and integrated by the Schur
 matrix-function action a constant bore uses ([above](#how-it-is-propagated)). What the
 freezing leaves out is put back exactly, as an explicit term in the Runge-Kutta source:

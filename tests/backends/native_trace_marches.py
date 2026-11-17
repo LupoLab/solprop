@@ -7,8 +7,8 @@
 The native session runs the compiled Adams and Runge-Kutta marches (``adams_march.cpp``,
 ``rk_march.cpp``) to an event and holds their state natively. The decision-trace tests
 hold those marches to the reference's decisions on identical scripted readings
-(``adams_traces.py``, ``rk_traces.py``): a scripted native march
-(``_core.ScriptedMarch``, ``_core.ScriptedRkMarch``) is driven a call at a time over a
+(``adams_traces.py``, ``rk_traces.py``): a scripted native march (the private test
+module's ``ScriptedMarch``, ``ScriptedRkMarch``) is driven a call at a time over a
 scripted host backend, each call's attempts booked into the harness as the reference
 books its own. That driving
 loop is the adapter the native backend used before SEP 47 phase 5 moved every native run
@@ -17,16 +17,18 @@ into its session; it lives here, beside the harnesses it drives, and serves only
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import math
 import time
 from typing import Any, ClassVar, cast
+from unittest import mock
 
 import numpy as np
 import pytest
 
 from solprop._interrupts import committing
-from solprop.backends import rk_core
+from solprop.backends import records, rk_core
 from solprop.backends.ledger import Derivative, budget_error
 from solprop.exceptions import BackendError, ResponseBudgetError
 from solprop.monitor import BoundaryEnergies, BoundaryMonitor
@@ -34,8 +36,10 @@ from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule, reached, replay_tolerance
 
 backend_module = pytest.importorskip("solprop_native.backend")
+march_module = pytest.importorskip("solprop_native._march")
 session_module = pytest.importorskip("solprop_native.session")
 native = pytest.importorskip("solprop_native")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 WATCH_POLICY_FIELDS = (
     "split",
@@ -70,16 +74,15 @@ WATCH_STATE_FIELDS = (
 change, compared with solprop's monitor after every drain (SEP 45 section 4.8)."""
 
 SPLIT_RATE_BUCKETS = __import__("solprop.boundaries", fromlist=["x"]).SPLIT_RATE_BUCKETS
-_REACHED = backend_module._REACHED
-_HOST_STEP = backend_module._HOST_STEP
-_MONITOR = backend_module._MONITOR
-_WATCH = backend_module._WATCH
-_FLOOR = backend_module._FLOOR
-_BUDGET = backend_module._BUDGET
-_DIVERGED = backend_module._DIVERGED
-_DENSE = backend_module._DENSE
-_ResidentAdams = backend_module._ResidentAdams
-_envelope_errors = backend_module._envelope_errors
+_REACHED = march_module._REACHED
+_HOST_STEP = march_module._HOST_STEP
+_MONITOR = march_module._MONITOR
+_WATCH = march_module._WATCH
+_FLOOR = march_module._FLOOR
+_BUDGET = march_module._BUDGET
+_DIVERGED = march_module._DIVERGED
+_DENSE = march_module._DENSE
+_envelope_errors = march_module._envelope_errors
 _raise_rk = session_module._raise_rk
 
 logger = logging.getLogger(__name__)
@@ -144,7 +147,7 @@ def _verify_watch_of(monitor: BoundaryMonitor, result: dict[str, Any]) -> None:
         )
 
 
-class TraceAdamsMarch(backend_module._NativeAdamsMarch):
+class TraceAdamsMarch(march_module._NativeAdamsMarch):
     """The native Adams record, driven a call at a time over a scripted harness.
 
     Parameters
@@ -158,14 +161,20 @@ class TraceAdamsMarch(backend_module._NativeAdamsMarch):
     """
 
     def __init__(self, backend: Any, method: Multistep, *, runner: Any) -> None:
-        super().__init__(
-            backend, method, engine=backend._adams_engine(method, "transported")
-        )
+        engine = backend._adams_engine(method, "transported")
+        # The record reads its carrier frame from the backend's problem; the scripted
+        # harness's engine holds its own.
+        with mock.patch.object(
+            backend_module, "carrier_reference", lambda *_: engine.carrier
+        ):
+            super().__init__(backend, method, engine=engine)
         self._driver: Any = backend
         self._runner = runner
         self._ahead: tuple[float, object] | None = None
+        # Whether the run interpolates its planes (ADR-036, ADR-039).
+        self._interpolate = bool(backend._stepper.interpolate_planes)
 
-    def _configure(self) -> None:
+    def _configure(self, *_: object) -> None:
         """Configure nothing: the scripted runner takes the policy itself."""
 
     def _observe(self, position: float) -> object:
@@ -193,7 +202,7 @@ class TraceAdamsMarch(backend_module._NativeAdamsMarch):
             self.ledger.total,
             backend._z,
             cost,
-            backend._adams_state()[0].copy(),
+            backend._adams_state().copy(),
         )
 
     def march_to(self, target: float) -> None:
@@ -317,6 +326,8 @@ class TraceAdamsMarch(backend_module._NativeAdamsMarch):
         """Return the bridge march's state as the native call takes it."""
         backend = self._driver
         state = self.start_state(backend._z, backend._proposal, backend._schedule_index)
+        # The call takes a plain dict where the record keeps a read-only mapping.
+        state["watch"] = dict(cast("dict[str, object]", state["watch"]))
         if watching:
             state["watch"] = backend._monitor.watch_state()
         return state
@@ -408,13 +419,13 @@ class TraceAdamsMarch(backend_module._NativeAdamsMarch):
         """Run the native march from `state` to an event within `bounds`."""
         if self._runner is not None:
             return self._runner.run(state, bounds)
-        native = self._driver._native_state
+        workspace = self._driver._workspace
         with _envelope_errors():
-            return native.adams_march_run(state, bounds)
+            return _testing.adams_march_run(workspace, state, bounds)
 
     def _synchronise(self, result: dict[str, Any]) -> None:
         """Adopt the state a native call handed back."""
-        backend, engine = self._driver, self._engine
+        backend = self._driver
         state = result["state"]
         backend._z = float(state["z"])
         backend._proposal = float(state["proposal"])
@@ -424,27 +435,16 @@ class TraceAdamsMarch(backend_module._NativeAdamsMarch):
         self._last_rejected = bool(state["last_rejected"])
         self._collar_was_quiet = bool(state["collar_was_quiet"])
         self._history = [
-            Derivative(
-                float(z), None, "predicted" if predicted else "accepted", int(slot)
-            )
-            for z, predicted, slot in state["history"]
+            Derivative(float(entry["z"]), None, entry["identity"], int(entry["row"]))
+            for entry in state["history"]
         ]
         ledger = self.ledger
         for name, value in state["ledger"].items():
             setattr(ledger, name, int(value))
         ledger.orders.extend(int(order) for order in result["orders"])
-        if isinstance(engine, _ResidentAdams):
-            step = None
-            if result["stepped"]:
-                order = int(result["step_order"])
-                nodes = [1.0, *(float(node) for node in result["step_nodes"][:order])]
-                step = (float(result["step_z"]), float(result["step_dz"]), nodes)
-            engine.march_stepped(
-                step, fused=self._fused, carrier=list(result["step_carrier"])
-            )
 
 
-class TraceRungeKuttaMarch(session_module._NativeRungeKuttaMarch):
+class TraceRungeKuttaMarch:
     """The native Runge-Kutta policy, its march driven a call at a time.
 
     Parameters
@@ -456,7 +456,7 @@ class TraceRungeKuttaMarch(session_module._NativeRungeKuttaMarch):
     """
 
     def __init__(self, backend: Any, runner: Any = None) -> None:
-        super().__init__(backend)
+        self._driver: Any = backend
         self._runner = runner
         self._replaying: FixedSchedule | None = None
 
@@ -465,11 +465,16 @@ class TraceRungeKuttaMarch(session_module._NativeRungeKuttaMarch):
         monitor = self._driver._monitor
         return None if monitor is None else float(monitor.interval)
 
-    def _policy(self, interval: float | None = None) -> dict[str, object]:
-        """Return the record with the harness's quiet interval."""
-        return super()._policy(self._interval() if interval is None else interval)
+    def _policy(self, interval: float | None = None) -> records.RungeKuttaPolicy:
+        """Return the harness's policy record (kernel contract 12), with its monitor's
+        quiet interval unless `interval` is given."""
+        backend = self._driver
+        policy = records.runge_kutta_policy(backend._problem, backend._stepper)
+        return dataclasses.replace(
+            policy, quiet_interval=self._interval() if interval is None else interval
+        )
 
-    def _configure(self) -> None:
+    def _configure(self, *_: object) -> None:
         """Configure nothing: the scripted runner takes the policy itself."""
 
     MAX_ATTEMPTS: int = 256
@@ -515,8 +520,8 @@ class TraceRungeKuttaMarch(session_module._NativeRungeKuttaMarch):
     def replay_to(self, schedule: FixedSchedule, target: float) -> None:
         """Replay the contract's schedule to `target` on the native march.
 
-        ``HostDriver._replay_to``, a call of steps at a time: the steps as given, never
-        rejected, the edges hit exactly.
+        ``RungeKuttaMarch.replay_to``, a call of steps at a time: the steps as given,
+        never rejected, the edges hit exactly.
 
         Parameters
         ----------
@@ -605,6 +610,7 @@ class TraceRungeKuttaMarch(session_module._NativeRungeKuttaMarch):
             "z": float(backend._z),
             "proposal": float(backend._proposal),
             "norms": [float(norm) for norm in backend._accepted_norms],
+            "watch": dict(march_module.FRESH_WATCH),
             "cursor": int(backend._schedule_index),
         }
         if watching:
@@ -680,7 +686,7 @@ class TraceRungeKuttaMarch(session_module._NativeRungeKuttaMarch):
     ) -> bool:
         """Finish the accepted step across an interpolated plane, as the reference.
 
-        `HostDriver._march_to`'s acceptance, line for line: the accepted-step hook
+        `RungeKuttaMarch.march_to`'s acceptance, line for line: the accepted-step hook
         `_record` makes, the step's extension from the state before it, the finish and
         the commit, the norm, the start-up rule, the proposal, the statistics and the
         natural stop. The native march returned the step accepted and unfinished.
@@ -709,7 +715,7 @@ class TraceRungeKuttaMarch(session_module._NativeRungeKuttaMarch):
         if self._runner is not None:
             return self._runner.run(state, bounds)
         with _envelope_errors():
-            return self._driver._native_state.rk_march_run(state, bounds)
+            return _testing.rk_march_run(self._driver._workspace, state, bounds)
 
     def _raise(self, reason: int, result: dict[str, Any]) -> None:
         """Raise the error a call returned with, if any."""

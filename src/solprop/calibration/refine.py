@@ -4,20 +4,17 @@
 
 """Stage 2: refine the workspace settings for one simulation (SEP 46 section 6.6).
 
-The machine profile fits the native backend to the machine; a costly campaign can
-then fit it to its own simulation. :func:`refine` builds fresh workspaces from the
-simulation's translated problem in the calling process, under the process's record
-and under each candidate's, and never touches the simulation's state, output or
-callbacks. The candidates are the operation-grain moves of the simulation's own work
-sizes (:mod:`solprop.calibration.grain`), each timed by trial steps of the
-simulation's own operators at positions spread along its length, interleaved with the
-base record and admitted by §6.5's rule; the winners are validated together. Speed
-alone never admits a candidate: every candidate's trial steps must end finite and
-within ten times the run's relative tolerance of the base's (section 12 item 4).
-
-The result is stored under the simulation's execution descriptor
-(``_profile.descriptor``), and every later run or scan point with an equal descriptor
-applies it while the machine profile it refined still holds.
+The machine profile fits the native backend to the machine; :func:`refine` then fits it
+to one costly simulation, returning a :class:`RefinementReport`. It times the
+operation-grain moves of the simulation's own work sizes
+(:mod:`solprop.calibration.grain`) by trial steps of fresh workspaces at
+:data:`POSITIONS` positions along its length (``_Windows``), in :data:`ROUNDS`
+interleaved rounds, never touching the simulation's state, output or callbacks; a
+candidate's steps must agree with the base's to within :data:`ACCURACY` times the
+run's relative tolerance. The result is stored under the simulation's execution
+descriptor and applied by every later run with an equal one. The manual page is
+``docs/guide/performance/calibration.md`` ("Refining one simulation"); the design is
+``docs/dev/backends.md`` (section 3.4a).
 """
 
 from __future__ import annotations
@@ -119,10 +116,10 @@ class _Windows:
         )
 
         problem = simulation.translate()
-        stepper = simulation._run_request().stepper
+        stepper = simulation.run_request().stepper
         self.backend = NativeBackend(
             problem,
-            simulation._run_request(),
+            simulation.run_request(),
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -316,7 +313,7 @@ def _refine(
             "inconclusive", "", reason="SOLPROP_CALIBRATION=off: no profile to refine"
         )
     problem = simulation.translate()
-    rtol = float(simulation._run_request().stepper.controller.rtol)
+    rtol = float(simulation.run_request().stepper.controller.rtol)
     base_record = cast(dict[str, int | bool], native.EXECUTION.native())
     opened = [_Windows(simulation, None)]
     base = opened[0]
@@ -328,7 +325,7 @@ def _refine(
             # problem (SEP 47 section 6.2) are found again.
             shape=(1, *problem.shape),
             grid_kind=problem.grid_kind,
-            integrator=type(simulation._run_request().stepper.integrator).__name__,
+            integrator=type(simulation.run_request().stepper.integrator).__name__,
             sizing=sizing,
             process=native.PROCESS,
             fingerprint=native.PROFILE.fingerprint.digest,

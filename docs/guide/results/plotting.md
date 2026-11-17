@@ -52,8 +52,8 @@ their labels ({py:func}`~solprop.plotting.style.per_width`).
 {py:func}`~solprop.plotting.propagation.prop_2d` is the figure most runs are looked at
 through: the spectral energy density in decibels beside the instantaneous power, both
 against distance. A multimode run gets one figure per mode and a last one for the modal
-sum; a single-mode run gets one figure. The spectral abscissa is frequency by default
-and may be `"wavelength"` or `"omega"`; the colour scale runs down to `db_min`
+sum; a single-mode run gets one figure. The spectral abscissa is wavelength by default,
+as on every plot, and may be `"f"` or `"omega"`; the colour scale runs down to `db_min`
 (−60 dB). The decibel scale is **shared**, normalised by the
 peak of the modal sum, so the modes are comparable, the sum's map peaks at 0 dB and no
 map goes above it.
@@ -64,9 +64,12 @@ displayed beside would be circular.
 The spectral window `spec_range` is in the SI units of the abscissa, as everywhere in
 {py:mod}`solprop.processing`: metres on `"wavelength"`, hertz on `"f"` and rad/s on
 `"omega"`, so a frequency map can start at zero, which no wavelength range can say. The
-same holds for `spec_1d` and `spectrogram`. Left out, it is a fixed wavelength range
-converted to the abscissa; {py:func}`~solprop.plotting.style.wavelength_to_axis` makes
-that conversion for anyone who thinks in wavelength:
+same holds for `spec_1d` and `spectrogram`. Left out, it is the band the run's grid was
+declared over (its `wavelength_limits`) on the abscissa
+({py:func}`~solprop.plotting.propagation.default_spec_range`), so an ultraviolet, a
+near-infrared and a mid-infrared run each fill their figure.
+{py:func}`~solprop.plotting.style.wavelength_to_axis` converts a wavelength range for
+anyone who thinks in wavelength:
 
 ```python
 from solprop.plotting import prop_2d, wavelength_to_axis
@@ -86,11 +89,19 @@ prop_2d(output, "omega", spec_range=wavelength_to_axis("omega", (600e-9, 1100e-9
    from solprop.plotting import prop_2d
    from solprop.processing import example_output
 
-   figure = prop_2d(example_output(), "wavelength", spec_range=(600e-9, 1100e-9),
+   figure = prop_2d(example_output(), spec_range=(600e-9, 1100e-9),
                     time_range=(-100e-15, 100e-15))[0]
    figure.set_size_inches(9.5, 3.4)
    figure.tight_layout()
 ```
+
+`time_range`, in seconds, works the same way on the temporal panel, `time_1d` and
+`spectrogram`. Left out, it is where the drawn light is
+({py:func}`~solprop.plotting.propagation.default_time_range`): from the earliest instant
+any drawn trace (each plane of a map, each slice) has passed 0.05 % of its energy to the
+latest it has passed 99.95 %, widened by a quarter of that span on each side and kept
+within the run's time window. A few-cycle pulse and a picosecond fibre pulse both fill
+their figure, and a map follows a pulse that walks off or spreads along the run.
 
 ## The slices
 
@@ -100,7 +111,7 @@ fibre: a colour per position, a dash pattern per mode (the patterns repeat when 
 are more modes than patterns), and the width at half maximum
 appended to each temporal legend entry. `time_1d` draws the power, the real field or its
 square; `spec_1d` draws the density on any of the three abscissae, logarithmic by default
-over six decades.
+down to `db_min` (−60 dB, six decades) below the peak.
 
 ```{eval-rst}
 .. plot::
@@ -175,7 +186,8 @@ axis and the values, per unit of that axis, with the same gate and a `bandpass=`
    import numpy as np
    from solprop.grid import EnvelopeGrid
    from solprop.output import MemoryOutput
-   from solprop.output.schema import GridRecord, RunMetadata, SavedPlane, StepperRecord
+   from solprop.output.metadata import RunMetadata
+   from solprop.output.records import GridRecord, SavedPlane, StepperRecord
    from solprop.plotting import spectrogram
    from solprop.pulses import GaussianPulse
 

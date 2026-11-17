@@ -68,7 +68,7 @@ def test_alpha_is_positive_for_a_lossy_mode(mode):
 
 
 def test_alpha_vanishes_for_a_lossless_mode():
-    lossless = MarcatiliMode(125e-6, "He", 1.0, loss=False)
+    lossless = MarcatiliMode(125e-6, "He", 1.0, loss_scale=0.0)
     np.testing.assert_array_equal(alpha(lossless, band()), 0.0)
 
 
@@ -135,7 +135,7 @@ def test_beta2_matches_the_second_derivative_of_a_mode_with_a_known_expansion():
     on BETA2_RELATIVE_STEP; 1e-7 leaves room for a mode with more structure.
     """
     radius = 50e-6
-    evacuated = MarcatiliMode(radius, model="reduced", cladding=1.45, loss=False)
+    evacuated = MarcatiliMode(radius, model="reduced", cladding=1.45, loss_scale=0.0)
     omega = band(16)
     coefficient = evacuated.u_nm**2 * C / (2.0 * radius**2)
     expected = -2.0 * coefficient / omega**3
@@ -148,16 +148,11 @@ def test_beta3_matches_the_third_derivative_of_a_mode_with_a_known_expansion():
     1.5e-6 relative at the chosen step (BETA3_RELATIVE_STEP); 5e-6 leaves room.
     """
     radius = 50e-6
-    evacuated = MarcatiliMode(radius, model="reduced", cladding=1.45, loss=False)
+    evacuated = MarcatiliMode(radius, model="reduced", cladding=1.45, loss_scale=0.0)
     omega = band(16)
     coefficient = evacuated.u_nm**2 * C / (2.0 * radius**2)
     expected = 6.0 * coefficient / omega**4
     assert np.max(np.abs(beta3(evacuated, omega) / expected - 1.0)) < 5e-6
-
-
-def test_beta3_refuses_a_non_positive_frequency(mode):
-    with pytest.raises(ModeError, match="beta3 differences beta1"):
-        beta3(mode, np.array([0.0]))
 
 
 def test_beta2_is_negative_above_the_zero_dispersion_wavelength(mode):
@@ -169,11 +164,6 @@ def test_beta2_is_negative_above_the_zero_dispersion_wavelength(mode):
     """
     assert np.all(beta2(mode, omega_of(np.linspace(500e-9, 950e-9, 16))) < 0.0)
     assert beta2(mode, omega_of(np.array([440e-9])))[0] > 0.0
-
-
-def test_beta2_refuses_a_non_positive_frequency(mode):
-    with pytest.raises(ModeError, match="must be positive"):
-        beta2(mode, np.array([0.0]))
 
 
 def test_the_beta2_step_is_documented_and_small():
@@ -231,7 +221,7 @@ def test_the_default_window_is_lunas():
         "He",
         0.4,
         model="reduced",
-        loss=True,
+        loss_scale=1.0,
         susceptibility=borzsonyi("He"),
         cladding=fused_silica(model="fit/SiO2"),
         temperature=293.15,
@@ -262,7 +252,7 @@ def test_loss_length_and_db_per_m_are_the_conversions(mode):
 
 
 def test_loss_length_is_infinite_for_a_lossless_mode():
-    lossless = MarcatiliMode(125e-6, "He", 1.0, loss=False)
+    lossless = MarcatiliMode(125e-6, "He", 1.0, loss_scale=0.0)
     assert np.all(np.isinf(loss_length(lossless, band())))
 
 
@@ -281,7 +271,7 @@ def test_the_stored_luna_loss_agrees_to_the_cladding_data_difference():
         "He",
         1.0,
         model="reduced",
-        loss=True,
+        loss_scale=1.0,
         cladding=fused_silica(model="fit/SiO2"),
         temperature=293.15,
     )
@@ -332,9 +322,17 @@ def test_transmission_composes_over_adjacent_sections():
     np.testing.assert_allclose(whole, halves, rtol=1e-9)
 
 
-def test_transmission_refuses_a_negative_length(mode):
-    with pytest.raises(ModeError, match="must not be negative"):
-        transmission(mode, band(), -1.0)
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        (lambda mode: beta3(mode, np.array([0.0])), "beta3 differences beta1"),
+        (lambda mode: beta2(mode, np.array([0.0])), "must be positive"),
+        (lambda mode: transmission(mode, band(), -1.0), "must not be negative"),
+    ],
+)
+def test_a_dispersion_or_loss_query_outside_its_domain_is_refused(mode, call, message):
+    with pytest.raises(ModeError, match=message):
+        call(mode)
 
 
 # ----------------------------------------------------------------------- aeff

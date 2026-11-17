@@ -24,11 +24,18 @@ import sys
 import threading
 from typing import Any, cast
 
+import numpy as np
 import pytest
 
 from driver.test_interrupts import AfterStep, needs_default_sigterm, planes_of
 from driver.test_resume import CrashError
-from driver.test_resume_history import RTOL, assert_accurate_run, soliton, tight_run
+from driver.test_resume_history import (
+    RTOL,
+    assert_accurate_run,
+    coupled,
+    soliton,
+    tight_run,
+)
 from march_bounds import TIGHTER
 from solprop.backends import available, sessions
 from solprop.backends.session import DEFAULT_WORK_LIMIT
@@ -41,28 +48,33 @@ from solprop.stepper.multistep import Multistep
 
 pytestmark = [
     pytest.mark.skipif("native" not in available(), reason="native is not installed"),
+    # The fixtures, borrowed from test_resume_history, launch noise-free into time
+    # windows kept tight for speed: the boundary monitor warns at the launch (SEP 21),
+    # and the window's edge is not what this module tests.
     pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
 ]
 
 backend_module = pytest.importorskip("solprop_native.backend")
-NativeAdamsMarch = backend_module._NativeAdamsMarch
+NativeAdamsMarch = pytest.importorskip("solprop_native._march")._NativeAdamsMarch
 NativeSession = pytest.importorskip("solprop_native.session").NativeSession
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 
 def with_fault(monkeypatch, stage: str, after: int, category: str) -> list[Any]:
     """Arm a native failure (or, for ``"sigint"`` and ``"sigterm"``, a signal raised in
-    the native call) when the run's march is first configured, before a session leases
-    the state; return the marches it was armed on."""
+    the native call) when the first run's session is prepared, before it leases the
+    workspace; return the backends it was armed on."""
     armed: list[Any] = []
-    configure = NativeAdamsMarch._configure
+    prepare = NativeSession._prepare
 
-    def arming(self):
-        configure(self)
+    def arming(self, backend, start):
+        run = prepare(self, backend, start)
         if not armed:
-            self._backend._native_state.adams_march_fault(stage, after, category)
-            armed.append(self)
+            _testing.inject_fault(backend._workspace, stage, after, category)
+            armed.append(backend)
+        return run
 
-    monkeypatch.setattr(NativeAdamsMarch, "_configure", arming)
+    monkeypatch.setattr(NativeSession, "_prepare", arming)
     return armed
 
 
@@ -118,6 +130,56 @@ def test_a_native_failure_raises_its_class_at_the_last_accepted_step(
     state = resume(part)
     assert state.march is not None
     assert state.march.z == state.outcome.z  # pyright: ignore[reportOptionalMemberAccess]
+
+
+SOURCE_PATHS = {
+    "elementwise": (lambda build_simulation: soliton(build_simulation, "native"), 30),
+    "fused": (
+        lambda build_simulation: soliton(
+            build_simulation, "native", integrator=Multistep(formulation="interaction")
+        ),
+        30,
+    ),
+    "coupled": (lambda _: coupled("native"), 2),
+}
+"""The native trial's three source evaluations -- the exponential march's elementwise
+trial, the interaction formulation's fused trial and a coherent wall's coupled flow --
+each with the trials before its failure, within its run."""
+
+
+# The coherent wall's warnings, as the resume tests that run it take them.
+@pytest.mark.filterwarnings("ignore:the temporal absorber attenuates a packet")
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.GrazingIncidenceWarning")
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+@pytest.mark.parametrize("path", SOURCE_PATHS)
+def test_a_failure_inside_a_trial_s_source_leaves_the_accepted_state(
+    build_simulation, tmp_path, monkeypatch, path
+):
+    # Issue #129: a trial evaluates its source with its prediction standing in the
+    # state. A failure there must leave the accepted state, checkpointed and
+    # snapshotted, as the same failure before the prediction does: the two runs make
+    # the same attempts, and a prediction left behind differs by a step's change.
+    make, after = SOURCE_PATHS[path]
+    build = make(build_simulation)
+    stops = {}
+    for stage in ("trial", "trial_source"):
+        part = tmp_path / f"{stage}.h5"
+        with monkeypatch.context() as patch:
+            with_fault(patch, stage, after, "backend")
+            with pytest.raises(RuntimeError, match="an injected native failure"):
+                build().run(part, progress="none")
+        assert_consistent_stop(part)
+        stops[stage] = resume(part)
+    before, inside = stops["trial"], stops["trial_source"]
+    assert before.checkpoint is not None and inside.checkpoint is not None
+    assert before.march is not None and inside.march is not None
+    assert inside.checkpoint.plane.z == before.checkpoint.plane.z > 0.0
+    for found, accepted in (
+        (inside.checkpoint.plane.field, before.checkpoint.plane.field),
+        (inside.march.state, before.march.state),
+    ):
+        scale = np.linalg.norm(accepted)
+        assert np.linalg.norm(np.asarray(found) - accepted) <= 1e-12 * scale
 
 
 @pytest.mark.medium

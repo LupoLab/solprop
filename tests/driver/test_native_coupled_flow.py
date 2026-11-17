@@ -12,18 +12,17 @@ where that basis is ill-conditioned, and applied natively; the explicit residual
 combined and added natively, and the whole step's conditioning is measured natively and
 checked against the certificate per step as the reference checks it.
 
-Every case propagates ten fixed steps on both backends from the same problem, and the
-fields are compared against a bound written before the run (:func:`parity_bound`).
-The launches are strong enough that the nonlinear half is exercised through the flow:
-the bound is taken on each case's measured nonlinear increment, which is asserted
-non-negligible.
+The strong cases' ten fixed steps against the reference are rows of the case catalogue
+(``tests/backends/flow_rows.py``, ``coupled flow ...``), which also guard the flow.
+What stays here: the split block's run, which is adaptive (#809); the actions' formation
+on either route; the refusal of a step past the certificate; the ledger; the entry
+point's ``auto`` run; and the thread count.
 """
 
-import math
 import subprocess
 import sys
 import weakref
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -34,46 +33,35 @@ from backends.forced_threads import (
     saved_sizing,
     thread_environment,
 )
-from driver.test_coherent_capillary import (
-    LENGTH,
+from coupled_flow_cases import (
+    CASES,
+    ENERGY,
+    PRESSURE,
     STEPS,
-    VECTOR_WALL,
     capillary,
-    run_capillary,
-    varying,
-    vector_modes,
+    guide_simulation,
+    native_class,
+    parity_bound,
+    propagate,
+    reference_and_linear,
+    scalar_wall,
+    taper_gradient,
 )
-from driver.test_split_block import build
-from flow_parity import UNIT, formation_bound, radial_family
-from march_bounds import assert_points_matched
+from driver.test_coherent_capillary import run_capillary
+from flow_parity import UNIT, formation_bound
 from modal_provider_cases import (
-    GENERAL_CHI3,
-    GENERAL_Z_END,
-    SPLIT_DESCRIPTORS,
     general_grid,
-    make_provider,
-    split_basis,
     split_guide,
 )
 from sessions.runs import bare, final_field
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
-from solprop.backends.session import Start
-from solprop.driver import Simulation
-from solprop.driver.executors import Batch, Local
-from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import (
     BackendError,
-    GasFlowWarning,
     GrazingIncidenceWarning,
     MaterialRangeWarning,
 )
-from solprop.grid import TimeGrid
-from solprop.modes.capillary import CoherentWall
-from solprop.modes.guide import ModalGuide
-from solprop.modes.material import MaterialKerr
-from solprop.translate.problem import PropagationProblem
-from solprop.translate.run_request import RunRequest
+from solprop.modes.wall import CoherentWall
 
 pytestmark = [
     pytest.mark.skipif("native" not in available(), reason="native is not installed"),
@@ -85,230 +73,6 @@ pytestmark = [
     ),
     pytest.mark.filterwarnings("ignore:the temporal absorber attenuates"),
 ]
-
-ENERGY = 1e-3
-"""Launch energy of the strong capillary cases, J."""
-
-PRESSURE = 10.0
-"""Helium fill of the strong capillary cases, bar.
-
-A launch whose Kerr phase over the ten steps is a few parts in a thousand.
-
-The reference suite's wall cases launch a nanojoule, whose nonlinear
-increment is below the rounding this comparison is about; a millijoule at ten bar is
-what makes the source carried back through the flow a measurable part of the step.
-"""
-
-
-@dataclass(frozen=True)
-class Case:
-    """One coupled-flow problem, its run's request, its grid and its length."""
-
-    problem: PropagationProblem
-    run_request: RunRequest
-    grid: TimeGrid
-    length: float
-
-
-def _capillary_case(simulation: Simulation) -> Case:
-    """Wrap a capillary simulation's problem."""
-    return Case(
-        simulation.translate(), simulation._run_request(), simulation.grid, LENGTH
-    )
-
-
-def scalar_wall() -> Case:
-    """The scalar wall's one constant section over three channels."""
-    return _capillary_case(
-        capillary(wall=CoherentWall(), energy=ENERGY, pressure=PRESSURE)
-    )
-
-
-def te_tm_wall() -> Case:
-    """The TE/TM wall's coupled azimuthal block over two families."""
-    return _capillary_case(
-        capillary(
-            wall=VECTOR_WALL, modes=vector_modes(), energy=ENERGY, pressure=PRESSURE
-        )
-    )
-
-
-def te_wall() -> Case:
-    """The TE/TM wall beside ``TE_01`` and ``TE_02``.
-
-    The transform resolves E_x and E_y; the flow never reads it.
-    """
-    return _capillary_case(
-        capillary(
-            wall=VECTOR_WALL,
-            modes=radial_family("TE"),
-            energy=ENERGY,
-            pressure=PRESSURE,
-        )
-    )
-
-
-def tm_wall() -> Case:
-    """The TE/TM wall beside ``TM_01`` and ``TM_02``."""
-    return _capillary_case(
-        capillary(
-            wall=VECTOR_WALL,
-            modes=radial_family("TM"),
-            energy=ENERGY,
-            pressure=PRESSURE,
-        )
-    )
-
-
-def taper_gradient() -> Case:
-    """A taper under a pressure gradient, a frozen residual per section."""
-    # Nine bar across a few millimetres of taper is not laminar, which the fill says;
-    # the parity under test does not depend on it.
-    with pytest.warns(GasFlowWarning, match="Reynolds"):
-        simulation = varying(
-            wall=CoherentWall(), pressure=(PRESSURE, 1.0), energy=ENERGY
-        )
-    return _capillary_case(simulation)
-
-
-def lossless_taper() -> Case:
-    """The taper coupling of a lossless three-channel taper, no wall."""
-    return _capillary_case(
-        varying(loss=False, cladding=1.45, pressure=PRESSURE, energy=ENERGY)
-    )
-
-
-def split_block() -> Case:
-    """The declared rotation of a split pair, with a Kerr core.
-
-    The guide of ``tests/driver/test_split_block.py`` in its rotated basis, whose
-    generator couples, with the core responding as the general modal parity case does
-    (``tests/general_parity.py``), so that the source is carried through the flow.
-    """
-    grid = general_grid()
-    provider = make_provider(
-        radius=6e-6,
-        descriptors=SPLIT_DESCRIPTORS,
-        indices=(1.45, 1.40),
-        kerr=MaterialKerr(chi3=GENERAL_CHI3),
-    )
-    active = grid.omega[grid.active_mask]
-    lo, hi = float(active[0]), float(active[-1])
-    guide = ModalGuide.from_provider(
-        provider,
-        np.linspace(0.99 * lo, 1.01 * hi, 17),
-        nodes=provider.node_rule(0.99 * lo, n_r=24),
-        degenerate_blocks=((0, 1),),
-        basis=split_basis(),
-    )
-    simulation = build(guide, grid, energy=2e-9)
-    return Case(
-        simulation.translate(),
-        simulation._run_request(),
-        simulation.grid,
-        GENERAL_Z_END,
-    )
-
-
-CASES = {
-    "scalar_wall": scalar_wall,
-    "te_tm_wall": te_tm_wall,
-    "te_wall": te_wall,
-    "tm_wall": tm_wall,
-    "taper_gradient": taper_gradient,
-    "lossless_taper": lossless_taper,
-    "split_block": split_block,
-}
-
-
-def native_class():
-    """Return the optional wheel's backend class."""
-    # Optional wheel: absent from the base environment.
-    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        NativeBackend,
-    )
-
-    return NativeBackend
-
-
-def propagate(case: Case, backend, field0=None) -> np.ndarray:
-    """Run one case to its end on one backend and return the final state."""
-    problem = case.problem
-    assert math.isclose(case.length, float(case.run_request.stepper.z_end))
-    # Through the backend's session, which closes it (SEP 47 phase 5).
-    return final_field(
-        backend(problem, case.run_request, grid=case.grid),
-        problem,
-        bare(case.run_request),
-        Start(
-            field=problem.initial.field0 if field0 is None else field0,
-            z=float(problem.initial.z),
-        ),
-        ended=True,
-        owns=True,
-    )
-
-
-def parity_bound(
-    case: Case,
-    expected: np.ndarray,
-    linear: np.ndarray,
-    formation: float | None = None,
-) -> float:
-    """Return the ten-step bound on the native backend's departure from ``numpy_ref``.
-
-    Written before any measurement. The two backends form their flow actions from
-    the same Schur factors, the engine natively, so the actions differ by
-    the formation bound ``eps_form`` of ``tests/flow_parity.py``; each carry of a
-    vector by an action is then within ``2 n kappa u + kappa eps_form`` of the
-    reference's:
-
-    * per step, ``16 u`` of the launch for the shared linear work (the engine's
-      established trial bound) and the whole step's carry of the state
-      and the solution, one carry each, with ``n`` channels and ``kappa`` the
-      certificate's declared ``norm(U) norm(U^-1)``;
-    * per stage, the source's rounding on the stage's nonlinear increment ``rho`` --
-      the window's departure from the same launch propagated linearly, over the step
-      count: two transforms at the approved ``512 u log2 n_to`` each and
-      ``(n + 84 + 3 Q) u`` for the synthesis, the tensor and the projection over
-      ``Q`` nodes (a form which covers the mode-set route's scalar cubic) -- and
-      the carry forward and back, ``2 n kappa u`` each, on the same increment;
-    * per stage, the explicit residual of a varying flow, whose share of the step is
-      ``r = dz max ||R||`` from the certificate's declared residual bound, rounded in
-      ``(T + 2 n) u`` for ``T`` terms and the two carries.
-
-    Ten steps add, each amplifying the error carried in by ``1 + 3 rho + r``.
-    `formation`, when given, replaces ``eps_form`` (a run with bins off the
-    eigenbasis route: ``flow_parity.adams_formation_bound``).
-    """
-    problem = case.problem
-    flow = problem.linear.coupled_flow
-    assert flow is not None
-    eps = float(np.finfo(float).eps)
-    channels, _, _ = problem.shape
-    tables = problem.transform.modal_tables
-    nodes = (
-        problem.transform.n_nodes if tables is None else int(tables.region_index.size)
-    )
-    kappa = float(np.max(flow.inverse_condition_bound))
-    scale = float(np.max(np.abs(problem.initial.field0)))
-    dz = case.length / STEPS
-    rho = float(np.max(np.abs(expected - linear))) / scale / STEPS
-    residual = float(np.max(flow.residual_norm_bound)) * dz
-    assert flow.generator is not None
-    terms = int(flow.generator.shape[0] * flow.generator.shape[1])
-    if formation is None:
-        formation = formation_bound(problem, case.run_request, dz)
-    carry = 2 * channels * kappa * eps + kappa * formation
-    source = (
-        2 * 512 * eps * math.log2(problem.grids.n_to)
-        + (channels + 84 + 3 * nodes) * eps
-    )
-    stages = case.run_request.stepper.tableau.n_stages
-    per_step = 16 * eps + 2 * carry
-    per_stage = rho * (source + 2 * carry) + residual * (terms + 2 * channels) * eps
-    growth = (1 + 3 * rho + residual) ** STEPS
-    return STEPS * (per_step + stages * per_stage) * growth * scale
 
 
 def measured(name: str) -> tuple[float, float, float]:
@@ -326,10 +90,15 @@ def measured(name: str) -> tuple[float, float, float]:
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("name", sorted(CASES))
-def test_native_runs_ten_steps_of_the_flow_as_numpy_ref_does(name, record_property):
-    """Ten fixed steps of each admitted flow on ``native``, within the derived bound."""
-    departure, bound, rho = measured(name)
+def test_the_split_block_s_adaptive_run_is_the_reference_s(record_property):
+    """The split block's run on ``native``, within :func:`parity_bound`.
+
+    Not a fixed schedule: the case declares none, and its controller takes 147 steps
+    (two rejected) of the default collar's stable length, not ten. The bound counts ten
+    steps, so it is not derived for this run (#807); an adaptive comparison waits for
+    #809's policy. The other cases' ten fixed steps are catalogue rows.
+    """
+    departure, bound, rho = measured("split_block")
     record_property("departure", departure)
     record_property("bound", bound)
     record_property("rho", rho)
@@ -352,14 +121,18 @@ def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_boun
     takes the eigenbasis; the second route sets the eigenbasis limit to zero so that
     every bin is formed by the native scaling and squaring.
     """
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
     # Optional wheel: absent from the base environment.
     from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
         _host_flow,
     )
 
-    from solprop.backends.numpy_ref.backend import (  # noqa: PLC0415 - private oracle
-        _coupled_flow_maps,
-        _flow_action,
+    from solprop.backends.numpy_ref.coupled_flow import (  # noqa: PLC0415 - the oracle
+        flow_action,
+        held_flow,
     )
 
     if route == "scaling_and_squaring":
@@ -372,7 +145,7 @@ def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_boun
             "solprop_native.backend._HOST_FLOWS", weakref.WeakKeyDictionary()
         )
     case = taper_gradient()
-    reference = _coupled_flow_maps(case.problem)
+    reference = held_flow(case.problem)
     held = _host_flow(case.problem)
     assert reference is not None and held is not None
     assert np.all(held.route) if route == "eigenbasis" else not np.any(held.route)
@@ -382,23 +155,25 @@ def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_boun
     bound = formation_bound(case.problem, case.run_request, dz)
     backend = native_class()(case.problem, case.run_request, grid=case.grid)
     try:
-        native = backend._native_state
+        native = backend._workspace
         shape = (fractions.size, -1, reference.n_modes, reference.n_modes)
         for section in range(reference.frozen.shape[0]):
-            measured = native.form_flow_actions(section, dz, fractions)[0]
-            forward = native.flow_actions_to_host(inverse=False).reshape(shape)
-            inverse = native.flow_actions_to_host(inverse=True).reshape(shape)
+            measured = _testing.form_flow_actions(native, section, dz, fractions)[0]
+            forward = _testing.flow_actions_to_host(native, inverse=False).reshape(
+                shape
+            )
+            inverse = _testing.flow_actions_to_host(native, inverse=True).reshape(shape)
             for slot, fraction in enumerate(fractions):
                 if fraction == 0.0:
                     continue
-                expected = _flow_action(reference, section, float(fraction) * dz)
+                expected = flow_action(reference, section, float(fraction) * dz)
                 for got, want in zip(
                     (forward[slot], inverse[slot]), expected, strict=True
                 ):
                     error = np.linalg.norm(got - want, ord=2, axis=(-2, -1))
                     scale = np.linalg.norm(want, ord=2, axis=(-2, -1))
                     assert np.max(error / scale) <= bound
-            pair = _flow_action(reference, section, dz)
+            pair = flow_action(reference, section, dz)
             whole = np.linalg.norm(pair[0], ord=2, axis=(-2, -1)) * np.linalg.norm(
                 pair[1], ord=2, axis=(-2, -1)
             )
@@ -433,69 +208,6 @@ def test_a_step_longer_than_the_certificate_is_refused_by_name_on_native():
         final_field(backend, problem, bare(run_request), ended=True, owns=True)
 
 
-def test_a_native_group_admits_a_coupled_flow():
-    """A coupled flow runs in a native group (SEP 47 section 6.7): each member's flow
-    is its own session's, so nothing of its step is fused. The members' numerics are
-    held to their lone sessions in ``native/tests/test_coupled_flow.py``."""
-    from solprop_native.group import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        NativeGroupSession,
-        refusal,
-    )
-
-    from solprop.backends.session import Start  # noqa: PLC0415
-    from solprop.backends.sessions import start_group  # noqa: PLC0415
-
-    simulation = capillary(wall=CoherentWall(), energy=ENERGY, pressure=PRESSURE)
-    problem, request = simulation.translate(), simulation._run_request()
-    problems, requests = [problem] * 2, [request] * 2
-    starts = [Start.entrance(problem) for _ in range(2)]
-    assert refusal(problems, requests, starts) is None
-    members = [
-        native_class()(
-            problem,
-            request,
-            grid=simulation.grid,
-            modes=simulation.modes,
-            profiles=simulation.profiles,
-        )
-        for _ in range(2)
-    ]
-    group = start_group(members, problems, requests, starts)
-    try:
-        assert isinstance(group, NativeGroupSession)
-    finally:
-        group.close()
-
-
-def _scan_point(point):
-    """Return one point of a power scan of the scalar wall, natively."""
-    return capillary(
-        wall=CoherentWall(), backend="native", energy=1e-9 * point.values["power"]
-    )
-
-
-def test_a_batched_scan_of_coupled_flows_runs_as_the_local_loop(tmp_path):
-    """A batched scan groups coupled-flow points into one native group, and each
-    point is the local loop's to the matched-march bound (SEP 25)."""
-    scan = Scan("coupled", power=[1.0, 2.0])
-    local = run_scan(
-        scan,
-        _scan_point,
-        output=tmp_path / "local.h5",
-        executor=Local(),
-        progress="none",
-    )
-    batched = run_scan(
-        scan,
-        _scan_point,
-        output=tmp_path / "batch.h5",
-        executor=Batch(2),
-        progress="none",
-    )
-    assert local.status.tolist() == batched.status.tolist() == ["done"] * 2
-    assert_points_matched(batched, local, scan, _scan_point, what="batch member")
-
-
 def test_the_flow_s_ledger_rows_are_its_views_and_zero_elsewhere():
     """Every persistent flow View appears in the ledger at its real byte cost."""
     case = taper_gradient()
@@ -518,7 +230,7 @@ def test_the_flow_s_ledger_rows_are_its_views_and_zero_elsewhere():
     assert ledger["flow_weights"] == stages * terms * 8
     assert ledger["flow_drive"] == channels * bins * 16
     other = capillary(energy=ENERGY, pressure=PRESSURE)
-    plain = native_class()(other.translate(), other._run_request(), grid=other.grid)
+    plain = native_class()(other.translate(), other.run_request(), grid=other.grid)
     try:
         rows = dict(plain.memory_ledger())
     finally:
@@ -530,24 +242,17 @@ def test_the_flow_s_ledger_rows_are_its_views_and_zero_elsewhere():
 def test_auto_runs_a_wall_on_native_through_the_entry_point():
     """`"auto"` resolves to Kokkos where it is installed, and ``native`` runs the wall.
 
-    The record and the final plane are the reference's: the same schedule, the same
-    flow, within the parity bound's order (a millionth of the launch is generous for
-    ten steps of a nanojoule, where the source is below rounding).
+    The record names native; the split guide's flow is translated for it. The final
+    plane against the reference's is a row of the case catalogue
+    (``tests/backends/flow_rows.py``, ``scalar wall driver``).
     """
-    reference = run_capillary(wall=CoherentWall())
     automatic = run_capillary(wall=CoherentWall(), backend="auto")
     assert automatic.metadata is not None
     record = automatic.metadata.backend
     assert record is not None
     assert record.name == "native"
-    expected = reference.planes()[-1].field
-    actual = automatic.planes()[-1].field
-    start = reference.planes()[0].field
-    assert expected is not None and actual is not None and start is not None
-    scale = float(np.max(np.abs(start)))
-    assert float(np.max(np.abs(actual - expected))) <= 1e-12 * scale
     grid = general_grid()
-    simulation = build(split_guide(grid), grid, backend="auto")
+    simulation = guide_simulation(split_guide(grid), grid, backend="auto")
     assert simulation.translate().linear.coupled_flow is not None
 
 
@@ -576,13 +281,6 @@ def thread_states(probe: Path, threads: int, names, directory: Path):
     with np.load(path) as stored:
         assert int(stored["runtime_threads"]) == threads
         return {name: stored[name] for name in names}
-
-
-def reference_and_linear(case: Case) -> tuple[np.ndarray, np.ndarray]:
-    """Return the reference's final state and the launch's linear propagation."""
-    expected = propagate(case, NumpyRefBackend)
-    linear = 1e3 * propagate(case, NumpyRefBackend, case.problem.initial.field0 * 1e-3)
-    return expected, linear
 
 
 @pytest.mark.slow

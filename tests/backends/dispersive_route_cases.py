@@ -5,7 +5,7 @@
 """SEP 6's dispersive electronic response: the spatial and general routes' cases.
 
 The problems, measurements and rounding bound of a compiled backend's ladder on these
-routes (``test_native_dispersive_routes.py``) against ``numpy_ref``, which applies the
+routes (``dispersive_rows.py``) against ``numpy_ref``, which applies the
 multipliers at every node and is the oracle.
 
 **The bounds are derived from summation lengths**, as on the fused path
@@ -28,11 +28,6 @@ import numpy as np
 from bounds import gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from modal_provider_cases import GENERAL_Z_END, WAVELENGTH, general_grid
-from sessions.runs import native_source
-from sessions.runs import run as session_run
-from sessions.runs import summary as run_summary
-from solprop.backends.numpy_ref.passes import apply_hard_mask
-from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import SolpropWarning
@@ -41,14 +36,16 @@ from solprop.modes import PlanarGrid, SlabMode, StepIndexMode
 from solprop.modes.guide import ModalGuide
 from solprop.modes.material import GasKerr, IndexMaterial, MaterialKerr, MaterialRegion
 from solprop.nonlinear.raman import response_for
+from solprop.nonlinear.responses import DispersiveKerrResponse
 from solprop.physdata import MaterialSelection, Mixture
 from solprop.physdata.nonlinear_data import OptmatKerr
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
+from solprop.translate.assembly import assemble
 from solprop.translate.general import general_modal_route
-from solprop.translate.problem import PropagationProblem, Translation, assemble
+from solprop.translate.problem import PropagationProblem, Translation
 from solprop.translate.responses import KerrForm
 from solprop.translate.run_request import RunRequest
 
@@ -139,7 +136,7 @@ def planar_problem(
     grid = FieldGrid.from_limits(
         PLANAR_LENGTH, 800e-9, (200e-9, 3e-6), 100e-15, **LEGACY_GRID
     )
-    modes = [SlabMode(HALF_GAP, "Ar", 2.0, order=p, loss=False) for p in (1, 3)]
+    modes = [SlabMode(HALF_GAP, "Ar", 2.0, order=p, loss_scale=0.0) for p in (1, 3)]
     pulse = PlanarPulse(
         GaussianPulse(wavelength=800e-9, fwhm=15e-15, energy=2e-4),
         3e-4,
@@ -170,7 +167,7 @@ def planar_problem(
             settings=settings,
             materials=MaterialSelection(),
         )
-        return simulation.translate(), simulation._run_request(), simulation.grid
+        return simulation.translate(), simulation.run_request(), simulation.grid
 
 
 def raman(thg: bool) -> object:
@@ -185,66 +182,6 @@ def raman(thg: bool) -> object:
 
 
 # --- the measurements ------------------------------------------------------------
-
-
-def source(
-    backend_class: type,
-    problem: PropagationProblem,
-    run_request: RunRequest,
-    grid: TimeGrid,
-    options: ExecutionOptions | None = None,
-) -> np.ndarray:
-    """Return one evaluation of the source at the masked launch, in the lab frame.
-
-    The reference's lab-frame sample, and the native state's own evaluation of it
-    (:func:`sessions.runs.native_source`), both at the launch as the
-    native state loads it: hard-masked to the active band. The native state masks what
-    it loads, and the reference's sample takes its field as given, so an unmasked
-    launch would be two inputs. The hybrid planar launch has content outside the band,
-    which moved the samples 3e-11 to 6e-11 apart; at the one input they meet to
-    about 5 eps.
-    """
-    launch = apply_hard_mask(problem.initial.field0[None], problem.grids.active_mask)[0]
-    backend = backend_class(problem, run_request, grid=grid, options=options)
-    try:
-        if backend.name == "native":
-            return native_source(backend, launch)
-        backend.set_initial(launch, None)
-        return np.array(backend._adams_lab_source(launch[None], 0.0))
-    finally:
-        backend.close()
-
-
-def run(
-    backend_class: type,
-    problem: PropagationProblem,
-    run_request,
-    grid: TimeGrid,
-    **options: object,
-) -> tuple[np.ndarray, Any]:
-    """Run the session to the last save plane; return the field and the run's summary.
-
-    The summary spans the run, every plane's attempts together
-    (:func:`sessions.runs.summary`).
-    """
-    backend = backend_class(problem, run_request, grid=grid, **options)
-    try:
-        # The step driver's march computed no statistic, which a case's profiles
-        # would be needed for.
-        result = session_run(
-            backend, problem, backend.request.for_run(stats=StatsSpec())
-        )
-        return result.fields[-1], run_summary(result)
-    finally:
-        backend.close()
-
-
-def disagreement(ours: np.ndarray, theirs: np.ndarray) -> float:
-    """Return the relative L2 difference of two arrays of the same size."""
-    ours, theirs = np.ravel(ours), np.ravel(theirs)
-    scale = float(np.linalg.norm(theirs))
-    assert scale > 0
-    return float(np.linalg.norm(ours - theirs) / scale)
 
 
 def evaluation_bound(problem: PropagationProblem) -> float:
@@ -312,9 +249,14 @@ ARGON_FILL = Mixture.fill({"Ar": 1.0}, 2.0)
 
 
 def general_problem(
-    guide: ModalGuide, evaluator: str, form: KerrForm, *, adams: bool = True
+    guide: ModalGuide,
+    evaluator: str,
+    form: KerrForm,
+    *,
+    adams: bool = True,
+    energy: float = 2e-9,
 ) -> tuple[PropagationProblem, RunRequest, TimeGrid]:
-    """Return a general modal problem launching 2 nJ into HE11, ten fixed steps."""
+    """Return a general modal problem launching `energy`, J, into HE11: ten steps."""
     grid = general_grid()
     route = general_modal_route(
         guide,
@@ -325,7 +267,8 @@ def general_problem(
         selection=MaterialSelection(electronic=POLICIES[evaluator]),
     )
     state = np.zeros((1, 1, grid.n_omega), complex)
-    state[0, 0] = GaussianPulse(wavelength=835e-9, fwhm=40e-15, energy=2e-9).build(grid)
+    pulse = GaussianPulse(wavelength=835e-9, fwhm=40e-15, energy=energy)
+    state[0, 0] = pulse.build(grid)
     problem, run_request = assemble(
         grid,
         list(guide.mode_collection),
@@ -350,3 +293,17 @@ STRANDS = {
     "beside a solid core": (ARGON_FILL, CORE_CHI3),
     "helium and argon": (Mixture.fill({"He": 0.5, "Ar": 0.5}, 2.0), None),
 }
+
+
+def route_case(
+    route: str, evaluator: str
+) -> tuple[PropagationProblem, RunRequest, Any]:
+    """Return the ten-step case of a route the repeatability and thread tests run."""
+    response = DispersiveKerrResponse(ARGON, evaluator)
+    if route == "free":
+        grid = free_grid("field", True)
+        problem, run_request = free_problem([response], grid)
+        return problem, run_request, grid
+    if route == "planar":
+        return planar_problem([response])
+    return general_problem(strand(ARGON_FILL, core=CORE_CHI3), evaluator, "analytic")

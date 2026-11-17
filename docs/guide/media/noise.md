@@ -3,7 +3,9 @@
 Weak fluctuations can grow into a substantial part of a propagated spectrum.
 Solprop provides a classical one-photon-per-mode seed with random spectral phase,
 useful for studying modulation instability, Raman-seeded broadening and
-shot-to-shot coherence. Every run carries it by default, as `noise="input"`; pass
+shot-to-shot coherence. Most runs carry it by default, as `noise="input"`; the
+Cartesian, line and hybrid planar grids, slab mode sets and the TDSE response carry
+none unless asked, where they admit it ([reproducibility](#reproducibility)). Pass
 `seed=` to reproduce a realisation, `noise=None` for a noiseless run, or
 `noise="modified"` for the alternative model described below.
 
@@ -190,7 +192,7 @@ modified run, whose saved field holds no seed. See
 ## Reproducibility
 
 In a run, choose the model with the driver's `noise` keyword and fix the realisation with
-`seed`; `prop_gnlse`, `prop_capillary`, `prop_waveguide`, `prop_radial` and `prop_free`
+`seed`; `prop_gnlse`, `prop_capillary`, `prop_waveguide` and `prop_free`
 all take both. The keyword's default, `"default"`, resolves to `"input"` wherever the
 run can carry noise. Where it cannot, it resolves to none: on the hybrid planar grid and
 on a `prop_waveguide` run of slab modes, neither of which declares a photon measure for

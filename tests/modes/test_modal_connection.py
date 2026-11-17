@@ -33,8 +33,9 @@ from solprop.modes.connection import (
     connection_nodes,
     modal_connection,
 )
-from solprop.modes.guide import StepIndexProvider, circular_pair, provider_channels
+from solprop.modes.guide import circular_pair, provider_channels
 from solprop.modes.material import MaterialRegion
+from solprop.modes.stepindex_vector import StepIndexProvider
 from solprop.modes.vector import ModalNodeRule, ModalProvider, ModalSample
 from solprop.profiles import Linear, PiecewiseLinear
 
@@ -495,7 +496,7 @@ def test_the_connection_is_taken_in_the_declared_channel_basis():
     """A declared unitary basis reaches the connection as it reaches the tables.
 
     The transform is applied after the tracking gauge, in the same fixed order
-    :func:`solprop.translate.modal_tables.composed_gauge` documents, so the
+    :func:`solprop.modes.tables.composed_gauge` documents, so the
     connection is ``U^H Gamma U`` -- a similarity, because a *constant* declaration
     adds no term of its own.
     """
@@ -562,10 +563,19 @@ def test_the_stencil_never_crosses_a_declared_kink():
     assert float(np.real(below.matrix[0, 1])) * float(np.real(above.matrix[0, 1])) < 0.0
 
 
-@pytest.mark.parametrize("step", [0.0, -1e-9, float("inf")])
-def test_a_step_outside_its_range_is_refused_by_name(step):
-    """Zero, negative and infinite steps are named, not silently clamped."""
-    with pytest.raises(ModeError, match="positive finite step"):
+@pytest.mark.parametrize(
+    ("step", "message"),
+    [
+        # Zero, negative and infinite steps are named, not silently clamped.
+        (0.0, "positive finite step"),
+        (-1e-9, "positive finite step"),
+        (float("inf"), "positive finite step"),
+        # A secant across a quarter of the scale is not a derivative.
+        (2.0 * MAX_STENCIL_SPAN * TAPER_LENGTH, "is a secant"),
+    ],
+)
+def test_a_step_outside_its_range_is_refused_by_name(step, message):
+    with pytest.raises(ModeError, match=message):
         modal_connection(tapered_step_index(), OMEGA, MIDDLE, step=step)
 
 
@@ -588,17 +598,6 @@ def test_a_coarse_declared_step_warns_against_its_own_certificate():
             step=0.8 * MAX_STENCIL_SPAN * TAPER_LENGTH,
         )
     assert coarse.antisymmetry > CERTIFICATE_WARNING_RTOL * np.max(abs(coarse.matrix))
-
-
-def test_a_stencil_wider_than_its_scale_is_refused_by_name():
-    """A secant across a quarter of the scale is not a derivative."""
-    with pytest.raises(ModeError, match="is a secant"):
-        modal_connection(
-            tapered_step_index(),
-            OMEGA,
-            MIDDLE,
-            step=2.0 * MAX_STENCIL_SPAN * TAPER_LENGTH,
-        )
 
 
 def test_a_rule_that_declares_no_panel_edges_is_refused_by_name():
@@ -706,7 +705,7 @@ def test_a_specified_mode_declares_no_field_to_pair_and_so_has_no_connection():
     # The connection this pair *would* need is the capillary's own, and it is not
     # small: `wall_connection` reads it directly from the profile the fibres were
     # built from.
-    from solprop.modes import wall_connection  # noqa: PLC0415
+    from solprop.modes.wall import wall_connection  # noqa: PLC0415
 
     link = wall_connection(modes, 1e-4)
     assert float(np.max(abs(link))) > 1e3

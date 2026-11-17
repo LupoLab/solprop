@@ -6,9 +6,9 @@
 
 The native backend loads a start (``solprop_native._load``), restores a resumed Adams
 history into its own record (``_NativeAdamsMarch``, no longer an ``AdamsMarch``) and
-times single trials (``solprop_native._probe``) without solprop's legacy step driver.
-These are held to what the reference does with the same inputs: its load
-(``HostDriver.set_initial``), its refusals and its probe's trial.
+times single trials (``solprop_native._probe``).
+These are held to what the reference does with the same inputs: its workspace's load
+(``NumpyWorkspace.load``, which its session calls), its refusals and its probe's trial.
 """
 
 from typing import Any, cast
@@ -47,22 +47,22 @@ def test_an_input_draw_is_added_at_the_launch_alone():
     try:
         field = np.asarray(problem.initial.field0)
         z = float(problem.initial.z)
-        # The load rule itself, whose record holds the field the state is given; the
-        # backend's kept record drops it once the state holds it.
+        # The load rule itself, whose record holds the field the workspace is given
+        # with the run's start; the backend's load is the rule's.
         loaded = native_load.load(
             problem, request.stepper, field, None, z=z, resume=False
         )
         kept = native._load(field, None, z=z, resume=False)
-        assert kept.field.size == 0
+        assert np.array_equal(kept.field, loaded.field)
         assert np.array_equal(kept.floor, loaded.floor)
-        reference.set_initial(field, None, z=float(problem.initial.z))
         host = cast("Any", reference)
+        host.workspace.load(field, None, z=float(problem.initial.z), resume=False)
         assert loaded.floor is not None and loaded.noise is None
-        assert np.array_equal(loaded.floor, host._input_floor)
-        expected = np.asarray(field)[np.newaxis] + loaded.floor
+        assert np.array_equal(loaded.floor, host.workspace.input_floor)
+        expected = np.asarray(field) + loaded.floor
         assert np.array_equal(loaded.field, expected.reshape(-1))
         assert loaded.clean_columns is not None
-        assert np.array_equal(loaded.clean_columns, host._clean_columns)
+        assert np.array_equal(loaded.clean_columns, host.workspace._clean_columns)
         resumed = native_load.load(
             problem, request.stepper, field, None, z=z, resume=True
         )
@@ -129,12 +129,14 @@ def test_the_probe_commits_nothing_and_its_trial_meets_the_reference(integrator)
     native, reference = _pair(problem, request, _soliton_context())
     try:
         probe = native.timing_probe(Start.entrance(problem))
-        loaded = native._native_state.field_to_host().copy()
         dz = float(request.stepper.dz_init)
         probe.trial()
         whole = probe.field()
-        # The readback loaded the start again, exactly: nothing was committed.
-        assert np.array_equal(native._native_state.field_to_host(), loaded)
+        # The readback loaded the start again, exactly: nothing was committed, so the
+        # same trial from it reads back the same field (one build's matched
+        # computation, compared bitwise as a diagnostic; SEP 25).
+        probe.trial()
+        assert np.array_equal(probe.field(), whole)
         probe.trial(float(problem.initial.z), 0.5 * dz)
         half = probe.field()
         assert not np.array_equal(half, whole)
@@ -164,8 +166,9 @@ def test_a_low_storage_probe_counts_its_evaluations_and_has_no_field():
         assert native.metadata()["source_evaluations"] == 12
         with pytest.raises(BackendError, match="no trial field"):
             probe.field()
-        # The next load counts from zero, as a fresh backend's.
-        native.timing_probe(Start.entrance(problem))
-        assert native.metadata()["source_evaluations"] == 0
+        # The trials advanced the registers in place: the workspace closes with the
+        # probe, and the backend refuses another (SEP 52 section 5.5).
+        with pytest.raises(BackendError, match="low-storage timing probe"):
+            native.timing_probe(Start.entrance(problem))
     finally:
         native.close()

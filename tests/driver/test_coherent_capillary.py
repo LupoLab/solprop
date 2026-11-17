@@ -30,23 +30,37 @@ from scipy.integrate import quad, solve_ivp
 from scipy.linalg import expm
 from scipy.special import jn_zeros, jv
 
-import solprop.translate.problem as problem_module
-from bounds import assert_within, fft_bound, gamma, step_evaluations
-from legacy_geometry import LEGACY_GRID, bare_absorber
-from march_bounds import FIXED_ORDER, assert_points_matched
-from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
-from solprop.backends import available
-from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.backend import (
-    _MAX_FLOW_SQUARINGS,
-    _triangular_exponential,
+import solprop.translate.walls as walls_module
+from bounds import assert_within
+from coupled_flow_cases import (
+    GRID,
+    LENGTH,
+    NARROW,
+    RADIUS,
+    SMOOTH_STAGES,
+    STEPS,
+    VECTOR_WALL,
+    WEAK_COLLAR,
+    capillary,
+    taper,
+    varying,
+    vector_modes,
 )
+from entry_point_cases import (
+    capillary_run,
+    entry_simulation,
+    gnlse_run,
+)
+from march_bounds import FIXED_ORDER
+from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
+from sessions.runs import bare, final_field
+from solprop.backends import available
+from solprop.backends.exponential import FLOW_MAX_SQUARINGS
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.coupled_flow import _triangular_exponential
 from solprop.boundaries import absorber
 from solprop.constants import EPS0, C
-from solprop.driver import Simulation, prop_capillary, prop_gnlse
-from solprop.driver.executors import Batch, Local
-from solprop.driver.scan import Scan, run_scan
-from solprop.driver.simulation import Pressure
+from solprop.driver import Simulation, prop_capillary
 from solprop.exceptions import (
     AdiabaticTaperWarning,
     BackendError,
@@ -58,28 +72,27 @@ from solprop.exceptions import (
     SolpropWarning,
     TranslationError,
 )
-from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
+from solprop.grid import FieldGrid, RadialGrid
 from solprop.linear import DEFAULT_LOSS_POLICY
 from solprop.modes import (
     CoherentWall,
     MarcatiliMode,
     vector_wall_operator,
     wall_operator,
-    worst_wall_limits,
 )
 from solprop.modes.antiresonant import TubeLattice, VincettiMode
-from solprop.modes.capillary import wall_connection
 from solprop.modes.protocol import Mode
+from solprop.modes.wall import wall_connection, worst_wall_limits
 from solprop.output.capability import capability_of
 from solprop.output.hdf5 import open_file
 from solprop.output.memory import MemoryOutput
 from solprop.physdata.glasses import fused_silica
 from solprop.physdata.sellmeier import gamma as gas_law
-from solprop.profiles import FromCallable, Linear, PiecewiseLinear, ZProfile
+from solprop.profiles import FromCallable, Linear
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
-from solprop.stepper import DOPRI5, FixedSchedule, RungeKutta
+from solprop.stepper import FixedSchedule, RungeKutta
 from solprop.translate.admission import check_general_route
 from solprop.translate.coupled import (
     SECTION_TOL,
@@ -94,49 +107,15 @@ from solprop.translate.coupled import (
     section_expansion,
 )
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import (
-    _Assembly,
+from solprop.translate.stage import scalars
+from solprop.translate.validation import _Assembly
+from solprop.translate.walls import (
     _check_wall_route,
     _check_wall_total,
     _check_wall_total_varying,
     _normalisation_rate,
 )
-from solprop.translate.stage import scalars
 from state_records import check_state, record_bound
-
-RADIUS = 50e-6
-"""Core radius of the qualification case, m.
-
-Small enough that a millimetre is a measurable loss -- the highest retained channel
-attenuates by several per cent over it -- and wide enough that the validity ratios stay
-inside the default limit over the whole band.
-"""
-
-LENGTH = 2e-4
-"""Length of the qualification case, m: a fifth of a millimetre."""
-
-STEPS = 10
-"""Steps of the fixed schedule, over a fifth of a millimetre."""
-
-GRID = FieldGrid.from_limits(LENGTH, 800e-9, (400e-9, 1.6e-6), 300e-15, **LEGACY_GRID)
-"""One grid for every case here, so that a launch can be built against it.
-
-The former geometry: the records here were made on it, and nothing here is about
-the temporal window.
-"""
-
-WEAK_COLLAR = absorber(GRID, boundary_length=1.0e3)
-"""A collar five million times weaker than the default one.
-
-The default collar is an absorber, and an absorber in the **nonlinear** scheme is an
-explicit term whose stability caps the step at about 5 micrometres on this grid
-(see docs/dev/decisions.md); it also eats a continuous wave, which is what a single
-excited bin of a field grid is, so an absolute statement about the flow could not be
-made beside it. This one is present -- the masks and the band limit still are what they
-are -- and its rate over a fifth of a millimetre is below 2e-7, far under every bound
-taken here. It says so, and the module filters that warning: a collar too weak to stop a
-packet walking off the window is exactly what is wanted where nothing walks. The
-collar itself is qualified in ``tests/test_boundaries.py``."""
 
 pytestmark = [
     pytest.mark.filterwarnings(
@@ -161,49 +140,6 @@ def kept(field: np.ndarray | None) -> np.ndarray:
     """Return a saved plane's field: every plane of these runs keeps its own."""
     assert field is not None
     return field
-
-
-def capillary(
-    *,
-    wall=None,
-    modes: int | Sequence[Mode] = 3,
-    pressure: Pressure = 1.0,
-    radius: float | ZProfile = RADIUS,
-    **overrides,
-):
-    """Return a small three-channel capillary simulation, with or without a wall.
-
-    A fixed schedule, so that two runs whose operators differ in the last bits still
-    land on the same positions: an adaptive controller would otherwise take different
-    steps and agree only to its own tolerance, which is orders above the rounding a
-    flow identity is about. Its length is set by the temporal collar, which is
-    explicit in the nonlinear scheme and stable here only below 5.2 micrometres
-    (see docs/dev/decisions.md); :data:`STEPS` steps of a fifth of a millimetre clear
-    it.
-    """
-    arguments = {
-        "wavelength": 800e-9,
-        "grid": GRID,
-        "absorber": WEAK_COLLAR,
-        "fwhm": 30e-15,
-        "energy": 1e-9,
-        "modes": modes,
-        "n_save": 2,
-        "backend": "numpy_ref",
-        "dz_max": LENGTH / STEPS,
-        "dz_init": LENGTH / STEPS,
-        "schedule": FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
-        "plasma": False,
-        "raman": False,
-    } | overrides
-    return Simulation.from_capillary(
-        radius,
-        LENGTH,
-        "He",
-        pressure,
-        wall=wall,
-        **{"noise": None, **arguments},
-    )
 
 
 def run_capillary(
@@ -254,16 +190,17 @@ def energy_loss(handler):
 def propagated(problem, run_request, grid, backend=NumpyRefBackend):
     """Run one problem to its end plane on the fixed schedule and return the state."""
     driver = backend(problem, run_request, grid=grid)
-    driver.set_initial(problem.initial.field0, None)
-    driver.propagate_to(LENGTH)
-    final = driver.observe().require_field().copy()
-    driver.close()
+    try:
+        final = final_field(driver, problem, bare(run_request))
+    finally:
+        driver.close()
+    assert final.shape == problem.shape
     return final
 
 
 def translated(simulation):
     """Return a simulation's problem and its run's request."""
-    return simulation.translate(), simulation._run_request()
+    return simulation.translate(), simulation.run_request()
 
 
 def with_flow(problem, run_request, generator, *, dz_max=None, edges=None):
@@ -487,7 +424,7 @@ def test_the_route_records_its_flow_on_the_modal_identity():
     assert record["residual_norm_bound"] == 0.0
     assert record["radius"] == RADIUS
     assert 0.0 < float(cast("float", record["quasi_static"])) < 0.25
-    assert metadata.schema_version == 2
+    assert metadata.schema_version == 4
     assert capability_of(metadata) == "modal"
     assert "mean impedance coherent wall" in str(metadata)
     # Nothing that is not a scalar reaches the resume key.
@@ -506,30 +443,104 @@ def test_a_run_without_a_wall_declares_no_flow_and_no_identity():
     assert simulation.metadata().modal is None
     assert problem.linear.phi_constant is not None
     constant = problem.linear.phi_constant
-    assert not np.array_equal(
-        constant, np.broadcast_to(constant[:, :1], constant.shape)
+    assert not np.array_equal(constant, np.broadcast_to(constant[:1], constant.shape))
+
+
+LATTICE = TubeLattice(180e-9, 10.38e-6, 6)
+"""Six 10.38 micrometre tubes, a Vincetti set the bare capillary wall must refuse."""
+
+LOSSES = [
+    {"loss_scale": 0.0},
+    {"loss_scale": 0.5},
+    {"alpha": 100.0},
+    {"alpha": lambda omega: np.full_like(np.asarray(omega), 100.0)},
+]
+"""Loss settings that a wall, which *is* the loss model, would otherwise discard.
+
+Measured before the refusal existed: the largest internal field-loss rate of a 50
+micrometre helium bore at `N = 1` was 17.730 /m with the wall for the model's loss,
+none, half of it and a 100 /m attenuation **alike**, against 17.751, 0.030, 8.891
+and 50.030 /m on the uncoupled route -- the whole setting vanished, because the
+assembly subtracts the entire `HE_11` wavenumber and re-adds the block's own diagonal.
+"""
+
+
+def _lattice_capillary():
+    # Measured before the refusal existed, on this 15 micrometre argon lattice at 10
+    # bar: the flow was built with a generator bit identical to the plain Marcatili
+    # one, and declared an HE_11 loss of 3.21e3 /m against the guide's 1.01e-3 /m.
+    # The structured cladding's loss is its tubes' resonances, not a Robin condition.
+    return Simulation.from_capillary(
+        15e-6,
+        LENGTH,
+        "Ar",
+        10.0,
+        wavelength=800e-9,
+        grid=GRID,
+        absorber=WEAK_COLLAR,
+        fwhm=30e-15,
+        energy=1e-9,
+        modes=2,
+        n_save=2,
+        backend="numpy_ref",
+        lattice=LATTICE,
+        wall=CoherentWall(),
+        plasma=False,
+        raman=False,
+        noise=None,
     )
 
 
-@pytest.mark.parametrize(
-    ("overrides", "expected"),
-    [
-        (
-            {
-                "modes": [
-                    MarcatiliMode(RADIUS, "He", 1.0, m=1),
-                    MarcatiliMode(RADIUS, "He", 1.0, m=3),
-                ]
-            },
-            "HE_11 to HE_12",
-        ),
-        ({"noise": "modified", "seed": 3}, "refuses the 'modified' noise model"),
-    ],
-)
-def test_the_route_refuses_what_the_block_is_not_derived_for(overrides, expected):
-    """Every incompatible run is named at the translation layer, not at the backend."""
-    with pytest.raises((ModeError, TranslationError), match=expected):
-        capillary(wall=CoherentWall(), **overrides).translate()
+ROUTE_REFUSALS = [
+    *(
+        pytest.param(
+            lambda loss=loss: capillary(wall=CoherentWall(), **loss),
+            DriverError,
+            "is the loss model",
+            id=f"loss-{index}",
+        )
+        for index, loss in enumerate(LOSSES)
+    ),
+    # The condensation inverts the full model's eigenvalue.
+    pytest.param(
+        lambda: capillary(wall=CoherentWall(), model="reduced"),
+        DriverError,
+        "one capillary model, the full one",
+        id="reduced",
+    ),
+    pytest.param(
+        _lattice_capillary, DriverError, "uniform dielectric wall", id="lattice"
+    ),
+    pytest.param(
+        lambda: capillary(
+            wall=CoherentWall(),
+            modes=[
+                MarcatiliMode(RADIUS, "He", 1.0, m=1),
+                MarcatiliMode(RADIUS, "He", 1.0, m=3),
+            ],
+        ).translate(),
+        (ModeError, TranslationError),
+        "HE_11 to HE_12",
+        id="sparse-set",
+    ),
+    pytest.param(
+        lambda: capillary(wall=CoherentWall(), noise="modified", seed=3).translate(),
+        (ModeError, TranslationError),
+        "refuses the 'modified' noise model",
+        id="modified-noise",
+    ),
+]
+
+
+@pytest.mark.parametrize(("build", "error", "expected"), ROUTE_REFUSALS)
+def test_the_route_refuses_what_the_block_is_not_derived_for(build, error, expected):
+    """Every incompatible declaration beside a wall is named, not overridden.
+
+    A declared option is honoured or refused by name, before the backend: at the
+    keyword the caller typed, or at translation.
+    """
+    with pytest.raises(error, match=expected):
+        build()
 
 
 @pytest.mark.medium
@@ -593,142 +604,77 @@ def test_prop_capillary_runs_a_wall_end_to_end_and_records_its_flow():
     assert measured == pytest.approx(predicted, rel=0.01)
 
 
-@pytest.mark.parametrize(
-    "loss", [False, 0.0, 0.5, lambda omega: np.full_like(np.asarray(omega), 100.0)]
-)
-def test_a_loss_setting_beside_a_wall_is_refused_rather_than_discarded(loss):
-    """The wall *is* the loss model, so a `LossSpec` beside it is named.
-
-    Measured before the refusal existed: the largest internal field-loss rate of a
-    50 micrometre helium bore at `N = 1` was 17.730 /m with the wall for `loss=True`,
-    `False`, `0.0`, `0.5` and a 100 /m callable **alike**, against 17.751, 0.030,
-    8.891 and 50.030 /m on the uncoupled route -- the whole setting vanished, because
-    the assembly subtracts the entire `HE_11` wavenumber and re-adds the block's own
-    diagonal. Both doors are exercised: the keyword the caller typed, and the mode
-    set the operator is built from.
-    """
-    with pytest.raises(DriverError, match="is the loss model"):
-        capillary(wall=CoherentWall(), loss=loss)
-    with pytest.raises(ModeError, match="is the loss model"):
-        wall_operator(
-            [
-                MarcatiliMode(RADIUS, "He", 1.0, m=index + 1, loss=loss)
-                for index in (0,)
-            ],
-            np.array([2.356e15]),
-        )
-
-
-def test_the_reduced_model_beside_a_wall_is_refused_rather_than_overridden():
-    """The condensation inverts the full model's eigenvalue, and says so."""
-    with pytest.raises(DriverError, match="one capillary model, the full one"):
-        capillary(wall=CoherentWall(), model="reduced")
-    with pytest.raises(ModeError, match="one capillary model, the full one"):
-        wall_operator(
-            [MarcatiliMode(RADIUS, "He", 1.0, m=1, model="reduced")],
-            np.array([2.356e15]),
-        )
-
-
-def test_a_tube_lattice_is_refused_rather_than_given_the_bare_capillary_wall():
-    """A Vincetti set is a `MarcatiliMode` subclass, and would take the bare wall.
-
-    Measured before the refusal existed, on a 15 micrometre argon-filled lattice of
-    six 10.38 micrometre tubes at 10 bar: the flow was built, the generator was **bit
-    identical** to the plain Marcatili one, and the `HE_11` field loss it declared was
-    3.21e3 /m against the guide's own 1.01e-3 /m -- six orders, in the wrong
-    direction. The structured cladding's loss is its tubes' resonances, not a Robin
-    condition at one radius.
-    """
-    lattice = TubeLattice(180e-9, 10.38e-6, 6)
-    with pytest.raises(DriverError, match="uniform dielectric wall"):
-        Simulation.from_capillary(
-            15e-6,
-            LENGTH,
-            "Ar",
-            10.0,
-            wavelength=800e-9,
-            grid=GRID,
-            absorber=WEAK_COLLAR,
-            fwhm=30e-15,
-            energy=1e-9,
-            modes=2,
-            n_save=2,
-            backend="numpy_ref",
-            lattice=lattice,
-            wall=CoherentWall(),
-            plasma=False,
-            raman=False,
-            noise=None,
-        )
-    block = [
-        VincettiMode(15e-6, "Ar", 10.0, lattice=lattice, m=index + 1)
-        for index in range(2)
+def _pair(first, second):
+    """Return a two-channel set whose second channel declares `second`."""
+    radius = second.pop("radius", RADIUS)
+    pressure = second.pop("pressure", 1.0)
+    return [
+        MarcatiliMode(RADIUS, "He", 1.0, m=1, **first),
+        MarcatiliMode(radius, "He", pressure, m=2, **second),
     ]
-    with pytest.raises(ModeError, match="uniform dielectric wall"):
-        wall_operator(block, np.array([2.356e15]))
 
 
-def test_channels_that_do_not_declare_one_guide_are_refused_by_name():
-    """The block reads the lowest channel alone, so the others must agree with it.
+BLOCK_REFUSALS = [
+    *(
+        pytest.param(
+            lambda loss=loss: [MarcatiliMode(RADIUS, "He", 1.0, m=1, **loss)],
+            "is the loss model",
+            id=f"loss-{index}",
+        )
+        for index, loss in enumerate(LOSSES)
+    ),
+    pytest.param(
+        lambda: [MarcatiliMode(RADIUS, "He", 1.0, m=1, model="reduced")],
+        "one capillary model, the full one",
+        id="reduced",
+    ),
+    pytest.param(
+        lambda: [
+            VincettiMode(15e-6, "Ar", 10.0, lattice=LATTICE, m=index + 1)
+            for index in range(2)
+        ],
+        "uniform dielectric wall",
+        id="lattice",
+    ),
+    # The block reads the lowest channel alone, so the others must agree with it.
+    # Measured before the refusal existed: two channels declaring `cladding=1.45+0j`
+    # and `2.6+0.1j` built a flow from the first one's impedance and said nothing.
+    # The declared settings are compared first, then what the operator samples,
+    # because two channels can name one glass in two ways and mean it.
+    pytest.param(
+        lambda: _pair({}, {"radius": 1.5 * RADIUS}), "core radius", id="radius"
+    ),
+    pytest.param(lambda: _pair({}, {"pressure": 2.0}), "density", id="density"),
+    pytest.param(
+        lambda: _pair({"cladding": 1.45 + 0j}, {"cladding": 2.6 + 0.1j}),
+        "samples a different cladding",
+        id="cladding",
+    ),
+    pytest.param(
+        lambda: _pair(
+            {"susceptibility": gas_law("He", model="ermolov_2015/sellmeier_He")},
+            {"susceptibility": gas_law("He", model="borzsonyi_2008/sellmeier_He")},
+        ),
+        "samples a different fill",
+        id="fill",
+    ),
+]
 
-    Measured before the refusal existed: two channels declaring `cladding=1.45+0j`
-    and `2.6+0.1j` built a flow from the first one's impedance and said nothing. The
-    declared settings are compared first, and then what the operator actually
-    samples, because two channels can name one glass in two ways and mean it.
-    """
-    omega = np.array([2.356e15, 2.4e15, 2.5e15])
-    with pytest.raises(ModeError, match="core radius"):
-        wall_operator(
-            [
-                MarcatiliMode(RADIUS, "He", 1.0, m=1),
-                MarcatiliMode(1.5 * RADIUS, "He", 1.0, m=2),
-            ],
-            omega,
-        )
-    with pytest.raises(ModeError, match="density"):
-        wall_operator(
-            [
-                MarcatiliMode(RADIUS, "He", 1.0, m=1),
-                MarcatiliMode(RADIUS, "He", 2.0, m=2),
-            ],
-            omega,
-        )
-    with pytest.raises(ModeError, match="samples a different cladding"):
-        wall_operator(
-            [
-                MarcatiliMode(RADIUS, "He", 1.0, m=1, cladding=1.45 + 0j),
-                MarcatiliMode(RADIUS, "He", 1.0, m=2, cladding=2.6 + 0.1j),
-            ],
-            omega,
-        )
-    with pytest.raises(ModeError, match="samples a different fill"):
-        wall_operator(
-            [
-                MarcatiliMode(
-                    RADIUS,
-                    "He",
-                    1.0,
-                    m=1,
-                    susceptibility=gas_law("He", model="ermolov_2015/sellmeier_He"),
-                ),
-                MarcatiliMode(
-                    RADIUS,
-                    "He",
-                    1.0,
-                    m=2,
-                    susceptibility=gas_law("He", model="borzsonyi_2008/sellmeier_He"),
-                ),
-            ],
-            omega,
-        )
-    # The default glass, asked for by name, is the same guide and is not refused.
+
+@pytest.mark.parametrize(("modes", "expected"), BLOCK_REFUSALS)
+def test_the_wall_block_refuses_a_mode_set_it_is_not_derived_for(modes, expected):
+    """The block's own door, which every route reaches, names what it refuses."""
+    with pytest.raises(ModeError, match=expected):
+        wall_operator(modes(), np.array([2.356e15, 2.4e15, 2.5e15]))
+
+
+def test_the_default_glass_asked_for_by_name_is_the_same_guide():
     wall_operator(
         [
             MarcatiliMode(RADIUS, "He", 1.0, m=1),
             MarcatiliMode(RADIUS, "He", 1.0, m=2, cladding=fused_silica()),
         ],
-        omega,
+        np.array([2.356e15, 2.4e15, 2.5e15]),
     )
 
 
@@ -766,9 +712,9 @@ def test_a_varying_section_takes_the_frozen_residual_route():
 def test_a_vector_state_or_a_noise_draw_refuses_a_wall_beside_it():
     """A wall block is scalar and refuses a polarisation axis and a noise draw.
 
-    The capillary route refuses a `polarisation=` keyword long before translation,
-    so these two doors are exercised on the check itself. The routes that *can* be
-    reached with a wall beside them are the test below.
+    The capillary route takes no `polarisation=` keyword, so these two doors are
+    exercised on the check itself. The routes that *can* be reached with a wall beside
+    them are the test below.
     """
     build = _Assembly(
         quadrature=None,
@@ -809,7 +755,7 @@ def test_a_wall_declared_on_another_route_is_refused_by_name():
     constructors and the attribute `from_capillary` sets -- rather than through a
     hand-built assembly, because that is the path the leak was on.
     """
-    spatial = Simulation.from_radial(
+    spatial = Simulation.from_free(
         capillary().grid,
         RadialGrid(0.6e-3, 8),
         SpatialMedium(),
@@ -823,13 +769,14 @@ def test_a_wall_declared_on_another_route_is_refused_by_name():
         ),
         noise=None,
     )
-    spatial.wall = CoherentWall()
+    spatial._wall = CoherentWall()
     with pytest.raises(TranslationError, match="a spatial geometry"):
         spatial.translate()
-    grid = general_grid()
+    # Refused before any step: the grid is the tenth it would run (SEP 51).
+    grid = general_grid(GENERAL_Z_END / 10)
     general = Simulation.from_waveguide(
         (),
-        GENERAL_Z_END,
+        GENERAL_Z_END / 10,
         provider=general_guide(grid=grid),
         grid=grid,
         wavelength=835e-9,
@@ -841,7 +788,7 @@ def test_a_wall_declared_on_another_route_is_refused_by_name():
         dz_init=GENERAL_Z_END / 20,
         noise=None,
     )
-    general.wall = CoherentWall()
+    general._wall = CoherentWall()
     with pytest.raises(TranslationError, match="the general modal route"):
         general.translate()
 
@@ -853,7 +800,7 @@ def test_the_reference_refuses_every_coupled_flow_it_does_not_execute():
     """Each method, representation, degree, connection and residual by its own name."""
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     grid = simulation.grid
@@ -905,12 +852,12 @@ def test_the_reference_refuses_a_problem_the_flow_cannot_sit_beside():
     """A mode-dependent Phi, a metric or a noise draw beside a flow is named."""
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     grid = simulation.grid
     constant = problem.linear.phi_constant
     assert constant is not None
     varied = constant.copy()
-    varied[0, 1] *= 1.0000001
+    varied[1] *= 1.0000001
     with pytest.raises(TranslationError, match="mode-independent Phi"):
         NumpyRefBackend(
             replace(problem, linear=replace(problem.linear, phi_constant=varied)),
@@ -959,7 +906,7 @@ def test_the_reference_refuses_a_step_longer_than_the_certificate_was_declared_o
     """
     simulation = capillary(wall=CoherentWall(), integrator=RungeKutta())
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert flow.generator is not None
@@ -970,7 +917,7 @@ def test_the_reference_refuses_a_step_longer_than_the_certificate_was_declared_o
         dz_max=run_request.stepper.dz_max / 100.0,
     )
     with pytest.raises(BackendError, match="measured a coupled flow conditioning"):
-        propagated(understated, simulation._run_request(), simulation.grid)
+        propagated(understated, simulation.run_request(), simulation.grid)
 
 
 def test_the_reference_refuses_a_flow_beside_a_varying_phi():
@@ -982,7 +929,7 @@ def test_the_reference_refuses_a_flow_beside_a_varying_phi():
     """
     simulation = capillary(pressure=(1.0, 0.9))
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     assert problem.linear.phi_representation != "constant"
     edges = problem.linear.phi_breakpoints[[0, -1]]
     spoiled = with_flow(
@@ -1000,7 +947,7 @@ def test_the_reference_refuses_a_noise_draw_beside_a_flow():
     """A draw the route cannot even build is named at the backend all the same."""
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     grid = simulation.grid
     noisy = replace(
         problem,
@@ -1038,7 +985,7 @@ def test_a_flow_action_that_needs_squaring_is_the_exponential_all_the_same():
 
 def test_an_exponent_too_large_to_square_is_refused():
     """A flow action needing more squarings than are admitted is named, not tried."""
-    huge = np.full((1, 2, 2), 2.0 ** (_MAX_FLOW_SQUARINGS + 2), dtype=complex)
+    huge = np.full((1, 2, 2), 2.0 ** (FLOW_MAX_SQUARINGS + 2), dtype=complex)
     with pytest.raises(BackendError, match="squarings"):
         _triangular_exponential(huge)
 
@@ -1077,15 +1024,15 @@ def test_a_zero_generator_propagates_bitwise_like_no_flow_at_all():
     """
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert flow.generator is not None
     zeroed = with_flow(problem, run_request, np.zeros_like(flow.generator[0, 0]))
     without = replace(problem, linear=replace(problem.linear, coupled_flow=None))
     assert np.array_equal(
-        propagated(zeroed, simulation._run_request(), simulation.grid),
-        propagated(without, simulation._run_request(), simulation.grid),
+        propagated(zeroed, simulation.run_request(), simulation.grid),
+        propagated(without, simulation.run_request(), simulation.grid),
     )
 
 
@@ -1104,7 +1051,7 @@ def test_a_diagonal_generator_matches_the_same_diagonal_inside_phi():
     """
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert flow.generator is not None
@@ -1115,20 +1062,20 @@ def test_a_diagonal_generator_matches_the_same_diagonal_inside_phi():
     constant = problem.linear.phi_constant
     assert constant is not None
     folded = constant.copy()
-    folded[0, :, 0, :] += diagonal[index, index]
+    folded[:, 0, :] += diagonal[index, index]
     inside = replace(
         problem,
         linear=replace(problem.linear, phi_constant=folded, coupled_flow=None),
     )
     coupled = propagated(
         with_flow(problem, run_request, diagonal),
-        simulation._run_request(),
+        simulation.run_request(),
         simulation.grid,
     )
     scale = float(np.max(abs(coupled)))
     assert_allclose(
         coupled,
-        propagated(inside, simulation._run_request(), simulation.grid),
+        propagated(inside, simulation.run_request(), simulation.grid),
         atol=1e-12 * scale,
     )
 
@@ -1165,8 +1112,8 @@ def test_ten_steps_apply_the_block_the_translation_layer_declared():
     flow = problem.linear.coupled_flow
     assert flow is not None
     index, launched = linear_launch(problem, simulation.grid)
-    final = propagated(launched, simulation._run_request(), simulation.grid)
-    carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, 0, index])
+    final = propagated(launched, simulation.run_request(), simulation.grid)
+    carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, index])
     assert flow.generator is not None
     rate = complex(flow.generator[0, 0, 0, 0, index])
     expected = 1e-9 * np.exp(carrier + rate * LENGTH)
@@ -1193,8 +1140,8 @@ def test_the_propagated_single_channel_loss_is_marcatili_to_its_derived_bound():
     index, walled = linear_launch(with_wall.translate(), with_wall.grid)
     _, plain = linear_launch(without.translate(), without.grid)
     ratio = abs(
-        propagated(walled, with_wall._run_request(), with_wall.grid)[0, 0, index]
-    ) / abs(propagated(plain, without._run_request(), without.grid)[0, 0, index])
+        propagated(walled, with_wall.run_request(), with_wall.grid)[0, 0, index]
+    ) / abs(propagated(plain, without.run_request(), without.grid)[0, 0, index])
 
     mode = MarcatiliMode(RADIUS, "He", 1.0, m=1)
     omega = np.array([float(with_wall.grid.omega[index])])
@@ -1223,8 +1170,8 @@ def test_each_channel_keeps_its_own_rate_in_the_weakly_coupled_limit():
     flow = problem.linear.coupled_flow
     assert flow is not None
     index, launched = linear_launch(problem, simulation.grid)
-    final = propagated(launched, simulation._run_request(), simulation.grid)
-    carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, 0, index])
+    final = propagated(launched, simulation.run_request(), simulation.grid)
+    carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, index])
     assert flow.generator is not None
     rate = complex(flow.generator[0, 0, 0, 0, index])
     expected = abs(1e-9 * np.exp(carrier + rate * LENGTH))
@@ -1245,10 +1192,10 @@ def test_the_wall_moves_power_between_channels_and_a_diagonal_loss_cannot():
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
     index, launched = linear_launch(problem, simulation.grid)
-    walled = propagated(launched, simulation._run_request(), simulation.grid)
+    walled = propagated(launched, simulation.run_request(), simulation.grid)
     plain = propagated(
         replace(launched, linear=replace(launched.linear, coupled_flow=None)),
-        simulation._run_request(),
+        simulation.run_request(),
         simulation.grid,
     )
     # Not exactly zero: the capillary's Kerr response couples the channels through
@@ -1305,8 +1252,8 @@ def test_the_transmission_of_one_physical_launch_converges_with_the_channel_coun
         launched = replace(
             problem, initial=replace(problem.initial, field0=state, noise0=None)
         )
-        final = propagated(launched, simulation._run_request(), simulation.grid)
-        carrier = float(np.real(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, 0, index]))
+        final = propagated(launched, simulation.run_request(), simulation.grid)
+        carrier = float(np.real(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, index]))
         transmissions[count] = float(np.sum(abs(final[:, 0, index]) ** 2)) / (
             1e-18 * total * math.exp(2.0 * carrier)
         )
@@ -1371,15 +1318,9 @@ def test_the_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path):
         ).run(path, resume=True)
 
 
-# ------------------------------------------------------- the legacy entry points
+# ------------------------------------------------------- the prop_* entry points
 
-LEGACY_LENGTH = 2e-4
-"""Length of the legacy-identity case, m: ten fixed steps of 20 micrometres."""
-
-LEGACY_SCHEDULE = FixedSchedule(np.full(STEPS, LEGACY_LENGTH / STEPS))
-"""The schedule both legacy runs replay, so that a record is a record of one march."""
-
-# The legacy runs' final planes were byte digests, recorded on one platform and
+# The entry points' final planes were byte digests, recorded on one platform and
 # re-recorded at each deliberate change (the Multistep default, SEP 3's optmat helium
 # and silica wall, the rationalised refractivity root, the 293.15 K default
 # temperature); the git history keeps them. They are now stored final planes of the
@@ -1389,97 +1330,11 @@ LEGACY_SCHEDULE = FixedSchedule(np.full(STEPS, LEGACY_LENGTH / STEPS))
 # ``tests/driver/test_prop_capillary.py`` and ``tests/driver/test_prop_gnlse.py``.
 
 
-def legacy_capillary_keywords(backend):
-    """Return the keywords of the ten-step two-mode capillary run of the pre-wall route.
-
-    At the Adams method's fixed top order, so that no order choice is left for
-    rounding to move: a run is the recorded run's discrete march.
-    """
-    return {
-        "wavelength": 800e-9,
-        "grid": GRID,
-        "absorber": WEAK_COLLAR,
-        "fwhm": 30e-15,
-        "energy": 1e-8,
-        "modes": 2,
-        "n_save": 2,
-        "backend": backend,
-        "dz_max": LEGACY_LENGTH / STEPS,
-        "dz_init": LEGACY_LENGTH / STEPS,
-        "schedule": LEGACY_SCHEDULE,
-        "integrator": FIXED_ORDER,
-        "plasma": False,
-        "raman": False,
-    }
-
-
-def legacy_gnlse_keywords(backend):
-    """Return the keywords of the ten-step GNLSE run of the soliton case.
-
-    On the grid it was recorded on and without a collar, as the run was before
-    the default collar: the record is of that march.
-    """
-    grid = EnvelopeGrid.from_limits(
-        LEGACY_LENGTH, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID
-    )
-    return {
-        "wavelength": 835e-9,
-        "grid": grid,
-        "absorber": bare_absorber(grid),
-        "width": 100e-15,
-        "peak_power": 9.8,
-        "shape": "sech",
-        "n_save": 2,
-        "backend": backend,
-        "dz_max": LEGACY_LENGTH / STEPS,
-        "dz_init": LEGACY_LENGTH / STEPS,
-        "schedule": LEGACY_SCHEDULE,
-        "integrator": FIXED_ORDER,
-    }
-
-
-GNLSE_FIBRE = (0.11, LEGACY_LENGTH, [0.0, 0.0, -1.183e-26])
-"""The legacy GNLSE run's ``gamma`` (1/(W m)), length (m) and Taylor betas."""
-
-
-def legacy_capillary(backend):
-    """Return a ten-step two-mode capillary run of the pre-wall route."""
-    return prop_capillary(
-        125e-6,
-        LEGACY_LENGTH,
-        "He",
-        1.0,
-        **{"noise": None, **legacy_capillary_keywords(backend)},
-    )
-
-
-def legacy_gnlse(backend):
-    """Return a ten-step GNLSE run of the soliton case."""
-    return prop_gnlse(*GNLSE_FIBRE, **{"noise": None, **legacy_gnlse_keywords(backend)})
-
-
-def legacy_simulation(entry):
-    """Return the simulation a legacy entry point runs, for its rounding budget."""
-    if entry == "prop_capillary":
-        return Simulation.from_capillary(
-            125e-6,
-            LEGACY_LENGTH,
-            "He",
-            1.0,
-            **{"noise": None, **legacy_capillary_keywords("numpy_ref")},
-        )
-    return Simulation.from_gnlse(
-        *GNLSE_FIBRE, **{"noise": None, **legacy_gnlse_keywords("numpy_ref")}
-    )
-
-
 @pytest.mark.medium
 @pytest.mark.parametrize("entry", ["prop_capillary", "prop_gnlse"])
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])
-def test_the_legacy_entry_points_are_what_they_were(
-    entry, backend, ndarrays_regression
-):
-    """Ten steps of each legacy route are the run they were, on every backend here.
+def test_the_prop_entry_points_are_what_they_were(entry, backend, ndarrays_regression):
+    """Ten steps of each entry point are the run they were, on every backend here.
 
     A wall is an **opt-in** leaf, so a run that declares none must be the run it was
     before the leaf existed. The final plane matches its record within the matched
@@ -1494,101 +1349,23 @@ def test_the_legacy_entry_points_are_what_they_were(
     Kokkos, whose local and distribution builds (vendor BLAS, CPU target) move last
     bits, has no record of its own. Its two runs agreeing is a repeatability check only,
     a build against itself, which a wrong operator passes; what holds its answer is the
-    reference's field within :func:`legacy_parity_bound`, looser than the record's.
+    reference's field within ``entry_point_cases.entry_parity_bound``, looser than the
+    record's: the catalogue's rows ``entry point ...`` (``backends/driver_rows.py``).
     """
     if backend not in available():
         pytest.skip(f"the {backend} backend is not installed")
-    build = legacy_capillary if entry == "prop_capillary" else legacy_gnlse
+    build = capillary_run if entry == "prop_capillary" else gnlse_run
     handler = cast("MemoryOutput", build(backend))
     field = kept(handler.planes()[-1].field)
-    bound = record_bound(legacy_simulation(entry), field)
+    bound = record_bound(entry_simulation(entry), field)
     if backend != "native":
         check_state(ndarrays_regression, field, bound)
         return
     again = cast("MemoryOutput", build(backend)).planes()[-1].field
     assert_within(again, field, bound, what="a repeated Kokkos run")
-    reference = kept(cast("MemoryOutput", build("numpy_ref")).planes()[-1].field)
-    scale = float(np.max(np.abs(reference)))
-    assert (
-        float(np.max(np.abs(field - reference)))
-        <= legacy_parity_bound(field.shape[-1], legacy_simulation(entry)) * scale
-    )
-
-
-def legacy_parity_bound(samples: int, simulation) -> float:
-    """Relative bound on a legacy run's final field between two backends.
-
-    Every evaluation of each of the ten steps -- DOPRI5's seven stages, or the Adams
-    march's one, which reaches the step through its predictor's and corrector's
-    weights, counted by their absolute sum (``bounds.step_evaluations``) --
-    re-evaluates the nonlinear term
-    from a field the two backends formed in different orders: one FFT round trip each
-    way (``fft_bound``) and the modal synthesis and projection, whose sums run over at
-    most the transform's nodes (``gamma`` of the time samples, an over-count of any
-    node set here). Errors of the stages add; the linear step is a unit-modulus phase
-    and the case's nonlinear phase is far below one radian, so nothing amplifies them.
-    Derived before the local-build comparison was run.
-    """
-    per_stage = 2 * fft_bound(samples) + 2 * gamma(samples)
-    evaluations = max(DOPRI5.n_stages, step_evaluations(simulation._run_request()))
-    return STEPS * evaluations * per_stage
 
 
 # ------------------------------------------------------------- the varying section
-
-SMOOTH_STAGES = (0.0, 6e-5, 1.4e-4, 2e-4)
-"""Where a taper of this qualification case starts and stops varying, m.
-
-The stages land on multiples of `LENGTH / STEPS`, so the fixed schedule can contain
-every hard kink of the radius, which `PropagationProblem.validate` requires of any
-schedule (`_check_schedule`).
-"""
-
-NARROW = 40e-6
-"""The taper's narrow end, m: a fifth off :data:`RADIUS` over a fifth of a millimetre.
-
-A 50 to 40 micrometre contraction has the shape of a 125 to 62.5 micrometre taper --
-straight, transition, straight -- at the radius and length a short test allows.
-"""
-
-
-def taper(stages=SMOOTH_STAGES, ends=(RADIUS, NARROW)):
-    """Return the straight-transition-straight radius profile of the varying cases."""
-    return PiecewiseLinear.from_stages(stages, [ends[0], ends[0], ends[1], ends[1]])
-
-
-def varying(
-    *,
-    wall=None,
-    radius=None,
-    pressure: Pressure = 1.0,
-    modes: int | Sequence[Mode] = 3,
-    **overrides,
-):
-    """Return the varying-guide qualification case, with or without a wall."""
-    arguments = {
-        "wavelength": 800e-9,
-        "grid": GRID,
-        "absorber": WEAK_COLLAR,
-        "fwhm": 30e-15,
-        "energy": 1e-9,
-        "modes": modes,
-        "n_save": 2,
-        "backend": "numpy_ref",
-        "dz_max": LENGTH / STEPS,
-        "dz_init": LENGTH / STEPS,
-        "schedule": FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
-        "plasma": False,
-        "raman": False,
-    } | overrides
-    return Simulation.from_capillary(
-        taper() if radius is None else radius,
-        LENGTH,
-        "He",
-        pressure,
-        wall=wall,
-        **{"noise": None, **arguments},
-    )
 
 
 def test_a_moving_multimode_set_without_the_connection_warns_by_name():
@@ -1810,52 +1587,6 @@ def test_the_frozen_split_is_a_rearrangement_and_not_an_approximation():
     assert departure < gate, (departure, gate)
 
 
-def test_the_accumulated_error_is_verified_by_independent_refinement():
-    """Halving the step reduces the departure by 32: the run converges at order five.
-
-    The accumulated error of the explicit residual must be verified by independent
-    refinement rather than trusted to the estimate. The refinement here is of the
-    **schedule**, not of the sections, so the equation is fixed and only its integration
-    changes; the embedded DOPRI5 pair is fifth order, so halving the step must reduce
-    the departure from the finest run by 32. Predeclared gate: a measured order above
-    4.0 across two halvings. Measured 4.87 and 4.95, against a 160-step reference; the
-    run itself is 3.4e-9 of the state at ten steps, so the residual is being integrated
-    and not merely held.
-
-    Every step count is a multiple of :data:`STEPS`, because the taper's corners are
-    and a fixed schedule must land on every hard kink.
-    """
-    fine = _refined(STEPS * 16)
-    scale = float(np.max(abs(fine)))
-    departures = [
-        float(np.max(abs(_refined(STEPS * count) - fine))) for count in (1, 2, 4)
-    ]
-    assert departures[0] / scale < 1e-8
-    orders = [
-        math.log2(departures[index] / departures[index + 1]) for index in range(2)
-    ]
-    assert min(orders) > 4.0, (departures, orders)
-
-
-def _refined(steps):
-    """Return the final plane of the varying wall case on a schedule of `steps`.
-
-    Stepped by the Runge-Kutta march, whose fifth order the refinement measures.
-    """
-    return propagated(
-        *translated(
-            varying(
-                wall=CoherentWall(),
-                integrator=RungeKutta(),
-                schedule=FixedSchedule(np.full(steps, LENGTH / steps)),
-                dz_max=LENGTH / steps,
-                dz_init=LENGTH / steps,
-            )
-        ),
-        GRID,
-    )
-
-
 def _true_power_reference(block, index):
     """Return `b(L)` of one bin, solved in the true-power amplitude by DOP853.
 
@@ -1930,7 +1661,7 @@ def _routed_true_power(block, index, steps=None, rtol=1e-10):
     return np.conj(internal) * np.sqrt(weight)
 
 
-@pytest.mark.medium
+@pytest.mark.slow
 @pytest.mark.xdist_group("coherent-channel-power-reference")
 def test_every_channel_carries_its_own_normalisation_against_a_true_power_solve(
     monkeypatch,
@@ -1981,7 +1712,7 @@ def test_every_channel_carries_its_own_normalisation_against_a_true_power_solve(
         # The lowest channel's normalisation for every channel.
         with monkeypatch.context() as patch:
             patch.setattr(
-                problem_module,
+                walls_module,
                 "_channel_normalisation_at",
                 lambda modes, grid, z: np.zeros((len(modes), grid.n_omega)),
             )
@@ -2004,7 +1735,7 @@ def test_the_stored_connection_conserves_true_power():
     """
     block = tuple(MarcatiliMode(taper(), "He", 1.0, m=index + 1) for index in range(3))
     z = 0.5 * LENGTH
-    stored = problem_module._wall_connection_at(block, GRID, z)
+    stored = walls_module._wall_connection_at(block, GRID, z)
     band = GRID.omega[GRID.active_mask]
     root = np.sqrt(np.stack([np.real(mode.neff(band, z)) for mode in block]))
     active = stored[:, :, GRID.active_mask]
@@ -2081,8 +1812,8 @@ def test_a_varying_wall_refuses_every_declaration_it_would_otherwise_override():
     what this checks is that a **taper** reaches all of them rather than slipping past
     on the new branch, which is the way a new route usually loses an admission.
     """
-    with pytest.raises(DriverError, match="loss=False"):
-        varying(wall=CoherentWall(), loss=False).translate()
+    with pytest.raises(DriverError, match=r"loss_scale=0\.0"):
+        varying(wall=CoherentWall(), loss_scale=0.0).translate()
     with pytest.raises(DriverError, match="one capillary model"):
         varying(wall=CoherentWall(), model="reduced").translate()
     with pytest.raises(DriverError, match="tube lattice"):
@@ -2116,8 +1847,6 @@ def test_a_varying_wall_refuses_every_declaration_it_would_otherwise_override():
         ).translate()
     with pytest.raises(TranslationError, match="refuses the 'modified' noise"):
         varying(wall=CoherentWall(), noise="modified", seed=1).translate()
-    with pytest.raises(DriverError, match="polarisation"):
-        varying(wall=CoherentWall(), polarisation="linear").translate()
 
 
 def test_a_frozen_residual_flow_is_refused_beside_a_carrier_it_cannot_share(
@@ -2585,7 +2314,7 @@ def test_the_wall_diagonal_is_the_refractivity_difference():
     """
     mode = MarcatiliMode(RADIUS, "He", 1.0)
     band = GRID.omega[GRID.active_mask]
-    generator = problem_module._wall_shifted_generator(
+    generator = walls_module._wall_shifted_generator(
         np.zeros((1, 1, GRID.n_omega), dtype=complex), mode, GRID
     )
     # The diagonal is stored as conj(i s), so s = -i conj(stored).
@@ -2646,21 +2375,6 @@ def test_a_varying_route_whose_total_generator_grows_is_refused_by_name():
 
 
 # ------------------------------------------------------------------ the vector block
-
-
-VECTOR_WALL = CoherentWall(impedance="te_tm")
-"""The declaration under test here: the coupled azimuthal block."""
-
-
-def vector_modes(
-    counts=(2, 2), *, radius: float | ZProfile = RADIUS, orders=(1, -1), **kwargs
-):
-    """Return one azimuthal order of the qualification capillary."""
-    return [
-        MarcatiliMode(radius, "He", 1.0, n=order, m=index + 1, **kwargs)
-        for order, count in zip(orders, counts, strict=True)
-        for index in range(count)
-    ]
 
 
 def test_the_vector_route_declares_one_constant_section_without_a_wall_pair():
@@ -2737,7 +2451,7 @@ def test_a_varying_guide_beside_a_vector_wall_takes_the_frozen_residual_route():
     assert flow.certificate_id == "frozen-residual"
     assert flow.connection is not None and flow.wall_vectors is None
     z = 0.5 * LENGTH
-    stored = problem_module._wall_connection_at(tuple(modes), GRID, z, "te_tm")
+    stored = walls_module._wall_connection_at(tuple(modes), GRID, z, "te_tm")
     assert np.all(stored[:2, 2:] == 0.0) and np.all(stored[2:, :2] == 0.0)
     band = GRID.omega[GRID.active_mask]
     root = np.sqrt(np.stack([np.real(mode.neff(band, z)) for mode in modes]))
@@ -2781,13 +2495,14 @@ def test_a_vector_wall_refuses_every_declaration_it_would_otherwise_override():
     """Every door on the scalar route is reached by a vector block too.
 
     Not assumed: the vector route is a branch of its own inside `_wall_assembly`, so
-    each refusal is taken again through it. `loss=`, `model=` and `lattice=` are named
+    each refusal is taken again through it. `loss_scale=`, `model=` and `lattice=` are
+    named
     at the keyword, the mode set's own settings at the block, and `n_pol`, a noise
     draw and a route that cannot carry a wall in the translation layer.
     """
     modes = vector_modes()
     for overrides, error, message in (
-        ({"loss": False}, DriverError, "is the loss model"),
+        ({"loss_scale": 0.0}, DriverError, "is the loss model"),
         ({"model": "reduced"}, DriverError, "one capillary model"),
         ({"lattice": TubeLattice(180e-9, 9e-6, 6)}, DriverError, "tube lattice"),
         (
@@ -2814,31 +2529,6 @@ def test_a_vector_wall_refuses_every_declaration_it_would_otherwise_override():
     # `n_pol = 2` is refused for either wall impedance by the one door
     # `test_a_vector_state_or_a_noise_draw_refuses_a_wall_beside_it` exercises: the
     # capillary route has no public way to carry two components at all.
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("name", ["native"])
-def test_a_varying_vector_wall_runs_on_the_compiled_backends_to_rounding(name):
-    """Every backend executes the TE/TM wall on a taper, to the flow parity bound.
-
-    ``native`` executes every constant-Schur and frozen-residual flow the reference
-    admits, the TE/TM block on a varying guide included. The leaf is a dense
-    frozen-residual flow like the scalar taper's, so the compiled backend's parity
-    bounds cover it: at most 5.5e-12 (Kokkos) of the launch peak after ten steps. Gated
-    here at 1e-11 of the final plane's peak.
-    """
-    if name not in available():
-        pytest.skip(f"{name} is not installed")
-    arguments = {
-        "wall": VECTOR_WALL,
-        "modes": vector_modes(radius=taper()),
-        "radius_override": taper(),
-    }
-    reference = np.asarray(run_capillary(**arguments).planes()[-1].field)
-    compiled = np.asarray(run_capillary(backend=name, **arguments).planes()[-1].field)
-    peak = float(np.max(abs(reference)))
-    assert peak > 0.0
-    assert float(np.max(abs(compiled - reference))) < 1e-11 * peak
 
 
 @pytest.mark.medium
@@ -2927,8 +2617,8 @@ def test_ten_steps_of_mixed_family_propagation_match_an_independent_solve():
     flow = problem.linear.coupled_flow
     assert flow is not None and flow.generator is not None
     index, launched = linear_launch(problem, simulation.grid)
-    final = propagated(launched, simulation._run_request(), simulation.grid)
-    carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, 0, index])
+    final = propagated(launched, simulation.run_request(), simulation.grid)
+    carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, index])
     block = np.asarray(flow.generator[0, 0, :, :, index], dtype=complex)
     start = np.zeros(4, dtype=complex)
     start[0] = 1e-9
@@ -3015,7 +2705,7 @@ def _vector_taper_run(**overrides) -> MemoryOutput:
     )
 
 
-@pytest.mark.medium
+@pytest.mark.slow
 def test_prop_capillary_runs_a_vector_wall_on_a_taper_end_to_end_and_is_pinned(
     ndarrays_regression,
 ):
@@ -3161,7 +2851,7 @@ def _implemented_link(modes, profile, z, relative=1e-5):
     )
 
 
-@pytest.mark.medium
+@pytest.mark.slow
 @pytest.mark.xdist_group("coherent-vector-power-reference")
 def test_a_vector_taper_matches_a_true_power_solve_with_a_measured_connection():
     """The route against a reference that does not contain the connection's formula.
@@ -3334,46 +3024,6 @@ def test_on_a_taper_the_families_exchange_power_only_through_the_wall_anisotropy
     assert float(power[1]) > 0.05, power
 
 
-def _vector_refined(steps):
-    """Return the final plane of the vector taper on a schedule of `steps`.
-
-    Stepped by the Runge-Kutta march: the refinement measures DOPRI5's fifth order on
-    the frozen split.
-    """
-    return propagated(
-        *translated(
-            varying(
-                wall=CoherentWall(impedance="te_tm"),
-                integrator=RungeKutta(),
-                modes=vector_modes(radius=taper()),
-                schedule=FixedSchedule(np.full(steps, LENGTH / steps)),
-                dz_max=LENGTH / steps,
-                dz_init=LENGTH / steps,
-            )
-        ),
-        GRID,
-    )
-
-
-@pytest.mark.medium
-def test_the_vector_taper_converges_at_the_frozen_split_s_order():
-    """Independent refinement: fifth order frozen, against one reference.
-
-    Bounds, stated first. The embedded DOPRI5 pair integrates the frozen split's
-    explicit residual at fifth order, so halving the step divides the departure from a
-    160-step frozen run by 32 -- gate an order above 4.0 on the first halving, and a
-    ten-step departure below 1e-8 of the state (measured 6.2e-11, then 4.82).
-    """
-    reference = _vector_refined(STEPS * 16)
-    scale = float(np.max(abs(reference)))
-    frozen = [
-        float(np.max(abs(_vector_refined(STEPS * count) - reference))) / scale
-        for count in (1, 2)
-    ]
-    assert frozen[0] < 1e-8, frozen
-    assert math.log2(frozen[0] / frozen[1]) > 4.0, frozen
-
-
 def test_the_vector_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path):
     """The record round-trips, and a scalar run cannot resume a vector one."""
     path = tmp_path / "vector-wall.h5"
@@ -3481,38 +3131,3 @@ def test_the_validity_ratios_are_admitted_and_recorded_over_the_scored_band():
     )
     with pytest.raises(ModeError, match=r"transverse_ratio is 0\.31.* above the 0\.25"):
         _taper_note_bore(40).translate()
-
-
-def _reference_scan_point(point):
-    """Return one point of a power scan of the scalar wall, on the reference."""
-    return capillary(
-        wall=CoherentWall(), backend="numpy_ref", energy=1e-9 * point.values["power"]
-    )
-
-
-def test_a_batched_reference_scan_of_coupled_flows_runs_as_the_local_loop(tmp_path):
-    """The reference's lockstep runner takes coupled members one by one (#241).
-
-    Its member-axis batch applies neither half of a flow, so the runner gives coupled
-    members the member-by-member group, each its own trial, flow included: every point
-    is the local loop's to the matched-march bound (SEP 25).
-    """
-    scan = Scan("coupled", power=[1.0, 2.0])
-    local = run_scan(
-        scan,
-        _reference_scan_point,
-        output=tmp_path / "local.h5",
-        executor=Local(),
-        progress="none",
-    )
-    batched = run_scan(
-        scan,
-        _reference_scan_point,
-        output=tmp_path / "batch.h5",
-        executor=Batch(2),
-        progress="none",
-    )
-    assert local.status.tolist() == batched.status.tolist() == ["done"] * 2
-    assert_points_matched(
-        batched, local, scan, _reference_scan_point, what="batch member"
-    )

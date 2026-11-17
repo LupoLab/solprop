@@ -47,8 +47,8 @@ import pytest
 from sessions.runs import run
 from solprop import fourier
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import tabulate
-from solprop.translate.problem import assemble
 
 # The dimensionless problem, mapped onto the fibre by one time and one length scale.
 TAU0 = 100e-15  # s

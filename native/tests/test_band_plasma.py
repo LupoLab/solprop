@@ -8,8 +8,8 @@ The band rule filters each of the column's two running integrals with the grid's
 symmetric taps before the cumulative trapezoid, closes the window's ends by point
 reflection and floors the exposure at zero (solprop ``RunningIntegral``). Every build
 runs it as a team column in whole-row passes, a band filter then a chunked scan per
-running integral (``include/solprop_native/plasma.hpp``); a host team splits a row
-between its threads when a chunk has fewer nodes than threads, and skips each row's
+running integral (``include/solprop_native/response/plasma.hpp``); a host team splits a
+row between its threads when a chunk has fewer nodes than threads, and skips each row's
 quiet samples. Its statistics and run diagnostics come from the band scan. The bounds
 are the equivalence ladder's (solprop's ``accelerator_bounds``): the transforms' depth
 plus the plasma column's sums, which the band rule widens by its ``2K + 1`` taps per
@@ -53,7 +53,8 @@ from solprop.stats import PLASMA_INTEGRATION_STATISTICS, StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 from legacy_geometry import LEGACY_GRID
@@ -61,9 +62,11 @@ from bounds import fft_bound
 from conftest import PhaseACase
 from plasma_bounds import assert_regression_guard, plasma_stage_bound, rate_roundoff
 from solprop_native import NativeBackend, _core
-from solprop_native.backend import (
-    _native_problem,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
+from solprop_native._lowering import (
+    _lower,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
+    _LowerPlan,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
 )
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 
 INFO = solprop_native.build_info()
 DEVICE_BUILD = INFO.device_backend != "none"
@@ -199,7 +202,7 @@ def modal(
         problem = simulation.translate()
     grid = simulation.grid
     assert isinstance(grid, FieldGrid)
-    return grid, problem, simulation._run_request()  # pyright: ignore[reportPrivateUsage]
+    return grid, problem, simulation.run_request()
 
 
 def spatial(
@@ -389,7 +392,7 @@ def test_overlapping_stencil_windows_refuse_uncertified_collar(
         jones=(1, 0.5j),
     )
     # These stencil stress windows cannot certify the held-source collar.
-    # Their raw band closures remain tested natively in test_core.cpp.
+    # Their raw band closures remain tested natively in test_plasma_scan.cpp.
     assert grid.n_to < 3 * half + 2 * half + 1
     with pytest.raises(TranslationError, match="held plasma current"):
         assemble(
@@ -429,21 +432,26 @@ def test_one_evaluation_matches_the_reference() -> None:
     grid, problem, run_request = spatial("radial")
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
-        expected = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
-            reference._require_state(),  # pyright: ignore[reportPrivateUsage]
-            reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-            np.ones((1, *problem.shape), complex),
-        )[0]
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
+        reference.workspace.hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
+        expected = reference.workspace.nonlinear(  # pyright: ignore[reportPrivateUsage]
+            reference.workspace.committed(),  # pyright: ignore[reportPrivateUsage]
+            reference.workspace.stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
+            np.ones(problem.shape, complex),
+        )
     finally:
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         # A zero-length trial exposes the first stage, N(E, z = 0).
         native_trial(backend, 0.0, 0.0)
-        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
+        actual = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
     finally:
         backend.close()
     scale = float(np.max(np.abs(expected)))
@@ -479,23 +487,26 @@ def test_every_stage_of_a_trial_matches_the_reference(
     dz = float(run_request.stepper.save_planes[-1]) / STEPS
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._trial_step(0.0, dz)  # pyright: ignore[reportPrivateUsage] - oracle
-        expected = [
-            np.asarray(stage)[0]
-            for stage in reference._last_stages  # pyright: ignore[reportPrivateUsage]
-        ]
+        reference.workspace.load(
+            np.ascontiguousarray(problem.initial.field0, dtype=complex),
+            None,
+            z=0.0,
+            resume=False,
+        )
+        engine = reference._runge_kutta(reference.workspace)  # pyright: ignore[reportPrivateUsage] - oracle
+        engine.trial(0.0, dz)
+        expected = [np.asarray(stage) for stage in engine.stages]
     finally:
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         if averaged and not DEVICE_BUILD:
             assert backend.metadata()["synthesis_provider"] == "folded"
             assert backend.metadata()["projection_provider"] == "folded"
         native_trial(backend, 0.0, dz)
         actual = [
-            np.asarray(state.stage_to_host(stage)).reshape(problem.shape)
+            np.asarray(_testing.stage_to_host(state, stage)).reshape(problem.shape)
             for stage in range(len(expected))
         ]
     finally:
@@ -577,7 +588,7 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
         owns=True,
     )
     backend = NativeBackend(problem, run_request, grid=grid, options=options)
-    state = backend._native_state  # pyright: ignore[reportPrivateUsage] - score lifetime
+    state = backend._workspace  # pyright: ignore[reportPrivateUsage] - score lifetime
     try:
         record: dict[str, object] = {}
         finished = run(backend, problem, run_request, record=record)
@@ -599,7 +610,7 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
             rtol=0.0,
             atol=bound * float(np.max(np.abs(want_field))),
         )
-        score = state.quadrature_error
+        score = _testing.quadrature_error(state)
         assert math.isfinite(score)
         np.testing.assert_allclose(
             score, want.stats["quadrature_error"], rtol=0.0, atol=score_bound
@@ -612,23 +623,26 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
         native_record = record["native_session"]
         assert isinstance(native_record, dict)
         assert native_record["quadrature_peak"] == max(steps)
-        assert math.isnan(state.quadrature_peak())
+        assert math.isnan(_testing.quadrature_peak(state))
 
         # Leave an unaccepted trial in scratch: the stored score and the accepted
         # field stay. (Its positions are the first step's, inside the problem's
         # tables, which end at the second plane.)
         native_trial(backend, dz, 0.5 * dz)
-        assert state.quadrature_error == score  # Stored accepted value, no arithmetic.
-        assert math.isnan(state.quadrature_peak())
-        np.testing.assert_array_equal(state.field_to_host().reshape(got.shape), got)
+        # The stored accepted value, no arithmetic.
+        assert _testing.quadrature_error(state) == score
+        assert math.isnan(_testing.quadrature_peak(state))
+        np.testing.assert_array_equal(
+            np.asarray(_testing.field(state)).reshape(got.shape), got
+        )
 
         # A second run's load resets the score (read once the session, closed before
         # its first step, returns the state); its first step repeats the first's.
         backend.prepare(problem, run_request).start(
             Start.entrance(problem), owns=False
         ).close()
-        assert math.isnan(state.quadrature_error)
-        assert math.isnan(state.quadrature_peak())
+        assert math.isnan(_testing.quadrature_error(state))
+        assert math.isnan(_testing.quadrature_peak(state))
         again = run(backend, problem, run_request).fields
         np.testing.assert_allclose(
             again[1],
@@ -756,26 +770,48 @@ def test_native_taps_are_validated(damage: str) -> None:
     grid, problem, run_request = modal("mode_averaged", "band")
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        payload = _native_problem(
+        payload = _lower(
             problem,
             run_request,
-            backend._terms,  # pyright: ignore[reportPrivateUsage] - fixed payload
+            _LowerPlan(terms=backend._terms),  # pyright: ignore[reportPrivateUsage] - fixed payload
         )
     finally:
         backend.close()
-    taps = np.array(payload["plasma_taps"], dtype=float, copy=True)
+    plasma = payload.plasma
+    taps = plasma.taps
     if damage == "too_many":
-        payload["plasma_taps"] = np.ones(10)
+        plasma.taps = np.ones(10)
     elif damage == "nonfinite":
         taps[1] = np.nan
-        payload["plasma_taps"] = taps
+        plasma.taps = taps
     elif damage == "empty":
-        payload["plasma_taps"] = np.empty(0)
+        plasma.taps = np.empty(0)
     else:
         # The trapezoid is the one identity tap and nothing else.
-        payload["plasma_band"] = False
+        plasma.band = False
     with pytest.raises(ValueError, match=r"taps|trapezoid|band"):
-        _core.State(payload)
+        _core.Workspace(payload)
+
+
+def test_native_rate_table_refuses_a_transposed_layout() -> None:
+    """(n_intervals, 4) holds the right elements but is refused: (4, n_intervals)."""
+    grid, problem, run_request = modal("mode_averaged", "band")
+    backend = NativeBackend(problem, run_request, grid=grid)
+    try:
+        payload = _lower(
+            problem,
+            run_request,
+            _LowerPlan(terms=backend._terms),  # pyright: ignore[reportPrivateUsage] - fixed payload
+        )
+    finally:
+        backend.close()
+    plasma = payload.plasma
+    assert plasma.rate_intervals != 4
+    plasma.rate_coefficients = plasma.rate_coefficients.reshape(
+        plasma.rate_intervals, 4
+    )
+    with pytest.raises(ValueError, match=r"rate_coefficients must have shape"):
+        _core.Workspace(payload)
 
 
 def test_the_diagnostics_need_a_field_plasma_column(phase_a_case: PhaseACase) -> None:

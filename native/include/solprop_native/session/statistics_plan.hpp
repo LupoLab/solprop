@@ -1,0 +1,292 @@
+// SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+// A statistics evaluation lowered once, at preparation (solprop SEP 47 section 6.4):
+// which statistics, in which order, and every z-dependent input as the representation
+// the propagation itself carries -- solprop's piecewise Chebyshev tables of z
+// (`solprop.translate.chebyshev.PiecewiseChebyshev`) for the plasma density, the
+// preionisation of each channel, the species densities, the taper, the effective
+// area and the modal power weight, the basis metric's square root formed from the
+// metric's own values on each interval, and each profile statistic's path: the
+// propagation's table of it, or the profile lowered once with a measured, recorded
+// error at rounding level. `evaluate` reads the
+// resident state through the native statistics passes and finishes every statistic
+// natively: the half-maximum widths, the species reduction and the plasma
+// integration ratios are formed here, with no Python finishing. Python names the
+// packed values and assembles the schema.
+//
+// The one native implementation of each statistic: a native session takes its plane
+// statistics and its periodic rows through it, so coincident requests give the same
+// bits.
+//
+// Kokkos-free: the native passes are behind `GeneralState`, declared elsewhere.
+//
+// Types (namespace `statistics`): `Plan` and its parts (`Route`, `Stat`, `Table`,
+// `Weight`, `Transverse`, `Widths`).
+//
+// Functions: `evaluate` runs a plan on a state, `half_width` is the half-maximum width
+// of a power trace; namespace `widths` (session_widths.cpp) finishes a spatial route's
+// fluence widths.
+
+#include <array>
+#include <complex>
+#include <cstddef>
+#include <cstdint>
+#include <stdexcept>
+#include <vector>
+
+namespace solprop_native {
+
+class GeneralState;
+
+namespace statistics {
+
+/** The route a plan reads: a modal or mode-averaged state, a spatial state, or a
+    general modal basis, whose statistics are functionals of `a.H W a`. */
+enum class Route : int { modal = 0, spatial = 1, general = 2 };
+
+/** Each statistic a plan can emit, by its solprop catalogue name. The values are the
+    Python adapter's (`solprop_native._statistics.STATISTIC_IDS`). */
+enum class Stat : int {
+  omega0 = 0,
+  energy = 1,
+  energy_window = 2,
+  peak_power = 3,
+  peak_power_window = 4,
+  peak_power_total = 5,
+  fwhm_t = 6,
+  fwhm_t_outer = 7,
+  electron_density = 8,
+  peak_ionisation_rate = 9,
+  peak_intensity = 10,
+  quadrature_error = 11,
+  species_ionisation = 12,
+  species_electron_density = 13,
+  species_peak_ionisation_rate = 14,
+  species_density = 15,
+  species_ionisation_energy = 16,
+  plasma_undershoot = 17,
+  plasma_work_defect = 18,
+  plasma_boundary_level = 19,
+  physical_energy = 20,
+  spectral_flux = 21,
+  analytic_flux = 22,
+  on_axis_intensity = 23,
+  on_axis_spectrum = 24,
+  absorbed_power = 25,
+  beam_spectrum = 26,
+  region_spectrum = 27,
+  aperture_spectrum = 28,
+  aperture_on_axis_spectrum = 29,
+  density = 30,
+  pressure = 31,
+  core_radius = 32,
+  beam_radius = 33,
+  fwhm_r = 34,
+  zdw = 35,
+  on_axis_electron_density = 36,
+  on_axis_peak_ionisation_rate = 37,
+  on_axis_species_electron_density = 38,
+  on_axis_species_peak_ionisation_rate = 39,
+};
+
+/** The number of `Stat` values. */
+inline constexpr int stat_count = 40;
+
+/** A piecewise Chebyshev table of z: on interval `k` of `edges`, `coefficients[(k *
+    n_terms + i) * n_values + j]` is value `j`'s coefficient of degree `i`. A position
+    outside `[lower, upper]` (the span widened by solprop's edge slack) is refused. */
+template <class Value> struct Table {
+  std::vector<double> edges;
+  std::vector<Value> coefficients;
+  std::size_t n_terms = 0;
+  std::size_t n_values = 0;
+  double lower = 0.0;
+  double upper = 0.0;
+  [[nodiscard]] bool present() const noexcept { return edges.size() >= 2; }
+  /** Check the extents; throws `std::invalid_argument` naming `name`. */
+  void validate(const char* name) const;
+  /** The values at `z`, solprop's `PiecewiseChebyshev.__call__` bit for bit. */
+  [[nodiscard]] std::vector<Value> at(double z) const;
+  /** The one value of a scalar table at `z`. */
+  [[nodiscard]] Value scalar(double z) const;
+};
+
+using RealTable = Table<double>;
+using ComplexTable = Table<std::complex<double>>;
+
+/** How the modal power weight varies with z: absent (unit or spatial), constant, a
+    weighted sum of fixed arrays (`ParameterExpansion`) or a full table. */
+enum class Weight : int { none = 0, constant = 1, expansion = 2, table = 3 };
+
+/** The physical transverse weights of the species inventory
+    (`solprop.backends.populations.population_statistics`): the spatial quadrature,
+    the effective area at z, or the node weights over the taper's square. */
+enum class Transverse : int { none = 0, spatial = 1, aeff = 2, nodes = 3 };
+
+/** The rule a spatial route's fluence widths (`beam_radius`, `fwhm_r`) take, by its
+    geometry (`solprop.backends.spatial.signed_fluence_widths`,
+    `plane_fluence_widths`): none asked, a radial profile, a planar slab's profile in
+    y integrated over x, a line, or a Cartesian plane's reductions and rings. */
+enum class Widths : int { none = 0, radial = 1, slab = 2, line = 3, plane = 4 };
+
+/** One evaluation's fixed arguments, with its outputs in order. */
+struct Plan {
+  Route route = Route::modal;
+  std::vector<Stat> outputs;
+  // The state's extents: modes, polarisations, time samples, frequency bins, nodes,
+  // channels and species.
+  std::size_t n_modes = 0;
+  std::size_t n_pol = 0;
+  std::size_t n_t = 0;
+  std::size_t n_omega = 0;
+  std::size_t n_nodes = 0;
+  std::size_t n_channels = 0;
+  std::size_t n_species = 0;
+  /** The energy windows' edges, pairs, rad/s. */
+  std::vector<double> windows;
+  /** `epsilon_0 c / 2`, W/(V/m)^2. */
+  double intensity_factor = 0.0;
+  /** The time axis the widths read, s. */
+  std::vector<double> t;
+  // The modal power weight: the constant row, or an expansion's fixed terms
+  // `(n_terms, n_values)` with its scalar weights' table, or the full table.
+  Weight weight_kind = Weight::none;
+  std::vector<double> weight;
+  RealTable weight_table;
+  // The on-axis synthesis at the reference position, rows times modes, which the
+  // taper rescales (`ReferenceStatistics._on_axis_synthesis`, numpy_ref/statistics.py),
+  // and the taper's table.
+  std::vector<double> on_axis;
+  RealTable taper;
+  // The on-axis plasma statistics (solprop SEP 19): the pad scale their row carries
+  // (`solprop.backends.populations.axis_row_matrix`), and a Radau rule's node on the
+  // axis, whose populations they read when the node scan runs anyway, or -1.
+  double pad_scale = 1.0;
+  std::int64_t axis_node = -1;
+  // A single population's density and preionisation, and every channel's
+  // preionisation.
+  RealTable plasma_density;
+  RealTable plasma_preionisation;
+  std::vector<RealTable> channel_preionisation;
+  bool envelope_plasma = false;
+  // The species reduction: each species' density, each channel's species and
+  // ionisation potential, J, and the transverse weights.
+  std::vector<RealTable> species_density;
+  std::vector<std::size_t> channel_species;
+  std::vector<double> potentials;
+  Transverse transverse = Transverse::none;
+  std::vector<double> node_weights;
+  RealTable aeff;
+  /** The tables of `density`, `pressure` and `core_radius`, in that order: the
+      propagation's own where it carries the path, else the profile lowered at
+      preparation with its error measured and recorded. */
+  std::array<RealTable, 3> profiles;
+  /** Each mode's zero-dispersion wavelength as a table of z, m: the value itself for a
+      z-independent mode, else the root lowered at preparation with its error measured
+      and recorded (`solprop_native._statistics`); NaN where the band holds no zero. */
+  std::vector<RealTable> zdw;
+  // A spatial route: whether `on_axis_spectrum` comes from the far-field pass (a
+  // Cartesian or line grid), and the far-field tables, `(n_apertures,
+  // far_field_aperture_constants + n_omega)`
+  // and `(n_regions, 4)`, with their exponent; `n_absorbed` channels of absorbed
+  // power.
+  bool far_field_axis = false;
+  std::vector<double> apertures;
+  std::size_t n_apertures = 0;
+  int exponent = 2;
+  std::vector<double> regions;
+  std::size_t n_regions = 0;
+  std::size_t n_absorbed = 0;
+  // A general modal basis: the square root of its flux metric, `(n_omega, n_modes,
+  // n_modes)` values a table of z, absent for the identity; the spectral density's
+  // prefactor, s^2.
+  ComplexTable root;
+  double spectral_prefactor = 0.0;
+  // A spatial route's fluence widths: the rule; its axis, the radii, x, or a slab's y;
+  // a plane's y; the transverse weights of a radial or slab profile; a slab's
+  // `(n_x, n_y)`; the fluence's term count, `n_pol n_t + n_modes`, which fixes its
+  // rounding budget; a plane's ring cosines and sines, which its axes alone fix
+  // (`solprop.spatial._fluence_rings`); and `exp(-2)` as the host forms it.
+  Widths widths = Widths::none;
+  std::vector<double> width_x;
+  std::vector<double> width_y;
+  std::vector<double> width_weights;
+  std::size_t width_n_x = 0;
+  std::size_t width_n_y = 0;
+  std::size_t width_terms = 0;
+  std::vector<double> ring_cosines;
+  std::vector<double> ring_sines;
+  double e2_fraction = 0.0;
+
+  [[nodiscard]] bool empty() const noexcept { return outputs.empty(); }
+  /** Check every extent before anything is evaluated. */
+  void validate() const;
+  /** The number of values `stat` packs. */
+  [[nodiscard]] std::size_t width(Stat stat) const;
+  /** The number of values an evaluation returns. */
+  [[nodiscard]] std::size_t packed_size() const;
+};
+
+/** Evaluate `plan` on `state`'s committed field at `z`: each output in order,
+    finished. */
+[[nodiscard]] std::vector<double> evaluate(GeneralState& state, const Plan& plan,
+                                           double z);
+
+/** solprop's half-maximum width of a power trace
+    (`solprop.stats.definitions._half_max_range`): the outer or the central crossings,
+    NaN when undefined. Strict, as solprop's NumPy rounds it. */
+[[nodiscard]] double half_width(const double* t, const double* power, std::size_t n,
+                                bool outer);
+
+/** `a b + c` as statistics_plan.cpp rounds it (solprop #135's witness); never
+    inlined, as `session::strict_probe`. */
+[[nodiscard, gnu::noinline]] double strict_probe(double a, double b, double c);
+
+/*
+ * A spatial route's fluence widths, finished natively (session_widths.cpp, strict):
+ * solprop's host finishing of the reductions the native passes leave
+ * (`solprop.backends.spatial.signed_fluence_widths`, `plane_fluence_widths`,
+ * `solprop.spatial.radial_fluence_widths`, `cartesian_fluence_widths`), with each
+ * of NumPy's sums in its pairwise order. Each returns the second-moment, the 1/e^2
+ * and the FWHM widths, m, and throws `std::invalid_argument` with the reference's
+ * message where it refuses.
+ */
+namespace widths {
+
+/** NumPy's pairwise sum of `n` contiguous values (`np.add.reduce`), bit for bit. */
+[[nodiscard]] double pairwise_sum(const double* values, std::size_t n);
+
+/** `solprop.spatial.radial_fluence_widths`: the radii, the fluence and the weights,
+    `n` each, the axis fluence, and `exp(-2)` as the host forms it. */
+[[nodiscard]] std::array<double, 3> radial(const double* radius, const double* fluence,
+                                           const double* weights, std::size_t n,
+                                           double axis_fluence, double e2_fraction);
+
+/** `solprop.spatial._line_fluence_widths`: a validated uniform axis and the fluence
+    divided by its maximum. */
+[[nodiscard]] std::array<double, 3> line(const std::vector<double>& x,
+                                         const std::vector<double>& samples,
+                                         double e2_fraction);
+
+/** The widths of a separable or radial fluence block, `spatial_statistics` flag
+    `spatial_fluence`: the signed fluence at each node, the axis fluence and the
+    largest magnitude. */
+[[nodiscard]] std::array<double, 3> of_block(const Plan& plan,
+                                             const std::vector<double>& block);
+
+/** A Cartesian plane's widths from its moments, flag `spatial_moments`, and the
+    trace `state` forms of the scaled fluence those moments left. */
+[[nodiscard]] std::array<double, 3> of_plane(GeneralState& state, const Plan& plan,
+                                             const std::vector<double>& moments);
+
+/** `a b + c` as session_widths.cpp rounds it (solprop #135's witness). */
+[[nodiscard, gnu::noinline]] double strict_probe(double a, double b, double c);
+
+} // namespace widths
+
+} // namespace statistics
+} // namespace solprop_native

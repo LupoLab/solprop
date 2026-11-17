@@ -2,21 +2,28 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Coordinate atomic filesystem claims with leases and persistent advisory locks."""
+"""Coordinate atomic filesystem claims with leases and persistent advisory locks.
+
+The durable queue's primitives: :func:`locked` (a persistent ``flock`` file, never
+removed), :func:`atomic_json` and :func:`read_json`, :func:`owner` and
+:func:`live_owner` (a claim's controller identity and whether it still holds), and
+:func:`state` and :func:`finish`, which read the queue's state and publish its
+completion marker before the active state is removed.
+"""
 
 import json
 import os
 import socket
-import tempfile
 import time
 import uuid
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
+from solprop._durable import sync_directory, write_atomic
+from solprop._file_lock import lock, unlock
 from solprop._process import process_stamp
 from solprop.exceptions import DriverError
-from solprop.output._file_lock import lock, unlock
 from solprop.output.scan import _json
 
 
@@ -32,28 +39,9 @@ def locked(path: Path) -> Iterator[None]:
         os.close(descriptor)
 
 
-def sync_directory(path: Path) -> None:
-    """Make filename publication durable on a filesystem supporting directory fsync."""
-    descriptor = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-
-
 def atomic_json(path: Path, value: object) -> None:
-    """Replace a JSON record only after its complete content has been fsynced."""
-    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(name)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            stream.write(_json(value))
-            stream.flush()
-            os.fsync(stream.fileno())
-        temporary.replace(path)
-        sync_directory(path.parent)
-    finally:
-        temporary.unlink(missing_ok=True)
+    """Replace a JSON record durably, its complete content on the disk first."""
+    write_atomic(path, _json(value), durable=True)
 
 
 def read_json(path: Path) -> dict:

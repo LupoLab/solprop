@@ -25,10 +25,11 @@ import numpy as np
 import pytest
 
 from backends.planar_cases import planar_case
-from backends.test_planar_native import chunked
-from backends.test_planar_native import planar_case as collar_family_case
+from backends.planar_plate_cases import chunked
+from backends.planar_plate_cases import planar_case as collar_family_case
 from bounds import assert_within, fft_bound, gamma
-from sessions.runs import launch_statistics, load_native
+from builders import load_reference
+from sessions.runs import bare, final_field, launch_statistics, load_native
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stats import StatsSpec
 
@@ -42,6 +43,7 @@ pytestmark = [
 ]
 
 solprop_native = pytest.importorskip("solprop_native")
+_testing = pytest.importorskip("solprop_native._core")._testing
 NativeBackend = solprop_native.NativeBackend
 
 EPS = float(np.finfo(float).eps)
@@ -82,15 +84,23 @@ def run(backend_class, problem, run_request, grid, length):
     """Propagate the problem's launch and return the state."""
     backend = backend_class(problem, run_request, grid=grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(length)
-        return backend.observe().require_field().copy()
+        result = final_field(backend, problem, bare(run_request))
+        assert math.isclose(float(run_request.stepper.z_end), length, rel_tol=1e-12)
+        return result.copy()
     finally:
         backend.close()
 
 
-@pytest.mark.medium
-@pytest.mark.parametrize("name", ["kerr", "field-plasma", "envelope-plasma"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("kerr", marks=pytest.mark.medium),
+        # slow by cost (#792): ~50 s on CI macOS and 74-106 s on Windows x64; a parity
+        # check, not a witness
+        pytest.param("field-plasma", marks=pytest.mark.slow),
+        pytest.param("envelope-plasma", marks=pytest.mark.medium),
+    ],
+)
 def test_each_statistic_is_the_reference_s_on_the_same_state(name):
     """Every spatial statistic, and each plasma one, at the reference's final state.
 
@@ -157,19 +167,40 @@ def finished(problem, run_request, grid, rows, dz, options=None):
     """Return each backend's finish of the rows it is handed, the reference's first."""
     reference = NumpyRefBackend(problem, run_request, grid=grid, options=options)
     try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)
-        expected = np.array(reference._finish(rows[None].copy(), dz))[0]
+        load_reference(reference)
+        reference.workspace.hoist(0.0)
+        expected = np.array(reference.workspace.finish(rows.copy(), dz)[0])
     finally:
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid, options=options)
     try:
-        native = load_native(backend, problem.initial.field0, clear_fsal=False)
-        native.adopt(np.ascontiguousarray(rows.reshape(-1)), dz)
-        actual = native.field_to_host().reshape(problem.shape)
+        native = load_native(backend, problem.initial.field0)
+        _testing.adopt(native, np.ascontiguousarray(rows.reshape(-1)), dz)
+        actual = _testing.field(native).reshape(problem.shape)
     finally:
         backend.close()
     return expected, actual
+
+
+def _split_step_finish(off_band: complex):
+    """Finish the split-step collar case's launch rows set to `off_band` off the band.
+
+    Returns the problem, its active mask and the reference's and native's finished
+    rows (:func:`finished`) over one step of the schedule.
+    """
+    grid, space, problem, run_request = collar_family_case("collar_split_step")
+    active = np.asarray(problem.grids.active_mask)
+    rows = np.array(problem.initial.field0, dtype=complex)
+    rows[..., ~active] = off_band
+    expected, actual = finished(
+        problem,
+        run_request,
+        grid,
+        rows,
+        float(run_request.stepper.schedule.max_step),  # pyright: ignore[reportOptionalMemberAccess]
+        chunked(space),
+    )
+    return problem, active, expected, actual
 
 
 def test_the_hard_mask_takes_the_rows_to_the_state():
@@ -180,19 +211,8 @@ def test_the_hard_mask_takes_the_rows_to_the_state():
     finish on rows it is handed. Off the band the zeros are exact (class P,
     ``docs/dev/testing.md`` section 3): any other value would be real content.
     """
-    grid, space, problem, run_request = collar_family_case("collar_split_step")
-    active = np.asarray(problem.grids.active_mask)
+    _, active, expected, actual = _split_step_finish(1.0 + 1.0j)
     assert not np.all(active)
-    rows = np.array(problem.initial.field0, dtype=complex)
-    rows[..., ~active] = 1.0 + 1.0j
-    expected, actual = finished(
-        problem,
-        run_request,
-        grid,
-        rows,
-        float(run_request.stepper.schedule.max_step),  # pyright: ignore[reportOptionalMemberAccess]
-        chunked(space),
-    )
     np.testing.assert_array_equal(expected[..., ~active], 0.0)
     np.testing.assert_array_equal(actual[..., ~active], 0.0)
     assert np.max(np.abs(actual[..., active])) > 0.0
@@ -200,18 +220,7 @@ def test_the_hard_mask_takes_the_rows_to_the_state():
 
 def test_the_finish_on_the_band_is_the_reference_s():
     """The same finish on rows with nothing off the band, as every march's are."""
-    grid, space, problem, run_request = collar_family_case("collar_split_step")
-    active = np.asarray(problem.grids.active_mask)
-    rows = np.array(problem.initial.field0, dtype=complex)
-    rows[..., ~active] = 0.0
-    expected, actual = finished(
-        problem,
-        run_request,
-        grid,
-        rows,
-        float(run_request.stepper.schedule.max_step),  # pyright: ignore[reportOptionalMemberAccess]
-        chunked(space),
-    )
+    problem, _, expected, actual = _split_step_finish(0.0)
     assert_within(actual, expected, finish_bound(problem), what="the finish")
 
 
@@ -220,7 +229,8 @@ def test_the_finish_on_the_band_is_the_reference_s():
     reason=(
         "SEP 43 inventory 35: native's split-step finish masks only after the temporal "
         "absorber; the reference also masks before it, so content off the band leaks "
-        "onto it (1.1e-8 against 3.2e-12). No march hands it such rows"
+        "onto it (normwise departure 2.2e-8 against a bound of 3.2e-12). No march "
+        "hands it such rows"
     ),
 )
 def test_a_finish_with_content_off_the_band_is_the_reference_s_on_it():
@@ -228,18 +238,8 @@ def test_a_finish_with_content_off_the_band_is_the_reference_s_on_it():
 
     Reached only by handing the finish such rows, ``adopt`` directly: a load masks, the
     source's prefactor and the in-stage term are zero there, and the flow is the
-    identity there. Measured 1.1e-8 at unit content off the band, 4.4e6 V/m at the peak.
+    identity there. Measured on Linux x86-64 at unit content off the band: a departure
+    of 2.186e-8 relative to the norm of the reference finish, whose peak is 4.4e6 V/m.
     """
-    grid, space, problem, run_request = collar_family_case("collar_split_step")
-    active = np.asarray(problem.grids.active_mask)
-    rows = np.array(problem.initial.field0, dtype=complex)
-    rows[..., ~active] = 1.0 + 1.0j
-    expected, actual = finished(
-        problem,
-        run_request,
-        grid,
-        rows,
-        float(run_request.stepper.schedule.max_step),  # pyright: ignore[reportOptionalMemberAccess]
-        chunked(space),
-    )
+    problem, _, expected, actual = _split_step_finish(1.0 + 1.0j)
     assert_within(actual, expected, finish_bound(problem), what="the finish")

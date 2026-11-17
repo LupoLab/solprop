@@ -15,6 +15,7 @@ from typing import TypedDict
 import numpy as np
 import pytest
 
+from builders import grid_at
 from legacy_geometry import LEGACY_GRID
 from solprop.backends.registry import select
 from solprop.driver import (
@@ -23,7 +24,6 @@ from solprop.driver import (
     prop_capillary,
     prop_free,
     prop_gnlse,
-    prop_radial,
     prop_waveguide,
 )
 from solprop.exceptions import (
@@ -96,6 +96,8 @@ def test_public_interfaces_share_the_default_and_preserve_explicit_choices(
         return output
 
     monkeypatch.setattr(Simulation, "run", run)
+    # Nothing runs: the grid is the millimetre the calls ask for (SEP 51).
+    narrow_grid = grid_at(narrow_grid, 0.001)
     keywords: _BackendChoice = {"backend": "numpy_ref"} if explicit else {}
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
@@ -133,7 +135,7 @@ def test_public_interfaces_share_the_default_and_preserve_explicit_choices(
             )
         else:
             interface = (
-                partial(prop_radial, narrow_grid, RadialGrid(6e-4, 8), noise=None)
+                partial(prop_free, narrow_grid, RadialGrid(6e-4, 8), noise=None)
                 if kind == "radial"
                 else partial(
                     prop_free, narrow_grid, FreeGrid(3e-4, 8, 3e-4, 8), noise=None
@@ -195,7 +197,7 @@ def test_auto_runs_a_z_table_taper_on_the_native_cpu_build():
             taper, 1.0, "He", 1.5, taper_coupling=False, **{"noise": None, **arguments}
         )
         problem = simulation.translate()
-        run_request = simulation._run_request()
+        run_request = simulation.run_request()
     assert problem.linear.phi_representation == "table"
     backend = select(
         "auto",

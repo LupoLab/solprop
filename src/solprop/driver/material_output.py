@@ -4,20 +4,18 @@
 
 """Record the material and physical reconstruction data needed by saved-run analysis.
 
-Two records are built here. :func:`material_record` and :func:`processing_record`
-describe a run's mixture for the configuration and for processing after reload.
-:func:`material_manifest` collects a run's **material manifest** (SEP 3): every
-optmat-backed object the run carries, wherever it sits -- the mixture, a
-mode's fill, a wall, a cladding, a core, a general guide's material regions, a bulk
-medium -- found by walking the run's own objects, with the selection and the policies
-in force.
+:func:`material_record` and :func:`processing_record` describe a run's mixture for the
+configuration and for processing after reload. :func:`material_manifest` collects a
+run's **material manifest** (SEP 3): every optmat-backed object the run carries,
+wherever it sits (the mixture, a mode's fill, a wall, a cladding, a core, a general
+guide's material regions, a bulk medium), found by walking the run's own objects, with
+the selection and the policies in force, and the symmetric evaluator's mixture filters
+(:data:`MIXTURE_FILTER_RULE`).
 """
 
 import dataclasses
 import enum
 import functools
-import hashlib
-import json
 import math
 import types
 from collections.abc import Iterator, Mapping, Sequence
@@ -26,6 +24,7 @@ from typing import Final, cast
 import numpy as np
 from jaxtyping import Float
 
+from solprop._identity import canonical_digest, canonical_json
 from solprop.constants import EPS0, C
 from solprop.grid import TimeGrid
 from solprop.modes.fill import GasFillMixin
@@ -140,7 +139,8 @@ def processing_record(
     dict
         Density in m^-3 at requested planes, absorption cross sections in m^2 in
         the active band, and physical field synthesis with temporal padding removed.
-        A replaced total loss is recorded as unavailable species attribution.
+        A total loss replaced by a mode's ``alpha`` is recorded as unavailable species
+        attribution.
     """
     positions = np.concatenate(([0.0], planes))
     transform = problem.transform
@@ -161,7 +161,7 @@ def processing_record(
         "absorption_definition": "rho_s omega Im(gamma_s)/c, first order in chi",
         "absorption_unavailable": None
         if cross_sections is not None
-        else "callable total loss has no species attribution",
+        else "an alpha replacing the total loss has no species attribution",
         "node_synthesis": transform.synthesis / grid.pad_scale,
         "power_weight_terms": terms,
         "power_weight_basis": basis,
@@ -210,7 +210,9 @@ def _cross_sections(
                 for component in mixture.components
             ]
         )
-    if any(not isinstance(mode, GasFillMixin) or callable(mode.loss) for mode in modes):
+    if any(
+        not isinstance(mode, GasFillMixin) or mode.alpha is not None for mode in modes
+    ):
         return None
     # An absent population must not demand optical data outside its table support.
     unit_density = mixture.with_densities(
@@ -537,11 +539,7 @@ def _density_identities(found: Sequence[object]) -> dict[str, str]:
         for component in record:
             identities.setdefault(
                 f"{prefix}{component['label']}",
-                hashlib.sha256(
-                    _canonical_entry(
-                        cast("Mapping[str, object]", component["density"])
-                    ).encode()
-                ).hexdigest(),
+                canonical_digest(component["density"]),
             )
 
     for value in found:
@@ -625,13 +623,8 @@ def _rate_policies(found: Sequence[object]) -> list[dict[str, object]]:
     entries = [
         value.manifest_entry() for value in found if isinstance(value, OptmatRate)
     ]
-    distinct = {_canonical_entry(entry): entry for entry in entries}
+    distinct = {canonical_json(entry): entry for entry in entries}
     return [distinct[key] for key in sorted(distinct)]
-
-
-def _canonical_entry(entry: Mapping[str, object]) -> str:
-    """Return an entry's canonical JSON, for ordering and deduplication."""
-    return json.dumps(entry, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def material_manifest(
