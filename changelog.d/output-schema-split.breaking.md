@@ -8,4 +8,4 @@ record types), `solprop.output.metadata` (`RunMetadata`, `SCHEMA_VERSION`,
 `solprop.output`, which still exports the public ones, or from their new module. A run
 record names its record types by module (`solprop.output.records.GridRecord`), so every
 configuration hash differs from the one an earlier version wrote: a file or a scan
-written before cannot be resumed or continued, and is read as it was.
+written before cannot be resumed or continued.

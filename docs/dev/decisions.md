@@ -1894,8 +1894,9 @@ Withdrawn (development-process record, not a design decision).
     `RunOutcome.resumes` and `forced_positions` are removed. So are `record_none` and the
     refusal of four-column `absorbed_power`: every field is recorded at its default, and
     development builds are not compatible with one another.
-  - Reading is unchanged. A file of output schema 2 written by another build still reads,
-    with an absent field taking its default.
+  - Reading is unchanged. A file of the current output schema written by another build
+    still reads, with an absent field taking its default; one of any other schema is
+    refused (ADR-058).
   - `source=` in `field_plane` and a scan's reuse of a finished point use the same hash.
   - Nothing is carved out of the key for rounding, and provenance stays in it. A carve-out
     was tried for a band rule's taps and dropped, as the measurement below shows it can't
