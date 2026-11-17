@@ -344,9 +344,19 @@ def test_nothing_is_logged_unless_the_processor_chose_a_lower_build(
             )
             == "_core_v2"
         )
-        # A processor that cannot be asked gets the best build, with nothing to name.
+        # A processor cpuinfo cannot read is asked through NumPy; a capable one gets the
+        # best build, with nothing to name.
         absent = tmp_path / "absent"
-        assert _cpu.select_variant(package, platform="linux", cpuinfo=absent) == "_core"
+        capable = frozenset(V3_FLAGS.split())
+        assert (
+            _cpu.select_variant(
+                package,
+                platform="linux",
+                cpuinfo=absent,
+                numpy_query=lambda: capable,
+            )
+            == "_core"
+        )
     assert caplog.messages == []
 
 
