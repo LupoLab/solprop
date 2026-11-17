@@ -382,15 +382,14 @@ void temporal(GeneralState& state, const Plan& plan, const double z, const doubl
     if (wanted(Stat::peak_ionisation_rate))
       flags |= temporal_rate;
   }
-  const bool rows_wanted = wanted(Stat::node_populations);
-  const bool populations = (reduce || rows_wanted) && plan.n_channels > 0;
+  const bool populations = reduce && plan.n_channels > 0;
   const bool axis_wanted =
       wanted.any({Stat::on_axis_electron_density, Stat::on_axis_peak_ionisation_rate,
                   Stat::on_axis_species_electron_density,
                   Stat::on_axis_species_peak_ionisation_rate});
   if (populations)
     flags |= temporal_populations;
-  if (flags == 0 && !reduce && !rows_wanted && !axis_wanted)
+  if (flags == 0 && !reduce && !axis_wanted)
     return;
   std::vector<double> packed;
   if (flags != 0) {
@@ -464,8 +463,6 @@ void temporal(GeneralState& state, const Plan& plan, const double z, const doubl
     put(results, Stat::plasma_boundary_level, {ratio(parts[4], parts[5])});
   }
   cursor.finish();
-  if (rows_wanted)
-    put(results, Stat::node_populations, rows);
   if (reduce)
     species(plan, z, taper, rows, wanted, results);
   if (axis_wanted)
@@ -806,8 +803,6 @@ std::size_t Plan::width(const Stat stat) const {
   case Stat::aperture_spectrum:
   case Stat::aperture_on_axis_spectrum:
     return n_apertures * n_omega;
-  case Stat::node_populations:
-    return 2 * n_nodes * n_channels;
   case Stat::beam_radius:
     return 2;
   default:

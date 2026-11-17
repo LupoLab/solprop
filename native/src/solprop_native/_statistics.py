@@ -81,7 +81,6 @@ __all__ = [
     "ADMITTED_GENERAL_STATISTICS",
     "ADMITTED_SPATIAL_STATISTICS",
     "ADMITTED_STATISTICS",
-    "NODE_POPULATIONS",
     "PROFILE_TOLERANCE",
     "STATISTIC_IDS",
     "ZDW_TOLERANCE",
@@ -91,10 +90,6 @@ __all__ = [
     "translated",
     "uncovered",
 ]
-
-NODE_POPULATIONS = "_node_populations"
-"""The plan's per-node channel populations, ``(n_nodes, n_channels, 2)``: each node's
-final fraction and peak rate (SEP 19). Not a catalogue statistic."""
 
 STATISTIC_IDS: Mapping[str, int] = {
     name: index
@@ -133,7 +128,6 @@ STATISTIC_IDS: Mapping[str, int] = {
             "density",
             "pressure",
             "core_radius",
-            NODE_POPULATIONS,
             "beam_radius",
             "fwhm_r",
             "zdw",
@@ -645,7 +639,6 @@ def _shape(
     species = int(cast("int", plan["n_species"]))
     nodes = int(cast("int", plan["n_nodes"]))
     absorbed = int(cast("int", plan["n_absorbed"]))
-    channels = int(cast("int", plan["n_channels"]))
     shapes: dict[str, tuple[int, ...]] = {
         "omega0": (modes, pol),
         "energy": () if plan["route"] == _ROUTES["spatial"] else (modes, pol),
@@ -668,7 +661,6 @@ def _shape(
         "region_spectrum": (regions, n_omega),
         "aperture_spectrum": (apertures, n_omega),
         "aperture_on_axis_spectrum": (apertures, n_omega),
-        NODE_POPULATIONS: (nodes, channels, 2),
     }
     return shapes.get(name, ())
 
@@ -1064,7 +1056,7 @@ def lower(
       (:func:`_zdw_tables`).
     """
     names = tuple(names)
-    left = uncovered(problem, [name for name in names if name != NODE_POPULATIONS])
+    left = uncovered(problem, names)
     if left:
         msg = f"the native statistics plan does not evaluate {left!r} on this route"
         raise BackendError(msg)
@@ -1185,7 +1177,7 @@ def lower(
         if axis:
             node = axis_node(problem, on_axis)
             plan["axis_node"] = -1 if node is None else node
-    if asked & (_PLASMA | _SPECIES | {NODE_POPULATIONS}) or axis:
+    if asked & (_PLASMA | _SPECIES) or axis:
         if len(channels) == 1:
             plan["plasma_density"] = _table(channels[0].density)
             plan["plasma_preionisation"] = _table(channels[0].preionisation)
