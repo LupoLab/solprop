@@ -47,7 +47,6 @@ from solprop.translate.flux import flux_record
 from solprop.translate.plasma_integration import integration_record
 from solprop.translate.plasma_source import plasma_source_record
 from solprop.translate.problem import PropagationProblem
-from solprop.translate.responses import declares_harmonic_carrier
 from solprop.translate.routes import flux_of, tdse_descriptor, transverse_of
 from solprop.translate.run_request import RunRequest
 
@@ -317,27 +316,6 @@ def metadata_for(
         materials=MaterialManifest() if materials is None else materials,
         initial_z=problem.initial.z,
         tdse=tdse_record,
-    )
-
-
-def _frame_follows_the_electronic_rule(
-    responses: Sequence[object], grid: TimeGrid
-) -> bool:
-    """Return whether a run's co-moving frame changed when it stopped reading Raman.
-
-    Before the frame followed
-    :func:`solprop.translate.responses.declares_harmonic_carrier`, any response's
-    ``thg`` kept ``beta_0`` on an envelope grid. The two rules disagree exactly when a
-    response other than the electronic ones declares ``thg=True`` and no electronic one
-    does.
-
-    - Returns: True when the earlier rule would have kept ``beta_0`` and this one
-      removes it.
-    """
-    return (
-        grid.kind == "envelope"
-        and any(bool(getattr(one, "thg", False)) for one in responses)
-        and not declares_harmonic_carrier(responses, grid)
     )
 
 

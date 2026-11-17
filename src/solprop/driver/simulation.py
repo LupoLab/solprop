@@ -71,7 +71,6 @@ from solprop.driver.inputs import (
 from solprop.driver.material_output import material_manifest
 from solprop.driver.metadata import (
     RecipeSource,
-    _frame_follows_the_electronic_rule,
     _plane_frame,
     metadata_for,
 )
@@ -1547,13 +1546,6 @@ class Simulation(Displayed):
         )
         if self.frame is not None:
             configuration["frame"] = self.frame
-        elif _frame_follows_the_electronic_rule(self.responses, self.grid):
-            # A Raman thg flag kept beta_0 on an envelope grid before the frame
-            # followed the electronic responses alone (issue #77). Recording the
-            # co-moving frame here, and only here, refuses a resume of such an
-            # earlier run by name, which would otherwise continue under another
-            # frame with the same digest; every other run keeps its digest.
-            configuration["frame"] = Frame.comoving(self.grid)
         # The operator settings of SEP 22 phase 2, recorded only where set, so
         # every earlier run keeps its digest; a collar as its two numbers.
         if self.settings.evanescent_rate is not None:
