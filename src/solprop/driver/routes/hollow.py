@@ -312,8 +312,10 @@ class _HollowRequest:
     - ``dz_init``: first step, m; ``None`` takes ``length * 1e-4``.
     - ``integrator``: the method that steps the run
       (``docs/guide/numerics/choosing-a-stepper.md``). ``None``, the default, takes
-      ``Multistep()``: the low-call exponential Adams method, one response
-      evaluation per step. ``RungeKutta()`` is the interaction-picture DOPRI5 march,
+      the `route`'s row of :data:`~solprop.driver.defaults.ROUTE_DEFAULTS`:
+      ``Multistep()`` on a capillary, the low-call exponential Adams method, one
+      response evaluation per step, and ``RungeKutta()`` on a gas-filled waveguide.
+      ``RungeKutta()`` is the interaction-picture DOPRI5 march,
       for a cheap response or a state too large for the Adams history.
       ``LowStorageRungeKutta()`` replays `schedule` in three registers (SEP 24).
     - ``route``: the interface building the run, whose row of
