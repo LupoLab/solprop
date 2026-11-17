@@ -57,7 +57,7 @@ measured while it existed.
     23–24 % slower than v3 at one thread and 7–12 % slower at full width.
   - The wheels were first built for v2 and accepted this cost; they now take v3
     (SEP 29, phase 3), and since SEP 43 the x86-64 wheels hold both, chosen at import. Below
-    v2, `backend="auto"` falls back to `numpy_ref` with a warning.
+    v2, `backend="auto"` and `backend="native"` refuse on the processor.
 - **x86-64-v4 against v3, with identical libraries**
   ([#334](https://github.com/LupoLab/solprop/issues/334)). The same tree built both ways,
   with the same FFTW, OpenBLAS and SLEEF's AVX2 route in each; `benchmarks ab`, the
