@@ -1040,12 +1040,6 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
             display="nm",
         ),
         _keyword(
-            "energy_loss",
-            _choice("peak-weighted"),
-            "advanced",
-            "The plasma energy-loss convention.",
-        ),
-        _keyword(
             "raman_shift",
             _choice("reference-density"),
             "advanced",

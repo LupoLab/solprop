@@ -50,7 +50,7 @@ optmat's whole hyperpolarisability model
 ([below](#the-dispersive-electronic-policies)). `raman` selects a gas response in a gas-filled guide or a silica bundle for the GNLSE;
 the permitted objects differ between those contexts. `ionisation` names the run's rate models:
 `plasma=True` takes optmat's rate for each species, its plasma loss pays
-that rate's own energy per event (`energy_loss="peak-weighted"`), and a custom species
+that rate's own energy per event, and a custom species
 needs an explicit rate; see [rates from optmat](ionisation.md#rates-from-optmat).
 `raman` names a gas fill's Raman response and `raman_shift` its density-shift
 approximation ([Raman responses from optmat](raman-data.md#raman-responses-from-optmat)).

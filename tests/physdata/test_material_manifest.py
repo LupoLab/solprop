@@ -50,7 +50,7 @@ def manifest(**changes) -> Any:
                 "transparency": {"largest_dropped_absorption": 1.0},
             },
         ),
-        "policies": {"electronic": "recommended", "energy_loss": "peak-weighted"},
+        "policies": {"electronic": "recommended", "raman_shift": None},
         "dilute_scaling": ({"label": "Ar", "relative_error": -2e-4},),
         "ranges": ({"material": "Ar", "outside": ["80 nm to 107.5 nm"]},),
         "citations": ({"object": "SellmeierGlass", "name": "x", "citation": "y"},),
@@ -153,7 +153,7 @@ def test_a_solids_measured_transparency_is_recorded_but_not_hashed():
     [
         {"optmat_version": "0.1.2"},
         {"records": (record_of(ARGON),)},
-        {"policies": {"electronic": "carrier-kerr", "energy_loss": "peak-weighted"}},
+        {"policies": {"electronic": "carrier-kerr", "raman_shift": None}},
         {"compositions": ({"name": "dry air (N2, O2)"},)},
     ],
     ids=["version", "identity", "policy", "composition"],

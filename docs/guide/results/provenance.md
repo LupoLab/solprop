@@ -171,8 +171,8 @@ holds two kinds of entry.
   is taken as transparent, with the absorption bound of that approximation;
 - `policies`, the approximations in force: linear density scaling of a gas
   susceptibility, with its warning threshold; the electronic policy and the carrier
-  wavelength; the Raman line-shift policy and reference temperature; and the plasma
-  energy-loss convention. A policy the run does not use (a Raman shift without a
+  wavelength; the Raman line-shift policy and reference temperature; and each optmat
+  ionisation rate's threshold and energy-loss convention. A policy the run does not use (a Raman shift without a
   shifting response, a GNLSE fraction off the GNLSE) is recorded as `None`.
 
 **Measurements**, which are recorded beside them and are not in the key:

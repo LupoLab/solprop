@@ -641,7 +641,7 @@ def without_optmat_release(value: object, *, materials: bool = False) -> object:
     return value
 
 
-RUN_RECORD_SKELETON = "52adea809aeee0c100d56663a5dd8102f9fc7da680923375f84abaa0399f443a"
+RUN_RECORD_SKELETON = "980bd76c7bf1793a20b6e1c15151ecd88c357847c09fab9c6f165ac70ce8a4c4"
 """The structure of the example run's record, without what an optmat release writes."""
 
 
