@@ -129,8 +129,7 @@ def _unusable_state(state: ResumeState) -> str | None:
         return "its last plane kept no field and no terminal checkpoint follows it"
     if state.outcome is not None and state.outcome.logical_calls:
         # A resume under Multistep installs the charged ledger and refuses one it
-        # cannot read, such as the flat orders of an earlier development build of
-        # this schema (#80): the answer says so before a resume is tried.
+        # cannot read: the answer says so before a resume is tried.
         from solprop.backends.ledger import CallLedger  # noqa: PLC0415 - heavy
 
         try:

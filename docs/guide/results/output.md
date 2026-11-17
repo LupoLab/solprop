@@ -494,9 +494,7 @@ resume decides by the configuration hash (ADR-066).
 release bumps the schema; every later one before the next release folds into that
 version, which the next release is the first to write. Development builds between two
 releases are therefore not compatible with one another: a file written by an earlier
-build of the same schema may be refused, by name where the difference is known (a
-Multistep run's predictor orders, which are now recorded as `[order, count]` pairs,
-were one integer per step before), and is read with the build that wrote it.
+build of the same schema may be refused, and is read with the build that wrote it.
 
 **Five columns of `absorbed_power`.** The fifth column, `custom`, folded into schema 2 the
 same way, and the first column became the collar alone. A file from a development build
