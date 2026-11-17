@@ -971,7 +971,7 @@ def test_tdse_settings_revalidation_refuses_unsupported_execution(
         tdse_run_module._check_tdse_execution(simulation, settings)
 
 
-class LegacyOutput:
+class UncheckpointedOutput:
     """Delegate ordinary output while deliberately offering no checkpoint protocol."""
 
     def __init__(self):
@@ -1025,12 +1025,12 @@ def test_tdse_requires_checkpoint_output_before_preparing_native_resources(
     monkeypatch.setattr(runtime_module, "prepare_binding", forbidden)
     with pytest.raises(DriverError, match="terminal checkpoints"):
         if entry == "simulation":
-            atomic_simulation.run(LegacyOutput(), progress="none")
+            atomic_simulation.run(UncheckpointedOutput(), progress="none")
         else:
             run_problem(
                 atomic_simulation.translate(),
                 NullBackend(request=atomic_simulation._run_request()),
-                LegacyOutput(),
+                UncheckpointedOutput(),
                 start=Start.entrance(atomic_simulation.translate()),
                 metadata=atomic_simulation.metadata(),
                 progress="none",
@@ -1049,13 +1049,13 @@ def test_a_handler_that_keeps_nothing_is_refused_a_tdse_run(
 
 
 @pytest.mark.medium
-def test_legacy_custom_output_retains_ordinary_success_and_failure_behavior():
+def test_a_custom_output_without_checkpoints_retains_ordinary_success_and_failure():
     simulation = tiny_simulation()
-    output = LegacyOutput()
+    output = UncheckpointedOutput()
     simulation.run(output, progress="none")
     assert output.n_saved == 2
     limited = tiny_simulation(max_calls=1)
-    stopped = LegacyOutput()
+    stopped = UncheckpointedOutput()
     with pytest.raises(ResponseBudgetError):
         limited.run(stopped, progress="none")
     assert stopped.n_saved == 1
