@@ -243,8 +243,8 @@ def test_a_registered_object_is_built_from_its_table():
             {
                 "type": "PressureGradient.two_point",
                 "length": "1 m",
-                "start_bar": 1.2,
-                "end_bar": "0 bar",
+                "start_pressure": 1.2,
+                "end_pressure": "0 bar",
             },
             "PressureGradient",
         ),

@@ -1456,8 +1456,8 @@ class PressureGradient(Displayed, ZProfile):
     def two_point(
         cls,
         length: float,
-        start_bar: float,
-        end_bar: float,
+        start_pressure: float,
+        end_pressure: float,
         *,
         floor: float | None = None,
         radius: float | ZProfile | None = None,
@@ -1469,7 +1469,7 @@ class PressureGradient(Displayed, ZProfile):
         ----------
         length : float
             Length of the fill in m, > 0.
-        start_bar, end_bar : float
+        start_pressure, end_pressure : float
             Absolute pressures in bar at ``z = 0`` and ``z = length``, >= 0.
         floor : float or None, optional
             Smallest pressure in bar any stage end may take. ``None`` uses
@@ -1503,7 +1503,7 @@ class PressureGradient(Displayed, ZProfile):
             )
         return cls.from_stages(
             [0.0, float(length)],
-            [start_bar, end_bar],
+            [start_pressure, end_pressure],
             floor=floor,
             radius=radius,
             weight=weight,

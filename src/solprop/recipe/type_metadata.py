@@ -495,9 +495,15 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
     "PressureGradient.two_point": _gradient(
         _keyword("length", _LENGTH, "basic", "Length of the fill.", display="m"),
         _keyword(
-            "start_bar", _PRESSURE, "basic", "Pressure at the entrance.", display="bar"
+            "start_pressure",
+            _PRESSURE,
+            "basic",
+            "Pressure at the entrance.",
+            display="bar",
         ),
-        _keyword("end_bar", _PRESSURE, "basic", "Pressure at the exit.", display="bar"),
+        _keyword(
+            "end_pressure", _PRESSURE, "basic", "Pressure at the exit.", display="bar"
+        ),
     ),
     "PressureGradient.from_stages": _gradient(
         _keyword(

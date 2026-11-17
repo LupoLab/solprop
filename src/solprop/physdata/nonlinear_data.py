@@ -227,8 +227,8 @@ def n2(
     *,
     pressure: float,
     temperature: float = ROOM_TEMPERATURE,
-    wavelength: float | None = None,
     selection: MaterialSelection | None = None,
+    wavelength: float | None = None,
 ) -> float:
     """Return the nonlinear index of a gas at a carrier.
 
@@ -244,12 +244,12 @@ def n2(
         Absolute pressure in **bar** (the documented non-SI user-interface unit), >= 0.
     temperature : float, optional
         Temperature in K, > 0. Defaults to 293.15 K.
+    selection : MaterialSelection or None, optional
+        ``None`` is ``MaterialSelection()``.
     wavelength : float or None, optional
         The carrier wavelength in m at which the dispersive Kerr coefficient and
         ``n0`` are evaluated: it, or the selection's ``carrier_wavelength``, is
         required, and the two must agree when both are given.
-    selection : MaterialSelection or None, optional
-        ``None`` is ``MaterialSelection()``.
 
     Returns
     -------
