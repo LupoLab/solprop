@@ -14,7 +14,7 @@ import contextlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -47,7 +47,7 @@ from solprop_gui.classes.problem import ProblemClass
 from solprop_gui.classes.workflow import Progress, Stage, primary_action, stage_open
 from solprop_gui.model.recipe import RecipeModel
 from solprop_gui.model.scans import profile_points
-from solprop_gui.model.workspace import DEFAULT_WORKSPACE, list_runs, slug
+from solprop_gui.model.workspace import DEFAULT_WORKSPACE, slug
 from solprop_gui.registry.pages import label
 from solprop_gui.registry.routes import card_of
 from solprop_gui.ui.analyse import AnalyseStage
@@ -106,7 +106,12 @@ class WorkflowWindow(QMainWindow):
         Whether a run has been started from the open setup.
     has_results : bool
         Whether a results file is open.
+    runs_listed : Signal
+        Emitted when Home has listed this computer's runs afresh.
     """
+
+    runs_listed = Signal()
+    _listed = Signal(int, object)
 
     def __init__(  # noqa: PLR0915 - the window's parts
         self,
@@ -133,6 +138,8 @@ class WorkflowWindow(QMainWindow):
         self._own_run = False
         self._failed = False
         self._pending: dict[int, str] = {}
+        self._listing = 0
+        self._follow_going = False
         saved = self.settings.value("workspace")
         self.workspace = workspace or (Path(str(saved)) if saved else DEFAULT_WORKSPACE)
 
@@ -243,6 +250,7 @@ class WorkflowWindow(QMainWindow):
         self.session.setup_found.connect(self._file_has_setup)
         self.bridge.kernel_lost.connect(self._kernel_lost)
         self.bridge.replied.connect(self._on_reply)
+        self._listed.connect(self._runs_listed)
 
         self.setWindowTitle("solprop")
         self.resize(1280, 800)
@@ -252,12 +260,11 @@ class WorkflowWindow(QMainWindow):
         self._ask_kernel("gases", {}, "gases")
         self._ask_kernel("run_options", {}, "run options")
         self._show_machines(str(self.settings.value("machine") or LOCAL))
-        self.refresh_home()
-        self.show_stage(Stage.HOME)
         # This computer's helper, warm before the first run; then a run the last
-        # window left going is taken over, found from its record.
+        # window left going is taken over, found from its record by Home's listing.
         self.bridge.hub.ensure(Machine(LOCAL))
-        self._find_going_run()
+        self._follow_going = True
+        self.show_stage(Stage.HOME)
 
     # ------------------------------------------------------------------ the frame
 
@@ -1111,10 +1118,48 @@ class WorkflowWindow(QMainWindow):
         self.refresh_home()
 
     def refresh_home(self) -> None:
-        """List the recent runs and setups on Home."""
-        self.home.show_runs(list_runs(self.run_panel.workspace))
+        """List the recent setups on Home, and this computer's runs, read on a thread.
+
+        The first listing after the window opens also follows the newest run on this
+        computer still going (:meth:`_find_going_run`).
+        """
+        import threading  # noqa: PLC0415 - only here
+
+        from solprop.service.runs import list_runs  # noqa: PLC0415 - light
+
         saved = self.settings.value(_RECENT_SETUPS) or []
         self.home.show_setups([saved] if isinstance(saved, str) else list(saved))  # pyright: ignore[reportArgumentType, reportCallIssue]
+        self._listing += 1
+        listing = self._listing
+        workspace = self.run_panel.workspace.expanduser()
+
+        def look() -> None:
+            """List the workspace's runs, and hand them to the window's thread."""
+            runs: list[dict[str, object]] = []
+            with contextlib.suppress(OSError, ValueError):
+                runs = list_runs(workspace, None)
+            with contextlib.suppress(RuntimeError):  # the window has been deleted
+                self._listed.emit(listing, runs)
+
+        threading.Thread(target=look, daemon=True).start()
+
+    def _runs_listed(self, listing: int, runs: list[dict[str, object]]) -> None:
+        """Show a listing of this computer's runs on Home, unless a newer one is coming.
+
+        Parameters
+        ----------
+        listing : int
+            Which listing it is; an older one than the last asked for is dropped.
+        runs : list of dict
+            The runs' summaries, newest first.
+        """
+        if listing != self._listing:
+            return
+        self.home.show_runs(runs)
+        if self._follow_going:
+            self._follow_going = False
+            self._find_going_run(runs)
+        self.runs_listed.emit()
 
     # ------------------------------------------------------------------ runs
 
@@ -1227,40 +1272,23 @@ class WorkflowWindow(QMainWindow):
             self.document.set_model(model, base=str(Path(path).parent))
             self.has_results = True
 
-    def _find_going_run(self) -> None:
-        """Look, on a thread, for a run on this computer still going, and follow it."""
-        import threading  # noqa: PLC0415 - only here
+    def _find_going_run(self, runs: list[dict[str, object]]) -> None:
+        """Follow the newest run on this computer that is still going, if any.
 
-        from solprop.service.runs import list_runs  # noqa: PLC0415 - light
-
-        workspace = self.run_panel.workspace.expanduser()
-        found: list[list[dict[str, object]]] = []
-
-        def look() -> None:
-            """List the workspace's runs."""
-            with contextlib.suppress(OSError, ValueError):
-                found.append(list_runs(workspace, None))
-
-        thread = threading.Thread(target=look, daemon=True)
-        thread.start()
-
-        def check() -> None:
-            """Take over the newest run still going, once the list is read."""
-            if thread.is_alive():
-                QTimer.singleShot(100, check)
-                return
-            runs = found[0] if found else []
-            going = [
-                run
-                for run in runs
-                if run.get("state") in {"starting", "running"} and run.get("record")
-            ]
-            if going and self.run_panel.attach_on(Machine(LOCAL), going[0]):
-                self.has_run = True
-                self.show_stage(Stage.RUN)
-                self.notify(f"Following {going[0]['run_id']}, still going.")
-
-        QTimer.singleShot(100, check)
+        Parameters
+        ----------
+        runs : list of dict
+            This computer's runs' summaries, newest first.
+        """
+        going = [
+            run
+            for run in runs
+            if run.get("state") in {"starting", "running"} and run.get("record")
+        ]
+        if going and self.run_panel.attach_on(Machine(LOCAL), going[0]):
+            self.has_run = True
+            self.show_stage(Stage.RUN)
+            self.notify(f"Following {going[0]['run_id']}, still going.")
 
     # ------------------------------------------------------------------ machines
 
