@@ -39,7 +39,7 @@ from solprop import fourier
 from solprop._display import Displayed, line, tail
 from solprop.exceptions import OutputError
 from solprop.output._writer_lock import WriterLock
-from solprop.output.metadata import SCHEMA_VERSION, RunMetadata
+from solprop.output.metadata import RunMetadata
 from solprop.output.records import (
     HISTORY_FIELDS,
     STEP_STATS_INDEX,
@@ -194,7 +194,7 @@ def _read_march(file: h5py.File, z: float) -> MarchSnapshot | None:
     except (KeyError, ValueError) as error:
         logger.warning("ignoring the unreadable march snapshot in the file: %s", error)
         return None
-    # Outside the tolerant reads: an earlier layout is refused, not ignored.
+    # Outside the tolerant reads: a state of another shape is refused, not ignored.
     state = _trajectory_state(held)
     try:
         rows = _group(group, "rows")
@@ -223,25 +223,13 @@ def _read_march(file: h5py.File, z: float) -> MarchSnapshot | None:
 def _trajectory_state(
     stored: Complex[np.ndarray, "*shape"],
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
-    """Return a stored march state, ``(n_modes, n_pol, n_omega)``, refusing any other.
-
-    Before output schema 3 a file kept the state with a leading axis of one, ``(1,
-    n_modes, n_pol, n_omega)``; such a snapshot is refused by name, not squeezed.
-    """
+    """Return a stored march state, ``(n_modes, n_pol, n_omega)``, refusing any other."""
     if stored.ndim == 3:
         return stored
-    if stored.ndim == 4 and stored.shape[0] == 1:
-        msg = (
-            f"the march snapshot's state has the layout {stored.shape} of a file "
-            f"written before output schema {SCHEMA_VERSION}, with a leading axis of "
-            "one; this version of solprop reads (n_modes, n_pol, n_omega) only. "
-            "Resume the file with the solprop version that wrote it"
-        )
-    else:
-        msg = (
-            f"the march snapshot's state has shape {stored.shape}, expected one "
-            "trajectory's (n_modes, n_pol, n_omega)"
-        )
+    msg = (
+        f"the march snapshot's state has shape {stored.shape}, expected one "
+        "trajectory's (n_modes, n_pol, n_omega)"
+    )
     raise OutputError(msg)
 
 
