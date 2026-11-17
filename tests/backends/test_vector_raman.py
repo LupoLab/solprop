@@ -14,6 +14,7 @@ from numpy.testing import assert_allclose
 
 from bounds import gamma, ladder_bound
 from former_raman import FORMER_H2, former_response
+from solprop import fourier
 from solprop.backends.node_chunk import _raman_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.passes.responses import (
@@ -170,10 +171,13 @@ def test_compiled_tensor_rows_keep_physical_labels_and_damping(material):
     np.testing.assert_array_equal(scalar.tensor_weights, leaf.tensor_weights)
 
 
+@pytest.mark.parametrize("layout", ["envelope", "real field", "analytic field"])
 @pytest.mark.parametrize("count", [17, 64, 97])
-def test_effective_kernel_convolution_matches_physical_term_sums(count):
+def test_effective_kernel_convolution_matches_physical_term_sums(count, layout):
     # Distinct signed kernels, dephasings, species densities and fractions ensure
-    # combining before damping or applying total density to amplitude fails.
+    # combining before damping or applying total density to amplitude fails. Each
+    # sample layout forms its own drive: the envelope's and the analytic signal's cycle
+    # averages, and the real field's instantaneous square, which keeps the harmonic.
     dt = 0.07
     delays = np.arange(count) * dt
     response = former_response(FORMER_H2)
@@ -195,18 +199,32 @@ def test_effective_kernel_convolution_matches_physical_term_sums(count):
             * np.exp(-rates[2 * i + 1] * delays)
         )
     rng = np.random.default_rng(4003)
-    values = rng.standard_normal((3, 2, count)) + 1j * rng.standard_normal(
-        (3, 2, count)
-    )
+    values = rng.standard_normal((3, 2, count))
+    if layout == "envelope":
+        values = values + 1j * rng.standard_normal((3, 2, count))
     spectrum = tensor_raman_spectrum(tuple(components), rates, densities, dt)
     actual = raman_polarisation(
-        values, spectrum, kind="envelope", thg=response.thg, density=1.0
+        values,
+        spectrum,
+        kind="envelope" if layout == "envelope" else "field",
+        thg=response.thg if layout == "envelope" else layout == "real field",
+        density=1.0,
     )
     for node in range(3):
-        expected = EPS0 * cartesian_direct(values[node], hv, hr, dt, envelope=True)
+        samples, envelope = values[node], layout != "real field"
+        if layout == "analytic field":
+            # The drive is the analytic signal's cycle average; the real channel
+            # matrix then multiplies the real field, the analytic signal's real part.
+            samples = fourier.analytic_signal(samples)
+        expected = EPS0 * cartesian_direct(samples, hv, hr, dt, envelope=envelope)
+        if layout == "analytic field":
+            expected = expected.real
         bound = EPS0 * convolution_bound(
-            values[node], hv, hr, dt, envelope=True, fft=True
+            samples, hv, hr, dt, envelope=envelope, fft=True
         )
+        # The rounding bound must sit far below the polarisation, so that a factor
+        # missing from a drive cannot pass inside it.
+        assert bound < 1e-6 * np.max(np.abs(expected))
         assert_allclose(actual[node], expected, rtol=0, atol=bound)
 
 

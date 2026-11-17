@@ -4,21 +4,16 @@
 
 """The general modal route across the seam: its leaves, and its absence.
 
-Kernel schema 12 adds four optional leaves and no behaviour: every route that exists
-carries all four as ``None``, nothing new crosses the seam, and every backend refuses
-each leaf by name until it executes that exact representation.
+Every other route carries the four general modal leaves as ``None`` and puts nothing
+of them across the seam, and every backend refuses a leaf beside a problem it does not
+belong to by its dotted name.
 
-The refusal is not the schema check in disguise. A backend compiled against schema 12
-accepts every schema-12 problem, so without these four checks a wheel would take a
-problem carrying a representation it has no kernel for and silently run the old
-physical model.
-
-The second half of this module is the route itself on ``numpy_ref``: the nonlinear
+The second part of this module is the route itself on ``numpy_ref``: the nonlinear
 source of a general modal guide against the modal Kerr coefficient and against a
 separately written quadrature, its chunking, its ledger and every combination it
-refuses. The translation layer's half -- the record, the
-placeholders and the assembly's refusals -- is
-``tests/translate/test_general_route.py``.
+refuses. The last holds native's ten fixed steps of the route to the reference's. The
+translation layer's half -- the record, the placeholders and the assembly's refusals --
+is ``tests/translate/test_general_route.py``.
 """
 
 import copy

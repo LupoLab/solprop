@@ -10,9 +10,8 @@ cubic), the same pair in a circular basis, a delayed silica tensor, the split TE
 block and a graded-index guide of two LP modes, each launched with random phases in
 every channel and scaled to a nonlinear scale ``Phi = 0.5`` over the millimetre:
 
-- ``source``: one evaluation of the whole stage source at the launch (from
-  ``test_native_general_source_bound.py``);
-- ``steps``: the field after the case's ten fixed Runge-Kutta steps (the same module);
+- ``source``: one evaluation of the whole stage source at the launch;
+- ``steps``: the field after the case's ten fixed Runge-Kutta steps;
 - the pair under the split temporal collar, launched with content outside the active
   band, on either march (from ``test_native_general_split.py``, which keeps the
   out-of-band bins' exact zeros on both backends);

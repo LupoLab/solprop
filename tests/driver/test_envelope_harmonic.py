@@ -40,7 +40,7 @@ ENERGY = 4e-6
 OMEGA0 = 2.0 * np.pi * C / WAVELENGTH
 
 
-def harmonic_fraction(kind: str) -> float:
+def harmonic_fraction(kind: str, backend: str) -> float:
     """Return the energy fraction within 2.6-3.4 omega0 after the short capillary."""
     limits, window = (250e-9, 4e-6), 1.2e-12
     if kind == "field":
@@ -64,7 +64,7 @@ def harmonic_fraction(kind: str) -> float:
         rtol=1e-8,
         atol=1e-10,
         n_save=2,
-        backend="native",
+        backend=backend,
         thg=True,
     )
     output = simulation.run(progress="none")
@@ -97,10 +97,17 @@ def weak_conversion_fraction() -> float:
     return float(coupling**2 * (f4 / f2) ** 2 * peak_sq**2 / np.sqrt(3.0))
 
 
-def test_the_envelope_harmonic_matches_the_field_grid_and_the_estimate():
-    pytest.importorskip("solprop_native")
-    field = harmonic_fraction("field")
-    envelope = harmonic_fraction("envelope")
+# On the reference as well as native: the estimate is the oracle both backends' harmonic
+# terms answer to, and parity alone cannot see a term both get wrong. Medium on the
+# reference, whose two runs take about 2.5 s.
+@pytest.mark.parametrize(
+    "backend", ["native", pytest.param("numpy_ref", marks=pytest.mark.medium)]
+)
+def test_the_envelope_harmonic_matches_the_field_grid_and_the_estimate(backend):
+    if backend == "native":
+        pytest.importorskip("solprop_native")
+    field = harmonic_fraction("field", backend)
+    envelope = harmonic_fraction("envelope", backend)
     estimate = weak_conversion_fraction()
     # Measured: the two grids agree to 1e-4 and the estimate to 0.3 %, the difference
     # being the dispersion and self-phase modulation the estimate leaves out. The

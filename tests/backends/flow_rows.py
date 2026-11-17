@@ -37,8 +37,7 @@ after each case's ten fixed steps (``steps``, or ``last_plane`` through the driv
   taper coupling whose ``auto`` runs ``test_native_coupled_flow.py`` and
   ``test_taper_coupling.py`` keep (``scalar wall driver``, ``taper coupling driver``);
   and the kinked taper through the entry point, its plane and physical energy
-  (``moving guide entry point``, from the deleted
-  ``tests/driver/test_native_moving_entry.py``).
+  (``moving guide entry point``).
 
 **The bounds are the old tests', fixed before native runs.** A ``flow marches`` row is
 bounded by ``flow_parity.ten_step_bound`` (``B_10``): the declared conditioning ``C``

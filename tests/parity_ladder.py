@@ -151,7 +151,9 @@ class Row:
     statistic, read at the end of the row's schedule and compared absolutely, to its
     bound. ``switch_off`` returns the problem with the row's term off: the guard that
     the term moves every field rung's reference by more than :data:`DETECTION` bounds,
-    or by a rung's own ``detection``. ``floor`` builds a row whose own native
+    or by a rung's own ``detection``. It switches off every response only where the
+    problem holds one (:func:`responses_held`), since otherwise any one of them could
+    clear the guard for the term the row claims. ``floor`` builds a row whose own native
     disagreement at the same rung is added to the bound (a term beside the row's that
     is known to disagree by more than the row's own budget). ``source_z`` is where the
     source is evaluated, m.
@@ -759,6 +761,11 @@ def _check(native_class: type, row: Row) -> list[Reading]:
     floor = None if row.floor is None else row.floor()
     scale = None if row.scale is None else row.scale(built)
     off = dataclasses.replace(built, problem=row.switch_off(built.problem))
+    held = responses_held(built.problem)
+    assert responses_held(off.problem) or len(held) < 2, (
+        f"the guard switches off every response, and the problem holds {held}: any "
+        "one of them could satisfy it, so a row switches off the response it claims"
+    )
     field_bounds: dict[str, float] = {}
     observed: dict[str, tuple[Mapping[str, Any], Mapping[str, Any]]] = {}
     readings: list[Reading] = []
@@ -865,6 +872,22 @@ def _every_statistic(
                 measured = peak_departure(found, expected)
             readings.append(Reading(f"{rung} {name}", measured, rule.bound))
     return readings
+
+
+def responses_held(problem: PropagationProblem) -> tuple[str, ...]:
+    """Return the response leaves `problem` compiles, by name, in a fixed order.
+
+    A leaf switched off by zeroing its coefficients is still held; one removed is not.
+    """
+    responses = problem.responses
+    held = {
+        "kerr": responses.kerr_coefficients is not None,
+        "dispersive kerr": responses.dispersive_kerr is not None,
+        "raman": bool(responses.raman_terms),
+        "plasma": bool(responses.plasma_channels),
+        "envelope plasma": responses.envelope_plasma is not None,
+    }
+    return tuple(name for name, present in held.items() if present)
 
 
 def _check_declarations(row: Row) -> None:

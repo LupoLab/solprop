@@ -20,7 +20,7 @@ oscillator), on the cases the retired ladders built:
 - the Cartesian plane carrying SEP 40's safety ramp over ten steps
   (:func:`ramped_case`, once ``test_kperp_collar.py``'s);
 - the radial collar's in-stage term beside a temporal rate ramped across the samples
-  (:func:`ramped_rate_case`, once ``test_radial_absorber_ramp.py``'s).
+  (:func:`ramped_rate_case`).
 
 A ladder compares one nonlinear evaluation (``derivative``), the statistics the
 session observes at the launch (``launch``, each statistic one by one), one step over

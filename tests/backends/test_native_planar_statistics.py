@@ -104,13 +104,15 @@ def run(backend_class, problem, run_request, grid, length):
 def test_each_statistic_is_the_reference_s_on_the_same_state(name):
     """Every spatial statistic, and each plasma one, at the reference's final state.
 
-    The field statistics are one shared host function on both backends
-    (:func:`solprop.backends.spatial.collect_spatial`, synthesising the node volume
-    itself), so they agree to that function's own reductions, the Cartesian statistics'
-    ``gamma``. The plasma statistics are native's columns against the reference's passes
-    on nodes that differ by one evaluation's rounding; each is bounded by its own
-    measured response to a one-ulp launch perturbation (the largest of three random-sign
-    draws) times that rounding in ulps, plus ``gamma(n_to)`` for either side's own scan.
+    Each backend forms the field statistics itself: the reference through
+    :func:`solprop.backends.spatial.collect_spatial`, which synthesises the node volume,
+    native from its own columns and nodes by the geometry's rules. Both are reductions
+    over the same columns, nodes and time samples, so they agree within either side's
+    reduction bound, the Cartesian statistics' ``gamma``. The plasma statistics are
+    native's columns against the reference's passes on nodes that differ by one
+    evaluation's rounding; each is bounded by its own measured response to a one-ulp
+    launch perturbation (the largest of three random-sign draws) times that rounding in
+    ulps, plus ``gamma(n_to)`` for either side's own scan.
     """
     grid, space, problem, run_request = planar_case(name)
     plasma = name in PLASMA_CASES
