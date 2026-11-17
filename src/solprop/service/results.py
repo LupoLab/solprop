@@ -38,13 +38,16 @@ from solprop.processing import (
     get_phase,
     get_power,
     get_spectral_density,
+    grid_of,
     node_fluence,
     physical_energy,
     transverse_units,
 )
 from solprop.processing.fields import (
     DEFAULT_GATE_POSITIONS,
+    default_gate_fwhm,
     get_spectrogram,
+    real_field_oversampling,
     time_axis,
 )
 from solprop.processing.scans import ScanOutput
@@ -557,28 +560,35 @@ def spectrogram(payload: Payload) -> dict[str, object]:
     modes = _modes(payload)
     mode = 0 if modes == "sum" else modes
     time_range = band_of({"bandpass": payload.get("time_range")})
-    gate = payload.get("gate_fwhm")
+    given = payload.get("gate_fwhm")
     with open_file(path) as handler:
+        if given is None:
+            # solprop's default, asked of solprop and passed on: the gate reported is
+            # the gate used.
+            grid = grid_of(handler)
+            times = time_axis(grid, real_field_oversampling(grid))
+            gate = default_gate_fwhm(times, time_range)
+        else:
+            gate = float(given)  # pyright: ignore[reportArgumentType]
         t, x, values = get_spectrogram(
             handler,
             axis,  # pyright: ignore[reportArgumentType]
             plane=int(payload["index"]),  # pyright: ignore[reportArgumentType]
             modes=mode,
             time_range=time_range,
-            gate_fwhm=None if gate is None else float(gate),  # pyright: ignore[reportArgumentType]
+            gate_fwhm=gate,
             positions=int(payload.get("positions") or DEFAULT_GATE_POSITIONS),  # pyright: ignore[reportArgumentType]
             bandpass=band_of(payload),
         )
     window = _window(path, axis, x, values)
     rows, image = even_rows(x, values, window, SPECTROGRAM_ROWS)
-    span = float(t[-1] - t[0]) if time_range is None else abs(np.ptp(time_range))
     return {
         "t": t,
         "x": rows,
         "values": image.astype(np.float32),
         "axis": axis,
         "mode": int(mode),  # pyright: ignore[reportArgumentType]
-        "gate_fwhm": float(gate) if gate is not None else span / 20.0,  # pyright: ignore[reportArgumentType]
+        "gate_fwhm": gate,
     }
 
 

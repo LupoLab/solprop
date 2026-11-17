@@ -300,6 +300,30 @@ def test_a_spectrogram_takes_a_time_range_a_gate_and_a_band(output):
     assert values.max() > 0.0
 
 
+def test_the_default_gate_is_a_twentieth_of_the_range_within_the_window():
+    t = np.linspace(-1e-12, 1e-12, 401)
+    # Each a twentieth of the range clipped to the window: exact up to one rounding
+    # of the span's subtraction and division.
+    assert fields.default_gate_fwhm(t) == pytest.approx(1e-13, rel=1e-15)
+    assert fields.default_gate_fwhm(t, (-1e-9, 1e-9)) == pytest.approx(1e-13, rel=1e-15)
+    assert fields.default_gate_fwhm(t, (4e-13, 0.0)) == pytest.approx(2e-14, rel=1e-15)
+    with pytest.raises(ProcessingError, match="holds no gate position"):
+        fields.default_gate_fwhm(t, (2e-12, 3e-12))
+    # The spectrogram's own default is that gate.
+    field = np.cos(2.4e15 * t) * np.exp(-((t / 3e-14) ** 2))
+    wide = (-1e-9, 1e-9)
+    by_default = fields.field_spectrogram(t, field, time_range=wide, positions=16)
+    given = fields.field_spectrogram(
+        t,
+        field,
+        time_range=wide,
+        gate_fwhm=fields.default_gate_fwhm(t, wide),
+        positions=16,
+    )
+    assert by_default[2].max() > 0.0
+    assert np.array_equal(by_default[2], given[2])  # the same computation, bit for bit
+
+
 def test_a_spectrogram_refuses_what_it_cannot_draw(output, synthetic):
     multimode = synthetic.build_run(n_modes=2)
     with pytest.raises(ModeError, match="name a single mode"):
