@@ -133,38 +133,43 @@ def overlap(first: Mode, second: Mode, z: float = 0.0) -> float:
             f"{second.dimlimits(z)} differ"
         )
     kind, lower, upper = limits
+    # The scale goes inside the integrands: the integrals are then of order one, so
+    # the adaptive rules' default absolute tolerance is small against them. Outside,
+    # an unnormalised integral (2e-13 for a 75 um capillary's HE1,24) lies below
+    # that tolerance and the rule stops unconverged, without a warning.
     scale = (
         0.5 * EPS0 * C / math.sqrt(_normalisation(first, z) * _normalisation(second, z))
     )
 
     def _integrand(inner: float, outer: float) -> float:
-        """Return the product of the two profiles times the area element.
+        """Return the scaled product of the two profiles times the area element.
 
         - ``inner``: the first cross-section coordinate, ``r`` or ``x`` in m. dblquad
           passes the *inner* variable first, which is why the order looks reversed.
         - ``outer``: the second coordinate, ``theta`` in rad or ``y`` in m.
         """
         point = np.array([[inner, outer]])
-        product = float(np.sum(first.field(point, z) * second.field(point, z)))
+        product = scale * float(np.sum(first.field(point, z) * second.field(point, z)))
         return product * inner if kind == "polar" else product
 
     if kind == "slab":
         # Uniform in y: the overlap is per metre of y, over x alone, as N is.
-        return scale * _overlap_along_x(first, second, (lower[0], upper[0]), z)
+        return _overlap_along_x(first, second, (lower[0], upper[0]), z, scale)
     # The outer variable is the second coordinate and the inner the first, with the
     # polar Jacobian r folded into the integrand above.
     value, _ = dblquad(_integrand, lower[1], upper[1], lower[0], upper[0])
-    return scale * value
+    return value
 
 
 def _overlap_along_x(
-    first: Mode, second: Mode, limits: tuple[float, float], z: float
+    first: Mode, second: Mode, limits: tuple[float, float], z: float, scale: float
 ) -> float:
-    """Return the integral over x of two slab profiles' product, per metre of y.
+    """Return the scaled integral over x of two slab profiles' product, per metre of y.
 
     - ``limits``: the gap's edges in m.
     - ``z``: position along the waveguide, m.
-    - Returns: ``int e_1 . e_2 dx`` in m, integrated adaptively.
+    - ``scale``: the overlap's normalisation, multiplied into the integrand.
+    - Returns: ``scale * int e_1 . e_2 dx``, integrated adaptively.
     """
 
     def along_x(x: float) -> float:
@@ -173,7 +178,7 @@ def _overlap_along_x(
         - ``x``: transverse coordinate in m.
         """
         point = np.array([[x, 0.0]])
-        return float(np.sum(first.field(point, z) * second.field(point, z)))
+        return scale * float(np.sum(first.field(point, z) * second.field(point, z)))
 
     value, _ = quad(along_x, limits[0], limits[1], limit=200)
     return value

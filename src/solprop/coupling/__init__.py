@@ -55,6 +55,7 @@ from solprop.coupling.envelopes import (
     STEP_INDEX_BEAM_ENVELOPE,
     STEP_INDEX_ENVELOPE,
     VECTOR_STEP_INDEX_ENVELOPE,
+    FieldEnvelope,
     PairEnvelope,
 )
 from solprop.coupling.models import (
@@ -112,6 +113,7 @@ __all__ = [
     "CouplingReport",
     "CouplingResult",
     "Exterior",
+    "FieldEnvelope",
     "FieldPlane",
     "FreeSpace",
     "InputPort",

@@ -2432,3 +2432,64 @@ Withdrawn (development-process record, not a design decision).
   statistics; `solprop.output` imports its handlers on first use, so the record modules
   load without h5py. A move that would climb a layer is visible in review as an allowlist
   entry.
+
+## ADR-081 — A coupling envelope may be evaluated for each field; the capillary one measures launched modal power
+
+- **Status:** accepted (maintainer), 2026-11-17, with PR #878. Applies
+  [SEP 31](seps/archive/sep-0031-simulation-coupling.md) section 4.3 (benchmark
+  envelopes for an approximate coupling model's omitted physics) without changing its
+  rule; replaces the capillary envelope recorded in SEP 31's phase 5 report
+  (`capillary-he1m-scalar-vs-leaky-marcatili-2026-10`).
+- **Context:** section 4.3 admits a provider pair to `scalar_paraxial` only with an
+  independent benchmark envelope for what the model omits, recorded with its identity,
+  range and numerical error, never extrapolated, and bounding every admitted input. The
+  capillary envelope bounds the scalar profile `J0(u_m r/a)` against Marcatili's leaky
+  core field `J0(u_m (1 - i delta) r/a)`. It was one fixed number: 2.9e-3 measured at
+  `delta = 1e-2` over Gaussian beams and equal-amplitude three-mode exits, recorded as
+  6e-3 and scaled linearly with `delta`, up to 8 modes. Those fields were not the worst
+  case: mode m departs from its scalar profile by about `u_m delta`, so a structured
+  beam, or a few-mode exit with arbitrary amplitudes, reaches 1e-2 to 2e-2 at
+  `delta = 2.5e-3` (a 75 µm capillary at 800 nm) against the 1.5e-3 allowed, while a
+  near-HE11 Gaussian beam sees about 5e-5. A fixed bound that held for every field would
+  be several 1e-2 and would spend most `model_error` budgets on fields that need none of
+  it. The recorded measure, the change of the raw overlaps `|<v_m, f>|^2`, is not a
+  change of modal power where the leaky profiles are not orthogonal: it gave about 0.1
+  for an exit into an identical capillary, where the launch is unchanged.
+- **Decision:**
+  - *An envelope may be an evaluation.* Where the omitted physics depends on the field
+    so strongly that no fixed bound covers every field usefully, the envelope is a
+    `FieldEnvelope` (`solprop.coupling.envelopes`): `couple` evaluates the discrepancy
+    for the field being coupled, at every bin, and reports it with scope `field`. The
+    record keeps what section 4.3 asks of an envelope: an identity, a range outside which
+    the pair is refused (never extrapolated), a bounded numerical error added to the
+    allowance, and the reference it computes. The independent benchmark is the test
+    suite's oracle, an independent quadrature of the reference fields that the
+    evaluation must match (`tests/coupling/test_envelopes.py`). A recorded
+    `PairEnvelope` stays the form wherever a fixed bound is useful.
+  - *The capillary envelope measures launched modal power.* Its discrepancy is
+    `sum_c | |y_L,c|^2 - |y_S,c|^2 | / P`: the change of the power launched into each
+    channel, with `y = G^-1 o` each model's least-squares amplitudes (section 4.3's
+    `a = G^-1 S^H M f`) and P the incident power, a beam's energy on its plane or an
+    exit's modal power. It is zero into an identical capillary and bounds the change of
+    the total launched power. It is evaluated in closed form (`solprop.coupling._leaky`):
+    exactly for a capillary exit, and for a beam through the Taylor series of the leaky
+    profile in `delta` with its remainder carried as a bound.
+  - *Its range is the highest radial order, not the count:* HE1m orders up to 24, radius
+    ratios 0.5 to 2, `delta` up to 1e-2. Two polarisations of one mode are one profile,
+    and a set such as HE1,25 to HE1,33 is refused. The step-index envelopes take the same
+    `modes` parameter.
+- **Why:** section 4.3's rule is that the reported allowance bounds the omitted physics
+  for every admitted input, recorded and not extrapolated. A per-field evaluation meets
+  it exactly within the reference model, where a fixed bound over a sampled family did
+  not hold and one that did would be useless. The physical model and the reference
+  (Marcatili's leaky core field) are unchanged, so this is a correction under SEP 0
+  section 2, not a new SEP.
+- **Consequences:** a capillary coupling's `envelope` item is now the field's own
+  discrepancy, plus 1e-8 numerical, with scope `field` and the identity
+  `capillary-he1m-scalar-vs-leaky-marcatili-field-2026-11`. It falls far below the old
+  allowance for Gaussian-like beams and rises above it for structured fields, so a
+  coupling admitted before under a tight `model_error` may now be refused, correctly.
+  Sets up to HE1,24 are admitted, where 8 was the limit. The evaluation costs a few
+  closed-form sums per bin, streamed over a plane's columns. Its limits are the
+  reference's, as recorded in SEP 31's phase 5 report: no field in the wall, and only
+  the modulus of a lossy wall's complex `nu_n`.
