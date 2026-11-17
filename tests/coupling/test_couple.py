@@ -24,6 +24,7 @@ from scipy.special import j0, j1, jn_zeros
 from solprop import fourier
 from solprop.constants import EPS0, C
 from solprop.coupling import (
+    CAPILLARY_ENVELOPE,
     STEP_INDEX_BEAM_ENVELOPE,
     STEP_INDEX_ENVELOPE,
     BasisChange,
@@ -39,12 +40,18 @@ from solprop.coupling import (
     basis_identity,
     couple,
 )
-from solprop.coupling.coupler import _contrast_items, _gain_item, _whitened_extremes
+from solprop.coupling.coupler import (
+    _contrast_items,
+    _gain_item,
+    _highest_order,
+    _whitened_extremes,
+)
 from solprop.coupling.models import cone_angle, radial_rule
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import CouplingError
 from solprop.grid import FieldGrid, FreeGrid, RadialGrid
 from solprop.modes import MarcatiliMode, Mode, StepIndexMode
+from solprop.modes.collection import ModeCollection
 from solprop.processing import field_plane
 from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse, SpatialPulse
@@ -684,6 +691,70 @@ def test_a_capillary_radius_change_by_direct_overlap_and_by_synthesis():
     )
 
 
+def polarised_capillary(radius: float, count: int) -> Simulation:
+    """Return a capillary with the first `count` HE1m modes, each in x and in y."""
+    modes = [MarcatiliMode(radius, "Ar", PRESSURE, m=m) for m in range(1, count + 1)]
+    return capillary(radius=radius, modes=ModeCollection.with_polarisations(modes))
+
+
+def test_two_polarisations_of_one_capillary_mode_count_once(port):
+    """The envelope's mode count is the HE1m profiles, not the channels.
+
+    The scalar fit keeps x and y apart, so 24 HE1m in two polarisations (48
+    channels) are the 24 profiles the envelope was measured over. Counted as
+    channels they lay outside it. The profiles are built directly, without a
+    48-channel simulation and its orthonormality check.
+    """
+    modes = [MarcatiliMode(RADIUS, "Ar", PRESSURE, m=m) for m in range(1, 25)]
+    profiles = ScalarModeBasis.from_modes(
+        ModeCollection.with_polarisations(modes), port.grid
+    )
+    assert profiles.n_modes == 48
+    assert _highest_order(profiles) == 24.0
+    pair = {"radius_ratio": 1.0, "leaky": 0.0}
+    assert CAPILLARY_ENVELOPE.covers({"modes": 24.0, **pair}) is None
+    assert CAPILLARY_ENVELOPE.covers({"modes": 48.0, **pair}) is not None
+
+
+def test_two_polarisation_capillaries_couple_by_both_paths():
+    """A circularly polarised beam, and a two-polarisation capillary exit read as a
+    modal plane, couple into two-polarisation HE1m ports.
+
+    The leaky-field envelope sums its share changes over the channels, so the
+    circular beam's, split equally between x and y, is the linearly polarised beam's
+    into the one-polarisation port, to rounding.
+    """
+    target = polarised_capillary(RADIUS, 3).input_port()
+    assert target.shape[0] == 6
+    pulse = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6)
+
+    def beam(jones, grid):
+        return FieldPlane.from_pulse(
+            SpatialPulse(pulse, 0.64 * RADIUS, jones=jones),
+            grid,
+            PlaneGeometry(0.0),
+            space=RadialGrid(4 * RADIUS, 256),
+            medium=SpatialMedium("Ar", PRESSURE),
+        )
+
+    report = couple(beam((1.0 + 0.0j, 1.0j), target.grid), target, model=SCALAR).report
+    # A 0.64a Gaussian couples about 98 % into HE11.
+    assert report.launched_energy > 0.97 * report.incident_energy
+    linear = capillary(modes=3).input_port()
+    single = couple(beam((1.0 + 0.0j,), linear.grid), linear, model=SCALAR).report
+    circular_item = next(item for item in report.items if item.name == "envelope")
+    linear_item = next(item for item in single.items if item.name == "envelope")
+    assert circular_item.value is not None
+    assert linear_item.value is not None
+    assert circular_item.value > 0.0
+    assert circular_item.value == pytest.approx(linear_item.value, rel=1e-9)
+    first = polarised_capillary(RADIUS, 2)
+    exit_plane = field_plane(first.run(progress="none"), source=first)
+    wider = polarised_capillary(100e-6, 3).input_port()
+    direct = couple(exit_plane, wider, model=SCALAR)
+    assert 0.0 < direct.report.launched_energy < direct.report.incident_energy
+
+
 def test_the_passive_map_certificate_reports_and_refuses(port):
     """A small apparent gain is a model defect; one beyond the model's defects refuses.
 
@@ -930,7 +1001,7 @@ def test_couple_refuses_unqualified_pairs_by_name(port):
     )
     with pytest.raises(CouplingError, match="carries no mode profiles"):
         couple(modal, port, model=SCALAR)
-    many = capillary(modes=9).input_port()
+    many = capillary(modes=25).input_port()
     with pytest.raises(CouplingError, match="outside the envelope"):
         couple(beam, many, model=SCALAR)
     hybrid = capillary(modes=[MarcatiliMode(RADIUS, "Ar", PRESSURE, n=2)])

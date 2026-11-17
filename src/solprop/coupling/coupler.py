@@ -31,21 +31,27 @@ from typing import Literal, cast
 
 import numpy as np
 from jaxtyping import Complex, Float, Inexact, Int
-from scipy.special import j0
+from scipy.special import factorial, j0, j1
 
 from solprop import fourier
 from solprop._display import Displayed, engineering, line
 from solprop._process import host_blas
 from solprop.adiabatic import AdiabaticAdmission
 from solprop.constants import EPS0, C
+from solprop.coupling import _leaky
 from solprop.coupling.envelopes import (
     CAPILLARY_ENVELOPE,
     STEP_INDEX_BEAM_ENVELOPE,
     STEP_INDEX_ENVELOPE,
     VECTOR_STEP_INDEX_ENVELOPE,
+    FieldEnvelope,
     PairEnvelope,
 )
-from solprop.coupling.models import CouplingModel, ScalarModeBasis, radial_rule
+from solprop.coupling.models import (
+    CouplingModel,
+    ScalarModeBasis,
+    radial_rule,
+)
 from solprop.coupling.plane import FieldPlane, PlaneMetric, lattice_identity
 from solprop.coupling.port import (
     METRIC_TOLERANCE,
@@ -838,14 +844,41 @@ def target_columns(
         transform (the optics-convention columns of a field are conjugated in the
         transverse phase as well).
     """
+    return _columns(profiles.hankel, space)
+
+
+def _columns(
+    hankel: Callable[[np.ndarray], np.ndarray], space: RadialGrid | FreeGrid
+) -> Complex[np.ndarray, "n_modes n_columns"]:
+    """Return axisymmetric profiles in a grid's column representation.
+
+    - ``hankel``: each profile's order-zero Hankel transform at given wavenumbers
+      (rad/m), in m, shape ``(n_modes, n_k)``.
+    - Returns: as :func:`target_columns`.
+    """
+    kappa, phase = _column_geometry(space)
+    transform = hankel(kappa)
+    if phase is None:
+        return transform.astype(np.complex128)
+    return transform * phase[None, :]
+
+
+def _column_geometry(
+    space: RadialGrid | FreeGrid,
+) -> tuple[Float[np.ndarray, " n_columns"], Complex[np.ndarray, " n_columns"] | None]:
+    r"""Return each column's transverse wavenumber and its factor on a Hankel transform.
+
+    - Returns: the wavenumbers, rad/m, and None on a radial grid, whose columns are
+      the transform itself; on a Cartesian grid :math:`2\pi` times the raw DFT's
+      origin phase over the cell area.
+    """
     if isinstance(space, RadialGrid):
-        return profiles.hankel(np.asarray(space.k_r)).astype(np.complex128)
+        return np.asarray(space.k_r), None
     kx = np.tile(space.k_x, space.n_y)
     ky = np.repeat(space.k_y, space.n_x)
-    transform = 2.0 * np.pi * profiles.hankel(np.hypot(kx, ky))
     area = float(space.spatial_weights[0])
-    origin = np.exp(1j * (kx * space.x[0] + ky * space.y[0])) / area
-    return transform * origin[None, :]
+    phase = 2.0 * np.pi * np.exp(1j * (kx * space.x[0] + ky * space.y[0])) / area
+    return np.hypot(kx, ky), phase
 
 
 def _channels(
@@ -879,6 +912,9 @@ class _Fit:
     gain_form : numpy.ndarray or None
         ``S^H M Q_A^-1 M S`` per bin, from which the passivity certificate is
         whitened.
+    leaky : numpy.ndarray or None
+        A capillary target's leaky-field discrepancy per bin
+        (:mod:`solprop.coupling._leaky`), shape ``(n_omega,)``; None otherwise.
     """
 
     overlap: np.ndarray
@@ -886,6 +922,7 @@ class _Fit:
     gram: np.ndarray
     items: list[AdmissionItem] = field(default_factory=list)
     gain_form: np.ndarray | None = None
+    leaky: np.ndarray | None = None
 
 
 def _scalar_paraxial(
@@ -961,7 +998,11 @@ def _scalar_paraxial(
     )
     items.append(_source_metric_item(incident, native, epsilon))
     if profiles.family == "capillary":
-        envelope_parameters.update(_leaky_parameters(profiles, plane, incident))
+        # A pair outside the mode range was not evaluated; the envelope refuses it.
+        discrepancy = np.zeros(plane.grid.n_omega) if fit.leaky is None else fit.leaky
+        envelope_parameters.update(
+            _leaky_parameters(profiles, plane, incident, discrepancy)
+        )
     elif plane.kind == "modal":
         # A step-index modal source is a step-index fibre with its profiles.
         envelope_parameters["uncovered"] = _uncovered_v_share(
@@ -991,6 +1032,16 @@ def _scalar_paraxial(
         captured=captured,
         items=tuple(items),
     )
+
+
+def _highest_order(profiles: ScalarModeBasis) -> float:
+    """Return the highest radial order m of a basis's profiles, an envelope's ``modes``.
+
+    The envelopes were measured on the first N orders, so what bounds a set is its
+    highest order, not its count: HE1,25 to HE1,33 are nine profiles beyond 24. Two
+    polarisations of one mode are two channels of one profile, and count once.
+    """
+    return float(np.max(_leaky.radial_order(profiles.u)))
 
 
 def _kappa_star(
@@ -1086,7 +1137,11 @@ def _spatial_fit(  # noqa: PLR0917 - called positionally
         index[:, None, None] ** 2 * cross / (root.T[:, :, None] * root.T[:, None, :])
     )
     if profiles.family == "capillary":
-        parameters = {"modes": float(profiles.n_modes), "radius_ratio": 1.0}
+        parameters = {"modes": _highest_order(profiles), "radius_ratio": 1.0}
+        if _leaky_range(parameters):
+            fit.leaky = _beam_leaky(
+                plane, profiles, samples, (jones, mode_of), occupied=occupied
+            )
     else:
         parameters = _beam_step_index_parameters(profiles)
     return fit, native, parameters
@@ -1192,12 +1247,255 @@ def _modal_fit(
     )
     fit.gain_form = np.einsum("wcs,wds->wcd", cross_scaled, cross_scaled.conj())
     parameters = {
-        "modes": float(max(source.n_modes, profiles.n_modes)),
+        "modes": max(_highest_order(source), _highest_order(profiles)),
         "radius_ratio": source.radius / profiles.radius,
     }
     if profiles.family == "step_index":
         parameters.update(_step_index_parameters(source, profiles))
+    elif _leaky_range(parameters):
+        fit.leaky = _modal_leaky(
+            plane,
+            (source, profiles),
+            scaled,
+            (source_jones, source_mode),
+            (jones, mode_of),
+            occupied=_occupied(norm),
+        )
     return fit, plane.spectral_energy(), parameters
+
+
+_LEAKY_TOP = CAPILLARY_ENVELOPE.ranges["leaky"][1]
+"""The largest delta the envelope covers; a bin beyond it is counted in full."""
+
+_LEAKY_CHUNK = 128
+"""Bins per block of the leaky-field discrepancy, which holds a few
+``(n_bins, n_channels, n_basis)`` complex arrays at a time."""
+
+
+def _leaky_range(parameters: Mapping[str, float]) -> bool:
+    """Return whether a capillary pair's mode order and radius ratio lie in range.
+
+    Outside them the envelope refuses the pair whatever its field, so the leaky-field
+    evaluation, whose cost grows with the highest order, is not run.
+    """
+    ranges = CAPILLARY_ENVELOPE.ranges
+    return all(
+        ranges[name][0] <= parameters[name] <= ranges[name][1]
+        for name in ("modes", "radius_ratio")
+    )
+
+
+def _beam_leaky(
+    plane: FieldPlane,
+    profiles: ScalarModeBasis,
+    samples: Complex[np.ndarray, "n_columns n_pol n_omega"],
+    channels: tuple[Float[np.ndarray, "n_channels 2"], np.ndarray],
+    *,
+    occupied: np.ndarray,
+) -> Float[np.ndarray, " n_omega"]:
+    """Return a beam's leaky-field launch discrepancy into capillary profiles.
+
+    The beam's overlaps with the leaky profiles' Taylor terms are formed once on the
+    plane; each bin's leaky overlap is their polynomial in its delta, the remainder
+    bounded by Cauchy--Schwarz (:mod:`solprop.coupling._leaky`). Everything is in the
+    plane's L2 measure, the incident power the beam's energy on the plane.
+
+    - ``samples``: the plane's columns in the internal convention.
+    - ``channels``: each channel's Jones vector and profile index.
+    - Returns: dimensionless, zero off the occupied bins inside the leaky range
+      (the bins beyond it are counted in full elsewhere).
+    """
+    jones, mode_of = channels
+    space = cast("RadialGrid | FreeGrid", plane.basis.space)
+    delta_all = cast("np.ndarray", profiles.leaky(plane.grid.omega))
+    result = np.zeros(plane.grid.n_omega)
+    live = np.flatnonzero(occupied & (delta_all > 0.0) & (delta_all <= _LEAKY_TOP))
+    if live.size == 0:
+        return result
+    radius = profiles.radius
+    u, profile_of = np.unique(profiles.u, return_inverse=True)
+    count = _leaky.taylor_count(float(np.max(u) * np.max(delta_all[live])))
+    n_pol = samples.shape[1]
+    terms_all, energy_all = _taylor_overlaps(samples, space, live, (u, radius, count))
+    projection = jones[:, :n_pol]
+    exact = profiles.gram()[np.ix_(mode_of, mode_of)] * (jones @ jones.T)
+    pairs = jones @ jones.T
+    channel_profile = profile_of[mode_of]
+    scalar_norm = np.sqrt(math.pi) * radius * np.abs(j1(u))
+    powers = np.arange(count)
+    for rows in np.array_split(np.arange(live.size), -(-live.size // _LEAKY_CHUNK)):
+        block = live[rows]
+        terms = terms_all[rows].reshape(block.size, n_pol, count, u.size)
+        per_channel = np.einsum(
+            "cp,wpnc->wcn", projection, terms[:, :, :, channel_profile]
+        )
+        energy = energy_all[rows]
+        power = np.real(np.einsum("wpp->w", energy))
+        channel_energy = np.real(
+            np.einsum("cp,wpq,cq->wc", projection, energy, projection)
+        )
+        delta = delta_all[block]
+        # The internal samples are the optics-convention field conjugated (times a
+        # per-bin sign), and Marcatili's field is an optics-convention one:
+        # <v_L, f> = conj(int v_L f_internal), v_L's own series in -i delta.
+        series = (-1j * delta[:, None]) ** powers[None, :] / factorial(powers)
+        leaky_norm = _leaky.leaky_norms(u, radius, delta)[:, channel_profile]
+        scalar = np.conj(per_channel[:, :, 0]) / scalar_norm[channel_profile]
+        leaky = np.conj(np.einsum("wcn,wn->wc", per_channel, series)) / np.sqrt(
+            leaky_norm
+        )
+        # The series' remainder on the core, in L2, against the channel's field.
+        tail = _leaky.taylor_tail(u[channel_profile][None, :] * delta[:, None], count)
+        error = (
+            tail
+            * np.sqrt(math.pi)
+            * radius
+            * np.sqrt(np.maximum(channel_energy, 0.0) / leaky_norm)
+        )
+        wavenumbers = _leaky.leaky_wavenumbers(profiles.u, radius, delta)
+        gram = _leaky.inner_products(wavenumbers, radius, wavenumbers, radius)
+        result[block] = _leaky.launch_discrepancy(
+            (scalar, np.broadcast_to(exact, (block.size, *exact.shape))),
+            (leaky, gram[:, mode_of][:, :, mode_of] * pairs),
+            power,
+            error,
+        )
+    return result
+
+
+_COLUMN_BLOCK = 1 << 22
+"""Most complex values of a block of a plane's columns held at once, about 64 MiB:
+the Taylor overlaps stream over a plane's columns in blocks of this size."""
+
+
+def _taylor_overlaps(
+    samples: Complex[np.ndarray, "n_columns n_pol n_omega"],
+    space: RadialGrid | FreeGrid,
+    live: np.ndarray,
+    taylor: tuple[Float[np.ndarray, " n_modes"], float, int],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return a plane's overlaps with the Taylor terms, and its energy, on given bins.
+
+    Streamed over the plane's columns, so no array of the plane's size times the
+    terms or the bins is ever formed: a 512 x 512 plane with 14 terms of 24 profiles
+    would otherwise need gigabytes.
+
+    - ``live``: the bins, indices into the frequency axis.
+    - ``taylor``: the profiles' J0 zeros, the core radius in m and the term count.
+    - Returns: ``int conj(column) f`` per bin, polarisation and term, shape
+      ``(n_live, n_pol, n_terms)``, and the energy matrix ``sum_j w f_p^* f_q`` per
+      bin, shape ``(n_live, n_pol, n_pol)``.
+    """
+    u, radius, count = taylor
+    kappa, phase = _column_geometry(space)
+    weights = np.asarray(space.spectral_weights)
+    n_pol = samples.shape[1]
+    terms = np.zeros((live.size, n_pol, count * u.size), dtype=np.complex128)
+    energy = np.zeros((live.size, n_pol, n_pol), dtype=np.complex128)
+    radii, weighted_profiles = _taylor_rule(
+        u, radius, count, float(np.max(kappa, initial=0.0))
+    )
+    # The block bounds the kernel J0(kappa r), (n_nodes, step), as well as the
+    # plane's columns and the transforms.
+    widest = max(n_pol * live.size, count * u.size, radii.size)
+    step = max(64, _COLUMN_BLOCK // widest)
+    for start in range(0, kappa.size, step):
+        cols = slice(start, start + step)
+        factor = (
+            weights[cols] if phase is None else weights[cols] * np.conj(phase[cols])
+        )
+        transforms = weighted_profiles @ j0(np.outer(radii, kappa[cols]))
+        weighted = transforms * factor[None, :]
+        field = samples[cols][:, :, live]
+        terms += np.einsum("tj,jpw->wpt", weighted, field)
+        energy += np.einsum("j,jpw,jqw->wpq", weights[cols], field.conj(), field)
+    return terms, energy
+
+
+def _taylor_rule(
+    u: Float[np.ndarray, " n_modes"],
+    radius: float,
+    count: int,
+    kappa_max: float,
+) -> tuple[Float[np.ndarray, " n_nodes"], Float[np.ndarray, "n_terms n_nodes"]]:
+    """Return the radial rule for the Hankel transforms of the Taylor terms.
+
+    Gauss--Legendre on the core, where the terms are smooth; the rule resolves the
+    profiles' and the kernel's oscillation up to `kappa_max` together and the terms'
+    powers of x, with 64 nodes to spare. A term's transform at wavenumbers kappa is
+    its row times ``j0(outer(radii, kappa))``, in m.
+
+    - ``kappa_max``: the largest transverse wavenumber transformed, rad/m.
+    - Returns: the nodes' radii, m, and the terms weighted by the rule's area
+      element, m^2, term-major: term n of profile m is row ``n * n_modes + m``.
+    """
+    reach = float(np.max(u)) + kappa_max * radius
+    nodes, rule = np.polynomial.legendre.leggauss(int(reach) + count + 64)
+    x = 0.5 * (nodes + 1.0)
+    area = 0.5 * rule * x * radius * radius
+    profiles = _leaky.taylor_profiles(u, x, count).reshape(count * u.size, x.size)
+    return x * radius, profiles * area[None, :]
+
+
+def _modal_leaky(
+    plane: FieldPlane,
+    bases: tuple[ScalarModeBasis, ScalarModeBasis],
+    scaled: Complex[np.ndarray, "n_omega n_source"],
+    source_channels: tuple[Float[np.ndarray, "n_source 2"], np.ndarray],
+    channels: tuple[Float[np.ndarray, "n_channels 2"], np.ndarray],
+    *,
+    occupied: np.ndarray,
+) -> Float[np.ndarray, " n_omega"]:
+    """Return a capillary exit's leaky-field launch discrepancy into capillary profiles.
+
+    Exact: the source is a finite sum of profiles, so the field under either model
+    and its overlaps are closed forms (:mod:`solprop.coupling._leaky`). The incident
+    power is the exit's modal power, the same under both models: an exit into an
+    identical capillary launches the same amplitudes, with no discrepancy.
+
+    - ``bases``: the source's and the target's profiles.
+    - ``scaled``: each source channel's coefficient of its unit scalar profile.
+    - Returns: dimensionless, zero off the occupied bins inside the leaky range.
+    """
+    source, target = bases
+    source_jones, source_mode = source_channels
+    jones, mode_of = channels
+    omega = plane.grid.omega
+    delta_t = cast("np.ndarray", target.leaky(omega))
+    delta_s = cast("np.ndarray", source.leaky(omega))
+    result = np.zeros(plane.grid.n_omega)
+    larger = np.maximum(delta_t, delta_s)
+    live = np.flatnonzero(occupied & (larger > 0.0) & (larger <= _LEAKY_TOP))
+    if live.size == 0:
+        return result
+    a_t, a_s = target.radius, source.radius
+    pairs = jones @ jones.T
+    picks = np.ix_(mode_of, mode_of)
+    for block in np.array_split(live, -(-live.size // _LEAKY_CHUNK)):
+        n = block.size
+        # Each polarisation's coefficients on the source's unit profiles, in the
+        # optics convention of Marcatili's field: the internal ones conjugated (the
+        # per-bin sign is common to every overlap of a bin).
+        amplitudes = np.zeros((n, 2, source.n_modes), dtype=np.complex128)
+        for channel, profile in enumerate(source_mode):
+            amplitudes[:, :, profile] += (
+                np.conj(scaled[block, channel])[:, None]
+                * source_jones[channel][None, :]
+            )
+        power = np.sum(np.abs(amplitudes) ** 2, axis=(1, 2))
+        models = []
+        for d_t, d_s in ((np.zeros(n), np.zeros(n)), (delta_t[block], delta_s[block])):
+            p_t = _leaky.leaky_wavenumbers(target.u, a_t, d_t)
+            p_s = _leaky.leaky_wavenumbers(source.u, a_s, d_s)
+            cross = _leaky.inner_products(p_t, a_t, p_s, a_s)
+            target_gram = _leaky.inner_products(p_t, a_t, p_t, a_t)
+            projected = np.einsum("wmj,wpj->wpm", cross, amplitudes)
+            overlap = np.einsum("cp,wpc->wc", jones, projected[:, :, mode_of])
+            models.append((overlap, target_gram[:, picks[0], picks[1]] * pairs))
+        result[block] = _leaky.launch_discrepancy(
+            models[0], models[1], power, np.zeros(models[0][0].shape)
+        )
+    return result
 
 
 def _profile_overlaps(
@@ -1267,12 +1565,12 @@ def _step_index_parameters(
 def _beam_step_index_parameters(profiles: ScalarModeBasis) -> dict[str, float]:
     """Return a beam-into-fibre pair's envelope parameters at the profile wavelength.
 
-    - Returns: ``v_target``: the fibre's V from its LP01 U and W; ``modes``: the number
-      of distinct LP0m profiles (two polarisations of one profile count once).
+    - Returns: ``v_target``: the fibre's V from its LP01 U and W; ``modes``: the highest
+      LP0m radial order (two polarisations of one profile count once).
     """
     return {
         "v_target": float(math.hypot(profiles.u[0], profiles.w[0])),
-        "modes": float(np.unique(profiles.u).size),
+        "modes": _highest_order(profiles),
     }
 
 
@@ -1366,19 +1664,20 @@ def _leaky_parameters(
     profiles: ScalarModeBasis,
     plane: FieldPlane,
     incident: Float[np.ndarray, " n_omega"],
+    discrepancy: Float[np.ndarray, " n_omega"],
 ) -> dict[str, float]:
-    r"""Return a capillary pair's leaky-field parameter and its uncovered share.
+    r"""Return a capillary pair's leaky-field parameters and its field's discrepancy.
 
     At each bin the larger :math:`\delta = |\nu_n|c/(\omega a)` of the target and a
     capillary source. ``leaky`` is its mean weighted by the incident energy, as the
-    other per-bin items are: the envelope's allowance is linear in
-    :math:`\delta`, so the weighted mean bounds the whole field's discrepancy over
-    the bins inside the range. ``uncovered`` is the incident energy share of the
-    bins beyond the range, which the envelope does not bound and the item counts
-    in full.
+    other per-bin items are. ``field`` is the leaky-field discrepancy evaluated for
+    this field, weighted the same way over the bins inside the range;
+    ``uncovered`` is the incident energy share of the bins beyond it, which the
+    envelope does not bound and the item counts in full.
 
     - ``incident``: incident energy per bin, J.
-    - Returns: ``leaky`` and ``uncovered``, dimensionless.
+    - ``discrepancy``: the field's leaky-field discrepancy per bin.
+    - Returns: ``leaky``, ``field`` and ``uncovered``, dimensionless.
     """
     omega = plane.grid.omega
     delta = cast("np.ndarray", profiles.leaky(omega))
@@ -1388,6 +1687,7 @@ def _leaky_parameters(
     beyond = delta > CAPILLARY_ENVELOPE.ranges["leaky"][1]
     return {
         "leaky": _weighted(delta, incident),
+        "field": _weighted(np.where(beyond, 0.0, discrepancy), incident),
         "uncovered": _weighted(beyond.astype(float), incident),
     }
 
@@ -1439,7 +1739,7 @@ def _contrast_items(  # noqa: PLR0917 - called positionally
     its envelope to cover it: the capillary one, the fibre-pair one, or for a beam
     into a fibre :data:`~solprop.coupling.envelopes.STEP_INDEX_BEAM_ENVELOPE`.
     """
-    envelope: PairEnvelope = CAPILLARY_ENVELOPE
+    envelope: PairEnvelope | FieldEnvelope = CAPILLARY_ENVELOPE
     if profiles.family == "step_index":
         envelope = (
             STEP_INDEX_ENVELOPE if plane.kind == "modal" else STEP_INDEX_BEAM_ENVELOPE
@@ -1495,7 +1795,7 @@ def _contrast_items(  # noqa: PLR0917 - called positionally
             envelope.allowance(parameters) + uncovered,
             None,
             True,
-            "model",
+            "field" if isinstance(envelope, FieldEnvelope) else "model",
             envelope.identity
             + (
                 f", plus the {uncovered:.1e} incident share outside its range"
