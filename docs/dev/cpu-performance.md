@@ -34,16 +34,16 @@ measured while it existed.
       to every logical CPU.
 - **Accelerate on macOS.** It matched or beat both OpenBLAS variants and native GEMM,
   except at one thread on the TE/TM wall, where it is the fastest option.
-- **NEON FFTW on both Arm wheels**, in both precisions, with the Arm cycle counter.
+- **NEON FFTW on both Arm wheels**, in double precision (a wheel carrying a single-precision
+  FFTW fails `native/ci/smoke.py`), with the Arm cycle counter.
   On Apple silicon it keeps the M1 baseline and deployment target, and FFTW and Kokkos
   share one OpenMP runtime. This enables FFTW's explicit codelets; compiler
   vectorisation alone does not select them
   ([build recipe](../guide/performance/building-native.md)).
   - Linux aarch64 (the manylinux wheel, Neoverse N1 baseline), measured on 16-core
     Google Axion (Neoverse V2) and Ampere Altra (Neoverse N1) machines. FFTW's own
-    benchmark, 1 thread: 1.16–1.18× faster in double precision and 1.9× in single
-    (geometric means over 22 one- and two-dimensional problems); at 16 threads
-    1.07× and 1.2×.
+    benchmark, 1 thread: 1.16–1.18× faster in double precision (geometric means over 22
+    one- and two-dimensional problems); at 16 threads 1.07×.
   - solprop A/B, same wheels otherwise, five FFT-heavy cases with both steppers: no
     case slower beyond its round-to-round range, and a geometric-mean time of 0.95
     (V2) and 0.96 (N1) at 1 thread, 0.96 and 0.98 at 16 threads. The Raman and RK
@@ -406,8 +406,11 @@ Each has an issue:
     comparison is done (v4 against v3, above): wider vectors gained at most 9 % on an
     AVX-512 Xeon and on Zen 5, so it gives no case for explicit SIMD on its own.
   - A broad conversion to SIMD types is not justified.
-- **A subnormal count on long runs** ([#340](https://github.com/LupoLab/solprop/issues/340)) and **reduced precision** ([#342](https://github.com/LupoLab/solprop/issues/342)).
+- **A subnormal count on long runs** ([#340](https://github.com/LupoLab/solprop/issues/340)).
+  Reduced precision is not pursued: solprop is binary64 only (ADR-077).
   The value-safe flags (`-fno-math-errno`, `-fno-trapping-math`) were measured together in
   [#59](https://github.com/LupoLab/solprop/pull/59), with no net gain; [#334](https://github.com/LupoLab/solprop/issues/334) keeps that record.
-- **SLEEF on Linux aarch64, and AVX-512 against AVX2**, unmeasured end to end
-  ([#339](https://github.com/LupoLab/solprop/issues/339)).
+- **SLEEF's AVX-512 against its AVX2 variant**, unmeasured end to end
+  ([#339](https://github.com/LupoLab/solprop/issues/339)). SLEEF on Linux aarch64 was
+  measured level (1.00 on a Neoverse V2), so AUTO keeps the system libm there
+  (`native/cmake/VectorMath.cmake`, ADR-072).
