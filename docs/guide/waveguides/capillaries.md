@@ -112,7 +112,8 @@ rather than silently dropped), and
 `model="reduced"` is refused because the condensation inverts the full model's
 eigenvalue. A tube lattice (`lattice=`) is refused beside it: an antiresonant fibre's
 loss is its tubes' resonances, not a boundary condition at one radius. Two
-polarisations and a noise model are refused too, each by name.
+polarisations and the `modified` noise model are refused too, each by name; the default
+`input` draw is admitted.
 
 **Validity.** The condensation is quasi-static and paraxial. Three dimensionless ratios
 are computed for the highest retained mode over the band the run **scores** — the
@@ -307,7 +308,8 @@ What applies it, and what does not:
   sparse or mixed set, tabulated modes) stays adiabatic and warns
   ({class}`~solprop.exceptions.AdiabaticTaperWarning`).
 * **What it refuses**, by name and naming the opt-out: an envelope grid (no coupled
-  flow is built on its frequency axis), a noise model, a second field component, and a
+  flow is built on its frequency axis), the `modified` noise model (the default `input`
+  draw is admitted), a second field component, and a
   radius profile without an analytic slope (the connection is $a'/a$). Beside a `wall`,
   `taper_coupling=False` is refused: the wall carries the connection.
 * **The step.** As with a wall, the interaction picture inverts the flow over each
@@ -412,12 +414,14 @@ launch, each with three radial orders and the vector wall.
 
 ## Backends
 
-Both CPU backends run the wall — scalar and TE/TM, straight, tapered or in a gradient —
-and the taper coupling without one, with the frozen split.
+Both backends run the wall — `numpy_ref` and `native`, on the CPU and on the GPU builds —
+scalar and TE/TM, straight, tapered or in a gradient, and the taper coupling without one,
+with the frozen split.
 The **adiabatic** opt-out of a multimode taper (`taper_coupling=False`) puts every mode
 on its own row of the linear operator, and where that expansion does not resolve (a
-metre of kinked taper, for instance) it takes the general z table, which every CPU
-backend runs, the native CPU build included, so `backend="auto"` runs such a comparison;
-the native backend's GPU builds refuse it by name, naming the CPU backends. On the capillary's small grids a locally built native backend is the fastest backend at one
-to four threads; see [backends](../performance/backends.md), [the native backend](../performance/native.md) and
+metre of kinked taper, for instance) it takes the general z table, which `numpy_ref` and
+the native CPU build run, so `backend="auto"` on a CPU build runs such a comparison;
+the native backend's GPU builds refuse it by name, naming what runs it. On the capillary's
+small grids a native backend built on the machine that runs it is the fastest choice at
+one to four threads; see [backends](../performance/backends.md), [the native backend](../performance/native.md) and
 [performance](../performance/tuning.md).

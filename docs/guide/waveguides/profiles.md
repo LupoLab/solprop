@@ -233,8 +233,9 @@ third order (docs/dev/stepper.md section 10, trap 5). Pass floor= to choose anot
 The default floor is $10^{-4}$ of the **highest** stage pressure, so it means the same
 thing for a 0.8 bar gradient as for a 40 bar one. At that level the residual gas
 contributes $10^{-4}$ of the fill's refractivity while the slope stays finite and cheap
-for the adaptive split to resolve. Pass `floor=` to choose another value; `floor=0.0`
-keeps the true vacuum end, for comparison with a calculation that has one, and logs a
+for the adaptive split to resolve. Pass `floor=` to choose another value (to
+`PressureGradient` or `steady_fill`; the entry points call it `pressure_floor=`);
+`floor=0.0` keeps the true vacuum end, for comparison with a calculation that has one, and logs a
 stronger warning. Such a comparison also needs `vacuum_end="floor"`, since a choked end
 is not a vacuum.
 
