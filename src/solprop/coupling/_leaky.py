@@ -181,10 +181,17 @@ def taylor_profiles(u: np.ndarray, x: np.ndarray, count: int) -> np.ndarray:
     - Returns: shape ``(count, n_modes, n_x)``, real.
     """
     z = u[:, None] * x[None, :]
+    # Each order once: J_-m = (-1)^m J_m, so orders 0 to count - 1 serve every term.
+    bessel = [jv(order, z) for order in range(count)]
+
+    def order(m: int) -> np.ndarray:
+        """Return J_m(z) for any integer m from the cached non-negative orders."""
+        return bessel[m] if m >= 0 else (-1) ** m * bessel[-m]
+
     terms = []
     for n in range(count):
         derivative = (
-            sum((-1) ** k * comb(n, k) * jv(2 * k - n, z) for k in range(n + 1))
+            sum((-1) ** k * comb(n, k) * order(2 * k - n) for k in range(n + 1))
             / 2.0**n
         )
         terms.append(z**n * derivative)

@@ -234,7 +234,7 @@ CAPILLARY_ENVELOPE = FieldEnvelope(
         "Checked against an independent polar Gauss-Legendre quadrature for centred, "
         "displaced, tilted and structured beams on Cartesian and radial planes into "
         "4 to 24 HE1m, and capillary exits of random complex amplitudes at radius "
-        "ratios 0.5 to 1.6 into up to 24 HE1m"
+        "ratios 0.5 to 2 into up to 24 HE1m"
     ),
 )
 """The capillary HE1m envelope, evaluated per field; ``radius_ratio`` is source over
@@ -267,7 +267,7 @@ STEP_INDEX_ENVELOPE = PairEnvelope(
 """The weak-guidance step-index LP01 envelope; ``contrast`` is the largest
 ``|n^2 - n_ref^2|/(2 n_ref^2)`` of either fibre, ``v_*`` each fibre's normalised
 frequency at its profile wavelength, ``radius_ratio`` source over target core radius,
-``modes`` the larger LP0m count (LP01 only)."""
+``modes`` the highest LP0m radial order of the pair (LP01 only)."""
 
 
 STEP_INDEX_BEAM_ENVELOPE = PairEnvelope(
@@ -300,8 +300,8 @@ STEP_INDEX_BEAM_ENVELOPE = PairEnvelope(
 )
 """The beam-into-fibre LP01 envelope; ``contrast`` is the fibre's largest
 ``|n^2 - n_ref^2|/(2 n_ref^2)`` against its core over the occupied bins, ``v_target``
-its normalised frequency at the profile wavelength, ``modes`` the number of distinct
-LP0m profiles (LP01 only: V below 2.405 guides no other). The bound holds for any
+its normalised frequency at the profile wavelength, ``modes`` the highest LP0m
+radial order (LP01 only: V below 2.405 guides no other). The bound holds for any
 incident field inside the admitted cone; the angular item counts what lies outside
 it, and the source-metric item the beam's medium."""
 

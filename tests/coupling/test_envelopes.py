@@ -5,7 +5,8 @@
 r"""The oracles behind the recorded coupling envelopes (SEP 31, section 4.3).
 
 Each recorded :class:`~solprop.coupling.envelopes.PairEnvelope` is recomputed here
-from an independent reference and held to its bound:
+from an independent reference and held to its bound, and the
+:class:`~solprop.coupling.envelopes.FieldEnvelope`'s evaluation to its oracle:
 
 - the capillary envelope: the scalar J0 profiles against Marcatili's leaky HE1m core
   field :math:`J_0(u_m(1 - i\delta)r/a)`, the physics the scalar model omits. Its
@@ -538,7 +539,7 @@ def modal_plane(simulation, coefficients):
 @pytest.mark.medium
 @pytest.mark.parametrize(
     ("ratio", "sources", "targets"),
-    [(0.6, 3, 4), (1.0, 3, 24), (1.6, 8, 24), (1.0, 24, 24), (0.5, 8, 8)],
+    [(0.6, 3, 4), (1.0, 3, 24), (1.6, 8, 24), (1.0, 24, 24), (0.5, 8, 8), (2.0, 8, 24)],
 )
 def test_the_modal_envelope_is_exact_for_any_capillary_exit(ratio, sources, targets):
     """A capillary exit of random complex amplitudes, into another capillary.

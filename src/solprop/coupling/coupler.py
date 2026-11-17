@@ -998,8 +998,10 @@ def _scalar_paraxial(
     )
     items.append(_source_metric_item(incident, native, epsilon))
     if profiles.family == "capillary":
+        # A pair outside the mode range was not evaluated; the envelope refuses it.
+        discrepancy = np.zeros(plane.grid.n_omega) if fit.leaky is None else fit.leaky
         envelope_parameters.update(
-            _leaky_parameters(profiles, plane, incident, cast("np.ndarray", fit.leaky))
+            _leaky_parameters(profiles, plane, incident, discrepancy)
         )
     elif plane.kind == "modal":
         # A step-index modal source is a step-index fibre with its profiles.
@@ -1136,9 +1138,10 @@ def _spatial_fit(  # noqa: PLR0917 - called positionally
     )
     if profiles.family == "capillary":
         parameters = {"modes": _highest_order(profiles), "radius_ratio": 1.0}
-        fit.leaky = _beam_leaky(
-            plane, profiles, samples, (jones, mode_of), occupied=occupied
-        )
+        if _leaky_range(parameters):
+            fit.leaky = _beam_leaky(
+                plane, profiles, samples, (jones, mode_of), occupied=occupied
+            )
     else:
         parameters = _beam_step_index_parameters(profiles)
     return fit, native, parameters
@@ -1249,7 +1252,7 @@ def _modal_fit(
     }
     if profiles.family == "step_index":
         parameters.update(_step_index_parameters(source, profiles))
-    else:
+    elif _leaky_range(parameters):
         fit.leaky = _modal_leaky(
             plane,
             (source, profiles),
@@ -1267,6 +1270,19 @@ _LEAKY_TOP = CAPILLARY_ENVELOPE.ranges["leaky"][1]
 _LEAKY_CHUNK = 128
 """Bins per block of the leaky-field discrepancy, which holds a few
 ``(n_bins, n_channels, n_basis)`` complex arrays at a time."""
+
+
+def _leaky_range(parameters: Mapping[str, float]) -> bool:
+    """Return whether a capillary pair's mode order and radius ratio lie in range.
+
+    Outside them the envelope refuses the pair whatever its field, so the leaky-field
+    evaluation, whose cost grows with the highest order, is not run.
+    """
+    ranges = CAPILLARY_ENVELOPE.ranges
+    return all(
+        ranges[name][0] <= parameters[name] <= ranges[name][1]
+        for name in ("modes", "radius_ratio")
+    )
 
 
 def _beam_leaky(
@@ -1376,38 +1392,49 @@ def _taylor_overlaps(
     n_pol = samples.shape[1]
     terms = np.zeros((live.size, n_pol, count * u.size), dtype=np.complex128)
     energy = np.zeros((live.size, n_pol, n_pol), dtype=np.complex128)
-    step = max(64, _COLUMN_BLOCK // max(n_pol * live.size, count * u.size))
+    radii, weighted_profiles = _taylor_rule(
+        u, radius, count, float(np.max(kappa, initial=0.0))
+    )
+    # The block bounds the kernel J0(kappa r), (n_nodes, step), as well as the
+    # plane's columns and the transforms.
+    widest = max(n_pol * live.size, count * u.size, radii.size)
+    step = max(64, _COLUMN_BLOCK // widest)
     for start in range(0, kappa.size, step):
         cols = slice(start, start + step)
         factor = (
             weights[cols] if phase is None else weights[cols] * np.conj(phase[cols])
         )
-        weighted = _taylor_transforms(u, kappa[cols], radius, count) * factor[None, :]
+        transforms = weighted_profiles @ j0(np.outer(radii, kappa[cols]))
+        weighted = transforms * factor[None, :]
         field = samples[cols][:, :, live]
         terms += np.einsum("tj,jpw->wpt", weighted, field)
         energy += np.einsum("j,jpw,jqw->wpq", weights[cols], field.conj(), field)
     return terms, energy
 
 
-def _taylor_transforms(
+def _taylor_rule(
     u: Float[np.ndarray, " n_modes"],
-    kappa: Float[np.ndarray, " n_k"],
     radius: float,
     count: int,
-) -> Float[np.ndarray, "n_terms n_k"]:
-    """Return the Hankel transforms of the leaky profiles' Taylor terms, in m.
+    kappa_max: float,
+) -> tuple[Float[np.ndarray, " n_nodes"], Float[np.ndarray, "n_terms n_nodes"]]:
+    """Return the radial rule for the Hankel transforms of the Taylor terms.
 
-    By Gauss--Legendre on the core, the terms smooth there; the rule resolves the
-    profiles' and the kernel's oscillation together and the terms' powers of x, with
-    64 nodes to spare. Rows are term-major: term n of profile m is row
-    ``n * n_modes + m``.
+    Gauss--Legendre on the core, where the terms are smooth; the rule resolves the
+    profiles' and the kernel's oscillation up to `kappa_max` together and the terms'
+    powers of x, with 64 nodes to spare. A term's transform at wavenumbers kappa is
+    its row times ``j0(outer(radii, kappa))``, in m.
+
+    - ``kappa_max``: the largest transverse wavenumber transformed, rad/m.
+    - Returns: the nodes' radii, m, and the terms weighted by the rule's area
+      element, m^2, term-major: term n of profile m is row ``n * n_modes + m``.
     """
-    reach = float(np.max(u)) + float(np.max(kappa, initial=0.0)) * radius
+    reach = float(np.max(u)) + kappa_max * radius
     nodes, rule = np.polynomial.legendre.leggauss(int(reach) + count + 64)
     x = 0.5 * (nodes + 1.0)
     area = 0.5 * rule * x * radius * radius
     profiles = _leaky.taylor_profiles(u, x, count).reshape(count * u.size, x.size)
-    return (profiles * area[None, :]) @ j0(np.outer(x * radius, kappa))
+    return x * radius, profiles * area[None, :]
 
 
 def _modal_leaky(
@@ -1538,8 +1565,8 @@ def _step_index_parameters(
 def _beam_step_index_parameters(profiles: ScalarModeBasis) -> dict[str, float]:
     """Return a beam-into-fibre pair's envelope parameters at the profile wavelength.
 
-    - Returns: ``v_target``: the fibre's V from its LP01 U and W; ``modes``: the number
-      of distinct LP0m profiles (two polarisations of one profile count once).
+    - Returns: ``v_target``: the fibre's V from its LP01 U and W; ``modes``: the highest
+      LP0m radial order (two polarisations of one profile count once).
     """
     return {
         "v_target": float(math.hypot(profiles.u[0], profiles.w[0])),
