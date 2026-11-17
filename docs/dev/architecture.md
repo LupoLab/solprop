@@ -76,8 +76,8 @@ A scalar helium `TDSEGasResponse` owns
 the gas nonlinearity. Its immutable specification becomes a `TDSEDescriptor`;
 the driver lazily owns native plans and stable radial chunks and passes a narrow
 host binding explicitly to NumPy. The optical march uses Adams. Atomic device
-execution is independent of the optical backend. The native backend refuses this
-response by name. The kernel schema includes separate polarisation and current
+execution is independent of the optical backend. The native CPU build executes this
+response too; a native device build refuses it by name. The kernel schema includes separate polarisation and current
 factors: current enters with `-1/(2 epsilon_0 c Re(n_eff))`, without division by
 frequency. The provider's raw discrete shadows are subtracted before density
 and calibration. Native retention subtracts only the first-order current and

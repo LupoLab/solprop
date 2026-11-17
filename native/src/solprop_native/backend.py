@@ -1174,8 +1174,8 @@ def _refuse_unknown_method(stepper: StepperSettings) -> None:
 def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -> None:
     _refuse_unknown_method(stepper)
     # The route by its variant (solprop SEP 47 section 6.2), refused by name before
-    # anything is allocated: every route of the union but the modal route's TDSE
-    # extension, which is the reference's alone.
+    # anything is allocated: every route of the union, the modal route's TDSE
+    # extension on CPU builds only.
     # Read as any object: a variant this build does not know is refused by name too.
     route = cast("object", problem.route)
     match route:
