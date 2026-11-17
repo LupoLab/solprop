@@ -1,0 +1,1 @@
+A malformed `stats.ApertureSet`, and an unknown profile or weighting passed to `stats.check_aperture_choices`, now raise `ProcessingError`, the error of every other malformed `StatsSpec`, instead of `OutputError`. Code that caught `OutputError` around building a spec's apertures catches `ProcessingError` instead.

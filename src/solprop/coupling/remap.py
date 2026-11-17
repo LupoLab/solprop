@@ -10,16 +10,18 @@ outside its window, shifted by the change of reference
 (:class:`~solprop.coupling.plane.PlaneReference`) so that the absolute spectrum is
 unchanged. It is a direct sum, evaluated only on target bins inside the source
 lattice's span (beyond it the sum returns aliases), with the identical lattice in an
-unchanged reference copied. Light outside the target's band or window is removed only
-on request (``crop_band``, ``truncate``) and its share reported in a
-:class:`RegridReport`; a record with light at its edges is not extended without
-``truncate``; nothing is renormalised. :data:`DEFAULT_TOLERANCE` is the share of a
-record's norm below which a band or window counts as unoccupied.
+unchanged reference copied inside the target's band and zeroed outside it, as the sum
+leaves it. Light outside the target's band or window is removed only on request
+(``crop_band``, ``truncate``) and its share reported in a :class:`RegridReport`; a
+record with light at its edges is not extended without ``truncate``; nothing is
+renormalised. :data:`DEFAULT_TOLERANCE` is the share of a record's norm below which a
+band or window counts as unoccupied.
 
 The map and the normalisation it preserves are in ``docs/guide/workflows/coupling.md``,
 section "Moving a plane between grids".
 """
 
+import dataclasses
 import math
 from dataclasses import dataclass
 from typing import Literal
@@ -29,6 +31,7 @@ from jaxtyping import Complex, Float
 
 from solprop.coupling.plane import (
     FieldPlane,
+    NodalField,
     PlaneMetric,
     PlaneReference,
     lattice_identity,
@@ -64,7 +67,8 @@ class RegridReport:
     Attributes
     ----------
     method : {'copy', 'direct'}
-        Identity copy on an identical lattice and reference, or the direct sum.
+        Identity copy on an identical lattice and reference (the bins outside the
+        target's band zeroed), or the direct sum.
     source_lattice, target_lattice : str
         :func:`~solprop.coupling.plane.lattice_identity` of the two grids.
     shift : float
@@ -167,6 +171,18 @@ def _within_band(grid: TimeGrid, omega: np.ndarray) -> np.ndarray:
     """
     active = grid.omega[grid.active_mask]
     return (omega >= float(np.min(active))) & (omega <= float(np.max(active)))
+
+
+def _band_limited(nodal: NodalField | None, in_band: np.ndarray) -> NodalField | None:
+    """Return nodal fields with the bins outside a band zeroed, as the samples are."""
+    if nodal is None:
+        return None
+    magnetic = (
+        None if nodal.magnetic is None else np.where(in_band, nodal.magnetic, 0.0)
+    )
+    return dataclasses.replace(
+        nodal, electric=np.where(in_band, nodal.electric, 0.0), magnetic=magnetic
+    )
 
 
 def regrid(
@@ -283,10 +299,15 @@ def regrid(
         )
         raise CouplingError(msg)
 
+    nodal = None
     if method == "auto" and same and shift == 0.0 and phase_shift == 0.0:
-        # The identity is exact: what lies outside the band, below the tolerance, is
-        # left for the receiving run's own hard mask, as the sum would zero it.
-        result = columns.copy()
+        # The identity is exact inside the target's band. The bins outside it are
+        # zeroed, as the direct sum leaves them, so that the samples agree with
+        # band_loss and energy_out: the band is not part of the lattice, so an
+        # identical lattice may still have a narrower band.
+        in_band = _within_band(grid, grid.omega)
+        result = np.where(in_band, columns, 0.0)
+        nodal = _band_limited(plane.nodal, in_band)
         report_method: Literal["copy", "direct"] = "copy"
         window_loss = edge_share = 0.0
     else:
@@ -324,7 +345,7 @@ def regrid(
         plane.exterior,
         plane.medium,
         plane.certificate,
-        plane.nodal if report_method == "copy" else None,
+        nodal,
         plane.provenance.then(history),
     )
     energy_in = None if plane.metric.kind == "unknown" else plane.energy()
