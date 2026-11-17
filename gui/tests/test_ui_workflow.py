@@ -1058,7 +1058,7 @@ def test_a_solid_core_fibre_runs_and_every_page_reads_it(  # noqa: PLR0915 - one
     low, high = overview.spectrum_map.box.viewRange()[0]
     assert low > 500.0
     assert high < 2000.0
-    assert not analyse.buttons["noise"].isEnabled()
+    assert "noise" not in analyse.buttons  # no run is a seeded ensemble yet
     # A plane that has arrived but is not drawn yet is read as the last drawn one.
     top = float(overview.rows[-1]["z"]) * overview._unit[1]
     overview.rows.append({**overview.rows[-1], "z": 2 * float(overview.rows[-1]["z"])})
