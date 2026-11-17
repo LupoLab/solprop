@@ -951,16 +951,16 @@ wheels = [
 
 [[package]]
 name = "optmat"
-version = "0.9.1"
+version = "0.10.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jaxtyping" },
     { name = "numpy" },
     { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/78/2d/0aa0d6d145fe88795faed2e86dc6b506c5d477742a93355cc173a6af5522/optmat-0.9.1.tar.gz", hash = "sha256:2d562f577586101397d710d3777b364aa1d9bb1fd5f3365298cab1e0c6f46159", size = 17617286, upload-time = "2026-10-24T14:36:41.381Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ba/76/a9a66b2af5d5bbd90bd6f7f14529f728275c336bb7d664b9d317131d8ef9/optmat-0.10.0.tar.gz", hash = "sha256:02bb82795eee9768623338fec84c32be4229ae1f9e69abc5b62ddfba6894694b", size = 17643182, upload-time = "2026-11-17T12:37:38.984Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2e/53/08fe14dbbb426c5054b36bfa7d91ffcfae08e54343ac6cf3b35a64821339/optmat-0.9.1-py3-none-any.whl", hash = "sha256:bae638a6c7f47ba345937f3c63053bc502ce7db5ece4cacee22869e877990825", size = 17804758, upload-time = "2026-10-24T14:36:37.533Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/0e/aa8de92e8d798a1af3addd8944984116910bc09e9dc4ee3c5b83feea25ba/optmat-0.10.0-py3-none-any.whl", hash = "sha256:215b28360f3904a09160a175d29df7aa1c25a216cc6daca70c7c2c6957de1e40", size = 17809459, upload-time = "2026-11-17T12:37:34.911Z" },
 ]
 
 [package.optional-dependencies]
@@ -1634,7 +1634,7 @@ requires-dist = [
     { name = "jaxtyping", specifier = ">=0.3.11" },
     { name = "matplotlib", specifier = ">=3.10.7" },
     { name = "numpy", specifier = ">=2.5" },
-    { name = "optmat", extras = ["gas"], specifier = ">=0.9.1" },
+    { name = "optmat", extras = ["gas"], specifier = ">=0.10.0" },
     { name = "scipy", specifier = ">=1.18" },
     { name = "solprop-gui", marker = "extra == 'gui'", editable = "gui" },
     { name = "solprop-native", editable = "native" },
