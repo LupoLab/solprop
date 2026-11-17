@@ -630,6 +630,33 @@ the temporal rate is bounded by construction at
 capped logarithm it cost the scheme 40 % of its steps through the error estimate before it
 ever cost stability.
 
+**The transverse collar's design check.** A free-space run's collar
+({py:class}`solprop.spatial_absorber.SpatialAbsorber`) is checked at translation for what
+it sends back ({py:func}`solprop.translate.collar_check.design_check`,
+[SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md) §4.4). A product of
+plane-wave reflection and a ray share cannot say how much of a launch a collar returns:
+evaluated on the phase-0 witnesses it was wrong by up to nine decades, because the return
+lives in diffraction tails. So the check computes it. The launch is propagated linearly on
+the design's own operator, one frequency at a time, and compared over the requested
+aperture with the same launch on a bare grid large enough that the launch does not reach
+its edge within the run:
+
+$$U_\mathrm{ret} = \max_{z \le L} \frac{\sum_j s_j \,
+\lVert E_\mathrm{collar}(z, \omega_j) - E_\mathrm{large}(z, \omega_j)
+\rVert^2_\mathrm{aperture}}{\sum_j s_j\, U_\mathrm{launch}(\omega_j)},$$
+
+with nodes $\omega_j$ at equal-energy quantiles of the launch's spectrum and shares $s_j$.
+Radially the generator $\mathrm{diag}(i k_z) + F\,\mathrm{diag}(-\alpha/2)\,B$ is
+exponentiated by its eigendecomposition; on the Cartesian, line and planar grids a
+one-frequency Strang march, diffraction exact in the transverse wavenumber and the collar in
+real space, steps no further than the plane spacing and the crossing limit. The bare grid is
+diagonal and needs no march. Above
+{py:data}`~solprop.translate.collar_check.BUDGET` the design is refused; an estimate within
+a factor of two of it is refined once, doubling nodes, planes and steps and enlarging the
+bare grid by half, and passes at {py:data}`~solprop.translate.collar_check.REFINED_BUDGET`
+if the two agree within a quarter; a check that cannot converge is inconclusive, which is
+not a pass.
+
 ## 9. Noise
 
 **What it is.** One realisation of the vacuum field: one photon per mode per frequency bin,

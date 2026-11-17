@@ -4,9 +4,12 @@
 
 """A run's input: its pulse, its launch, its shot noise and its peak field.
 
-The keyword routes shape their pulses and draw their noise here; a derived run's input
-is checked and installed here; and the input's peak field sets the range of each
-optmat ionisation rate a run carries (SEP 3).
+The keyword routes shape their pulses and launches here (:data:`ModalLaunch` is the
+``launch`` keyword's form; an incident beam is coupled into a guide's channels) and
+draw their shot noise, temporal, modal or spatial; a derived run's input
+(:meth:`~solprop.driver.simulation.Simulation.with_input`) is checked against the
+problem it replaces and installed here; and the input's peak field sets the range of
+each optmat ionisation rate a run carries (:func:`default_field_range`, SEP 3).
 """
 
 import dataclasses

@@ -2,7 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""What a radial beam's pages show, read from its file with solprop's readers."""
+"""The kernel's requests for a free-space beam's own Analyse pages, read from its file.
+
+Where :mod:`solprop.service.beam` measures one plane into the row every free-space view
+shares, live and from the file, these handlers (:data:`BEAM_HANDLERS`) answer whole
+pages, only in the kernel and only from a file, with :mod:`solprop.processing.beams` and
+:func:`~solprop.processing.planes.fluence_map`: a radial beam's overview, one plane
+across the beam, on its axis and in its far field (:func:`beam_overview`,
+:func:`beam_plane`, :func:`beam_on_axis`, :func:`beam_far_field`), a Cartesian plane's
+fluence map (:func:`beam_fluence`) and a line beam's fluence at every plane
+(:func:`beam_line`).
+"""
 
 import numpy as np
 

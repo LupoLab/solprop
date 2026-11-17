@@ -2,7 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Emit and submit quoted Slurm array jobs with explicit controller resources."""
+"""Emit and submit quoted Slurm array jobs with explicit controller resources.
+
+:class:`Slurm` renders a Bash array script (:meth:`Slurm.render`) whose tasks each run
+``python -m solprop.scan`` controllers on the scan script, in queue mode (shared claims)
+or chunk mode (disjoint round-robin subsets), with CPUs, memory and devices divided
+across a task's instances; :meth:`Slurm.submit` hands it to ``sbatch``. Inside a task
+the same policy prepares a :class:`~solprop.driver.executors.queue.Queue` over the
+shared queue directory and drains it, and the submitting process collects that queue
+into the scan file. Quoting and resource export are in ``docs/dev/scans.md``.
+"""
 
 import hashlib
 import os

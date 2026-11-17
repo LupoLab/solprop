@@ -4,25 +4,20 @@
 
 """The simulation object: physics objects in, a written, resumable run out.
 
-A :class:`Simulation` holds what a run is made of -- the grid, the modes, the responses,
-the input, the noise and the numerical settings -- translates it **once** into a
+A :class:`Simulation` holds what a run is made of (the grid, the modes, the responses,
+the input, the noise and the numerical settings), translates it **once** into a
 :class:`solprop.translate.problem.PropagationProblem`, and can then be run as often as
-one likes, into memory or into a file. It owns three things the loop of
+one likes, into memory or into a file. Its ``from_*`` constructors are the keyword
+routes (:mod:`solprop.driver.routes`); ``with_input`` and ``with_mixture`` derive a run
+from it, ``runner`` reuses its backend across inputs, and ``estimate`` and
+``calibrate`` cost and tune it. It owns three things the loop of
 :mod:`solprop.driver.run` does not: the translation and its cache, the
 :class:`solprop.output.metadata.RunMetadata` that says what produced a file, and the
-resume decision.
-
-**Resume.** Given a path, a run checks the file that is already there with
-:func:`solprop.output.hdf5.check_cache`: the digest covers the grid, the modes, the
-whole serialised configuration, the noise and the stepper settings, so a file written
-for a different run is refused by name rather than continued from someone else's
-state. If it passes, the last plane comes back through
-:func:`solprop.output.hdf5.resume`, the backend is loaded at that plane's position, and
-the run carries on into the same file with ``HDF5Output(path, append=True)``.
-
-Layer D of ``docs/dev/architecture.md`` section 3: this module imports the physics, the
-translation, the backends and the output layer, and nothing imports it. The manual page
-is ``docs/guide/setup/running.md``.
+resume decision (:mod:`solprop.driver.resume`), which refuses by name a file written
+for a different run and otherwise carries on into the same file. Layer D of
+``docs/dev/architecture.md`` section 3: it imports the physics, the translation, the
+backends and the output layer. The manual pages are ``docs/guide/setup/running.md``
+and ``docs/guide/results/resuming.md``.
 """
 
 import copy
@@ -80,7 +75,12 @@ from solprop.driver.metadata import (
     _frame_follows_the_electronic_rule,
     metadata_for,
 )
-from solprop.driver.mixtures import ResponseSelection, mixture_profiles
+from solprop.driver.mixtures import (
+    ResponseSelection,
+    _mixture_reuse,
+    _simulation_mixture,
+    mixture_profiles,
+)
 from solprop.driver.resume import (
     _adopt_recorded_seed,
     _check_resume_choice,
@@ -168,31 +168,22 @@ from solprop.log import (
     StopFlag,
 )
 from solprop.modes.antiresonant import TubeLattice
-from solprop.modes.capillary import (
-    CoherentWall,
-    GlassIndex,
-    MarcatiliMode,
-    MarcatiliModel,
-    taper_coupling_block,
-    worst_wall_limits,
-)
+from solprop.modes.capillary import GlassIndex, MarcatiliMode, MarcatiliModel
 from solprop.modes.fill import LossFunction
 from solprop.modes.guide import ModalGuide
 from solprop.modes.material import JsonValue
-from solprop.modes.protocol import Mode, ParameterisedMode
+from solprop.modes.protocol import Mode
 from solprop.modes.quadrature import RadialRule
 from solprop.modes.slab import PlanarGrid
 from solprop.modes.tabulated import IndexTable
+from solprop.modes.wall import CoherentWall, taper_coupling_block, worst_wall_limits
 from solprop.monitor import DEFAULT_BOUNDARY_CHECK, BoundaryCheck, BoundaryMonitor
 from solprop.noise import NoiseRealisation
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.ionisation import IntegrationPolicy, IonisationRate
 from solprop.nonlinear.optmat_rates import PeakFieldReport
 from solprop.nonlinear.raman import (
-    DampedOscillator,
     MolecularOptions,
-    RamanResponse,
-    RotationalLines,
 )
 from solprop.nonlinear.responses import DispersiveKerrResponse, PlasmaResponse
 from solprop.nonlinear.tdse import TDSEExecution, TDSEGasResponse
@@ -222,7 +213,6 @@ from solprop.stepper.tableau import DOPRI5
 from solprop.translate.assembly import assemble
 from solprop.translate.coupled import taper_identity, wall_identity
 from solprop.translate.coupling import input_port as fill_port
-from solprop.translate.expansion import ParameterExpansion
 from solprop.translate.general import GeneralModalRoute, modal_identity
 from solprop.translate.masks import AbsorberScheme
 from solprop.translate.problem import PropagationProblem, TranslationReuse
@@ -240,9 +230,6 @@ if TYPE_CHECKING:
 __all__ = ["Simulation"]
 
 logger = logging.getLogger(__name__)
-
-_PRESSURE_FORM_ENTRIES = 2
-"""Entries in either of the two pair forms of the ``pressure`` keyword."""
 
 _FIXED_INPUTS: Final = frozenset(
     {
@@ -366,7 +353,7 @@ class Simulation(Displayed):
         The general modal guide `general` was built from, kept so that the run's
         material manifest finds what its regions hold (their laws and delayed
         responses); it enters no translation. Set by :meth:`from_waveguide`.
-    wall : solprop.modes.capillary.CoherentWall or None, optional
+    wall : solprop.modes.wall.CoherentWall or None, optional
         The declaration of a coherent wall block. Built by :meth:`from_capillary`
         from a ``wall=``; with it the mode set must be the contiguous ``HE_11`` to
         ``HE_1N`` block -- or, with ``impedance="te_tm"``, one azimuthal order -- on a
@@ -380,7 +367,7 @@ class Simulation(Displayed):
         ``True``, the default; ``False`` is the explicit opt-out to the **adiabatic**
         route, on which each channel follows its local mode and no power is exchanged.
         No effect on a set the coupling does not apply to
-        (:func:`solprop.modes.capillary.taper_coupling_block`); ``False`` beside a
+        (:func:`solprop.modes.wall.taper_coupling_block`); ``False`` beside a
         `wall` is refused, because the wall carries its connection.
     materials : solprop.physdata.selection.MaterialSelection or None, optional
         The material selection the run was built with, recorded in its material
@@ -1668,7 +1655,7 @@ class Simulation(Displayed):
         entrance's, and they are the geometry the admission check warns about. Scanning
         the midpoints alone would record a radius the run merely passes through -- on a
         50 to 30 micrometre linear taper, 40 rather than 30 micrometres, a third
-        optimistic in every ratio (:func:`solprop.modes.capillary.worst_wall_limits`).
+        optimistic in every ratio (:func:`solprop.modes.wall.worst_wall_limits`).
 
         - Returns: the ``modal`` record, or ``None``.
         """
@@ -3716,133 +3703,6 @@ class Simulation(Displayed):
         )
 
 
-def _simulation_mixture(simulation: Simulation) -> Mixture:
-    """Require a material declaration the update can identify by component."""
-    if simulation.medium is not None and isinstance(
-        simulation.medium.material, Mixture
-    ):
-        return simulation.medium.material
-    materials = [getattr(mode, "mixture", None) for mode in simulation.modes]
-    if not materials or not isinstance(materials[0], Mixture):
-        raise DriverError("with_mixture needs a Mixture in the modes or spatial medium")
-    material = materials[0]
-    for index, other in enumerate(materials[1:], 1):
-        if serialise(other) != serialise(material):
-            raise DriverError(f"mode {index} carries a different mixture")
-    return material
-
-
-def _same_operator_function(
-    source: Simulation,
-    updated: Simulation,
-    old: Mixture,
-    new: Mixture,
-    expansion: ParameterExpansion | None,
-) -> ParameterExpansion | None:
-    """Keep terms only when every dependency outside their axes is unchanged.
-
-    - ``expansion``: previously sampled coefficients and axis names.
-    - Returns: the old coefficients when the function is identical, else None with a
-      log.
-    """
-    if source.settings.prefactor_index != updated.settings.prefactor_index:
-        logger.info("Mixture update: expansion reuse refused; prefactor_index changed")
-        return None
-    if expansion is None:
-        return None
-    if len(old.components) > 1 and (
-        (old.shared is None) != (new.shared is None)
-        or (
-            old.shared is not None
-            and (old.fractions != new.fractions or old.temperature != new.temperature)
-        )
-    ):
-        logger.info(
-            "Mixture update: rebuild expansion; fill fractions, EOS temperature "
-            "or parameterisation changed"
-        )
-        return None
-    positions = np.asarray(expansion.z_span)
-    if source.medium is not None and updated.medium is not None:
-        paths = [(source.medium.parameter_paths, updated.medium.parameter_paths)]
-    else:
-        paths = [
-            (before.parameter_paths, after.parameter_paths)
-            for before, after in zip(source.modes, updated.modes, strict=True)
-            if isinstance(before, ParameterisedMode)
-            and isinstance(after, ParameterisedMode)
-        ]
-    for before_paths, after_paths in paths:
-        for name, path in before_paths.items():
-            if name in expansion.parameters:
-                continue
-            other = after_paths.get(name)
-            if (
-                other is None
-                or not other.is_constant
-                or not np.array_equal(path(positions), other(positions))
-            ):
-                logger.info(
-                    "Mixture update: rebuild expansion; fixed parameter %s changed",
-                    name,
-                )
-                return None
-    return expansion
-
-
-def _mixture_reuse(
-    source: Simulation,
-    updated: Simulation,
-    old: Mixture,
-    new: Mixture,
-    problem: PropagationProblem,
-) -> TranslationReuse:
-    """Collect eligible immutable translation data after a material-path update."""
-    before = {
-        response.species or old.labels[0]: response
-        for response in source.responses
-        if isinstance(response, RamanResponse)
-    }
-    after = {
-        response.species or new.labels[0]: response
-        for response in updated.responses
-        if isinstance(response, RamanResponse)
-    }
-    kernels = {}
-    for leaf in problem.responses.raman_terms:
-        if _undamped_model_key(before[leaf.label]) == _undamped_model_key(
-            after[leaf.label]
-        ):
-            kernels[leaf.label] = leaf.undamped
-        else:
-            logger.info("Mixture update: rebuild %s undamped Raman model", leaf.label)
-    return TranslationReuse(
-        problem.transform,
-        problem.initial,
-        _same_operator_function(
-            source, updated, old, new, problem.linear.phi_expansion
-        ),
-        _same_operator_function(
-            source, updated, old, new, problem.responses.prefactor_expansion
-        ),
-        kernels,
-        transverse_of(problem.route),
-    )
-
-
-def _undamped_model_key(response: RamanResponse) -> object:
-    """Describe only the inputs to the undamped Raman samples."""
-    models = []
-    for term in response.tensor_terms:
-        model = term.model
-        record = serialise(model)
-        if isinstance(model, (DampedOscillator, RotationalLines)):
-            assert isinstance(record, dict)
-            record.pop("dephasing", None)
-        models.append((term.contraction, record))
-    return models
-
-
 def _warn_adiabatic_taper(modes: Sequence[Mode]) -> None:
     """Warn, once per translation, that a moving multimode set omits its connection.
 
@@ -3854,7 +3714,7 @@ def _warn_adiabatic_taper(modes: Sequence[Mode]) -> None:
     radius alone -- has none. The coherent wall route carries the connection and never
     reaches here, and neither does a run that declined it (``taper_coupling=False``); a
     capillary's contiguous ``HE_1m`` set carries it by default
-    (:func:`solprop.modes.capillary.taper_coupling_block`), so what warns is a moving
+    (:func:`solprop.modes.wall.taper_coupling_block`), so what warns is a moving
     set the coupling is not derived for.
     """
     channels = tuple(modes)

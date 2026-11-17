@@ -4,23 +4,22 @@
 
 """Check a haCC model's weak-field linear response against optmat's helium (SEP 20).
 
-Because the haCC current is the whole atom's and nothing rescales it, every haCC
-configuration is checked before propagation (SEP 20 sections 4.8, 4.9 and 5.4). A
-fixed synthetic weak pulse drives one row; the per-atom first-order dipole
-``p_1 = j_1 / (i omega)`` gives the model's susceptibility
-``alpha_haCC = p_1 / (eps0 E)`` in m^3, and the ratio
-``kappa_1 = alpha_optmat / alpha_haCC`` is formed over the supported band. Its largest
-``|kappa_1 - 1|`` passes, warns or refuses; an invalid extraction always refuses. The
-measured values are cached per configuration and provider revision, never per build.
-
-The cubic ratio kappa_3 is evidence only (validation level L3), extracted by
-:func:`cubic_evidence` over the fundamental band and never part of the gate.
-
-Fourier convention. Inside this module a hat is NumPy's forward DFT, under which
-``d/dt`` becomes ``+i omega`` (the internal convention of
-``docs/dev/conventions.md`` section 2). optmat's susceptibility is in the optics
-convention, so its complex value is conjugated before comparison; the real and
-imaginary parts are compared together, never the real part alone.
+Every haCC configuration is checked before propagation (SEP 20 sections 4.8, 4.9 and
+5.4): :func:`protocol_field` is the fixed synthetic weak pulse, :func:`reduce_linear`
+forms ``kappa_1 = alpha_optmat / alpha_haCC`` from the first-order current as a
+:class:`LinearReduction`, and :func:`evaluate_consistency` takes it from the cache
+(:func:`cache_directory`, per configuration and provider revision) or one diagnostic
+call (a :class:`DiagnosticSource`) and decides a :class:`ConsistencyResult`, which
+:func:`apply_outcome` turns into a warning or a refusal and :func:`describe` words.
+:func:`gate_run` runs the gate before a run (on a :class:`GateBinding`) and
+:func:`check_consistency` on its own. :func:`cubic_evidence` extracts the cubic ratio
+kappa_3 as :class:`CubicEvidence` only, never part of the gate. Fourier convention:
+inside this module a hat is NumPy's forward DFT, under which ``d/dt`` becomes
+``+i omega`` (the internal convention of ``docs/dev/conventions.md`` section 2);
+optmat's susceptibility is in the optics convention, so its complex value is conjugated
+before comparison, and the real and imaginary parts are compared together, never the
+real part alone. The thresholds are in the manual, ``docs/guide/media/tdse.md`` ("The
+weak-field consistency check").
 """
 
 import json

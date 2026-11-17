@@ -6,31 +6,37 @@
 
 A free-space field's power crossing a plane is measured with the scalar forward
 equation's axial admittance ``Y_c = eps0 c**2 k_z / omega`` of the medium at that
-plane (``docs/guide/free-space/flux.md``). Every evaluation reads the one
-longitudinal root of :func:`solprop.translate.spatial.longitudinal_root`, on the
-same separable coefficients the propagation uses, so a plane's measure and its
-propagation see the same ``k_z``.
+plane (``docs/guide/free-space/flux.md``). Every evaluation reads the one longitudinal
+root of :func:`solprop.translate.spatial.longitudinal_root`, on the same separable
+coefficients the propagation uses, so a plane's measure and its propagation see the
+same ``k_z``. :func:`plane_coefficients` gives one plane's coefficients,
+:func:`flux_plan` the run's :class:`~solprop.translate.spatial.FluxPlan`, and
+:func:`flux_record` and :func:`flux_from_record` its round trip through the output's
+spatial record.
 """
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import cast
 
 import numpy as np
 
-from solprop.adiabatic import AdiabaticAccuracy, AdiabaticAdmission
+from solprop.adiabatic import (
+    AdiabaticAdmission,
+    admission_from_record,
+    admission_record,
+)
 from solprop.exceptions import MaterialError, TranslationError
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
 from solprop.modes.slab import PlanarGrid
 from solprop.spatial import EVANESCENT_RATE, SpatialDispersion, SpatialMedium
-from solprop.translate.chebyshev import PiecewiseChebyshev, _held_table, build
+from solprop.translate.chebyshev import PiecewiseChebyshev, build, held_table
 from solprop.translate.linop import LinearOperator
 from solprop.translate.planar import planar_kappa, square_residuals
 from solprop.translate.spatial import FluxPlan, SeparableOperator
 
 __all__ = [
-    "admission_record",
     "flux_from_record",
     "flux_plan",
     "flux_record",
@@ -170,47 +176,7 @@ def flux_plan(
         tol=tol,
         mandatory_breakpoints=kinks[(kinks > span[0]) & (kinks < span[1])],
     )
-    return FluxPlan(base, _held_table(material), admission)
-
-
-def admission_record(admission: AdiabaticAdmission) -> dict[str, object]:
-    """Return a path certificate as plain values, for a record that outlives the run.
-
-    The certificate's scope is the linear background's forward coordinates, not the
-    nonlinear run or an omitted reflected field (SEP 34 section 4.5). Its path identity
-    is kept as text, and a certificate already read from a record keeps that text.
-
-    Parameters
-    ----------
-    admission : solprop.adiabatic.AdiabaticAdmission
-        The certificate.
-
-    Returns
-    -------
-    dict
-        The values :func:`flux_from_record` rebuilds it from.
-    """
-    identity = admission.identity
-    return {
-        "scope": "linear-background forward field",
-        "z_span": admission.z_span,
-        "field_error_budget": admission.accuracy.field_error,
-        "reflected_energy_budget": admission.accuracy.reflected_energy,
-        "variation": admission.variation,
-        "field_error": admission.field_error,
-        "reflection": admission.reflection,
-        "worst_kperp_sq": admission.worst_kperp_sq,
-        "worst_omega": admission.worst_omega,
-        "exact": admission.exact,
-        "jumps": admission.jumps,
-        "interpolation_envelope": admission.interpolation_envelope,
-        "identity": identity["recorded"]
-        if set(identity) == {"recorded"}
-        else repr(dict(identity)),
-        "omega": admission.omega,
-        "spectral_variation": admission.spectral_variation,
-        "support": admission.support,
-    }
+    return FluxPlan(base, held_table(material), admission)
 
 
 def flux_record(plan: FluxPlan | None) -> dict[str, object]:
@@ -312,49 +278,7 @@ def flux_from_record(record: Mapping[str, object]) -> FluxPlan:
         material,
         None
         if certificate is None
-        else _admission(cast("Mapping[str, object]", certificate)),
-    )
-
-
-def _admission(record: Mapping[str, object]) -> AdiabaticAdmission:
-    """Rebuild a varying path's certificate from its output record.
-
-    The path's structural identity is kept as the text it was recorded as.
-
-    - ``record``: the ``admission`` entry of a ``flux_plan`` record.
-    """
-
-    def number(name: str) -> float:
-        """Return one stored scalar."""
-        return float(cast("float", record[name]))
-
-    def optional(name: str) -> float | None:
-        """Return one stored scalar that may be absent.
-
-        - Returns: the value, or None where it was not recorded.
-        """
-        value = record.get(name)
-        return None if value is None else float(cast("float", value))
-
-    span = cast("Sequence[float]", record["z_span"])
-    return AdiabaticAdmission(
-        identity={"recorded": record["identity"]},
-        z_span=(float(span[0]), float(span[1])),
-        accuracy=AdiabaticAccuracy(
-            field_error=number("field_error_budget"),
-            reflected_energy=number("reflected_energy_budget"),
-        ),
-        variation=number("variation"),
-        reflection=number("reflection"),
-        field_error=number("field_error"),
-        worst_kperp_sq=optional("worst_kperp_sq"),
-        worst_omega=optional("worst_omega"),
-        omega=_stored(record["omega"], float),
-        spectral_variation=_stored(record["spectral_variation"], float),
-        support=_stored(record["support"], bool),
-        jumps=_stored(record["jumps"], float),
-        exact=bool(record["exact"]),
-        interpolation_envelope=number("interpolation_envelope"),
+        else admission_from_record(cast("Mapping[str, object]", certificate)),
     )
 
 

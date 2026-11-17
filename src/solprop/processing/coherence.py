@@ -7,12 +7,14 @@
 The quantity that says whether a supercontinuum is reproducible from shot to shot: the
 modulus of the normalised cross-correlation of the spectra of independent realisations,
 at each frequency (J. M. Dudley and S. Coen, Optics Letters **27**, 1180 (2002),
-doi:10.1364/OL.27.001180).
+doi:10.1364/OL.27.001180). :func:`g12` computes it from complex spectra and
+:func:`g12_of` from saved runs; :func:`spectral_bands` and :func:`band_coherence`
+average it over equal bands of a reference spectrum.
 
-The definition here is the unbiased one over distinct pairs, which is one for identical
+The definition is the unbiased one over distinct pairs, which is one for identical
 realisations and zero, in the mean, for independent ones. A sum over every ordered pair,
-the diagonal ``i == j`` included, would carry the self-terms in its numerator and tend
-to ``1/N`` rather than to zero for a fully incoherent ensemble.
+the diagonal ``i == j`` included, would tend to ``1/N`` rather than to zero for a fully
+incoherent ensemble.
 """
 
 from collections.abc import Sequence

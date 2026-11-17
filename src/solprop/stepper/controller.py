@@ -8,9 +8,14 @@ The backend reduces the embedded pair's error estimate to a scalar; everything h
 scalar logic on that number (``docs/dev/stepper.md`` section 3). Two pieces make up the
 control loop:
 
-* a **norm scale**, the denominator the backend divides the error by, so that a scaled
-  norm of 1 means the step sat exactly at the requested tolerance;
-* the **controller**, which turns a history of scaled norms into a step-size factor.
+* a **norm scale** (:func:`weak_norm_scale`, :func:`weighted_norm_scale`), the
+  denominator the backend divides the error by, so that a scaled norm of 1 means the
+  step sat exactly at the requested tolerance;
+* the **controller** (:class:`PIController`), which turns a history of scaled norms into
+  a step-size factor, clamped by :func:`limit_step` above the floor of
+  :func:`default_dz_min`.
+
+:class:`ControlRecord` reports what a completed run achieved against what it asked for.
 
 The controller is the proportional-integral rule of Soederlind and Wang [1]_ rather
 than the elementary rule of [2]_, because the integral term damps the response to

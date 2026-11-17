@@ -61,7 +61,7 @@ from solprop.exceptions import (
     GrazingIncidenceWarning,
     MaterialRangeWarning,
 )
-from solprop.modes.capillary import CoherentWall
+from solprop.modes.wall import CoherentWall
 
 pytestmark = [
     pytest.mark.skipif("native" not in available(), reason="native is not installed"),

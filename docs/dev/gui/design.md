@@ -1173,18 +1173,45 @@ there and only display-sized answers cross the network. It holds nothing that ca
 rebuilt: when the connection drops the window reconnects and rebuilds its view from the
 folders.
 
+As built (`solprop.service.agent`), the helper's first frame is its `hello`: the
+protocol and solprop versions, its Python, host, platform, home folder and process id, and
+whether `sbatch` is on the path. Each request is then a frame `{"id", "kind", "body"}`,
+answered by `{"kind": "reply", "id", "value"}` or `{"kind": "error", "id", "message"}`,
+and the kinds (`REQUESTS`) are:
+
+| Request | Body | What it does |
+|---|---|---|
+| `list_runs` | `workspace` | every run in a workspace with its state (`runs.list_runs`) |
+| `start` | `spec, launcher, python?, resources?` | prepare a run's folder and start it, directly or through Slurm; returns its summary |
+| `follow`, `unfollow` | `folder, offset`; `folder` | send a run's recorded events from a place on, as they are written, until it ends |
+| `stop`, `cancel` | `folder` | ask a run to stop (its stop file), or end its job (`scancel`, or `SIGTERM`) |
+| `remove` | `folder` | delete an ended run's folder |
+| `stat`, `fetch`, `put` | `path`; `path, offset, size`; `path, data, append` | a file's size, a piece of it, or a piece written to it: a copy of a run's results, or a data file a recipe reads |
+| `slurm_info` | | the partitions Slurm offers there |
+| `kernel` | `request` | a request for the kernel the helper hosts there (checks, previews, readings of that machine's results files), answered as a `kernel_reply` |
+
+Frames also come unasked: `{"kind": "events", "folder", "offset", "events"}` for a run
+being followed (a run gone without an ending is sent a `lost` event),
+`{"kind": "follow_failed", "folder", "message"}` when its record cannot be read,
+`{"kind": "kernel_reply", "reply"}` for a kernel request, and `{"kind": "kernel_lost"}`
+when the hosted kernel ends, another being started on the next request.
+
 **The record.** Beside `recipe.toml`, `run.h5` and `run.log`, the run writes `job.json`
 (how it was started: its process or Slurm job, its times, resources and versions), and
-appends its reduced rows and its events (progress, log, a scan's points, the ending) to two
-files. It reads a stop file a few times a second from a thread of its own and passes it to
-solprop's stop flag. Its state is derived from these, never kept by a daemon: an ending in
-the events says finished, stopped or failed; Slurm says queued (with its reason), running,
+appends its reduced rows and its events (progress, log, a scan's points, the ending) to
+`events.bin` as frames, keeping progress at most every `RECORD_PROGRESS_PERIOD` seconds
+and never dropping a row or an ending; `status.json` is a small summary rewritten as the
+run goes and at least every `HEARTBEAT` seconds while it lives. It reads a stop file a few
+times a second from a thread of its own and passes it to solprop's stop flag. Its state is
+derived from these, never kept by a daemon: an ending in the events says finished, stopped or failed; Slurm says queued (with its reason), running,
 cancelled or out of time; a process gone with no ending is lost, and solprop says whether it
 can be resumed. The ending is recorded last: the run appends its terminal event, closes its
 events, writes its end into `job.json`, and only then records the ending in its summary, after
 which it writes nothing more to its record; whoever acts on a run's end (the helper relaying it,
 a list of runs, a resume setting the record aside) goes by that summary, so it finds the record
-complete and let go. Re-attaching reads the rows and events from the start and then follows them,
+complete and let go (Windows refuses to rename a file another process holds open). The terminal
+event can be read from `events.bin` a moment before the summary says it, so a reader acting on
+the run's end waits for the summary. Re-attaching reads the rows and events from the start and then follows them,
 which works for a scan as well as a run. On this computer the run also keeps its pipe to the
 window, so the live view does not wait on a file.
 

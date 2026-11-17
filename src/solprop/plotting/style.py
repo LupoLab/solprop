@@ -4,15 +4,20 @@
 
 """Colours, grids, units and annotations shared by the standard figures.
 
-The small plotting helpers, and the display units every figure in
-this package uses: z in centimetres, time in femtoseconds, wavelength in nanometres,
-frequency in petahertz, angular frequency in radians per femtosecond, energy in
-microjoules and power auto-scaled between kilowatts and petawatts. Those are
-conventions of the *figure*, not of the package: everything
-:mod:`solprop.processing` returns is SI (``conventions.md`` section 1), and the
-conversion happens here, once. A run uniform in y (a hollow planar guide) reports its
-powers and energies per metre of y, and :func:`per_width` is the suffix its labels
-carry.
+The display units every figure uses -- z in centimetres (:data:`Z_TO_CM`), time in
+femtoseconds (:data:`T_TO_FS`), wavelength in nanometres, frequency in petahertz,
+angular frequency in radians per femtosecond, energy in microjoules
+(:data:`ENERGY_TO_UJ`) and power auto-scaled (:func:`power_unit`) -- are conventions
+of the *figure*: everything :mod:`solprop.processing` returns is SI (``conventions.md``
+§1), and the conversion happens here, once.
+
+- Units and axes: :func:`power_unit`, :func:`spectral_display`,
+  :func:`wavelength_to_axis` and :func:`per_width` (the label suffix of a run uniform
+  in y, which reports per metre of y).
+- Figures and colours: :func:`subplot_grid`, :func:`cmap_white` and
+  :func:`cmap_colours`.
+- Annotations: :func:`corner_text`, :func:`fwhm_arrows`, :func:`field_modes` and
+  :func:`mode_labels`.
 """
 
 import math

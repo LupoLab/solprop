@@ -2,9 +2,28 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The integrators, Runge-Kutta tableaux, the step controller and step schedules.
+"""The step specifications a run carries, and the scalar algebra of every step.
 
-Backend-agnostic scalar logic of the solver (``docs/dev/stepper.md``).
+The frozen specifications a :class:`~solprop.translate.run_request.RunRequest` carries,
+plus the backend-agnostic scalar logic every backend runs per step
+(``docs/dev/stepper.md``); applying a method to a state is a backend kernel. The
+package imports only :mod:`solprop.exceptions` and ``solprop._helpers``.
+
+- Integrators: :class:`~solprop.stepper.runge_kutta.RungeKutta`
+  (:mod:`~solprop.stepper.runge_kutta`, an embedded interaction-picture pair),
+  :class:`~solprop.stepper.multistep.Multistep` (:mod:`~solprop.stepper.multistep`, the
+  low-call Adams family and its variable-step weights) and
+  :class:`~solprop.stepper.low_storage.LowStorageRungeKutta`
+  (:mod:`~solprop.stepper.low_storage`, the fixed-schedule RK4IP replay).
+- :mod:`~solprop.stepper.tableau`: :class:`~solprop.stepper.tableau.Tableau`, the
+  ``DOPRI5`` and ``TSIT5`` pairs and
+  :func:`~solprop.stepper.tableau.check_order_conditions`.
+- :mod:`~solprop.stepper.controller`: the error-norm scales and
+  :class:`~solprop.stepper.controller.PIController`.
+- :mod:`~solprop.stepper.schedule`: :class:`~solprop.stepper.schedule.FixedSchedule`
+  (:func:`~solprop.stepper.schedule.discover`,
+  :func:`~solprop.stepper.schedule.calibrate`, :func:`~solprop.stepper.schedule.replay`)
+  and :func:`~solprop.stepper.schedule.landing` on save planes and kinks.
 """
 
 from solprop.stepper.controller import (

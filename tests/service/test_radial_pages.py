@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from solprop.recipe import Recipe
-from solprop.service import beams
+from solprop.service import radial_pages
 
 
 @pytest.fixture(scope="module")
@@ -22,17 +22,21 @@ def beam_file(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def test_the_overview_has_the_fluence_and_the_on_axis_spectrum(beam_file: Path) -> None:
-    reply: dict[str, Any] = beams.beam_overview({"path": str(beam_file)})
+    reply: dict[str, Any] = radial_pages.beam_overview({"path": str(beam_file)})
     assert reply["fluence"].shape == (reply["z"].size, reply["r"].size)
     assert reply["on_axis"].shape == (reply["z"].size, reply["x"].size)
     assert reply["axis"] == "wavelength"
     assert np.all(np.diff(reply["x"]) > 0)
-    on_f: dict[str, Any] = beams.beam_overview({"path": str(beam_file), "axis": "f"})
+    on_f: dict[str, Any] = radial_pages.beam_overview(
+        {"path": str(beam_file), "axis": "f"}
+    )
     assert on_f["axis"] == "f"
 
 
 def test_a_plane_across_the_beam(beam_file: Path) -> None:
-    reply: dict[str, Any] = beams.beam_plane({"path": str(beam_file), "index": 0})
+    reply: dict[str, Any] = radial_pages.beam_plane(
+        {"path": str(beam_file), "index": 0}
+    )
     assert reply["intensity"].shape == (reply["r"].size, reply["t"].size)
     assert reply["spectrum"].shape == (reply["r"].size, reply["x"].size)
     assert reply["fluence"].size == reply["r"].size
@@ -40,7 +44,7 @@ def test_a_plane_across_the_beam(beam_file: Path) -> None:
 
 
 def test_a_plane_on_the_axis(beam_file: Path) -> None:
-    reply: dict[str, Any] = beams.beam_on_axis(
+    reply: dict[str, Any] = radial_pages.beam_on_axis(
         {"path": str(beam_file), "index": 0, "positions": 32}
     )
     assert reply["t"].size == reply["power"].size
@@ -50,21 +54,23 @@ def test_a_plane_on_the_axis(beam_file: Path) -> None:
     assert np.isfinite(drawn["values"]).all()
     assert drawn["values"].max() == pytest.approx(1.0)
     assert drawn["gate_fwhm"] > 0
-    gated: dict[str, Any] = beams.beam_on_axis(
+    gated: dict[str, Any] = radial_pages.beam_on_axis(
         {"path": str(beam_file), "index": 0, "positions": 32, "gate_fwhm": 2e-14}
     )
     assert gated["spectrogram"]["gate_fwhm"] == pytest.approx(2e-14)
 
 
 def test_a_far_field(beam_file: Path) -> None:
-    reply: dict[str, Any] = beams.beam_far_field({"path": str(beam_file), "index": 0})
+    reply: dict[str, Any] = radial_pages.beam_far_field(
+        {"path": str(beam_file), "index": 0}
+    )
     assert reply["values"].shape == (reply["theta"].size, reply["x"].size)
     assert reply["values"].max() > 0
 
 
 def test_a_cartesian_and_a_line_beam_s_fluence(tmp_path: Path) -> None:
     from solprop.recipe import Recipe  # noqa: PLC0415 - only here
-    from solprop.service.beams import beam_fluence, beam_line  # noqa: PLC0415
+    from solprop.service.radial_pages import beam_fluence, beam_line  # noqa: PLC0415
 
     cartesian = tmp_path / "cartesian.h5"
     Recipe.example("cartesian_beam").run(cartesian)

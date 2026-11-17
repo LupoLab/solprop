@@ -17,7 +17,8 @@ quartic overlap tensor of four $\mathrm{HE}_{1m}$ modes is converged to $2\times
 at $n_r = 32$ — the reference's own rounding, not the rule's.
 
 **Radially**, $n_r$ Gauss–Legendre nodes on $\xi = r/a \in (0,1)$, with the Jacobian and
-the azimuthal $2\pi$ folded into the weights. With `radial_rule="gauss_kronrod"` (the
+the azimuthal $2\pi$ folded into the weights, $w_i = 2\pi a^2\xi_i w^{\rm GL}_i/2$. The
+nodes are strictly interior, so the wall is never sampled. With `radial_rule="gauss_kronrod"` (the
 capillary default) the count is rounded up to $2n+1$ and the rule becomes the Kronrod extension of the $n$-point Gauss rule, whose
 Gauss subset is an **embedded coarse rule**: the difference of the two projections is an
 error estimate that costs nothing, because the two rules share every node the coarse one

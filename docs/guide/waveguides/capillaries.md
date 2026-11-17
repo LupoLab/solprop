@@ -300,7 +300,7 @@ adiabatic opt-out (dotted) converts nothing.
 What applies it, and what does not:
 
 * **Which sets.** The contiguous `HE_11` to `HE_1N` block of plain capillary modes,
-  `N >= 2`, on a varying radius ({func}`~solprop.modes.capillary.taper_coupling_block`).
+  `N >= 2`, on a varying radius ({func}`~solprop.modes.wall.taper_coupling_block`).
   One mode needs no connection, and a constant bore has none — a **pressure gradient**
   included, which changes each mode's index, carried on its own diagonal, but not its
   $J_0(u_m r/a)$ shape. A set the connection is not derived for (a tube lattice, a

@@ -280,6 +280,34 @@ corrected one the optical file saves. The optical file records the archive's pat
 run identifier but never needs it, and no run reads it back.
 {func}`~solprop.output.tdse_archive.open_tdse_archive` reads it one array at a time.
 
+The archive is a history of evaluations, not a restart store: the optical file's call
+ledger stays authoritative for calls, budgets and resume, and the archive does no charge
+accounting. Its layout (schema `TDSE_ARCHIVE_SCHEMA`):
+
+```{code-block} text
+/                                       attrs: schema, run_uuid
+/sessions/session_NNNNNN/               one run or resume (or one standalone consistency
+                                        check): its context and, once it closes, the
+                                        bytes written and the write time
+  shared/                               sample times, gates and structured records,
+                                        stored once and hard-linked where they are used
+  evaluations/evaluation_NNNNNNNNN/     one logical provider evaluation: its labels as
+                                        attributes, the outcome attribute last
+    prewindow_field                     the full nodal field of the evaluation, V/m
+    gate                                when an atomic window applies
+    chunk_NNN/                          one provider call
+      drive                             the exact float64 field passed, V/m
+      raw                               the returned record, through a versioned serializer
+    exception/                          when the evaluation raised
+  trials/trial_NNNNNNNNN                whether an optical trial was accepted or rejected,
+                                        appended when the stepper decides
+```
+
+Groups are flushed as they complete, so a crash leaves every earlier evaluation
+readable: an evaluation without its `outcome`, or missing a chunk or a dataset, is
+reported as incomplete by {class}`~solprop.output.tdse_archive.TDSEArchiveReader` rather
+than failing the read.
+
 ## How the research settings were chosen
 
 The selected SAE research configuration keeps the provider's radial lattice, exterior

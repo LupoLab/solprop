@@ -83,8 +83,8 @@ from solprop.modes import (
     wall_operator,
 )
 from solprop.modes.antiresonant import TubeLattice, VincettiMode
-from solprop.modes.capillary import wall_connection, worst_wall_limits
 from solprop.modes.protocol import Mode
+from solprop.modes.wall import wall_connection, worst_wall_limits
 from solprop.output.capability import capability_of
 from solprop.output.hdf5 import open_file
 from solprop.output.memory import MemoryOutput

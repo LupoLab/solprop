@@ -2,21 +2,29 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Select nonlinear responses for the labelled populations of a mixture."""
+"""Select nonlinear responses for the labelled populations of a mixture.
 
-import itertools
+The response-selection role among the four per-layer ``mixtures`` modules: the type is
+:mod:`solprop.physdata.mixtures`, declarations are resolved by
+:mod:`solprop.driver.mixtures`, and a saved run's populations are analysed by
+:mod:`solprop.processing.mixtures`. :func:`responses_for` builds the electronic, plasma
+and Raman responses bound to a mixture's ordered labels under a material selection;
+:func:`electronic_response` builds one species' electronic third-order response under
+the selection's policy (the Kerr coefficient at the carrier or SEP 6's dispersive
+response); and :func:`raman_temperature` is the one reference temperature a component's
+rotational Raman populations take when the fill's temperature varies along z.
+"""
+
 import logging
 import math
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from pathlib import Path
 from typing import Final
 
 import numpy as np
-from jaxtyping import Float
-from scipy.integrate import quad
 
+from solprop._validation import PACKAGE_FILES
 from solprop.exceptions import MaterialError, RamanTemperatureWarning
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.ionisation import IntegrationPolicy, IonisationRate, rate_species
@@ -42,14 +50,12 @@ from solprop.physdata.species import (
     built_in_population,
     dispersion_only_air,
 )
-from solprop.profiles import Sum, ZProfile, _probe_positions
+from solprop.profiles import Sum, ZProfile, _probe_positions, _weighted_mean
 
 __all__ = ["electronic_response", "raman_temperature", "responses_for"]
 
 logger = logging.getLogger(__name__)
 
-_PACKAGE_FILES: Final = (str(Path(__file__).resolve().parents[1]),)
-"""Frames the temperature warning skips, so that it names the caller's line."""
 
 _TEMPERATURE_SPREAD_PROBES: Final = 65
 """Evenly spaced positions over the run, beside the breakpoints, at which the warning
@@ -270,7 +276,14 @@ def raman_temperature(
         reference = float(requested)
         how = "MolecularOptions.temperature"
     else:
-        reference = _mean_temperature(density, temperature, start, end, inside)
+        mean = _weighted_mean(temperature, density, start, end, inside)
+        if mean is None:
+            raise MaterialError(
+                "the rotational Raman populations need a reference temperature, and "
+                "the species' density vanishes over the run: pass "
+                "MolecularOptions(temperature=...)"
+            )
+        reference = mean
         how = f"the mean of T(z) weighted by the density of {label} over the run"
     held = (
         "Raman populations and linewidth temperature laws"
@@ -293,7 +306,7 @@ def raman_temperature(
             "reference",
             RamanTemperatureWarning,
             stacklevel=2,
-            skip_file_prefixes=_PACKAGE_FILES,
+            skip_file_prefixes=PACKAGE_FILES,
         )
     return reference
 
@@ -308,55 +321,6 @@ def _weight(mixture: Mixture, label: str | Sequence[str]) -> tuple[ZProfile, str
         return mixture[label].density, label
     paths = tuple(mixture[one].density for one in label)
     return (paths[0] if len(paths) == 1 else Sum(paths)), "+".join(label)
-
-
-def _mean_temperature(
-    density: ZProfile,
-    temperature: ZProfile,
-    start: float,
-    end: float,
-    kinks: Float[np.ndarray, " n_kinks"],
-) -> float:
-    """Return the mean of a temperature path weighted by one density over a span.
-
-    - ``density``: the species' number density in m^-3.
-    - ``temperature``: the temperature path in K.
-    - ``start``, ``end``: the finite span in m.
-    - ``kinks``: positions in m inside the span where the density or the temperature
-      kinks.
-    - Returns: ``int rho T dz / int rho dz`` in K.
-    """
-    edges = np.unique(np.concatenate([[start, end], kinks]))
-
-    def weighted(z: float, power: int) -> float:
-        """Return ``rho(z) T(z)^power`` at one position.
-
-        - ``z``: position in m.
-        """
-        position = np.array([z])
-        value = float(density(position)[0])
-        return value * float(temperature(position)[0]) ** power
-
-    totals = [0.0, 0.0]
-    for left, right in itertools.pairwise(edges):
-        for power in (0, 1):
-            part, _ = quad(
-                weighted,
-                left,
-                right,
-                args=(power,),
-                epsabs=0.0,
-                epsrel=1e-10,
-                limit=200,
-            )
-            totals[power] += part
-    if not totals[0] > 0.0:
-        raise MaterialError(
-            "the rotational Raman populations need a reference temperature, and the "
-            "species' density vanishes over the run: pass "
-            "MolecularOptions(temperature=...)"
-        )
-    return totals[1] / totals[0]
 
 
 def _raman_choice(

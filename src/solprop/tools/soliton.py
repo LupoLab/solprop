@@ -5,8 +5,11 @@
 
 """Soliton numbers: dispersion and nonlinear lengths, orders and constituents.
 
-The closed forms of a pulse in a mode of given dispersion and nonlinear coefficient,
-the soliton content of an unchirped input, and the fill's nonlinear coefficient.
+The closed forms of a pulse in a mode of given dispersion and nonlinear coefficient
+(:func:`dispersion_length`, :func:`nonlinear_length`, :func:`soliton_order`,
+:func:`soliton_peak_power`, :func:`fission_length`), the soliton content of an unchirped
+input (:func:`soliton_content`, :class:`SolitonContent`), and the fill's nonlinear
+coefficient (:func:`nonlinear_coefficient`).
 """
 
 import math

@@ -4,8 +4,15 @@
 
 """Share gas-fill resolution, freezing and loss policy across hollow-waveguide modes.
 
-This class contributes methods only. Concrete frozen dataclasses declare their
-own fields, preserving the public Marcatili constructor and its arithmetic.
+:class:`GasFillMixin` is the base of every gas-filled hollow mode
+(:class:`~solprop.modes.capillary.MarcatiliMode` and the rectangular wall pair): it
+resolves the fill into species and density paths, freezes it at a position, samples
+its susceptibility, and applies the shared loss vocabulary (``loss_scale`` or an
+absolute ``alpha``). It contributes methods only; each concrete frozen dataclass
+declares its own fields, so the public constructors and their arithmetic are its own.
+:data:`LossFunction` is the callable form of a mode's ``alpha``,
+:data:`EVANESCENT_INDEX_FLOOR` the floor the full model puts under ``Re n_eff``, and
+``_sqrt1p_minus_one`` the rounding-safe refractivity every gas-filled guide forms.
 """
 
 import copy

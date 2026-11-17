@@ -4,8 +4,16 @@
 
 """Describe a gas species: a built-in gas from optmat, or a caller's own data.
 
-Optical susceptibilities are per particle in m^3. Partial pressures are in bar,
-the same interface convention as :mod:`solprop.physdata.equation_of_state`.
+:class:`Species` is one chemical species and the data it supplies: its susceptibility
+(an optmat law or a :class:`TabulatedSusceptibility`), its equation of state
+(:class:`EquationOfState`: :class:`OptmatGas` for a built-in gas, which also carries
+transport properties, or :class:`IdealGas`), its Kerr coefficient, its
+:class:`IonisationData` and any Raman constants. :func:`species` builds a built-in gas
+from optmat or passes a custom species through, and :func:`ionisation_potential` is a
+gas's first ionisation energy.
+
+Optical susceptibilities are per particle in m^3. Partial pressures are in bar, the same
+interface convention as :mod:`solprop.physdata.equation_of_state`.
 """
 
 import dataclasses

@@ -2,14 +2,29 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Keep exclusive writer ownership independently of an HDF5 handle's lifetime."""
+"""Exclusive writer ownership of a file, independent of an HDF5 handle's lifetime.
+
+:class:`WriterLock` holds a non-blocking advisory lock on the persistent sidecar
+``<file>.writer.lock``, raising :class:`WriterHeldError` when another writer owns it
+and refusing a file inside a published snapshot (:data:`SNAPSHOT_SCHEMA`). The HDF5
+handler, the TDSE archive and snapshot publication take it, and
+:mod:`solprop.output.resumable` probes it. Why the sidecar is never removed is in
+``docs/guide/results/output.md`` ("The writer-lock sidecar").
+"""
 
 import json
 import os
 from pathlib import Path
 
+from solprop._file_lock import lock, unlock
 from solprop.exceptions import OutputError
-from solprop.output._file_lock import lock, unlock
+
+SNAPSHOT_SCHEMA = "solprop.snapshot.v1"
+"""The schema a snapshot's ``manifest.json`` declares; writes under one are refused."""
+
+
+class WriterHeldError(OutputError):
+    """Another writer owns the file, so ownership cannot be taken without waiting."""
 
 
 class WriterLock:
@@ -30,10 +45,7 @@ class WriterLock:
                     record = json.loads(manifest.read_text(encoding="utf-8"))
                 except ValueError, OSError:
                     continue
-                if (
-                    isinstance(record, dict)
-                    and record.get("schema") == "solprop.snapshot.v1"
-                ):
+                if isinstance(record, dict) and record.get("schema") == SNAPSHOT_SCHEMA:
                     raise OutputError(
                         "immutable snapshot: restore_snapshot before writing"
                     )
@@ -49,7 +61,7 @@ class WriterLock:
         except BaseException as error:
             os.close(descriptor)
             if isinstance(error, BlockingIOError):
-                raise OutputError(f"another writer owns {self.path}") from error
+                raise WriterHeldError(f"another writer owns {self.path}") from error
             if isinstance(error, OSError):
                 raise OutputError(
                     f"cannot lock writer ownership for {self.path}: {error}"

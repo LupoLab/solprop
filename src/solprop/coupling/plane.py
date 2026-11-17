@@ -4,40 +4,29 @@
 
 r"""One physical plane of an ultrafast field, with everything needed to use it.
 
-A :class:`FieldPlane` binds a field's **native coefficients** to what they mean
-(SEP 31, sections 4.1, 4.5 and 5.1): the representation and its units, the temporal
-lattice, the reference the spectrum is written in, the oriented plane, the medium and
-power metric there, the scoped path certificate of the run that produced it, and its
-provenance. It is immutable and owns read-only copies of its arrays, so a validated
-plane cannot be changed through an alias.
+A :class:`FieldPlane` binds a field's **native coefficients** to what they mean (SEP
+31, sections 4.1, 4.5 and 5.1). It is immutable and owns read-only copies of its
+arrays, so a validated plane cannot be changed through an alias. Its parts are their
+own records: :class:`PlaneBasis` (the representation, :data:`PlaneKind`),
+:class:`PlaneReference` (the affine reference of the spectrum; :func:`reference_at`
+rebuilds a run's from its persisted record), :class:`PlaneGeometry` (the oriented
+plane), :class:`PlaneMetric` (the native power metric, :data:`MetricKind`),
+:class:`PlaneProvenance`, and for a sampled field :class:`NodalField` and
+:class:`AnalyticRecord`. :func:`basis_identity`, :func:`modal_basis_identity`,
+:func:`lattice_identity` and :func:`space_record` form the identities it is checked by.
 
-**Samples.** The stored array is what an output file stores: the optics-convention
-raw forward DFT of each column, referenced to the centre of the time window
-(:func:`solprop.fourier.spectrum_to_optics`), shape ``(n_modes, n_pol, n_omega)``.
-Its columns are
+The stored array is what an output file stores: the optics-convention raw forward
+DFT of each column, referenced to the centre of the time window, shape
+``(n_modes, n_pol, n_omega)``; the absolute spectrum is it times
+:math:`\exp[i(\phi + \omega\tau)]`, the frame integral the linear operator removed.
+The columns of each kind and the reference are in ``docs/guide/workflows/coupling.md``,
+section "A plane, and what it means".
 
-=================  ==================================================================
-``kind``           columns and units
-=================  ==================================================================
-``modal``          true-power coefficients ``b = sqrt(Re n_eff) a`` of an ordinary
-                   mode set, sqrt(W); metric the identity
-``general_modal``  general-modal coordinates, sqrt(W); metric the basis Gram
-``radial``         order-zero Hankel spectrum of the electric field, V m
-``cartesian``      transverse raw DFT of the electric field, V/m
-``planar``         slab amplitude per y frequency, sqrt(W/m)
-=================  ==================================================================
-
-**Reference.** A run's spectrum is in its moving frame. The absolute
-optics-convention spectrum is the stored one times
-:math:`\exp[i(\phi + \omega\tau)]` (:class:`PlaneReference`), with ω the absolute
-angular frequency of each bin: τ is the absolute time of the record's ``t = 0`` and
-φ a carrier phase. The pair is the frame integral the linear operator removed,
-:math:`\int R\,dz`, so a long path never has to translate a femtosecond pulse
-across its window.
-
-The plane is a P-layer value type: NumPy and other physics modules only. Extracting
-one from a run is :func:`solprop.processing.planes.field_plane`, and a receiving
-simulation is described by :class:`solprop.coupling.port.InputPort`.
+The plane is a P-layer value type: it imports no translation module, though its
+spatial metric, a :class:`solprop.spatial.SpatialFlux`, resolves through translation
+code imported lazily. Extracting one from a run is
+:func:`solprop.processing.planes.field_plane`, and a receiving simulation is described
+by :class:`solprop.coupling.port.InputPort`.
 """
 
 import dataclasses

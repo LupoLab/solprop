@@ -4,43 +4,26 @@
 
 """Physical E and H on a saved plane of a general modal run, and what they measure.
 
-A general modal guide propagates channel amplitudes, and its file stores those: the
-mode axis is a coordinate axis and not a physical field. This module is the way back.
-Given the guide the run was made with, it rebuilds the run's own reference tables
-(:func:`solprop.translate.general.reference_tables`), reconstructs ``E(x, y, t)`` and
-``H(x, y, t)`` in V/m and A/m at the guide's quadrature nodes, and forms the quantities
-a detector would see: the cycle-averaged :func:`reconstructed_flux`, the real
-:func:`instantaneous_flux` with its sum-frequency term, and the per-coordinate
-:func:`coordinate_intensity`, which is **not additive**.
+A general modal file stores channel amplitudes on a coordinate axis, not a physical
+field, and records the guide's identity rather than its E/H reference arrays. This
+module is the way back: :func:`reference_tables` rebuilds the run's reference tables
+from the guide (``guide=`` is **required** everywhere; ``tables=`` reuses one rebuild),
+checking the tables, the guide's sampling and its regions against the stored identity
+path by path, and refusing the first entry that disagrees.
 
-**What a file carries and what it does not.** The run record holds the guide's
-*identity* -- the channel labels, the provider, the sampling, the table and metric
-identities -- and not the reference arrays themselves, which are tens of megabytes per
-run and are rebuilt from the guide in **tens of milliseconds** (28 ms on the slice's
-one-channel 288-node fixture; about 0.71 s if the guide has still to be solved, which
-is where that cost is). Physical profile storage for output is separate from the
-execution tables and may be a hash-identified sidecar.
-Every function here therefore takes the guide (``guide=``, **required**) and rebuilds
-the tables from it, over the extent the file's table identity records, unless the
-caller passes them as ``tables=`` to reuse one rebuild across many calls. Either way
-the tables are **checked against the stored identity**, path by path, refusing the
-first entry that disagrees, so a reconstruction is never made from the wrong guide; and
-the guide's sampling and regions are checked too, which the tables' identity cannot
-see: a guide re-sampled at other interior knots, or declaring another ``chi3``, builds
-tables whose identity agrees entry for entry.
+- Fields: :func:`electric_field` and :func:`magnetic_field` (V/m, A/m at the guide's
+  nodes), :func:`plane_nodes` (where those nodes are, with their area weights) and
+  :func:`channel_labels`. A guide whose geometry moves along z is solved again at each
+  plane's own position.
+- What a detector sees: :func:`reconstructed_flux` (cycle-averaged),
+  :func:`instantaneous_flux` (with its sum-frequency term), :func:`coordinate_intensity`
+  (per channel, **not additive**) and :func:`physical_energy`.
+- :func:`channel_amplitudes` inverts a nodal E/H pair, on the entrance reference only.
 
-**A guide whose geometry moves along z** is reconstructed at each plane's own
-position: the guide is solved again there on the rule that has moved with its
-interfaces, so the fields come back on that position's nodes and the flux is weighted
-by that position's areas.
-:func:`channel_amplitudes` recovers amplitudes on the entrance reference only.
-
-**The accessor whitelist.** These names are admitted on a general modal basis and
-refused on every other, because an orthogonal modal run and a spatial run carry
-neither the certified metric nor the E/H reference they promise
-(:mod:`solprop.output.capability`). The refusal is the same text the run loop uses.
-
-The manual page is ``docs/guide/results/output.md``.
+These names are admitted on a general modal basis and refused on every other
+(:mod:`solprop.output.capability`). The manual covers this in
+``docs/guide/results/reading-output.md`` and ``docs/guide/results/resuming.md``
+("Reading E and H back").
 """
 
 import logging
@@ -53,7 +36,9 @@ from jaxtyping import Complex, Float, Inexact
 from solprop import fourier, stats
 from solprop.exceptions import ModeError, OutputError, TranslationError
 from solprop.modes.guide import ModalGuide
+from solprop.modes.path import path_rule, path_snapshot
 from solprop.modes.protocol import ChannelLabel
+from solprop.modes.tables import DEFAULT_GRAM_ATOL
 from solprop.modes.vector import ModalNodeRule
 from solprop.output.capability import capability_of, refusal_for, withheld_from
 from solprop.output.metadata import RunMetadata
@@ -61,9 +46,8 @@ from solprop.output.records import Convention
 from solprop.output.store import Output
 from solprop.processing.axes import _plane_field, _plane_index, grid_of
 from solprop.translate import general
-from solprop.translate.chebyshev import _EDGE_SLACK_FRACTION
-from solprop.translate.modal_path import path_rule, path_snapshot
-from solprop.translate.modal_tables import DEFAULT_GRAM_ATOL, ModalTransformTables
+from solprop.translate.chebyshev import EDGE_SLACK_FRACTION
+from solprop.translate.modal_tables import ModalTransformTables
 
 __all__ = [
     "channel_amplitudes",
@@ -329,7 +313,7 @@ def _moved_rule(guide: ModalGuide, position: float) -> tuple[float, ModalNodeRul
 
     - ``position``: the plane's own position, m.
     - Returns: the position, snapped onto the path's end when within the edge slack, and
-      the provider's own rule there (:func:`solprop.translate.modal_path.path_rule`).
+      the provider's own rule there (:func:`solprop.modes.path.path_rule`).
     """
     sampling = guide.sampling
     if sampling is None or sampling.path is None:
@@ -343,7 +327,7 @@ def _moved_rule(guide: ModalGuide, position: float) -> tuple[float, ModalNodeRul
     # path's end rather than on it; within the edge slack a schedule is matched to
     # its kinks with, it is the end.
     edges = sampling.path.z_edges
-    slack = _EDGE_SLACK_FRACTION * float(edges[-1] - edges[0])
+    slack = EDGE_SLACK_FRACTION * float(edges[-1] - edges[0])
     if edges[0] - slack <= position <= edges[-1] + slack:
         position = min(max(position, float(edges[0])), float(edges[-1]))
     return position, path_rule(guide.field_provider, sampling.nodes, position)
@@ -377,8 +361,8 @@ def _plane_reference(
     the rule that has moved with the interfaces to that plane (node ``q`` is the point
     ``x_q(z)``), so the guide is solved again there exactly as
     its path was sampled -- the provider's own rule asked for as the entrance rule was
-    (:func:`solprop.translate.modal_path.path_rule`), in the provider's own gauge
-    (:func:`solprop.translate.modal_path.path_snapshot`), then carried to the run's
+    (:func:`solprop.modes.path.path_rule`), in the provider's own gauge
+    (:func:`solprop.modes.path.path_snapshot`), then carried to the run's
     bins by the same cubic in frequency the maps were built with. It is the same
     field the run's Chebyshev-expanded synthesis stores at that position, to the
     path's held-out accuracy, and H comes from the same solve; the expansion carries
@@ -960,7 +944,7 @@ def plane_nodes(
     every plane. For a **moving** guide they are the plane's own: the rule that has
     moved with the interfaces to that plane's position, which is the provider's
     rule asked for there exactly as the entrance rule was
-    (:func:`solprop.translate.modal_path.path_rule`) -- the same rule the field
+    (:func:`solprop.modes.path.path_rule`) -- the same rule the field
     accessors solve on, so no caller needs the translation layer to plot a plane.
 
     Parameters

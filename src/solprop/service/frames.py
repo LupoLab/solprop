@@ -14,7 +14,9 @@ a run's folder, and arrays cost no text conversion::
 The header is the value with each array replaced by a marker naming its place in the
 body, its dtype and its shape. All integers are little-endian. The magic lets a reader
 skip whatever a remote shell prints before the first frame and refuse a stream that is
-not one. A reader of a file being appended to takes only the frames that are complete.
+not one. :func:`encode`, :func:`decode` and :func:`split_frames` work on bytes (a file
+being appended to yields only its complete frames); :func:`read_frame` and
+:func:`write_frame` on a stream (:class:`Readable`, :class:`Writable`).
 """
 
 import json

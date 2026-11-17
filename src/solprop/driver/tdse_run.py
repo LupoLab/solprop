@@ -2,11 +2,18 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The run glue of a TDSE response (SEP 20): its entry, archive and atomic state.
+"""The run glue of a TDSE response (SEP 20): its archive, atomic state and gate.
 
-The ``tdse=`` capillary keywords resolve here, and a run with a TDSE response opens its
-archive, prepares and restores its atomic state, and passes the consistency gate before
-its march.
+The simulation calls these private helpers around a run with a TDSE response: the
+response lattice is resolved once before the optical input is built
+(``_resolve_tdse_grid``, refining the analytic collar) and unsupported execution
+choices are refused (``_check_tdse_execution``); then the run opens its raw response
+archive and prepares its atomic binding (``_prepare_atomic``, through
+``_open_tdse_archive``), restores its atomic state at a resumed start
+(``_restore_atomic``), passes the consistency gate (``_consistency_gate``) before its
+march, and closes the backend, the binding, the archive and the output in order
+(``_close_run``). The ``tdse=`` capillary keywords resolve in
+:mod:`solprop.driver.routes.hollow`, the route that takes them.
 """
 
 import dataclasses
@@ -32,19 +39,16 @@ from solprop.driver.settings import SimulationSettings, _scheme
 from solprop.exceptions import DriverError, TDSEArchiveError, TDSECostWarning
 from solprop.grid import TimeGrid
 from solprop.log import StopFlag
-from solprop.modes.material import JsonValue
 from solprop.modes.quadrature import TransverseQuadrature
-from solprop.nonlinear.tdse import TDSEAtomicWindow, TDSEExecution, TDSEGasResponse
+from solprop.nonlinear.tdse import TDSEExecution, TDSEGasResponse
 from solprop.output.hdf5 import HDF5Output, ResumeState
 from solprop.output.metadata import RunMetadata
 from solprop.output.store import Output
 from solprop.output.tdse_archive import TDSEArchive, TDSEArchiveWriter
-from solprop.stats import StatsSpec
 from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import tdse_descriptor
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding, refine_response_grid
-from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
 
 if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
@@ -437,152 +441,6 @@ def _refined_tdse_collar(
         settings,
         absorber=dataclasses.replace(
             boundary, temporal_rate_fine=temporal(refined, refined.t_fine)
-        ),
-    )
-
-
-@dataclasses.dataclass(frozen=True)
-class _TDSEEntry:
-    """Hold a TDSE capillary run's resolved response, resources and defaults.
-
-    Attributes
-    ----------
-    response : TDSEGasResponse
-        The declared response, its atomic window's duration resolved.
-    execution : TDSEExecution
-        Atomic runtime resources.
-    backend : str
-        The resolved backend, ``numpy_ref``.
-    step_planes : int
-        Resolved natural-step save interval.
-    n_save : int or None
-        Resolved requested-plane count; 2 (the entrance and the end) when neither
-        `save_planes` nor `n_save` was given.
-    record : dict
-        The resolved defaults, recorded in the run's configuration.
-    """
-
-    response: TDSEGasResponse
-    execution: TDSEExecution
-    backend: str
-    step_planes: int
-    n_save: int | None
-    record: dict[str, JsonValue]
-
-
-def _tdse_entry(
-    tdse: TDSEGasResponse | None,
-    execution: TDSEExecution | None,
-    *,
-    trange: float | None,
-    kerr: bool,
-    mode_average: bool,
-    unset: Mapping[str, object],
-    backend: str,
-    step_planes: int | None,
-    save_planes: Sequence[float] | np.ndarray | None,
-    n_save: int | None,
-) -> _TDSEEntry | None:
-    """Resolve the ``tdse=`` capillary keywords (SEP 20 sections 5.2 and 5.8).
-
-    - ``tdse``: the declared response, or None for a rate-based run.
-    - ``trange``: requested time window in s, the default atomic-window duration.
-    - ``kerr``: the Kerr switch, which must stay true beside a TDSE response.
-    - ``mode_average``: the mode-averaged switch, which must stay false beside a TDSE
-      response: its translation needs the resolved radial quadrature.
-    - ``unset``: Electronic-response keywords that must be left unset beside it.
-    - ``save_planes``: requested save positions in m.
-    - Returns: the resolution, or None without `tdse`.
-    """
-    if tdse is None:
-        if execution is not None:
-            raise DriverError(
-                "tdse_execution requires a TDSEGasResponse",
-                parameter=("tdse_execution", "tdse"),
-                rule="tdse-execution-needs-tdse",
-            )
-        return None
-    if not isinstance(tdse, TDSEGasResponse):
-        raise DriverError("tdse must be a TDSEGasResponse", parameter="tdse")
-    given = [name for name, value in unset.items() if value is not None]
-    if not kerr:
-        given.append("kerr=False")
-    if mode_average:
-        given.append("mode_average=True")
-    if given:
-        raise DriverError(
-            f"the TDSE response owns the electronic response; leave "
-            f"{', '.join(given)} unset beside tdse=",
-            parameter=("tdse", *(name.removesuffix("=False") for name in given)),
-            rule="tdse-owns-electronic",
-        )
-    response = tdse
-    window = tdse.atomic_window
-    duration_source = None
-    if isinstance(window, TDSEAtomicWindow):
-        duration_source = "explicit"
-        if window.duration is None:
-            if trange is None:
-                raise DriverError(
-                    "the atomic window's duration is unresolved: give trange or "
-                    "TDSEAtomicWindow(duration=...)",
-                    parameter=("tdse", "trange"),
-                )
-            response = dataclasses.replace(
-                tdse, atomic_window=dataclasses.replace(window, duration=trange)
-            )
-            duration_source = "trange"
-    # Both backends run the TDSE response; "auto" is native, as for every run
-    # (SEP 49).
-    resolved_backend = "native" if backend == "auto" else backend
-    final_only = save_planes is None and n_save is None
-    resolved_steps = 1 if step_planes is None else step_planes
-    record: dict[str, JsonValue] = {
-        "model": tdse.model,
-        "backend": {"requested": backend, "resolved": resolved_backend},
-        "step_planes": {"requested": step_planes, "resolved": resolved_steps},
-        "requested_planes": "final_only" if final_only else "explicit",
-        "atomic_window_duration": duration_source,
-        "execution": "default" if execution is None else "explicit",
-    }
-    return _TDSEEntry(
-        response=response,
-        execution=TDSEExecution() if execution is None else execution,
-        backend=resolved_backend,
-        step_planes=resolved_steps,
-        n_save=2 if final_only else n_save,
-        record=record,
-    )
-
-
-def _entry_overrides[P, R](  # noqa: PLR0917 - called positionally
-    atomic: _TDSEEntry | None,
-    plasma: P,
-    raman: R,
-    backend: str,
-    n_save: int | None,
-    step_planes: int | None,
-) -> tuple[_TDSEEntry | None, P, R, str, int | None, int]:
-    """Return a TDSE entry with the capillary settings it overrides, or the originals.
-
-    - ``step_planes``: requested natural-step interval; ``None`` is 0 without TDSE.
-    - Returns: the entry, the plasma and Raman switches, the backend, the plane count
-      and the step interval.
-    """
-    if atomic is None:
-        steps = 0 if step_planes is None else step_planes
-        return None, plasma, raman, backend, n_save, steps
-    # False is a member of both switches' declared types.
-    off = cast("P", False), cast("R", False)
-    return atomic, *off, atomic.backend, atomic.n_save, atomic.step_planes
-
-
-def _tdse_stats(spec: StatsSpec) -> StatsSpec:
-    """Remove the statistics a TDSE response cannot supply from a default spec."""
-    return dataclasses.replace(
-        spec,
-        names=tuple(
-            name for name in spec.names if name not in TDSE_UNAVAILABLE_STATISTICS
         ),
     )
 

@@ -4,8 +4,18 @@
 
 """The hollow-guide route: capillaries and supplied gas-filled mode sets.
 
-The grid, modes, transverse quadrature, responses and statistics of a gas-filled hollow
-guide, the checks of its walls, gas flow and plasma settings, and the route itself.
+``_from_hollow`` builds a simulation of a pulse in a gas-filled hollow waveguide, for
+:meth:`~solprop.driver.simulation.Simulation.from_capillary` and for
+:meth:`~solprop.driver.simulation.Simulation.from_waveguide` given gas-filled modes,
+from its keywords (``_HollowRequest``). Around it: the grid (``_capillary_grid``), the
+mode set, built or supplied and rebound to the fill (``_capillary_modes``,
+``_given_gas_modes``, checked to :data:`ORTHONORMALITY_TOLERANCE`), the transverse
+quadrature (``_capillary_quadrature``, :func:`default_radial_order`), the responses
+(``_capillary_responses``, ``_default_raman``, ``_ionisation_rate``) and the statistics
+(``_capillary_stats``, with :data:`PLASMA_STATISTICS` and
+:data:`BACKEND_STATISTICS`); the checks of its walls, gas flow and plasma settings; and
+the ``tdse=`` capillary keywords (``_tdse_entry``, SEP 20). The manual page is
+``docs/guide/waveguides/capillaries.md``.
 """
 
 import dataclasses
@@ -13,12 +23,12 @@ import functools
 import logging
 import warnings
 from collections.abc import Callable, Mapping, Sequence
-from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, cast
 
 import numpy as np
 from scipy.special import j0, jn_zeros
 
+from solprop._validation import PACKAGE_FILES
 from solprop.boundaries import Absorber, warn_walkoff
 from solprop.driver.defaults import WAVEGUIDE_ATOL, resolve_noise, route_row
 from solprop.driver.inputs import (
@@ -33,7 +43,6 @@ from solprop.driver.inputs import (
 from solprop.driver.mixtures import (
     ResponseSelection,
     capillary_fill,
-    is_air,
     mixture_profiles,
 )
 from solprop.driver.routes.keywords import (
@@ -49,7 +58,6 @@ from solprop.driver.settings import (
     _boundary,
     keyword_settings,
 )
-from solprop.driver.tdse_run import _entry_overrides, _tdse_entry, _tdse_stats
 from solprop.exceptions import (
     DriverError,
     GasFlowWarning,
@@ -60,14 +68,10 @@ from solprop.gasflow import VacuumEnd
 from solprop.grid import EnvelopeGrid, FieldGrid, TimeGrid
 from solprop.linear import Frame, frame_quantities
 from solprop.modes.antiresonant import TubeLattice
-from solprop.modes.capillary import (
-    CoherentWall,
-    GlassIndex,
-    MarcatiliMode,
-    MarcatiliModel,
-)
+from solprop.modes.capillary import GlassIndex, MarcatiliMode, MarcatiliModel
 from solprop.modes.collection import ModeCollection
 from solprop.modes.fill import LossFunction
+from solprop.modes.material import JsonValue
 from solprop.modes.protocol import Mode
 from solprop.modes.quadrature import (
     RadialRule,
@@ -77,6 +81,7 @@ from solprop.modes.quadrature import (
 )
 from solprop.modes.slab import SlabMode
 from solprop.modes.stepindex import StepIndexMode
+from solprop.modes.wall import CoherentWall
 from solprop.monitor import DEFAULT_BOUNDARY_CHECK, BoundaryCheck
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.ionisation import IntegrationPolicy, IonisationRate
@@ -89,9 +94,9 @@ from solprop.nonlinear.responses import (
     KerrResponse,
     PlasmaResponse,
 )
-from solprop.nonlinear.tdse import TDSEExecution, TDSEGasResponse
+from solprop.nonlinear.tdse import TDSEAtomicWindow, TDSEExecution, TDSEGasResponse
 from solprop.output.records import ModeRecord
-from solprop.physdata import Gas, Mixture, species
+from solprop.physdata import Gas, Mixture, is_air, species
 from solprop.physdata.mixtures import Pressure
 from solprop.physdata.selection import MaterialSelection
 from solprop.physdata.sellmeier import GasSusceptibility
@@ -110,6 +115,7 @@ from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.masks import AbsorberScheme
 from solprop.translate.problem import DEFAULT_COMPONENTS
+from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
 
 if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
@@ -788,6 +794,152 @@ def _from_hollow(  # noqa: PLR0915 - the route's whole build, keyword by keyword
     return _redrawable(simulation, draw, request.seed)
 
 
+@dataclasses.dataclass(frozen=True)
+class _TDSEEntry:
+    """Hold a TDSE capillary run's resolved response, resources and defaults.
+
+    Attributes
+    ----------
+    response : TDSEGasResponse
+        The declared response, its atomic window's duration resolved.
+    execution : TDSEExecution
+        Atomic runtime resources.
+    backend : str
+        The resolved backend, ``numpy_ref``.
+    step_planes : int
+        Resolved natural-step save interval.
+    n_save : int or None
+        Resolved requested-plane count; 2 (the entrance and the end) when neither
+        `save_planes` nor `n_save` was given.
+    record : dict
+        The resolved defaults, recorded in the run's configuration.
+    """
+
+    response: TDSEGasResponse
+    execution: TDSEExecution
+    backend: str
+    step_planes: int
+    n_save: int | None
+    record: dict[str, JsonValue]
+
+
+def _tdse_entry(
+    tdse: TDSEGasResponse | None,
+    execution: TDSEExecution | None,
+    *,
+    trange: float | None,
+    kerr: bool,
+    mode_average: bool,
+    unset: Mapping[str, object],
+    backend: str,
+    step_planes: int | None,
+    save_planes: Sequence[float] | np.ndarray | None,
+    n_save: int | None,
+) -> _TDSEEntry | None:
+    """Resolve the ``tdse=`` capillary keywords (SEP 20 sections 5.2 and 5.8).
+
+    - ``tdse``: the declared response, or None for a rate-based run.
+    - ``trange``: requested time window in s, the default atomic-window duration.
+    - ``kerr``: the Kerr switch, which must stay true beside a TDSE response.
+    - ``mode_average``: the mode-averaged switch, which must stay false beside a TDSE
+      response: its translation needs the resolved radial quadrature.
+    - ``unset``: Electronic-response keywords that must be left unset beside it.
+    - ``save_planes``: requested save positions in m.
+    - Returns: the resolution, or None without `tdse`.
+    """
+    if tdse is None:
+        if execution is not None:
+            raise DriverError(
+                "tdse_execution requires a TDSEGasResponse",
+                parameter=("tdse_execution", "tdse"),
+                rule="tdse-execution-needs-tdse",
+            )
+        return None
+    if not isinstance(tdse, TDSEGasResponse):
+        raise DriverError("tdse must be a TDSEGasResponse", parameter="tdse")
+    given = [name for name, value in unset.items() if value is not None]
+    if not kerr:
+        given.append("kerr=False")
+    if mode_average:
+        given.append("mode_average=True")
+    if given:
+        raise DriverError(
+            f"the TDSE response owns the electronic response; leave "
+            f"{', '.join(given)} unset beside tdse=",
+            parameter=("tdse", *(name.removesuffix("=False") for name in given)),
+            rule="tdse-owns-electronic",
+        )
+    response = tdse
+    window = tdse.atomic_window
+    duration_source = None
+    if isinstance(window, TDSEAtomicWindow):
+        duration_source = "explicit"
+        if window.duration is None:
+            if trange is None:
+                raise DriverError(
+                    "the atomic window's duration is unresolved: give trange or "
+                    "TDSEAtomicWindow(duration=...)",
+                    parameter=("tdse", "trange"),
+                )
+            response = dataclasses.replace(
+                tdse, atomic_window=dataclasses.replace(window, duration=trange)
+            )
+            duration_source = "trange"
+    # Both backends run the TDSE response; "auto" is native, as for every run
+    # (SEP 49).
+    resolved_backend = "native" if backend == "auto" else backend
+    final_only = save_planes is None and n_save is None
+    resolved_steps = 1 if step_planes is None else step_planes
+    record: dict[str, JsonValue] = {
+        "model": tdse.model,
+        "backend": {"requested": backend, "resolved": resolved_backend},
+        "step_planes": {"requested": step_planes, "resolved": resolved_steps},
+        "requested_planes": "final_only" if final_only else "explicit",
+        "atomic_window_duration": duration_source,
+        "execution": "default" if execution is None else "explicit",
+    }
+    return _TDSEEntry(
+        response=response,
+        execution=TDSEExecution() if execution is None else execution,
+        backend=resolved_backend,
+        step_planes=resolved_steps,
+        n_save=2 if final_only else n_save,
+        record=record,
+    )
+
+
+def _entry_overrides[P, R](  # noqa: PLR0917 - called positionally
+    atomic: _TDSEEntry | None,
+    plasma: P,
+    raman: R,
+    backend: str,
+    n_save: int | None,
+    step_planes: int | None,
+) -> tuple[_TDSEEntry | None, P, R, str, int | None, int]:
+    """Return a TDSE entry with the capillary settings it overrides, or the originals.
+
+    - ``step_planes``: requested natural-step interval; ``None`` is 0 without TDSE.
+    - Returns: the entry, the plasma and Raman switches, the backend, the plane count
+      and the step interval.
+    """
+    if atomic is None:
+        steps = 0 if step_planes is None else step_planes
+        return None, plasma, raman, backend, n_save, steps
+    # False is a member of both switches' declared types.
+    off = cast("P", False), cast("R", False)
+    return atomic, *off, atomic.backend, atomic.n_save, atomic.step_planes
+
+
+def _tdse_stats(spec: StatsSpec) -> StatsSpec:
+    """Remove the statistics a TDSE response cannot supply from a default spec."""
+    return dataclasses.replace(
+        spec,
+        names=tuple(
+            name for name in spec.names if name not in TDSE_UNAVAILABLE_STATISTICS
+        ),
+    )
+
+
 def _refuse_plasma_settings(
     integration: IntegrationPolicy | None, *, envelope: bool, active: bool, thg: bool
 ) -> None:
@@ -882,7 +1034,7 @@ def _check_wall_declaration(
     argument rather than the object it became: the backend selection, the loss
     setting the block would replace, the capillary model it is not derived for and
     the structured cladding it does not describe. Each is refused again further
-    down -- in :func:`solprop.modes.capillary.wall_operator` and at the backend --
+    down -- in :func:`solprop.modes.wall.wall_operator` and at the backend --
     so nothing depends on this one being reached.
 
     - ``wall``: what was declared. ``None`` leaves every other argument alone.
@@ -936,10 +1088,6 @@ def _check_wall_declaration(
 _WALKOFF_SAMPLES: Final = 33
 
 
-_PACKAGE_FILES: Final = (str(Path(__file__).resolve().parents[1]),)
-"""Frames a fill warning skips, so that it names the caller's line, not solprop's."""
-
-
 def _flow_radius(
     modes: int | Sequence[Mode], pressure: Pressure | None
 ) -> ZProfile | None:
@@ -979,7 +1127,7 @@ def _flow_radius(
             message,
             GasFlowWarning,
             stacklevel=2,
-            skip_file_prefixes=_PACKAGE_FILES,
+            skip_file_prefixes=PACKAGE_FILES,
         )
     return None
 
@@ -1011,7 +1159,7 @@ def _warn_boreless_gradient(mixture: Mixture, radius: ZProfile | None) -> None:
         "and let the constructor build the fill",
         GasFlowWarning,
         stacklevel=2,
-        skip_file_prefixes=_PACKAGE_FILES,
+        skip_file_prefixes=PACKAGE_FILES,
     )
 
 

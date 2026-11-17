@@ -5,11 +5,18 @@
 """Read a radial beam from its file: across it, on its axis and in its far field.
 
 A spatial file's columns are field samples, so the modal readers refuse it. These read
-what those columns mean, each from the file's own record of the plane measure, with the
+what the columns mean, from the file's own record of the plane measure, with the
 measures of :mod:`solprop.spatial`: the same local pairing of ``E`` and ``G`` as the
-run's statistics. The far field is the plane's angular spectrum: the transverse
-wavevector is conserved through a window into vacuum, so ``sin(theta) = c k_r / omega``
-is the angle outside the medium, and a column beyond it has left no light there.
+run's statistics.
+
+- Across the beam: :func:`radial_spectrum`, :func:`radial_intensity` and
+  :func:`fluence_along` (at every plane that kept its field).
+- On the axis: :func:`on_axis_spectra`, :func:`on_axis_power` and
+  :func:`on_axis_spectrogram`.
+- :func:`far_field`: the plane's angular spectrum, read onto :data:`FAR_FIELD_ANGLES`
+  angles. The transverse wavevector is conserved through a window into vacuum, so
+  ``sin(theta) = c k_r / omega`` is the angle outside the medium, and a column beyond
+  it has left no light there.
 """
 
 from collections.abc import Mapping

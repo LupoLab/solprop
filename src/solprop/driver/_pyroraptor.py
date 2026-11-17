@@ -5,15 +5,16 @@
 """Run Pyroraptor inside the source worker: the TDSE binding's provider adapter.
 
 The one place solprop imports the optional provider, and only in the worker
-(:mod:`solprop.driver._source_worker`, SEP 49 section 6.5). It builds the provider's
-models and plans from the plain records the binding sends, makes its atomic calls and
-returns their results as plain records, with the provider's errors classified. Budgets,
-the archive, validation, normalisation and warnings stay in the binding
-(:mod:`solprop.driver.tdse`), in solprop's own process.
-
-Requests: ``basis_from_preset``, ``hacc_preset`` and ``hacc_basis`` (queries); then for
-a run ``prepare``, ``build_plans`` and ``evaluate``; for a consistency check
-``diagnostic_plan``, ``diagnostic_evaluate`` and ``diagnostic_close``.
+(:mod:`solprop.driver._source_worker`, SEP 49 section 6.5). :func:`make_adapter` returns
+the :class:`PyroraptorAdapter`, which builds the provider's models and plans from the
+plain records the binding sends, makes its atomic calls and returns their results as
+plain records, with the provider's errors classified; :func:`check_info` requires a haCC
+plan's or result's ``info`` to describe exactly its model. Budgets, the archive,
+validation, normalisation and warnings stay in the binding (:mod:`solprop.driver.tdse`),
+in solprop's own process. Requests: ``basis_from_preset``, ``hacc_preset`` and
+``hacc_basis`` (queries); then for a run ``prepare``, ``build_plans`` and ``evaluate``;
+for a consistency check ``diagnostic_plan``, ``diagnostic_evaluate`` and
+``diagnostic_close``.
 """
 
 import importlib

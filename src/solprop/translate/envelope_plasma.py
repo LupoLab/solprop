@@ -4,8 +4,22 @@
 
 """Compile validated cycle integrals and the envelope plasma spectral assembly.
 
-Only numeric, read-only data cross into a backend. Density and population histories
-are not part of the cycle cache; they are evaluated afresh for every RHS input.
+The envelope plasma response
+(:class:`solprop.nonlinear.envelope_plasma.EnvelopePlasmaResponse`) is compiled here
+into numeric, read-only data for a backend; density and population histories are not
+part of the cycle cache and are evaluated afresh for every RHS input.
+
+- :class:`CycleIntegralData` (:func:`build_cycle_integrals`): a rate table with its
+  :class:`AngularRule` ladder and the independent :class:`CycleValidation`;
+  :func:`cycle_moments` evaluates its two directional loss moments.
+- :class:`EnvelopePlasmaChannel`, :class:`EnvelopeSourceFactors`
+  (:func:`source_factors`) and :class:`EnvelopePlasmaAssembly`: one population's
+  binding, the coarse-axis inverse-frequency multipliers and the currents' spectral
+  assembly; :func:`assembly_record` describes the approximation for a run's record.
+
+:func:`solprop.translate.responses.compile_responses` builds them, ``numpy_ref``'s
+plasma pass evaluates :func:`cycle_moments`, and the driver records
+:func:`assembly_record`. The derivation is ``docs/guide/media/envelope-plasma.md``.
 """
 
 import hashlib
@@ -27,7 +41,7 @@ from solprop.grid import EnvelopeGrid
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.ionisation import IonisationRate
 from solprop.translate.chebyshev import PiecewiseChebyshev
-from solprop.translate.ionisation import RateTable, _frozen_table, build_rate_table
+from solprop.translate.ionisation import RateTable, build_rate_table, frozen_table
 
 __all__ = [
     "AngularRule",
@@ -181,7 +195,7 @@ class CycleIntegralData:
             raise TranslationError("unvalidated envelope plasma cycle representation")
         # A table solprop already holds, as a material update reuses, is taken as it
         # stands; a caller's table is copied.
-        object.__setattr__(self, "rate", _frozen_table(self.rate))
+        object.__setattr__(self, "rate", frozen_table(self.rate))
 
 
 @dataclass(frozen=True, eq=False)

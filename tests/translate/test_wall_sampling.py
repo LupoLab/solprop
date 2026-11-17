@@ -5,7 +5,7 @@
 """The coherent wall assembly samples each channel's frequency-only terms once.
 
 The terms a Marcatili index is built from do not depend on ``z``, so inside the wall
-assembly's scope (:func:`solprop.modes.capillary._shared_sampling`) a mode samples its
+assembly's scope (:func:`solprop.modes.capillary.shared_sampling`) a mode samples its
 gas and cladding models once per frequency vector instead of at every position the
 generator, the connection, the normalisation term and the passivity allowance read. The
 factorisation is pure translation: the shared terms are the results of the same function
@@ -21,7 +21,8 @@ import pytest
 
 from driver.test_coherent_capillary import varying
 from solprop.exceptions import GrazingIncidenceWarning, MaterialRangeWarning
-from solprop.modes.capillary import CoherentWall, MarcatiliMode, _shared_sampling
+from solprop.modes.capillary import MarcatiliMode, shared_sampling
+from solprop.modes.wall import CoherentWall
 from solprop.translate import assembly as assembly_module
 
 pytestmark = [
@@ -58,7 +59,7 @@ def test_a_scope_returns_the_terms_it_already_sampled_read_only():
     outside = mode.sampled_terms(OMEGA)
     assert mode.sampled_terms(OMEGA) is not outside
     assert outside.cladding_term.flags.writeable
-    with _shared_sampling():
+    with shared_sampling():
         first = mode.sampled_terms(OMEGA)
         assert mode.sampled_terms(OMEGA.copy()) is first
         assert mode.sampled_terms(OMEGA[:3]) is not first
@@ -75,7 +76,7 @@ def test_the_scope_keeps_its_own_copy_of_the_frequencies():
     """A caller that later writes into its frequency vector changes nothing held."""
     mode = MarcatiliMode(50e-6, "He", 1.0)
     omega = OMEGA.copy()
-    with _shared_sampling():
+    with shared_sampling():
         held = mode.sampled_terms(omega)
         omega[0] *= 1.5
         assert held.omega[0] == OMEGA[0]
@@ -85,7 +86,7 @@ def test_the_scope_keeps_its_own_copy_of_the_frequencies():
 def test_the_scope_ends_when_its_block_raises():
     """A translation that fails leaves no shared terms behind."""
     mode = MarcatiliMode(50e-6, "He", 1.0)
-    with pytest.raises(RuntimeError, match="stop"), _shared_sampling():
+    with pytest.raises(RuntimeError, match="stop"), shared_sampling():
         mode.sampled_terms(OMEGA)
         raise RuntimeError("stop")
     assert mode.sampled_terms(OMEGA).cladding_term.flags.writeable
@@ -112,7 +113,7 @@ def test_a_varying_wall_translates_exactly_as_it_did_and_samples_far_less(
     shared = varying(wall=CoherentWall()).translate()
     shared_count = calls["count"]
     calls["count"] = 0
-    monkeypatch.setattr(assembly_module, "_shared_sampling", contextlib.nullcontext)
+    monkeypatch.setattr(assembly_module, "shared_sampling", contextlib.nullcontext)
     unshared = varying(wall=CoherentWall()).translate()
     unshared_count = calls["count"]
     before = _arrays(unshared.linear)

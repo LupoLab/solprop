@@ -4,36 +4,28 @@
 
 r"""The coupling models of SEP 31 section 4.3 and the scalar mode profiles they use.
 
-:class:`CouplingModel` selects one of three models and carries its approximation
-budget:
+:class:`CouplingModel` selects one of the three models (:data:`ModelKind`,
+:data:`MODEL_KINDS`) and carries its approximation budget, from which
+:func:`cone_angle` gives the admitted cone half-angle:
 
-``same_basis``
-    Exact coordinate recovery in a checked common reference: a copy for an identical
-    basis, a declared invertible :class:`BasisChange`, or the flux-pairing recovery
-    :math:`\mathbf a = F^{-1}\mathbf B` of a general modal plane into a port of the
-    same guide. Not an interface calculation, so it takes no budget.
-``scalar_paraxial``
-    The weighted least-squares fit :math:`G = S^\dagger M S`,
-    :math:`\mathbf a = G^{-1}S^\dagger M\mathbf f` of a scalar field onto scalar
-    target profiles in the common paraxial measure :math:`M_0 = Y_0\,dA/2`,
-    :math:`Y_0 = n_{\rm ref}\varepsilon_0c`, followed by the conversion to the
-    target's native true-power coefficients :math:`b = \sqrt{\operatorname{Re}
-    n_{\rm eff}}\,a`.
-``vector_paraxial``
-    The flux-pairing recovery :math:`\mathbf a = F^{-1}\mathbf B` onto a general
-    modal provider's E/H at its nodes, with the incident H or the forward closure
-    :math:`\mathbf H_t = Y_0\hat{\mathbf z}\times\mathbf E_t`.
+- ``same_basis``, exact coordinate recovery in a checked common reference (a copy, a
+  declared invertible :class:`BasisChange`, or the flux-pairing recovery
+  :math:`\mathbf a = F^{-1}\mathbf B` of a general modal plane into its own guide),
+  with no budget;
+- ``scalar_paraxial``, the weighted least-squares fit onto scalar target profiles in
+  the common paraxial measure :math:`M_0 = Y_0\,dA/2`, converted to the target's
+  true-power coefficients;
+- ``vector_paraxial``, the flux-pairing recovery onto a general modal provider's E/H.
 
-:class:`ScalarModeBasis` is the scalar transverse profile set the scalar model uses:
-the capillary :math:`HE_{1m}` family, :math:`J_0(u_m r/a)` inside the core and zero
-outside (SEP 31 section 4.4), and the weak-guidance :math:`LP_{0m}` family of a
-step-index fibre, :math:`J_0(Ur/a)` inside and :math:`J_0(U)K_0(Wr/a)/K_0(W)`
-outside (Snyder and Love 1983, section 14-3; Gloge 1971). Each profile is normalised
-to unit area integral of its square, and its order-zero Hankel transform is
-evaluated in closed form, so an overlap can be taken in a plane's own spectral
-quadrature without sampling a profile's kink.
-
-The manual page is ``docs/guide/workflows/coupling.md``.
+:class:`ScalarModeBasis` (:data:`ProfileFamily`) is the scalar profile set: the
+capillary :math:`HE_{1m}` family :math:`J_0(u_m r/a)`, zero outside the core, and the
+weak-guidance :math:`LP_{0m}` family of a step-index fibre (Snyder and Love 1983,
+section 14-3; Gloge 1971), each normalised to unit area integral of its square with a
+closed-form order-zero Hankel transform, so an overlap is taken in a plane's own
+spectral quadrature without sampling the profile's kink. :func:`radial_rule` is the
+composite Gauss-Legendre rule for a radial overlap. The models' formulas are in
+``docs/guide/workflows/coupling.md``, section "Coupling between different
+representations".
 """
 
 import itertools
@@ -52,7 +44,7 @@ from solprop.exceptions import CouplingError
 from solprop.grid import TimeGrid
 from solprop.modes.capillary import MarcatiliMode
 from solprop.modes.protocol import Mode
-from solprop.modes.stepindex import StepIndexMode, _material
+from solprop.modes.stepindex import StepIndexMode, real_index_and_slope
 
 __all__ = [
     "MODEL_KINDS",
@@ -803,15 +795,17 @@ class ScalarModeBasis:
                 raise CouplingError(msg)
         radius = float(first._radius(z))
         omega_p = 2.0 * math.pi * 299792458.0 / first.profile_wavelength
-        core_p = float(_material(first._core, np.array([omega_p]))[0][0])
-        cladding_p = float(_material(first._cladding, np.array([omega_p]))[0][0])
+        core_p = float(real_index_and_slope(first._core, np.array([omega_p]))[0][0])
+        cladding_p = float(
+            real_index_and_slope(first._cladding, np.array([omega_p]))[0][0]
+        )
         v = omega_p / 299792458.0 * radius * math.sqrt(core_p**2 - cladding_p**2)
         parameters = [_lp_parameter(v, mode.m) for mode in modes]
         live = grid.active_mask & (grid.omega > 0)
         core = np.zeros(grid.n_omega)
         cladding = np.zeros(grid.n_omega)
-        core[live] = _material(first._core, grid.omega[live])[0]
-        cladding[live] = _material(first._cladding, grid.omega[live])[0]
+        core[live] = real_index_and_slope(first._core, grid.omega[live])[0]
+        cladding[live] = real_index_and_slope(first._cladding, grid.omega[live])[0]
         jones = np.array(
             [[1.0, 0.0] if mode.parity == "even" else [0.0, 1.0] for mode in modes]
         )

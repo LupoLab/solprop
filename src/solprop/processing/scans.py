@@ -2,10 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Read collected scans and declare reductions evaluated inside workers.
+"""Declare scan reductions evaluated inside workers, and read collected scans.
 
-All numerical definitions come from the ordinary output processing functions.
-Missing points are masked, never presented as successful zero-valued results.
+- :class:`Reduction` is a worker-side calculation with its storage contract: the
+  built-ins :func:`spectrum_in_band`, :func:`energy_in_band`, :func:`energy_in_window`,
+  :func:`peak_power`, :func:`mode_energies`, :func:`field_at_plane`,
+  :func:`on_axis_intensity` and :func:`beam_radius`, and :func:`custom` for one of your
+  own. Their numerical definitions are the ordinary processing functions.
+- :func:`open_scan` returns a :class:`ScanOutput`, which reads a collected file without
+  holding it open, under the shared lock of ``solprop.output._scan_lock``. Missing
+  points are masked, never presented as successful zero-valued results.
+
+The manual page is ``docs/guide/workflows/scans.md`` ("Retention, reductions and
+reading").
 """
 
 import hashlib

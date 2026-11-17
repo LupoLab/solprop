@@ -12,8 +12,8 @@ import pytest
 from numpy.testing import assert_allclose
 from witness_materials import absorbing_silica, malitson_silica
 
-import solprop.modes._stepindex_vector as vector_module
 import solprop.modes.guide as guide_module
+import solprop.modes.stepindex_vector as vector_module
 from modal_provider_cases import OMEGA, make_provider
 from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError
@@ -29,13 +29,13 @@ from solprop.modes.guide import (
 )
 from solprop.modes.material import IndexMaterial, MaterialKerr, MaterialRegion
 from solprop.modes.protocol import ChannelLabel
+from solprop.modes.tables import channel_area
 from solprop.modes.tabulated import _SampledIndexTable
 from solprop.modes.vector import ModalNodeRule, ModalProvider
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.physdata import fused_silica
 from solprop.polarisation import stokes
 from solprop.profiles import Linear
-from solprop.translate.modal_tables import channel_area
 
 
 @pytest.fixture(scope="module")
@@ -389,7 +389,7 @@ def test_a_region_law_the_construction_check_admits_is_checked_again_at_the_solv
         MaterialRegion("core", 0.0, mode.core_radius, material),
         MaterialRegion("cladding", mode.core_radius, None, IndexMaterial(1.0)),
     )
-    provider = guide_module.StepIndexProvider((mode,), regions)
+    provider = vector_module.StepIndexProvider((mode,), regions)
     nodes = provider.node_rule(OMEGA, n_r=24)
     with pytest.raises(ModeError, match="material differs"):
         provider.solve(omega, 0.0, nodes=nodes)
@@ -501,7 +501,7 @@ def test_a_guide_refuses_regions_and_channels_that_are_not_its_providers():
 def test_numerical_certificates_fail_closed(monkeypatch):
     p = make_provider(radius=250e-9)
     nodes = p.node_rule(OMEGA, n_r=12)
-    monkeypatch.setattr(guide_module, "_power", lambda *args: (1.0, 2.0))
+    monkeypatch.setattr(vector_module, "_power", lambda *args: (1.0, 2.0))
     with pytest.raises(ModeError, match="tail"):
         p.node_rule(OMEGA)
     with pytest.raises(ModeError, match="norm"):
@@ -556,13 +556,13 @@ def test_the_vector_field_names_and_checks_its_cartesian_positions():
 def test_bad_boundary_trace_is_refused(monkeypatch):
     p = make_provider(radius=250e-9)
     nodes = p.node_rule(OMEGA, n_r=12)
-    original = guide_module._fields
+    original = vector_module._fields
 
     def broken(*args, **kwargs):
         e, h = original(*args, **kwargs)
         return (2 * e if kwargs.get("exterior") else e), h
 
-    monkeypatch.setattr(guide_module, "_fields", broken)
+    monkeypatch.setattr(vector_module, "_fields", broken)
     with pytest.raises(ModeError, match="boundary residual"):
         p.solve(OMEGA, 0.0, nodes=nodes)
 

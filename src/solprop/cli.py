@@ -2,13 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The ``solprop`` command line: run, check, export and resume recipes (SEP 41, S1).
+"""The ``solprop`` command line: run, resume, check and export recipes (SEP 41, S1).
 
+Six commands, parsed by ``_parser`` and dispatched by :func:`main`:
 ``solprop run recipe.toml -o out.h5`` builds and runs a recipe, ``solprop resume
-out.h5`` continues it from the file alone, ``solprop check``
+out.h5`` continues it from the file and the recipe it records, ``solprop check``
 reports what stops it building, ``solprop export --python`` prints the equivalent
 script, ``solprop scan`` is ``python -m solprop.scan``, and ``solprop calibrate``
-measures, shows or forgets the native backend's machine profile (SEP 46). The same
+measures, shows, exports, imports or forgets the native backend's machine profile
+(:mod:`solprop.calibration.command`, SEP 46). A run maps SIGINT and SIGTERM onto its
+stop flag (``_stopping``), so the first signal writes its state and returns. The same
 commands run as ``python -m solprop``. The manual page is
 ``docs/guide/setup/recipes.md``.
 """

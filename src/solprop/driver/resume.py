@@ -4,9 +4,12 @@
 
 """Continue a run from the file it wrote: the resume decision and the restart.
 
-A resumed run reads its file's last plane, checks that it may continue from it, and
-loads the backend at that plane, with the history it needs for its stepper. The manual
-page is ``docs/guide/setup/running.md``.
+A resumed run opens its output (``_open_output``), reads its file's last plane, checks
+that it may continue from it (``_validate_resume``, ``_continues``: the file's key, an
+interpolated last plane, the work left), and loads the backend at that plane with the
+history its stepper needs (``_start``, ``_continue_march``), adopting the noise seed
+the file recorded. The simulation and the runner call these; every function here is
+private. The manual page is ``docs/guide/results/resuming.md``.
 """
 
 import logging

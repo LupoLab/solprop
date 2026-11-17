@@ -6,9 +6,12 @@
 
 :func:`resolve_transverse` turns a :class:`~solprop.spatial_absorber.SpatialAbsorber`
 into a :class:`~solprop.spatial_absorber.SpatialAbsorberDesign` against the grid, the
-medium over the requested band and along the run, and the noise-free launch: the
-safety ramp's rate on the spectral columns and, when a collar is asked for, its rate
-on the nodes, its band, its strength and its step limit. The formulas are
+medium over the requested band and along the run (:func:`band_wavenumbers`), and the
+noise-free launch: the safety ramp's rate on the spectral columns and, when a collar is
+asked for, its rate on the nodes, its band, its strength and its step limit.
+:func:`checked_design` runs the collar's design check
+(:mod:`solprop.translate.collar_check`) and refuses a failing design, naming the first
+larger collar fraction of :data:`LADDER` that passes. The formulas are
 :mod:`solprop.spatial_absorber`'s; this module only gathers what they are evaluated on.
 """
 

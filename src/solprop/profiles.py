@@ -2,42 +2,27 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Scalar paths along the propagation axis, with breakpoints and derivatives.
+"""Scalar paths along the propagation axis, with breakpoints and derivatives.
 
-A ``ZProfile`` is a scalar function of ``z``: the gas density in a pressure
-gradient, the core radius of a taper, a pre-ionisation fraction. The cumulative
-linear operator is built by resolving these paths first and taking the union of the
-edges they produce as the mandatory split of the expensive array-valued operator
-(:func:`solprop.translate.chebyshev.build_from_paths`, ``docs/dev/stepper.md`` section
-4), so a profile has to offer three things:
+A path (:class:`ZProfile`) is a scalar function of ``z`` -- a gas density, a core
+radius, a pre-ionisation fraction -- offering vectorised evaluation, declared
+breakpoints and an analytic derivative or an honest declaration that there is none,
+which is what the cumulative linear operator's builder needs
+(:func:`solprop.translate.chebyshev.build_from_paths`).
 
-* **vectorised evaluation**, because the builder samples at Chebyshev points in blocks;
-* **declared breakpoints**, because a stage boundary is a hard kink that the adaptive
-  split must never straddle and the stepper must land on;
-* an **analytic derivative** where one exists, and an honest declaration where it does
-  not, so that a caller can tell a converged quantity from a differenced one.
+- **Shapes**: :class:`Constant`, :class:`Linear`, :class:`PiecewiseLinear` and
+  :class:`FromCallable`; :func:`as_profile` turns a number into a path.
+- **Fills**: :class:`PressureGradient`, the steady-flow fill with every stage boundary a
+  breakpoint and a taper's pressure drop following :func:`hydraulic_integral`;
+  :class:`DensityPath`, the number density of a gas along a pressure path.
+- **Composition**: :class:`Sum`, :class:`Scaled` and :class:`SeriesOfPath` (a smooth
+  function of another path); :class:`PathVariation` describes a path's monotone pieces.
+- **Identity**: :func:`profile_identity`, a path's exact structural identity.
 
-A profile is directly usable as a path: ``build_from_paths([profile], ...)`` works
-through ``__call__``, and the caller passes the union of the profiles' ``breakpoints``
-as ``mandatory_breakpoints``.
-
-**Pressures are in bar** at this interface, the one documented departure from SI
-(``docs/dev/conventions.md`` section 1); positions are in metres and densities in m^-3.
-
-Vacuum ends. The steady-flow fill :math:`p(z) = \sqrt{p_0^2 + (z/L)(p_1^2 - p_0^2)}` has
-:math:`\mathrm{d}p/\mathrm{d}z = (p_1^2 - p_0^2)/(2Lp)`, which diverges where
-:math:`p \to 0`. A fill that reaches exactly zero therefore caps every integration
-scheme at about third order however small the step (``docs/dev/stepper.md`` section 10,
-trap 5), silently. :class:`PressureGradient` refuses such a stage end and substitutes a
-small floor, logging what it did; the floor is relative to the highest pressure of the
-fill, so it behaves the same for a 0.8 bar gradient and a 40 bar one. A fill built by
-:func:`solprop.gasflow.steady_fill` from the gas and the bore replaces a vacuum end by
-its choked pressure instead, which is physical rather than numerical.
-
-Tapers. Given the core radius, :class:`PressureGradient` makes :math:`p^2` linear in the
-hydraulic resistance :math:`\int a^{-4}\,\mathrm{d}z` rather than in ``z`` (Pennetta et
-al., APL Photonics 4, 056105 (2019), eq. 6), so a narrow waist carries most of the
-pressure drop; :func:`hydraulic_integral` evaluates that resistance.
+Pressures are in **bar**, the one documented departure from SI
+(``docs/dev/conventions.md`` §1); positions are in metres and densities in m^-3. The
+manual page ``docs/guide/waveguides/profiles.md`` explains the interface, the vacuum-end
+floor and the taper law.
 """
 
 import hashlib
@@ -52,6 +37,7 @@ from typing import Final, Protocol, cast, runtime_checkable
 import numpy as np
 from jaxtyping import Bool, Float, Int
 from numpy.polynomial import Chebyshev
+from scipy.integrate import quad
 from scipy.interpolate import CubicSpline
 
 from solprop._display import Displayed, engineering, line, summarise
@@ -2582,6 +2568,51 @@ def _probe_positions(path: ZProfile) -> Float[np.ndarray, " n_probes"]:
     return np.unique(
         np.concatenate([np.asarray(path.breakpoints, dtype=float), interior])
     )
+
+
+def _weighted_mean(
+    value: ZProfile,
+    weight: ZProfile,
+    start: float,
+    end: float,
+    kinks: Float[np.ndarray, " n_kinks"],
+) -> float | None:
+    """Return the mean of one path weighted by another over a finite span.
+
+    The integrals are taken by adaptive quadrature between the span's ends and the
+    kinks, so that each piece is smooth.
+
+    - ``start``, ``end``: the finite span in m.
+    - ``kinks``: positions in m inside the span where the value or the weight kinks.
+    - Returns: ``int w v dz / int w dz``, or ``None`` when ``int w dz`` is not positive.
+    """
+    edges = np.unique(np.concatenate([[start, end], kinks]))
+
+    def weighted(z: float, power: int) -> float:
+        """Return ``w(z) v(z)^power`` at one position.
+
+        - ``z``: position in m.
+        """
+        position = np.array([z])
+        scale = float(weight(position)[0])
+        return scale * float(value(position)[0]) ** power
+
+    totals = [0.0, 0.0]
+    for left, right in itertools.pairwise(edges):
+        for power in (0, 1):
+            part, _ = quad(
+                weighted,
+                left,
+                right,
+                args=(power,),
+                epsabs=0.0,
+                epsrel=1e-10,
+                limit=200,
+            )
+            totals[power] += part
+    if not totals[0] > 0.0:
+        return None
+    return totals[1] / totals[0]
 
 
 def _checked_temperature(value: object, owner: str = "") -> float | ZProfile:

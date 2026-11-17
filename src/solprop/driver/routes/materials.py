@@ -4,8 +4,11 @@
 
 """Resolve a route's built-in materials under a material selection (SEP 3).
 
-Also the policy checks a route applies to its selection: the carrier, and the
-electronic policy its responses can honour.
+``_selected_guide`` resolves a guide's default delayed silica response and
+``_default_cladding`` a numbered capillary set's cladding under the selection; the
+policy checks a route applies to it are the carrier (``_check_selection_carrier``) and
+the electronic policy its responses can honour (``_check_electronic_policy``,
+``_refuse_dispersive_policy``).
 """
 
 import dataclasses
@@ -14,8 +17,9 @@ from collections.abc import Sequence
 from solprop.exceptions import DriverError
 from solprop.modes.capillary import GlassIndex
 from solprop.modes.graded_index import GradedIndexProvider
-from solprop.modes.guide import ModalGuide, StepIndexProvider
+from solprop.modes.guide import ModalGuide
 from solprop.modes.material import MaterialRegion
+from solprop.modes.stepindex_vector import StepIndexProvider
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.nonlinear.responses import KerrResponse
 from solprop.physdata import fused_silica

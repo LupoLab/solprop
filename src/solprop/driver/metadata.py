@@ -5,8 +5,10 @@
 """The record that says what produced a run, and whether it may be resumed.
 
 :func:`metadata_for` builds a run's :class:`solprop.output.metadata.RunMetadata`: its
-grid, modes, configuration, stepper, plane bases and recipe. The manual page is
-``docs/guide/setup/running.md``.
+grid, modes, configuration, stepper, plane bases and recipe, whose configuration hash
+is the resume key. :class:`RecipeSource` is what the driver needs of the recipe that
+built a simulation: the record its output keeps. The manual pages are
+``docs/guide/setup/running.md`` and ``docs/guide/results/resuming.md``.
 """
 
 import dataclasses

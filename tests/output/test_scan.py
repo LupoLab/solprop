@@ -18,13 +18,14 @@ import h5py
 import numpy as np
 import pytest
 
+from solprop._file_lock import lock, unlock
+from solprop._identity import text_digest
 from solprop.driver.scan import Scan
 from solprop.exceptions import OutputError, ProcessingError
-from solprop.output._file_lock import lock, unlock
 from solprop.output._scan_lock import lock_path, read_scan
 from solprop.output.hdf5 import _dataset, _group
 from solprop.output.metadata import SCHEMA_VERSION, _example_metadata
-from solprop.output.scan import PointResult, ScanWriter, _hash, _json, read_point
+from solprop.output.scan import PointResult, ScanWriter, _json, read_point
 from solprop.processing.scans import ScanOutput, open_scan
 
 
@@ -265,7 +266,7 @@ def _declare_schema(path, index, version):
     """Point a staged record's schema_version at a common record of `version`."""
     with h5py.File(path, "a") as file:
         text = _json(version)
-        digest = _hash(text)
+        digest = text_digest(text)
         if f"common/{digest}" not in file:
             _group(file, "common").create_dataset(
                 digest, data=text, dtype=h5py.string_dtype()

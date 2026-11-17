@@ -116,8 +116,10 @@ The launched energy is the pulse's, to the last bit.
 channels as `channel=` does and refused beside it
 ([launching into chosen modes](../setup/pulses.md#launching-into-chosen-modes)). In the
 provider's own coordinates the shares are energy fractions. On a guide that declares a
-change of basis they are a coordinate split: the coefficients are scaled so that their
-energy under the basis's flux metric is the pulse's, and the run records
+change of basis, whose flux metric $W$ has cross terms, the energy $a^\dagger W a$ of the
+coefficients depends on their relative phases, so the shares are a coordinate split:
+relative amplitudes squared, with the coefficients scaled so that their energy under
+the basis's flux metric is the pulse's, and the run records
 `"split": "coordinate"` in `configuration["modal_launch"]`.
 
 **`incident=` launches an incident beam instead.** Where `channel=` names one channel,

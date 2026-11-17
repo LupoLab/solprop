@@ -9,6 +9,15 @@ This module imports solprop and runs only in the kernel process (it is imported 
 request's payload and returns plain data: numbers, strings, lists, dicts and NumPy
 arrays. None computes physics of its own; where solprop offers no call for a number,
 the number is not shown.
+
+:data:`HANDLERS` is the request table: the recipe's own requests here (the examples,
+:func:`describe`, :func:`check`, :func:`summarise`, :func:`design`,
+:func:`preview_input`, :func:`estimate`, :func:`to_python`), a results file's
+(:func:`check_resume`, :func:`describe_output`, :func:`recipe_of`, :func:`overview`),
+and the tables of :mod:`~solprop.service.design`, :mod:`~solprop.service.sheet`,
+:mod:`~solprop.service.waveguide`, :mod:`~solprop.service.results`,
+:mod:`~solprop.service.radial_pages`, :mod:`~solprop.service.postprocess` and
+:mod:`~solprop.service.figures`.
 """
 
 import contextlib
@@ -28,10 +37,10 @@ from solprop.recipe.metadata import REQUIRED, per_unit_width
 from solprop.recipe.quantity import Unit, format_quantity
 from solprop.recipe.registry import REGISTRY
 from solprop.service._payload import Payload, read_recipe
-from solprop.service.beams import BEAM_HANDLERS
 from solprop.service.design import DESIGN_HANDLERS, pin_targets
 from solprop.service.figures import FIGURE_HANDLERS
 from solprop.service.postprocess import POSTPROCESS_HANDLERS
+from solprop.service.radial_pages import BEAM_HANDLERS
 from solprop.service.reduce import (
     SPECTRAL_AXES,
     TIME_OVERSAMPLING,

@@ -16,7 +16,7 @@ import pytest
 from tests.driver.test_sep12_sep14_integration import _Binding
 from tests.hacc_cases import hacc_response, plain, preset_basis
 
-import solprop.driver.tdse_run as tdse_run_module
+import solprop.driver.routes.hollow as hollow_route
 from record_numbers import (
     assert_record_numbers,
     record_skeleton,
@@ -171,7 +171,7 @@ def test_tdse_execution_alone_and_a_foreign_record_are_refused():
     with pytest.raises(DriverError, match="tdse_execution requires"):
         _capillary(tdse_execution=TDSEExecution())
     # The record's own check, beneath the test session's annotation checker.
-    entry = inspect.unwrap(tdse_run_module._tdse_entry)
+    entry = inspect.unwrap(hollow_route._tdse_entry)
     with pytest.raises(DriverError, match="must be a TDSEGasResponse"):
         entry(
             object(),

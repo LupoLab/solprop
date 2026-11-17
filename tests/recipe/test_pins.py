@@ -387,6 +387,16 @@ def test_a_route_that_does_not_build_is_refused_on_the_pin():
         solve_pin("gnlse", {}, "pressure", ZDW(500e-9), (0.1, 1.0))
 
 
+def test_a_pressure_pin_beside_a_temperature_path_is_refused_on_the_pin():
+    # Regression: the re-filled mode took its density at a scalar temperature, so a
+    # temperature path reached the equation of state and raised a TypeError.
+    path = {"type": "Linear", "start": 293.15, "end": 400.0, "length": 1.0}
+    recipe = pinned({"pressure": ZDW_PIN}, drop=("pressure",), temperature=path)
+    with pytest.raises(RecipeError, match="temperature is a path") as caught:
+        recipe.resolve()
+    assert caught.value.path == "pressure"
+
+
 @pytest.mark.medium
 @pytest.mark.child_runs_auto
 def test_an_rdw_pin_with_its_pulse_exports_its_solver_call(tmp_path):

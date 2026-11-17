@@ -8,37 +8,14 @@ A recipe value is either a bare number, taken in the keyword's own unit, or a qu
 string such as ``"125 um"``, ``"1.2 bar"`` or ``"2e14 W/cm^2"``, converted to that unit.
 The keyword's unit is the one its docstring states, so pressures stay in bar
 (``docs/dev/conventions.md``) and a bare ``1.2`` for a pressure means 1.2 bar.
-
-**The unit grammar.** A unit is a product of factors, with at most one solidus: a
-numerator of factors joined by ``*`` or ``·`` (or the single factor ``1``), then
-optionally ``/`` and one factor or a parenthesised product, as the SI brochure writes
-it (``W/cm^2``, ``fs^2/mm``, ``J/(m*s)``). ``a/b/c`` and ``a/b*c`` are refused as
-ambiguous. A factor is an optional SI prefix (``q`` to ``Q``; ``u``, ``µ`` and ``μ`` all
-read as micro), a symbol and an optional integer exponent ``^n`` or ``^-n``. The
-symbols are ``m``, ``s``, ``g``, ``Hz``, ``J``, ``W``, ``Pa``, ``bar``, ``K``, ``rad``
-and ``deg``. Temperature is in kelvin only: there is no Celsius or Fahrenheit. A
-whitespace between the number and the unit is optional (``"800nm"`` is read).
-
-**Angles are a dimension.** Plane angle is tracked as a fifth base dimension beside
-length, time, mass and temperature, so an angular frequency in rad/s is never confused
-with a frequency in Hz (a factor of 2π). A consequence is that ``rad`` is written only
-where the keyword's unit is an angle.
-
-**Exact conversion.** The number is read as a decimal, multiplied by the ratio of the
-two units' factors exactly in :mod:`decimal`, and rounded once to the nearest binary64
-value, so ``"800 nm"`` gives the double of the literal ``800e-9`` that a script writes.
-Every unit but ``deg`` is a decimal multiple of an SI unit, so the ratio only shifts
-the decimal exponent. ``deg`` multiplies by π/180, which has no finite decimal; it is
-carried to 70 significant digits, so the one rounding to binary64 gives the double
-nearest the exact angle unless the exact value lies within 10⁻⁷⁰ (relative) of a tie,
-which no recipe value does. ``deg`` therefore stands alone: it takes no prefix, no
-exponent and no other factor.
-
-**Writing back.** :func:`format_quantity` writes a double in a display unit with the
-fewest digits that read back to the same double. For a decimal display unit this is
-the shortest round-tripping representation of the double (Python's :func:`repr`) with
-its decimal point shifted, which is always exact; for ``deg`` it is the fewest of up
-to 17 significant digits that read back, which always suffice.
+:class:`Unit` is a parsed unit, its :class:`Dimension` tracking plane angle as a fifth
+base dimension beside length, time, mass and temperature; :func:`phase_unit` and
+:func:`beta_unit` are the per-order units of ``phases`` and ``betas``.
+:func:`parse_quantity` converts exactly in :mod:`decimal` with one rounding to
+binary64, and :func:`format_quantity` writes a double in a display unit with the
+fewest digits that read back to it. The unit grammar, and why the conversion and the
+writing back are exact (``deg`` included), are in the manual,
+``docs/guide/setup/recipes.md`` ("Values").
 """
 
 import decimal

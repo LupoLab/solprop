@@ -4,10 +4,11 @@
 
 """The gas species solprop knows about.
 
-Every built-in gas is a name here, and every material quantity of it comes from optmat
-(SEP 3): the linear law, the equation of state and transport, the Kerr coefficient,
-the Raman response and the ionisation rate all key off :class:`Gas`. A model variant is
-not a separate gas; it is chosen with a
+:class:`Gas` names every built-in gas, and every material quantity of it comes from
+optmat (SEP 3): the linear law, the equation of state and transport, the Kerr
+coefficient, the Raman response and the ionisation rate all key off it. :func:`as_gas`
+coerces a name, and :func:`is_molecule` and :func:`is_air` classify one. A model variant
+is not a separate gas; it is chosen with a
 :class:`~solprop.physdata.selection.MaterialSelection`.
 """
 
@@ -15,7 +16,7 @@ from enum import StrEnum
 
 from solprop.exceptions import MaterialError
 
-__all__ = ["Gas", "as_gas", "is_molecule"]
+__all__ = ["Gas", "as_gas", "is_air", "is_molecule"]
 
 
 class Gas(StrEnum):
@@ -118,3 +119,31 @@ def is_molecule(gas: Gas | str) -> bool:
     (False, True, True)
     """
     return as_gas(gas) not in _MONATOMIC
+
+
+def is_air(material: Gas | str) -> bool:
+    """Return whether a built-in gas's name means air.
+
+    Unlike :func:`as_gas`, which is case-sensitive, this accepts the spelling the
+    interface takes for air: ``"air"`` in any case, with surrounding whitespace
+    ignored. Any other name, known or not, is simply not air; nothing is refused.
+
+    Parameters
+    ----------
+    material : Gas or str
+        The name given to the interface.
+
+    Returns
+    -------
+    bool
+        ``True`` for ``Gas.Air`` and for ``"air"`` in any case.
+
+    Examples
+    --------
+    >>> from solprop.physdata import Gas, is_air
+    >>> is_air(Gas.Air), is_air(" AIR "), is_air("Ar")
+    (True, True, False)
+    """
+    if isinstance(material, Gas):
+        return material is Gas.Air
+    return material.strip().lower() == "air"
