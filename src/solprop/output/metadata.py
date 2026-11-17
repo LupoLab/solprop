@@ -82,21 +82,23 @@ _ELEMENT_INDICES = re.compile(r"(?:\[\d+\])+$")
 _ARRAY_PART = re.compile(r"\.__(?:ndarray|imaginary)__$")
 """The key of an array record's real or imaginary part, dropped from its stem."""
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 3
 """Version of the saved-output layout; incremented when a stored field changes meaning.
 
 Schema 1 is the first released layout, 0.1.0's: the record types of this module, written
 by :class:`solprop.output.memory.MemoryOutput` and
 :class:`solprop.output.hdf5.HDF5Output` as ``docs/guide/results/output.md`` describes
-them. Schema 2 records ``DataPulse.spectral_phase``. Schema 3 stores a march snapshot's
-state and engine rows without the leading axis of one they kept before. Schema 4 records
-no basis identities in the plane reference: a plane's basis is derived when it is read.
-A record that
-declares any other version is refused by name (:class:`RunMetadata`): files written by
-an earlier release or by development versions of solprop before 0.1.0, which declared
-output schemas up to 28, are not read, and nor is a file from a later release. Read such
-a file with the solprop version that wrote it.
+them. Schema 2, 0.2.0's, records ``DataPulse.spectral_phase``. Schema 3 stores a march
+snapshot's state and engine rows without the leading axis of one they kept before, and
+records no basis identities in the plane reference: a plane's basis is derived when it
+is read. A record that declares any other version is refused by name
+(:class:`RunMetadata`): files written by an earlier release or by development versions
+of solprop before 0.1.0, which declared output schemas up to 28, are not read, and nor
+is a file from a later release. Read such a file with the solprop version that wrote it.
 """
+
+_WRITTEN_BY = {1: "0.1", 2: "0.2"}
+"""The release series that wrote each earlier output schema, which its refusal names."""
 
 PEAK_FIELDS_ANNOTATION = "material_peak_fields"
 """Name of the post-run annotation holding the material manifest's peak-field report.
@@ -170,9 +172,20 @@ def _refuse_schema(declared: object) -> None:
         f"this record declares output schema_version {declared!r}, and this release "
         f"of solprop reads output schema {SCHEMA_VERSION} only: a file written by an "
         "earlier release, by a development version of solprop or by a later release is "
-        "not read; read it with the solprop version that wrote it"
+        f"not read; {_schema_remedy(declared)}"
     )
     raise OutputError(msg)
+
+
+def _schema_remedy(declared: object) -> str:
+    """Say which solprop reads a file of another output schema: its release if known."""
+    # A bool equals 0 or 1 but is not a schema number, so it names no release.
+    release = _WRITTEN_BY.get(declared) if type(declared) is int else None
+    if release is None:
+        return "read it with the solprop version that wrote it"
+    return (
+        f"output schema {declared} is solprop {release}.x's: read it with that release"
+    )
 
 
 def _stored_hashed(document: Mapping[str, JsonValue]) -> dict[str, JsonValue]:

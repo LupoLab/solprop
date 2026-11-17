@@ -619,6 +619,8 @@ class MemoryOutput(PlaneStore):
         )
         try:
             handler.open(metadata)
+            if self.recipe is not None:
+                handler.record_recipe(self.recipe)
             handler.reserve(self._n_saved)
             handler.retain(self.retention, self.field_shape)
             for plane in self.planes():

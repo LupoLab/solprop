@@ -53,7 +53,7 @@ from solprop.output.records import (
     StoredField,
     TerminalCheckpoint,
 )
-from solprop.output.serialisation import JsonValue
+from solprop.output.serialisation import JsonValue, _rebuild
 from solprop.output.store import (
     FieldRetention,
     FieldsChoice,
@@ -101,15 +101,23 @@ _MARCH_KEY = "march_snapshot"
 def _read_outcome(file: h5py.File) -> RunOutcome | None:
     """Read the execution status a file records, if it records one.
 
+    Read as the record is (:func:`~solprop.output.serialisation._rebuild`), so that
+    another build's status reads: an entry this build lacks is dropped and an absent
+    one takes its default.
+
     - Returns: validated execution status; ``None`` when the file records none.
     """
     if _OUTCOME_KEY not in file:
         return None
-    stored = _dataset(file, _OUTCOME_KEY)[()]
-    text = stored.decode("utf-8") if isinstance(stored, bytes) else str(stored)
-    record = json.loads(text)
-    record["previous_executions"] = tuple(record["previous_executions"])
-    return RunOutcome(**record)
+    try:
+        record = json.loads(_text(_dataset(file, _OUTCOME_KEY)[()]))
+        if not isinstance(record, dict):
+            raise OutputError("it is not a JSON object")
+        record["previous_executions"] = tuple(record.get("previous_executions", ()))
+        return _rebuild(RunOutcome, record, ("outcome",))
+    except (ValueError, TypeError, OutputError) as error:
+        msg = f"{file.filename}: cannot read the execution status it records: {error}"
+        raise OutputError(msg) from error
 
 
 def _overwrite(group: h5py.Group, name: str, data: np.ndarray) -> None:
@@ -426,11 +434,19 @@ def _write_record(file: h5py.File, metadata: RunMetadata) -> None:
 
 
 def _read_record(file: h5py.File) -> RunMetadata:
-    """Return the run record of an open file, with the arrays beside it."""
+    """Return the run record of an open file, with the arrays beside it.
+
+    A record that cannot be read, or declares another output schema, is refused with the
+    file's name.
+    """
+    text = _read_json(file)
     held = file.get(_RECORD_ARRAYS_KEY)
-    return RunMetadata.from_json(
-        _read_json(file), held if isinstance(held, h5py.Group) else None
-    )
+    try:
+        return RunMetadata.from_json(
+            text, held if isinstance(held, h5py.Group) else None
+        )
+    except OutputError as error:
+        raise OutputError(f"{file.filename}: {error}") from error
 
 
 _RECIPE_KEY = "recipe"
@@ -933,13 +949,13 @@ class HDF5Output(PlaneStore):
             raise OutputError(msg) from error
         try:
             self._metadata = _read_record(file)
-        except OutputError:
+            self._adopt_state(file)
+            self._annotations = _read_annotations(file)
+            self._recipe = read_recipe(file)
+        except BaseException:
             file.close()
             raise
         self._file = file
-        self._adopt_state(file)
-        self._annotations = _read_annotations(file)
-        self._recipe = read_recipe(file)
 
     def _open_file(self) -> h5py.File:
         """Open the file once: fresh, or read-write to continue what it holds."""
@@ -1125,7 +1141,9 @@ class HDF5Output(PlaneStore):
 
         A finished handler opens its file read-only for the one read and closes it
         again, so a closed run stays readable without holding a handle; a suspended
-        writer keeps refusing, because its run still owns the file.
+        writer keeps refusing, because its run still owns the file. A file that no
+        longer holds the run as the handler closed it is refused, since its counts
+        and record would describe another file's rows.
         """
         if self._file is not None or not self._closed:
             yield self._require_file()
@@ -1136,7 +1154,27 @@ class HDF5Output(PlaneStore):
             msg = f"cannot read the output file {self._path}: {error}"
             raise OutputError(msg) from error
         with file:
+            self._refuse_changed(file)
             yield file
+
+    def _refuse_changed(self, file: h5py.File) -> None:
+        """Refuse a file another run replaced, or continued, since this one closed."""
+        metadata = self._require_metadata()
+        # A run's record keeps its creation time across a resume, so the time and the
+        # hash name the run, and the counts how much of it the file holds.
+        if (
+            str(file.attrs.get("created", "")) == metadata.created
+            and str(file.attrs.get("configuration_hash", ""))
+            == metadata.configuration_hash()
+            and (_stored_counts(file) if "z" in file else (0, 0, 0))
+            == (self._n_saved, self._history_length, self._step_stats_length)
+        ):
+            return
+        msg = (
+            f"{self._path} has changed since this handler closed: another run wrote "
+            "it or continued the run in it; open it again with open_file to read it"
+        )
+        raise OutputError(msg)
 
     def _write_metadata(self, metadata: RunMetadata) -> None:
         """Open the file if it is not open yet, and write the run record.

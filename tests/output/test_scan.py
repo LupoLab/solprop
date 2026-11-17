@@ -8,6 +8,7 @@ import dataclasses
 import json
 import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -277,16 +278,22 @@ def _declare_schema(path, index, version):
         group.attrs["metadata_refs"] = json.dumps(references)
 
 
-def test_scan_of_another_output_schema_is_refused_by_every_route(tmp_path):
-    # A 0.1.0 scan: the same container, records declaring output schema 1.
+@pytest.mark.parametrize("declared", [1, 2], ids=["0.1.0", "0.2.0"])
+def test_scan_of_another_output_schema_is_refused_by_every_route(tmp_path, declared):
+    # A released scan: the same container, records declaring the output schema 0.1.0
+    # or 0.2.0 wrote, and a refusal naming the release to read it with.
     path = tmp_path / "scan.h5"
     scan = Scan("scan", x=[1, 2, 3])
     writer = ScanWriter(path, scan, {})
     writer.commit(result(0))
     writer.commit(dataclasses.replace(result(1), status="failed", arrays={}))
     writer.close()
-    _declare_schema(path, 1, 1)
-    refusal = "scan point 1: this record declares output schema_version 1, and this"
+    _declare_schema(path, 1, declared)
+    refusal = (
+        rf"{re.escape(str(path))}, scan point 1: this record declares output "
+        rf"schema_version {declared}, and this.*; output schema {declared} is solprop "
+        rf"0\.{declared}\.x's: read it with that release$"
+    )
     with pytest.raises(OutputError, match=refusal):
         ScanOutput(path)
     with pytest.raises(OutputError, match=refusal):
@@ -298,7 +305,7 @@ def test_scan_of_another_output_schema_is_refused_by_every_route(tmp_path):
         status = np.asarray(_dataset(file, "points/status").asstr()[...])
     assert status.tolist() == ["done", "failed", "todo"]
     # The point of this release's schema is still read alone.
-    assert cast(Mapping, read_point(path, 0)["metadata"])["schema_version"] == 4
+    assert cast(Mapping, read_point(path, 0)["metadata"])["schema_version"] == 3
 
 
 def test_scan_of_this_output_schema_reads_as_before(tmp_path):

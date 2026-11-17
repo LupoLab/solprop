@@ -444,7 +444,9 @@ solprop calibrate --show            # the native backend's machine profile, if a
 ```
 
 `python -m solprop` is the same command. `check` exits 0 when the recipe builds (warnings
-included), 1 when it does not, and 2 when the file cannot be read. `run` and `resume` stop
+included), 1 when it does not, and 2 when the file cannot be read. Every command exits 2
+on arguments it refuses, and on a recipe or file it cannot read or build or a run or scan
+that fails, which it reports in one `solprop:` line. `run` and `resume` stop
 cleanly on Ctrl-C, writing the state, and `solprop resume` continues it
 ([resuming from the file alone](../results/resuming.md#resuming-from-the-file-alone)).
 `solprop calibrate` reads and manages the native backend's machine calibration

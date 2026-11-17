@@ -6,6 +6,7 @@
 
 import dataclasses
 import json
+import re
 import signal
 import subprocess
 import sys
@@ -37,6 +38,8 @@ from solprop.output.records import (
     HISTORY_FIELDS,
     GridRecord,
     NoiseRecord,
+    RecipeRecord,
+    RunOutcome,
     SavedPlane,
     StepHistory,
     StepLimits,
@@ -437,6 +440,51 @@ def test_open_file_reads_a_finished_run_through_the_protocol(grid, metadata, tmp
     assert np.array_equal(stored["field"], memory["field"])
 
 
+def _restamp_outcome(path, change):
+    """Rewrite a file's stored execution status as `change` edits its JSON."""
+    with h5py.File(path, "r+") as file:
+        record = json.loads(item(file, "meta", "outcome")[()].decode("utf-8"))
+        change(record)
+        del file["meta/outcome"]
+        file.create_dataset(
+            "meta/outcome", data=json.dumps(record), dtype=h5py.string_dtype()
+        )
+
+
+def test_an_outcome_from_another_build_reads_tolerantly(grid, metadata, tmp_path):
+    # As the record does: an entry this build lacks is dropped, an absent one defaults.
+    path = tmp_path / "run.h5"
+    with HDF5Output(path) as handler:
+        run_into(handler, grid, metadata, 1)
+        handler.record_outcome(RunOutcome("complete", 0.25, message="done"))
+
+    def change(record):
+        record["entry_of_a_later_build"] = 1
+        del record["message"]
+
+    _restamp_outcome(path, change)
+    with open_file(path) as stored:
+        assert stored.outcome == RunOutcome("complete", 0.25)
+
+
+def test_an_unreadable_outcome_is_refused_by_name_and_releases_the_file(
+    grid, metadata, tmp_path
+):
+    path = tmp_path / "run.h5"
+    with HDF5Output(path) as handler:
+        run_into(handler, grid, metadata, 1)
+        handler.record_outcome(RunOutcome("complete", 0.25))
+    _restamp_outcome(path, lambda record: record.pop("status"))
+    with pytest.raises(
+        OutputError, match=rf"{re.escape(str(path))}: .*outcome\.status"
+    ) as refused:
+        open_file(path)
+    # Closed by the refusal itself: the traceback still holds the half-built
+    # handler, so collecting it is not what releases the file.
+    assert refused.tb is not None
+    assert str(path) not in _open_paths()
+
+
 def test_open_file_refuses_what_is_not_a_run(tmp_path):
     with pytest.raises(OutputError, match="cannot read"):
         open_file(tmp_path / "missing.h5")
@@ -649,6 +697,31 @@ def test_a_closed_file_handler_names_a_missing_file(grid, metadata, tmp_path):
     (tmp_path / "run.h5").unlink()
     with pytest.raises(OutputError, match="cannot read the output file"):
         handler["field"]
+
+
+@pytest.mark.parametrize("change", ["another run", "a continuation"])
+def test_a_closed_file_handler_refuses_a_file_that_changed(
+    grid, metadata, schedule, tmp_path, change
+):
+    # A second run into the same path, or a continuation of the run there, leaves a
+    # file the closed handler's counts and record no longer describe.
+    path = tmp_path / "run.h5"
+    first = HDF5Output(path)
+    run_into(first, grid, metadata, 2)
+    first.close()
+    if change == "another run":
+        other = make_metadata(grid, schedule, configuration={"gamma": 0.22})
+        with HDF5Output(path) as second:
+            run_into(second, grid, other, 3)
+    else:
+        with HDF5Output(path, append=True) as second:
+            second.open(metadata)
+            second.save(make_plane(grid, 2))
+    with pytest.raises(OutputError, match=rf"{re.escape(str(path))} has changed"):
+        first["field"]
+    # The file itself reads, through a handler of its own.
+    with hdf5_module.open_file(path) as current:
+        assert current.n_saved == 3
 
 
 def test_a_suspended_file_handler_refuses_to_read(grid, metadata, tmp_path):
@@ -1006,6 +1079,16 @@ def test_to_file_writes_what_the_file_handler_would_have(grid, metadata, tmp_pat
         assert item(one, "meta/json")[()] == item(two, "meta/json")[()]
 
 
+def test_to_file_keeps_the_recipe_the_run_was_built_from(grid, metadata, tmp_path):
+    # The recipe is what resumes the file and what rebuilds its planes' modes.
+    record = RecipeRecord(1, 'route = "gnlse"\n', 'route = "gnlse"\nseed = "7"\n')
+    memory = MemoryOutput()
+    run_into(memory, grid, metadata, 2)
+    memory.record_recipe(record)
+    memory.to_file(tmp_path / "run.h5")
+    assert hdf5_module.open_file(tmp_path / "run.h5").recipe == record
+
+
 def test_to_file_passes_its_compression_through(grid, metadata, tmp_path):
     memory = MemoryOutput()
     run_into(memory, grid, metadata, 2)
@@ -1343,9 +1426,9 @@ def test_a_plane_whose_channel_changes_its_statistics_is_refused(grid, metadata)
 
 
 def test_a_run_record_declares_the_current_output_schema(metadata):
-    """Schema 4 is schema 1, the first released layout, plus three changes."""
-    assert SCHEMA_VERSION == 4
-    assert metadata.schema_version == 4
+    """Schema 3 is schema 1, the first released layout, plus three changes."""
+    assert SCHEMA_VERSION == 3
+    assert metadata.schema_version == 3
 
 
 def test_five_columns_continue_as_before(grid, metadata, tmp_path):
@@ -1359,11 +1442,17 @@ def test_five_columns_continue_as_before(grid, metadata, tmp_path):
     assert hdf5_module.check_cache(path, metadata)
 
 
-@pytest.mark.parametrize("declared", [1, 10, 28, SCHEMA_VERSION + 1])
+@pytest.mark.parametrize(
+    "declared",
+    [1, 2, 10, 28, SCHEMA_VERSION + 1],
+    ids=["0.1.0", "0.2.0", "ten", "last", "later"],
+)
 def test_a_file_of_another_output_schema_is_refused_by_name(
     grid, metadata, tmp_path, declared
 ):
-    """A development file or one from a later release is not read, at any door.
+    """A released file, a development file or one from a later release is not read.
+
+    Every door refuses it: reading, resuming, the cache check and appending.
 
     The file is a current one whose record is restamped with another version, so the
     refusal is the version's and not that of some field the layout lacks.
@@ -1381,7 +1470,17 @@ def test_a_file_of_another_output_schema_is_refused_by_name(
             "meta/json", data=json.dumps(document), dtype=h5py.string_dtype()
         )
         file.attrs["schema_version"] = declared
-    refusal = rf"schema_version {declared}.*reads output schema 4 only"
+    # Every door names the file, and the refusal the release that wrote a released one.
+    refusal = (
+        rf"^{re.escape(str(path))}: this record declares output schema_version "
+        rf"{declared}.*reads output schema 3 only.*"
+        + (
+            rf"; output schema {declared} is solprop 0\.{declared}\.x's: read it with "
+            "that release$"
+            if declared in {1, 2}
+            else "; read it with the solprop version that wrote it$"
+        )
+    )
     with pytest.raises(OutputError, match=refusal):
         hdf5_module.open_file(path)
     with pytest.raises(OutputError, match=refusal):
