@@ -546,8 +546,6 @@ void GeneralWorkspace::separable_core(const std::size_t stage, const bool materi
         dispersive->respond(chunk.nodes);
       if (held_plasma())
         held_response(stage, chunk.first_node, chunk.nodes, &chunk);
-      if (gated_plasma())
-        gated_response(chunk.nodes);
       Kokkos::Profiling::popRegion();
       // Alone with products of its own, nothing of the stage's is projected.
       const bool stage_projects = !alone || dispersive->borrowed();

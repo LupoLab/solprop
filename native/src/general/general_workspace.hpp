@@ -492,13 +492,10 @@ public:
   void project(std::size_t first_node, std::size_t node_count, bool first_chunk,
                const EnvelopeStream* stream = nullptr,
                const FieldCurrentStream* field_stream = nullptr);
-  bool field_plasma() const noexcept {
+  // A field plasma column's current always enters as the held current (solprop SEP 27).
+  bool held_plasma() const noexcept {
     return problem_.plasma.enabled && !problem_.plasma.envelope;
   }
-  bool held_plasma() const noexcept { return field_plasma() && !problem_.plasma.gated; }
-  // solprop's private gated benchmark: the current's running integral, gated by the
-  // time window, joins the local polarisation before it is projected.
-  bool gated_plasma() const noexcept { return field_plasma() && problem_.plasma.gated; }
   bool held_radial() const noexcept {
     return held_plasma() && !problem_.separable_geometry() &&
            !problem_.spatial.spectral_weights.empty();
@@ -545,7 +542,6 @@ public:
   void transform_forward_pack();
   void held_response(std::size_t stage, std::size_t first_node, std::size_t node_count,
                      const TransverseChunk* chunk = nullptr);
-  void gated_response(std::size_t node_count);
   void held_transform(bool coarse_only = false, bool transformed = false);
   void finish_quadrature();
   bool deferred_quadrature_eligible() const noexcept {
@@ -910,9 +906,6 @@ public:
   std::unique_ptr<ForwardRealPlan> forward_pack_fine_plan_,
       forward_pack_fine_tail_plan_, forward_pack_coarse_plan_;
   RealView2 held_current_, held_projection_;
-  // The gated benchmark's running integral of each current row, and the band rule's
-  // filtered rows (`gated_response`).
-  RealView2 gated_prefix_, gated_filtered_;
   ComplexView2 held_nodal_spectrum_, held_projected_spectrum_;
   RealView held_derivative_, held_inverse_;
   RealView3 envelope_rule_nodes_, envelope_rule_weights_, envelope_moments_;

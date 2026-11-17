@@ -42,9 +42,6 @@ from solprop.translate.general import (
     node_kerr_tensor,
 )
 from solprop.translate.linop import power_weight_at
-from solprop.translate.plasma_source import (
-    _BENCHMARK_GATED,  # pyright: ignore[reportPrivateUsage] - the private gated benchmark
-)
 from solprop.translate.problem import PropagationProblem, StepperSettings
 from solprop.translate.routes import flux_of
 from solprop.translate.run_request import RunRequest
@@ -605,9 +602,6 @@ def _lower_plasma(
     if channel is not None:
         rate = channel.rate
         plasma.enabled = True
-        # The private gated benchmark (solprop's tests/gated_source.py), read where
-        # the backend is built, as the reference reads it.
-        plasma.gated = _BENCHMARK_GATED.get()
         plasma.charge_mass_ratio = channel.charge_mass_ratio
         plasma.ionisation_potential = channel.ionisation_potential
         plasma.log_field_min = rate.log_field_min

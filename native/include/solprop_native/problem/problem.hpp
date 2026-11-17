@@ -231,10 +231,6 @@ struct Problem {
   struct Plasma {
     bool enabled{};
     bool envelope{};
-    // solprop's private, test-only gated plasma benchmark: the field plasma's current
-    // enters as w(t) times its running integral, added to the local polarisation,
-    // instead of the held current's two collared spectra. Never set by a user run.
-    bool gated{};
     bool stash{};
     // Channel-major 4 x 512 split angular rules and coarse-axis current factors.
     std::vector<double> envelope_rule_nodes, envelope_rule_weights,
@@ -527,8 +523,7 @@ struct Problem {
   using E = fields::Extent;
   return fields::table<G>(
       "Problem.Plasma", fields::value("enabled", &G::enabled),
-      fields::value("envelope", &G::envelope), fields::value("gated", &G::gated),
-      fields::value("stash", &G::stash),
+      fields::value("envelope", &G::envelope), fields::value("stash", &G::stash),
       fields::array("envelope_rule_nodes", &G::envelope_rule_nodes, E::of("n_channels"),
                     E::fixed(4), E::fixed(512)),
       fields::array("envelope_rule_weights", &G::envelope_rule_weights,
