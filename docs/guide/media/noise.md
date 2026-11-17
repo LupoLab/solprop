@@ -93,7 +93,8 @@ a seed keeps meaning one realisation on a given grid size.
      - the field without the seed; processing does not restore it
    * - refused beside
      - the planar grid
-     - it, plus interpolated planes, field planes for coupling and coupled flows
+     - it, plus interpolated planes, field planes for coupling, coupled flows, an
+       interior launch and a TDSE response
 ```
 
 Both come from the same draw. {py:func}`~solprop.noise.input_noise` and
@@ -252,8 +253,8 @@ polarisation and frequency bin in the same way. It takes the entrance plane's
 {py:class}`~solprop.spatial.SpatialFlux`: each column and bin is scaled so that its
 energy, weighted by the real axial admittance of the entrance medium, is $\hbar\omega$,
 the measure a launch is normalised in. Nonpropagating, inactive and zero-frequency bins
-are not power ports and carry no photon; the random stream is drawn as before, so a seed
-keeps its meaning ([energy and flux in a medium](../free-space/flux.md#the-discrete-measure-endpoints-and-noise)).
+are not power ports and carry no photon; the random stream is still drawn over every bin,
+so a seed keeps its meaning ([energy and flux in a medium](../free-space/flux.md#the-discrete-measure-endpoints-and-noise)).
 A planar grid carries no noise draw.
 
 An ensemble is a sequence of seeds. Run it on a fixed step schedule (`schedule=`, see
@@ -261,7 +262,7 @@ An ensemble is a sequence of seeds. Run it on a fixed step schedule (`schedule=`
 across the members, so the spread between members is the physics and not the stepper.
 Calibrate that schedule with noise on: one discovered on a noiseless run integrates the
 seed's dynamics poorly.
-The [supercontinuum examples](../../auto_examples/supercontinuum/plot_03_modulational_instability_supercontinuum)
+The [supercontinuum examples](../../auto_examples/supercontinuum/plot_03_modulational_instability_supercontinuum.rst)
 run such ensembles and compute the relative intensity noise and the coherence from
 them ([processing](../results/processing.md)).
 

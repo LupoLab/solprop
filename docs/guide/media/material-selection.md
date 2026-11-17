@@ -433,27 +433,15 @@ so two default walls or cores built separately are one material.
 and the compressors, which name their glasses.
 
 **Named models.** `model=` selects any other optmat model of the material, among them
-the published Sellmeier formulas, made absolute (see below):
+the published Sellmeier formulas, made absolute (see below). optmat's registry lists a
+material's models by name, the recommended one among them; the material names are
+`SiO2`, `CaF2`, `MgF2`, `BaF2`, `Al2O3` (sapphire) and `N-BK7`:
 
-```{eval-rst}
-.. list-table::
-   :header-rows: 1
-   :widths: 34 66
+```{code-block} python
+from optmat.solid.models import registry
 
-   * - factory
-     - optmat model
-   * - ``fused_silica``
-     - ``malitson_1965/sellmeier``; ``franta_2016/udm_lithosil_q2``
-   * - ``calcium_fluoride``
-     - ``daimon_2002/sellmeier_20C``; ``malitson_1963/sellmeier``
-   * - ``magnesium_fluoride``
-     - ``dodge_1984/sellmeier_o``
-   * - ``bk7``
-     - ``schott_2023/sellmeier``
-   * - ``sapphire``
-     - ``weber_2003/sellmeier_o`` (Malitson and Dodge's ordinary-ray formula, as Weber prints it)
-   * - ``barium_fluoride``
-     - ``malitson_1964/sellmeier``
+sorted(registry.models("CaF2"))
+# ['daimon_2002/sellmeier_20C', 'daimon_2002/sellmeier_25C', 'malitson_1963/sellmeier']
 ```
 
 - **Absolute index.** Every optmat index is relative to vacuum. The published
@@ -465,7 +453,7 @@ the published Sellmeier formulas, made absolute (see below):
 - **Birefringence.** MgF₂ and sapphire are uniaxial, and an optmat model is per ray: a
   window or wall names its ray, `axis="o"` or `axis="e"`, and the recommended model
   without an axis is refused by name — `magnesium_fluoride()`, `sapphire()` and
-  `glass("MgF2")` included, a deliberate breaking change. A named model is per ray
+  `glass("MgF2")` included. A named model is per ray
   too, and refuses the other `axis`.
 - **Metals** are tables with their interpolant's exact derivative. Outside their range
   they hold their end values, with a warning.
