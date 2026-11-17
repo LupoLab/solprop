@@ -11,10 +11,11 @@
   their readings into the backend equivalence record (:func:`ladder_record`);
 - the soliton's eight steps with the propagators tabulated and with them recomputed
   (from ``test_numpy_ref_backend.py``);
-- the Adams march's source on the analytic field and on the envelope with its plasma:
-  one evaluation a step from the anchor at the launch (``source``), and eight fixed
-  steps at the method's top order (``steps``) (from ``test_compiled_multistep.py``,
-  which keeps the propagator and the run's source contribution);
+- the Adams march's source on a helium capillary's analytic field and on an argon
+  capillary's envelope with its plasma, which ionises there: one evaluation a step
+  from the anchor at the launch (``source``), and eight fixed steps at the method's
+  top order (``steps``) (from ``test_compiled_multistep.py``, which keeps the
+  propagator and the run's source contribution);
 - SEP 35's carrier frame on a hydrogen window and on its gradient, replayed on the
   reference's own accepted steps at a fixed order (from ``test_carrier_frame.py``);
 - the vector Raman tensor on modal routes: a mode whose polarisation direction depends
@@ -34,8 +35,10 @@ for the transforms, contraction and transverse reductions of fourteen stages.
 the rows make, now strict.
 
 **The guard.** Each row's term is switched off on the translated problem: the Kerr
-term (``optmat_rows.without_kerr``), every response (``planar_rows.without_responses``,
-which keeps the temporal collar) or the Raman rows (``optmat_rows.without_raman``).
+term (``optmat_rows.without_kerr``), every response of a case that holds one
+(``planar_rows.without_responses``, which keeps the temporal collar), the plasma's
+density (``optmat_rows.without_plasma``) or the Raman rows
+(``optmat_rows.without_raman``).
 Each guarded rung's reference must then move by more than ``parity_ladder.DETECTION``
 (a thousand) of its bounds.
 
@@ -76,7 +79,7 @@ from backends.adams_source_cases import (
 from backends.carrier_frame_cases import WINDOW, capillary, gradient, matched_window
 from backends.conftest import BETA2, GAMMA, GNLSE_SETTINGS, WAVELENGTH, soliton_field
 from backends.host_cases_envelope_plasma import geometry_options
-from backends.optmat_rows import without_kerr, without_raman
+from backends.optmat_rows import without_kerr, without_plasma, without_raman
 from backends.planar_rows import without_responses
 from bounds import EPS, fft_bound, ladder_bound, record_backend
 from convergence_records import record
@@ -331,6 +334,20 @@ def _soliton_rows() -> tuple[Row, ...]:
     return (*ladder, *modes)
 
 
+ADAMS_TERMS = {
+    "analytic field": ("kerr", without_responses),
+    "envelope plasma": ("envelope plasma", without_plasma),
+}
+"""Each Adams source route's response axis and the switch-off of the term it claims:
+the analytic field holds Kerr alone, the envelope its plasma beside Kerr."""
+
+ADAMS_SHARES = {
+    "analytic field": "1.1e-5",
+    "envelope plasma": "3.1e-4, its plasma by 5.5e-8 (6e4 bounds),",
+}
+"""How far each route's source moves its matched run's field, relative to it."""
+
+
 def _adams_rows() -> tuple[Row, ...]:
     """Return the Adams march's source rows and its carrier-frame windows."""
     sources = tuple(
@@ -343,7 +360,7 @@ def _adams_rows() -> tuple[Row, ...]:
                 if route == "envelope plasma"
                 else "capillary (mode-averaged)",
                 stepper="adams",
-                response="kerr, plasma" if route == "envelope plasma" else "kerr",
+                response=ADAMS_TERMS[route][0],
                 features=f"{route}, launch into the temporal collar, one evaluation "
                 "a millimetre from the anchor",
                 why=f"On the {route} column family the Adams march's untransported "
@@ -355,7 +372,7 @@ def _adams_rows() -> tuple[Row, ...]:
                 # The envelope plasma's one evaluation takes 1.6 s, the analytic
                 # field's 0.1 s (measured).
                 medium=route == "envelope plasma",
-                switch_off=without_responses,
+                switch_off=ADAMS_TERMS[route][1],
                 rungs={"source": one_transform},
                 source_z=SOURCE_AT,
             ),
@@ -365,14 +382,15 @@ def _adams_rows() -> tuple[Row, ...]:
                 if route == "envelope plasma"
                 else "capillary (mode-averaged)",
                 stepper="adams",
-                response="kerr, plasma" if route == "envelope plasma" else "kerr",
+                response=ADAMS_TERMS[route][0],
                 features=f"{route}, {SOURCE_STEPS} fixed steps at the top order",
                 why=f"On the {route} column family the Adams march's eight fixed steps "
                 "at its top order are the reference's.",
                 bound_note="512 eps a step relative to the field, the matched-window "
-                "bound. The source moves the field by 1.1e-5 of it over the run.",
+                f"bound. The source moves the field by {ADAMS_SHARES[route]} of it "
+                "over the run.",
                 build=partial(matched_run, route),
-                switch_off=without_responses,
+                switch_off=ADAMS_TERMS[route][1],
                 rungs={"steps": matched_steps},
             ),
         )

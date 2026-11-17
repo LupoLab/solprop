@@ -17,7 +17,8 @@ and the spatial and plasma statistics -- as ``numpy_ref`` does. On native agains
   plasma, Raman, and the y collar in both schemes). ``derivative``: one nonlinear
   evaluation at the launch; ``launch``: the spatial (and plasma) statistics the session
   observes at the launch; ``one_step``: one step over the whole plate; ``steps``: ten
-  steps over it, with every statistic at their end;
+  steps over it, with every statistic at their end; the envelope plasma plate also
+  over two steps of the Adams method (``steps``);
 - the hybrid cases (``planar_cases.py``): the hybrid families launched as a Gaussian
   in y on an argon- or nitrogen-filled 127 um gap, the analytic-signal field family and
   the collar alone, on Runge-Kutta and on the Adams method pinned to its top order
@@ -47,8 +48,9 @@ level, ``2 n_p gamma(n_x)`` for the x GEMMs and a plasma scan. The planar driver
 run takes the plates' bound over its 10 cm.
 
 **The guard.** Each row's term is switched off on the translated problem: every
-response (:func:`without_responses`) or the plasma's density
-(``optmat_rows.without_plasma``), the y collar (:func:`without_collar`), the safety ramp
+response (:func:`without_responses`) where the case holds one, otherwise the plasma's
+density (``optmat_rows.without_plasma``) or the Raman rows
+(``optmat_rows.without_raman``), the y collar (:func:`without_collar`), the safety ramp
 (:func:`without_ramp`), or the slab channels' own transverse term in the linear flow
 (:func:`without_slab_term`). Each guarded rung's reference must then move by more than
 ``parity_ladder.DETECTION`` (a thousand) of that rung's bounds. These replace the old
@@ -57,7 +59,9 @@ linear one by a thousand bounds, the reference's run away from its launch by a
 thousand bounds, and the safety ramp moving native by one bound. The statistics at the
 launch read the launch itself, which no term has touched, so a ``launch`` rung is
 unguarded; at the launch a collar plate's y collar reads only the beam's wings, so its
-``derivative`` rung is unguarded too (:data:`COLLAR_AT_THE_LAUNCH`).
+``derivative`` rung is unguarded too (:data:`COLLAR_AT_THE_LAUNCH`). The hybrid
+envelope plasma frees no electron at its launch, so its rows are declared vacuous
+(:data:`HYBRID_VACUOUS`); the plates hold the envelope plasma on both marches.
 
 **How to read a row.** Every row is a :func:`planar_row` call, for example::
 
@@ -94,7 +98,7 @@ import numpy as np
 
 from backends import planar_cases
 from backends import planar_plate_cases as plates
-from backends.optmat_rows import without_plasma
+from backends.optmat_rows import without_plasma, without_raman
 from backends.planar_hybrid_cases import FAMILIES
 from bounds import gamma, step_evaluations
 from parity_ladder import Built, Row, Statistic
@@ -200,6 +204,7 @@ def has_a_ramp(problem: PropagationProblem) -> bool:
 SWITCH_OFFS: dict[str, Callable[[PropagationProblem], PropagationProblem]] = {
     "responses": without_responses,
     "plasma": without_plasma,
+    "raman": without_raman,
     "collar": without_collar,
 }
 """Each guard's switch-off, by the term it removes."""
@@ -326,6 +331,13 @@ SLOW_BY_COST = {
 """The plates whose ten-step row is slow by cost, and why."""
 
 
+def plate_adams_built(family: str, steps: int) -> Built:
+    """Return a plate family on `steps` uniform steps of the fixed-order Adams march."""
+    grid, space, problem, run_request = _plate(family)
+    request = on_march(plates.with_steps(run_request, steps), "adams")
+    return Built(problem, request, grid, options=plates.chunked(space))
+
+
 def plate_rows() -> list[Row]:
     """Return the plates' rows: one step with the launch, and ten steps."""
     rows = []
@@ -368,6 +380,23 @@ def plate_rows() -> list[Row]:
                 slow=SLOW_BY_COST.get(family, ""),
             ),
         ]
+    features, response, subject, term = PLATES["envelope_plasma"]
+    rows.append(
+        planar_row(
+            name="plate envelope_plasma adams two steps",
+            stepper="adams",
+            response=response,
+            features=f"plates, {features}, fixed-order Adams",
+            why=f"On the plates {subject} is the reference's over two steps of the "
+            "Adams method at its top order.",
+            bound_note="The plates' two-step bound, which counts Runge-Kutta's seven "
+            "evaluations a step, more than the Adams method makes. Measured 7.8e-14 "
+            "against 1.0e-11; the plasma moves the reference by 5e7 bounds.",
+            build=partial(plate_adams_built, "envelope_plasma", 2),
+            switch_off=SWITCH_OFFS[term],
+            rungs={"steps": partial(plate_bound, "envelope_plasma", 2)},
+        )
+    )
     return rows
 
 
@@ -509,12 +538,12 @@ HYBRIDS = {
         "the hybrid Kerr gap with its collar split off",
         "collar",
     ),
-    "raman": ("raman", "hybrid, nitrogen", "the hybrid Raman gap", "responses"),
+    "raman": ("raman", "hybrid, nitrogen", "the hybrid Raman gap", "raman"),
     "field-plasma": (
         "plasma",
         "hybrid, field grid",
         "the hybrid field plasma",
-        "responses",
+        "plasma",
     ),
     "field-kerr": (
         "kerr",
@@ -526,7 +555,7 @@ HYBRIDS = {
         "envelope plasma",
         "hybrid, envelope grid",
         "the hybrid envelope plasma",
-        "responses",
+        "plasma",
     ),
     "collar-only": (
         "none",
@@ -536,6 +565,16 @@ HYBRIDS = {
     ),
 }
 """Each hybrid case's axes, its claim's subject and the term its guard removes."""
+
+HYBRID_VACUOUS = {
+    "envelope-plasma": "The hybrid envelope plasma frees no electron at this 0.5 J/m "
+    "launch: switching it off moves the reference by 3.9e-4 and 2.4e-4 bounds (one "
+    "step and two on Runge-Kutta) and 4.3e-5 and 2.5e-5 (on Adams), measured. The rows "
+    "are kept as a case each march must carry; the Kerr term moves them by 1e7 bounds "
+    "or more, and the plates hold the live envelope plasma on both marches.",
+}
+"""The hybrid cases whose term reaches none of the row's rungs, with what was
+measured."""
 
 
 def hybrid_rows() -> list[Row]:
@@ -559,6 +598,7 @@ def hybrid_rows() -> list[Row]:
                         "one_step": partial(hybrid_bound, name, march, 1),
                         "steps": partial(hybrid_bound, name, march, None),
                     },
+                    vacuous=HYBRID_VACUOUS.get(name, ""),
                 )
             )
     return rows

@@ -11,7 +11,8 @@ they reach, each case one fixed schedule replayed on native and on ``numpy_ref``
 - **the low-storage RK4IP march** (SEP 24 section 7.2, ``low storage ...`` rows): the
   mode-averaged soliton, plain and under the modified noise, in both propagator modes;
   the modal route with no response, or the in-stage collar alone; a nitrogen gradient
-  capillary with Raman and plasma (a varying operator); a dispersion declared along
+  capillary with Raman and plasma (a varying operator); an argon capillary's envelope
+  with its plasma; a dispersion declared along
   z, which takes the operator's z table; the radial route with its in-stage collar;
   the general modal route; a Cartesian Kerr beam in every flow treatment, with and
   without the collars and the noise; a recomputed flow beside a small loss; the line;
@@ -80,6 +81,7 @@ from typing import Any
 
 import numpy as np
 
+from backends.adams_source_cases import ROUTES, source_case
 from backends.conftest import (
     BETA2,
     DISPERSION_LENGTH,
@@ -221,6 +223,31 @@ def varying(mode: str) -> Built:
         mode,
     )
     return Built(problem, run_request, simulation.grid, modes=simulation.modes)
+
+
+def envelope_plasma_capillary(steps: int = 2) -> Built:
+    """Return the Adams rows' argon envelope-plasma capillary on low-storage steps.
+
+    ``adams_source_cases``' case, whose plasma ionises and whose launch reaches into
+    the temporal collar, over `steps` steps of 5 um, inside the in-stage collar's
+    stability limit.
+    """
+    length = steps * 5e-6
+    schedule = FixedSchedule.uniform(0.0, length, 5e-6)
+    simulation, problem, lab = source_case(
+        ROUTES["envelope plasma"], length, schedule=schedule
+    )
+    problem = dataclasses.replace(
+        problem, initial=dataclasses.replace(problem.initial, field0=lab)
+    )
+    problem, run_request = marched(problem, simulation.run_request(), schedule)
+    return Built(
+        problem,
+        run_request,
+        simulation.grid,
+        modes=simulation.modes,
+        simulation=simulation,
+    )
 
 
 def tabled_fibre(mode: str) -> Built:
@@ -1060,6 +1087,21 @@ def _modal_rows() -> tuple[Row, ...]:
                 rungs={"steps": parity(sums=True)},
             )
             for mode in MODES
+        ),
+        # The reference's envelope-plasma cycle moments dominate: about 10 s.
+        session_row(
+            name="low storage capillary envelope plasma",
+            route="capillary (envelope)",
+            stepper="low storage",
+            response="envelope plasma",
+            features="argon, launch into the temporal collar, two steps",
+            why="The low-storage march carries an argon capillary's envelope with its "
+            "plasma, which ionises, as the reference does.",
+            bound_note="The parity bound with the plasma's prefix over n_to. Measured "
+            "4.5e-17 against 7.4e-13; the plasma moves the reference by 1.9e4 bounds.",
+            build=envelope_plasma_capillary,
+            switch_off=without_plasma,
+            rungs={"steps": parity(sums=True)},
         ),
         *(
             session_row(
