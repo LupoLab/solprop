@@ -635,8 +635,7 @@ def _transverse(
     """Describe a free-space run's transverse boundary and what its edge can report.
 
     SEP 40 section 5.3: ``coarse`` and ``off`` are said before the first step, so that
-    a run that cannot reach a clean verdict says so. Every backend reads the edge, so
-    none leaves it unwatched.
+    a run that cannot reach a clean verdict says so.
 
     - ``check``: the edge thresholds, or ``None`` when nothing is watched.
     """

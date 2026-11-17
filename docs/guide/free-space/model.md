@@ -197,9 +197,8 @@ every frequency, and `native` takes it where the state lives, with only numbers 
 
 Every run reports a `transverse_status` in its monitor record and says at the start what
 it will be able to report: `clear` (read at the spacing, below the warning), `warned`,
-`stopped`, `insensitive` (the input noise's allowance exceeds the warning), `coarse`,
-`unwatched` (a backend that does not read the edge; all of solprop's own do) or `off`
-(`boundary_check=None`). Only `clear` is a clean verdict. The tutorial
+`stopped`, `insensitive` (the input noise's allowance exceeds the warning), `coarse` or
+`off` (`boundary_check=None`). Only `clear` is a clean verdict. The tutorial
 [Is my transverse window big enough?](../../auto_tutorials/free_space/plot_09_transverse_window.rst)
 sizes a radial window with the monitor and checks it against a wider one.
 

@@ -1391,7 +1391,6 @@ class HostSession:
                 noise=None if floor is None else np.asarray(floor),
                 clean_columns=workspace.clean_columns(edge),
                 steps=None if schedule is None else np.asarray(schedule.steps),
-                reads=True,
                 declared=_declared_discard(self._problem),
             )
             yield from self._drained()
