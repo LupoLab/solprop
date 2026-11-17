@@ -107,8 +107,8 @@ class NumpyWorkspace:
     Built once per backend from the validated problem and request, and reused for every
     run the backend serves: :meth:`load` replaces the state and everything that
     describes it. It keeps no march state. The engines read and write the state only
-    through these operations, and the session (today the backend's step driver) reads
-    the statistics and the boundary readings from them.
+    through these operations, and the session reads the statistics and the boundary
+    readings from them.
 
     Parameters
     ----------

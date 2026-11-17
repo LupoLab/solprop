@@ -116,7 +116,7 @@ def launch_statistics(
     assembled with: the builders' own is in true sqrt(W), while ``initial.noise0``
     is already divided by the entrance weight.
 
-    - Returns: the launch plane's statistics, without a batch axis.
+    - Returns: the launch plane's statistics.
     """
     session = start_session(
         backend, problem, backend.request, Start.entrance(problem), owns=False

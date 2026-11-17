@@ -6,7 +6,7 @@
 
 The native backend loads a start (``solprop_native._load``), restores a resumed Adams
 history into its own record (``_NativeAdamsMarch``, no longer an ``AdamsMarch``) and
-times single trials (``solprop_native._probe``) without solprop's legacy step driver.
+times single trials (``solprop_native._probe``).
 These are held to what the reference does with the same inputs: its workspace's load
 (``NumpyWorkspace.load``, which its session calls), its refusals and its probe's trial.
 """

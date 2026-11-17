@@ -354,8 +354,8 @@ def carrier_capped(
 
     Under a carrier frame no step covers more than the policy's carrier cap of carrier
     phase (SEP 35 section 6.4), measured by one chord of the reference element's
-    operator over the proposal, the largest over the batch. Applied before the landing
-    rule, so a shortened step is not a landing; a fixed schedule's replay is not capped.
+    operator over the proposal. Applied before the landing rule, so a shortened step is
+    not a landing; a fixed schedule's replay is not capped.
 
     Parameters
     ----------
@@ -366,7 +366,7 @@ def carrier_capped(
     proposal : float
         The controller's proposal, m.
     chord_phase : callable
-        ``(z1, z2) -> phase``, the chord's largest phase over the batch, rad.
+        ``(z1, z2) -> phase``, the chord's carrier phase, rad.
 
     Returns
     -------

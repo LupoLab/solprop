@@ -173,7 +173,7 @@ def _reference(problem, run_request, spec, seen, *, grid, modes=None, profiles=N
     Returns
     -------
     list of dict
-        The reference's statistics, without a batch axis, one per observation.
+        The reference's statistics, one per observation.
     """
     backend = select(
         "numpy_ref", problem, run_request, grid=grid, modes=modes, profiles=profiles

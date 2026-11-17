@@ -127,10 +127,11 @@ The relevant boundaries are:
   spectrum determined by the pulse or by time-dependent populations is not generally
   such an operator. A frozen-gain calculation is permissible only within a converged
   outer solve, or as a separately qualified splitting.
-- [Kernel contract](../kernel-contract.md): `KernelProblem`, stage bundles and the
-  protected `StepDriver` surface are versioned together; the audited schema is 15.
-  `src/solprop/backends/driver.py` currently accepts or rejects a field trial. Gain adds
-  coupled state and rollback obligations, so implementation requires a schema bump.
+- [Kernel contract](../kernel-contract.md): `PropagationProblem`, `RunRequest`, the
+  stage bundles and the `Backend` protocol are frozen together in
+  `tests/backends/test_driver.py`; the seam has no version number (ADR-068). Each
+  backend's march currently accepts or rejects a field trial. Gain adds coupled state
+  and rollback obligations, so implementation changes the seam.
 - [Conventions](../conventions.md): ordinary modal internal amplitudes are
   vacuum-normalised, whereas interface amplitudes are in true square-root watts.
   Population rates must use physical optical flux, not the unconverted internal array.
@@ -702,12 +703,11 @@ sensitivity near transparency. Refining $\Delta z$ cannot repair a fixed tempora
 population error. Adaptive rejection restores **all** candidate state and cached stage
 data. Replay carries sufficient information to reproduce the coupled accepted path.
 
-Extend `KernelProblem` with immutable gain tables and flags and extend the stage/driver
+Extend `PropagationProblem` with immutable gain tables and flags and extend the stage/driver
 contract with typed coupled state, observations and transaction boundaries. Preserve
 the existing field array layout; do not disguise pump power or population fractions as
-extra coherent modes. Bump `SCHEMA_VERSION` at the implementing commit, update the
-literal seam tests and the changelog, and coordinate the Kokkos admission check. Do not
-reserve a schema number in this draft.
+extra coherent modes. Rewrite the frozen seam tables at the implementing commit, with
+a release-note fragment, and coordinate the Kokkos admission check.
 
 For ordinary modal amplitudes $b=W^{1/2}a$, where
 $W=\operatorname{Re}n_{\mathrm{eff}}$ on the relevant route, the gain increment
@@ -1109,3 +1109,6 @@ is an algebraic consistency check, not experimental evidence.
 - 2026-11-02: [SEP 43](archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
   proposal names Numba or `numba_cpu`, it was written before that: such a phase or check falls
   away, and the feature goes on `numpy_ref` and the native backend (SEP 0).
+- 2026-11-17: The kernel-contract references follow the current seam: `PropagationProblem`
+  for `KernelProblem`, and the frozen seam tables for the retired schema version and
+  `StepDriver` surface (ADR-068, SEP 52).

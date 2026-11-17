@@ -1043,7 +1043,7 @@ class Run:
         Returns
         -------
         tuple
-            The attempts and the rows, without a batch axis.
+            The attempts and the rows.
         """
         return join_attempts(self.chunks)
 

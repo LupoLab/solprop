@@ -81,7 +81,7 @@ oriented frame; mirrors and Jones elements change the frame and the field togeth
 
 ## Two equivalent representations
 
-The state has shape `(n_modes, n_pol, n_omega)` before assembly adds its batch axis.
+The state has shape `(n_modes, n_pol, n_omega)`.
 There are two ways to represent the same vector field:
 
 | Representation | Mode set | State polarisation axis | Resolved components |

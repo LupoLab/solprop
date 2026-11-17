@@ -36,8 +36,8 @@ import numpy as np
 from solprop._helpers import PLAIN
 from solprop.backends.engines import AcceptRecord
 from solprop.backends.exponential import CarrierChord, CarrierReference
-from solprop.backends.numpy_ref.marches import MarchState
 from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
+from solprop.backends.numpy_ref.marches.host import MarchState
 from solprop.backends.numpy_ref.session import step_cap
 from solprop.backends.records import adams_policy
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
@@ -353,8 +353,8 @@ class _Scripted:
     """A stub session: what the Adams marches ask of it, recording it.
 
     The reference's march asks through
-    :class:`~solprop.backends.numpy_ref.marches.MarchHost` (:class:`_HostHarness`); the
-    native march's call-by-call adapter (``native_trace_marches.TraceAdamsMarch``)
+    :class:`~solprop.backends.numpy_ref.marches.host.MarchHost` (:class:`_HostHarness`);
+    the native march's call-by-call adapter (``native_trace_marches.TraceAdamsMarch``)
     reads the members set here, in the names the reference's step driver had, so that
     the native march's decision traces are held to the reference's
     (``test_native_march_traces.py``).

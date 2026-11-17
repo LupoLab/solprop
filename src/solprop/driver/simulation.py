@@ -2140,9 +2140,9 @@ class Simulation(Displayed):
     def _reseeded(self, seed: int) -> "Simulation":
         """Return this run with unseeded noise drawn from `seed`, leaving it as it is.
 
-        A scan's builder may return one object for every point, and a batch keeps each
-        member by reference, so a point's realisation must not land on the object the
-        other points share. Translated first, so that they share its translation.
+        A scan's builder may return one object for every point, so a point's realisation
+        must not land on the object the other points share. Translated first, so that
+        they share its translation.
 
         - Returns: a copy carrying the new realisation and sharing the translation's
           other leaves, with its own material log as any derived run has; or this run,

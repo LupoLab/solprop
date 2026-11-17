@@ -184,8 +184,8 @@ of memory again."""
 _STRIDED_LEAVES = frozenset({"initial.field0"})
 """The leaves that need not be C-contiguous, by dotted name.
 
-The initial state is never indexed by a kernel: a backend takes it through
-``set_initial``, which accepts any strides and copies it into its own state. So it may
+The initial state is never indexed by a kernel: a backend's session loads it from the
+run's start, accepting any strides and copying it into its own state. So it may
 be a zero-stride broadcast view, which the problem keeps instead of a full copy
 (:class:`Initial`; kernel schema 42).
 """
@@ -2095,7 +2095,7 @@ class TranslationReuse:
     transform : Transform
         Unchanged transverse geometry, quadrature and grid transform.
     initial : Initial
-        Unchanged initial field, noise and batch parameters.
+        Unchanged initial field and noise parameters.
     phi_expansion : ParameterExpansion or None
         Cumulative-operator coefficients, only if its sampled function is unchanged.
     prefactor_expansion : ParameterExpansion or None

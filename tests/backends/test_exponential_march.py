@@ -34,8 +34,8 @@ from solprop.backends.numpy_ref.adams_tables import (
     fused_tables,
     trial_tables,
 )
-from solprop.backends.numpy_ref.marches import MarchState
 from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
+from solprop.backends.numpy_ref.marches.host import MarchState
 from solprop.exceptions import (
     BackendError,
     ConvergenceError,
@@ -555,10 +555,10 @@ def test_a_replayed_step_with_a_non_finite_norm_is_refused(
     backend.close()
 
 
-@pytest.fixture(params=[HostAdamsMarch], ids=["host"])
-def march_class(request):
+@pytest.fixture
+def march_class():
     """The reference's Adams march, whose decisions the native march's are held to."""
-    return request.param
+    return HostAdamsMarch
 
 
 def _chooser(march_class, method, collar_rate, *, quiet=False):

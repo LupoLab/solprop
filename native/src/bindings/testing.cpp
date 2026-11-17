@@ -451,10 +451,6 @@ public:
     return open_state().plane_fluence_trace(center_x, center_y, dx, dy, extent, spacing,
                                             n_radii, cosines, sines);
   }
-  [[nodiscard]] std::vector<native::Complex>
-  axis_spectrum(const std::vector<double>& matrix) const {
-    return open_state().axis_spectrum(matrix);
-  }
   [[nodiscard]] std::vector<double> monitor_reading() const {
     return open_state().monitor_reading();
   }
@@ -1692,21 +1688,6 @@ void bind_testing(nb::module_& testing) {
       },
       "workspace"_a, "center_x"_a, "center_y"_a, "dx"_a, "dy"_a, "extent"_a,
       "spacing"_a, "n_radii"_a, "cosines"_a.noconvert(), "sines"_a.noconvert());
-  testing.def(
-      "axis_spectrum",
-      [](BoundWorkspace& owner, const RealInput matrix) {
-        TestState self(owner);
-        if (matrix.ndim() != 2)
-          throw std::invalid_argument("an on-axis matrix must be two-dimensional");
-        const auto held = real_vector(matrix);
-        std::vector<native::Complex> values;
-        {
-          const nb::gil_scoped_release release;
-          values = self.axis_spectrum(held);
-        }
-        return complex_output(values, {values.size()});
-      },
-      "workspace"_a, "matrix"_a.noconvert());
   testing.def(
       "monitor_reading",
       [](BoundWorkspace& owner) {

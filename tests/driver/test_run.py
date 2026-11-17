@@ -590,7 +590,7 @@ def test_a_periodic_subset_is_recorded_end_to_end(build_simulation):
     for name in names:
         rows = output[f"step_stats/{name}"]
         assert rows.shape[0] == z.size
-        # The stored rows have lost the batch axis, as the plane statistics have.
+        # The stored rows have the statistic's own shape, as the plane statistics have.
         assert rows.shape[1:] == output[f"stats/{name}"].shape[1:]
 
     # Every row stands at an accepted step of the run, at that step's own end.

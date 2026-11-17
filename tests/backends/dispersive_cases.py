@@ -211,8 +211,8 @@ def run(
     """
     backend = backend_class(problem, run_request, grid=grid, **options)
     try:
-        # The step driver's march computed no statistic, which a case's profiles
-        # would be needed for.
+        # The march alone, with no statistic, which a case's profiles would be
+        # needed for.
         result = session_run(
             backend, problem, backend.request.for_run(stats=StatsSpec())
         )

@@ -13,8 +13,8 @@ crossed (through the backend's :class:`Dense`), the periodic statistics rows, th
 boundary monitor's and the transverse edge's checks with the split collar's sums, the
 quadrature alarm's report, the load of the start with its noise, the events and the
 exports. It drives the run's march directly (:class:`HostMethod`), as the march's
-:class:`~solprop.backends.numpy_ref.marches.MarchHost`; the state and every state-sized
-operation are the backend's workspace's
+:class:`~solprop.backends.numpy_ref.marches.host.MarchHost`; the state and every
+state-sized operation are the backend's workspace's
 (:class:`~solprop.backends.numpy_ref.workspace.NumpyWorkspace`).
 
 **Boundary warnings are barriers.** The monitor's and the edge's warnings go into a
@@ -66,8 +66,8 @@ from solprop.backends.events import (
     join_attempts,
 )
 from solprop.backends.export import ExportRecipe
-from solprop.backends.numpy_ref.marches import MarchState, in_flight_refusal
 from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
+from solprop.backends.numpy_ref.marches.host import MarchState, in_flight_refusal
 from solprop.backends.numpy_ref.marches.low_storage import HostLowStorageMarch
 from solprop.backends.numpy_ref.marches.runge_kutta import RungeKuttaMarch
 from solprop.backends.numpy_ref.session_parts import (
@@ -807,8 +807,7 @@ class HostSession:
         Returns
         -------
         tuple
-            The attempts and the rows (without a batch axis); empty when every attempt
-            was delivered.
+            The attempts and the rows; empty when every attempt was delivered.
         """
         self._ledger.check_ticket(ticket)
         return self._chunk()
@@ -1750,8 +1749,8 @@ class HostSession:
     def _chunk(self) -> tuple[BackendHistory, StepStats]:
         """Drain the attempts and rows since the previous event, for the next one.
 
-        - Returns: the attempts and the rows (without a batch axis), delivered by
-          exactly one event (:mod:`solprop.backends.events`).
+        - Returns: the attempts and the rows, delivered by exactly one event
+          (:mod:`solprop.backends.events`).
         """
         drained = (
             self._counted(self._drain_attempts())

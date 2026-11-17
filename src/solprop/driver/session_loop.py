@@ -177,7 +177,7 @@ class ServiceContext:
 def _rows(rows: BackendRows) -> StepStats:
     """Return a session's periodic rows in the form an output handler stores.
 
-    - ``rows``: the rows, with a leading row axis and no batch axis.
+    - ``rows``: the rows, with a leading row axis.
     """
     return StepStats(z=rows.z, step=rows.step, values=dict(rows.values))
 
@@ -325,7 +325,7 @@ class _Chunks:
         Every attempt arrives exactly once, so the reporter hears each once, in order,
         at the cadence of the session's yields rather than from inside its march.
 
-        - ``rows``: its periodic rows, without a batch axis.
+        - ``rows``: its periodic rows.
         - ``report``: ``False`` for the attempts no event delivered, which a failure's
           checkpoint holds and no reporter call may lose.
         """

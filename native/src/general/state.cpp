@@ -308,9 +308,6 @@ std::vector<double> GeneralState::plane_fluence_trace(
   return with_team(&GeneralWorkspace::plane_fluence_trace, center_x, center_y, dx, dy,
                    extent, spacing, n_radii, cosines, sines);
 }
-std::vector<Complex> GeneralState::axis_spectrum(const std::vector<double>& matrix) {
-  return with_team(&GeneralWorkspace::axis_spectrum, matrix);
-}
 std::vector<double>
 GeneralState::axis_populations(const std::vector<double>& matrix,
                                const std::vector<double>& channel_preionisation) {

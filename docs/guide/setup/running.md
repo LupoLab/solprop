@@ -570,8 +570,8 @@ Each run derives its input with
 configuration hash and handler: `output=` takes a handler or a path, and `None` gives a
 new {py:class}`~solprop.output.memory.MemoryOutput`. Loading an input restores everything
 a march reads — the state, the controller, a dense observation's look-ahead, the
-quadrature alarm, an Adams march's history and call ledger
-(`StepDriver.set_initial`) — so a run on the reused
+quadrature alarm, an Adams march's history and call ledger, as the run's session loads
+its start — so a run on the reused
 backend repeats a fresh backend's run, to the rounding that separates any two runs.
 
 The runner checks that each input's problem is the one its backend was built for, but

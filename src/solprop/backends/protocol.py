@@ -209,7 +209,7 @@ class StepStats:
         The history counts rejected attempts too, so this is not ``row * period``.
     values : collections.abc.Mapping
         The statistics, keyed by catalogue name, each with a leading row axis and then
-        the statistic's own shape, with no batch axis: ``(n_rows, *shape)``.
+        the statistic's own shape: ``(n_rows, *shape)``.
 
     Raises
     ------
@@ -341,8 +341,8 @@ class Observation:
         Position of the plane, m.
     field : numpy.ndarray or None
         The state, complex128, shape ``(n_modes, n_pol, n_omega)``, in the square root
-        of watts; ``None`` for an observation that asked for no field
-        (``observe(field=False)``, SEP 22 section 5.1).
+        of watts; ``None`` for a field-free observation, one that drained the step
+        attempts without reading the state (SEP 22 section 5.1).
     noise_phase : numpy.ndarray or None
         ``Im Phi(omega, z)`` in radians, same shape, when a noise model is active and
         the field is observed, so that processing can restore the shot-noise
@@ -434,7 +434,7 @@ class Observation:
         Raises
         ------
         BackendError
-            If the observation carries no field (``observe(field=False)``).
+            If the observation is field-free.
 
         Examples
         --------
@@ -448,8 +448,8 @@ class Observation:
         """
         if self.field is None:
             msg = (
-                f"the observation at z = {self.z!r} m carries no field: it was made "
-                "with observe(field=False)"
+                f"the observation at z = {self.z!r} m carries no field: it drained the "
+                "step attempts alone, without reading the state"
             )
             raise BackendError(msg)
         return self.field

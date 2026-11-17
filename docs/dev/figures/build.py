@@ -796,7 +796,7 @@ MODULES = {
         ),
         Module(
             "backends/numpy_ref/marches/",
-            ("runge_kutta", "adams", "low_storage"),
+            ("host", "runge_kutta", "adams", "low_storage"),
         ),
         Module(
             "backends/numpy_ref/passes/",
@@ -1106,7 +1106,7 @@ CONTRACT_SECTIONS = (
         "translate.problem.Initial",
         ("pulses.py", "noise.py"),
         "P",
-        "set_initial once; the noise advances as N0 · exp(i Im Φ)",
+        "loaded once at the start; the noise advances as N0 · exp(i Im Φ)",
     ),
     Section(
         7,
