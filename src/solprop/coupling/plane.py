@@ -30,6 +30,7 @@ by :class:`solprop.coupling.port.InputPort`.
 """
 
 import dataclasses
+import hashlib
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -154,17 +155,26 @@ def basis_identity(route: PlaneKind, record: Mapping[str, object]) -> str:
     return canonical_digest({"route": route, "record": dict(record)})
 
 
-_QUANTUM_DIGITS = 12
-"""Significant digits a modal basis's sampled quantities enter its identity with.
+_QUANTUM_BITS = 40
+"""Significant bits a modal basis's sampled quantities enter its identity with.
 
 The same guide evaluated at the same plane agrees to a few ulp whatever path led
-there (a constant fill of another length, a gradient met at the same pressure); twelve
-digits sit well above that and far below any physical difference of guide."""
+there (a constant fill of another length, a gradient met at the same pressure); forty
+bits (a relative step of 9e-13, about twelve digits) sit well above that and far below
+any physical difference of guide."""
 
 
-def _quantised(values: np.ndarray) -> list[float]:
-    """Return values rounded to :data:`_QUANTUM_DIGITS` significant digits."""
-    return [float(f"{float(one):.{_QUANTUM_DIGITS}g}") for one in np.ravel(values)]
+def _quantised(values: np.ndarray) -> str:
+    """Return the digest of values rounded to :data:`_QUANTUM_BITS` significant bits.
+
+    The rounding is exact binary arithmetic (scaling by powers of two and rounding
+    half to even), so every platform gives the same bytes.
+    """
+    mantissa, exponent = np.frexp(np.ravel(np.asarray(values, dtype=np.float64)))
+    rounded = np.ldexp(
+        np.rint(np.ldexp(mantissa, _QUANTUM_BITS)), exponent - _QUANTUM_BITS
+    )
+    return hashlib.sha256(rounded.astype("<f8").tobytes()).hexdigest()
 
 
 def modal_basis_identity(modes: Sequence[Mode], grid: TimeGrid, z: float) -> str:
@@ -173,7 +183,7 @@ def modal_basis_identity(modes: Sequence[Mode], grid: TimeGrid, z: float) -> str
     An ordinary mode's saved coefficient is a true-power amplitude of the mode's
     own profile at the plane, so the basis there is fixed by each mode's class and
     channel label, its effective area and its real effective index on the grid's
-    active band at that plane, quantised to twelve significant digits. The guide's
+    active band at that plane, quantised to forty significant bits. The guide's
     path elsewhere does not enter: the exit of one capillary and the entrance of an
     identical one of another length are the same basis.
 
