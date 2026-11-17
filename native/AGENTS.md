@@ -50,8 +50,8 @@ approved dependencies are Kokkos, Kokkos Kernels (BLAS component) with a vendor 
 behind it (the distribution build's BLAS on Linux and in the Windows wheel is OpenBLAS
 built with OpenMP from pinned source; a Windows build without it falls back to
 `scipy-openblas32`, a build requirement; each is carried in the wheel), Kokkos-FFT with
-FFTW or the device FFT, SLEEF (the host vector maths, static, on x86-64 CPU builds;
-solprop's ADR-059), nanobind
+FFTW or the device FFT, SLEEF (the host vector maths, static, on x86-64 and macOS arm64
+CPU builds; solprop's ADR-059), nanobind
 and scikit-build-core; GoogleTest is test-only. Adding any other dependency needs approval.
 
 Major changes follow solprop's enhancement proposal process (SEPs,

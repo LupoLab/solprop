@@ -22,7 +22,7 @@ the arithmetic is double precision throughout, and no build enables fast-math.
 
 | requirement | version and notes |
 |---|---|
-| Python | 3.14, with NumPy 2.3 or newer, and solprop at the same version installed in the same environment |
+| Python | 3.14, with NumPy 2.5 or newer, and solprop at the same version installed in the same environment |
 | CMake | 3.23 or newer (with build isolation, scikit-build-core fetches one from PyPI if none is found) |
 | build tool | Ninja is recommended; scikit-build-core uses it when available |
 | C++20 compiler, macOS | Clang 14 or newer; Homebrew LLVM is recommended and selected by default |
@@ -427,18 +427,20 @@ The CPU kernels form their transcendentals (the stage and step propagators, the
 exponential Adams method's flows, phi-functions and compensation, the ionisation rates
 and fractions) in passes over blocks of elements through one layer,
 `native/include/solprop_native/runtime/vmath.hpp` ([ADR-059](../../dev/decisions.md)). On x86-64
-it calls [SLEEF](https://sleef.org)'s vector functions, each within 1.0 ulp of the
-correctly rounded value over its whole domain: AVX2 where the build's target has it (the
-wheels' x86-64-v3 baseline and any local build on a processor from 2013 or later), SSE2
-otherwise. `SOLPROP_NATIVE_VECTOR_MATH_AVX512=ON` takes the AVX-512F functions on a
+and macOS arm64 it calls [SLEEF](https://sleef.org)'s vector functions, each within 1.0 ulp
+of the correctly rounded value over its whole domain: AVX2 where the build's target has it
+(the wheels' x86-64-v3 baseline and any local build on a processor from 2013 or later),
+SSE2 otherwise, and AdvSIMD on Arm. `SOLPROP_NATIVE_VECTOR_MATH_AVX512=ON` takes the AVX-512F functions on a
 target with AVX-512F: on one thread they ran the tracking cases about 4 % faster than
 the AVX2 ones on an AMD EPYC 9B45 (Zen 5) but 7 % slower on an Intel Xeon of the Ice
 Lake generation, whose cores lower their clock under 512-bit work. glibc's scalar `exp`, `cos` and `sin` cost a complex
 exponential 10 to 30 ns on an AMD EPYC 7763; SLEEF's AVX2 functions take it 3.3 to 3.6
 times faster at the same worst error on the kernels' own arguments. On Apple silicon
-the system libm is already about 3 ns, SLEEF's AdvSIMD functions gain nothing, and the
-build keeps the libm and each element's own calls (`SOLPROP_NATIVE_VECTOR_MATH=SLEEF`
-selects SLEEF there too). `build_info().vector_math` records the route, for example
+the system libm is already about 3 ns, but SLEEF's AdvSIMD functions over the gathered
+blocks, and the passes they enable, ran an Apple M5 Max's tracking cases faster
+(geometric mean 0.934 of the libm's time), so the build takes SLEEF there too. On Linux
+aarch64, where SLEEF measured level on a Neoverse V2, the build keeps the libm and each
+element's own calls (`SOLPROP_NATIVE_VECTOR_MATH=SLEEF` selects SLEEF there too). `build_info().vector_math` records the route, for example
 `"SLEEF 3.9.0 u10, AVX2"` or `"scalar libm"`. Results differ between the routes only
 by rounding (the functions' own ulp), within the backend's derived rounding budgets
 ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
@@ -612,7 +614,7 @@ evidence a change to this rule would start from. The `Wheels` workflow runs the 
 A wheel meant for other machines is built with `SOLPROP_NATIVE_PROFILE=DISTRIBUTION`.
 It carries its BLAS (on Linux and Windows the OpenMP OpenBLAS, BSD-3-Clause) with its
 licence, and the licence texts of Kokkos, Kokkos Kernels, Kokkos-FFT, nanobind,
-robin_map and, on x86-64, SLEEF (BSL-1.0), which are compiled in. FFTW and the OpenMP
+robin_map and, on x86-64 and macOS arm64, SLEEF (BSL-1.0), which are compiled in. FFTW and the OpenMP
 runtime are bundled by the wheel
 repair (`auditwheel repair` on Linux, `delocate` on macOS, `delvewheel` on Windows), and
 their licence texts by `SOLPROP_NATIVE_BUNDLED_LICENCES`; FFTW (GPL-2.0-or-later) is
