@@ -4,9 +4,13 @@
 
 """How a run is stepped, what it records and which backend executes it.
 
-:class:`SimulationSettings` and the checks that admit it, and the settings defaults a
-keyword route applies: its save planes, its controller and its absorbing boundaries
-(SEP 21). The manual page is ``docs/guide/setup/running.md``.
+:class:`SimulationSettings` holds a run's numerical settings (its save planes, its
+controller or fixed schedule, its integrator, its absorbing boundaries, its statistics,
+its retained fields and its backend) with the checks that admit them.
+:func:`keyword_settings` builds the controller and steps a keyword route applies, and
+:func:`default_collar` a route's default absorbing boundaries on a grid (SEP 21);
+:data:`NoiseSetting` is what a constructor's ``noise`` keyword takes. The manual page is
+``docs/guide/setup/running.md``.
 """
 
 import dataclasses

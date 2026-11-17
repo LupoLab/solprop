@@ -2,7 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The GNLSE route: its grid, its fibre and its dispersion table."""
+"""The GNLSE route: its grid, its fibre and its dispersion table.
+
+The pieces :meth:`~solprop.driver.simulation.Simulation.from_gnlse` builds a GNLSE run
+from: ``_gnlse_grid`` the envelope grid, ``_gnlse_fibre`` the mapping of one
+dispersion source and one nonlinear coefficient onto the GNLSE, ``_gnlse_mode`` a
+supplied table or mode with its propagation area at the pump, and ``_dispersion_table``
+the ``(omega, beta)`` table a caller's dispersion describes.
+"""
 
 import dataclasses
 import math

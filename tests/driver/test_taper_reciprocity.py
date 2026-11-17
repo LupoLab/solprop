@@ -52,7 +52,7 @@ from driver.test_flow_collar import backend_class
 from sessions.runs import bare, final_field
 from solprop.exceptions import GrazingIncidenceWarning, MaterialRangeWarning
 from solprop.modes import CoherentWall, wall_operator
-from solprop.modes.capillary import WallImpedance
+from solprop.modes.wall import WallImpedance
 from solprop.profiles import PiecewiseLinear
 from solprop.stepper import FixedSchedule
 from solprop.translate.linop import delta_phi, power_weight_at

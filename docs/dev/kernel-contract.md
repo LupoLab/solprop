@@ -135,7 +135,8 @@ about the representation. It is the arithmetic of `delta_phi` and
 rounding.
 
 **The z table has no such split** — its evaluation is a Clenshaw pass over an array of the
-state's size times the degree. NumPy evaluates it directly. The native CPU
+state's size times the degree (1.55 GB at the comb-to-continuum size), walked through a
+Python object that a compiled step loop cannot call. NumPy evaluates it directly. The native CPU
 build holds the coefficients resident and evaluates the table at each native call's
 distinct positions into term slots, which the stage weights then select (`+-1` for an
 increment, one-hot for a value), so the bundle's arithmetic is unchanged and no field of
@@ -366,7 +367,7 @@ and falls to the z table below. The names are the vocabulary of
 | `beta0`, `beta1` | `ZProfile` tables | frame quantities along z (diagnostic; already inside Φ) |
 | `separable` | `SeparableOperator` or `None` | shared constant spatial coefficients, present exactly for `"separable"`; described below and shared by identity with `responses.separable` |
 | `coupled_flow` | `CoupledFlowTables` or `None` | the generator of a guide whose channels couple, dense or factored, with its residual, conditioning and error certificate and one method per section; a leaf in `translate.coupled`, described in [the coupled-flow leaf](#the-coupled-flow-leaf) below |
-| `modal_metric` | `ModalMetricTables` or `None` | the explicit Hermitian flux metric W, a documented leaf here rather than a record nested inside the flow, shared by identity with the controller's norm, the linear flow and the output layer so that no second W is allocated. `kind` is `"identity"`, `"diagonal"` or `"dense"`, a dense W being Hermitian at every interval, degree and frequency. `"diagonal"` is admitted by the record and refused by **every** backend, because nothing in the package builds one. Entries are **dimensionless**: the diagonal weights float64 and positive, a dense W complex128, the error and eigenvalue rows float64; `omega` is `grids.omega` itself and `z_edges` covers the run. `None` for the orthogonal routes, whose weight is `power_weight` above. Every backend executes it as part of the general modal route, in two kinds: `"identity"`, while its `error` row is inside `translate.modal_tables.DEFAULT_GRAM_ATOL` — an identity metric that is not the identity is a silent error of `\|1/W₀₀ − 1\|` — and `"dense"`, the metric of a declared unitary change of basis of such a reference, whose `gauge_id` must equal the tables' and whose stored block the backend measures itself against `translate.general.MAX_DENSE_METRIC_DEPARTURE` rather than trusting the declared row. Both gates are the same statement: the backends propagate through the **diagonal** cumulative flow and measure the controller's norm on the coordinate amplitudes, neither of which is the basis's own where that basis is not orthonormal in true power. A `"diagonal"` metric is refused by name, and so is a nonunitary transform, at three layers: the declaration's own unitarity budget, the per-knot invariance of the spectral norm, and this one |
+| `modal_metric` | `ModalMetricTables` or `None` | the explicit Hermitian flux metric W, a documented leaf here rather than a record nested inside the flow, shared by identity with the controller's norm, the linear flow and the output layer so that no second W is allocated. `kind` is `"identity"`, `"diagonal"` or `"dense"`, a dense W being Hermitian at every interval, degree and frequency. `"diagonal"` is admitted by the record and refused by **every** backend, because nothing in the package builds one. Entries are **dimensionless**: the diagonal weights float64 and positive, a dense W complex128, the error and eigenvalue rows float64; `omega` is `grids.omega` itself and `z_edges` covers the run. `None` for the orthogonal routes, whose weight is `power_weight` above. Every backend executes it as part of the general modal route, in two kinds: `"identity"`, while its `error` row is inside `modes.tables.DEFAULT_GRAM_ATOL` — an identity metric that is not the identity is a silent error of `\|1/W₀₀ − 1\|` — and `"dense"`, the metric of a declared unitary change of basis of such a reference, whose `gauge_id` must equal the tables' and whose stored block the backend measures itself against `translate.general.MAX_DENSE_METRIC_DEPARTURE` rather than trusting the declared row. Both gates are the same statement: the backends propagate through the **diagonal** cumulative flow and measure the controller's norm on the coordinate amplitudes, neither of which is the basis's own where that basis is not orthonormal in true power. A `"diagonal"` metric is refused by name, and so is a nonunitary transform, at three layers: the declaration's own unitarity budget, the per-knot invariance of the spectral norm, and this one |
 
 The separable representation carries no `phi_coefficients`, `phi_constant` or
 `phi_expansion`. It has one interval, degree 1, its declared `z_span` as the two
@@ -1035,6 +1036,30 @@ attempt is abandoned, after it the committed attempt is returned with the failur
 and the session raises the kept exception unchanged; an abandoned attempt's failed
 release rides on the run's own error as a note. A device build refuses a TDSE
 problem at preparation.
+
+**The provider worker** (`driver/_source_worker.py`, SEP 49 §6.5, ADR-078). The binding
+never imports the provider: it runs in a worker process, provider-agnostic, in which an
+*adapter* module runs it (`driver/_pyroraptor.py` for Pyroraptor; the tests run a
+manufactured one). The parent starts `sys.executable -m solprop.driver._source_worker
+<adapter> <limit>` with `subprocess` (never `multiprocessing`, whose spawn re-imports
+the parent's `__main__` and whose fork inherits its runtimes) in a session of its own,
+so that a terminal's Ctrl-C or a scheduler's signal to the job reaches the parent alone,
+which then ends the worker. The worker moves the protocol off its standard input and
+output before importing the adapter, points standard output at standard error, ignores
+SIGINT and SIGTERM, and exits at once when its pipe from the parent reaches end of file,
+even during a call.
+
+- *Frames.* An 8-byte little-endian length, then the payload. A message is one control
+  frame, a UTF-8 JSON object `{"kind", "body", "arrays"}`, followed by one raw frame per
+  entry of `arrays`, each the array's bytes in the dtype (byte order included) and shape
+  its entry names. Nothing is pickled. Every frame's declared length is checked against
+  the channel's limit, and an array frame's against its declared shape, before anything
+  is allocated.
+- *Values.* A body is JSON with tagged objects: `{"$a": i}` the i-th array, `{"$t":
+  [...]}` a tuple, `{"$d": {...}}` a mapping, `{"$f": "nan"}` a non-finite float and
+  `{"$r": type, "f": fields, "c": computed}` a record (a dataclass or a plain object's
+  attributes, received as a `Record`); any other object travels as its type and `repr`
+  only (`Opaque`).
 
 The backend independently projects macroscopic P and J with the existing modal
 weights and crop scale. It subtracts unscaled discrete shadows, then applies

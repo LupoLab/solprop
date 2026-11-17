@@ -4,13 +4,15 @@
 
 """What the general modal route and the coupled flow execute, checked once.
 
-Both backends execute the same combinations of these leaves, so the list is part of the
-problem's validation (:meth:`solprop.translate.problem.PropagationProblem.validate`,
-which :func:`solprop.translate.problem.validate_run` runs where a backend is built):
-each refusal has one raise site, before any buffer is allocated. It holds the policy:
-the leaves' consistency with the state -- channel and component counts, axes, extents
--- is :meth:`~solprop.translate.problem.PropagationProblem.validate`'s own and runs
-first. A problem can be assembled by something other than
+:func:`check_general_route` refuses, by name, each general modal or coupled-flow problem
+solprop does not run, and :func:`check_leaf_types` a general-modal leaf that is not its
+record type. Both backends execute the same combinations of these leaves, so the list
+is part of the problem's validation
+(:meth:`solprop.translate.problem.PropagationProblem.validate`, which
+:func:`solprop.translate.problem.validate_run` runs where a backend is built): each
+refusal has one raise site, before any buffer is allocated. The leaves' consistency
+with the state -- channel and component counts, axes, extents -- is ``validate``'s own
+and runs first. A problem can be assembled by something other than
 :func:`solprop.translate.assembly.assemble`, so nothing here relies on the assembly
 having refused it already.
 """
@@ -20,6 +22,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from solprop.exceptions import TranslationError
+from solprop.modes.tables import DEFAULT_GRAM_ATOL
 from solprop.translate.coupled import CoupledFlowTables, ModalMetricTables
 from solprop.translate.general import (
     MAX_DENSE_METRIC_DEPARTURE,
@@ -27,7 +30,7 @@ from solprop.translate.general import (
     metric_departure,
 )
 from solprop.translate.linop import LinearOperator
-from solprop.translate.modal_tables import DEFAULT_GRAM_ATOL, ModalTransformTables
+from solprop.translate.modal_tables import ModalTransformTables
 from solprop.translate.responses import RegionalResponseTables
 
 if TYPE_CHECKING:

@@ -2,7 +2,15 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Describe indexed parameter scans and dispatch independent simulations."""
+"""Describe indexed parameter scans and dispatch independent simulations.
+
+The public scan API: :class:`Scan` and :class:`ScanPoint` (defined in
+``solprop.driver._scan_model``), and :func:`run_scan`, which runs a scan's points
+under an executor (:mod:`solprop.driver.executors`) into one collected file through
+``solprop.driver._scan_run``. The worker-side reductions and the reader of a scan
+file live in :mod:`solprop.processing.scans`; the command-line launcher of a scan script
+is :mod:`solprop.scan`. The manual page is ``docs/guide/workflows/scans.md``.
+"""
 
 from collections.abc import Callable, Sequence
 from pathlib import Path

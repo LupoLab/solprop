@@ -4,31 +4,18 @@
 
 """The recipe document: its tables, its format version and the forms of its values.
 
-A recipe is a TOML document with five fixed tables, and no other top-level name, so a
-future keyword can never collide with the format:
-
-``[recipe]``
-    ``format`` (an integer) and ``route`` (a string), required; ``title`` and
-    ``solprop`` (the version that wrote it), informative strings.
-``[build]``
-    The keywords of the route's ``Simulation.from_*`` constructor.
-``[execution]``
-    ``fields``, ``field_planes`` and ``resume_history``.
-``[pins]``
-    Values set from a design target.
-``[scan]``
-    A scan over parameter paths.
-
-This layer knows the document's shape and nothing of a route's keywords: those, and
-which form each value takes, are the parameter metadata's. It reads text with
-:mod:`tomllib`, checks the tables and the format version, and writes canonical text
-with ``tomli_w``. Every value is a string, a boolean, a 64-bit integer, a float, a
-table or an array: TOML's dates and times are refused, and so is an integer outside 64
-bits, which a recipe writes as a decimal string (:func:`encode_integer`), since other
-TOML readers refuse it.
-
-The decoders and encoders here are the value forms the metadata calls: the ``"none"``
-spelling, complex numbers, large integers, numeric arrays and data files.
+This layer knows the document's shape (the five tables of :data:`TABLES`, the
+``[recipe]`` and ``[execution]`` keys, the keys refused in ``[build]``) and nothing of
+a route's keywords, which, with the form each value takes, are the parameter
+metadata's. :func:`parse_text` reads text with :mod:`tomllib` and
+:func:`validate_document` and :func:`upgrade` check the tables and the format version
+(:data:`FORMAT`) into a ``Document``; :func:`dump_text` writes canonical text with
+``tomli_w``. The ``decode_*`` and ``encode_*`` pairs are the value forms the metadata
+calls: the ``"none"`` spelling (:data:`NONE`), complex numbers, integers beyond 64
+bits (written as decimal strings, since other TOML readers refuse them), numeric
+arrays up to :data:`MAX_ARRAY_LENGTH`, and data files (:class:`DataFile`, read and
+hash-checked by :func:`load_array`, :func:`checked_bytes` and their neighbours). The
+format and its value rules are in the manual, ``docs/guide/setup/recipes.md``.
 """
 
 import difflib

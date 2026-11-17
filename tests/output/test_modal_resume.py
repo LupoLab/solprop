@@ -34,6 +34,7 @@ from solprop.driver._scan_run import _Capture, _Options
 from solprop.exceptions import OutputError, TranslationError
 from solprop.modes.material import MaterialKerr, quantised_measurement
 from solprop.modes.protocol import ChannelLabel
+from solprop.modes.tables import DEFAULT_GRAM_ATOL
 from solprop.output import HDF5Output
 from solprop.output.hdf5 import check_cache, open_file, resume
 from solprop.output.memory import MemoryOutput
@@ -48,7 +49,6 @@ from solprop.translate.general import (
     guide_identity,
     modal_identity,
 )
-from solprop.translate.modal_tables import DEFAULT_GRAM_ATOL
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
 # hold more than a millionth of the energy in their guards or collar: the boundary

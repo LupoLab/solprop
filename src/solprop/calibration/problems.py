@@ -4,23 +4,15 @@
 
 """The calibration's synthetic problems (SEP 46 section 6.3).
 
-Five problems that solprop ships, so that a calibration never needs a user's
-simulation: a GNLSE with Raman response and self-steepening, a four-mode helium
-capillary with plasma, a mode-averaged hydrogen capillary with Raman response, a
-radial argon filament with plasma and a one-dimensional free-space line. Together they
-exercise every CPU operation class: stage passes, responses with short and long
-columns, modal and dense products, Raman histories, plasma columns, radial and
-temporal transforms. Each is adapted from the benchmark tracking set's case of the
-same physics (``benchmarks/builders.py``), with no noise so that every candidate does
-the same work, and with a *scale* that sizes its grid: the time window for the
-one-dimensional problems and the transverse count for the spatial ones. A run times
-their trial steps (``Backend.timing_probe``), never a propagation.
-
-Four of them also come at production size (``*_large``), as large as the tracking
-set's cases of their kind: on these alone a narrower team or a higher threshold that
-wins on the small problems shows what it costs a production run. On 16 cores of a
-Google Axion, a team of 8 won the small problems by 16 % and ran the tracking set's
-large cases up to 1.8 times slower (SEP 46 Part II).
+:data:`PROBLEMS` maps each problem's name to a builder of its
+:class:`~solprop.driver.simulation.Simulation`, and :func:`build` builds one at a
+*scale* that sizes its grid. Five problems that solprop ships, so that a calibration
+never needs a user's simulation: a GNLSE with Raman response and self-steepening, a
+four-mode helium capillary with plasma, a mode-averaged hydrogen capillary with Raman
+response, a radial argon filament with plasma and a one-dimensional free-space line;
+four of them also come at production size (``*_large``). Each is adapted from the
+benchmark tracking set's case of the same physics (``benchmarks/builders.py``), without
+noise. Why they are chosen so is in ``docs/dev/backends.md`` (section 3.4a).
 """
 
 from __future__ import annotations

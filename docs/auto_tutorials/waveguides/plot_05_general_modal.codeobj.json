@@ -684,8 +684,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.translate.modal_tables",
-   "module_short": "solprop.translate.modal_tables",
+   "module": "solprop.modes.tables",
+   "module_short": "solprop.modes.tables",
    "name": "channel_area"
   }
  ],
@@ -1225,7 +1225,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.modes.vector",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.vector",
    "name": "ModalNodeRule"
   },
   {
@@ -1609,8 +1609,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.translate.modal_tables",
-   "module_short": "solprop.translate.modal_tables",
+   "module": "solprop.modes.tables",
+   "module_short": "solprop.modes.tables",
    "name": "sample_modal_table"
   }
  ],
@@ -1627,7 +1627,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.modes.guide",
+   "module": "solprop.modes.stepindex_vector",
    "module_short": "solprop.modes",
    "name": "StepIndexProvider"
   },
@@ -1650,7 +1650,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.modes.guide",
+   "module": "solprop.modes.stepindex_vector",
    "module_short": "solprop.modes",
    "name": "StepIndexProvider.node_rule"
   },
@@ -1696,15 +1696,15 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.translate.modal_tables",
-   "module_short": "solprop.translate.modal_tables",
+   "module": "solprop.modes.tables",
+   "module_short": "solprop.modes.tables",
    "name": "DenseModalTable"
   },
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.translate",
-   "module_short": "solprop.translate",
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
    "name": "DenseModalTable"
   },
   {
@@ -1719,15 +1719,15 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.translate.modal_tables",
-   "module_short": "solprop.translate.modal_tables",
+   "module": "solprop.modes.tables",
+   "module_short": "solprop.modes.tables",
    "name": "DenseModalTable.evaluate"
   },
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.translate",
-   "module_short": "solprop.translate",
+   "module": "solprop.modes",
+   "module_short": "solprop.modes",
    "name": "DenseModalTable.evaluate"
   },
   {

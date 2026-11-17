@@ -5,19 +5,19 @@
 """From recipe values to the objects a route takes: the registry and the decoder.
 
 A recipe names an object by a ``type`` key, which must be an entry of the fixed
-:data:`REGISTRY` (SEP 41 section 5.1): a **named factory**, a constructor, class
-method or module function, with the units of its keywords declared and any **build
-context** it receives declared too. Format 1 defines one context, the route's time
-grid, so ``absorber = {type = "absorber"}`` builds
-``solprop.boundaries.absorber(grid)``; on the free-space routes it is the ``grid``
-keyword itself, and the absorber is a keyword of the ``settings`` table.
-A recipe never imports a module or evaluates code: a type outside the registry is
-refused, and the Python export is the way out.
-
-:func:`decode` turns one value of a recipe into the Python value a keyword takes:
-quantities into numbers in the keyword's unit, ``{re, im}`` into a complex number,
-``{file, sha256}`` into an array read from a checked file, a table with a ``type`` into
-an object, and ``"none"`` into ``None`` where the keyword has that spelling.
+:data:`REGISTRY` (SEP 41 section 5.1): a :class:`Factory`, a named constructor, class
+method or module function, with the units of its keywords declared and any build
+context it receives declared too. Format 1 defines one context, the route's time grid,
+so ``absorber = {type = "absorber"}`` builds ``solprop.boundaries.absorber(grid)``
+(:class:`BuildContext` carries it, with the recipe's directory). A recipe never imports
+a module or evaluates code: a type outside the registry is refused, and the Python
+export is the way out. :func:`decode` turns one value into what a keyword takes
+(quantities into numbers in the keyword's unit, ``{re, im}`` into a complex number,
+``{file, sha256}`` into a checked array, a typed table into an object through
+:func:`build_object`, ``"none"`` into ``None``); :func:`decode_keyword` does it for a
+build keyword by its metadata, and :func:`coerce` gives a list its annotated container.
+:func:`retired` and :data:`RETIRED_KEYWORDS`, and :func:`plane_parameter` and
+:func:`refuse_plane_count` (SEP 51), name a refused keyword.
 """
 
 import functools
@@ -42,7 +42,7 @@ from solprop.grid import (
     TimeGrid,
 )
 from solprop.modes.antiresonant import TubeLattice
-from solprop.modes.capillary import CoherentWall, MarcatiliMode
+from solprop.modes.capillary import MarcatiliMode
 from solprop.modes.collection import ModeCollection
 from solprop.modes.graded_index import GradedIndexProvider, PowerLawPermittivity
 from solprop.modes.guide import ModalGuide
@@ -50,6 +50,7 @@ from solprop.modes.material import IndexMaterial, MaterialKerr
 from solprop.modes.rectangular import RectMode
 from solprop.modes.slab import PlanarGrid, SlabMode
 from solprop.modes.stepindex import StepIndexMode
+from solprop.modes.wall import CoherentWall
 from solprop.monitor import BoundaryCheck
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.optmat_rates import OptmatRate

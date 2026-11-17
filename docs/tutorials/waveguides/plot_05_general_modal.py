@@ -34,9 +34,9 @@ from solprop.modes import (
     ModalGuide,
     StepIndexMode,
 )
+from solprop.modes.tables import channel_area, sample_modal_table
 from solprop.nonlinear.normalisation import modal_kerr_coefficient
 from solprop.physdata import chi3_from_n2, n2_from_chi3
-from solprop.translate.modal_tables import channel_area, sample_modal_table
 
 LENGTH = 2e-5
 """Twenty microns, in about ten accepted steps.

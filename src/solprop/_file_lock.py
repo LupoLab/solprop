@@ -4,11 +4,12 @@
 
 """Hold kernel-owned advisory locks on POSIX and on Windows through one interface.
 
-POSIX takes :func:`fcntl.flock`, shared or exclusive. Windows has no shared byte-range
-lock in the standard library, so there every lock is exclusive on the descriptor's
-first byte through :func:`msvcrt.locking`: readers then serialise with each other as
-well as with the writer, which is safe and only less concurrent. Either way the
-operating system owns the lock, so a killed process releases it.
+:func:`lock` and :func:`unlock` take an open descriptor. POSIX takes
+:func:`fcntl.flock`, shared or exclusive. Windows has no shared byte-range lock in the
+standard library, so there every lock is exclusive on the descriptor's first byte
+through :func:`msvcrt.locking`: readers then serialise with each other as well as with
+the writer, which is safe and only less concurrent. Either way the operating system owns
+the lock, so a killed process releases it.
 """
 
 import os

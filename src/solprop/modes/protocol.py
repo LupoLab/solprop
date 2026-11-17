@@ -4,29 +4,26 @@
 
 """The mode protocol: what the rest of solprop needs from a waveguide mode.
 
-A mode is anything with an effective index and a transverse field profile. The linear
-operator needs ``neff`` and its analytic frequency derivative (the co-moving frame,
-ADR-006); the multimode transform needs the field at quadrature nodes and the geometry
-of the cross-section; the mode-averaged normalisation needs the effective area; the
-translation layer needs the three traits that say how the mode changes along z, and, for
-a mode whose whole z dependence is a handful of scalar paths, the two members of
-:class:`ParameterisedMode` that let the operator be evaluated at parameter *values*
-rather than at positions. Nothing here computes anything: implementations live in
-:mod:`solprop.modes` and, for a dispersion-specified GNLSE mode, in
-``solprop.nonlinear.gnlse``.
+:class:`Mode` is anything with an effective index and a transverse field profile: the
+linear operator needs ``neff`` and its analytic frequency derivative (the co-moving
+frame, ADR-006), the multimode transform the field at quadrature nodes and the
+cross-section's geometry, the mode-averaged normalisation the effective area, and the
+translation layer the traits that say how the mode changes along z.
+:class:`ParameterisedMode` adds the two members that let the operator be evaluated at
+the values of a handful of scalar paths rather than at positions
+(:data:`GEOMETRY_PATH_NAMES` names the geometric ones). :class:`ChannelLabel` names
+one physical channel, with the :data:`CrossSection`, :data:`TransverseMeasure`,
+:data:`PolarisationComponent`, :data:`Parity` and :data:`Handedness` vocabularies.
+Nothing here computes anything: implementations live in :mod:`solprop.modes` and,
+for a dispersion-specified GNLSE mode, in ``solprop.nonlinear.gnlse``.
 
 Conventions (``docs/dev/conventions.md`` section 5): ``Im n_eff > 0`` is loss;
-``n_eff - 1`` is available without cancellation for gases through
-:meth:`Mode.neff_minus_one`; points are ``(r, theta)`` for a polar cross-section and
-``(x, y)`` for a Cartesian or slab one, in metres and radians; fields are the transverse
-Cartesian components ``(E_x, E_y)`` of the *unnormalised* profile, whose normalisation
-``N`` and effective area follow from them.
-
-A mode **uniform in y** -- the hollow planar guide of :mod:`solprop.modes.slab` --
-declares the ``"slab"`` cross-section and the optional ``transverse_measure`` trait
-``"per_unit_width"``: its normalisation is a power per metre of y, its effective
-"area" is an effective width in metres, and the powers and energies of a run on it are
-per unit width (:data:`TransverseMeasure`). A mode without the trait is ``"area"``.
+``n_eff - 1`` is available without cancellation through :meth:`Mode.neff_minus_one`;
+points are ``(r, theta)`` for a polar cross-section and ``(x, y)`` for a Cartesian or
+slab one, in metres and radians; fields are the transverse Cartesian components
+``(E_x, E_y)`` of the *unnormalised* profile. A mode uniform in y (the ``"slab"``
+cross-section of :mod:`solprop.modes.slab`) declares the ``transverse_measure``
+``"per_unit_width"``: its normalisation, area and a run's powers are per metre of y.
 """
 
 from collections.abc import Mapping

@@ -102,6 +102,8 @@ LIGHT = {
     "rule": "#c9d0da",
     "p-fill": "#e2f0e8",
     "p-edge": "#2c7a55",
+    "s-fill": "#ddf1f3",
+    "s-edge": "#1d7a86",
     "t-fill": "#fceedd",
     "t-edge": "#a96a15",
     "b-fill": "#e3ebfa",
@@ -120,6 +122,8 @@ DARK = {
     "rule": "#3a424e",
     "p-fill": "#16342a",
     "p-edge": "#5cb98a",
+    "s-fill": "#113236",
+    "s-edge": "#5fc2ce",
     "t-fill": "#3a2b15",
     "t-edge": "#e0a44f",
     "b-fill": "#17253f",
@@ -131,7 +135,7 @@ DARK = {
 }
 """The same palette on a dark ground, with exactly the same keys as :data:`LIGHT`."""
 
-LAYER_LETTERS = ("P", "T", "B", "D", "X")
+LAYER_LETTERS = ("P", "S", "T", "B", "D", "X")
 """The layer letters of ``architecture.md`` section 3, in the order imports flow."""
 
 
@@ -561,22 +565,24 @@ class Layer(NamedTuple):
 
 LAYERS = (
     Layer("P", "physics / convenience", "numpy, scipy, stdlib, other P modules"),
-    Layer("T", "translation", "P, numpy, scipy"),
-    Layer("B", "backends", "numpy; the native package in native/"),
-    Layer("D", "driver", "P, T, B through the seam, h5py"),
+    Layer("S", "run specification", "P, numpy, scipy"),
+    Layer("T", "translation", "P, S, numpy, scipy"),
+    Layer("B", "backends", "numpy; the native package in native/; S"),
+    Layer("D", "driver", "P, S, T, B through the seam, h5py"),
     Layer(
         "X",
         "processing / plotting",
         "numpy, scipy, matplotlib, D (outputs), T (table identities)",
     ),
 )
-"""The five layers of `architecture.md` section 3, in the order imports flow."""
+"""The six layers of `architecture.md` section 3, in the order imports flow."""
 
 PACKAGE_WIDE = (
     Module("__init__.py"),
     Module("exceptions.py"),
+    Module("log.py"),
 )
-"""The two modules `architecture.md` section 4 gives no layer letter."""
+"""The public modules beneath every layer (`architecture.md` section 3): no letter."""
 
 MODULES = {
     "P": (
@@ -651,9 +657,13 @@ MODULES = {
                 "stepindex",
                 "material",
                 "vector",
+                "stepindex_vector",
                 "guide",
+                "tables",
+                "path",
                 "graded_index",
                 "connection",
+                "wall",
                 "rectangular",
                 "slab",
                 "collection",
@@ -673,6 +683,31 @@ MODULES = {
                 "mixtures",
                 "optmat_raman",
                 "tdse",
+            ),
+        ),
+    ),
+    "S": (
+        Module(
+            "stepper/",
+            (
+                "tableau",
+                "runge_kutta",
+                "multistep",
+                "low_storage",
+                "controller",
+                "schedule",
+            ),
+        ),
+        Module("stats/", ("definitions", "catalogue", "spec", "evaluation")),
+        Module(
+            "output/",
+            (
+                "serialisation",
+                "provenance",
+                "records",
+                "metadata",
+                "store",
+                "capability",
             ),
         ),
     ),
@@ -773,28 +808,9 @@ MODULES = {
         ),
     ),
     "D": (
-        Module("log.py"),
-        Module("stats.py"),
-        Module(
-            "stepper/",
-            (
-                "tableau",
-                "runge_kutta",
-                "multistep",
-                "low_storage",
-                "controller",
-                "schedule",
-            ),
-        ),
         Module(
             "output/",
             (
-                "serialisation",
-                "provenance",
-                "records",
-                "metadata",
-                "store",
-                "capability",
                 "memory",
                 "callback",
                 "hdf5",
@@ -863,6 +879,7 @@ MODULES = {
                 "provenance",
                 "quantity",
                 "registry",
+                "type_metadata",
             ),
         ),
         Module("cli.py"),
@@ -896,7 +913,6 @@ MODULES = {
             (
                 "agent",
                 "beam",
-                "beams",
                 "client",
                 "design",
                 "explore",
@@ -910,6 +926,7 @@ MODULES = {
                 "machines",
                 "messages",
                 "postprocess",
+                "radial_pages",
                 "recipes",
                 "record",
                 "reduce",
@@ -1508,7 +1525,7 @@ def _rows(chips: Sequence[Chip], width: float) -> tuple[tuple[Chip, ...], ...]:
 HEADER_WIDTH = 262.0
 """Width of a band's header: the letter, the layer's name and what it may import."""
 
-GUTTER_WIDTH = 126.0
+GUTTER_WIDTH = 190.0
 """Width of the right-hand lane the import arrows run in."""
 
 BAND_PAD = 13.0
@@ -1701,7 +1718,8 @@ def layers() -> drawsvg.Drawing:
 
 
 ADJACENT_EDGES = (
-    ("T", "P", "physics objects"),
+    ("S", "P", "the grids, modes and profiles a statistic reads"),
+    ("T", "S", "the run request: stepper settings, statistics, field retention"),
     ("B", "T", "delta_phi, prefactor_at, the stage bundle"),
     ("D", "B", "backends.select, then the seam"),
     ("X", "D", "a saved run, through the Output protocol"),
@@ -1709,6 +1727,13 @@ ADJACENT_EDGES = (
 """Import edges between neighbouring bands, drawn in the gap between them."""
 
 DISTANT_EDGES = (
+    ("T", "P", "physics objects become the kernel problem"),
+    (
+        "B",
+        "S",
+        "the request's settings, the statistics catalogue and the record types a "
+        "session writes",
+    ),
     ("D", "T", "Simulation calls translate.assemble"),
     ("D", "P", "the driver builds the grid, the modes, the pulse and the responses"),
     (

@@ -5,7 +5,9 @@
 """Name the keyword a refusal or a warning concerns (SEP 41, S10).
 
 A keyword route builds physics objects from its keywords; an error or a warning those
-objects raise is attributed here to the keyword the caller typed.
+objects raise is attributed here to the keyword the caller typed, by the context
+managers ``_about`` and ``_warnings_about``. :func:`keyword_request` builds a route's
+request record from its constructor's locals.
 """
 
 import contextlib

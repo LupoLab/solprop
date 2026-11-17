@@ -2,22 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The keyword interface: one call from GNLSE coefficients to a written run.
+"""The keyword interface: one call from keywords to a written run.
 
 :func:`prop_gnlse` builds the grid, the dispersion-specified fibre, the input pulse,
 the noise realisation and the numerical settings from keywords, hands them to
 :meth:`solprop.driver.simulation.Simulation.from_gnlse`, runs it and returns the output
 handler it wrote. :func:`prop_capillary` and :func:`prop_waveguide` do the same for a
-gas-filled capillary and for any other modal waveguide.
-
-The step controls ``rtol``, ``atol``, ``dz_init`` and ``dz_max`` are keywords of
-:func:`prop_gnlse`, :func:`prop_capillary` and :func:`prop_waveguide`; :func:`prop_free`
-and :func:`prop_planar` take them in their ``settings``, whose steps default to the same
-fractions of the length. ``raman`` defaults to false, and the whole of ``gamma`` then
-acts as Kerr; the Raman share is taken from ``gamma`` only when the Raman response is
-on. What a run was asked for is recorded as structured metadata.
-
-The manual page is ``docs/guide/setup/running.md``.
+gas-filled capillary and for any other modal waveguide, and :func:`prop_free` and
+:func:`prop_planar` for free space and a planar guide, which take the step controls in
+their ``settings``. What a run was asked for is recorded as structured metadata. The
+manual page is ``docs/guide/setup/running.md`` ("One call"), with the step controls'
+defaults there and the GNLSE's Raman share in ``docs/guide/waveguides/gnlse.md``.
 """
 
 import inspect
@@ -42,17 +37,14 @@ from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
 from solprop.log import DEFAULT_PROGRESS_PERIOD, ProgressChoice, ProgressReporter
 from solprop.modes.antiresonant import TubeLattice
-from solprop.modes.capillary import (
-    CoherentWall,
-    GlassIndex,
-    MarcatiliModel,
-)
+from solprop.modes.capillary import GlassIndex, MarcatiliModel
 from solprop.modes.fill import LossFunction
 from solprop.modes.guide import ModalGuide
 from solprop.modes.protocol import Mode
 from solprop.modes.quadrature import RadialRule
 from solprop.modes.slab import PlanarGrid
 from solprop.modes.tabulated import IndexTable
+from solprop.modes.wall import CoherentWall
 from solprop.monitor import DEFAULT_BOUNDARY_CHECK, BoundaryCheck
 from solprop.nonlinear.ionisation import IntegrationPolicy, IonisationRate
 from solprop.nonlinear.raman import MolecularOptions

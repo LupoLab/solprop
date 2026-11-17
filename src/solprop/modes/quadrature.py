@@ -4,77 +4,30 @@
 
 r"""Fixed transverse quadrature rules and the mode matrices built on them.
 
-The multimode transform integrates over the cross-section with one fixed rule chosen
-once per problem, never an adaptive one (ADR-010). That is not a compromise: the Kerr
-polarisation is cubic in the field, so its projection is a *quartic* in the transverse
-profiles, and for Marcatili modes those are Bessel functions of :math:`r/a` times
-:math:`\cos h\theta` -- analytic, and integrated to rounding by a Gauss rule of modest
-order. An adaptive rule buys nothing and costs a data-dependent time per step and an
-error estimate that can be fooled.
+The multimode transform integrates over the cross-section with one **fixed** rule chosen
+once per problem, never an adaptive one (ADR-010): the Kerr projection is a quartic in
+analytic transverse profiles, which a Gauss rule of modest order integrates to rounding.
 
-The rules:
+- Rules: :func:`transverse_quadrature` builds a :class:`TransverseQuadrature` for a
+  mode set and :func:`quadrature_rule` for a bare cross-section -- Gauss-Legendre or
+  Gauss-Kronrod in :math:`r/a` (:data:`RadialRule`; :func:`gauss_kronrod` computes the
+  extension by Laurie's algorithm [1]_), the half-step-offset periodic trapezoid in
+  :math:`\theta` (:data:`DEFAULT_N_THETA`), Gauss-Legendre per Cartesian axis or in x
+  alone for a slab (:func:`cartesian_nodes` is the measured bound), the SEP 19
+  field-scale rules for one HE_11 mode (:func:`field_scale_rule`,
+  :data:`FIELD_SCALE_RULES`, :func:`check_field_scale_modes`), and
+  :func:`on_axis_rule`.
+- Matrices: :func:`mode_matrix` builds the :class:`ModeMatrices` synthesis and
+  projection pair, the projection carrying :data:`BASIS_NORMALISATION` so that
+  ``projection @ synthesis`` is the identity on an orthonormal set; a scale-invariant
+  mode's taper rescales them exactly (:meth:`ModeMatrices.rescaled`,
+  :func:`taper_scale`).
+- Chebyshev-Lobatto points along z: :func:`lobatto_nodes`, :func:`lobatto_points`,
+  :func:`lobatto_coefficients`, :func:`refinement_points`.
 
-**Radial**, :math:`n_r` Gauss-Legendre nodes on :math:`\xi = r/a \in (0, 1)`, with the
-Jacobian and the azimuthal :math:`2\pi` folded into the weights,
-:math:`w_i = 2\pi a^2 \xi_i w^{\rm GL}_i / 2`. With
-``radial_rule="gauss_kronrod"`` the count is rounded up to :math:`2n+1` and the rule
-becomes the Kronrod extension of the :math:`n`-point Gauss rule, whose Gauss subset is
-an *embedded coarse rule* for the error estimate. Nodes are strictly interior, so the
-wall is never sampled.
-
-**Field scale** (SEP 19), for one Marcatili HE_11 mode in a transversely uniform
-medium, where every node sees the axial waveform scaled by
-:math:`\eta = J_0(u_{01}\xi)`: ``"field_scale"`` is the Gauss rule in :math:`\eta` for
-the HE_11 projection measure and ``"field_scale_radau"`` its Radau variant with a node
-on the axis (:func:`field_scale_rule`). They exist for responses so expensive that the
-number of atoms per call matters, carry *area* weights, which are finite at the axis
-and integrate the source rather than the area, and have no embedded coarse rule.
-
-**Azimuthal**, :math:`n_\theta` equispaced nodes offset by half a step,
-:math:`\theta_j = (j - \tfrac12) 2\pi/n_\theta`: the periodic trapezoid rule, which is
-exact for trigonometric polynomials of degree at most :math:`n_\theta - 1`. The offset
-matters. On-grid nodes at :math:`0, \pi/2, \pi, 3\pi/2` annihilate products such as
-:math:`E_xE_y` for a superposition of hybrid modes, which can make an adaptive cubature
-such as ``pcubature`` report convergence on a wrong value; the offset rule cannot be
-fooled that way and there is no convergence decision in it to fool. A quartic product of
-modes with azimuthal order up to :math:`h` reaches degree :math:`4h`, so
-:func:`transverse_quadrature` warns below :math:`n_\theta = 4h + 1`.
-
-**Cartesian**, Gauss-Legendre in both directions, for rectangular waveguides. A
-product of trigonometric eigenfunctions has no finite exactness degree there, so the
-bound is the measured :func:`cartesian_nodes`, :math:`6h + 6` per axis, and
-:func:`transverse_quadrature` warns below it.
-
-**Slab**, Gauss-Legendre in x alone on :math:`[-a, a]`, for the hollow planar guide
-uniform in y (:mod:`solprop.modes.slab`). The rule emits ``(x, 0)`` points with the
-weights :math:`a\,w_i` times a unit y weight, so everything downstream of the rule is
-the Cartesian pipeline with one y node: an integral over it is a per-unit-width one. The
-same :func:`cartesian_nodes` bound holds -- re-measured on the one-dimensional quartic
-products -- and with ``radial_rule="gauss_kronrod"`` the x rule is the Kronrod
-extension, so the slab has the quadrature alarm a Cartesian product rule lacks.
-
-The Kronrod extension is computed, not tabulated, by Laurie's algorithm [1]_: build the
-Jacobi-Kronrod matrix from the Legendre recurrence coefficients and take its eigenvalues
-and first eigenvector components. That gives any order rather than the two that
-:mod:`scipy.integrate` happens to ship, and it is checked node by node against QuadGK's
-values in ``tests/data/luna_modes.json``.
-
-**Tapers.** For a scale-invariant mode the profile depends on ``r`` only through
-``r / a`` and the normalisation goes as :math:`a^2`, so at nodes placed at
-:math:`r = a\xi` the normalised field is exactly proportional to :math:`1/a` and the
-weights to :math:`a^2`. Moving along a taper therefore rescales the synthesis matrix by
-:math:`a(0)/a(z)` and the projection matrix by :math:`a(z)/a(0)`, exactly, instead of
-re-evaluating thousands of Bessel functions: :meth:`ModeMatrices.rescaled`.
-
-**The dual pair.** The propagated basis is :math:`e_m/\sqrt{N_m}` with
-:math:`N_m = (\varepsilon_0 c/2)\int|e_m|^2\,dA` (``conventions.md`` section 4), so its
-overlaps are :math:`2/(\varepsilon_0 c)` rather than one, and the coefficient of a field
-in that basis is :math:`(\varepsilon_0 c/2)\int P\,e_m/\sqrt{N_m}\,dA`. The projection
-matrix therefore carries :data:`BASIS_NORMALISATION` beside the quadrature weights, so
-that ``projection @ synthesis`` is the identity on an orthonormal set and a backend
-applies the pair as it is.
-
-The manual page is ``docs/guide/waveguides/mode-sets.md``.
+The rules, their exactness and the warnings they raise are in
+``docs/guide/waveguides/mode-sets.md`` and ``docs/dev/algorithms.md`` section 6; the
+Cartesian and slab rules in ``docs/guide/setup/spatial-decompositions.md``.
 
 References
 ----------
@@ -92,13 +45,14 @@ from dataclasses import dataclass
 from typing import Final, Literal, get_args
 
 import numpy as np
-from jaxtyping import Float
+from jaxtyping import Float, Inexact
 from scipy.linalg import eigh_tridiagonal, solve_banded
 from scipy.optimize import brentq
 from scipy.special import j0, jn_zeros, roots_legendre
 
 from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError
+from solprop.modes.capillary import MarcatiliMode
 from solprop.modes.protocol import CrossSection, Mode
 
 __all__ = [
@@ -112,9 +66,13 @@ __all__ = [
     "check_field_scale_modes",
     "field_scale_rule",
     "gauss_kronrod",
+    "lobatto_coefficients",
+    "lobatto_nodes",
+    "lobatto_points",
     "mode_matrix",
     "on_axis_rule",
     "quadrature_rule",
+    "refinement_points",
     "taper_scale",
     "transverse_quadrature",
 ]
@@ -639,8 +597,6 @@ def check_field_scale_modes(modes: Sequence[Mode]) -> None:
         profile is not Marcatili's ``J_0(u_01 r / a)``: a mode merely labelled HE_11
         with another radial profile does not qualify.
     """
-    from solprop.modes.capillary import MarcatiliMode  # noqa: PLC0415 - a cycle
-
     mode = modes[0] if len(modes) == 1 else None
     if (
         mode is None
@@ -1589,3 +1545,148 @@ def taper_scale(mode: Mode, z: float, reference: float = 0.0) -> float:
         _, reference_lower, reference_upper = mode.dimlimits(reference)
         return float((reference_upper[0] - reference_lower[0]) / (upper[0] - lower[0]))
     return float(mode.dimlimits(reference)[2][0] / upper[0])
+
+
+# --------------------------------------------------------------------------------------
+# Chebyshev-Lobatto rules along one coordinate.
+#
+# The node set, its nesting refinement and the discrete Chebyshev transform shared by
+# every fixed-degree Chebyshev expansion in the package: the adaptive z representation
+# and the parameter expansions of `solprop.translate.chebyshev`, the coupled flow's
+# sections and a moving guide's path (`solprop.modes.path`).
+
+
+def lobatto_nodes(degree: int) -> Float[np.ndarray, " n_deg"]:
+    """Return the Chebyshev-Lobatto points of ``degree``, ascending on ``[-1, 1]``.
+
+    Points of the second kind because they include both endpoints, which the continuity
+    fix needs, and because they nest: the degree ``2 d`` set contains the degree ``d``
+    set at even indices, bitwise, so a degree doubling costs ``d`` new evaluations.
+
+    Parameters
+    ----------
+    degree : int
+        Polynomial degree, ``>= 1``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The ``degree + 1`` points ``-cos(pi j / degree)``, dimensionless.
+
+    Examples
+    --------
+    >>> from solprop.modes.quadrature import lobatto_nodes
+    >>> [round(value, 12) + 0.0 for value in lobatto_nodes(2).tolist()]
+    [-1.0, 0.0, 1.0]
+    """
+    return -np.cos(np.pi * np.arange(degree + 1) / degree)
+
+
+def _refinement_positions(
+    degree: int, lo: float, hi: float
+) -> Float[np.ndarray, " n_z"]:
+    """Return the positions the degree doubling adds, all interior.
+
+    - ``lo``, ``hi``: ends of the interval, m.
+    - Returns: the ``degree`` new positions, m, increasing. They are interior, so they
+      need no endpoint inset.
+    """
+    odd = -np.cos(np.pi * np.arange(1, 2 * degree, 2) / (2 * degree))
+    return 0.5 * (lo + hi) + 0.5 * (hi - lo) * odd
+
+
+def lobatto_coefficients(
+    values: Inexact[np.ndarray, " n_z *value"],
+) -> Inexact[np.ndarray, " n_deg *value"]:
+    """Transform samples at the Chebyshev-Lobatto points into Chebyshev coefficients.
+
+    The discrete Chebyshev transform is the type-I DCT of the samples up to the end
+    weights; taking it as the FFT of the mirror extension lets complex-valued integrands
+    go through the same path as real ones. The coefficients are those
+    :func:`numpy.polynomial.chebyshev.chebval` and
+    :class:`~solprop.translate.chebyshev.PiecewiseChebyshev` evaluate, so one transform
+    serves the adaptive builder of :mod:`solprop.translate.chebyshev`, the
+    fixed-section expansions of :mod:`solprop.translate.coupled` and a moving
+    guide's path (:mod:`solprop.modes.path`).
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        Samples at :func:`lobatto_points` in increasing position, shape
+        ``(n_deg, *value_shape)``.
+
+    Returns
+    -------
+    numpy.ndarray
+        Coefficients of ``sum_j c_j T_j``, shape ``(n_deg, *value_shape)``, real when
+        the samples are real.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.modes.quadrature import lobatto_coefficients, lobatto_points
+    >>> nodes = lobatto_points(4, -1.0, 1.0)
+    >>> lobatto_coefficients(nodes**2).round(12) + 0.0
+    array([0.5, 0. , 0.5, 0. , 0. ])
+    """
+    n_deg = values.shape[0]
+    degree = n_deg - 1
+    mirrored = np.concatenate([values[degree:0:-1], values[0:degree]], axis=0)
+    coefficients = np.fft.ifft(mirrored, axis=0)[:n_deg].copy()
+    coefficients[1:degree] *= 2.0
+    if np.iscomplexobj(values):
+        return coefficients
+    return np.ascontiguousarray(np.real(coefficients))
+
+
+def lobatto_points(degree: int, lo: float, hi: float) -> Float[np.ndarray, " n_deg"]:
+    """Return the Chebyshev-Lobatto points of ``degree`` mapped onto ``[lo, hi]``.
+
+    Unlike the z sampler of :mod:`solprop.translate.chebyshev` these are not inset at
+    the ends: a parameter range has no
+    discontinuity sitting on its own boundary, and its ends are values the paths
+    actually reach, where the function must be evaluated as it stands.
+
+    Parameters
+    ----------
+    degree : int
+        Polynomial degree, ``>= 1``.
+    lo, hi : float
+        Ends of the range, in the parameter's own units, with ``hi > lo``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The ``degree + 1`` points, increasing from `lo` to `hi`.
+
+    Examples
+    --------
+    >>> from solprop.modes.quadrature import lobatto_points
+    >>> [round(value, 12) for value in lobatto_points(2, 0.0, 1.0).tolist()]
+    [0.0, 0.5, 1.0]
+    """
+    return 0.5 * (lo + hi) + 0.5 * (hi - lo) * lobatto_nodes(degree)
+
+
+def refinement_points(degree: int, lo: float, hi: float) -> Float[np.ndarray, " n_deg"]:
+    """Return the points a degree doubling adds to :func:`lobatto_points`.
+
+    Parameters
+    ----------
+    degree : int
+        Current degree; the result completes the grid of degree ``2 * degree``.
+    lo, hi : float
+        Ends of the range, in the parameter's own units.
+
+    Returns
+    -------
+    numpy.ndarray
+        The ``degree`` new points, increasing, all interior.
+
+    Examples
+    --------
+    >>> from solprop.modes.quadrature import refinement_points
+    >>> [round(value, 6) for value in refinement_points(1, 0.0, 1.0).tolist()]
+    [0.5]
+    """
+    return _refinement_positions(degree, lo, hi)

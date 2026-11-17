@@ -4,20 +4,22 @@
 
 """The session loop: Python's side of an execution session (SEP 47 section 5).
 
-Not to be confused with :mod:`solprop.service`, the front end's service.
-
-A session (:mod:`solprop.backends.session`) owns the run's numerical state and its
-schedule. This loop advances it and services what it reports -- saved planes and their
-output transactions, plane observers and progress, snapshot persistence, warnings and
-the terminal record -- then acknowledges each batch. It holds no numerical state of its
-own: it never rediscovers the next plane, rebuilds a statistic or replays the attempts
-to reconstruct a controller.
-
-Ordering follows SEP 47 section 5.3: a plane is committed with its method history and
-its execution record in one transaction (``solprop._interrupts.committing``); a
-snapshot is serviced after that commit; the plane observer and the reporter follow.
-A service failure leaves the batch unacknowledged, so the field it names can still be
-exported for the terminal checkpoint, and the primary failure is preserved.
+Not to be confused with :mod:`solprop.service`, the front end's service. A session
+(:mod:`solprop.backends.session`) owns the run's numerical state and its schedule;
+:func:`serve` advances it and services what it reports (saved planes and their output
+transactions, plane observers and progress, snapshot persistence, warnings and the
+terminal record), then acknowledges each batch, with what it needs besides the session
+and the output in a :class:`ServiceContext`. It holds no numerical state of its own: it
+never rediscovers the next plane, rebuilds a statistic or replays the attempts to
+reconstruct a controller. ``_Exports`` shares one export per pending ticket among its
+consumers, ``_Chunks`` gathers the attempts and rows since the last plane,
+``_MarchKeeper`` keeps the Adams march's state beside each save, and ``_Status`` and
+:data:`MONITOR_RECONSTRUCTED` feed the execution record. Ordering follows SEP 47
+section 5.3: a plane is committed with its method history and its execution record in
+one transaction (``solprop._interrupts.committing``); a snapshot is serviced after that
+commit; the plane observer and the reporter follow. A service failure leaves the batch
+unacknowledged, so the field it names can still be exported for the terminal
+checkpoint, and the primary failure is preserved.
 """
 
 from __future__ import annotations

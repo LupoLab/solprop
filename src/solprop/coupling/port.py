@@ -9,13 +9,18 @@ already sampled (SEP 31, section 5.1): the route, the temporal lattice and basis
 with their identities, the entrance plane and the frame accumulated there, the
 native metric Q, the reference index of the medium, and the coupling models it
 admits. :meth:`solprop.driver.simulation.Simulation.input_port` returns one; the
-translation layer fills it. It is a P-layer value type, so that a coupling computed
-with NumPy alone never imports the translation layer.
+translation layer fills it. It is a P-layer value type, so that computing a coupling
+never imports the translation layer (a spatial plane's metric still calls it lazily,
+through :class:`solprop.spatial.SpatialFlux`).
 
 A :class:`CouplingLaunch` is bound to one port: it carries the port, the target
 coefficients and the reference origin the launched run inherits, and
 :meth:`solprop.driver.simulation.Simulation.with_input` refuses it for any other port,
 whatever the array shapes. :func:`solprop.coupling.coupler.couple` computes one.
+:func:`check_same_medium` refuses a relaunch across a change of medium or metric
+(to :data:`METRIC_TOLERANCE`; two ports' entrances agree to
+:data:`ENTRANCE_TOLERANCE`), and :func:`occupied_outside` measures a record's share
+outside a grid's active band.
 """
 
 import math

@@ -4,29 +4,19 @@
 
 """Ionisation rates as converged, clipped, log-spaced spline tables.
 
-Evaluating a rate model directly -- optmat's, through
-:class:`solprop.nonlinear.optmat_rates.OptmatRate` -- costs of order a microsecond per
-sample, special functions per point, per stage. A propagation
-evaluates the rate once per sample of the fine time grid on every column of every stage,
-so the rate has to be a table. This module builds it.
+Evaluating a rate model directly costs of order a microsecond per sample, and a
+propagation evaluates it on every fine-grid sample of every column at every stage, so
+the rate has to be a table. :class:`RateTable` (:func:`build_rate_table`) is that
+table: knots uniform in ``log E``, a knot count doubled until the interpolant meets the
+requested tolerance against direct evaluation, exactly zero below ``field_min`` and held
+at its last value above ``field_max``, so a diverged step cannot extrapolate into an
+overflow (``docs/dev/stepper.md`` section 10, trap 9). Tables are cached in the
+process under :func:`rate_table_key` (with :data:`SCHEMA_VERSION`, the layout's
+version) and :func:`clear_rate_table_cache` forgets them; :func:`frozen_table` makes a
+table's arrays read-only.
 
-Three properties of the table matter:
-
-* **Log-spaced knots.** ``log W`` is nearly linear in ``log E`` at the low-field turn-on
-  and flattens at high field, so uniform knots in ``log E`` put the samples where the
-  curvature is and let one table span four decades. Knots uniform in ``E`` over the
-  same span reach only about one per cent.
-* **A converged knot count.** The count doubles until the interpolant meets the
-  requested relative tolerance against direct evaluation everywhere, rather than being
-  fixed in advance.
-* **Clipping rather than throwing.** A rate that raised above its maximum field would
-  stop a run in the middle of a propagation. Here the table is exactly
-  zero below ``field_min`` -- which the plasma loss term ``Ip W (1-f) / E`` relies on --
-  and holds its last value above ``field_max``, so a diverged step cannot extrapolate a
-  cubic in ``log W`` into an overflow (``docs/dev/stepper.md`` section 10, trap 9).
-
-The manual page is ``docs/guide/media/ionisation.md``; the kernel's view of the table is
-``docs/dev/kernel-contract.md`` section 5.
+The manual page is ``docs/guide/media/ionisation.md``, "Tables"; the kernel's
+view of the table is ``docs/dev/kernel-contract.md`` section 5.
 """
 
 import hashlib
@@ -58,6 +48,7 @@ __all__ = [
     "RateTable",
     "build_rate_table",
     "clear_rate_table_cache",
+    "frozen_table",
     "rate_table_key",
 ]
 
@@ -611,13 +602,24 @@ def _finalise(table: RateTable, error: float) -> RateTable:
     )
 
 
-def _frozen_table(table: RateTable) -> RateTable:
+def frozen_table(table: RateTable) -> RateTable:
     """Return the table with read-only arrays solprop holds.
 
     The contract promises read-only arrays and ``validate`` checks it.
     :func:`build_rate_table` freezes its tables once,
     before its memo hands them out, so a built table crosses as it stands; a table
     made any other way crosses as a frozen copy.
+
+    Parameters
+    ----------
+    table : RateTable
+        A rate table, built here or elsewhere.
+
+    Returns
+    -------
+    RateTable
+        `table` itself when its arrays are already held, otherwise a copy whose
+        ``log_rate`` and ``coefficients`` are frozen copies.
     """
     log_rate = frozen_copy(table.log_rate)
     coefficients = frozen_copy(table.coefficients)

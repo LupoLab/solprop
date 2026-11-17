@@ -4,19 +4,23 @@
 
 """The record types of a saved run: its grid, modes, noise, stepper and saved planes.
 
-Each is a frozen dataclass that a handler writes and reads back. :class:`SavedPlane`
-carries one saved position with its field, its statistics and the step history since the
-previous plane; :class:`RunOutcome` and :class:`TerminalCheckpoint` how a run ended.
+Each is a frozen dataclass that a handler writes and reads back.
 
-**Conventions on the way out.** A ``SavedPlane`` holds its field in the internal FFT
-convention, as a backend produces it; a handler converts it with
-:func:`solprop.fourier.spectrum_to_optics` on the way to storage, so that what is stored
-is the window-centred optics spectrum a spectrometer would agree with, marked
-``spectral_convention = "optics"`` (:data:`SPECTRAL_CONVENTION`;
-``docs/dev/conventions.md`` §2). The noise realisation and ``noise_phase`` are internal
-objects and stay in the FFT convention, marked so by :data:`INTERNAL_CONVENTION`.
+- What identifies a run: :class:`GridRecord`, :class:`ModeRecord`, :class:`NoiseRecord`
+  with :class:`NoiseResolution`, :class:`DefaultsResolution`, and :class:`StepperRecord`
+  with :class:`StepLimits`; the recipe it was built from, :class:`RecipeRecord` and
+  :class:`RecipeFile` (SEP 41).
+- What a run saved: :class:`SavedPlane` (one position with its field, statistics and
+  :class:`StepHistory` since the previous plane), :class:`StepStats` (between planes)
+  and :class:`StoredField` (a field exported straight into the stored form).
+- How a run ended: :class:`RunOutcome`, :class:`TerminalCheckpoint` and the Adams
+  :class:`MarchSnapshot`.
 
-The manual page is ``docs/guide/results/output.md``.
+A :class:`SavedPlane` holds its field in the internal FFT convention; a handler converts
+it to the optics convention on the way to storage and marks the file with
+:data:`SPECTRAL_CONVENTION`, while the noise realisation and ``noise_phase`` stay
+internal (:data:`INTERNAL_CONVENTION`; ``docs/dev/conventions.md`` §2). The manual page
+is ``docs/guide/results/output.md``.
 """
 
 import copy
@@ -41,10 +45,10 @@ from solprop.modes.material import JsonValue
 from solprop.modes.protocol import Mode
 from solprop.noise import NoiseRealisation
 from solprop.output.serialisation import (
-    _decode,
     _optional_text,
     _rebuild,
     _stored_entry,
+    deserialise,
     serialise,
 )
 from solprop.stepper import FixedSchedule, PIController, Tableau
@@ -613,7 +617,7 @@ class StepperRecord:
             functools.partial(_stored_entry, document, path=("stepper",)),
         )
 
-        schedule = _decode(stored("schedule"))
+        schedule = deserialise(stored("schedule"))
         limits = stored("limits")
         return cls(
             tableau=str(stored("tableau", required=True)),

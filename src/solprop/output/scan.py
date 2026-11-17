@@ -2,10 +2,20 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Commit independently completed points to one recoverable HDF5 scan file.
+"""A scan's collected HDF5 file, to which one controller commits completed points.
 
-Only the controller writes this file. Staged point groups are the recovery source;
-layout arrays and exact CSR statistics are rebuilt from committed groups at close.
+- :class:`PointResult` carries one worker's complete result, or its failure with the
+  provenance available, to the single writer; :func:`validate_result` checks it before
+  any committed data changes.
+- :class:`ScanWriter` owns the collected file for one controller session, under the
+  exclusive lock of ``solprop.output._scan_lock``: points are staged and flushed
+  before they are marked done, the staged groups are the recovery source, and the layout
+  arrays and the concatenated periodic statistics are rebuilt from them at close.
+- :func:`read_point` and :func:`grid_values` read committed points, masking unfinished
+  ones; :class:`solprop.processing.scans.ScanOutput` is the user's reader built on them.
+
+The manual page is ``docs/guide/workflows/scans.md`` ("Retention, reductions and
+reading").
 """
 
 import json
@@ -41,11 +51,6 @@ def _json(value: object) -> str:
     text instead, through :attr:`PointResult.metadata_arrays`.
     """
     return canonical_json(_inlined(serialise(value)))
-
-
-def _hash(text: str) -> str:
-    """Identify a serialised common record by its SHA-256 digest."""
-    return text_digest(text)
 
 
 _RECORD_ARRAYS = "record_arrays"
@@ -230,7 +235,7 @@ class ScanWriter:
                 # The schema first: a scan of another release is refused by the
                 # output schema its records declare, not by its axes.
                 _refuse_other_schemas(self.file)
-                if self.file.attrs.get("identity") != _hash(description):
+                if self.file.attrs.get("identity") != text_digest(description):
                     raise OutputError(
                         "scan axes, root seed or retention contract changed"
                     )
@@ -261,7 +266,7 @@ class ScanWriter:
         file = self.file
         file.attrs.update(
             scan_schema_version=1,
-            identity=_hash(description),
+            identity=text_digest(description),
             spectral_convention="optics",
         )
         group = file.create_group("scan")
@@ -485,7 +490,7 @@ class ScanWriter:
             )
         point.attrs["array_units"] = _json(units)
         _dataset(file, "points/backend")[result.index] = _json(document.get("backend"))
-        layout = _hash(
+        layout = text_digest(
             _json(
                 {
                     name: [
@@ -515,7 +520,7 @@ class ScanWriter:
         ):
             return {key: self._common_record(value) for key, value in document.items()}
         text = _json(document)
-        digest = _hash(text)
+        digest = text_digest(text)
         if digest not in _group(self.file, "common"):
             _group(self.file, "common").create_dataset(
                 digest, data=text, dtype=h5py.string_dtype()

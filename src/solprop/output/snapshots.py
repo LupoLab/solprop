@@ -2,11 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Publish immutable, verified checkpoints while a propagation stays alive.
+"""Immutable, verified checkpoints published while a propagation stays alive.
 
-Only closed files are copied. The driver pauses at a committed accepted endpoint;
-the two writers retain their advisory locks and reopen in the same session. Cloud
-transport and retirement belong to the caller. See ``docs/guide/results/output.md``.
+- :class:`SnapshotController` requests bounded local snapshots (``snapshots=`` on a
+  run): at a committed accepted endpoint the driver pauses, the optical file and the
+  TDSE archive are closed, copied and checksummed, and the two writers reopen in the
+  same session, keeping their advisory locks. :class:`SnapshotResult` describes the
+  last attempt.
+- :func:`read_snapshot` verifies a published generation (:class:`SnapshotInfo`,
+  :class:`SnapshotFiles`) and :func:`restore_snapshot` restores it into a new writable
+  directory.
+
+Only closed files are copied; cloud transport and retirement belong to the caller. The
+manual page is ``docs/guide/results/output.md`` ("Periodic snapshots while computing").
 """
 
 import hashlib
@@ -28,7 +36,7 @@ import numpy as np
 
 from solprop._interrupts import deferred_handlers
 from solprop.exceptions import OutputError, TDSEArchiveError
-from solprop.output._writer_lock import WriterLock
+from solprop.output._writer_lock import SNAPSHOT_SCHEMA, WriterLock
 from solprop.output.hdf5 import HDF5Output, ResumeState, resume
 from solprop.output.metadata import RunMetadata
 from solprop.output.tdse_archive import (
@@ -49,7 +57,6 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
-_SCHEMA = "solprop.snapshot.v1"
 _ANNOTATION = "snapshot_checkpoint"
 _BUFFER_BYTES = 1024 * 1024
 _RETRY_SECONDS = 60.0
@@ -449,7 +456,7 @@ def _copy_generation(
             copied.append(_copy_file(source, staging / relative, role, relative))
         checkpoint = _checkpoint(staging, copied)
         manifest = {
-            "schema": _SCHEMA,
+            "schema": SNAPSHOT_SCHEMA,
             "generation": generation,
             "created": datetime.now(UTC).isoformat(),
             "checkpoint": checkpoint,
@@ -741,7 +748,7 @@ def read_snapshot(directory: Path | str) -> SnapshotInfo:
         manifest = _object(
             json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
         )
-        if manifest.get("schema") != _SCHEMA:
+        if manifest.get("schema") != SNAPSHOT_SCHEMA:
             raise OutputError("unsupported snapshot manifest schema")
         records = _file_records(manifest)
         for record in records:

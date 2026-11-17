@@ -4,32 +4,27 @@
 
 """The immutable run request a backend prepares beside its problem (SEP 47 section 6.3).
 
-The translated problem (:class:`solprop.translate.problem.PropagationProblem`) says
-*what* is propagated. A :class:`RunRequest` says *how it is run*: which integration
-method, how errors are controlled, which fixed itinerary is replayed, what is observed
-and kept, what the boundary watches and which method history is retained. Python
-resolves every default before preparation, so a backend never invents a policy, and the
-request never changes during a run: stop and snapshot requests travel separately
-(:mod:`solprop.backends.session`).
+The problem (:class:`~solprop.translate.problem.PropagationProblem`) says *what* is
+propagated; a :class:`RunRequest` says *how it is run*. Python resolves every default
+before preparation, so a backend never invents a policy, and the request never changes
+during a run: stop and snapshot requests travel separately
+(:mod:`solprop.backends.session`). Its parts separate method selection from error
+scaling and acceptance:
 
-The request separates method selection from error scaling and acceptance, as SEP 47
-section 6.3 specifies:
-
-- :class:`IntegrationSpec` names the method -- an embedded Runge-Kutta tableau, the
-  low-call Adams family or the fixed low-storage replay -- and its options;
-- :class:`ErrorControlSpec` holds the tolerances, the norm, the controller and the
-  step limits;
+- :class:`IntegrationSpec` names the method (:class:`MethodKind`: an embedded
+  Runge-Kutta tableau, the low-call Adams family or the fixed low-storage replay);
+- :class:`ErrorControlSpec` holds the tolerances, norm, controller and step limits;
 - :class:`ReplaySpec` holds a fixed itinerary, when one is replayed;
-- :class:`ObservationRequest` holds the planes, dense output, step planes,
-  statistics and field retention;
-- :class:`BoundaryRequest` holds the boundary monitor's configuration;
-- :class:`HistoryPolicy` says when the method's history is kept for a resume.
+- :class:`ObservationRequest` holds the planes, dense output, step planes, statistics
+  and field retention;
+- :class:`BoundaryRequest` configures the boundary monitor;
+- :class:`HistoryPolicy` (:class:`HistoryRetention`) says when the method's history is
+  kept for a resume.
 
-:func:`describe_run` builds one from the stepper section translation resolved
-(:class:`~solprop.translate.problem.StepperSettings`) and the run's settings;
-:func:`solprop.translate.assembly.assemble` returns the request for a fresh run beside
-its problem, and :meth:`RunRequest.for_run` adapts it to one run's start, retention,
-monitor and history. The problem carries none of this (SEP 47 section 5.2).
+:func:`describe_run` builds one from the resolved
+:class:`~solprop.translate.problem.StepperSettings` and the run's settings;
+:func:`solprop.translate.assembly.assemble` returns it beside its problem, and
+:meth:`RunRequest.for_run` adapts it to one run's start, retention, monitor and history.
 """
 
 from __future__ import annotations

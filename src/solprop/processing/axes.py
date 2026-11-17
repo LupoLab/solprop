@@ -4,18 +4,19 @@
 
 """Rebuild the axes and the layout of a saved run from its grid record.
 
-A saved run carries a :class:`solprop.output.records.GridRecord` -- scalars only, so
-that the metadata stays small and its digest cheap -- and not the
-:class:`solprop.grid.TimeGrid` it was computed on. Everything else in
-:mod:`solprop.processing` needs the axes back, and :mod:`solprop.stats` needs a grid
-object, so this module is the one place that rebuilds them.
+A saved run carries a :class:`solprop.output.records.GridRecord` -- scalars only -- and
+not the grid it was computed on, so this module is the one place that rebuilds it:
+:func:`grid_from_record` and :func:`grid_of` (the time grid), :func:`spatial_grid_of`
+(the transverse grid), :func:`layout` (the stored shape) and
+:func:`transverse_units` with :class:`TransverseUnits` (what a spatial integral is in).
+The spectral helpers fix two things the rest of the package relies on: the stored
+frequency axis is in the kernels' layout (FFT order about ``omega0`` on an envelope
+grid; ``conventions.md`` §3) and processing shows it **ascending**
+(:func:`spectral_order`); and accessors keep the grid's **active band** by default
+(:func:`band_mask`, :data:`BANDS`). :func:`spectral_axis` gives an abscissa
+(:data:`SPECTRAL_AXES`) with the Jacobian that maps a density onto it.
 
-Two things the rest of the package can then rely on. First, the frequency axis is stored
-in the layout the kernels use: non-negative and increasing on a field grid, in FFT order
-about ``omega0`` on an envelope grid (``conventions.md`` section 3). Processing shows an
-**ascending** axis, and :func:`spectral_order` is the permutation that gets there.
-Second, the accessors work on the grid's **active band** by default, which is what keeps
-the wavelength axis finite and the selection contiguous.
+The manual page is ``docs/guide/results/processing.md`` ("Rebuilding the axes").
 """
 
 from collections.abc import Mapping, Sequence

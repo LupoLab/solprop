@@ -18,6 +18,13 @@ All notable changes to solprop are recorded here. The format follows
   and is found again on reconnecting; a Runs window lists every run on every machine, a
   results file is analysed on its machine, and a machine can be set up with solprop from the
   window. See [Running on other machines](docs/guide/front-end/machines.md).
+- Added `solprop.output.capability.quantities`, `Quantity`, `QuantityKind` and
+  `compression_refusal`: what a stored record's derived quantities are on its basis, and
+  why the compressors refuse a basis. `solprop.capabilities.Quantity` and
+  `QuantityKind` are the same objects, re-exported.
+- Added `solprop.output.serialisation.deserialise`, the partial inverse of `serialise`
+  that the record types use: it rebuilds an inlined array record and returns any other
+  JSON value unchanged.
 - `solprop calibrate` fits the native backend to the machine it runs on ([SEP 46](docs/dev/seps/archive/sep-0046-machine-calibration.md); [Calibrating solprop to your machine](docs/guide/performance/calibration.md)): in about 30 s (`--quick`), two minutes, or seven minutes (`--thorough`), child processes pinned to the job's CPUs measure how idle threads should wait, how wide the team should be, where each kind of operation should start to thread and which FFTW plan effort runs fastest inside the step, and a setting replaces the built-in value only if it wins every round by more than the measured noise, slows none of the problems (production-sized ones among them) and validates with the other winners. The profile is kept per user in the platform's cache directory (`SOLPROP_CACHE_DIR` moves it; `SOLPROP_CALIBRATION_PATH` adds shared read-only directories, such as a cluster's per node type), keyed by machine, build and allocation, and every later run applies it and records the settings it applied in its metadata (`calibration`). The first native run with no profile for its machine, build and allocation calibrates quickly by itself after a `CalibrationNotice`, and a scan calibrates its workers' allocation first (unless they run one thread each, which has nothing to choose); `SOLPROP_CALIBRATION=use` never measures and `off` ignores profiles. `Simulation.calibrate()` and `solprop calibrate --recipe` refine the settings for one simulation, reused by every run and scan point of the same execution. `--show`, `--export`, `--import` and `--clear` manage profiles. Benchmark series calibrate each build first and record the profile per row. Without a profile, every run uses exactly the former settings, now a built-in table keyed by operating system; `BuildInfo`'s threshold fields report that table for the process.
 
 ### Changed
@@ -193,6 +200,10 @@ All notable changes to solprop are recorded here. The format follows
   radial or the Cartesian transform from it, with the same keywords and the same
   defaults as before for each grid. Replace `from_radial(...)` with `from_free(...)` and
   `prop_radial(...)` with `prop_free(...)`; recipes keep the `radial` route.
+- `is_air`, which says whether a gas name means air (`Gas.Air`, or `"air"` in any case),
+  moved from `solprop.driver.mixtures` to `solprop.physdata.gases` beside `as_gas` and
+  `is_molecule`, and is exported from `solprop.physdata`. Import it as
+  `from solprop.physdata import is_air`.
 - `solprop.log` has two reporter protocols instead of six. `ProgressReporter` now declares all
   six calls (`summary`, `started`, `step`, `plane`, `finished`, `interrupted`), each with a
   no-op default that a subclass inherits, and `ScanReporter` declares `point_reporter`
@@ -244,6 +255,9 @@ All notable changes to solprop are recorded here. The format follows
   `ModeCollection.slab(63.5e-6, (1, 3, 5), "Ar", 1.0)` and
   `ModeCollection.he1m(125e-6, "He", 0.8, count=4)` for
   `ModeCollection.he1m(125e-6, "He", 0.8, 4)`.
+- The provider-table sampling of a general modal guide moved from `solprop.translate.modal_tables` to the new `solprop.modes.tables` (`sample_modal_table`, `sample_provider_table`, `DenseModalTable`, `align_modal_sample`, `channel_area` and the rest), and a moving guide's path sampling from `solprop.translate.modal_path` to the new `solprop.modes.path` (`path_rule`, `path_sections`, `sample_modal_path`, `ModalPathTable`); `solprop.translate.modal_tables` keeps the run's execution maps (`ModalTransformTables`, `modal_transform_tables`, `project_transverse_field`). Import the moved names from their new modules.
+- `StepIndexProvider` and its `MATERIAL_AGREEMENT_RTOL` moved from `solprop.modes.guide` to the new public module `solprop.modes.stepindex_vector` (formerly the private `solprop.modes._stepindex_vector`), and `radial_node_rule` moved from `solprop.modes.guide` to `solprop.modes.vector`, beside `ModalNodeRule`. `from solprop.modes import StepIndexProvider` is unchanged; replace `from solprop.modes.guide import StepIndexProvider` with `from solprop.modes.stepindex_vector import StepIndexProvider`, and `from solprop.modes.guide import radial_node_rule` with `from solprop.modes.vector import radial_node_rule`.
+- The coherent wall moved out of `solprop.modes.capillary` into its own module, `solprop.modes.wall`: `CoherentWall`, `WallImpedance`, `WallLimits`, `WallOperator`, `WallFamily`, `VectorWallOperator`, `wall_operator`, `vector_wall_operator`, `wall_connection`, `taper_connection`, `taper_coupling_block`, `worst_wall_limits` and `wall_square_root_metric`. `from solprop.modes import CoherentWall` (and the other names `solprop.modes` already exported) is unchanged; replace `from solprop.modes.capillary import CoherentWall` with `from solprop.modes.wall import CoherentWall`, and likewise for the others.
 - The general modal route's and the coupled flow's admission is part of the problem's own
   validation (`solprop.translate.admission.check_general_route`), raised once as a
   `TranslationError` naming solprop rather than as a `BackendError` from each backend;
@@ -554,15 +568,24 @@ All notable changes to solprop are recorded here. The format follows
   one) instead of sqrt(W), and no longer states a modal power, energy or spectral density
   for it, whose readers refuse a spatial file (#425).
 - A run request changed after translation to dense observation (`interpolate_planes`) is now refused where a backend is prepared, as at translation, beside the per-step temporal collar (`absorber_scheme="split_step"`), a coupled linear flow or the `"modified"` noise model: `validate_run` runs dense observation's admission itself, so the refusal comes before any session storage is allocated ([#682](https://github.com/LupoLab/solprop/issues/682)).
+- A `GasFlowWarning` about a capillary or hollow-core fill raised through a recipe, a scan
+  or the service now names the caller's line, as one raised by a direct
+  `Simulation.from_waveguide` call already did, instead of a line inside solprop.
 - The boundary monitor's record counts each committed step once: a step left unchecked and then checked at its saved plane is no longer counted among both the checked (`steps`) and the skipped steps, so the two add up to the committed steps. Under interpolated planes, a plane that no check read since the previous one, as a later plane inside one step, records its collar and guard occupancies as unmeasured (`None`) rather than the previous collar reading and empty guards (#133).
 - Fixed a native Adams trial whose source evaluation failed leaving its prediction in the
   state, so that the failed run's terminal checkpoint and march snapshot held the
   prediction instead of the last accepted step (#129).
 - Setting `OMP_PLACES` without `OMP_PROC_BIND` no longer caps every solprop thread pool and scan at the one core GNU OpenMP binds the main thread to: the thread budget now treats `OMP_PLACES` alone as binding on, as libgomp does, and still believes a narrowing when `OMP_PROC_BIND=false` (#172).
 - The boundaries guide reads a band's absorbed energy from saved planes with an exact interval formula in place of the trapezoid, which overcounted a strongly absorbed band's loss by up to twice; the medium's own absorption is now its own share (#573).
+- Fixed a recipe pinning the capillary's `pressure` beside a temperature path failing
+  with a `TypeError` inside the solver: `solprop.recipe.pins.solve_pin` now refuses it
+  with a `RecipeError` on the pin, since a pinned pressure needs one temperature.
 - A native run on a Python thread other than the one that imported `solprop_native`, such as a front end's worker thread, now keeps to the thread budget: each native call sets that thread's OpenMP default width to the runtime's and restores it afterwards, so FFTW's threaded loops and an OpenMP OpenBLAS no longer take every CPU between narrower teams. Issue #130's reproduction ran 9 to 19 times slower on such a thread on two Intel Xeon Gold 6240, and 1.45 times slower on an Apple M5 Max, where it now matches the main thread (#130).
 - A Queue scan whose point owner exits while its process start is being read no longer fails with an unhandled `OSError`; the owner is treated as unidentified until the next check (#760).
 - The on-axis plasma statistics on a Gauss-Radau field-scale rule read the whole axis row on a one-component transform ([#663](https://github.com/LupoLab/solprop/issues/663)): when the modes have an axis field in a component the transform does not carry, as a rotated mode on `components=("x",)` does, the rule's axis node no longer stands in for the axis row, so the statistic keeps that component (its `hypot` with y on a field grid, the polarisation ellipse on an envelope grid) at the cost of one row scan.
+- Fixed `solprop.output.resumability` reporting that a writer still holds a file when the
+  writer lock could not be taken for another reason and the file's path contained the
+  words "another writer"; it now tells a held lock by its error type, not its message.
 - `Pool` scans now size their workers from the tightest control-group memory limit on the process's own path (version 1 and 2), not the root group's, so a scan under a systemd slice or other cgroup manager without Slurm variables is no longer admitted against the whole machine. An unreadable or malformed limit file, and a malformed `SOLPROP_SCAN_CPU_OFFSET` or `SOLPROP_SCAN_CPU_COUNT`, now raise `DriverError` naming the file or variable instead of a bare `OSError` or `ValueError` (#170).
 - Rerunning a `Local` or `Pool` scan with every point already done no longer grows the scan file by rebuilding its consolidated `layouts`: they are rebuilt only when a point has been committed since they were last built, including by an earlier run that stopped before consolidating. Such a rerun now adds only its `executions` row (#169).
 - A snapshot interval shorter than 60 s is honoured ([#600](https://github.com/LupoLab/solprop/issues/600)): the 60 s retry back-off now follows only a failed or deferred snapshot attempt, where every successful publication used to impose it too.
@@ -571,6 +594,9 @@ All notable changes to solprop are recorded here. The format follows
   hash no longer changes when the mode logs its one-time gain warning, so a mode kept in
   a set or used as a dictionary key is found again afterwards.
 - The temporal collar's walk-off integral, read by `warn_walkoff` and by `absorber(grid, walkoff=...)`, is now the rectangle sum over the periodic time axis, which is exact for the taper, rather than a trapezoid that left out one sample; a collar sized for a drift now removes exactly the stated `exp(-2Γ)` of its power, and the warning fires at the exact threshold (#490).
+- Fixed the execution record of a run on Windows storing `None` for the host's
+  `memory_bytes` and the run's `peak_rss_bytes`: they now hold the installed physical
+  memory and the process's peak working set, read as the scan executors already did.
 
 ## [0.2.0] - 2026-11-07
 

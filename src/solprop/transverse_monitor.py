@@ -4,26 +4,24 @@
 
 """The boundary monitor's transverse edge (SEP 40 section 5.3).
 
-A free-space run has a wall or a wrap at its grid's outer size. With no real-space
-collar, whatever reaches the edge comes back, so reaching it is the failure: the
-monitor judges, per face, the energy in the outer 5 % of the *outer* size, its largest
-reading above its launch value, less a noise allowance, at the levels of
-:class:`solprop.monitor.BoundaryCheck`. With a collar, reaching the edge is intended and
-what returns is the failure; the outward shares are recorded at INFO and the collar's
-removal is credited.
+A free-space run has a wall or a wrap at its grid's outer size. :class:`TransverseEdge`
+watches it, per face, at the levels of :class:`solprop.monitor.BoundaryCheck`. With no
+real-space collar, whatever reaches the edge comes back, so reaching it is the failure:
+it judges the energy in the outer :data:`GUARD` of the *outer* size, its largest
+reading above its launch value, less a noise allowance (:data:`NOISE_FACTOR`). With a
+collar, reaching the edge is intended and what returns is the failure; the outward
+shares are recorded at INFO and the collar's removal is credited. Reads are spaced so
+that light cannot cross the edge unseen between two of them, ``min(L/16, 4 g / v_q)``
+with ``g`` the guard's width and ``v_q`` the reach of the current spectrum
+(:data:`READS`, :data:`BACKSTOP_READS`, :data:`REACH_GROWTH`), and the spacing is a
+ceiling on the step. The safety ramp's removal is credited per read interval. Every
+run reports a ``TransverseStatus``; only ``clear`` is a clean verdict.
 
-Reads are spaced so that light cannot cross the edge unseen between two of them,
-``min(L/16, 4 g / v_q)`` with ``g`` the guard's width and ``v_q`` the reach of the
-current spectrum, and the spacing is a ceiling on the step. The safety ramp's removal
-is credited per read interval and judged above the realised input noise's own share.
-Every run reports a ``transverse_status``; only ``clear`` is a clean verdict.
-
-A backend reduces its committed spectral state where the state lives and hands the edge
-an ``_EdgeReading``, numbers and never the field. ``_HostEdgeReduction`` is the
-reference, on a host copy of the state, and everything else here is the same on every
-backend: the faces, the weights, the spacing, the ledgers and the judgement (SEP 44). A
-backend that does not read the edge leaves the run ``unwatched``, which it says before
-the first step.
+A backend reduces its committed spectral state where the state lives and hands the
+edge an ``_EdgeReading``, numbers and never the field; ``_HostEdgeReduction`` is the
+reference, and everything else here (the faces, weights, spacing, ledgers and
+judgement) is the same on every backend (SEP 44). A backend that does not read the
+edge leaves the run ``unwatched``, which it says before the first step.
 """
 
 from __future__ import annotations

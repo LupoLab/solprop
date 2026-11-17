@@ -4,19 +4,24 @@
 
 """Own the optional TDSE runtime behind the provider-free response seam.
 
-The provider's whole-electron currents and shadow dipoles remain unscaled SI
-arrays. Source assembly applies the calibration and density separately. Resource
-admission, call accounting, the archive and the validation of every returned record
-live here; the provider itself runs in a worker process of its own
-(``solprop.driver._source_worker``, with ``solprop.driver._pyroraptor`` as its
-adapter, SEP 49), and solprop's process never imports it.
-
-Two atomic models are bound (SEP 12, SEP 20): the single-active-electron (SAE)
-response plan, and the helium haCC response plan, either from one of the
-provider's qualified presets or from a custom basis. An atomic window drives the
-atom over part of the lattice: the binding passes the retained samples multiplied
-by the window's gate and pads the returned currents with zeros, so a
-:class:`~solprop.translate.tdse.TDSEResult` always spans the full lattice.
+The provider runs in a worker process of its own (``solprop.driver._source_worker``,
+with ``solprop.driver._pyroraptor`` as its adapter, SEP 49), and solprop's process never
+imports it; resource admission, call accounting, the archive's records and the
+validation of every returned record live here. Two atomic models are bound (SEP 12, SEP
+20): the single-active-electron (SAE) response plan, and the helium haCC response plan,
+from one of the provider's qualified presets (:func:`hacc_preset`, a
+:class:`HaccPreset`) or from a custom basis (:func:`hacc_basis`);
+:func:`basis_from_preset` resolves a provider preset into a basis.
+:func:`prepare_binding` prepares a run's stably chunked atomic plans as its
+:class:`~solprop.translate.tdse.TDSEBinding` (sized beforehand by
+:func:`estimate_binding_memory`), and :class:`DiagnosticSession` prepares a haCC model
+alone for a standalone consistency check; :func:`provider_revision` names the build. The
+provider's whole-electron currents and shadow dipoles stay unscaled SI arrays; source
+assembly applies the calibration and density. An atomic window drives the atom over part
+of the lattice: the binding passes the retained samples multiplied by the window's gate
+and pads the returned currents with zeros, so a
+:class:`~solprop.translate.tdse.TDSEResult` always spans the full lattice. The manual
+page is ``docs/guide/media/tdse.md``.
 """
 
 import contextlib

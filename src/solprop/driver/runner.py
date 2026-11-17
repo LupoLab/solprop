@@ -4,10 +4,12 @@
 
 """Run one translated simulation many times on one backend, input by input.
 
-:class:`SimulationRunner` keeps a backend between runs that differ only in their input,
-and :func:`check_derived_problem` refuses a derived problem that differs in anything
-else. The largest field each optmat rate saw is reported here after a run, a runner's
-or a simulation's own. The manual page is ``docs/guide/setup/running.md``.
+:class:`SimulationRunner`, built by
+:meth:`~solprop.driver.simulation.Simulation.runner`, keeps a backend between runs that
+differ only in their input, and :func:`check_derived_problem` refuses a derived problem
+that differs in anything else. The largest field each optmat rate saw is reported here
+after a run, a runner's or a simulation's own. The manual page is
+``docs/guide/setup/running.md`` ("Many inputs, one backend: the runner").
 """
 
 import dataclasses

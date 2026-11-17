@@ -2,14 +2,27 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The translation layer.
+"""The translation layer: physics objects turned into the kernel problem a backend runs.
 
-Physics objects become validated kernel-ready arrays and the kernel contract
-(``docs/dev/kernel-contract.md``). :func:`solprop.translate.assembly.assemble` is the
-entry point: it builds the cumulative linear operator, the masks, the modal transform
-and the compiled responses, and returns the single
-:class:`~solprop.translate.problem.PropagationProblem` that crosses into a backend, its
-route one variant of the closed union of :mod:`solprop.translate.routes`.
+:func:`~solprop.translate.assembly.assemble` is the entry point. It builds the
+cumulative linear operator, the masks, the modal or spatial transform and the compiled
+responses, and returns a :class:`~solprop.translate.problem.Translation` ``(problem,
+request)``: the validated :class:`~solprop.translate.problem.PropagationProblem` that
+crosses into a backend (``docs/dev/kernel-contract.md``) and the
+:class:`~solprop.translate.run_request.RunRequest` of a fresh run of it. The modules, by
+role:
+
+- Contract and assembly: ``problem``, ``routes``, ``run_request``, ``assembly``,
+  ``validation``, ``walls`` (a capillary's coupled flows), ``admission`` and ``stage``
+  (the per-stage terms and scalars a backend evaluates).
+- Representations along z: ``chebyshev``, ``expansion`` and ``linop``.
+- Grids and boundaries: ``masks``, ``transverse`` and ``collar_check``.
+- Transforms and the plane measure: ``modal``, ``radial``, ``free``, ``planar``,
+  ``spatial``, ``flux`` and ``coupling`` (a coupling port's entrance).
+- The general modal route: ``general``, ``coupled``, ``modal_tables`` and
+  ``modal_path``.
+- Responses: ``responses``, ``raman``, ``ionisation``, ``plasma_integration``,
+  ``plasma_source``, ``envelope_plasma``, ``tdse`` and ``tdse_source``.
 """
 
 from solprop.translate.assembly import assemble

@@ -4,21 +4,23 @@
 
 """The GNLSE as a mode-averaged envelope problem.
 
-The generalised nonlinear Schroedinger equation is not a separate solver path in
-solprop: the field is primary and the GNLSE is an interface mapping. It is the
-mode-averaged envelope problem with a **specified mode**
-(:class:`SpecifiedMode`) — a mode whose propagation constant is given directly, as a
-Taylor series, a table, or a declared path of either along z, rather than derived from
-a waveguide geometry — plus a mapping from the usual GNLSE coefficient ``gamma`` onto
-the third-order susceptibility the Kerr response takes. The shock term is not a
-separate operator either: it is the ``omega`` dependence of the normalisation
-prefactor (:mod:`solprop.nonlinear.normalisation`).
+The generalised nonlinear Schroedinger equation is not a separate solver path but an
+interface mapping: :func:`problem_from` maps GNLSE parameters onto a
+:class:`GnlseProblem`, the mode-averaged envelope problem with a :class:`SpecifiedMode`
+(a mode whose propagation constant is given directly rather than derived from a
+geometry), with ``gamma`` (or ``n2``) mapped onto the susceptibilities the Kerr and
+Raman responses take (:func:`kerr_susceptibility`, :func:`raman_susceptibility`). The
+shock term is the ``omega`` dependence of the normalisation prefactor
+(:mod:`solprop.nonlinear.normalisation`).
 
-When Raman is off and no fraction is given the **whole** of ``gamma`` acts as Kerr, so
-an "N = 6" soliton is N = 6. A fraction given explicitly is always held back from the
-Kerr term, with Raman on or off, so that switching Raman alone adds the delayed response
-without changing the instantaneous one.
+- **Dispersion**: :class:`TaylorDispersion` and :class:`TabulatedDispersion` give
+  ``beta(omega)``; a :class:`DispersionPath` (:class:`ConstantDispersion`,
+  :class:`InterpolatedDispersion`, :func:`as_dispersion_path`) lets it vary along z.
+- **Loss**: :func:`attenuation_from_db`.
 
+With Raman off and no fraction given the **whole** of ``gamma`` is Kerr, so an "N = 6"
+soliton is N = 6; a fraction given explicitly is always held back from the Kerr term, so
+switching Raman alone adds the delayed response without changing the instantaneous one.
 The derivation and a worked example are in ``docs/guide/waveguides/gnlse.md``.
 """
 

@@ -2,7 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Execute independent scan points under an explicit resource policy."""
+"""Execute independent scan points under an explicit resource policy.
+
+``Executor`` is the protocol: ``run(points, work)`` yields one result per point,
+possibly in completion order, each carrying its global index. Four policies satisfy it,
+one per module: :class:`~solprop.driver.executors.local.Local` (sequential, in the
+calling process), :class:`~solprop.driver.executors.pool.Pool` (spawned workers sized by
+CPUs and memory), :class:`~solprop.driver.executors.queue.Queue` (a durable file queue
+drained by controllers sharing a filesystem) and
+:class:`~solprop.driver.executors.slurm.Slurm` (an array job of queue controllers). The
+design is ``docs/dev/scans.md``.
+"""
 
 from collections.abc import Callable, Iterable, Iterator
 from typing import Protocol, runtime_checkable

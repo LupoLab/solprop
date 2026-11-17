@@ -2,38 +2,25 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Transport properties of the fill gases: viscosity, sound speed, mean free path.
+"""Transport properties of the fill gases: viscosity, sound speed, mean free path.
 
-The steady-flow fill of a hollow fibre (:mod:`solprop.gasflow`) needs three gas
-properties beyond the equation of state: the dynamic viscosity, which sets the
-Poiseuille conductance; the speed of sound, which bounds the throughput of an end
-that exhausts into vacuum; and the mean free path, which says whether the gas is a
-continuum at all. All three are **dilute-gas** values here, which is what the laminar
-flow law and the choke use.
+The steady-flow fill of a hollow fibre (:mod:`solprop.gasflow`) needs, beyond the
+equation of state, the dynamic viscosity (:func:`viscosity`), which sets the Poiseuille
+conductance; the speed of sound (:func:`sound_speed`, from :func:`heat_capacity_ratio`
+and :func:`molar_mass`), which bounds the throughput of an end exhausting into vacuum;
+and the mean free path (:func:`mean_free_path`), which says whether the gas is a
+continuum. All are **dilute-gas** values, which is what the laminar law and the choke
+use, valid over each gas's :func:`temperature_range`.
 
-The material properties are optmat's (SEP 3), through the
+The material data are optmat's (SEP 3), through the
 :class:`~solprop.physdata.species.OptmatGas` a built-in gas or species carries: the
-dilute viscosity, the ideal-gas heat capacity and the molar mass of
-``optmat.gas.transport``, each over optmat's own temperature range; the real-gas
-sound speed of its equation of state; and, for a mixture, optmat's Wilke rule
-(``mixture_viscosity``; C. R. Wilke, J. Chem. Phys. **18**, 517 (1950),
-https://doi.org/10.1063/1.1747673, about 1 to 2 % accurate). solprop keeps:
-
-* the **dilute sound speed** :math:`c = \sqrt{\gamma R T / M}` with the dilute
-  heat-capacity ratio :math:`\gamma = c_p / c_v`, :math:`c_v = c_p - R`, and for a
-  mixture the mole-weighted molar mass and
-  :math:`\gamma = \sum x_i c_{p,i} / \sum x_i c_{v,i}` (ideal-gas mixing of heat
-  capacities);
-* the **mean free path**, the viscosity-based kinetic-theory form
-  :math:`\lambda = (\eta / p)\sqrt{\pi k_B T / (2 m)}`, which needs no collision
-  diameter. Other conventions exist; the Knudsen thresholds that use it assume this
-  form and the core diameter.
-
-A temperature outside a gas's range is refused, as is a custom
-:class:`~solprop.physdata.species.Species` that does not carry optmat's equation of
-state, which carries none of these data.
-
-Pressures are in **bar** at this interface (``docs/dev/conventions.md`` section 1).
+dilute viscosity, ideal-gas heat capacity and molar mass of ``optmat.gas.transport``,
+and for a mixture optmat's Wilke rule (C. R. Wilke, J. Chem. Phys. **18**, 517 (1950),
+https://doi.org/10.1063/1.1747673, about 1 to 2 % accurate). A custom
+:class:`~solprop.physdata.species.Species` without optmat's equation of state has none
+of these data and is refused. Pressures are in **bar** (``docs/dev/conventions.md`` §1).
+The manual page ``docs/guide/media/material-selection.md``, "Density and transport",
+gives the sound-speed and mean-free-path forms solprop adds.
 """
 
 import math

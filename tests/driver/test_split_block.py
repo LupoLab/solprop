@@ -46,12 +46,12 @@ from solprop.exceptions import (
     TranslationError,
 )
 from solprop.modes.guide import ChannelBasis, ModalGuide
+from solprop.modes.tables import generator_is_coupled, sample_modal_table
 from solprop.output.capability import withheld_from
 from solprop.output.hdf5 import open_file
 from solprop.processing.time import _refuse_by_basis
 from solprop.stats import StatsSpec
 from solprop.translate.general import coupled_block, general_modal_route
-from solprop.translate.modal_tables import generator_is_coupled, sample_modal_table
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
 # hold more than a millionth of the energy in their guards or collar: the boundary

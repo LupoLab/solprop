@@ -4,28 +4,16 @@
 
 """The calibration's statistical rule: which setting replaces the table (SEP 46).
 
-One rule throughout (SEP 46 section 6.5), the ``ab`` harness's:
-
-- *Pairs.* Each candidate is timed interleaved with the built-in value, in rounds; a
-  round times each once in a fresh order. A candidate's score is the median of its
-  per-round ratios to the built-in.
-- *Noise.* Each session also times the built-in against itself (A/A). The noise is the
-  largest per-round deviation of that ratio from one, and at least
-  :data:`NOISE_FLOOR`.
-- *Admission.* A candidate replaces the built-in value only if its largest per-round
-  ratio is below one minus the noise: it wins in every round by more than the noise.
-  And no problem may be slower beyond the noise and :data:`TOLERANCE`: its median
-  ratio on each problem timed must stay within
-  ``1 + noise + TOLERANCE``, so that a large win on some problems cannot carry a real
-  loss on another, while a loss within the bar does not veto a broad win. Ties keep
-  the built-in. A failed round is dropped; fewer than the level's minimum rounds
-  keeps the built-in.
-- *Combined validation.* The admitted settings are timed together against the table on
-  fresh rounds; the combination is published only if no window is slower than that
-  same bar and the geometric mean is below one. Otherwise groups are dropped in
-  :data:`DROP_ORDER` and the remainder validated again.
-
-Every function here is pure: it reads timings and returns a verdict.
+One rule throughout (SEP 46 section 6.5), the ``ab`` harness's: :func:`ratios` and
+:func:`noise` turn interleaved rounds into per-round ratios and the A/A noise (at least
+:data:`NOISE_FLOOR`); :func:`admit` decides one candidate as a :class:`Verdict` (it must
+win every round by more than the noise and be slower on no problem beyond the noise
+and :data:`TOLERANCE`), and :func:`choose` keeps a setting's admitted candidate with the
+lowest score. :func:`validate` judges the admitted settings timed together on fresh
+rounds as a :class:`Validation`, and :func:`fallbacks` lists the combinations to try
+next, dropping groups in :data:`DROP_ORDER`. Every function here is pure: it reads
+timings and returns a verdict. The rule in full is in ``docs/dev/backends.md``
+(section 3.4a).
 """
 
 from __future__ import annotations

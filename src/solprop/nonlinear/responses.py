@@ -5,17 +5,22 @@
 """Nonlinear response definitions and their declared traits.
 
 A response says how a medium answers a field: the nonlinear polarisation ``P(t)`` it
-produces from the field ``E(t)`` at a point, and the declared traits the translation
-layer needs in order to compile a set of responses into one fused time-domain pass.
-This module holds the Kerr and plasma responses, SEP 6's frequency-dependent electronic
-response (:class:`DispersiveKerrResponse`), and the trait vocabulary the delayed Raman
-response of :mod:`solprop.nonlinear.raman` extends.
+produces from ``E(t)`` at a point, and the :class:`ResponseTraits` the translation layer
+needs to compile a set of responses into one fused time-domain pass (the delayed Raman
+response of :mod:`solprop.nonlinear.raman` extends the same vocabulary).
 
-The ``evaluate`` method here is the **NumPy reference**: the oracle every backend kernel
-is tested against, written for clarity rather than for speed
-(``docs/dev/architecture.md`` section 3). Units, signs and the analytic-signal
-convention follow ``docs/dev/conventions.md`` sections 2 and 4, and the derivation of
-every numerical factor is in ``docs/guide/media/nonlinear.md``.
+- :class:`KerrResponse`, the instantaneous third-order response, with
+  :func:`thg_carrier` for an envelope grid's third-harmonic term.
+- :class:`DispersiveKerrResponse`, SEP 6's frequency-dependent electronic response, with
+  :func:`dispersive_cubic`, :class:`DispersiveWeights` and :func:`mixture_filter`.
+- :class:`PlasmaResponse`, the polarisation of the free electrons a field tears from a
+  gas.
+
+Each ``evaluate`` method is the **NumPy reference**, the oracle every backend kernel is
+tested against, written for clarity rather than speed (``docs/dev/architecture.md`` §6).
+Units, signs and the analytic-signal convention follow ``docs/dev/conventions.md`` §2
+and §4, and the derivation of every numerical factor is in
+``docs/guide/media/nonlinear.md``.
 """
 
 import logging

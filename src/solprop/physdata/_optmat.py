@@ -4,39 +4,29 @@
 
 """Bridge solprop's physics layer to optmat: units, identities, warnings and errors.
 
-Every call into optmat goes through this module. It imports optmat only inside its
-functions: optmat's registries take more than a second to import, and
-``import solprop`` must not pay for them.
+Every call into optmat goes through this module, which imports optmat only inside its
+functions: optmat's registries take more than a second to import, and ``import solprop``
+must not pay for them.
 
-What crosses here:
+- **Units**: :func:`bar_to_pa` and :func:`pa_to_bar` (exactly ``1e5``),
+  :func:`omega_to_wavelength` and :func:`wavelength_to_omega` (``omega = 0`` is optmat's
+  static limit, an infinite wavelength) and :func:`checked_omega`.
+- **Identities**: :func:`record` and :func:`check_status` turn a resolved model's
+  identity into a :class:`~solprop.physdata.selection.MaterialRecord` under the status
+  policy.
+- **Warnings and errors**: :func:`translated` evaluates optmat under solprop's policy,
+  turning its range and absorption warnings into
+  :class:`~solprop.exceptions.MaterialRangeWarning` and its errors into
+  :class:`~solprop.exceptions.MaterialError`; :func:`material_context` opens an
+  evaluation context, the scope in which :func:`warn_once` raises each warning once and
+  a :class:`~solprop.physdata.selection.MaterialLog` collects what a run's manifest
+  records (:func:`record_outside`, :func:`record_dropped`).
+- **Caching**: :class:`EvaluationCache` keeps an adapter's last few evaluations, so a
+  translation that reads a material at every z sample evaluates each frequency array
+  once, with the same warnings and records.
 
-- **units**: pressure in bar at solprop's interface, ``p_Pa = 1e5 p_bar`` exactly at
-  optmat's; angular frequency at solprop's, vacuum wavelength ``2 pi c / omega`` at
-  optmat's, with ``omega = 0`` the static limit ``inf``;
-- **identities**: an optmat model's ``identity`` becomes a
-  :class:`~solprop.physdata.selection.MaterialRecord`;
-- **warnings**: optmat's ``ModelRangeWarning`` and ``ModelAbsorptionWarning`` become one
-  :class:`~solprop.exceptions.MaterialRangeWarning` per material and evaluation
-  context, naming the parts of the evaluated band outside the model's qualified
-  intervals and the reasons of the gaps they fall in; a ``provisional`` or
-  ``untested`` model warns once (:class:`~solprop.exceptions.MaterialStatusWarning`)
-  and a ``comparison`` or ``user`` one is recorded silently;
-- **errors**: optmat's ``OptmatError`` (``StateError``, ``DataError``) becomes
-  :class:`~solprop.exceptions.MaterialError`, naming the material, the quantity, the
-  state or band asked for, and the model.
-
-An *evaluation context* (:func:`material_context`) is the scope within which each
-warning is raised once: a run (its construction, translation and record), a fill's
-sampling, a flow calculation. Outside any context every call is its own. A context
-keeps a :class:`MaterialLog`: the warnings it has raised and the parts of each band
-that lay outside a model's qualified intervals, which a run's material manifest
-records.
-
-An adapter keeps its last few evaluations (:class:`EvaluationCache`): a material's
-index or polarizability does not depend on z, yet a translation reads it at every
-sample of a z table. A repeated frequency array takes the stored arrays, and the
-warnings its first evaluation captured are raised again under the same policy, so
-what a context warns about and records does not depend on the cache.
+The manual page ``docs/guide/media/material-selection.md`` describes the policies
+("Qualified intervals, statuses and warnings", "Records").
 """
 
 import contextlib
@@ -65,8 +55,8 @@ from solprop.physdata.selection import MaterialLog, MaterialRecord, OptmatModel
 __all__: list[str] = []
 
 # optmat's model classes cannot be named in a signature without importing optmat at
-# module scope, a second of import time that `import solprop` must not pay (as for
-# pyfluids in `equation_of_state`). The adapters reach their models' methods through
+# module scope, a second of import time (its registries and CoolProp) that
+# `import solprop` must not pay. The adapters reach their models' methods through
 # this one alias; a model is checked against the `OptmatModel` protocol at run time.
 Untyped = Any
 

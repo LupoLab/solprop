@@ -16,6 +16,22 @@
 Its design is the desktop front end's (``docs/dev/gui/design.md``, sections 13.3 and
 13.4); its modules are documented in their source.
 
+{#- The statistics package is the exception: its names are cross-referenced as
+   `solprop.stats.<name>` throughout the manual and the docstrings, so its page
+   documents the surface its `__all__` re-exports as well as listing its modules. No
+   module of it shares a name with a name it exports, so nothing is registered twice. #}
+{%- elif fullname == "solprop.stats" %}
+.. automodule:: {{ fullname }}
+
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+{% for item in modules %}
+   {{ item }}
+{%- endfor %}
+
 {%- elif modules %}
 .. automodule:: {{ fullname }}
    :no-members:

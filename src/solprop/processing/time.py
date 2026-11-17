@@ -4,33 +4,20 @@
 
 """Pulse metrics: energy, peak power, durations, arrival time and autocorrelations.
 
-The metrics follow two rules. Where :mod:`solprop.stats`
-already owns a definition -- the energy, the peak power, the two temporal widths -- this
-module
-**calls it**, so a metric read off a saved run and the same metric recorded during the
-run are the same number to the bit. Where it does not -- a spectral width, an arrival
-time, an autocorrelation -- the definition lives here, on the general
-half-maximum and moment helpers below.
+- Per-plane metrics: :func:`energy`, :func:`peak_power`, :func:`fwhm_t`, :func:`fwhm_f`,
+  :func:`time_bandwidth`, :func:`arrival_time`, :func:`field_autocorrelation`,
+  :func:`intensity_autocorrelation` and :func:`coherence_time`.
+- Trace helpers: :func:`moment`, :func:`half_max_range` and :func:`fwhm`.
 
-Polarisation components are summed wherever the quantity is quadratic in the field, as
-they are in :mod:`solprop.stats`: they are two components of one field and their powers
-add at each instant. Modes are not summed unless asked: ``modes=None`` gives one number
-per mode, ``modes='sum'`` the number of the total.
+Where :mod:`solprop.stats` owns a definition (energy, peak power, the temporal widths)
+this module **calls it**, so a metric read off a saved run and the one recorded during
+the run agree to the bit. Polarisation components are summed wherever the quantity is
+quadratic in the field; modes are summed only with ``modes='sum'``. :func:`energy` and
+:func:`peak_power` are refused by name on a general modal file, and every metric here on
+a spatial file, whose columns are not modal amplitudes
+(:data:`solprop.output.capability.COLUMN_READINGS`).
 
-**What the stored basis admits is checked here too.** :func:`energy` and
-:func:`peak_power` are the two metrics of this module whose meaning depends on the mode
-axis being an orthogonal basis whose coordinate powers add, so on a general modal file
-they are refused by name, with the same text the run loop and
-:mod:`solprop.processing.modal` use (:mod:`solprop.output.capability`). The widths, the
-spectral metrics and the autocorrelations are shape functionals of the same trace and
-are admitted on every modal basis.
-
-**Every metric here refuses a spatial file by name.** Each one reads a column of the
-mode axis as a modal amplitude in sqrt(W), and a radial, Cartesian, line or planar
-column is a field sample or a slab amplitude instead, so the energies and powers would
-be wrong in joules and watts, and the widths would be those of single columns rather
-than of the beam. The refusal names the functional of :mod:`solprop.spatial` that
-measures the quantity (:data:`solprop.output.capability.COLUMN_READINGS`).
+The manual page is ``docs/guide/results/processing.md`` ("The metrics").
 """
 
 from collections.abc import Callable

@@ -51,13 +51,13 @@ from solprop.grid import FieldGrid
 from solprop.modes import GradedIndexProvider, PowerLawPermittivity
 from solprop.modes.guide import ModalGuide
 from solprop.modes.material import IndexMaterial, MaterialKerr
+from solprop.modes.tables import sample_modal_table
 from solprop.nonlinear.normalisation import modal_kerr_coefficient
 from solprop.pulses import GaussianPulse
 from solprop.stats import energy
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.assembly import assemble
 from solprop.translate.general import general_modal_route
-from solprop.translate.modal_tables import sample_modal_table
 
 FWM_LENGTH = 1e-4
 """Length of every few-mode run, m: a tenth of a millimetre in ten fixed steps.

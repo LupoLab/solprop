@@ -4,10 +4,9 @@
 
 """Time-frequency maps of a saved plane, through a Gaussian-gated short-time transform.
 
-The map is :func:`solprop.processing.fields.get_spectrogram`'s, drawn. The gate width
-and the number of gate positions have defaults, taken from the time range asked for;
-and a multimode run must say which mode it means, rather than silently taking the
-first.
+:func:`spectrogram` draws :func:`solprop.processing.fields.get_spectrogram`'s map. The
+gate width and the number of gate positions default from the time range asked for, and
+a multimode run must say which mode it means, rather than silently taking the first.
 """
 
 import numpy as np

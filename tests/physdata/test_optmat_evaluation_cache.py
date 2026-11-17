@@ -294,7 +294,7 @@ def test_a_gradient_translates_exactly_as_before_and_samples_its_wall_a_few_time
             return compute()
 
     monkeypatch.setattr(_optmat.EvaluationCache, "evaluate", uncached)
-    monkeypatch.setattr(assembly_module, "_shared_sampling", contextlib.nullcontext)
+    monkeypatch.setattr(assembly_module, "shared_sampling", contextlib.nullcontext)
     walls["refractive_index"] = 0
     unshared = _gradient_capillary()
     before = unshared.translate()

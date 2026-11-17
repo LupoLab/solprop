@@ -22,7 +22,7 @@ from solprop.driver import tdse_consistency
 from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.nonlinear.tdse import TDSEBasis
 from solprop.output.metadata import _example_metadata
-from solprop.output.scan import _hash, _json
+from solprop.output.scan import _json
 
 
 def test_the_canonical_text_sorts_keys_and_drops_whitespace():
@@ -82,7 +82,9 @@ def test_a_numpy_scalar_is_written_as_the_number_it_holds():
 def test_a_stored_identity_keeps_its_value(name, digest):
     computed = {
         "metadata": lambda: _example_metadata().configuration_hash(),
-        "scan": lambda: _hash(_json({"gamma": 0.11, "modes": [1, 2], "inf": math.inf})),
+        "scan": lambda: text_digest(
+            _json({"gamma": 0.11, "modes": [1, 2], "inf": math.inf})
+        ),
         "basis": lambda: basis_identity("radial", space_record(RadialGrid(1e-3, 64))),
         "lattice": lambda: lattice_identity(
             EnvelopeGrid.from_limits(1.0, 835e-9, (400e-9, 2e-6), 2e-12)

@@ -2,7 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The general modal route: a supplied guide's modes and its keywords."""
+"""The general modal route: a supplied guide's modes and its keywords.
+
+``_from_general`` builds a general modal run from a guide that solves its own fields,
+for :meth:`~solprop.driver.simulation.Simulation.from_waveguide` given a ``provider``,
+from its keywords (``_GeneralRequest``): it refuses the gas-filled keywords given beside
+a provider (``_refuse_gas_keywords``; :data:`GAS_KEYWORD_DEFAULTS` are their "not
+given" values), places a one-channel pulse in a named or indexed channel
+(``_in_channel``), and takes the default statistics (``_general_stats``) and the core's
+phase index at the grid's frequencies (``_core_index``). The manual page is
+``docs/guide/waveguides/general-modal.md``.
+"""
 
 import functools
 import logging

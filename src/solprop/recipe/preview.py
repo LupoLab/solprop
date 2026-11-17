@@ -4,13 +4,15 @@
 
 """Previews: what a recipe will build, shown before the run (SEP 41, S18).
 
-:func:`modes` gives the mode set a guided route builds, with its effective index,
+:func:`modes` gives a guided route's (:data:`GUIDED`) mode set as a
+:class:`ModeSetPreview` of :class:`ModePreview` rows: each mode's effective index,
 dispersion to third order, loss, effective area and nonlinear coefficient over the
-grid's band, and each mode's phase matching to a soliton at the pump in the launch
-mode; :func:`preview_input` gives the input pulse on the
-run's grid as the launch sets it, without noise, through the same processing functions
-that read a run's file, and on the free-space routes the beam's fluence across the
-launch plane too. Both resolve the recipe's pins first.
+grid's band, and its phase matching to a soliton at the pump in the launch mode.
+:func:`preview_input` gives the input pulse on the run's grid as the launch sets it,
+without noise, as an :class:`InputPreview`, through the same processing functions that
+read a run's file, and on the free-space routes the beam's fluence across the launch
+plane too. Both resolve the recipe's pins first. The manual page is
+``docs/guide/setup/recipes.md`` ("Previews").
 """
 
 from collections.abc import Mapping
@@ -215,7 +217,7 @@ def modes(recipe: "Recipe", z: float | None = None) -> ModeSetPreview:
     default); otherwise, and for a pump in normal dispersion, which launches no soliton,
     the condition is the linear one.
     """
-    from solprop.modes.base import (  # noqa: PLC0415
+    from solprop.modes.base import (  # noqa: PLC0415 - heavy
         aeff,
         alpha,
         beta,
@@ -294,15 +296,15 @@ def _pump(  # noqa: PLR0911 - one return per case of the linear condition
       dispersion, and a pulse below the soliton threshold, which has no largest
       constituent.
     """
-    from solprop.modes.base import beta2  # noqa: PLC0415 - layer above
-    from solprop.physdata.mixtures import Mixture  # noqa: PLC0415
-    from solprop.recipe.pins import _route_pulse  # noqa: PLC0415
-    from solprop.tools import (  # noqa: PLC0415
+    from solprop.modes.base import beta2  # noqa: PLC0415 - heavy
+    from solprop.physdata.mixtures import Mixture  # noqa: PLC0415 - heavy
+    from solprop.recipe.pins import _route_pulse  # noqa: PLC0415 - heavy
+    from solprop.tools import (  # noqa: PLC0415 - heavy
         SolitonOrder,
         nonlinear_coefficient,
         phase_mismatch,
     )
-    from solprop.tools.waveguide import _fill_n2  # noqa: PLC0415
+    from solprop.tools.waveguide import _fill_n2  # noqa: PLC0415 - heavy
 
     wavelength = keywords.get("wavelength")
     if not isinstance(wavelength, int | float) or soliton is None:
@@ -365,7 +367,7 @@ def _phase_matching(
     - ``limits``: the band's shortest and longest wavelengths, m.
     - Returns: ``phase_mismatch`` and ``rdw``, the :class:`ModePreview` fields.
     """
-    from solprop.tools import lambda_rdw_all, phase_mismatch  # noqa: PLC0415
+    from solprop.tools import lambda_rdw_all, phase_mismatch  # noqa: PLC0415 - heavy
 
     if pump is None:
         return None, ()
@@ -399,8 +401,8 @@ def _gamma(
     - ``z``: the position, m.
     - Returns: ``gamma`` in rad/(W m); ``None`` without a fill or its Kerr data.
     """
-    from solprop.physdata.mixtures import Mixture  # noqa: PLC0415
-    from solprop.tools.waveguide import _fill_n2  # noqa: PLC0415 - the tools' own n2
+    from solprop.physdata.mixtures import Mixture  # noqa: PLC0415 - heavy
+    from solprop.tools.waveguide import _fill_n2  # noqa: PLC0415 - heavy
 
     mixture = getattr(mode, "mixture", None)
     if not isinstance(mixture, Mixture):
@@ -432,9 +434,12 @@ def preview_input(recipe: "Recipe") -> InputPreview:
         The pulse in time and frequency, its energy and its peak power, and on a
         free-space route its fluence.
     """
-    from solprop.driver.plane_view import PlaneView  # noqa: PLC0415 - layer D
-    from solprop.output.records import SavedPlane  # noqa: PLC0415
-    from solprop.recipe.metadata import OBJECT_ROUTES, parameters  # noqa: PLC0415
+    from solprop.driver.plane_view import PlaneView  # noqa: PLC0415 - heavy
+    from solprop.output.records import SavedPlane  # noqa: PLC0415 - heavy
+    from solprop.recipe.metadata import (  # noqa: PLC0415 - heavy
+        OBJECT_ROUTES,
+        parameters,
+    )
 
     quiet = recipe.resolve()
     build = quiet._document["build"]
@@ -515,8 +520,8 @@ def _beam(
     - ``field``: the launched spectrum, internal, shape ``(n_modes, n_pol, n_omega)``.
     - ``z``: the launch position, m.
     """
-    from solprop.grid import FreeGrid, LineGrid, RadialGrid  # noqa: PLC0415
-    from solprop.spatial import (  # noqa: PLC0415 - the free-space routes only
+    from solprop.grid import FreeGrid, LineGrid, RadialGrid  # noqa: PLC0415 - heavy
+    from solprop.spatial import (  # noqa: PLC0415 - heavy
         SpatialFlux,
         planar_fluence,
         spatial_energy,

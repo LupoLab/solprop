@@ -5,9 +5,9 @@
 
 """The fill and the mode a design evaluates.
 
-A fill as the run interfaces accept it, resolved to an optmat mixture; its Kerr
-coefficient; the default cladding; and the zero-dispersion point of a mode nearest a
-wavelength. Every design search evaluates its probes inside ``_probing``.
+A fill as the run interfaces accept it (:data:`Fill`), resolved to an optmat mixture;
+its Kerr coefficient; the default cladding; and the zero-dispersion point of a mode
+nearest a wavelength. Every design search evaluates its probes inside ``_probing``.
 """
 
 import math
@@ -29,6 +29,7 @@ from solprop.modes.protocol import Mode
 from solprop.physdata import (
     Gas,
     Mixture,
+    is_air,
     n2_from_chi3,
     species,
 )
@@ -129,7 +130,7 @@ def _resolve_fill(
             for name, fraction in gas.items()
         }
         return Mixture.fill(fractions, total, temperature=temperature)
-    if gas is Gas.Air or (isinstance(gas, str) and gas.strip().lower() == "air"):
+    if is_air(gas):
         return Mixture.air(
             total, temperature=temperature, argon=False, selection=materials
         )

@@ -2,22 +2,24 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Time and frequency grids for field-resolved and envelope propagation.
+"""Time, frequency and transverse grids for field-resolved and envelope propagation.
 
-Two grids implement one protocol. :class:`FieldGrid` carries a real field ``E(t)`` and
-stores its one-sided spectrum; :class:`EnvelopeGrid` carries a complex envelope ``A(t)``
-and stores the full spectrum in FFT order. Both carry an oversampled *fine* grid on
-which nonlinear responses are evaluated, the masks that say which bins are physical, and
-the Planck-taper collars that absorb what leaves the window.
+Key types: :class:`FieldGrid` carries a real field ``E(t)`` and stores its one-sided
+spectrum; :class:`EnvelopeGrid` carries a complex envelope ``A(t)`` and stores the full
+spectrum in FFT order. Both derive from :class:`TimeGrid`, which holds the oversampled
+*fine* grid the nonlinear responses are evaluated on, the masks that say which bins are
+physical, and the Planck-taper collars (:class:`Collar`) that absorb what leaves the
+window. :class:`RadialGrid`, :class:`FreeGrid` and :class:`LineGrid` are the transverse
+grids of free-space propagation.
 
-The construction arithmetic, the invariants, the layout rules and the sign convention
-are fixed by ``docs/dev/conventions.md`` §2-§3, and the manual page
-``docs/guide/setup/grids.md`` derives them. Four hazards are guarded against, each noted
-where
-it is handled: overlapping coarse spectral bins when the transform size is not a power
-of two, a degenerate temporal collar when the realised window equals the requested one,
-an envelope fine spacing that ignores the low-frequency edge, and an envelope crop that
-is derived from the upper edge alone and then applied symmetrically.
+Key functions: :func:`planck_taper` and its derivative, the collar profile;
+:func:`fft_cost`, the transform-cost model behind ``fft_size="auto"``; and
+:func:`suggest`, which proposes ``wavelength_limits`` and ``trange`` for an input
+(:class:`GridSuggestion`).
+
+The construction arithmetic, the invariants, the layouts and the sign convention are
+fixed by ``docs/dev/conventions.md`` §2-§3, which also lists the hazards the
+construction guards against; the manual page ``docs/guide/setup/grids.md`` derives them.
 """
 
 import logging
@@ -2007,10 +2009,10 @@ def _fft_order(n: int) -> Float[np.ndarray, " n"]:
 # ------------------------------------------------------------------ grid suggestions
 
 _TIME_BANDWIDTH: Final = {
-    "GaussianPulse": 2.0 * math.log(2.0) / math.pi,
-    "SechPulse": 0.315,
+    "gaussian": 2.0 * math.log(2.0) / math.pi,
+    "sech": 0.315,
 }
-"""Transform-limited intensity time-bandwidth products of the shaped pulses."""
+"""Transform-limited intensity time-bandwidth products of the pulse shapes."""
 
 _SUGGESTED_HALF_WIDTH: Final = {"gnlse": 0.5, "capillary": 1.0}
 """The least half-width of a suggested band, as a fraction of the carrier, by route.
@@ -2068,7 +2070,7 @@ def _extent(pulse: object) -> tuple[float, float, float, float]:
       delay, s.
     """
     from solprop.pulses import (  # noqa: PLC0415 - pulses import this module
-        SECH_FWHM_TO_WIDTH,
+        _SECH_FWHM_TO_WIDTH,
         DataPulse,
         GaussianPulse,
         SechPulse,
@@ -2077,9 +2079,10 @@ def _extent(pulse: object) -> tuple[float, float, float, float]:
     if isinstance(pulse, GaussianPulse | SechPulse):
         fwhm = pulse.fwhm
         if fwhm is None and isinstance(pulse, SechPulse):
-            fwhm = float(cast("float", pulse.width)) / SECH_FWHM_TO_WIDTH
+            fwhm = float(cast("float", pulse.width)) / _SECH_FWHM_TO_WIDTH
         fwhm = float(cast("float", fwhm))
-        product = _TIME_BANDWIDTH[type(pulse).__name__]
+        shape = "sech" if isinstance(pulse, SechPulse) else "gaussian"
+        product = _TIME_BANDWIDTH[shape]
         return C / pulse.wavelength, product / fwhm, fwhm, abs(pulse.t0)
     if isinstance(pulse, DataPulse):
         frequency = np.asarray(pulse.omega) / (2.0 * math.pi)
@@ -2088,7 +2091,7 @@ def _extent(pulse: object) -> tuple[float, float, float, float]:
         bandwidth = float(above.max() - above.min()) or float(np.ptp(frequency))
         centre = float(np.sum(frequency * power) / np.sum(power))
         # Its duration if it were transform-limited and Gaussian.
-        limited = _TIME_BANDWIDTH["GaussianPulse"] / bandwidth
+        limited = _TIME_BANDWIDTH["gaussian"] / bandwidth
         return centre, bandwidth, limited, abs(pulse.t0)
     msg = (
         f"no grid can be suggested for a {type(pulse).__name__}: give a "
@@ -2141,6 +2144,8 @@ def suggest(pulses: object, *, route: str = "capillary") -> GridSuggestion:
     >>> suggestion.wavelength_limits, suggestion.trange
     ((3.1e-07, 4e-06), 2.3e-13)
     """
+    from solprop.pulses import PulseSum  # noqa: PLC0415 - pulses import this module
+
     if route not in _SUGGESTED_HALF_WIDTH:
         msg = f"no grid suggestion for route {route!r}; the routes are gnlse, capillary"
         raise GridError(msg, parameter="route")
@@ -2148,9 +2153,8 @@ def suggest(pulses: object, *, route: str = "capillary") -> GridSuggestion:
     flat: list[object] = []
     while members:
         member = members.pop(0)
-        inner = getattr(member, "pulses", None)
-        if type(member).__name__ == "PulseSum" and inner is not None:
-            members.extend(inner)
+        if isinstance(member, PulseSum):
+            members.extend(member.pulses)
         else:
             flat.append(member)
     if not flat:

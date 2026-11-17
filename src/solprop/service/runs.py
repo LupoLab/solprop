@@ -2,25 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The runs in a workspace and the state of each, read from their folders (13.4).
+"""The runs in a workspace and the state of each, read from their folders (design 13.4).
 
 Nothing here keeps state: a run's state is what its folder says (its record,
-:mod:`solprop.service.record`, and how it was started, ``submitted.json``), with the
-scheduler's word for a Slurm job and the operating system's for a process of this
-machine. So any helper on the machine, started at any time, lists the same runs in the
-same states.
+:mod:`solprop.service.record`, and ``submitted.json``), with the scheduler's word for a
+Slurm job (:func:`slurm_jobs`) and the operating system's for a process of this
+machine. So any helper, started at any time, lists the same runs in the same states.
+:func:`list_runs` returns every run's :func:`summarise` summary, newest first.
 
-The states, beside those of a run's ending (``finished``, ``stopped``, ``failed``):
-
-``queued``
-    Submitted to Slurm and waiting; the summary's ``detail`` says why.
-``starting``
-    Started, and nothing recorded yet.
-``running``
-    Its process lives, or its job runs and it has written its summary lately.
-``lost``
-    Ended without saying so: its process has gone, or its job ended or was cancelled
-    before the run could record an ending. Its file may still be resumable.
+Beside the endings (``finished``, ``stopped``, ``failed``) the states are ``queued``
+(waiting in Slurm; the summary's ``detail`` says why), ``starting`` (nothing recorded
+yet), ``running`` (its process lives, or its job runs and its summary is fresh) and
+``lost`` (gone without recording an ending; its file may still be resumable). The
+manual's table is in ``docs/guide/front-end/machines.md`` ("The Runs window").
 """
 
 import socket

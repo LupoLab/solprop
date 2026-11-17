@@ -4,28 +4,23 @@
 
 r"""Compress the pulse of a saved run with linear optics, and say how well.
 
-Each compressor searches the parameters of one kind of element of
-:mod:`solprop.optics` -- a Taylor spectral phase, a thickness of material, reflections
-from a chirped mirror with an optional wedge -- for the pulse of highest peak power,
-and returns a :class:`Compression` holding what it found, the transfer function ready
-to hand to :func:`~solprop.processing.fields.get_power` or
-:func:`~solprop.plotting.propagation.time_1d`, and the pulse's duration and peak power
-before, after, and at the transform limit.
+Each compressor searches the parameters of one kind of element of :mod:`solprop.optics`
+for the pulse of highest peak power -- it minimises ``J = max P_limit / max P >= 1``,
+with ``J = 1`` the transform limit -- and returns a :class:`Compression`: what it found,
+the transfer function ready for :func:`~solprop.processing.fields.get_power` or
+:func:`~solprop.plotting.propagation.time_1d`, and the duration and peak power before,
+after and at the transform limit.
 
-The objective is
+- The compressors: :func:`compress_taylor` (a Taylor spectral phase),
+  :func:`compress_material` (a material thickness), :func:`compress_mirrors`
+  (chirped-mirror reflections with an optional wedge), :func:`compress_gratings` and
+  :func:`compress_prisms`; :func:`optimise_cep` returns a :class:`CepOptimum`.
+- The pieces they are built on: :func:`apply_transfer` and :func:`transform_limit`.
 
-.. math:: J = \frac{\max_t P_{\rm limit}(t)}{\max_t P(t)} \ge 1,
-
-with :math:`P` the instantaneous power summed over the selected modes and both
-polarisation components. :math:`J = 1` is the transform limit and is the target.
-Each compressor takes a saved run (``output``, one plane of it chosen by ``plane`` or
-``z``) or, instead, a ``grid`` with one plane's ``spectrum`` in the optics convention --
-the convention ``output["field"]`` and ``plane_field`` return (``conventions.md``
-section 2) -- which it takes to the internal one itself.
-
-Every search is deterministic: SciPy's bounded scalar minimiser after a coarse scan, or
-its differential evolution with a fixed seed. A search that ends on a bound or fails is
-reported in the result and logged; it never raises for that and never claims success.
+Each takes a saved run (one plane, by ``plane`` or ``z``) or a ``grid`` with one plane's
+optics-convention ``spectrum``. Every search is deterministic; one that ends on a bound
+or fails is reported in the result and logged, never raised and never called a success.
+The objective and the searches are in ``docs/guide/workflows/compression.md``.
 """
 
 import logging
@@ -53,7 +48,7 @@ from solprop.optics import (
     TaylorPhase,
     TransferFunction,
 )
-from solprop.output.capability import capability_of
+from solprop.output.capability import capability_of, compression_refusal
 from solprop.output.store import Output
 from solprop.processing import spectra, time
 from solprop.processing.axes import _keep_index, _plane_field, _plane_index, grid_of
@@ -405,21 +400,14 @@ def _select_modes(
 def _require_modal(output: Output) -> None:
     """Refuse an output whose amplitudes are not orthogonal modal powers.
 
-    Every compressor's objective sums ``|a|^2`` over the selected modes and
-    polarisations, which is the physical power only on an orthogonal modal basis
-    (:func:`solprop.output.capability.capability_of`). A general modal or spatial
-    run's coordinates are not that, so it is refused by name rather than optimised on
-    a quantity that is not a power.
+    The refusal is :func:`solprop.output.capability.compression_refusal`'s, which
+    :func:`solprop.capabilities.output` states for a file.
     """
     if output.metadata is None:
         raise ProcessingError("output has no metadata")
-    capability = capability_of(output.metadata)
-    if capability != "modal":
-        raise ProcessingError(
-            f"compression requires orthogonal modal power amplitudes, and this is a "
-            f"{capability} output: its summed |a|^2 is not a physical power, so it "
-            f"needs an explicit physical-flux objective"
-        )
+    refusal = compression_refusal(capability_of(output.metadata))
+    if refusal is not None:
+        raise ProcessingError(refusal)
 
 
 def _pulse_of(

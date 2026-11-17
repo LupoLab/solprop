@@ -176,6 +176,14 @@ when `None`, room temperature, 293.15 K, for a bare `response_for`), and `min_j`
 (default 0 and 50) bound the rotational ladder. A molecular gas's response is absolute
 and is refused a `fraction`; silica's is a normalised shape that needs one.
 
+The compiler ({func}`~solprop.translate.responses.compile_responses`) never applies
+$(1 - f_R)$ to the Kerr term itself. A response that declares `fraction` is one whose
+author already reduced the Kerr coefficient beside it —
+{func}`~solprop.nonlinear.gnlse.kerr_susceptibility` does exactly that for the GNLSE — and
+a molecular gas's Raman response is absolute, with the full electronic $\chi^{(3)}$
+beside it. Reducing the Kerr term at compilation would either double the reduction or
+invent one, and would reduce the Kerr term even with Raman switched off.
+
 ### Raman in a fibre GNLSE
 
 {py:func}`~solprop.driver.interface.prop_gnlse` and

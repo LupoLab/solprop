@@ -114,8 +114,10 @@ validity range is cited to its primary source; say what you verified and what yo
 - Validate once at the public boundary; inner layers trust validated objects.
 - Respect the layers (`architecture.md §3`): physics code holds no performance tricks,
   backend code no physics; the kernel contract (`kernel-contract.md`) and the protected
-  driver surface (frozen in `tests/backends/test_driver.py`) are the crossings. No `utils`
-  modules: organise by domain concept, in the package tree of `architecture.md §4`.
+  driver surface (frozen in `tests/backends/test_driver.py`) are the crossings. Imports
+  flow P → S → T → B → D → X ⚙ (`tests/test_layers.py`; a deliberate exception goes in
+  its allowlist with its reason, and in `architecture.md §3`). No `utils` modules:
+  organise by domain concept, in the package tree of `architecture.md §4`.
 
 ### Style
 

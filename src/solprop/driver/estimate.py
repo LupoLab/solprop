@@ -4,11 +4,14 @@
 
 """What a run will cost, before it runs (SEP 41, S11).
 
-:func:`estimate` reports a translated simulation's grid, the persistent memory its
-constructed backend holds, the size of its output, the cost of one right-hand-side
-evaluation on the chosen backend timed after an untimed warm-up, and its integrator's
-calls per step. It does not predict the number of adaptive steps, which depends on the
-physics.
+:func:`estimate` returns a :class:`RunEstimate`: a translated simulation's grid, the
+persistent memory its constructed backend holds, the size of its output, the cost of
+one right-hand-side evaluation on the chosen backend timed after an untimed warm-up,
+and its integrator's calls per step. It does not predict the number of adaptive steps,
+which depends on the physics. :func:`output_bytes` sizes the output from
+:func:`plane_bytes`, one saved plane in memory, and :func:`field_bytes`, the part of it
+a plane that keeps no field does not hold. The manual page is
+``docs/guide/setup/running.md`` ("What a run will cost").
 """
 
 import math

@@ -2,7 +2,11 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Share the CLI execution policy between imported and module entry points."""
+"""Share the CLI execution policy between imported and module entry points.
+
+:mod:`solprop.scan` sets the policy for the script it runs; :func:`current_executor`
+reads it. It lives here so that the driver never imports the CLI module.
+"""
 
 import contextvars
 

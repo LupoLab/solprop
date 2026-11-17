@@ -51,11 +51,7 @@ from solprop.exceptions import (
 from solprop.grid import FieldGrid
 from solprop.modes import CoherentWall, MarcatiliMode
 from solprop.modes.antiresonant import TubeLattice, VincettiMode
-from solprop.modes.capillary import (
-    taper_connection,
-    taper_coupling_block,
-    wall_connection,
-)
+from solprop.modes.wall import taper_connection, taper_coupling_block, wall_connection
 from solprop.output.memory import MemoryOutput
 from solprop.physdata.mixtures import Mixture
 from solprop.profiles import FromCallable, Linear

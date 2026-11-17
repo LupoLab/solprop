@@ -4,18 +4,17 @@
 
 """The calibration controller: children, rounds, a deadline and publication (SEP 46).
 
-The controller never loads the native extension (section 6.2). It starts one child
-per candidate process setting (:mod:`solprop.calibration.child`), each pinned to the
-allocation being calibrated, plus one child on the built-in rules, and times the
-calibration problems' windows in interleaved rounds: in each round every child once,
-in a fresh order, and the built-in child twice for the A/A noise. The selection rule
-(:mod:`solprop.calibration.selection`) admits a candidate only if it wins every round
-by more than the noise; the winner is then validated against the built-in child on
-fresh rounds, window by window. Everything runs under one monotonic deadline per
-level (section 6.9): a child that overruns is terminated, a stage that cannot finish
-its rounds is skipped and reported, and nothing partial is published. Publication
-writes one complete generation, keeping the other allocation classes' rows, and
-swaps ``current`` (section 6.8).
+:func:`calibrate` measures one allocation, and the nested ones (:func:`nested`) its
+time allows, at a :class:`Level` of :data:`LEVELS`: it starts a ``_Child`` per
+:class:`Candidate` process setting (:func:`candidates`; :func:`builtin_wait` is the
+built-in rule's wait) plus one on the built-in rules, times the calibration problems'
+windows in interleaved rounds (``_Bench``, under one ``_Deadline``), admits and
+validates the winners by :mod:`solprop.calibration.selection`, tries the operation
+grain (:mod:`solprop.calibration.grain`) and the FFT planning efforts (:data:`POLICY`
+is the plan policy's), and publishes a complete generation, returning a
+:class:`CalibrationReport`. It never loads the native extension; the native modules it
+needs come from ``solprop.calibration._native``. The rounds, deadline and publication
+are described in ``docs/dev/backends.md`` (section 3.4a).
 """
 
 from __future__ import annotations

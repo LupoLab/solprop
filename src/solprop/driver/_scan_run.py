@@ -2,7 +2,23 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Build scan points, collect bounded output, and coordinate durable results."""
+"""Build scan points, collect bounded output, and coordinate durable results.
+
+The engine behind :func:`solprop.driver.scan.run_scan`. :func:`execute_scan` validates
+the retention options, resolves the executor (the CLI policy of
+:mod:`solprop.driver._scan_context`, else ``Local``) and hands it one ``_Job`` per point
+with a ``_Work``: the picklable per-point callable that builds the point's simulation,
+runs it into a ``_Capture`` and returns a :class:`~solprop.output.scan.PointResult`.
+``_Capture`` is a bounded memory output that keeps only the statistics, the selected
+field planes and the reductions. Results are committed on one of two paths: under
+``Local`` and ``Pool`` this process claims each point in its own
+:class:`~solprop.output.scan.ScanWriter` and commits it as it arrives (``_jobs``,
+``_collect``); under ``Queue`` and ``Slurm`` the controllers publish artifacts to the
+queue directory, which is collected into the scan file at the end
+(:func:`~solprop.driver.executors.queue.collect`). ``_Display`` and ``_ScanEvents``
+carry the outer progress display and a scan reporter's point events;
+:func:`launch_statistics` loads a probed backend's launch plane for resource admission.
+"""
 
 import copy
 import dataclasses

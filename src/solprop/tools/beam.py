@@ -3,7 +3,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 
-"""Free-space beam numbers: the critical power, beam parameters and intensities."""
+"""Free-space beam numbers: the critical power, beam parameters and intensities.
+
+:func:`self_focusing_power` is the critical power for self-focusing; :func:`beam_params`
+returns a Gaussian beam's characteristic numbers in a gas (:class:`BeamParams`) and
+:func:`beam_through_lens` the waist a thin lens makes; :func:`field_to_intensity` and
+:func:`intensity_to_field` convert between a field amplitude and an intensity.
+"""
 
 import math
 from dataclasses import dataclass

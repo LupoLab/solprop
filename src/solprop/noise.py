@@ -4,26 +4,20 @@
 
 """Shot-noise realisations: one photon per mode per frequency bin.
 
-Two noise models share one draw. The **input** model of the supercontinuum literature
-[2]_ adds a realisation to the initial field once, at ``z = 0``, and lets the
-propagation carry it; the **modified** model of Chen and Wise [1]_ keeps it as a source
-term injected into the nonlinear operator at every step, which seeds spontaneous
-processes without the artificial four-wave-mixing phase matching that a propagated
-background produces. The modified field is advanced by the unitary part of the linear
-operator rather than held constant in z: holding it constant is exact only in the
-dispersion-free gain model it came from (see ``docs/dev/decisions.md``).
+Two models share one draw (:data:`NoiseModel`). :func:`input_noise` adds a realisation
+to the initial field once, at ``z = 0``, as the supercontinuum literature does [2]_;
+:func:`modified_noise` keeps it as a source injected into the nonlinear operator at
+every step, after Chen and Wise [1]_, advanced by the unitary part of the linear
+operator. Each returns a :class:`NoiseRealisation`, the field with the seed that drew
+it. :func:`spatial_noise` draws per transverse column, :func:`transformed_noise` carries
+a draw into a changed channel basis, and :func:`photons_per_bin` counts the photons of a
+stored spectrum.
 
-The amplitude is fixed by ``docs/dev/conventions.md`` §4 and pairs with the spectral
-density of :func:`solprop.fourier.spectral_density`, so that every bin of the active
-band carries exactly ``hbar omega``: one photon. The phase is uniform on ``[0, 2 pi)``
-and is the only random quantity. Both grids are masked to the active band, so no noise
-sits in the zero-frequency bin or above the window edge of a field grid.
-
-Randomness is explicit: the caller passes a :class:`numpy.random.Generator`, and the
-entropy it was created with is recorded on the realisation so that a run can be
-reproduced from its output file.
-
-The manual page is ``docs/guide/media/noise.md``.
+The amplitude is fixed by ``docs/dev/conventions.md`` §4, so that every bin of the
+active band carries ``hbar omega``; the phase, uniform on ``[0, 2 pi)``, is the only
+random quantity. The caller passes a :class:`numpy.random.Generator`, whose entropy is
+recorded on the realisation so that a run can be reproduced. The manual page
+``docs/guide/media/noise.md`` compares the two models.
 
 References
 ----------

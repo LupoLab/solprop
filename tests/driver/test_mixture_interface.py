@@ -16,25 +16,18 @@ from mixture_cases import AnalyticRate, mixture_case
 from selected_backend import selected_backend
 from solprop.constants import K_B
 from solprop.driver import Simulation, prop_capillary
-from solprop.driver.mixtures import is_air
 from solprop.exceptions import DriverError, MaterialError
 from solprop.grid import EnvelopeGrid
 from solprop.modes import MarcatiliMode
 from solprop.nonlinear.gnlse import SpecifiedMode
 from solprop.nonlinear.responses import PlasmaResponse
-from solprop.physdata import Gas, Mixture
+from solprop.physdata import Mixture
 from solprop.physdata.raman_types import Dephasing, Linewidth
 from solprop.physdata.sellmeier import gamma
 from solprop.processing import species_ionisation, species_ionisation_energy
 from solprop.profiles import Constant
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
-
-
-@pytest.mark.parametrize("material", [Gas.Air, "air", " AIR ", Gas.He, "He"])
-def test_air_selection_accepts_the_enum_and_normalised_name(material):
-    assert is_air(material) == (material in (Gas.Air, "air", " AIR "))
-
 
 COLLAR_STEPS = 1600
 """Replayed steps under the in-stage collar's limit for the default integrator."""
@@ -434,8 +427,3 @@ def test_envelope_mixture_temporal_collar_matches_reference(material_grid):
         bound = (64 * grid.n_to + 128 * 8) * evaluations * steps * np.finfo(float).eps
         fields.append(simulation.run().fields("fft"))
     assert np.linalg.norm(fields[1] - fields[0]) / np.linalg.norm(fields[0]) < bound
-
-
-def test_air_enum_and_string_names_select_the_same_material():
-    assert is_air(Gas.Air) and is_air(" AIR ")
-    assert not is_air(Gas.Ar)

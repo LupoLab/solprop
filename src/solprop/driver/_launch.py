@@ -6,24 +6,16 @@
 
 The ``launch`` keyword of :meth:`~solprop.driver.simulation.Simulation.from_capillary`
 and :meth:`~solprop.driver.simulation.Simulation.from_waveguide` maps mode labels to a
-share and, optionally, a phase. This module resolves the labels, normalises the shares,
-places each pulse in its modes and writes the record the run keeps as
-``configuration["modal_launch"]``.
-
-**Normalisation** (SEP 41 section 4). On a basis whose flux metric is the identity --
-the Marcatili and supplied gas-filled sets, and a general guide in its provider's own
-Poynting-normalised coordinates -- the energy of a launch is the sum of its modes'
-energies, so the shares are **energy fractions**, normalised to one per pulse, and
-each mode carries its share of the pulse's energy. On a general modal basis whose
-declared metric ``W`` has cross terms, the energy ``a^H W a`` of the coefficients
-depends on their relative phases: there the shares are relative amplitudes squared,
-the coefficients are scaled so that their flux-metric energy is the pulse's, and the
-split is a **coordinate** one, which the record says.
-
-**The phase** is in the optics convention of ``docs/dev/conventions.md``: a mode's
-launched spectrum is the pulse's times ``exp(i phase)`` in that convention, so a phase
-adds to the pulse's carrier-envelope phase in that mode. The state is
-internal-convention, so the factor crosses :func:`solprop.fourier.to_internal`.
+share and, optionally, a phase. :func:`launch_pulse` resolves the labels into
+:class:`LaunchedMode` rows, normalises the shares, places each pulse in its modes and
+returns the state with the record the run keeps as ``configuration["modal_launch"]``;
+:func:`refuse_beside` refuses ``launch`` beside ``channel``, ``incident`` or
+``coupling``. The shares are energy fractions on a basis whose flux metric is the
+identity, and a coordinate split on one whose metric has cross terms; the phase is in
+the optics convention and the state internal-convention, so the factor crosses
+:func:`solprop.fourier.to_internal`. The rules are in the manual,
+``docs/guide/setup/pulses.md`` ("Launching into chosen modes") and
+``docs/guide/waveguides/general-modal.md``.
 """
 
 import math

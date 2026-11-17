@@ -2,65 +2,24 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The streaming HDF5 output handler, with cache and resume.
+"""The streaming HDF5 output handler, with cache, resume and read-only reopening.
 
-One file per run, kept open between optional snapshot transactions. Saves and
-metadata calls reuse the handle. Without snapshots the file opens only once.
+- :class:`HDF5Output` streams a run to one file, kept open between optional snapshot
+  transactions; it preallocates the planes the run reserved, writes the saved-plane
+  count ``n_saved`` last so a hard stop leaves a readable file, follows the run's field
+  retention, and with ``append=True`` continues a file it wrote earlier.
+- :func:`check_cache` is the resume gate: the file's configuration hash must equal the
+  requested one (ADR-066); :func:`resume` returns a :class:`ResumeState`: the record,
+  the terminal checkpoint or else the last plane, back in the internal convention, the
+  whole step history, the outcome and any Adams march snapshot.
+- :func:`open_file` opens a finished run read-only through the same protocol, which is
+  how :mod:`solprop.processing` reads it; :func:`read_recipe` and :func:`write_recipe`
+  read and write the recipe group (SEP 41).
+- :data:`COMPRESSIONS` is what h5py ships without a filter plugin.
 
-**What is on disk, and where.** Root attributes carry the identifying scalars --
-``schema_version``, ``spectral_convention``, ``field_layout``, ``configuration_hash``,
-``simulation_kind``, ``grid_kind``, ``created`` and, once a backend has executed the
-run, ``backend`` -- and ``meta/json`` carries the
-whole :class:`solprop.output.metadata.RunMetadata` as one JSON string. The metadata goes
-in a *dataset* rather than an attribute because HDF5 caps an attribute in the object
-header at 64 kB and a serialised configuration -- a capillary with a tabulated
-cladding glass, a stored noise realisation -- goes past that; the identifying scalars
-stay attributes, where a reader looks for them first. ``field`` is ``(n_z, n_modes,
-n_pol, n_omega)`` complex, chunked one plane at a time and extendable along ``n_z``,
-in the **optics** convention and marked so. ``noise_phase``, when the run
-has noise, has the same shape and stays in the internal convention. ``z`` is the plane
-positions, ``stats/<name>`` one dataset per statistic, each with a leading plane axis,
-and ``step_history/<column>`` the attempts of the whole run concatenated, with
-``step_history/counts`` saying how many belong to each plane.
-
-**Preallocation and the saved-plane count.** The plane-indexed datasets are created at
-the first save for every plane the run reserved
-(:meth:`~solprop.output.store.PlaneStore.reserve`), with an unlimited leading axis, and
-grow by doubling if the run saves more; the step-history and between-planes columns
-grow by doubling too. The root attribute ``n_saved`` counts the planes actually
-written: each plane's data is written and flushed first and the count last, so a hard
-stop leaves the count at the last complete plane. The attempts and rows belonging to
-those planes are the sums of ``step_history/counts`` and ``step_stats/counts`` over
-them, so the count alone fixes every column's length. Every reader and :func:`resume`
-read only the first ``n_saved`` planes. A clean close trims every dataset to its count,
-so a finished file holds no unused rows.
-
-**Field retention** (SEP 22). The root attribute ``fields`` says
-which planes keep their field (:class:`~solprop.output.store.FieldRetention`), and
-``field_shape`` the shape of one plane's field whether or not it is stored. A run that
-keeps every field stores ``field`` and ``noise_phase`` as above. One that keeps the
-named planes stores exactly those, in plane order, with a ``field_planes`` dataset of
-their indices beside them; one that keeps none has no ``field`` and no ``noise_phase``
-dataset. :func:`resume` continues only from a plane that carries a field: a
-terminal checkpoint always does, and a file whose last regular plane is field-free and
-which holds no checkpoint is refused by name when a run is continued from it.
-
-**Cache and resume.** :func:`check_cache` compares the file's configuration hash with
-the requested one (ADR-066): they must be equal, so resuming with different physics or
-numerics of the same shape is refused, by naming what changed. A file of another output
-schema is not read at all (:data:`~solprop.output.metadata.SCHEMA_VERSION`).
-:func:`resume` returns the metadata, the last plane -- converted back to the internal
-convention -- and the step history. A handler built with ``append=True`` then carries
-on in the same file: it opens it read-write instead of replacing it, compares the
-record offered with the file's, holds the file's record as its own, and continues
-numbering planes and attempts where the file left off. :func:`open_file`
-opens a finished file **read-only** through the same protocol it was written with, which
-is how :mod:`solprop.processing` reads a run after the driver has closed it.
-
-Compression is restricted to what h5py ships: ``None``, ``'gzip'`` or ``'lzf'``. Blosc
-is not offered, because it needs a filter plugin solprop does not depend on.
-
-The manual page is ``docs/guide/results/output.md``.
+The on-disk layout, preallocation, the saved-plane count and field retention are in
+``docs/guide/results/output.md`` ("What is on disk"); the cache and resume rules in
+``docs/guide/results/resuming.md``.
 """
 
 import json

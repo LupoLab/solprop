@@ -4,19 +4,17 @@
 
 """Calibrating automatically on first use (SEP 46 sections 5 and 6.10).
 
-Under ``SOLPROP_CALIBRATION=auto``, the default, the first native workspace built in
-an allocation with no row in its machine's profile first runs the quick calibration,
-about 30 s, after a :class:`~solprop.exceptions.CalibrationNotice`. A process that
-had not loaded the native extension yet then takes the whole new profile when it does;
-one that had applies the new workspace settings that hold under the process settings
-it started with, and the rest from its next process. Importing the native backend
-never calibrates.
-
-A scan calibrates its workers' allocation at the standard level before it starts
-them (:func:`for_workers`), unless a standard or thorough row already matches; a
-worker never calibrates. Concurrent first runs on one host wait for the one that holds
-the calibration claim, up to its deadline, then use its profile. A busy machine's
-inconclusive calibration publishes nothing, and ``auto`` tries again after a day.
+:func:`ensure` runs before the first native workspace: under
+``SOLPROP_CALIBRATION=auto``, the default, an allocation with no row in its machine's
+profile first runs the quick calibration, after a
+:class:`~solprop.exceptions.CalibrationNotice`, once per process. :func:`for_workers`
+calibrates a scan's workers' allocation at the standard level before they start,
+unless a standard or thorough row already matches; a worker (:data:`ROLE`) never
+calibrates. Concurrent first runs on one host wait for the one that holds the
+calibration claim, up to its deadline, then use its profile; an inconclusive
+calibration publishes nothing and is retried after :data:`RETRY_SECONDS`. What a
+process that has already loaded the native extension then applies is in the manual,
+``docs/guide/performance/calibration.md`` ("The first run").
 """
 
 from __future__ import annotations

@@ -6,13 +6,14 @@
 
 A calibration's controller must not load the native extension or a device runtime
 (solprop SEP 46 section 6.2), and importing ``solprop_native`` starts its OpenMP
-runtime. Its store, topology, fingerprint, allocation, table and profile modules
-import nothing but the standard library and each other, so they are loaded here by
-path into a private package of their own, as the backend registry loads its processor
-check (``backends/registry.py``). Nothing here runs ``solprop_native/__init__``.
-
-Use them as ``from solprop.calibration import _native`` and then ``_native.store``,
-``_native.profile`` and so on; each loads on first use.
+runtime. Its allocation, cpu, execution (the operation table), fingerprint, profile,
+store and topology modules import nothing but the standard library and each other, so
+the module ``__getattr__`` loads each by path, on first use, into a private package of
+its own, as the backend registry loads its processor check (``backends/registry.py``);
+nothing here runs ``solprop_native/__init__``. Use them as
+``from solprop.calibration import _native`` and then ``_native.store``,
+``_native.profile`` and so on. :func:`packages` finds the installed package's
+directories and :func:`variant` the extension its import would choose.
 """
 
 from __future__ import annotations

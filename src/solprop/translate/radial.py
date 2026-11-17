@@ -2,7 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Translate radial Hankel geometry and bulk propagation into the spatial seam."""
+"""Translate radial (Hankel) free-space propagation into the spatial seam.
+
+:func:`radial_transform` freezes the quasi-discrete Hankel transform pair applied to
+each polarisation; :func:`radial_operators` builds the cumulative radial dispersion,
+constant or varying along z (with the adiabatic amplitude term of SEP 34 section 4.4),
+and the matching nonlinear prefactor; :func:`radial_rate_bounds` bounds the operator's
+real part for the exponent budget. :func:`solprop.translate.assembly.assemble` calls
+them for a :class:`solprop.grid.RadialGrid`; the physics is
+``docs/guide/free-space/hankel.md``.
+"""
 
 import logging
 from collections.abc import Callable, Mapping
@@ -21,8 +30,8 @@ from solprop.translate.chebyshev import (
     DEFAULT_TOL,
     ENVELOPE_FLOOR,
     PiecewiseChebyshev,
-    _held_table,
     build,
+    held_table,
 )
 from solprop.translate.expansion import (
     MAX_PARAMETERS,
@@ -291,8 +300,8 @@ def radial_operators(
             )
         # Frozen, as every array crossing the seam is: the problem's validation
         # refuses a writeable table.
-        _held_table(prefactor_table)
-        phi = _held_table(linear_table.integral())
+        held_table(prefactor_table)
+        phi = held_table(linear_table.integral())
         return adiabatic.add(
             LinearOperator(
                 phi_representation="table",

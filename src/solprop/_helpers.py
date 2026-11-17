@@ -5,37 +5,19 @@
 """The evaluations a backend supplies to solprop's shared per-stage and per-step code.
 
 Two small scalar computations run on every backend's path: a scalar table's Chebyshev
-rows at a step's positions (behind every stage bundle and anchor, and an expansion's
-rate rows; :meth:`solprop.translate.chebyshev.PiecewiseChebyshev.at_positions`) and
-the Lagrange basis of an Adams formula on its actual nodes
-(:func:`solprop.stepper.multistep.integrated_weights` and
-:func:`~solprop.stepper.multistep.lagrange_coefficients`). The code around them is
-shared, but **which implementation evaluates them belongs to the backend that runs the
-stage** (SEP 29 section 6.6, R16), never to a process-wide switch or to what happens
-to be installed: the NumPy reference must not run compiled code it exists to check,
-and one simulation must not change another's arithmetic.
+rows at a step's positions
+(:meth:`solprop.translate.chebyshev.PiecewiseChebyshev.at_positions`) and the Lagrange
+basis of an Adams formula on its actual nodes
+(:func:`solprop.stepper.multistep.integrated_weights`). Which implementation evaluates
+them belongs to the backend that runs the stage (SEP 29 section 6.6, R16), never to a
+process-wide switch. :class:`Helpers` is that record, typed by :data:`PointsFunction`
+and :data:`BasisFunction`; a backend names one in its ``helpers`` attribute.
+:data:`PLAIN` holds the uncompiled Python forms, which ``numpy_ref`` and translation
+use; the native backend defines its own. The design is ``docs/dev/backends.md``, "Who
+evaluates the stage scalars and the Adams basis".
 
-A backend names its record in its ``helpers`` attribute and its session, march and
-engines pass it down: ``numpy_ref`` takes :data:`PLAIN`, the uncompiled Python forms;
-the native backend takes its own record of C++ bindings, defined in its package. Both
-perform the same IEEE operations in the same order, strict (no contraction, no
-reassociation; SEP 25 section 4.2), so they agree to the last bit wherever their
-arithmetic is IEEE.
-A backend whose Adams march is compiled names no basis: the native backend's march
-forms its basis and coefficient tables in C++ (SEP 52), and its record carries only the
-Chebyshev rows its adapter still evaluates. The C++ basis is checked against the plain
-form through ``solprop_native._core._testing``.
-
-Translation is not a backend's: it runs before any backend exists and builds the
-problem every backend receives, so it needs nothing compiled, and the shared functions'
-defaults are :data:`PLAIN` for callers outside a backend. Its one-point evaluation
-(:func:`solprop.translate.chebyshev.clenshaw`, and a table called without a record) is
-NumPy's. A z table's state-sized evaluation is not a stage scalar and stays on that
-shared pass.
-
-Like ``_display``, this module imports nothing from the rest of the package at import
-time, so any layer may use it; each record imports its functions from where they live
-at the first evaluation.
+This module imports nothing from the rest of the package at import time, so any layer
+may use it; each record imports its functions from where they live at first use.
 """
 
 import functools

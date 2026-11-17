@@ -11,7 +11,7 @@ from scipy.integrate import quad
 
 from solprop.constants import C
 from solprop.exceptions import ModeError
-from solprop.modes import _stepindex_vector as vector
+from solprop.modes import stepindex_vector as vector
 from solprop.modes.stepindex import StepIndexMode
 from solprop.profiles import Linear
 

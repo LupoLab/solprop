@@ -2,11 +2,18 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Describe indexed parameter scans and dispatch their independent simulations.
+"""Describe an indexed parameter scan: its points, their order and their seeds.
 
-Scan indices are zero-based and use C order, with the last declared variable
-fastest. Selecting a subset never renumbers points. See
-``docs/guide/workflows/scans.md`` for execution, seeds and storage.
+:class:`Scan` holds the ordered variables and enumerates their Cartesian product as
+:class:`ScanPoint` records; :func:`name_seed` derives a point's noise seed from the
+scan's name and the point's index. Nothing here runs a simulation:
+:func:`solprop.driver.scan.run_scan` does, through :mod:`solprop.driver._scan_run`. The
+model lives apart from those modules, which import the executors and backends, so that
+:mod:`solprop.output.scan` can import :class:`Scan` without them.
+
+Scan indices are zero-based and use C order, with the last declared variable fastest.
+Selecting a subset never renumbers points. See ``docs/guide/workflows/scans.md`` for
+execution, seeds and storage.
 """
 
 import hashlib
