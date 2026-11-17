@@ -143,7 +143,7 @@ Placed in a fill by hand, as in `Mixture.fill({"Air": 1.0}, 1.0)`, it contribute
 Raman response under the default and says nothing; a run that also asks for Kerr is
 refused (`Air (Air): Air has no Kerr data`), and an explicit `raman=("Air",)` raises. For
 nonlinear propagation in air use `gas="air"` or `Mixture.air`; the
-[air tutorial](../../auto_tutorials/capillaries/plot_04_air_mixture) selects the N₂
+[air tutorial](../../auto_tutorials/capillaries/plot_04_air_mixture.rst) selects the N₂
 response alone with `raman=("N2",)`.
 
 ### Hand-built problems and free space
@@ -174,7 +174,8 @@ the species has it, `True` requires it and is refused by name otherwise, `False`
 it out. Its `temperature` sets the rotational populations (the run's or mixture's own
 when `None`, room temperature, 293.15 K, for a bare `response_for`), and `min_j`/`max_j`
 (default 0 and 50) bound the rotational ladder. A molecular gas's response is absolute
-and is refused a `fraction`; silica's is a normalised shape that needs one.
+and is refused a `fraction`; silica's is a normalised shape whose magnitude the caller
+supplies, as `amplitude` (default 1) or, downstream, as a `fraction`.
 
 The compiler ({func}`~solprop.translate.responses.compile_responses`) never applies
 $(1 - f_R)$ to the Kerr term itself. A response that declares `fraction` is one whose
@@ -295,6 +296,6 @@ Hydrogen at one amagat (about 1.09 bar at 293.15 K): optmat's response function 
 The rotational $S(1)$ line at 17.6 THz dominates the low-frequency comb and the
 vibrational line sits at 124.6 THz, both with the sign that amplifies the Stokes side.
 
-Full runs: the [Raman soliton self-frequency shift in hydrogen](../../auto_examples/processes/plot_05_raman_self_frequency_shift),
-the [Raman-comb supercontinuum](../../auto_examples/supercontinuum/plot_04_raman_comb_supercontinuum)
-and the [vector Raman tutorial](../../auto_tutorials/capillaries/plot_06_vector_raman).
+Full runs: the [Raman soliton self-frequency shift in hydrogen](../../auto_examples/processes/plot_05_raman_self_frequency_shift.rst),
+the [Raman-comb supercontinuum](../../auto_examples/supercontinuum/plot_04_raman_comb_supercontinuum.rst)
+and the [vector Raman tutorial](../../auto_tutorials/capillaries/plot_06_vector_raman.rst).
