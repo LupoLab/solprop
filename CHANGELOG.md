@@ -284,7 +284,7 @@ Highlights:
   and warnings that concern a value carry its `parameter`; writing TOML takes the
   `tomli-w` dependency. A run built from a recipe records it in a top-level `recipe`
   group of its output, as written and as resolved (the recipe that rebuilds the run).
-  See [recipes and the command line](https://solprop.readthedocs.io/en/latest/guide/setup/recipes.html).
+  See [recipes and the command line](https://solprop.readthedocs.io/en/stable/guide/setup/recipes.html).
 - Recipes on every route. The `gnlse` and `capillary` recipes came first; `radial`,
   `free` and `planar` recipes write the grids, medium, responses, beam and settings as
   tables of registered types (`RadialGrid`, `FreeGrid`, `LineGrid`, `PlanarGrid`,
@@ -1073,7 +1073,7 @@ break the API, the output schema or the resume key, and lists every such break u
     measurement: `RungeKutta()` for `prop_gnlse` (`rtol` 1e-7), `prop_waveguide` (1e-5)
     and `prop_free` (1e-4); `Multistep()` for `prop_capillary` (1e-6), `prop_radial`
     and `prop_planar` (1e-5). The
-    [choosing-a-stepper page](https://solprop.readthedocs.io/en/latest/guide/numerics/choosing-a-stepper.html)
+    [choosing-a-stepper page](https://solprop.readthedocs.io/en/stable/guide/numerics/choosing-a-stepper.html)
     tabulates them and says when to choose another.
   - `Multistep(carrier_frame="scalar")`, an opt-in carrier frame for the Adams history
     that is the fastest method measured on dense, multimode, Raman-active runs such as
@@ -1106,7 +1106,7 @@ break the API, the output schema or the resume key, and lists every such break u
     within derived error bounds, and `numba_cpu`, compiled with Numba. The backends come
     in tiers: new features land on `numpy_ref` and `native`; `numba_cpu` is mature and
     takes a new feature only where its design says so; `mlx` is experimental.
-  - The optional [native backend](https://solprop.readthedocs.io/en/latest/guide/performance/native.html),
+  - The optional [native backend](https://solprop.readthedocs.io/en/stable/guide/performance/native.html),
     the solprop-native distribution: C++20 kernels on Kokkos for multi-core CPUs
     (OpenMP) and for NVIDIA and AMD GPUs (CUDA, HIP). `pip install "solprop[native]"`
     installs a precompiled CPU wheel on macOS on Apple silicon, Linux on x86-64 and
@@ -1124,7 +1124,7 @@ break the API, the output schema or the resume key, and lists every such break u
     `precision="single"` holds the state, the transforms and the responses in binary32,
     with the controller in binary64. `numpy_ref` runs it as the reference, and the `mlx`
     backend (`pip install "solprop[mlx]"`) on the Apple GPU. A
-    [survival record](https://solprop.readthedocs.io/en/latest/guide/performance/single-precision.html)
+    [survival record](https://github.com/LupoLab/solprop/blob/v0.1.0/docs/guide/performance/single-precision.md)
     states which problems keep their accuracy.
 - **Running and recording.**
   - HDF5 output with periodic snapshots and provenance, and resuming an interrupted
@@ -1198,7 +1198,7 @@ Nothing was released before 0.1.0. For scripts and files from a development chec
   the output schema may change too: finish a run with the release that started it.
 - **GPU builds are made from source.** The wheels are for CPUs; CUDA and HIP builds of
   solprop-native are built from the repository
-  ([building the native backend](https://solprop.readthedocs.io/en/latest/guide/performance/building-native.html)).
+  ([building the native backend](https://solprop.readthedocs.io/en/stable/guide/performance/building-native.html)).
 - **CPython 3.14 only.** solprop-native, pyFFTW and h5py have no wheels for 3.15 yet.
 - **macOS: import solprop before pyFFTW.** pyFFTW's macOS wheel starts its own OpenMP
   runtime, so the native backend refuses to load in a process that imported pyFFTW
