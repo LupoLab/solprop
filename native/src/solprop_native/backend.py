@@ -48,6 +48,7 @@ from solprop.spatial import FAR_FIELD_STATISTICS
 from solprop.stats import StatsSpec
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
+from solprop.stepper.settings import PropagatorMode, StepperSettings
 from solprop.stepper.tableau import continuous_extension
 from solprop.translate.coupled import (
     CoupledFlowFactors,
@@ -60,12 +61,7 @@ from solprop.translate.linop import (
     unitary_phase,
 )
 from solprop.translate.plasma_source import plasma_source_record
-from solprop.translate.problem import (
-    PropagationProblem,
-    PropagatorMode,
-    StepperSettings,
-    validate_run,
-)
+from solprop.translate.problem import PropagationProblem, validate_run
 from solprop.translate.routes import (
     GeneralRoute,
     ModalRoute,

@@ -182,7 +182,8 @@ if TYPE_CHECKING:
     from solprop.spatial import ApertureTables
     from solprop.stats import StatsSpec
     from solprop.stepper.multistep import MarchPolicy
-    from solprop.translate.problem import PropagationProblem, StepperSettings
+    from solprop.stepper.settings import StepperSettings
+    from solprop.translate.problem import PropagationProblem
     from solprop.translate.run_request import RunRequest
 
 __all__ = [

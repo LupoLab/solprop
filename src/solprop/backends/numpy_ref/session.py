@@ -107,8 +107,9 @@ from solprop.stats import StatsSpec
 from solprop.stepper.controller import ControlRecord
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import reached, replay_tolerance
+from solprop.stepper.settings import StepperSettings
 from solprop.translate.modal import QUADRATURE_ALARM, warn_quadrature
-from solprop.translate.problem import PropagationProblem, StepperSettings
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import transverse_of
 from solprop.translate.run_request import RunRequest
 
@@ -246,7 +247,7 @@ def start_position(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem, whose operator table bounds the position.
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper settings, whose schedule a replay follows.
     z : float
         The requested position, m.

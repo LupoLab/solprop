@@ -51,13 +51,9 @@ from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
+from solprop.stepper.settings import PropagatorMode, StepperSettings
 from solprop.translate.plasma_source import plasma_source_record
-from solprop.translate.problem import (
-    PropagationProblem,
-    PropagatorMode,
-    StepperSettings,
-    validate_run,
-)
+from solprop.translate.problem import PropagationProblem, validate_run
 from solprop.translate.routes import (
     GeneralRoute,
     ModalRoute,

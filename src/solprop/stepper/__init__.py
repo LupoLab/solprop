@@ -7,7 +7,8 @@
 The frozen specifications a :class:`~solprop.translate.run_request.RunRequest` carries,
 plus the backend-agnostic scalar logic every backend runs per step
 (``docs/dev/stepper.md``); applying a method to a state is a backend kernel. The
-package imports only :mod:`solprop.exceptions` and ``solprop._helpers``.
+package imports only :mod:`solprop.exceptions` and the private ``solprop._helpers`` and
+``solprop._ownership``.
 
 - Integrators: :class:`~solprop.stepper.runge_kutta.RungeKutta`
   (:mod:`~solprop.stepper.runge_kutta`, an embedded interaction-picture pair),
@@ -24,6 +25,9 @@ package imports only :mod:`solprop.exceptions` and ``solprop._helpers``.
   (:func:`~solprop.stepper.schedule.discover`,
   :func:`~solprop.stepper.schedule.calibrate`, :func:`~solprop.stepper.schedule.replay`)
   and :func:`~solprop.stepper.schedule.landing` on save planes and kinks.
+- :mod:`~solprop.stepper.settings`: :class:`~solprop.stepper.settings.StepperSettings`,
+  the stepper section a run request carries (method, controller, step limits, schedule
+  and planes), and :data:`~solprop.stepper.settings.PropagatorMode`.
 """
 
 from solprop.stepper.controller import (
@@ -52,6 +56,7 @@ from solprop.stepper.schedule import (
     observed_order,
     replay,
 )
+from solprop.stepper.settings import StepperSettings
 from solprop.stepper.tableau import (
     DOPRI5,
     MAX_CHECKED_ORDER,
@@ -79,6 +84,7 @@ __all__ = [
     "PIController",
     "RungeKutta",
     "StepTargets",
+    "StepperSettings",
     "Tableau",
     "calibrate",
     "check_order_conditions",

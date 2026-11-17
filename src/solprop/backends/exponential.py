@@ -56,10 +56,11 @@ from solprop.stepper.multistep import (
     Multistep,
     lagrange_coefficients,
 )
+from solprop.stepper.settings import StepperSettings
 from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.expansion import ParameterExpansion
 from solprop.translate.linop import LinearOperator
-from solprop.translate.problem import PropagationProblem, StepperSettings
+from solprop.translate.problem import PropagationProblem
 
 __all__ = [
     "MAX_PHI_ORDER",
@@ -557,7 +558,7 @@ def refuse_carrier_frame(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper section, whose method is checked.
     backend : str
         The backend's name, for the message.
@@ -611,7 +612,7 @@ def refuse_adams(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper section; any method but
         :class:`~solprop.stepper.multistep.Multistep` passes untouched.
     backend : str

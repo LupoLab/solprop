@@ -45,12 +45,13 @@ from solprop.output.records import (
 from solprop.physdata import Mixture
 from solprop.physdata.selection import MaterialManifest
 from solprop.spatial import SpatialMedium
+from solprop.stepper.settings import StepperSettings
 from solprop.translate.coupling import frame_record
 from solprop.translate.envelope_plasma import assembly_record
 from solprop.translate.flux import flux_record
 from solprop.translate.plasma_integration import integration_record
 from solprop.translate.plasma_source import plasma_source_record
-from solprop.translate.problem import PropagationProblem, StepperSettings
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.responses import declares_harmonic_carrier
 from solprop.translate.routes import flux_of, tdse_descriptor, transverse_of
 from solprop.translate.run_request import RunRequest

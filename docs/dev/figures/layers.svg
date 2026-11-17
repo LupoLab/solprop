@@ -175,6 +175,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="317.0" y="697.5" font-size="15" class="bold ink-s">stepper/</text>
 <text x="317.0" y="713.0" font-size="12" class="dim">tableau · runge_kutta · multistep</text>
 <text x="317.0" y="728.5" font-size="12" class="dim">low_storage · controller · schedule</text>
+<text x="317.0" y="744.0" font-size="12" class="dim">settings</text>
 <rect x="568.0" y="675.5" width="218.00000000000003" height="81.5" rx="7" ry="7" class="fill-s" />
 <text x="578.0" y="697.5" font-size="15" class="bold ink-s">stats/</text>
 <text x="578.0" y="713.0" font-size="12" class="dim">definitions · catalogue · spec</text>

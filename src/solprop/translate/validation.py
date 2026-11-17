@@ -44,6 +44,7 @@ from solprop.profiles import ZProfile
 from solprop.spatial import SpatialMedium
 from solprop.spatial_absorber import SpatialAbsorber
 from solprop.stepper.schedule import FixedSchedule
+from solprop.stepper.settings import StepperSettings
 from solprop.translate.coupled import (
     CoupledFlowTables,
     advisory_step,
@@ -57,7 +58,6 @@ from solprop.translate.masks import AbsorberScheme
 from solprop.translate.problem import (
     NoiseModel,
     PropagationProblem,
-    StepperSettings,
     TranslationReuse,
     validate_run,
 )

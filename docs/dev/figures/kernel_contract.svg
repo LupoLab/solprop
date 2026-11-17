@@ -162,13 +162,13 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <path d="M380.0,465.5 L371.0,469.1 L371.0,461.9 Z" class="head" />
 <path d="M812.0,465.5 L858.0,465.5" class="arrow" />
 <path d="M858.0,465.5 L849.0,469.1 L849.0,461.9 Z" class="head" />
-<rect x="32" y="503.0" width="296.0" height="51.0" rx="7" ry="7" class="fill-d" />
+<rect x="32" y="503.0" width="296.0" height="51.0" rx="7" ry="7" class="fill-s" />
 <text x="42.0" y="524.75" font-size="12" class="dim">stepper/</text>
-<text x="42.0" y="540.25" font-size="12" class="dim">tableau · controller · schedule</text>
+<text x="42.0" y="540.25" font-size="12" class="dim">tableau · controller · schedule · settings</text>
 <rect x="386.0" y="503.0" width="420.0" height="66.0" rx="7" ry="7" class="fill-t" />
 <text x="396.0" y="525.0" font-size="15" class="bold ink-t">§7   split_crossing · request.stepper</text>
 <text x="396.0" y="540.5" font-size="12" class="dim">stepper settings and schedule</text>
-<text x="396.0" y="556.0" font-size="12" class="dim">translate.problem.StepperSettings</text>
+<text x="396.0" y="556.0" font-size="12" class="dim">stepper.settings.StepperSettings</text>
 <rect x="864.0" y="503.0" width="304.0" height="51.0" rx="7" ry="7" class="fill-b" />
 <text x="874.0" y="524.75" font-size="12" class="dim">the controller's decision, and the planes</text>
 <text x="874.0" y="540.25" font-size="12" class="dim">and kinks to land on</text>
@@ -176,7 +176,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <path d="M380.0,528.5 L371.0,532.1 L371.0,524.9 Z" class="head" />
 <path d="M812.0,528.5 L858.0,528.5" class="arrow" />
 <path d="M858.0,528.5 L849.0,532.1 L849.0,524.9 Z" class="head" />
-<rect x="32" y="566.0" width="296.0" height="51.0" rx="7" ry="7" class="fill-d" />
+<rect x="32" y="566.0" width="296.0" height="51.0" rx="7" ry="7" class="fill-s" />
 <text x="42.0" y="587.75" font-size="12" class="dim">stats.py</text>
 <text x="42.0" y="603.25" font-size="12" class="dim">the catalogue and the energy windows</text>
 <rect x="386.0" y="566.0" width="420.0" height="66.0" rx="7" ry="7" class="fill-t" />

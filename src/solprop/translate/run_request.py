@@ -22,7 +22,7 @@ scaling and acceptance:
   kept for a resume.
 
 :func:`describe_run` builds one from the resolved
-:class:`~solprop.translate.problem.StepperSettings` and the run's settings;
+:class:`~solprop.stepper.settings.StepperSettings` and the run's settings;
 :func:`solprop.translate.assembly.assemble` returns it beside its problem, which
 :meth:`solprop.driver.simulation.Simulation.run_request` gives out, and
 :meth:`RunRequest.for_run` adapts it to one run's start, retention, monitor and history.
@@ -47,8 +47,8 @@ from solprop.stepper.controller import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
+from solprop.stepper.settings import PropagatorMode, StepperSettings
 from solprop.stepper.tableau import Tableau
-from solprop.translate.problem import PropagatorMode, StepperSettings
 
 __all__ = [
     "MARCH_SNAPSHOT_AUTO_BYTES",
@@ -290,7 +290,7 @@ class RunRequest:
         """Stepping policy as the one record translation resolved.
 
         The method, the error control, the itinerary and the planes, gathered back
-        into :class:`~solprop.translate.problem.StepperSettings` for the code that
+        into :class:`~solprop.stepper.settings.StepperSettings` for the code that
         reads them together: the march drivers, the request-aware checks
         (:func:`solprop.translate.problem.validate_run`) and the run's configuration
         record, whose hash they enter exactly as before.
@@ -300,7 +300,7 @@ class RunRequest:
         Examples
         --------
         >>> from solprop.stepper import DOPRI5, PIController
-        >>> from solprop.translate.problem import StepperSettings
+        >>> from solprop.stepper.settings import StepperSettings
         >>> from solprop.translate.run_request import describe_run
         >>> settings = StepperSettings(DOPRI5, PIController(rtol=1e-8, atol=1e-14),
         ...                            1e-9, 0.1, 1e-3, 1.1, None, [0.5, 1.0], "auto")
@@ -339,7 +339,7 @@ class RunRequest:
 
         Parameters
         ----------
-        stepper : solprop.translate.problem.StepperSettings
+        stepper : solprop.stepper.settings.StepperSettings
             The new stepper section.
 
         Returns
@@ -357,7 +357,7 @@ class RunRequest:
         --------
         >>> import dataclasses
         >>> from solprop.stepper import DOPRI5, PIController
-        >>> from solprop.translate.problem import StepperSettings
+        >>> from solprop.stepper.settings import StepperSettings
         >>> from solprop.translate.run_request import describe_run
         >>> settings = StepperSettings(DOPRI5, PIController(rtol=1e-8, atol=1e-14),
         ...                            1e-9, 0.1, 1e-3, 1.1, None, [0.5, 1.0], "auto")
@@ -433,7 +433,7 @@ class RunRequest:
         Examples
         --------
         >>> from solprop.stepper import DOPRI5, PIController
-        >>> from solprop.translate.problem import StepperSettings
+        >>> from solprop.stepper.settings import StepperSettings
         >>> from solprop.translate.run_request import describe_run
         >>> settings = StepperSettings(DOPRI5, PIController(rtol=1e-8, atol=1e-14),
         ...                            1e-9, 0.1, 1e-3, 1.1, None, [0.5, 1.0], "auto")
@@ -473,7 +473,7 @@ def describe_run(
 
     Parameters
     ----------
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The stepper section translation resolved; it supplies the method, error
         control, itinerary and planes.
     stats : solprop.stats.StatsSpec or None, optional

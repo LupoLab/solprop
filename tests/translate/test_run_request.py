@@ -21,7 +21,7 @@ from solprop.exceptions import TranslationError
 from solprop.output.store import FieldRetention
 from solprop.stats import StatsSpec
 from solprop.stepper import Multistep
-from solprop.translate.problem import StepperSettings
+from solprop.stepper.settings import StepperSettings
 from solprop.translate.run_request import HistoryPolicy, MethodKind, describe_run
 
 

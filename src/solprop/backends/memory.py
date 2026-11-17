@@ -16,7 +16,8 @@ import numpy as np
 
 from solprop.fourier import n_omega_for
 from solprop.stepper.low_storage import LowStorageRungeKutta
-from solprop.translate.problem import PropagationProblem, StepperSettings
+from solprop.stepper.settings import StepperSettings
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import tdse_descriptor
 
 __all__ = [
@@ -57,7 +58,7 @@ def reference_base_memory(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper section (``RunRequest.stepper``), whose method decides the
         rows.
     tabulating : bool
@@ -255,7 +256,7 @@ def low_storage_flows(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper section, whose propagator mode decides the count.
     backend : str
         A registry name; every backend that runs the march counts the same.
@@ -360,7 +361,7 @@ def adams_memory(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper section, whose method decides the rows.
 
     Returns
@@ -434,7 +435,7 @@ def z_table_slots(stepper: StepperSettings) -> int:
 
     Parameters
     ----------
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper section, whose method and tableau decide the positions.
 
     Returns

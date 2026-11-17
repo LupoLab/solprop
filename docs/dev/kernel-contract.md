@@ -1131,7 +1131,7 @@ the immutable `translate.run_request.RunRequest`
 `assemble` fills the route's defaults and holds `dz_max` and `dz_init` to the collars'
 limits — and handed to a backend where it is built. The request structures them as its
 integration, error-control, replay and observation specifications; `RunRequest.stepper`
-gathers them back into `translate.problem.StepperSettings`, the record whose fields are
+gathers them back into `stepper.settings.StepperSettings`, the record whose fields are
 the rows below and which the march drivers, `validate_run` and the run's configuration
 record read. `RunRequest.for_run` adapts a request to one run's start plane, retention,
 monitor, history and snapshot policy, leaving these rows alone, so a backend built for a

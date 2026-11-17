@@ -86,13 +86,10 @@ from solprop.stepper import (
     calibrate,
 )
 from solprop.stepper.schedule import LANDING_ULPS
+from solprop.stepper.settings import PropagatorMode, StepperSettings
 from solprop.translate.assembly import assemble
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import (
-    PropagatorMode,
-    StepperSettings,
-    validate_run,
-)
+from solprop.translate.problem import validate_run
 from solprop.translate.routes import TDSESource
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
