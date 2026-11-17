@@ -62,7 +62,7 @@ def _adopt_recorded_seed(
     call describes the run it continues. Nothing happens when there is no file,
     the file recorded no seed or another noise model, or the realisation was
     seeded or supplied by the caller; :func:`~solprop.output.hdf5.check_cache`
-    then judges the run as before.
+    then compares the call's realisation as it was built.
     """
     if (
         simulation._noise_redraw is None
@@ -240,7 +240,7 @@ def _missing_history(
     if kept == "omitted" and why == "explicit_policy":
         return reset("explicit_policy")
     # Nothing to continue (a position the march held no history at), or a file
-    # that does not say: as before, the history starts afresh without a warning.
+    # that does not say: the history starts afresh without a warning.
     return reset("unavailable_history")
 
 
