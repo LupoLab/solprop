@@ -710,7 +710,7 @@ def _service_snapshot(  # noqa: PLR0917 - the snapshot transaction's context
     event: ServiceRequired,
     output: HDF5Output,
     checkpoint_output: CheckpointOutput | None,
-    backend: object,
+    backend: SessionFacts,
     keeper: _MarchKeeper,
     exports: _Exports,
     context: ServiceContext,
@@ -740,7 +740,7 @@ def _service_snapshot(  # noqa: PLR0917 - the snapshot transaction's context
         keeper.keep(z, required=adams)
         _record_execution(
             checkpoint_output,
-            backend,  # pyright: ignore[reportArgumentType]
+            backend,
             context.tdse_binding,
             _Status("running", z),
             clock=clock,
@@ -1186,7 +1186,7 @@ class _MarchKeeper:
         if self._policy is None and not required and not self._within_limit:
             # Before any copy: the snapshot over the limit is the state and the whole
             # history, on the host.
-            nbytes = self._snapshot_nbytes(z)
+            nbytes = self._snapshot_nbytes()
             if nbytes is None:
                 self._decide(z, "omitted", "unavailable_history")
                 return

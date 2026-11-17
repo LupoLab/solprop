@@ -244,20 +244,14 @@ class SessionFacts:
         ticket = session.pending_ticket()
         return None if ticket is None else session.march_snapshot(ticket)
 
-    def march_snapshot_nbytes(self, z: float) -> int | None:
+    def march_snapshot_nbytes(self) -> int | None:
         """Return the size of the session's method-history snapshot, or ``None``.
-
-        Parameters
-        ----------
-        z : float
-            The position, m.
 
         Returns
         -------
         int or None
             Bytes, or ``None`` without one.
         """
-        del z
         return self._session.march_snapshot_nbytes()
 
 
