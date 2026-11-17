@@ -24,7 +24,7 @@ from solprop.backends.ledger import CallLedger
 from solprop.backends.protocol import Backend
 from solprop.backends.session import Start
 from solprop.driver.inputs import _realisation
-from solprop.driver.run import RESTART_RECORD, retention_at
+from solprop.driver.run import retention_at
 from solprop.exceptions import DriverError, SolpropWarning
 from solprop.fourier import power_amplitude
 from solprop.nonlinear.tdse import TDSEExecution
@@ -182,17 +182,11 @@ def _continue_march(
         return {"state": "reset", "reason": "unsupported_method", "z": z}, None
     execution = None if state.outcome is None else state.outcome.execution
     recorded = retention_at(execution, z)
+    # A record that states nothing at this position is given no invented reason.
     retention: dict[str, object] = (
         dict(recorded)
         if recorded is not None
-        else {
-            "state": "unknown",
-            # A file from before the restart record, or one that states nothing
-            # at this position: never an invented reason.
-            "reason": "legacy"
-            if execution is None or RESTART_RECORD not in execution
-            else "not_recorded",
-        }
+        else {"state": "unknown", "reason": "not_recorded"}
     )
 
     def reset(reason: str) -> dict[str, object]:

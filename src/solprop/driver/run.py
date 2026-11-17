@@ -751,13 +751,12 @@ def open_run(
 RESTART_RECORD = "restart"
 """The execution record's entry for what a restart keeps and restores (SEP 47 5.5).
 
-Optional, under the output compatibility rules: ``"retention"``, what the run kept of
-its method history at the record's position (``_MarchKeeper``), and, in a resumed
-execution, ``"restoration"`` (what it restored,
-``solprop.driver.resume._continue_march``) and ``"monitor"`` (how
-the boundary monitor was restored). Each decision is a mapping with a ``"state"`` and
-a ``"reason"``. A file written before this record has none, which a reader takes as
-unknown, never as a reason (``retention_at``).
+Optional: ``"retention"``, what the run kept of its method history at the record's
+position (``_MarchKeeper``), and, in a resumed execution, ``"restoration"`` (what it
+restored, ``solprop.driver.resume._continue_march``) and ``"monitor"`` (how the
+boundary monitor was restored). Each decision is a mapping with a ``"state"`` and a
+``"reason"``. An execution that has persisted nothing yet records none, which a reader
+takes as unknown, never as a reason (``retention_at``).
 """
 
 
@@ -777,8 +776,8 @@ def retention_at(
     -------
     collections.abc.Mapping or None
         The retention decision recorded there, or ``None`` when the record states
-        none at `z`: a file written before the restart record, or a position where no
-        method history was persisted.
+        none at `z`: nothing persisted yet, or a decision recorded at another
+        position.
     """
     if execution is None:
         return None
@@ -820,7 +819,7 @@ def _refuse_a_record_that_misnames_the_basis(
     pieces itself: ``run_problem(general_problem, backend, handler, metadata=...)``
     with a record that carries no ``modal`` identity would write a file that
     :func:`solprop.output.capability.capability_of` reads as an **ordinary modal**
-    run, and every legacy accessor would then be admitted on a three-component basis
+    run, and every per-channel accessor would then be admitted on a three-component basis
     -- the one thing the whitelist exists to prevent. The two are required to agree
     in both directions: a record claiming a general modal guide for a problem that
     carries no tables would promise a reconstruction no guide can be rebuilt for.

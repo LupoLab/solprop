@@ -300,9 +300,8 @@ A resume warns once, with a `SolpropWarning` beginning "the Adams history starts
 afresh", when the Adams history it expected was omitted by the automatic size limit or
 cannot be restored (the backend cannot install it, the file kept it and it cannot be
 read back, or the write that kept it failed part-way). Setting it aside with `resume_history=False` is recorded without a warning.
-A file written before this record has none: its retention reads as
-`{"state": "unknown", "reason": "legacy"}`, never as an invented reason, and it resumes
-as it always did.
+A record that states no retention at the resume position reads as
+`{"state": "unknown", "reason": "not_recorded"}`, never as an invented reason.
 
 Scientific changes still require a new run. Device choice and execution memory
 limits may change on resume and are recorded in `outcome.execution`; a new
