@@ -78,7 +78,8 @@ bytes change, and no second identity contract is introduced to work around it.
 
 ## Durable executor implementation
 
-The queue manifest is immutable. A persistent `flock` file serialises state updates;
+The queue manifest is immutable. A recipe scan's recipe is kept beside it once, outside
+the scan identity, and collection records it in the scan file. A persistent `flock` file serialises state updates;
 its inode is never removed. Active point rows contain a controller UUID, host, PID,
 process creation identity, claim token and refreshed wall-clock lease. Local liveness
 wins over elapsed age; remote takeover requires lease expiry. The controller heartbeat

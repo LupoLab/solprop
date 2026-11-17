@@ -919,7 +919,9 @@ def execute_scan(
     writer = None
     claims: dict[int, tuple[str, float]] = {}
     if isinstance(executor, (Queue, Slurm)):
-        executor.prepare(ScanRequest(scan, settings, output, work, retry_failed))
+        executor.prepare(
+            ScanRequest(scan, settings, output, work, retry_failed, recipe)
+        )
         jobs = (_Job(point) for point in scan.points())
     else:
         writer = ScanWriter(output, scan, settings)
