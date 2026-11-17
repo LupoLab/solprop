@@ -101,9 +101,9 @@ each (`SOLPROP_NATIVE_CHECK_STAGES`). The `native-wheel` jobs build the CPU dist
 wheel on Linux, macOS and Windows, cached under a hash of `native/`, and solprop's
 default lane runs on it on macOS and Windows with the native backend selected, and in
 the coverage lane on Linux. The `device-compile` lanes compile the CUDA and HIP targets, tests included, on a change to
-`native/`, with no device. Running on one stays by hand
-(`.github/workflows/cuda.yml` on a self-hosted runner, with compute-sanitizer's four
-tools, or `pytest -m gpu` on a machine with a device). `.github/workflows/native-deep.yml`
+`native/`, with no device. Running on one stays by hand: `poe test-gpu` on a machine with
+a device, or `.github/workflows/cuda.yml`, dispatched on a self-hosted runner labelled
+`nvidia-gpu` (part of no gate), with compute-sanitizer's four tools. `.github/workflows/native-deep.yml`
 runs weekly and reports without gating: source coverage over the native tests, the
 extension under ASan and UBSan through the native pytest suite, and
 `misc-include-cleaner`. The tools adopted, scheduled and rejected are in

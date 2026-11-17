@@ -179,7 +179,7 @@ Python oracle for every result, and end-to-end runs as the measure of speed.
 | clang-tidy (pinned 23.1.4), whole families | adopted | `bugprone`, `performance`, `modernize`, `misc`, `readability`, `clang-analyzer` and `cppcoreguidelines-special-member-functions`, each exclusion stated in `native/.clang-tidy`; warnings are errors; the tidy stage; `poe tidy-native` for changed files |
 | compiler warnings | adopted | `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wundef -Wnon-virtual-dtor -Woverloaded-virtual`, with Clang's `-Wimplicit-fallthrough` and GCC's `-Wduplicated-cond -Wduplicated-branches -Wlogical-op`; errors in development and CI builds |
 | ASan + UBSan with Kokkos bounds checks | adopted | the `cpu-sanitize` preset over the GoogleTest suite, UBSan stopping at its first report |
-| compute-sanitizer (memcheck, racecheck, initcheck, synccheck) | adopted | `.github/workflows/cuda.yml`, on a device |
+| compute-sanitizer (memcheck, racecheck, initcheck, synccheck) | ad hoc | `.github/workflows/cuda.yml`, dispatched by hand: it needs a self-hosted runner labelled `nvidia-gpu`, and is part of no gate |
 | Clang source coverage | scheduled | `.github/workflows/native-deep.yml`, weekly: GoogleTest and native pytest, a report whose zero-count lines are the dead-code candidates |
 | ASan + UBSan on the extension | scheduled | `native-deep.yml`: the native pytest suite through the bindings |
 | `misc-include-cleaner` | scheduled | `native-deep.yml`, a report; too noisy across Kokkos's umbrella headers to gate |
@@ -361,7 +361,8 @@ tag publishes solprop-native, then solprop, then solprop-gui
 
 `native` runs in the coverage lane's driver tests; the parity tests check it against
 `numpy_ref` in every job. GPU tests run by hand on a node with a device
-(`poe test-gpu`), at each release and on pull requests that change device code. The
-self-hosted `.github/workflows/cuda.yml`, started by hand, builds the CUDA extension and runs the
-native package's pytest suite and Compute Sanitizer on it. Keep CI's checks in step with
+(`poe test-gpu`), at each release and on pull requests that change device code.
+`.github/workflows/cuda.yml` builds the CUDA extension with the `cuda` preset's options and
+runs the native package's pytest suite and Compute Sanitizer on it. It is dispatch-only,
+needs a self-hosted runner labelled `nvidia-gpu`, and is part of no gate. Keep CI's checks in step with
 `poe check` ([the gate](#the-gate-uv-run-poe-check)), in the same commit.
