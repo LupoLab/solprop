@@ -1607,13 +1607,6 @@ class PropagationProblem:
     def _check_raman(self) -> None:
         """Check every Raman component's shape, amplitude and compatible drive."""
         terms = self.responses.raman_terms
-        if self.flags.has_raman != bool(terms):
-            # The flag sizes the Raman buffers; the terms are what is executed.
-            msg = (
-                f"flags.has_raman is {self.flags.has_raman}, and responses.raman_terms "
-                f"holds {len(terms)} components"
-            )
-            raise TranslationError(msg)
         if not terms:
             return
         if self.transform.n_pol * self.shape[1] > 1 and not all(

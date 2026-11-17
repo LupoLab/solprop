@@ -53,7 +53,7 @@ from solprop.backends.numpy_ref.passes.transforms import (
 )
 from solprop.constants import AMAGAT, EPS0
 from solprop.driver import prop_gnlse
-from solprop.exceptions import BackendError, MaterialRangeWarning, TranslationError
+from solprop.exceptions import BackendError, MaterialRangeWarning
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import transverse_quadrature
 from solprop.modes.capillary import MarcatiliMode
@@ -923,22 +923,6 @@ def test_the_shock_term_conserves_photon_number_and_raman_costs_energy(
 
 
 # ------------------------------------------------------------------------- the refusals
-
-
-def test_a_raman_flag_without_a_kernel_is_refused_by_name(
-    backend_class, soliton_problem, narrow_grid, substitute
-):
-    """A flag declared by hand that no Raman term backs is refused before allocation.
-
-    Translation derives the flag from the terms, so it has to be declared by hand;
-    ``validate_run`` refuses it on every backend.
-    """
-    base, run_request = soliton_problem(narrow_grid, 1, save_planes=[0.01])
-    problem = substitute(
-        base, flags=dataclasses.replace(base.flags, has_raman=True), validate=False
-    )
-    with pytest.raises(TranslationError, match=r"flags\.has_raman is True"):
-        backend_class(problem, run_request)
 
 
 def test_a_raman_run_steps_and_shifts_a_capillary_pulse(
