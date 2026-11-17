@@ -86,12 +86,10 @@ def test_a_child_times_each_candidate_under_the_record_it_is_given() -> None:
             key = session._key("gnlse", record)  # pyright: ignore[reportPrivateUsage]
             backend, _ = session.backends[key]
             # What the workspace applied, as it reads its record back.
-            calibration = backend.metadata()["calibration"]
+            calibration = cast(dict[str, object], backend.metadata()["calibration"])
             assert calibration["workspace_source"] == source
-            applied = {
-                name: entry["applied"]
-                for name, entry in calibration["workspace"].items()
-            }
+            workspace = cast(dict[str, dict[str, object]], calibration["workspace"])
+            applied = {name: entry["applied"] for name, entry in workspace.items()}
             assert applied == expected
     finally:
         session.close()
