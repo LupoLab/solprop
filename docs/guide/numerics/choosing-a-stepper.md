@@ -311,8 +311,8 @@ signal between a step's first source evaluation and its commit leaves a state th
 neither end of the step. The backend then refuses to be observed or stepped until a
 state is loaded again, and the run writes no terminal checkpoint, saying why: the file
 ends at its last saved plane, from which `resume=True` continues, and `step_planes=k`
-bounds the loss to `k` steps. A last plane that kept no field is held by the backend,
-one more copy of the state, and checkpointed instead
+bounds the loss to `k` steps. A file whose last plane kept no field cannot be resumed
+from there (`resume=True` refuses it by name), so keep the field at some planes
 ([field retention](../results/output.md)). A field that diverges is caught on the accepted state, in
 flight, with the same consequence. The march also watches its own stiffness: when the
 indicator $h\rho$ of SEP 24 §6.3 passes 2.785 on a step -- strong plasma loss near

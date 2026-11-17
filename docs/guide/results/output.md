@@ -171,11 +171,6 @@ known even when no plane will carry a field. A handler already holding planes
 under a different rule raises {py:class}`~solprop.exceptions.OutputError`, as a resumed
 store does.
 
-In this phase the backend still observes the field at every plane, and the driver drops
-it: the storage, the preallocation, the record copies and the conversion go, the
-device transfer and the collar diagnostic of a Cartesian run remain until the
-observation itself can skip the field.
-
 ## What goes in, and in which convention
 
 A {py:class}`~solprop.output.records.SavedPlane` is what a driver hands over: the position
