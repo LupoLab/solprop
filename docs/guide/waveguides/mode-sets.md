@@ -99,14 +99,16 @@ quarter turn from $x$ towards $y$ and so exchanges the two Cartesian components:
 pair runs $x$ then $y$ for $\mathrm{HE}_{1m}$. A transverse mode is carried once —
 $\mathrm{TE}_{0m}$ and $\mathrm{TM}_{0m}$ are different modes, not two states of one.
 
-{func}`~solprop.modes.collection.overlap` integrates adaptively with
-{func}`scipy.integrate.dblquad`, deliberately *not* on the fixed rule, so that the rule's
-orthonormality can be checked against something independent rather than against itself.
 {meth}`~solprop.modes.collection.ModeCollection.orthonormality`, which a simulation runs
-on every mode set it is given, integrates the whole matrix in one pass instead: adaptively
-in $r$ (or $x$) with {func}`scipy.integrate.quad_vec`, every mode evaluated once per
-point, and on a rule in $\theta$ (or $y$) doubled until no entry changes by more than
-$10^{-12}$. It agrees with `overlap` pair by pair and takes seconds for 48 modes.
+on every mode set it is given, integrates adaptively, deliberately *not* on the fixed
+rule, so that the rule's orthonormality is checked against something independent rather
+than against itself. It integrates the whole matrix in one pass: adaptively in $r$ (or
+$x$) with {func}`scipy.integrate.quad_vec`, every mode evaluated once per point, and on
+a rule in $\theta$ (or $y$) doubled until no entry changes by more than $10^{-12}$; it
+refuses a set on which either coordinate does not converge, and takes seconds for 48
+modes. {func}`~solprop.modes.collection.overlap` is its entry for one pair. Step-index
+channels of one fibre each bound the cladding at their own outer radius; their set is
+integrated over the widest of those discs.
 
 ## A capillary worked example
 
@@ -171,7 +173,31 @@ mode = MarcatiliMode(125e-6, "He", 0.4, model="reduced")
 zdw(mode)  # 3.767e-07 m
 ```
 
-{func}`~solprop.modes.base.zdw` brackets the root of $\beta_2$ and **raises** when there is
-none in the window, rather than returning a missing value that would propagate silently
-into later arithmetic: a mode with no zero-dispersion point is a fact the caller has to
-see.
+{func}`~solprop.modes.base.zdw` samples the sign of $\beta_2$ at 512 frequencies across the
+window and refines each change. A change is a zero only where the analytic group delay
+$\beta_1$ has an extremum that the difference behind $\beta_2$ resolves: its rise from
+the change grows quadratically over the difference's stencil, on both sides. A gas
+resonance in the vacuum ultraviolet gives the differenced $\beta_2$ sign changes that
+are not zeros (krypton has sixteen between 100 and 124 nm at 15 bar): through the
+line's pole, where $\beta_1$ diverges; where the stencil reaches a line, so $\beta_1$
+rises without an extremum; and on the evanescent floor above one, where $\beta_1$ is
+constant. Each fails that test and is dropped. Two limits of a sampled search remain: a
+zero and a pole inside one sample interval restore the sign and are both missed, and a
+sample that is not finite brackets nothing.
+
+A window can still hold several zeros: two zero-dispersion wavelengths, or the gas's own
+zeros between two of its lines. Without `near` the call refuses them by name; with a
+reference wavelength `near` (typically the pump) it returns the zero nearest it in
+frequency among those no resonance separates from it, since light at the reference
+cannot cross a line to reach the others:
+
+```{code-block} python
+krypton = MarcatiliMode(14e-6, "Kr", 15.0)
+zdw(krypton)  # ModeError: beta2 has 3 zeros over 100-3000 nm, at 108.9, 119.9, 770.5 nm
+zdw(krypton, near=800e-9)  # 7.705e-07 m
+```
+
+When the search finds no zero it **raises**
+{class}`~solprop.exceptions.NoZeroDispersionError`, rather than returning a missing value
+that would propagate silently into later arithmetic: a mode with no zero-dispersion point
+is a fact the caller has to see.

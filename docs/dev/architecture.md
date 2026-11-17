@@ -414,7 +414,8 @@ model allows; a validated finite-difference fallback otherwise, ADR-006), `field
 (transverse field components at points), `dimlimits(z)`, `aeff(z)`, and the traits
 `z_constant`, `scale_invariant`, `azimuthal_order`. Derived quantities (β, α, β₁, β₂, ZDW,
 loss length) are protocol-level functions. `MarcatiliMode` (hollow capillary, full and reduced
-models, loss as a Boolean, scale factor or callable of ω) shares gas-fill machinery
+models, the model's loss scaled by `loss_scale` or replaced by an absolute `alpha`, a number or
+callable of ω) shares gas-fill machinery
 with the tabulated and rectangular hollow modes; the core index is a
 `ZProfile`-aware object so gradients and tapers are ordinary cases. `n_eff − 1` is computed
 directly, never as `(1 + x) − 1`.

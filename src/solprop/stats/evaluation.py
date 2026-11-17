@@ -80,7 +80,8 @@ def _zdw_or_nan(
 ) -> Float[np.ndarray, " n_modes"]:
     """Return each mode's zero-dispersion wavelength in a grid's band, or ``nan``.
 
-    A run asked for this statistic is not stopped because its band holds no zero: the
+    Of several zeros in the band, the one nearest the grid's reference wavelength. A
+    run asked for this statistic is not stopped because its band holds no zero: the
     plane records ``nan`` with a warning, as :func:`fwhm_t` records ``nan`` for a
     missing crossing (logged at debug level). A direct call to :func:`zdw` still raises.
 
@@ -91,15 +92,18 @@ def _zdw_or_nan(
     values = np.full(len(modes), np.nan)
     for index, mode in enumerate(modes):
         try:
-            values[index] = zdw([mode], z, wavelength_limits=window)[0]
+            values[index] = zdw(
+                [mode], z, wavelength_limits=window, near=grid.reference_wavelength
+            )[0]
         except NoZeroDispersionError:
             continue
     missing = np.flatnonzero(np.isnan(values))
     if missing.size:
         warnings.warn(
-            f"the 'zdw' statistic records nan for modes {missing.tolist()}: beta_2 has "
-            f"one sign at both ends of the grid's {window[0] * 1e9:.4g}-"
-            f"{window[1] * 1e9:.4g} nm band",
+            f"the 'zdw' statistic records nan for modes {missing.tolist()}: the "
+            "search found no zero of beta_2 in the grid's "
+            f"{window[0] * 1e9:.4g}-{window[1] * 1e9:.4g} nm band that no resonance "
+            "separates from its reference wavelength",
             SolpropWarning,
             stacklevel=3,
         )

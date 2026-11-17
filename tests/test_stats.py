@@ -360,6 +360,17 @@ def test_collect_records_nan_when_the_band_holds_no_zero(capillary):
     assert np.isnan(values["zdw"]).all()
 
 
+def test_collect_records_a_zero_past_the_sign_changes_of_a_gas_resonance():
+    """Krypton's lines near 120 nm flip the sign of beta_2 in the band, many times."""
+    grid = EnvelopeGrid.from_limits(1.0, 800e-9, (110e-9, 2e-6), 1e-12)
+    field = gaussian(grid, energy_j=ENERGY)
+    krypton = MarcatiliMode(14e-6, "Kr", 15.0)
+    values = collect(StatsSpec(names=("zdw",)), grid, plane_of(field), modes=[krypton])
+    # The zero nearest the grid's 800 nm reference, the capillary's only one above the
+    # lines; the noise of the differenced beta_2 (5e-9) sets the tolerance.
+    assert_allclose(values["zdw"], [770.5167e-9], rtol=1e-6)
+
+
 def test_collect_records_each_modes_zero_on_its_own(capillary):
     """One mode with no zero in the band leaves the other's value in place."""
     grid = EnvelopeGrid.from_limits(1.0, 400e-9, (250e-9, 1.2e-6), 1e-12)

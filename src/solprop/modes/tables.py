@@ -321,8 +321,8 @@ def composed_gauge(gauge_id: str, basis: ChannelBasis | None) -> str:
     applied **after** it, so the composed transform is ``T_track U`` and the
     composed identity is ``"<tracking gauge>+<basis gauge>"``. That order is what a
     resume has to reproduce, and it is the one that leaves a run with no declared
-    basis bitwise what it was: the tracking is untouched and the declaration is a
-    second, independent step on top of it.
+    basis on the tracking alone: the declaration is a second, independent step on
+    top of it.
 
     Parameters
     ----------
@@ -924,8 +924,8 @@ def sample_modal_table(
         block it acts inside must be one of `degenerate_blocks`: tracking rotates
         freely inside a declared block, so a transform of a block the tracking did
         not know about would be applied on top of an ordering the eigenvalues
-        cannot resolve. ``None`` keeps the provider's own coordinates, and then
-        this function is bitwise what it was.
+        cannot resolve. ``None`` keeps the provider's own coordinates and applies
+        no transformation.
     gram_atol : float, optional
         Budget on each knot's sampled Gram defect, default
         :data:`DEFAULT_GRAM_ATOL`; the table refuses a basis above it.
@@ -994,7 +994,7 @@ def sample_modal_table(
         rows.append(tuple(row))
     if basis is not None:
         # After the tracking, never inside it: the composed transform is
-        # `T_track U` and a run with no declared basis is bitwise what it was.
+        # `T_track U`, and a run with no declared basis has the tracking alone.
         rows = [tuple(apply_channel_basis(one, basis) for one in row) for row in rows]
     return DenseModalTable(omega, z, tuple(rows), nodes, blocks, gram_atol, basis)
 

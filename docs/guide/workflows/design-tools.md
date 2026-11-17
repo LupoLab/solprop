@@ -96,20 +96,15 @@ effective-area field instead; do not equate that with a resolved on-axis rate. I
 and a test compares it with the first plane of a run.
 
 **The zero-dispersion wavelength is searched, not bracketed once.** A gas resonance in
-the vacuum ultraviolet flips the sign of $\beta_2$ twice (krypton near 120 nm), so a
-single bracket over 100 nm to 3 µm sees the same sign at both ends and finds nothing.
-The dispersion is sampled, each sign change refined, the changes through a pole
-discarded (there $\beta_1$ diverges; at a zero it is extremal), and the zero nearest the
-pump reported. When there is none the field is `nan` and the block says so.
-
-```{note}
-The modes' own {py:func}`~solprop.modes.base.zdw`, and the `zdw` statistic that uses
-it, do not search this way: they test only the signs of $\beta_2$ at the ends of the
-window before a bracketed root search, so an even number of interior zeros — two
-zero-dispersion wavelengths, or a resonance's pair of sign changes as in krypton or
-xenon — reads as no zero, and the search raises. Use the design tools' search for such a
-case.
-```
+the vacuum ultraviolet flips the sign of $\beta_2$ many times (krypton near 120 nm), so a
+single bracket over 100 nm to 3 µm can see the same sign at both ends and find nothing.
+The design tools call {py:func}`~solprop.modes.base.zdw` with the pump as its `near`
+reference: the dispersion is sampled, each sign change refined, the changes that are not
+zeros discarded (at a zero $\beta_1$ has a resolved extremum; through a pole, beside a
+line or on the evanescent floor it does not), and the zero nearest the pump on its side
+of the resonances reported. When there is none the field is `nan` and the block says
+so. The `zdw` statistic searches the same way, with the grid's reference wavelength as
+its reference.
 
 **The critical power** is {py:func}`~solprop.tools.beam.self_focusing_power`,
 $P_{\rm cr}=1.86226\,\lambda^2/(4\pi n_0n_2)$ (Fibich and Gaeta, Opt. Lett. **25**, 335

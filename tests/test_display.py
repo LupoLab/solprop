@@ -594,14 +594,16 @@ def test_the_reprs_that_existed_keep_their_text(examples):
     assert repr(examples["VincettiMode"]) == (
         "VincettiMode(HE11, a=15 um, t=180 nm, r_ext=9 um, N=6, Ar 1 bar, loss=model)"
     )
-    assert repr(examples["IndexTable"]) == "IndexTable(64 rows, 400-2000 nm, loss=log)"
+    assert repr(examples["IndexTable"]) == (
+        "IndexTable(64 rows, 400-2000 nm, loss_interpolation=log)"
+    )
     assert repr(examples["TabulatedMode"]) == (
-        "TabulatedMode(HE11, a=15 um, None, pressure=0.0, "
-        "IndexTable(64 rows, 400-2000 nm, loss=log))"
+        "TabulatedMode(HE11, a=15 um, evacuated, loss=model, "
+        "IndexTable(64 rows, 400-2000 nm, loss_interpolation=log))"
     )
     assert repr(examples["TabulatedHollowMode"]) == (
-        "TabulatedHollowMode(HE11, a=15 um, Ar, pressure=1.0, "
-        "IndexTable(64 rows, 400-2000 nm, loss=log))"
+        "TabulatedHollowMode(HE11, a=15 um, Ar 1 bar, loss=model, "
+        "IndexTable(64 rows, 400-2000 nm, loss_interpolation=log))"
     )
     assert repr(MarcatiliMode(50e-6)) == (
         "MarcatiliMode(HE11, a=50 um, evacuated, model=full, loss=model)"

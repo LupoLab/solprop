@@ -140,8 +140,9 @@ mode, which would dominate the step if paid on every accepted one; `peak_intensi
 admitted because its on-axis matrix is built once and rescaled with the taper rather than
 rebuilt on every call. A spec naming `zdw` in the periodic subset raises
 {py:class}`~solprop.exceptions.ProcessingError` when it is built. `zdw` searches the grid's own
-band; a mode with one sign of $\beta_2$ at both ends of the band records `nan` with a
-warning, and the run continues.
+band and records the zero nearest the grid's reference wavelength
+({py:func}`~solprop.modes.base.zdw` with `near`); a mode whose band holds no zero on the
+reference's side of its resonances records `nan` with a warning, and the run continues.
 
 ## Which names a basis admits
 

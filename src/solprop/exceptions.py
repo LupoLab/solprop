@@ -238,7 +238,7 @@ class ModeError(SolpropError, ValueError):
 
 
 class NoZeroDispersionError(ModeError):
-    """``beta_2`` has one sign at both ends of a zero-dispersion search window."""
+    """A zero-dispersion search found no zero of ``beta_2`` in its window."""
 
 
 class PulseError(SolpropError, ValueError):

@@ -54,6 +54,7 @@ from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError
 from solprop.modes.capillary import MarcatiliMode
 from solprop.modes.protocol import CrossSection, Mode
+from solprop.modes.stepindex import StepIndexMode
 
 __all__ = [
     "BASIS_NORMALISATION",
@@ -1440,15 +1441,7 @@ def mode_matrix(
             f"components must be a non-empty subset of {_COMPONENTS}, got "
             f"{tuple(components)}"
         )
-    limits = modes[0].dimlimits(z)
-    # islice rather than a slice, because a mode set may be an ordered collection whose
-    # indexing is by position only.
-    for mode in itertools.islice(modes, 1, None):
-        if mode.dimlimits(z) != limits:
-            raise ModeError(
-                "every mode in a set must share a cross-section; "
-                f"{limits} and {mode.dimlimits(z)} differ"
-            )
+    limits = _shared_limits(modes, z)
     points = quadrature.nodes(limits)
     weights = quadrature.weights(limits)
     coarse = quadrature.weights(limits, coarse=True)
@@ -1470,6 +1463,41 @@ def mode_matrix(
         n_nodes=n_nodes,
         n_pol=n_pol,
     )
+
+
+def _shared_limits(
+    modes: Sequence[Mode], z: float
+) -> tuple[CrossSection, tuple[float, ...], tuple[float, ...]]:
+    """Return the one cross-section of a mode set at a position, or refuse the set.
+
+    Every mode's ``dimlimits`` must agree, except among step-index channels of one
+    guide (:meth:`solprop.modes.stepindex.StepIndexMode.same_guide`): each bounds the
+    cladding at its own outer radius, where its evanescent field has decayed, and the
+    set takes the widest, over which every channel's field is still exact.
+
+    - ``modes``: non-empty.
+    - ``z``: position along the waveguide, m.
+    """
+    first = modes[0]
+    limits = first.dimlimits(z)
+    # islice rather than a slice, because a mode set may be an ordered collection whose
+    # indexing is by position only.
+    for index, mode in enumerate(itertools.islice(modes, 1, None), start=1):
+        other = mode.dimlimits(z)
+        if other == limits:
+            continue
+        if isinstance(first, StepIndexMode) and first.same_guide(mode):
+            limits = (
+                limits[0],
+                limits[1],
+                (max(limits[2][0], other[2][0]), limits[2][1]),
+            )
+            continue
+        raise ModeError(
+            f"the modes do not share a cross-section at z = {z:g} m: mode {index} has "
+            f"{other} against {first.dimlimits(z)}"
+        )
+    return limits
 
 
 def _normalisation(mode: Mode, z: float) -> float:

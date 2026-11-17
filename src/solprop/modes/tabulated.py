@@ -490,7 +490,8 @@ class IndexTable(Displayed):
         low, high = self.wavelength_range
         return (
             f"IndexTable({np.asarray(self.omega).size} rows, "
-            f"{low * 1e9:g}-{high * 1e9:g} nm, loss={self.loss_interpolation})"
+            f"{low * 1e9:g}-{high * 1e9:g} nm, "
+            f"loss_interpolation={self.loss_interpolation})"
         )
 
 
@@ -585,16 +586,12 @@ class _TableMode(MarcatiliMode):
         return title, [*kept, ("table", repr(self.table))]
 
     def __repr__(self) -> str:
-        """Return the mode, geometry, fill and table support."""
+        """Return the mode, geometry, fill, loss and table support."""
         radius = float(self.core_radius(np.array([0.0]))[0])
-        fill = (
-            repr(self.mixture)
-            if self.mixture is not None
-            else f"{self.gas}, pressure={self.pressure!r}"
-        )
         return (
             f"{type(self).__name__}({self.kind}{self.n}{self.m}, "
-            f"a={radius * 1e6:g} um, {fill}, {self.table!r})"
+            f"a={radius * 1e6:g} um, {self._fill_text()}, loss={self._loss_text()}, "
+            f"{self.table!r})"
         )
 
 
@@ -745,8 +742,8 @@ class TabulatedMode(_TableMode):
 class _SampledIndexTable(IndexTable):
     """Retain sampled dispersion derivatives and snapshot provenance.
 
-    ``repr=False``: a regenerated dataclass ``__repr__`` dumped 809 characters of
-    arrays and undid :class:`IndexTable`'s one-line description.
+    ``repr=False``: a generated dataclass ``__repr__`` would print the arrays in
+    place of :class:`IndexTable`'s one-line description.
 
     - ``omega``: positive finite angular frequencies in rad/s, shape ``(n_nodes,)``.
     - ``area``: positive finite effective areas in m^2 at the same samples.
