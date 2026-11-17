@@ -92,7 +92,7 @@ for time-domain arrays and wherever only the sign matters. A Taylor phase about 
 pure delay commutes with the origin shift and may be applied to a stored spectrum directly
 (Luna's `prop_taylor!`); an *absolute* spectral phase — measured data, a group delay read
 as an arrival time — must go through the spectrum helpers. The shift is `(−1)^k` on the
-storage index for both layouts and nothing else: a pulse's `phase[0]` is therefore its
+storage index for both layouts and nothing else: a pulse's `phases[0]` is therefore its
 carrier-envelope phase at its own peak on either grid, independent of the window length
 (Luna's envelope-grid constant `exp(−iω₀ n_t δt/2)` is not carried). No other
 module conjugates anything. Energies, spectral densities, masks and windows are
