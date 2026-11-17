@@ -371,8 +371,7 @@ def test_the_memory_ledger_names_every_buffer(
     assert ledger["state"] == field_bytes
     assert ledger["stages"] == run_request.stepper.tableau.n_stages * field_bytes
     assert ledger["noise"] == 0
-    # One float64 weight per column and none per batch member: the members of one
-    # problem share the fibre, so they share `Re n_eff` (kernel-contract.md §5).
+    # One float64 weight per column of the state (kernel-contract.md §5).
     columns = int(np.prod(problem.shape))
     assert ledger["statistics_power_weight"] == columns * 8
     assert all(value >= 0 for value in ledger.values())
@@ -902,7 +901,7 @@ def test_a_periodic_row_at_a_plane_is_the_plane_s_own_statistic(
 ):
     """The same function on the same state, so the same numbers to its rounding.
 
-    The row is evaluated by the same :meth:`Backend.stats` the save plane uses, on the
+    The row is evaluated by the same workspace ``stats`` the save plane uses, on the
     state the accepted step committed, so when a row lands on a plane the two are the
     same call on the same array: never one definition for the host and another for
     the device, where the two could drift. Two calls may order their reductions

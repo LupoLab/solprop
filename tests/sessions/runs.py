@@ -95,8 +95,7 @@ __all__ = [
 def bare(request: RunRequest) -> RunRequest:
     """Return a request that observes no statistics and watches no boundary.
 
-    What the step driver's direct calls ran: a march between planes, with no
-    statistics evaluated and no monitor attached.
+    A march between planes, with no statistics evaluated and no monitor attached.
 
     Parameters
     ----------
@@ -175,8 +174,7 @@ def run(
         the run with its terminal failure.
     export : solprop.backends.export.ExportRecipe or None, optional
         The recipe every observation's field is exported with: the state as the
-        session holds it by default, as the step driver's observation read it;
-        ``None`` exports nothing.
+        session holds it by default; ``None`` exports nothing.
     stop : object or None, optional
         The run's stop token.
     observations : int or None, optional
@@ -610,7 +608,7 @@ def run_error(
 def summary(result: Run) -> StepSummary:
     """Return a run's summary from its launch: every plane's attempts together.
 
-    What the step driver's one march to the last plane summarised.
+    The summary of one march from the launch to the last plane.
 
     Parameters
     ----------
@@ -651,7 +649,7 @@ def adams_ledger(backend: Any, record: Mapping[str, object]) -> CallLedger:
 
     Returns
     -------
-    solprop.backends.numpy_ref.multistep.CallLedger
+    solprop.backends.ledger.CallLedger
         The ledger.
     """
     if backend.name == "numpy_ref":

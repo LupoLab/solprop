@@ -479,9 +479,9 @@ def test_events_follow_the_committed_order_without_a_monitor(start):
 
     The order of :func:`test_events_follow_the_committed_order` for an executor that
     runs no monitor: the launch plane first, save planes in order with a step plane at
-    every third accepted step, the terminal event last; statistics and periodic rows
-    without a batch axis, rows every second accepted step at an accepted endpoint, and
-    at most one field-bearing event a batch.
+    every third accepted step, the terminal event last; statistics and periodic rows in
+    each statistic's own shape, rows every second accepted step at an accepted endpoint,
+    and at most one field-bearing event a batch.
     """
     problem = soliton(step_planes=3, period=2)
     started = start(problem)
@@ -581,7 +581,7 @@ def _check_chunks(run: Run, shape: tuple[int, ...], period: int) -> None:
     """Check every event's chunk of a run with step planes every third step.
 
     A row's step indexes its own chunk's attempts, rows fall on every `period`-th
-    accepted step, step planes on every third, and statistics carry no batch axis.
+    accepted step, step planes on every third, and statistics have their own shape.
 
     Parameters
     ----------

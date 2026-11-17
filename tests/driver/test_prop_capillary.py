@@ -2941,7 +2941,7 @@ def test_a_periodic_row_at_a_plane_is_the_plane_s_own_statistic_on_the_m2_case(
 ):
     """On a real multimode run with a plasma and a gradient fill.
 
-    The row goes through the same :meth:`~solprop.backends.protocol.Backend.stats` the
+    The row goes through the same statistics evaluation (the workspace's ``stats``) the
     save plane uses, so where a row lands on a plane the two are the same statistic of
     one state, evaluated twice -- including the electron density, whose cheap path
     must therefore agree with the synthesis it replaces. Two evaluations of one

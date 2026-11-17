@@ -117,8 +117,8 @@ def propagate(backend_class, prepared):
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        # The march alone, as the step driver's was: no plane statistic, whose
-        # profiles are evaluated on the host.
+        # The march alone: no plane statistic, whose profiles are evaluated on the
+        # host.
         result = session_run(backend, problem, run_request.for_run(stats=StatsSpec()))
         assert np.all(np.isfinite(result.fields[-1]))
     finally:
