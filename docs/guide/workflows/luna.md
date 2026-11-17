@@ -130,9 +130,14 @@ comparison with Luna states among its frozen inputs.
 solprop's field-grid plasma holds the post-pulse current through
 `DFT[gJ]/(i omega) - DFT[g'J]/(i omega)**2`
 ([SEP 27](../../dev/seps/archive/sep-0027-held-plasma-current.md)); Luna's gated polarisation
-switches off both the residual current and polarisation at the temporal collar. The
-propagation comparisons with Luna therefore run Luna's gated source through a test-only
-hook, on either backend, under a separate identity that cannot be resumed.
+switches off both the residual current and polarisation at the temporal collar. No
+stored Luna run computes the held current, so the propagation comparisons whose exit
+spectra carry a plasma were dropped with the private gated source they ran: the reduced
+and full M2 dispersive-wave cases, milestone M4's comb-to-continuum bounds under Luna's
+vibrational Raman amplitude, and the mixture witness with a plasma column. What stays
+compared with Luna on those cases is the plasma-free part and the inputs: the grids, the
+media, the launch and the electron density
+([accuracy.md](../../dev/accuracy.md) §5 and §6).
 
 
 **The modal nonlinear prefactor.** solprop's modal prefactor is
