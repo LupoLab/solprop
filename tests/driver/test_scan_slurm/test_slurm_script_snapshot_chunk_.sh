@@ -25,7 +25,7 @@ for (( instance=0; instance<2; instance++ )); do
     export MKL_NUM_THREADS=2
     export VECLIB_MAXIMUM_THREADS=2
     export SOLPROP_NATIVE_WAIT_REQUEST=passive
-    exec /python -m solprop.scan '/shared/scan/scan '"'"'quoted'"'"'.py' --queue '/shared/scan/point queue' --threads 2 --memory-limit 6442450944 --workers 1 --fresh --chunk "$(( (SLURM_ARRAY_TASK_ID - 1) * 2 + instance ))/6"
+    exec /python -m solprop.scan '/shared/scan/scan '"'"'quoted'"'"'.py' --queue '/shared/scan/point queue' --threads 2 --memory-limit 6442450944 --stale-age 600.0 --workers 1 --fresh --chunk "$(( (SLURM_ARRAY_TASK_ID - 1) * 2 + instance ))/6"
   ) &
   pids+=("$!")
 done

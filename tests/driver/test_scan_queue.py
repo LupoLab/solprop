@@ -32,6 +32,7 @@ from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import DriverError, ExecutorError, OutputError
 from solprop.output.hdf5 import _dataset
 from solprop.output.metadata import _example_metadata
+from solprop.output.records import RecipeFile, RecipeRecord
 from solprop.output.scan import PointResult
 from solprop.output.serialisation import RECORD_ARRAY_LIMIT
 
@@ -373,6 +374,38 @@ def test_collection_rejects_modified_artifact(tmp_path):
         file.attrs["tampered"] = True
     with pytest.raises(OutputError, match="digest changed"):
         collect(path, tmp_path / "scan.h5")
+
+
+RECIPE = RecipeRecord(
+    1,
+    "[recipe]\nformat = 1\n",
+    "[recipe]\nformat = 1\nseed = 3\n",
+    {"data-0.npy": RecipeFile("data.npy", "0" * 64, b"\x00\x01")},
+)
+
+
+def test_a_queue_scan_file_records_the_recipe_the_scan_was_built_from(tmp_path):
+    # The chunk holds no point, so the scan runs no worker: what is checked is the
+    # recipe's path from `run_scan` through the queue into the collected file.
+    output = run_scan(
+        Scan("recipe", power=[1.0]),
+        build_point,
+        executor=Queue(tmp_path / "queue", pool=Pool(workers=1), chunk=(1, 2)),
+        output=tmp_path / "scan.h5",
+        progress="none",
+        recipe=RECIPE,
+    )
+    assert output.recipe == RECIPE
+    # Recorded once: a second scan of the queue keeps the first recipe.
+    output = run_scan(
+        Scan("recipe", power=[1.0]),
+        build_point,
+        executor=Queue(tmp_path / "queue", pool=Pool(workers=1), chunk=(1, 2)),
+        output=tmp_path / "scan.h5",
+        progress="none",
+        recipe=dataclasses.replace(RECIPE, authored="[recipe]\nformat = 1\n# edited\n"),
+    )
+    assert output.recipe == RECIPE
 
 
 def test_queue_refuses_different_scan_manifest(tmp_path):

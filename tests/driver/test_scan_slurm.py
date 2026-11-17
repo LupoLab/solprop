@@ -150,6 +150,7 @@ def test_slurm_submission_uses_argument_vector(tmp_path, monkeypatch):
         {"mem": "0"},
         {"instances": 2},
         {"partition": "bad\n#SBATCH --exclusive"},
+        {"stale_age": 0.0},
     ],
 )
 def test_slurm_refuses_invalid_resources(options):
@@ -259,6 +260,27 @@ def test_cli_rejects_conflicting_or_malformed_routes(arguments):
         main(["scan.py", *arguments])
 
 
+def test_cli_stale_age_reaches_every_queue_and_is_refused_without_one(
+    tmp_path, monkeypatch
+):
+    captured = []
+    monkeypatch.setattr(
+        "solprop.scan.runpy.run_path",
+        lambda *a, **k: captured.append(current_executor()),
+    )
+    assert main(["scan.py", "--queue", str(tmp_path / "q"), "--stale-age", "30"]) == 0
+    assert isinstance(captured[0], Queue)
+    assert captured[0].stale_age == 30.0
+    # A Slurm submission hands its lease to the controllers its tasks start.
+    emitted = tmp_path / "job.sh"
+    assert main(["scan.py", "--emit-slurm", str(emitted), "--stale-age", "30"]) == 0
+    assert "--stale-age 30.0" in emitted.read_text(encoding="utf-8")
+    with pytest.raises(SystemExit):
+        main(["scan.py", "--stale-age", "30"])
+    with pytest.raises(SystemExit):
+        main(["scan.py", "--workers", "2", "--stale-age", "30"])
+
+
 def test_cli_chunk_binds_global_partition_and_restores_context(monkeypatch):
     previous = sys.argv
     captured = []
@@ -319,7 +341,13 @@ def test_slurm_prepares_worker_chunk_and_drains_inner_queue(tmp_path, monkeypatc
         Queue, "run", lambda self, points, work: iter([work(p) for p in points])
     )
     policy = Slurm(
-        "scan.py", ntasks=3, instances=2, cpus_per_task=4, mode="chunk", gres="gpu:2"
+        "scan.py",
+        ntasks=3,
+        instances=2,
+        cpus_per_task=4,
+        mode="chunk",
+        gres="gpu:2",
+        stale_age=30.0,
     )
     request = ScanRequest(Scan("tiny", x=[1]), {}, tmp_path / "scan.h5", abs)
     policy.validate(abs)
@@ -327,6 +355,7 @@ def test_slurm_prepares_worker_chunk_and_drains_inner_queue(tmp_path, monkeypatc
     assert prepared == [request]
     assert policy._queue is not None
     assert policy._queue.chunk == (3, 6)
+    assert policy._queue.stale_age == 30.0
     assert policy._queue.pool.workers == 1
     assert policy._queue.pool.memory_limit == 2 * 1024**3
     assert list(policy.run([-2], abs)) == [2]

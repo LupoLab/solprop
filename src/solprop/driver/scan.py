@@ -38,7 +38,6 @@ def run_scan(
     field_planes: Sequence[int] = (),
     stats: Literal["all", "none"] | Sequence[str] = "all",
     retry_failed: bool = False,
-    stale_age: float = 600.0,
     progress: ProgressChoice | ScanReporter = "auto",
     stop: StopFlag | None = None,
     recipe: RecipeRecord | None = None,
@@ -57,7 +56,9 @@ def run_scan(
         callables. Cache a base simulation lazily inside this callable for one
         translation per worker.
     output : pathlib.Path or str
-        Collected HDF5 path. Matching completed points are skipped on rerun.
+        Collected HDF5 path. Matching completed points are skipped on rerun; on
+        ``Local`` and ``Pool``, a point an earlier scan left ``running`` is computed
+        again.
     executor : Executor or None, optional
         Execution policy. None uses the CLI policy, or Local outside the CLI.
     reductions : sequence of Reduction, optional
@@ -71,8 +72,6 @@ def run_scan(
         statistics are the diagnostics needed to assess a scan.
     retry_failed : bool, optional
         Retry previously failed points; false leaves them recorded as failures.
-    stale_age : float, optional
-        Positive lease age in seconds before abandoned running points are recovered.
     progress : {'auto', 'bar', 'log', 'none'} or solprop.log.ScanReporter, optional
         One outer progress display; individual runs never draw their own bars. A
         :class:`~solprop.log.ScanReporter` replaces the display and is told when the
@@ -115,7 +114,6 @@ def run_scan(
         field_planes=field_planes,
         stats=stats,
         retry_failed=retry_failed,
-        stale_age=stale_age,
         progress=progress,
         stop=stop,
         recipe=recipe,

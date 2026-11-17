@@ -83,8 +83,9 @@ class _GeneralRequest:
     - ``absorber_scheme``: how the temporal collar is applied; ``None`` is the
       default scheme.
     - ``stats``: which statistics to record; ``None`` takes :func:`_general_stats`.
-    - ``integrator``: the method that steps the run; ``None`` takes ``Multistep()``,
-      and ``LowStorageRungeKutta()`` replays `schedule` in three registers.
+    - ``integrator``: the method that steps the run; ``None`` takes the waveguide row
+      of :data:`~solprop.driver.defaults.ROUTE_DEFAULTS`, ``RungeKutta()``, and
+      ``LowStorageRungeKutta()`` replays `schedule` in three registers.
     - ``step_planes``: also save the end of every `step_planes`-th accepted step;
       ``None`` is ``0``.
     - ``refused``: every gas-filled keyword, by name; each is refused when it is

@@ -70,6 +70,17 @@ def name_seed(name: str, index: int) -> int:
     return int(sequence.generate_state(1, dtype=np.uint64)[0])
 
 
+def _axis_summary(values: np.ndarray) -> str:
+    """Describe an axis by its length and end values, of any kind and length."""
+    if values.size == 0:
+        return "no values"
+    if values.dtype.kind in "iuf":
+        first, last = f"{values[0]:.6g}", f"{values[-1]:.6g}"
+    else:
+        first, last = (repr(value) for value in values[[0, -1]].tolist())
+    return f"{values.size} values, {first} to {last}"
+
+
 class Scan(Displayed):
     """Declare an ordered Cartesian product of one-dimensional variable arrays.
 
@@ -136,8 +147,7 @@ class Scan(Displayed):
         - Returns: the title and ``(key, value)`` rows.
         """
         rows: list[tuple[str, object]] = [
-            (name, f"{values.size} values, {values[0]:.6g} to {values[-1]:.6g}")
-            for name, values in self._variables.items()
+            (name, _axis_summary(values)) for name, values in self._variables.items()
         ]
         rows.append(("base seed", self.base_seed))
         if self._indices is not None:

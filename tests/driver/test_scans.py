@@ -115,6 +115,35 @@ def test_scan_order_global_subsets_and_seed_independence():
     assert [p.seed for p in explicit.points()] == [7, 8]
 
 
+def test_derived_point_seeds_follow_the_documented_rule():
+    # Literals computed once from the documented derivations: a scan's base seed, or the
+    # little-endian first eight bytes of SHA-256 of its name, as the root entropy of
+    # SeedSequence([root, global_index]).generate_state(1, dtype=uint64)[0].
+    assert [name_seed("unseeded", index) for index in (0, 1)] == [
+        13766556482837212248,
+        10884373728482101469,
+    ]
+    assert [p.seed for p in Scan("s", base_seed=91, x=[0, 1]).points()] == [
+        15497448034978523998,
+        1624429969735552845,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("values", "row"),
+    [
+        ([1.0, 2.5], "2 values, 1 to 2.5"),
+        (["He", "Ar"], "2 values, 'He' to 'Ar'"),
+        ([], "no values"),
+        ([{"gas": "He"}], "1 values, {'gas': 'He'} to {'gas': 'He'}"),
+    ],
+)
+def test_a_printed_scan_describes_each_axis_whatever_its_kind(values, row):
+    lines = str(Scan("scan", power=values)).splitlines()
+    key, value = lines[1].split(":", 1)
+    assert (key.strip(), value.strip()) == ("power", row)
+
+
 @pytest.mark.parametrize(
     "call",
     [
@@ -355,8 +384,9 @@ def test_periodic_statistics_equal_single_run(tmp_path):
         )
 
 
-def test_scan_reclaims_stale_running_and_leaves_recent_claim(tmp_path):
-
+def test_scan_reclaims_a_running_point_whatever_its_age(tmp_path):
+    # The controller holds the file's lock for its whole session, so a `running`
+    # mark it finds was left by a controller that has gone, however recent.
     scan = Scan("scan", power=[1.0, 2.0])
     path = tmp_path / "scan.h5"
     output = run_scan(scan.subset([0]), build_point, output=path, progress="none")
@@ -364,9 +394,28 @@ def test_scan_reclaims_stale_running_and_leaves_recent_claim(tmp_path):
         _dataset(file, "points/status")[1] = "running"
         _dataset(file, "points/updated")[1] = time.time()
     run_scan(scan, build_point, output=path, progress="none")
-    assert output.status.tolist() == ["done", "running"]
-    with h5py.File(path, "a") as file:
-        _dataset(file, "points/updated")[1] = 0.0
+    assert output.status.tolist() == ["done", "done"]
+
+
+class ClaimThenFail:
+    """An executor that claims every point and then fails before running any."""
+
+    def run(self, points, work):
+        claimed = list(points)
+        assert claimed
+        raise RuntimeError("deliberate executor failure")
+        yield  # a generator, as an executor's run is
+
+
+def test_a_failed_executor_gives_its_claimed_points_back(tmp_path):
+    scan = Scan("scan", power=[1.0, 2.0])
+    path = tmp_path / "scan.h5"
+    with pytest.raises(RuntimeError, match="deliberate executor failure"):
+        run_scan(
+            scan, build_point, output=path, executor=ClaimThenFail(), progress="none"
+        )
+    output = scans.ScanOutput(path)
+    assert output.status.tolist() == ["todo", "todo"]
     run_scan(scan, build_point, output=path, progress="none")
     assert output.status.tolist() == ["done", "done"]
 
@@ -416,7 +465,6 @@ def test_pool_rejects_unpickleable_builder_before_output(tmp_path):
     [
         {"fields": "planes"},
         {"fields": "none", "field_planes": [0]},
-        {"stale_age": 0.0},
         {"stats": "energy"},
         {"reductions": [scans.peak_power(), scans.peak_power()]},
     ],

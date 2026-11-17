@@ -520,7 +520,8 @@ change what a simulation is built from: its `grid`, `modes`, `responses`, `initi
 `initial_z`, `noise`, `profiles`, `configuration`, `frame` and the rest are read-only,
 because the input was built, and the record is derived, from them when it was
 constructed. Assigning one raises `AttributeError`, naming these methods; only
-`settings` may be replaced, before the first translation.
+`settings` may be replaced: wholly before the first translation, and after it in the
+execution settings that {py:attr}`~solprop.driver.simulation.Simulation.settings` lists.
 
 `SimulationSettings.fields` and `field_planes` choose which saved planes keep their
 field — every one by default, the named ones, or none for a run wanted as statistics

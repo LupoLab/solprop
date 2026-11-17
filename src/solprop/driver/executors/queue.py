@@ -22,6 +22,7 @@ import hashlib
 import inspect
 import json
 import math
+import os
 import pickle
 import sys
 import threading
@@ -51,13 +52,16 @@ from solprop.driver.executors._queue_state import (
 from solprop.driver.executors._request import ScanRequest
 from solprop.driver.executors.pool import Pool
 from solprop.exceptions import DriverError, ExecutorError, OutputError
-from solprop.output.hdf5 import _dataset, _group
+from solprop.output.hdf5 import _dataset, _group, read_recipe, write_recipe
+from solprop.output.records import RecipeRecord
 from solprop.output.scan import PointResult, ScanWriter, _json
 from solprop.output.scan_artifacts import artifact_digest, read_artifact, write_artifact
 from solprop.output.serialisation import deserialise
 from solprop.processing.scans import ScanOutput
 
 __all__ = ["Queue", "collect"]
+
+_RECIPE = "recipe.h5"
 
 
 def _point(job: object) -> ScanPoint:
@@ -71,6 +75,25 @@ def _point(job: object) -> ScanPoint:
 def _point_id(point: ScanPoint) -> str:
     """Bind a claim to its global index, variable values and derived seed."""
     return text_digest(_json(point))
+
+
+def _keep_recipe(path: Path, record: RecipeRecord | None) -> None:
+    """Keep the scan's recipe in the queue, once, for :func:`collect` to record.
+
+    Outside the manifest and its scan identity, as a scan file keeps it outside the
+    run records: a recipe is provenance, written once and never rewritten.
+    """
+    target = path / _RECIPE
+    if record is None or target.exists():
+        return
+    staged = path / f".{uuid.uuid4().hex}{_RECIPE}"
+    with h5py.File(staged, "x") as file:
+        write_recipe(file, record)
+    # Windows commits a file only through a handle open for writing.
+    with staged.open("r+b") as stream:
+        os.fsync(stream.fileno())
+    staged.replace(target)
+    sync_directory(path)
 
 
 def _filename(manifest: Mapping, index: int) -> str:
@@ -341,6 +364,7 @@ class Queue:
                 )
             if not saved.exists():
                 atomic_json(saved, manifest)
+            _keep_recipe(self.path, request.recipe)
             if (
                 not (self.path / "queue.json").exists()
                 and not (self.path / ".done").exists()
@@ -499,6 +523,10 @@ def collect(path: Path | str, output: Path | str) -> ScanOutput:
             )
             changed = True
         changed |= _collect_points(path, manifest, record, writer)
+        if (path / _RECIPE).exists() and "recipe" not in writer.file:
+            with h5py.File(path / _RECIPE, "r") as file:
+                writer.record_recipe(read_recipe(file))
+            changed = True
         seen = set(
             json.loads(str(writer.file.attrs.get("collected_controllers", "[]")))
         )

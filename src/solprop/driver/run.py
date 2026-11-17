@@ -6,11 +6,12 @@
 
 The inner loop, many adaptive or replayed steps between two save planes, lives inside a
 backend and is compiled; :func:`run_problem` is the Python loop around it, which runs a
-few hundred times at most (``docs/dev/architecture.md`` section 5). It opens the
-output (:func:`open_run`), starts the backend's session and hands it to
-:mod:`solprop.driver.session_loop`, which lands on each save plane in turn and hands
-the plane (:func:`plane_from_observation`, :func:`history_of`) to the output handler.
-It never conjugates a spectrum and never touches the state between planes: the
+few hundred times at most (``docs/dev/architecture.md`` section 5). It starts the
+backend's session and hands it to :mod:`solprop.driver.session_loop`, which opens the
+output (:func:`open_run`), lands on each save plane in turn and hands the plane, its
+step history converted by :func:`history_of`, to the output handler;
+:func:`plane_from_observation` builds the same plane from one session observation by
+hand. It never conjugates a spectrum and never touches the state between planes: the
 backend owns the step loop and the output handler the sign convention on disk
 (``docs/dev/conventions.md`` section 2); a plane crosses as a
 :class:`solprop.output.records.SavedPlane` in the internal FFT convention, with modal
@@ -243,20 +244,14 @@ class SessionFacts:
         ticket = session.pending_ticket()
         return None if ticket is None else session.march_snapshot(ticket)
 
-    def march_snapshot_nbytes(self, z: float) -> int | None:
+    def march_snapshot_nbytes(self) -> int | None:
         """Return the size of the session's method-history snapshot, or ``None``.
-
-        Parameters
-        ----------
-        z : float
-            The position, m.
 
         Returns
         -------
         int or None
             Bytes, or ``None`` without one.
         """
-        del z
         return self._session.march_snapshot_nbytes()
 
 

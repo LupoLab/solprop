@@ -265,8 +265,10 @@ def test_worker_reports_exception_and_closes_pipe():
 
 def test_worker_failure_without_scan_failure_contract_propagates():
     error = pool._WorkerError("lost worker")
-    with pytest.raises(DriverError, match="lost worker"):
+    # A crashed worker is a failure of the environment, not a refused argument.
+    with pytest.raises(ExecutorError, match="lost worker") as raised:
         pool._failed_work(abs, 1, error)
+    assert not isinstance(raised.value, ValueError)
 
 
 @pytest.mark.parametrize("broken", [False, True])
@@ -373,6 +375,20 @@ def test_pool_replaces_crashed_worker_and_keeps_pending_points(monkeypatch):
     assert output[0][1] != output[2][1]
 
 
+class ExitingWork:
+    """Point work with no ``failure`` hook whose worker process exits abruptly."""
+
+    def __call__(self, point):
+        os._exit(23)
+
+
+def test_a_crashed_worker_without_a_failure_hook_is_an_executor_error(monkeypatch):
+    monkeypatch.setattr(pool.Pool, "_admit", lambda *args: ((0,), 1))
+    with pytest.raises(ExecutorError, match="exited without") as raised:
+        list(pool.Pool(pin=False).run([0], ExitingWork()))
+    assert not isinstance(raised.value, ValueError)
+
+
 def test_pool_does_not_spawn_more_workers_than_points(monkeypatch):
     monkeypatch.setattr(pool.Pool, "_admit", lambda *args: ((0, 1, 2), 3))
     assert len(list(pool.Pool(pin=False).run([0], EchoWork()))) == 1
@@ -398,7 +414,7 @@ def test_pool_closes_active_worker_when_consumer_stops(monkeypatch):
 def test_receive_propagates_worker_traceback():
     parent, child = multiprocessing.Pipe()
     child.send((False, "worker traceback"))
-    with pytest.raises(DriverError, match="worker traceback"):
+    with pytest.raises(ExecutorError, match="worker traceback"):
         pool._receive(cast(Connection, parent))
     parent.close()
     child.close()
