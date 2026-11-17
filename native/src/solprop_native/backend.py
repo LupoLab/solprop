@@ -941,16 +941,6 @@ class NativeBackend:
         """The nodes a native response pass holds at once: the host plan, lowered."""
         return self._node_chunk
 
-    def available_device_memory(self) -> int | None:
-        """Return free accelerator bytes, or None for a host build.
-
-        Returns
-        -------
-        int or None
-            Free bytes from the selected accelerator runtime.
-        """
-        return _core.available_device_memory()
-
     def memory_ledger(self) -> dict[str, int]:
         """Return every persistent native allocation's byte count by role.
 

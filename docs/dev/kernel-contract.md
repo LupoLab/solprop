@@ -158,10 +158,9 @@ relies on by name, and in an editable checkout compares the extension with its `
 sources by digest (`BuildInfo.source_digest`). An added optional field leaves every problem
 that does not use it unchanged.
 
-**Device memory.** `Backend.available_device_memory()` returns current free device bytes,
-excluding live allocations and allocator reserves, or `None` for host execution;
-a host backend returns `None` and a device backend answers for itself. A scan's memory
-admission reads it with the backend's complete memory ledger.
+**Device memory.** The protocol carries no device-memory query: a native device build reads
+its free device bytes itself when it plans its node chunk
+(`solprop_native.available_device_memory()`).
 
 **The general-modal leaves.** `linear.coupled_flow` and `linear.modal_metric` (§3),
 `transform.modal_tables` (§4) and `responses.regional_responses` (§5) are optional. Each

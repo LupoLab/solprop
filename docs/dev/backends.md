@@ -43,7 +43,6 @@ class Backend(Protocol):
     def edge_memory(self, space: object) -> int: ...
     def metadata(self) -> dict[str, object]: ...  # what the execution was
     def memory_ledger(self) -> dict[str, int]: ...
-    def available_device_memory(self) -> int | None: ...
     def close(self) -> None: ...  # idempotent
     @property
     def closed(self) -> bool: ...  # a failure can close a backend
@@ -116,9 +115,7 @@ through `warnings.warn` as before. Both sessions report their execution facts th
 interface. A fixed-schedule `Batch` executor and its groups (`GroupSession`,
 `prepare_group`, the reference's lockstep `HostGroup` and `NumpyBatchBackend`, and the
 native group session) were removed by SEP 52: on native a group built a complete backend
-per member and fused nothing. `available_device_memory()` returns free device bytes or
-`None` on hosts, so that a scan's admission needs no backend-specific array library in
-the driver.
+per member and fused nothing.
 
 **Three things every backend owes, beyond the protocol's members.**
 

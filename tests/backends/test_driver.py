@@ -946,7 +946,6 @@ def test_the_bundles_a_compiled_backend_packs_are_frozen():
 
 
 BACKEND_MEMBERS = (
-    "available_device_memory",
     "close",
     "closed",
     "edge_memory",
@@ -962,6 +961,7 @@ seam, in the same commit."""
 
 RETIRED_MEMBERS = (
     "attach_monitor",
+    "available_device_memory",
     "drain_attempts",
     "halt_ahead",
     "march_export_refusal",
