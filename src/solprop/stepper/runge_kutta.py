@@ -23,8 +23,9 @@ __all__ = ["RungeKutta"]
 class RungeKutta:
     """The interaction-picture Runge-Kutta march with an embedded error estimate.
 
-    Every accepted step pays the tableau's stages in source calls (six for DOPRI5, the
-    first-same-as-last stage recycled) and keeps no history, where the Adams method
+    Every accepted step pays the tableau's stages in source calls (six for DOPRI5 on
+    the native backend, which recycles the first-same-as-last stage, and all seven on
+    the NumPy reference) and keeps no history, where the Adams method
     holds from seven to about sixty further copies of the state, by backend and
     formulation: the integrator to choose when a source evaluation is cheap or the
     state is too large for the Adams history

@@ -100,7 +100,8 @@ class StepperSettings:
         kink. ``None`` for an adaptive run.
     save_planes : numpy.ndarray
         Positions in z the driver will ask for, m, shape ``(n_z,)``, increasing. Steps
-        land on them exactly; there is no dense output.
+        land on them exactly, unless `interpolate_planes` observes them inside
+        accepted steps.
     propagator_mode : {'auto', 'tabulate', 'recompute'}
         Whether the backend tabulates the stage propagator factors or recomputes them.
         ``"auto"`` leaves the choice to the backend, which records what it resolved.
