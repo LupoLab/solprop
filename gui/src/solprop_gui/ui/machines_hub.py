@@ -236,12 +236,17 @@ class MachineHub(QObject):
         kernel.
     answered : Signal
         Emitted with a call's token and its value, or the error it raised.
+    copied : Signal
+        Emitted from a copying thread with a fetch's token, the bytes copied and the
+        total, to reach its progress on the window's thread.
     """
 
     state_changed = Signal(str, str, object)
     run_event = Signal(object)
     replied = Signal(object)
     answered = Signal(int, object, object)
+    # Sizes as objects: a results file can exceed what a C int holds.
+    copied = Signal(int, object, object)
 
     def __init__(
         self, parent: QObject | None = None, *, askpass: str | None = None
@@ -259,8 +264,10 @@ class MachineHub(QObject):
         )
         self._tokens = iter(range(1, 1 << 62))
         self._callbacks: dict[int, Callable[[object, object], None]] = {}
+        self._progress: dict[int, Callable[[int, int], None]] = {}
         self._closed = False
         self.answered.connect(self._answer)
+        self.copied.connect(self._copied)
 
     # -------------------------------------------------------------- connections
 
@@ -474,9 +481,41 @@ class MachineHub(QObject):
         error : object
             Its error's text, or ``None``.
         """
+        self._progress.pop(token, None)
         done = self._callbacks.pop(token, None)
         if done is not None:
             done(value, error)
+
+    def _piece_copied(self, token: int, have: int, total: int) -> None:
+        """Hand a fetch's progress to the window's thread, unless the hub has closed.
+
+        Parameters
+        ----------
+        token : int
+            The fetch.
+        have : int
+            The bytes copied.
+        total : int
+            The file's size, bytes.
+        """
+        if not self._closed:
+            self.copied.emit(token, have, total)
+
+    def _copied(self, token: int, have: int, total: int) -> None:
+        """Hand a fetch's progress to whoever asked, on the window's thread.
+
+        Parameters
+        ----------
+        token : int
+            The fetch.
+        have : int
+            The bytes copied.
+        total : int
+            The file's size, bytes.
+        """
+        progress = self._progress.get(token)
+        if progress is not None:
+            progress(have, total)
 
     def kernel(self, name: str, request: Request) -> None:
         """Send a request to a machine's kernel; its reply comes as :attr:`replied`.
@@ -610,7 +649,8 @@ class MachineHub(QObject):
         local : pathlib.Path
             Where the copy goes.
         progress : Callable
-            Called, from the copying thread, with the bytes copied and the total.
+            Called on the window's thread with the bytes copied and the total, as
+            each piece arrives.
         done : Callable
             Called on the window's thread with the copy's path and ``None``, or
             ``None`` and the error's text.
@@ -622,6 +662,7 @@ class MachineHub(QObject):
         """
         token = next(self._tokens)
         self._callbacks[token] = done
+        self._progress[token] = progress
         cancelled = threading.Event()
 
         def copy() -> None:
@@ -656,7 +697,7 @@ class MachineHub(QObject):
                             break
                         stream.write(data)
                         have += len(data)
-                        progress(have, total)
+                        self._piece_copied(token, have, total)
                 if cancelled.is_set():
                     msg = "the copy was cancelled"
                     raise ServiceError(msg)
