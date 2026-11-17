@@ -1,7 +1,7 @@
 # solprop GUI: design
 
-Status: **the design of the front end being built**, in solprop's repository as the `gui/`
-distribution `solprop-gui` (decision D2). First drafted on 2026-10-31 in a separate
+Status: **the design of the front end**, in solprop's repository as the `gui/`
+distribution `solprop-gui` (decision D2), published with solprop from 0.2.0. First drafted on 2026-10-31 in a separate
 repository, revised the same day after the design review of section 18 (response in
 section 19), and on 2026-11-01 after the solprop proposals it rests on were accepted. Moved
 here on 2026-11-02, when those proposals had been delivered; section 21 records where what
@@ -11,9 +11,9 @@ preceded it; they are not kept in the repository. Planned work is in GitHub issu
 tracking issue for the front end and one issue per milestone of section 16.
 
 **Revised on 2026-11-05 to a workflow per problem class** (D14), and Qt reaffirmed after a fairer
-comparison with the web (D1). Section 22 records why. Sections 5 to 11 now describe the front end
-being built, not the stepper in draft PR #484, whose code remains the starting point for the
-layers without Qt. Sections 18 to 21 are records, and their section numbers still resolve.
+comparison with the web (D1). Section 22 records why. Sections 5 to 11 describe the front end,
+which replaced the stepper of draft PR #484. Sections 18 to 21 are records, and their section
+numbers still resolve.
 
 **Starting work on the GUI? Read section 0, then section 22, then section 21.** Much of this design depends
 on solprop's recipes and front-end hooks, and what solprop delivers takes precedence over
@@ -174,7 +174,7 @@ general plotting package; replacing scripts for production campaigns.
 | D8 | The recipe lives in solprop (`solprop.recipe`, change S1): its format, builders, Python export and `solprop run`; the GUI adds only presentation. Q1 closed. | 2026-10-31 |
 | D9 | This design is a living page under `docs/dev/gui/`, not a SEP; the work is a tracking issue and one issue and branch per milestone of section 16. A change to solprop the GUI needs follows solprop's own rules (an issue, or a SEP for a major change) and is merged on its own. | 2026-11-02 |
 | D10 | Questions Q3–Q12 of section 14 are decided as recommended there. | 2026-11-02 |
-| D11 | The quality bar is split by layer: `model`, `registry`, `service` and `help` meet solprop's standard in full, 100 % coverage included; `ui` and `views` are typed, documented and linted the same way and tested by `pytest-qt` smoke tests and offscreen screenshots, outside the coverage measure. | 2026-11-02 |
+| D11 | The quality bar is split by layer: `model`, `registry`, `service` and `help` meet solprop's standard in full, 100 % coverage included; `ui` and `views` are typed, documented and linted the same way and tested by `pytest-qt` smoke tests and offscreen screenshots, outside the coverage measure. **Amended by D20:** the service is `solprop.service`, and the layers without Qt are `model`, `registry`, `classes` and `help` (`gui/tests/test_layers.py`). | 2026-11-02 |
 | D12 | The GUI is built out and tested locally, milestone on milestone, and iterated on by hand before any of it is merged: the milestone branches stack locally and are not pushed while that goes on, and the local gate (`poe check-gui`) stands in for CI. The solprop changes the GUI needs still go to main as their own pull requests. | 2026-11-02 |
 | D13 | The first hands-on review (2026-11-03) reshaped the front end. The start page is a gallery of the geometry classes, each a simple cross-section, grouped and titled; Cartesian and line free space, and rectangular and slab waveguides, are classes of their own, and planar guides are hidden for now. One set of plot options (spectral axis, typed limits, scale, a bandpass for the time domain) sits at the bottom left of Propagate and Results. Results show one run, with a 2 by 2 statistics grid of up to two quantities a panel and an interactive spectrogram (`processing.get_spectrogram`). Compression moves to a Post-process step after Results: a chain of solprop.optics elements, each fixed or searched by solprop's compressor of its kind, one at a time. **Replaced in part by D14:** the gallery, the shared plot options and the steps go; the spectrogram and the compressor chain stay, as pages. | 2026-11-03 |
 | D14 | A workflow per problem class replaces the stepper: Home, then Setup, Run and Analyse. A class is a definition held as data (6.1). The first are capillary, radial filament, solid-core fibre and antiresonant fibre; everything else is under Other geometry on the generic form. | 2026-11-04 |
@@ -241,9 +241,11 @@ serves.
   writer still alive), and whether the file can be rebuilt from itself. A changed grid, a
   wider time window included, is always a new run.
 - **Workspace.** A folder the user picks (default `~/solprop-runs`), holding one folder
-  per run: `<date>-<title>/` with `run.h5`, `recipe.toml`, `run.log` and a thumbnail, and
-  for a run with a record (13.4) `job.json`, its live rows and events, and its stop file. The
-  GUI keeps an index for fast browsing but the folder is the truth: copying a run folder
+  per run: `<date>-<title>/` with `run.h5`, `recipe.toml` and `run.log`, and the run's
+  record (13.4, `solprop.service.record`): `spec.json`, `job.json`, its events
+  (`events.bin`), its summary (`status.json`) and, when a stop is asked, its stop file. The
+  GUI keeps no index: the list of runs is read from the disk each time
+  (`solprop_gui.model.workspace`), and the folder is the truth, so copying a run folder
   elsewhere loses nothing. Each machine (13.4) has a workspace of its own.
 - **Project file.** Just a recipe saved by the user wherever they like ("Save setup
   as…"). Opening a results file offers "Open setup from this run", which loads its
@@ -333,7 +335,10 @@ A class is a definition, held as data in the layer that imports no Qt (13.5):
 | Its starting point: a solprop example recipe | `rdw` |
 
 This replaces about 30 branches on the route in the views (22.1): a new class is a new
-definition, and no view asks which class it is drawing. The first four classes:
+definition, and no view asks which class it is drawing. The first four classes are below;
+the catalog (`solprop_gui.classes.catalog.CLASSES`) now holds nine, adding Cartesian beams,
+a Cartesian beam and a line beam (free space), and GNLSE, step-index and graded-index
+fibres:
 
 | Class | solprop route | Notes |
 |---|---|---|
@@ -653,8 +658,8 @@ doesn't fit is visible before the run.
 - **Modal routes**: today the keyword routes put the pulse in the lowest mode, or in the
   mode `channel=` names. The design has a launch table, per pulse (a pump and a seed may
   go into different modes): a share and a phase per mode, labelled as solprop labels the
-  modes (`HE1,1`, with the parity where both polarisations exist). It needs solprop
-  change S5; until then it shows "fundamental mode" and explains. On Marcatili-type bases
+  modes (`HE1,1`, with the parity where both polarisations exist): the recipe's `launch`
+  (solprop change S5). On Marcatili-type bases
   the shares are energy fractions. On a general modal basis the modes are not
   flux-orthogonal, so solprop normalises the total energy through the flux metric and the
   table labels the shares "coordinate shares, not an energy split".
@@ -663,8 +668,9 @@ doesn't fit is visible before the run.
 - **Free space**: beam waist (1/e² intensity radius), super-Gaussian order, focus
   position as a distance before or after the waist (`propz`), polarisation (`jones`). A lens
   (focal length and beam on it) is an optional way to give the waist and focus (21.2).
-  Cartesian: displacement and tilt (today only through `coupling.Alignment`; S6 puts them
-  on the beam, with `Alignment`'s names; the tilt is a pure angle at every frequency).
+  Cartesian: displacement and tilt, on the beam with `Alignment`'s names
+  (`SpatialPulse.displacement` and `tilt`, solprop change S6; the tilt is a pure angle at
+  every frequency).
   Planar: `waist_x`, `offset_x`. A preview shows the beam cross-section on the transverse
   grid (`Recipe.preview_input`, S18).
 
@@ -732,15 +738,18 @@ Capillary, helium              Setup  Run  Analyse              [■ Stop]  ⋯
 - **On completion** the strip goes, the rail appears and you are in Analyse.
 - **On failure** an advice card states the fix and keeps the planes reached, which stay open for
   analysis.
-- **Stop** sends a stop request on the worker's control pipe; the worker sets solprop's
-  stop flag (S17), which takes effect within one step or trial on every platform (on Windows
-  a signal would terminate the worker outright). The run writes its state and `run` returns
-  normally. The execution state is *stopping* until the worker reports, then *stopped*, and
-  Resume follows `resumability`. If the worker hasn't stopped after a grace period the
-  GUI offers to kill it; afterwards it asks `resumability` before calling the file
-  resumable, since a killed run may have no restart state.
-- **Detach** (with the service, 13.3) lets the run continue after the window closes; reopening
-  the run re-attaches.
+- **Stop** writes the run's stop file in its folder (`solprop.service.record.request_stop`),
+  which the run looks for every 0.25 s (`STOP_PERIOD`) and which sets solprop's stop flag
+  (S17); the flag takes effect within one step or trial on every platform. The run writes its
+  state and `run` returns normally. The execution state is *stopping* until the record says
+  otherwise, then *stopped*, and Resume follows `resumability`. A run that does not stop can
+  be ended (the helper's `cancel`, `SIGTERM` or `scancel`, or with `force` `SIGKILL`); the GUI
+  then asks `resumability` before calling the file resumable, since a killed run may have no
+  restart state.
+- **Every run outlives its window** (D21): reopening the window follows a run still going.
+  Closing a window over a run asks Keep, Stop or Kill, and a run tied to its window (the Run
+  menu's "Tie runs to this window") stops itself, resumably, when the window's process
+  goes.
 
 ### 10.3 Several runs
 
@@ -1034,12 +1043,14 @@ filtering, and the reduction used for display.
   waits for the commit to finish), and the run then writes its state. The handlers are
   installed only in a main thread, and on Windows `os.kill` with SIGINT terminates the
   process outright. So the run needs its own process, and the GUI stops it through
-  solprop's portable stop flag (S17) set from the worker's control thread.
+  solprop's portable stop flag (S17), which the run's own thread sets when the run's stop
+  file appears (`solprop.service.record.watch_stop`).
 - Results files have no SWMR: a writer holds a lock sidecar, and another process can't
-  safely read a file being written. Live data must therefore be **streamed** from the
+  safely read a file being written. Live data must therefore be **reduced** in the
   process that runs the simulation, through solprop's plane observer (S3), which gives
-  read-only, lazy access to each committed plane. An observer that raises is detached
-  by solprop and the run continues, but the worker still catches its own pipe errors.
+  read-only, lazy access to each committed plane, and written to the run's record
+  (`events.bin`), which the window follows (13.4, D21). An observer that raises is detached
+  by solprop and the run continues.
 - Resume needs a `Simulation` rebuilt in Python with the file's configuration hash (ADR-066):
   solprop rebuilds it from the resolved recipe in the file (S2), so the GUI needs no state of
   its own to resume. `resumability(file, gate=True)` shows what differs before one is tried.
@@ -1212,8 +1223,8 @@ a list of runs, a resume setting the record aside) goes by that summary, so it f
 complete and let go (Windows refuses to rename a file another process holds open). The terminal
 event can be read from `events.bin` a moment before the summary says it, so a reader acting on
 the run's end waits for the summary. Re-attaching reads the rows and events from the start and then follows them,
-which works for a scan as well as a run. On this computer the run also keeps its pipe to the
-window, so the live view does not wait on a file.
+which works for a scan as well as a run. On this computer too the window follows the record,
+through this computer's helper (D21); no run keeps a pipe to the window.
 
 **Starting a run.** Directly, as a detached process that outlives the SSH session, with the
 thread count of the Runs on line; or through Slurm, as a job from the machine's template,
@@ -1289,8 +1300,8 @@ for every change to `gui/` or to solprop itself.
 First `pip install "solprop[gui]"` (or `pip install solprop-gui`, or `uv tool install
 solprop-gui`), giving a `solprop-gui` command; it pulls PySide6 (its Essentials
 distribution) and pyqtgraph, and solprop at the same version; add `native` for the native
-backend. It is released with solprop from the same tag; its publication to PyPI waits for
-a first usable milestone.
+backend. It is released with solprop from the same tag, and is published to PyPI with
+solprop from 0.2.0.
 
 The PySide6 wheels carry Qt itself, so Windows and macOS should need nothing more (Windows is
 untried by hand). Linux needs a few system libraries the wheels leave out. A desktop
