@@ -349,7 +349,7 @@ Marburger distance.
 
 Radial, Cartesian and line runs execute on `numpy_ref` and the native
 backend's CPU build; its CUDA build runs them too. A Cartesian run's memory grows
-as $n_x n_y n_t$, and the [backends chapter](../performance/resources.md#memory) says how it is budgeted.
+as $n_x n_y n_t$, and the page on [execution resources](../performance/resources.md#memory) says how it is budgeted.
 The thread pools a free-space run uses, including its separate transverse FFT pool, are
 on the model page under
 [CPU execution settings](model.md#cpu-execution-settings).
@@ -371,7 +371,7 @@ A saved plane of a free-space run is a coherent field plane that can be transpor
 through lenses, apertures and free space or coupled into a capillary or fibre
 ([coupling simulations](../workflows/coupling.md)). The [crossing-beam lesson](../../introduction/lessons/plot_04_crossing_beams.rst) shows how to launch a custom coherent array. The [radial filament lesson](../../introduction/lessons/plot_03_filament.rst) connects fluence, peak intensity and plasma. Refine the spatial grid and temporal bandwidth independently before interpreting either example quantitatively.
 
-A beam's displacement and tilt were proposed and carried out by
+The design of a beam's displacement and tilt is
 [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
 The saved planes follow
 [SEP 51](../../dev/seps/archive/sep-0051-save-planes.md).

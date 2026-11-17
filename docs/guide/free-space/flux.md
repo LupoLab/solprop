@@ -451,5 +451,5 @@ wave numbers.
    the nth order derivative of the refractive index," *J. Opt.* **16**, 015707 (2014),
    [doi:10.1088/2040-8978/16/1/015707](https://doi.org/10.1088/2040-8978/16/1/015707).
 
-The medium flux, the radial amplitude correction and its certificate were proposed and
-carried out by [SEP 34](../../dev/seps/archive/sep-0034-medium-flux.md).
+The design of the medium flux, the radial amplitude correction and its certificate is
+[SEP 34](../../dev/seps/archive/sep-0034-medium-flux.md).
