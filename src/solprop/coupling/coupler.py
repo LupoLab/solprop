@@ -1015,6 +1015,15 @@ def _scalar_paraxial(
     )
 
 
+def _profile_count(profiles: ScalarModeBasis) -> float:
+    """Return the number of distinct scalar profiles, an envelope's ``modes``.
+
+    Two polarisations of one mode are two channels of one profile, and the scalar fit
+    keeps them apart (their Jones overlap is zero), so they count once.
+    """
+    return float(np.unique(profiles.u).size)
+
+
 def _kappa_star(
     index: Float[np.ndarray, " n_omega"],
     omega: Float[np.ndarray, " n_omega"],
@@ -1108,7 +1117,7 @@ def _spatial_fit(  # noqa: PLR0917 - called positionally
         index[:, None, None] ** 2 * cross / (root.T[:, :, None] * root.T[:, None, :])
     )
     if profiles.family == "capillary":
-        parameters = {"modes": float(profiles.n_modes), "radius_ratio": 1.0}
+        parameters = {"modes": _profile_count(profiles), "radius_ratio": 1.0}
     else:
         parameters = _beam_step_index_parameters(profiles)
     return fit, native, parameters
@@ -1214,7 +1223,7 @@ def _modal_fit(
     )
     fit.gain_form = np.einsum("wcs,wds->wcd", cross_scaled, cross_scaled.conj())
     parameters = {
-        "modes": float(max(source.n_modes, profiles.n_modes)),
+        "modes": max(_profile_count(source), _profile_count(profiles)),
         "radius_ratio": source.radius / profiles.radius,
     }
     if profiles.family == "step_index":
@@ -1294,7 +1303,7 @@ def _beam_step_index_parameters(profiles: ScalarModeBasis) -> dict[str, float]:
     """
     return {
         "v_target": float(math.hypot(profiles.u[0], profiles.w[0])),
-        "modes": float(np.unique(profiles.u).size),
+        "modes": _profile_count(profiles),
     }
 
 

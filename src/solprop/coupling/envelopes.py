@@ -138,28 +138,30 @@ class PairEnvelope:
 
 
 CAPILLARY_ENVELOPE = PairEnvelope(
-    identity="capillary-he1m-scalar-vs-leaky-marcatili-2026-10",
+    identity="capillary-he1m-scalar-vs-leaky-marcatili-2026-11",
     family="capillary",
-    ranges={"modes": (1.0, 8.0), "radius_ratio": (0.5, 2.0), "leaky": (0.0, 1e-2)},
-    bound=6e-3,
+    ranges={"modes": (1.0, 24.0), "radius_ratio": (0.5, 2.0), "leaky": (0.0, 1e-2)},
+    bound=6.2e-3,
     numerical=1e-10,
     reference=(
         "Marcatili's leaky HE1m core field J0(u_m (1 - i delta) r/a), delta = "
         "|nu_n| c/(omega a), against the scalar J0 profile, both overlapped on an "
         "independent polar Gauss-Legendre rule at delta = 1e-2 (the larger of a "
         "pair's two capillaries): Gaussian beams of waist 0.3a to 1.0a, displaced to "
-        "0.2a, tilted to 0.59/(k a) (1 mrad at a = 75 um and 800 nm), 1, 2, 4 and 8 "
-        "HE1m modes, and coherent three-mode capillary exits into 8 modes at radius "
-        "ratios 0.5 to 2. The discrepancy is the larger of the summed per-mode share "
-        "changes and the least-squares captured share change: largest 2.9e-3, at "
-        "equal radii (the leaky modes' nonorthogonality); bound twice that. It "
+        "0.2a, tilted to 0.59/(k a) (1 mrad at a = 75 um and 800 nm), 1, 2, 4, 8, 16 "
+        "and 24 HE1m modes, and coherent three-mode capillary exits into 24 modes at "
+        "radius ratios 0.5 to 2. The discrepancy is the larger of the summed per-mode "
+        "share changes and the least-squares captured share change: largest 3.05e-3, "
+        "at equal radii and 24 modes (the leaky modes' nonorthogonality; 2.9e-3 at 8 "
+        "modes); bound twice that, rounded up. It "
         "falls at least linearly with delta (halving delta halves the beam cases and "
         "quarters the radius cases), so the allowance is scaled by delta/1e-2"
     ),
     scaled_by="leaky",
 )
 """The capillary HE1m envelope; ``radius_ratio`` is source over target radius (1 for
-an incident beam), ``modes`` the larger HE1m count of the pair, ``leaky`` the larger
+an incident beam), ``modes`` the larger HE1m count of the pair (two polarisations
+of one mode count once), ``leaky`` the larger
 :meth:`~solprop.coupling.models.ScalarModeBasis.leaky` of the pair over the occupied
 bins (about 5.0e-3 for a 37.5 um silica capillary at 800 nm)."""
 

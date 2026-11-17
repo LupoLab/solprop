@@ -282,8 +282,8 @@ def test_a_scalar_change_of_radius_matches_marcatili_fields_by_quadrature(ratio)
 
 # ------------------------------------------------------ the leaky-field oracle
 
-HE_ZEROS = jn_zeros(0, 8)
-"""The first eight J0 zeros, the HE1m core wavenumbers u_m."""
+HE_ZEROS = jn_zeros(0, 24)
+"""The first 24 J0 zeros, the HE1m core wavenumbers u_m."""
 
 LEAKY_WALL_TERM = 1.477
 """|nu_n| of silica (index 1.45): (eps + 1)/(2 sqrt(eps - 1)), sizing k a only."""
@@ -345,7 +345,7 @@ def beam_discrepancy(delta, beam, n_r=100, n_theta=32):
 
 
 def radius_discrepancy(delta, ratio, n_r=100, n_theta=32):
-    """Return a coherent three-mode exit's discrepancy into eight modes at a ratio.
+    """Return a coherent three-mode exit's discrepancy into 24 modes at a ratio.
 
     ``delta`` is the larger of the two capillaries' parameters; it scales as 1/a.
     """
@@ -360,14 +360,14 @@ def radius_discrepancy(delta, ratio, n_r=100, n_theta=32):
         field = source.sum(axis=0)
         norm = float(np.sum(w * np.abs(field) ** 2))
         shares.append(
-            projected_shares(leaky_profiles(1.0, target_delta, 8, r), field, w, norm)
+            projected_shares(leaky_profiles(1.0, target_delta, 24, r), field, w, norm)
         )
     return discrepancy(*shares)
 
 
 BEAMS = [
     (count, waist, shift, tilt)
-    for count in (1, 2, 4, 8)
+    for count in (1, 2, 4, 8, 16, 24)
     for waist in (0.3, 0.5, 0.7, 1.0)
     for shift in (0.0, 0.1, 0.2)
     for tilt in (0.0, 0.59)
@@ -389,17 +389,18 @@ def test_the_capillary_envelope_bounds_the_leaky_core_field():
     """The scalar J0 model against Marcatili's leaky HE1m field, over the range.
 
     At the range's top, delta = 1e-2 (a 37.5 um silica capillary at 1.6 um, or
-    18.8 um at 800 nm), the largest discrepancy is 2.9e-3 (equal radii: the leaky
-    modes are not orthogonal) and 1.8e-3 for the beams; the recorded bound is twice
-    the largest. Halving delta halves the beam cases (first order, from the tilt and
-    displacement) and quarters the radius cases, which is what lets the allowance
-    scale linearly with delta. The quadrature's numerical error is estimated by
-    refining the rule.
+    18.8 um at 800 nm), the largest discrepancy is 3.05e-3 (equal radii: the leaky
+    modes are not orthogonal) and 2.0e-3 for the beams, both at 24 modes (2.9e-3 and
+    1.8e-3 at 8: the discrepancy grows slowly with the count); the recorded bound is
+    twice the largest, rounded up. Halving delta halves the beam cases (first order,
+    from the tilt and displacement) and quarters the radius cases, which is what lets
+    the allowance scale linearly with delta. The quadrature's numerical error is
+    estimated by refining the rule.
     """
     top = CAPILLARY_ENVELOPE.ranges["leaky"][1]
     beams, radii = worst_leaky_discrepancy(top)
     measured = max(beams, radii)
-    assert measured == pytest.approx(2.9e-3, rel=0.05)
+    assert measured == pytest.approx(3.05e-3, rel=0.05)
     assert 2 * measured <= CAPILLARY_ENVELOPE.bound
     fine_beams, fine_radii = worst_leaky_discrepancy(top, n_r=200, n_theta=48)
     assert abs(max(fine_beams, fine_radii) - measured) <= CAPILLARY_ENVELOPE.numerical
@@ -431,6 +432,21 @@ def test_a_capillary_beyond_the_leaky_range_is_refused():
     )
     with pytest.raises(CouplingError, match="leaky"):
         couple(plane, port, model=CouplingModel("scalar_paraxial", model_error=0.2))
+
+
+def test_a_capillary_beyond_the_mode_range_is_refused():
+    """A 25th HE1m mode lies outside the envelope's measured count, and is refused."""
+    assert CAPILLARY_ENVELOPE.ranges["modes"] == (1.0, 24.0)
+    port = capillary_simulation(RADIUS, 25, GRID).input_port()
+    plane = FieldPlane.from_analytic(
+        port.grid,
+        PlaneGeometry(0.0),
+        gaussian_field(port.grid, 0.5 * RADIUS),
+        space=FreeGrid(4 * RADIUS, 64, 4 * RADIUS, 64),
+        medium=SpatialMedium("Ar", PRESSURE),
+    )
+    with pytest.raises(CouplingError, match=r"modes = 25\.0 lies outside"):
+        couple(plane, port, model=CouplingModel("scalar_paraxial", model_error=0.1))
 
 
 def test_the_capillary_envelope_item_scales_with_the_pair(capillary_port):

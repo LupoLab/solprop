@@ -285,9 +285,10 @@ approximate models omit, measured by the test suite against independent physics:
 - *Capillary.* The scalar profile $J_0(u_mr/a)$ against Marcatili's leaky core field
   $J_0(u_m(1 - i\delta)r/a)$, $\delta = |\nu_n|c/(\omega a)$ with $\nu_n$ the wall
   term (Marcatili and Schmeltzer 1964). Over waists 0.3a--1.0a, displacements to 0.2a,
-  tilts to $0.59/ka$, 1--8 modes and radius ratios 0.5--2 the captured shares differ by
-  at most $2.9\times10^{-3}$ at $\delta = 10^{-2}$, the range's top (an 18.8 µm silica
-  capillary at 800 nm); the bound is twice that, $6\times10^{-3}$. The difference
+  tilts to $0.59/ka$, 1--24 $HE_{1m}$ modes (two polarisations of one mode count once)
+  and radius ratios 0.5--2 the captured shares differ by at most $3.05\times10^{-3}$ at
+  $\delta = 10^{-2}$, the range's top (an 18.8 µm silica capillary at 800 nm); the bound
+  is twice that, rounded up, $6.2\times10^{-3}$. The difference
   falls at least linearly with $\delta$, so the reported allowance is the bound scaled
   by the pair's energy-weighted $\delta$: about $1.5\times10^{-3}$ for a 75 µm
   capillary at 800 nm.
