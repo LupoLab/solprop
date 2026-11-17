@@ -311,8 +311,9 @@ def set_aside(folder: Path) -> None:
 
     A window following the continued run reads its new events from the start, not the
     ending of the part before (``events.bin`` becomes ``events-1.bin``, then
-    ``events-2.bin``, ...); its summary and stop file start afresh too. A folder with
-    no record is left as it is.
+    ``events-2.bin``, ...), and the earlier part's ``job.json`` goes beside them
+    (``job-1.json``, ...), so its process is never taken for the new part's; its
+    summary and stop file start afresh too. A folder with no record is left as it is.
 
     Parameters
     ----------
@@ -324,22 +325,25 @@ def set_aside(folder: Path) -> None:
     >>> import tempfile
     >>> folder = Path(tempfile.mkdtemp())
     >>> _ = (folder / EVENTS).write_bytes(b"")
+    >>> _ = (folder / JOB).write_text("{}", encoding="utf-8")
     >>> set_aside(folder)
     >>> sorted(path.name for path in folder.iterdir())
-    ['events-1.bin']
+    ['events-1.bin', 'job-1.json']
     """
-    events = folder / EVENTS
-    if events.exists():
-        count = 1
-        while (folder / f"events-{count}.bin").exists():
-            count += 1
-        events.replace(folder / f"events-{count}.bin")
+    count = 1
+    while (folder / f"events-{count}.bin").exists() or (
+        folder / f"job-{count}.json"
+    ).exists():
+        count += 1
+    for name, kept in ((EVENTS, f"events-{count}.bin"), (JOB, f"job-{count}.json")):
+        if (folder / name).exists():
+            (folder / name).replace(folder / kept)
     (folder / STATUS).unlink(missing_ok=True)
     clear_stop(folder)
 
 
 def clear_stop(folder: Path) -> None:
-    """Remove a run's stop file, as a run does when it starts or continues.
+    """Remove a run's stop file, as a launcher does before a run starts.
 
     Parameters
     ----------

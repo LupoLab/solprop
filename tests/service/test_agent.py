@@ -709,6 +709,52 @@ def test_a_followed_run_that_goes_without_an_ending_is_said_lost(
     helper.close()
 
 
+def test_a_continued_run_still_starting_is_followed_and_cancelled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import subprocess  # noqa: PLC0415 - only here
+
+    from solprop.service.launch import SUBMITTED, prepare  # noqa: PLC0415
+    from solprop.service.record import (  # noqa: PLC0415 - only here
+        Job,
+        process_stamp,
+        write_job,
+        write_json,
+    )
+
+    monkeypatch.setattr(agent, "LIVENESS_PERIOD", 0.0)
+    here = socket.gethostname()
+    folder = tmp_path / "r1"
+    folder.mkdir()
+    # The earlier part ended, its process gone; the folder is continued.
+    write_job(folder, Job("r1", "direct", here, 0, None, None, 0.0, ended=1.0))
+    (folder / "run.h5").write_bytes(b"")
+    prepare(RunSpec("r1", str(folder), resume=True))
+    # Started (this sleeper stands in for the new part's process), not yet recorded.
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        write_json(
+            folder / SUBMITTED,
+            {
+                "launcher": "direct",
+                "host": here,
+                "pid": sleeper.pid,
+                "stamp": process_stamp(sleeper.pid),
+            },
+        )
+        output = io.BytesIO()
+        helper = Agent(output)
+        helper.follow({"folder": str(folder), "offset": 0, "period": 0.02})
+        time.sleep(0.3)
+        assert b"lost" not in output.getvalue()
+        helper.cancel({"folder": str(folder)})
+        assert sleeper.wait(timeout=WAIT) != 0
+        helper.close()
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+
+
 def test_a_folder_held_open_is_removed_once_let_go(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

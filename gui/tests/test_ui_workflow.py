@@ -299,14 +299,14 @@ def test_the_gas_is_a_list_with_plain_names(
     assert row.choice.currentText().startswith("Helium")
 
 
-def test_a_lost_worker_explains_itself(window: WorkflowWindow, qtbot: QtBot) -> None:
+def test_a_lost_run_explains_itself(window: WorkflowWindow, qtbot: QtBot) -> None:
     open_tiny(window, qtbot)
     panel = window.run_panel
     panel.run_id = "gone"
     panel.state = ExecutionState.RUNNING
-    panel.on_event(Event("gone", "lost", {"exitcode": -9}))
+    panel.on_event(Event("gone", "lost", {"message": "out of memory"}))
     assert not window.analyse.advice.isHidden()
-    assert "out of memory" in window.analyse.advice_text.text()
+    assert "(out of memory)" in window.analyse.advice_text.text()
     assert "LowStorageRungeKutta" in window.analyse.advice_text.text()
 
 

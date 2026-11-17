@@ -767,7 +767,7 @@ class RunPanel(QWidget):
             "finished": "complete",
             "stopped": "stopped",
             "failed": "failed",
-            "lost": "the worker was lost",
+            "lost": "lost",
         }[event.kind]
         text = f"{self.run_id}: {words}"
         if event.kind == "failed" and message:
@@ -781,7 +781,7 @@ class RunPanel(QWidget):
                 detail,
             )
         elif event.kind == "lost":
-            advice = failure_advice("lost", "", event.data.get("exitcode"))
+            advice = failure_advice("lost", message)
             self.log.appendPlainText(advice)
             self.report(f"The run {self.run_id} stopped short", advice, "")
         self.state_label.setText(text)

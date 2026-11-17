@@ -406,6 +406,78 @@ def test_a_scan_as_a_job_runs_its_points_in_a_pool(tmp_path):
     assert (summary["points"], summary["done"]) == (2, 2)
 
 
+def test_a_stop_pressed_before_a_new_run_starts_is_obeyed(tmp_path):
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    folder = tmp_path / "r1"
+    folder.mkdir()
+    request_stop(folder)  # a stop file left over in the folder before the run
+    spec = RunSpec("r1", str(folder), recipe=TINY)
+    prepare(spec)
+    assert not summarise(folder)["stopping"]
+    request_stop(folder)  # Stop pressed while the job waits in the queue
+    run_module.execute(spec)
+    (ending,) = [e for e in read_events(folder)[0] if e.terminal]
+    assert ending.kind == "stopped"
+    assert ending.data["message"] == "stopped before it started"
+    assert not (folder / "run.h5").exists()
+    assert summarise(folder)["state"] == "stopped"
+
+
+def test_a_stop_pressed_before_a_continued_run_starts_is_obeyed(tmp_path):
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    folder = prepare(RunSpec("r1", str(tmp_path / "r1"), recipe=TINY))
+    (folder / "run.h5").write_bytes(b"earlier part")
+    write_job(folder, Job("r1", "direct", socket.gethostname(), 0, None, None, 0.0))
+    (folder / "events.bin").write_bytes(b"")
+    request_stop(folder)  # how the earlier part was stopped
+    spec = RunSpec("r1", str(folder), resume=True)
+    prepare(spec)
+    request_stop(folder)  # Stop pressed while the continuation is starting
+    run_module.execute(spec)
+    (ending,) = [e for e in read_events(folder)[0] if e.terminal]
+    assert ending.kind == "stopped"
+    assert (folder / "run.h5").read_bytes() == b"earlier part"
+
+
+def test_a_run_continued_by_hand_sets_aside_its_earlier_record_and_stop(tmp_path):
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    folder = prepare(RunSpec("r1", str(tmp_path / "r1"), recipe=TINY))
+    (folder / "run.h5").write_bytes(b"")
+    write_job(folder, Job("r1", "direct", socket.gethostname(), 0, None, None, 0.0))
+    (folder / "events.bin").write_bytes(b"")
+    request_stop(folder)  # how the earlier part was stopped
+    # No launcher prepared it: the job itself finds the earlier part's record.
+    run_module.execute(RunSpec("r1", str(folder), resume=True))
+    assert (folder / "events-1.bin").exists() and (folder / "job-1.json").exists()
+    (ending,) = [e for e in read_events(folder)[0] if e.terminal]
+    assert ending.kind == "failed"  # it went on, and found no file to continue
+
+
+def test_a_continued_direct_run_is_starting_until_its_new_process_records_itself(
+    tmp_path,
+):
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    folder = tmp_path / "r1"
+    run_module.execute(RunSpec("r1", str(folder), recipe=TINY))
+    assert summarise(folder)["state"] == "finished"
+    prepare(RunSpec("r1", str(folder), resume=True))
+    # As start_direct records it: the new part's process (this one stands in for it)
+    # has started and not yet written its job.json.
+    here = socket.gethostname()
+    write_json(
+        folder / SUBMITTED,
+        {"launcher": "direct", "host": here, "pid": os.getpid(), "submitted": 1.0},
+    )
+    found = summarise(folder)
+    assert found["state"] == "starting"
+    assert (found["started"], found["ended"]) == (None, None)
+    assert json.loads((folder / "job-1.json").read_text(encoding="utf-8"))["ended"]
+
+
 def test_a_continued_run_s_folder_starts_a_new_record(tmp_path):
     folder = prepare(RunSpec("r1", str(tmp_path / "r1"), recipe=TINY))
     (folder / "events.bin").write_bytes(b"old")

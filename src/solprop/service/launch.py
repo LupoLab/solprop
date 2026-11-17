@@ -31,7 +31,7 @@ from typing import Final
 
 from solprop._process import batch_script, child_environment
 from solprop.service.messages import ServiceError
-from solprop.service.record import process_stamp, set_aside, write_json
+from solprop.service.record import clear_stop, process_stamp, set_aside, write_json
 from solprop.service.worker import SPEC, RunSpec, spec_value
 
 __all__ = [
@@ -87,7 +87,9 @@ def prepare(spec: RunSpec) -> Path:
     Notes
     -----
     A continued run's earlier record is set aside
-    (:func:`~solprop.service.record.set_aside`).
+    (:func:`~solprop.service.record.set_aside`), and a stop file already in the folder
+    is removed, so a stop file found by the run when it starts is a Stop pressed while
+    it waited, and is obeyed.
     """
     folder = Path(spec.folder).expanduser()
     folder.mkdir(parents=True, exist_ok=True)
@@ -96,6 +98,8 @@ def prepare(spec: RunSpec) -> Path:
         raise ServiceError(msg)
     if spec.resume is not None:
         set_aside(folder)
+    else:
+        clear_stop(folder)
     write_json(folder / SPEC, spec_value(spec))
     return folder
 

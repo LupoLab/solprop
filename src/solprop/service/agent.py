@@ -312,7 +312,7 @@ class Agent:
                     lost_event = {
                         "run_id": folder.name,
                         "kind": "lost",
-                        "data": {"exitcode": None, "message": lost},
+                        "data": {"message": lost},
                     }
                     self.send(
                         {
@@ -364,8 +364,12 @@ class Agent:
         solprop.service.messages.ServiceError
             If the run has no job this machine can end.
         """
-        from solprop.service.launch import cancel_slurm  # noqa: PLC0415 - light
-        from solprop.service.record import alive, read_job  # noqa: PLC0415 - light
+        from solprop.service.launch import SUBMITTED, cancel_slurm  # noqa: PLC0415
+        from solprop.service.record import (  # noqa: PLC0415 - light
+            _read_json,
+            alive,
+            read_job,
+        )
         from solprop.service.runs import summarise  # noqa: PLC0415 - light
 
         folder = _folder(body)
@@ -374,10 +378,17 @@ class Agent:
             cancel_slurm(str(summary["slurm_job"]))
             return
         job = read_job(folder)
-        if job is not None and job.host == socket.gethostname():
-            if alive(job.pid, job.stamp):
+        if job is not None:
+            host, pid, stamp = job.host, job.pid, job.stamp
+        else:
+            # Started and not yet recorded: the process its launcher started.
+            submitted = _read_json(folder / SUBMITTED) or {}
+            host = submitted.get("host")
+            pid, stamp = int(submitted.get("pid", -1)), submitted.get("stamp")
+        if host == socket.gethostname():
+            if alive(pid, stamp):
                 hard = getattr(signal, "SIGKILL", signal.SIGTERM)
-                os.kill(job.pid, hard if body.get("force") else signal.SIGTERM)
+                os.kill(pid, hard if body.get("force") else signal.SIGTERM)
             return
         msg = f"{folder.name} has no process or job on this machine to end"
         raise ServiceError(msg)
@@ -575,8 +586,8 @@ def _ending_recorded(folder: Path) -> bool:
 def _lost(folder: Path) -> str | None:
     """Return why a run that recorded no ending has gone, or ``None`` while it lives.
 
-    - Returns: the reason, as the run's summary gives it; ``None`` for a run queued,
-      starting, running or ended with its own record.
+    - Returns: the reason, as the run's summary gives it (empty when it gives none);
+      ``None`` for a run queued, starting, running or ended with its own record.
     """
     from solprop.service.launch import slurm_states  # noqa: PLC0415 - light
     from solprop.service.runs import slurm_jobs, summarise  # noqa: PLC0415 - light
@@ -585,7 +596,7 @@ def _lost(folder: Path) -> str | None:
     with contextlib.suppress(ServiceError):
         summary = summarise(folder, slurm_states(jobs) if jobs else None)
         if summary["state"] == "lost":
-            return str(summary["detail"] or "its process ended without saying how")
+            return str(summary["detail"])
     return None
 
 

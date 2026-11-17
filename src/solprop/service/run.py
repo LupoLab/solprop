@@ -38,10 +38,12 @@ from solprop.recipe import Recipe, resume_file
 from solprop.service.beam import beam_reading, profile_row
 from solprop.service.messages import Event
 from solprop.service.record import (
+    EVENTS,
+    JOB,
     EventLog,
     Job,
-    clear_stop,
     set_aside,
+    stop_requested,
     watch_stop,
 )
 from solprop.service.reduce import (
@@ -448,7 +450,9 @@ def execute(spec: RunSpec) -> None:
     """Run, or continue, one run, recording its events until its terminal one.
 
     The run appends its events to its record and obeys its stop file
-    (:mod:`solprop.service.record`). A signal that ends the run (``SIGTERM``, as Slurm
+    (:mod:`solprop.service.record`); one already there when it starts, a Stop pressed
+    while it waited in a queue or started, ends it as stopped before anything is
+    built. A signal that ends the run (``SIGTERM``, as Slurm
     sends at a time limit or ``scancel``, and as Kill sends) leaves the file resumable,
     so it ends the run as stopped. A run tied to a window (``spec.owner``) stops, in
     the same way as Stop, when that window's process has gone.
@@ -463,9 +467,14 @@ def execute(spec: RunSpec) -> None:
     output = folder / OUTPUT
     stop = StopToken()
     done = threading.Event()
-    if spec.resume is not None:
-        set_aside(folder)  # as the launcher did, for a run continued by hand
-    clear_stop(folder)
+    if spec.resume is not None and any(
+        (folder / name).exists() for name in (EVENTS, JOB)
+    ):
+        # Continued by hand: the earlier part's record is still in place. A launcher
+        # sets it aside before the job exists, so that a stop file found here is a
+        # Stop pressed while the run waited, and is obeyed below.
+        set_aside(folder)
+    stopped_early = stop_requested(folder)
     owner = None if spec.owner is None else (int(spec.owner[0]), spec.owner[1])
     watch_stop(folder, stop, done, owner=owner)
     record = EventLog(
@@ -479,7 +488,12 @@ def execute(spec: RunSpec) -> None:
     kind = "failed"
     data: dict[str, object] = {"path": str(output)}
     try:
-        kind, data = _march(spec, folder, record.put, observer, stop)
+        if stopped_early:
+            # Nothing built and nothing written: a continued run's file is as it was.
+            kind = "stopped"
+            data = {"path": str(output), "message": "stopped before it started"}
+        else:
+            kind, data = _march(spec, folder, record.put, observer, stop)
     except RunTerminated as error:
         # solprop wrote the state a resume needs before raising.
         kind, data = "stopped", {"path": str(output), "terminated": True}

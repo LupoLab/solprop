@@ -232,7 +232,7 @@ serves.
   physics differ; solprop names the fields that changed (ADR-066).
 - **Run.** One execution of a recipe revision: a results file (solprop HDF5) with both
   recipes embedded, a log, and two separate states. The *execution state* is the GUI's:
-  queued, starting, running, stopping, stopped, complete, failed, worker lost. The
+  queued, starting, running, stopping, stopped, complete, failed, lost. The
   *outcome* is solprop's `RunOutcome.status` (running, complete, budget exhausted,
   failed), which has no "stopped". Whether a run can be resumed is never assumed from
   either: it is asked of solprop (`resumability`, SEP 41 S17), which gives the mode
