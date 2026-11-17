@@ -281,11 +281,12 @@ class Simulation(Displayed):
     :meth:`from_gnlse` for a GNLSE fibre. :meth:`translate` assembles the kernel problem
     and caches it, so a second :meth:`run` -- into another handler, or resuming a
     file -- reuses it. :attr:`settings` may be replaced until that first translation;
-    after it only its ``backend`` may change. What the run is built from -- the grid,
-    the modes, the responses, the input and the rest of the parameters below -- is
-    read-only, because the input, the translation and the record are derived from it:
-    :meth:`with_input` derives a run with a new input, noise or launch position,
-    :meth:`with_mixture` one with a new fill, and anything else is a new simulation.
+    after it only the execution settings :attr:`settings` lists may change. What the
+    run is built from -- the grid, the modes, the responses, the input and the rest of
+    the parameters below -- is read-only, because the input, the translation and the
+    record are derived from it: :meth:`with_input` derives a run with a new input,
+    noise or launch position, :meth:`with_mixture` one with a new fill, and anything
+    else is a new simulation.
 
     Parameters
     ----------
@@ -551,9 +552,10 @@ class Simulation(Displayed):
         Assigning a new :class:`~solprop.driver.settings.SimulationSettings` before the
         first :meth:`translate` (or :meth:`run`) takes effect. After it the translated
         problem is cached, so an assignment that changes anything the translation
-        consumed is refused, because it could no longer change the run; the ``backend``
-        and ``tdse_execution`` resources, which are read when the run executes, may
-        still change.
+        consumed is refused, because it could no longer change the run. The execution
+        settings, read when the run executes, may still change: ``backend``,
+        ``node_budget``, ``resume_history``, ``tdse_execution``, ``fields``,
+        ``field_planes`` and ``boundary_check``.
 
         The settings the run is, or will be, translated with.
         """
@@ -579,9 +581,8 @@ class Simulation(Displayed):
         DriverError
             If the planes do not fit this run's interval, a replayed schedule does not
             cover it, or the simulation has already been translated and the
-            replacement changes a setting other than ``backend``, ``resume_history``,
-            ``fields``, ``field_planes``, ``tdse_execution`` or ``boundary_check``,
-            naming them.
+            replacement changes a setting other than the execution settings
+            :attr:`settings` lists, naming them.
         """
         settings = _adopted(
             settings, entrance=float(self.initial_z), length=float(self.grid.length)
@@ -601,9 +602,8 @@ class Simulation(Displayed):
                     f"this Simulation is already translated, so a new "
                     f"{', '.join(changed)} would be ignored; set the settings before "
                     "the first translate() or run(), or build a new Simulation (only "
-                    "the backend, resume_history, fields, field_planes, the TDSE "
-                    "execution resources and boundary_check may change after "
-                    "translation)"
+                    f"{', '.join(_EXECUTION_SETTINGS[:-1])} and "
+                    f"{_EXECUTION_SETTINGS[-1]} may change after translation)"
                 )
                 raise DriverError(msg)
         if self._recipe is not None:
