@@ -177,7 +177,7 @@ class IonisationRate(Protocol):
 
 
 def rate_convention(rate: EvaluableRate) -> RateConvention:
-    """Read an explicit optical-cycle convention without guessing for legacy rates.
+    """Read a rate's declared optical-cycle convention, never guessing one.
 
     Parameters
     ----------

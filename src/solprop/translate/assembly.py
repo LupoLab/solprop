@@ -173,7 +173,7 @@ _GENERAL_INDEX = 1.0
 
 A general guide's basis is Poynting-normalised by construction, so its amplitude is
 already the true-power amplitude every route carries and the statistics power
-weight is the constant one: the legacy ``sqrt(Re n_eff)`` boundary is not
+weight is the constant one: the channel routes' ``sqrt(Re n_eff)`` boundary is not
 crossed on this route. The same override removes the cumulative normalisation term
 from ``Phi``, which is the term that renormalises a vacuum amplitude along a varying
 index and has no meaning for a basis that carries its own flux metric.
@@ -901,7 +901,7 @@ def _material_mixture(
     - ``modes``: ordered mode set, empty for spatial geometry.
     - ``medium``: spatial material, or None for modal geometry.
     - ``density``: optional explicit response density in m^-3.
-    - Returns: the declared mixture, or None for the legacy single material.
+    - Returns: the declared mixture, or None for a single material.
     """
     if medium is not None and isinstance(medium.material, Gas) and density is not None:
         # The linear operator takes the medium's own density path; an explicit one

@@ -72,7 +72,6 @@ from solprop.recipe.registry import (
     coerce,
     decode_keyword,
     plane_parameter,
-    retired,
 )
 
 if TYPE_CHECKING:
@@ -198,10 +197,6 @@ class Recipe:
     ) -> None:
         """Adopt a checked document."""
         self._document: Document = validate_document(document)
-        build = self._document.get("build", {})
-        for key in [key for key in build if retired("build", key, build[key], key)]:
-            # A retired key whose value is what solprop does anyway is dropped.
-            del build[key]
         self._text = text
         self._base = base
         self._allow_outside = allow_outside

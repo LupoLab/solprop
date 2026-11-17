@@ -199,7 +199,8 @@ class GeneralModalRoute(Displayed):
     exact arithmetic and is not the identity in the measured Gram the run actually
     has, so it is stored and declared rather than decorated. Either way the
     statistics power weight is the constant one: the Poynting amplitude **is** the
-    true-power amplitude and the legacy ``sqrt(Re n_eff)`` boundary is not crossed.
+    true-power amplitude and the channel routes' ``sqrt(Re n_eff)`` boundary is not
+    crossed.
     The two leaves are different objects and both exist: ``linear.power_weight`` is
     the statistics boundary and ``linear.modal_metric`` is the basis Gram.
 
@@ -735,7 +736,7 @@ def general_modal_route(
         A region that declares ``chi3`` ignores it.
     kerr_form : {'real', 'analytic'}, optional
         Which instantaneous cubic the regions' Kerr responses are. ``"real"``, the
-        default, is the real-field cubic ``P = eps0 chi3 (E.E) E`` the legacy field
+        default, is the real-field cubic ``P = eps0 chi3 (E.E) E`` the channel field
         route evaluates, third harmonic included; ``"analytic"`` is the
         analytic-signal form, which carries the fundamental band alone and is the
         tested oracle for it.

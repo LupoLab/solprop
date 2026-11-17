@@ -264,7 +264,7 @@ class LinearOperator:
     modal_metric : solprop.translate.coupled.ModalMetricTables or None
         Kernel schema 12: the explicit physical flux metric, a documented leaf here
         and not a nested record, so that the controller, the flow and the output
-        layer share one W by identity. ``None`` for the legacy orthogonal routes,
+        layer share one W by identity. ``None`` for the orthogonal channel routes,
         whose power weight is the row above.
 
     Raises

@@ -6,9 +6,9 @@
 
 ``docs/dev/backends.md`` section 1: there are exactly two backends (ADR-077),
 ``native`` and ``numpy_ref``. Selection is by name; availability is detected with
-:func:`importlib.util.find_spec` and **never cached**. A name that is neither, a
-retired backend's included, is a :class:`~solprop.exceptions.BackendError` naming the
-two; ``native`` without its package is an :class:`ImportError` saying what to install.
+:func:`importlib.util.find_spec` and **never cached**. A name that is neither is a
+:class:`~solprop.exceptions.BackendError` naming the two; ``native`` without its
+package is an :class:`ImportError` saying what to install.
 
 The native backend is a second distribution, ``solprop-native``, built from ``native/``
 in this repository and a required dependency; probing availability does not import it.
@@ -62,8 +62,7 @@ _NATIVE_PACKAGE: Final = "solprop_native"
 
 _UNKNOWN: Final = (
     "the backends are backend='native', the solprop-native package, and "
-    "backend='numpy_ref', the reference, which is unthreaded and far slower. Output "
-    "and snapshots that record another backend still load"
+    "backend='numpy_ref', the reference, which is unthreaded and far slower"
 )
 """What a name that is neither backend is told to use instead."""
 
@@ -187,8 +186,8 @@ def resolve_name(name: str = "auto") -> str:
     Raises
     ------
     BackendError
-        If ``name`` is neither backend (a retired backend's name included), or
-        ``"auto"`` has nothing to select; the message says what to do.
+        If ``name`` is neither backend, or ``"auto"`` has nothing to select; the
+        message says what to do.
 
     Examples
     --------

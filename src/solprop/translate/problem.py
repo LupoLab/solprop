@@ -150,7 +150,7 @@ MAX_N_COMPONENTS = 3
 The count of :class:`solprop.translate.modal_tables.ModalTransformTables`' component
 axis -- E_x, E_y and E_z, and the matching H -- which is a property of the provider's
 fields and not of the state's polarisation axis. The distinct check
-:data:`MAX_N_POL` performs for the legacy routes is kept beside it, unchanged.
+:data:`MAX_N_POL` performs for the channel routes is kept beside it, unchanged.
 """
 
 
@@ -947,7 +947,7 @@ class PropagationProblem:
                 )
                 if unavailable:
                     msg = (
-                        "TDSE does not define legacy statistics "
+                        "TDSE does not define the rate-model statistics "
                         f"{sorted(unavailable)}; request explicitly labelled atomic "
                         "diagnostics"
                     )

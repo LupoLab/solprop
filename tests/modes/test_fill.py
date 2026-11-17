@@ -41,7 +41,7 @@ def baseline_modes():
     )
 
 
-def test_fill_rebinding_retains_concrete_geometry_and_clears_legacy_material():
+def test_fill_rebinding_retains_concrete_geometry_and_clears_the_single_gas():
     mixture = Mixture.fill({"He": 0.25, "Ar": 0.75}, 2.0)
     for mode in baseline_modes():
         rebound = mode.with_mixture(mixture)

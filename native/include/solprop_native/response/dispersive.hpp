@@ -36,7 +36,7 @@
 namespace solprop_native {
 
 // solprop SEP 6's frequency-dependent electronic response (`responses.dispersive_kerr`)
-// on the engine's fused node path: the legacy transform's real synthesis and
+// on the engine's fused node path: the channel transform's real synthesis and
 // projection, the same at every frequency, and a temporal collar the same at every
 // node. A spectral multiplier and the collar commute with both, so the response's
 // multipliers act on the modal columns rather than at the nodes:

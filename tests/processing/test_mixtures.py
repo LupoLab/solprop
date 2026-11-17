@@ -226,7 +226,7 @@ def test_missing_statistics_and_unknown_labels_are_explicit(outputs):
         processing.absorbed_spectral_energy(output, species="misspelled")
 
 
-def test_legacy_record_remains_readable_without_mixture_accessors():
+def test_a_single_gas_record_stays_readable_without_mixture_accessors():
     output = example_output()
     for function in (
         processing.absorbed_spectral_energy,

@@ -654,7 +654,7 @@ class OptmatSusceptibility(GasSusceptibility):
             compute=lambda: (np.asarray(evaluator(wavelength)) / EPS0,),
         )
         # A transparent model's imaginary part is identically zero, not small: taking
-        # the real part drops nothing and keeps the legacy real dtype downstream.
+        # the real part drops nothing and keeps a transparent gas real downstream.
         return np.asarray(sampled if self.absorbing else np.real(sampled))
 
     def susceptibility(

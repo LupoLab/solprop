@@ -826,11 +826,15 @@ def test_an_optmat_response_round_trips_through_replace_and_serialise():
     assert "group" not in term["dephasing"]
 
 
-def test_an_optmat_response_refuses_legacy_models_a_fraction_or_foreign_terms():
+def test_an_optmat_response_refuses_scalar_only_models_a_fraction_or_foreign_terms():
     response = pure("N2", selection=SELECTION)
-    with pytest.raises(MaterialError, match="neither legacy models nor a fraction"):
+    with pytest.raises(
+        MaterialError, match="neither scalar-only models nor a fraction"
+    ):
         OptmatRamanResponse(fraction=0.5, tensor_terms=response.tensor_terms)
-    with pytest.raises(MaterialError, match="neither legacy models nor a fraction"):
+    with pytest.raises(
+        MaterialError, match="neither scalar-only models nor a fraction"
+    ):
         OptmatRamanResponse(models=(response.tensor_terms[0].model,))
     # A caller's molecular terms (solprop's former N2 constants, dc4ca0d).
     foreign = former_response(FORMER_N2).tensor_terms

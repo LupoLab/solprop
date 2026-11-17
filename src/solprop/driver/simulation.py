@@ -3381,7 +3381,7 @@ class Simulation(Displayed):
         kerr_form : {'real', 'analytic'}, optional
             Which instantaneous cubic a general modal run's material regions respond
             with. ``"real"``, the default, is the real-field cubic
-            ``P = eps0 chi3 (E.E) E`` the legacy field route evaluates, third harmonic
+            ``P = eps0 chi3 (E.E) E`` the channel field route evaluates, third harmonic
             included; ``"analytic"`` is the analytic-signal form
             ``eps0 chi3 (2 |E|^2 E + (E.E) E*) / 4``, which carries the fundamental
             band alone and is what a comparison with an envelope route wants. The real

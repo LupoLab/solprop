@@ -1278,8 +1278,8 @@ def test_a_linear_guide_does_not_run_the_source_pass(strand, monkeypatch):
     position, and the synthesis, the `3 x n_nodes` transforms, the contraction and
     the projection would spend 108 ms per step producing it (measured on this case,
     single-threaded; the short-circuit is 0.1 ms and the whole run of ten steps drops
-    from 1.08 s to 0.001 s). The legacy path short-circuits the same way when nothing
-    but the accumulation was compiled.
+    from 1.08 s to 0.001 s). The channel node pipeline short-circuits the same way when
+    nothing but the accumulation was compiled.
 
     Not asserted as a ratio, which would be a clock on a shared machine: the pass is
     replaced by something that raises, so the assertion is that it was not called.

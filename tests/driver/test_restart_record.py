@@ -240,13 +240,13 @@ def test_a_low_storage_resume_has_no_history_to_record(tmp_path):
 
 
 @pytest.mark.parametrize("march", [True, False])
-def test_a_file_without_the_record_reads_as_unknown_and_resumes(
+def test_a_record_that_states_no_retention_reads_as_unknown_and_resumes(
     build_simulation, tmp_path, march
 ):
-    # A file written before the record: no reason is invented for it, and a missing
-    # history is not warned about, as before.
+    # No reason is invented for a record that states nothing, and a missing history
+    # is not warned about.
     build = soliton(build_simulation, "numpy_ref")
-    path = tmp_path / "legacy.h5"
+    path = tmp_path / "unstated.h5"
     z = interrupted(build, path)
     with h5py.File(path, "r+") as file:
         outcome = json.loads(str(_dataset(file, "meta/outcome").asstr()[()]))
@@ -263,7 +263,7 @@ def test_a_file_without_the_record_reads_as_unknown_and_resumes(
     assert run_module.retention_at(state.outcome.execution, z) is None
     assert resumed(build, path) == []
     restoration = restart(path)["restoration"]
-    assert restoration["retention"] == {"state": "unknown", "reason": "legacy"}
+    assert restoration["retention"] == {"state": "unknown", "reason": "not_recorded"}
     assert (restoration["state"], restoration["reason"]) == (
         ("restored", "retained_history") if march else ("reset", "unavailable_history")
     )

@@ -1110,7 +1110,7 @@ def _general_rows() -> tuple[Row, ...]:
             route="general guide (constant)",
             stepper="low storage",
             response="kerr",
-            features="the general route's legacy transform for the in-stage collar",
+            features="the general route's real modal transform for the in-stage collar",
             why="The general route's in-stage collar rides the low-storage march as "
             "on the reference.",
             build=partial(general, "pair", 2e-5, collar=True),

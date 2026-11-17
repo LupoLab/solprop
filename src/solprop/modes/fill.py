@@ -338,7 +338,7 @@ class GasFillMixin(Displayed):
             return result
         if self.susceptibility is None:
             return np.zeros((1, omega.size))
-        # The legacy gas slot carries a real GasSusceptibility. Absorbing supplied
+        # The single-gas slot carries a real GasSusceptibility. Absorbing supplied
         # optical tables belong to explicit Species components of a mixture.
         return np.zeros((1, omega.size))
 
@@ -401,7 +401,7 @@ class GasFillMixin(Displayed):
 
         - ``omega``: positive angular frequencies in rad/s, already checked by the mode.
         - Returns: susceptibility in m³ and its derivative in m³ s/rad, one spectral row
-          for a legacy gas and one row per population for an explicit mixture.
+          for a single gas and one row per population for an explicit mixture.
         - Warns :class:`DiluteScalingWarning` once per gas where an optmat-selected
           population's linear density scaling departs from optmat's finite-density law
           beyond its bound.

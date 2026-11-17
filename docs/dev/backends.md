@@ -76,11 +76,9 @@ buffers, layout and plans are private; the state is never a parameter of anythin
 session is asked; the numbers are the contract — a backend is correct when it reproduces the
 reference to the stated bound. Selection is by name (`backends.select(name, problem, request)`);
 availability is detected with `importlib.util.find_spec` (importing an accelerator package
-can initialise a device runtime), never cached; a name that is neither backend, a retired
-one's such as `numba_cpu` or `mlx` included, raises `BackendError` naming `native` and
-`numpy_ref` wherever a requested name is resolved, and `native` without its package raises
-`ImportError` saying what to install. A recorded name is not a request, so old output and
-snapshots that record a retired backend still load. `metadata()` says what the execution *was* — the name, the
+can initialise a device runtime), never cached; a name that is neither backend raises
+`BackendError` naming `native` and `numpy_ref` wherever a requested name is resolved, and
+`native` without its package raises `ImportError` saying what to install. `metadata()` says what the execution *was* — the name, the
 resolved propagator mode, and whatever pools, plans and digests the backend has — and the
 driver writes it into the run's `RunMetadata.backend`, outside the resume key.
 
@@ -1231,7 +1229,7 @@ and envelope plasma (`src/response/dispersive.cpp`). The operator is the referen
 `G[w (G E)^3]`: the temporal collar on the products, before `Π₊` and the output multipliers.
 Everywhere the multipliers move off the nodes, to wherever the route already holds a spectrum:
 
-- **The fused node path** (`DispersiveResponse`). The legacy transform synthesises and projects
+- **The fused node path** (`DispersiveResponse`). The channel transform synthesises and projects
   with real matrices that do not depend on frequency, and the collar is the same at every node,
   so a spectral multiplier and the collar commute with both: `P G[w (G E)^3] = G[w P (G E)^3]`.
   The input multipliers act on the padded modal spectrum the stage combination already formed (no
@@ -1944,8 +1942,7 @@ solprop's frozen tables (`tests/backends/test_driver.py`), which move with the s
 backend for Apple GPUs was retired, unused, by
 [SEP 47](seps/archive/sep-0047-run-ownership.md) §6.6, before the driver hierarchy it inherited
 was restructured. `backend="mlx"` raises `BackendError`, as any name that is neither
-backend does, and output that records it still opens. Single precision went with it (ADR-077): every
-backend computes in binary64. SEP 33 and the benchmark ledger keep what it measured.
+backend does. Single precision went with it (ADR-077): every backend computes in binary64. SEP 33 and the benchmark ledger keep what it measured.
 
 ## 5. JAX: evaluated, not adopted
 

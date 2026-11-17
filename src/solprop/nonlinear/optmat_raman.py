@@ -467,7 +467,7 @@ class OptmatRamanResponse(RamanResponse):
         if models is not None or fraction is not None:
             msg = (
                 "an optmat Raman response is built from tensor terms and is absolute; "
-                "it takes neither legacy models nor a fraction"
+                "it takes neither scalar-only models nor a fraction"
             )
             raise MaterialError(msg)
         super().__init__(None, None, thg, species, tensor_terms=tensor_terms)
@@ -700,7 +700,7 @@ def _with_dephasing(response: _optmat.Untyped, request: _Request) -> _optmat.Unt
     A component's :class:`~solprop.physdata.raman_types.Dephasing` sets the width law
     ``c + beta n`` of every band of its species (optmat's ``width_law``), so that the
     response's identity records the change (status ``user``). A law with a Dicke term
-    is refused: optmat caps that term at a Doppler width the legacy law does not have.
+    is refused: optmat caps that term at a Doppler width a Dephasing law does not have.
     """
     laws: dict[str, tuple[float, float, float, float]] = {}
     for name, dephasing in request.dephasing.items():

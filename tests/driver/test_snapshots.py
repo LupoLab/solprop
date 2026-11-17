@@ -542,13 +542,13 @@ def test_output_close_failure_does_not_replace_checkpoint_failure(
     assert not controller._active
 
 
-def test_ordinary_legacy_resume_can_start_taking_snapshots(tmp_path):
+def test_a_resume_with_no_outcome_record_can_start_taking_snapshots(tmp_path):
     class Stop(NullReporter):
         def step(self, z, dz, accepted):
             if accepted:
                 raise KeyboardInterrupt
 
-    path = tmp_path / "legacy.h5"
+    path = tmp_path / "no-outcome.h5"
     with pytest.raises(KeyboardInterrupt):
         ordinary().run(path, progress=Stop())
     with h5py.File(path, "r+") as file:

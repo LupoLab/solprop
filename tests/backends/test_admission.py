@@ -54,7 +54,7 @@ def test_every_flow_method_executed_is_admitted(split_problem, frozen_problem):
 
 
 @pytest.mark.parametrize("name", ["kerr_coefficients", "raman_terms"])
-def test_a_legacy_response_beside_a_general_guide_is_refused(split_problem, name):
+def test_a_channel_response_beside_a_general_guide_is_refused(split_problem, name):
     """The route's source replaces the node pipeline that would read it.
 
     The field is set on a copy past the group's own validation: what is under test
