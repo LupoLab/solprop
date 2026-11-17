@@ -1663,8 +1663,7 @@ def check_cache(path: Path | str | Output, metadata: RunMetadata) -> bool:
     ------
     OutputError
         If the hashes differ, or the file was written at another output schema; or
-        if the file's general modal record names an accessor this build no longer
-        admits (``_check_accessors``); or if `path` is an output handler.
+        if `path` is an output handler.
 
     Examples
     --------
@@ -1678,44 +1677,9 @@ def check_cache(path: Path | str | Output, metadata: RunMetadata) -> bool:
         logger.debug("no cache at %s; starting from the beginning", path)
         return False
     stored, _ = _stored_metadata(path)
-    _check_accessors(path, stored, metadata)
     if stored.configuration_hash() == metadata.configuration_hash():
         return True
     raise OutputError(_resume_refusal(path, stored, metadata))
-
-
-def _check_accessors(
-    path: Path | str, stored: RunMetadata, metadata: RunMetadata
-) -> None:
-    """Refuse a resume whose file names an accessor this build cannot supply.
-
-    The published accessor list is **not** in the resume key: it says what the
-    package version that wrote the file could compute, not what the run computed,
-    and keeping it in the key would make every accessor this package gains
-    invalidate every general modal file ever written. What
-    matters is the one direction that is a real loss -- a file naming a capability
-    this build has dropped -- so the list is checked as a **subset** here instead.
-    A file written before an accessor was added resumes; one written by a build
-    that had an accessor this one does not is refused by the name it is missing.
-    """
-    if stored.modal is None or metadata.modal is None:
-        return
-    theirs = stored.modal.get("accessors")
-    mine = metadata.modal.get("accessors")
-    if not isinstance(theirs, list) or not isinstance(mine, list):
-        return
-    missing = sorted(str(one) for one in theirs if one not in mine)
-    if not missing:
-        return
-    msg = (
-        f"{path} was written by a build whose general modal basis admitted "
-        f"{', '.join(missing)}, which this build does not: a resume would silently "
-        "drop a statistic the file's own record says the run could ask for. The "
-        "accessor list is not in the resume key -- a file written before an "
-        "accessor existed resumes -- so this is a capability that was removed, not "
-        "one that was added"
-    )
-    raise OutputError(msg)
 
 
 def _last_history(file: h5py.File, index: int) -> tuple[StepHistory, StepHistory]:

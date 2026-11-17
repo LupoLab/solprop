@@ -179,17 +179,11 @@ def _stored_hashed(document: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
     """Return the hashed part of a stored record, as the stored text holds it.
 
     The entries :meth:`RunMetadata.hashed` covers, taken from the document rather than
-    from the objects rebuilt from it: the general modal identity without its accessor
-    list (:func:`_hashed_modal`), and the material manifest's hashed part
+    from the objects rebuilt from it, with the material manifest's hashed part
     (:func:`solprop.physdata.selection.hashed_document`). An entry the document lacks
     stays absent, so the record digests to the stamp its writer computed.
     """
     hashed = {name: document[name] for name in _HASHED_ENTRIES if name in document}
-    modal = hashed.get("modal")
-    if isinstance(modal, dict):
-        hashed["modal"] = {
-            key: value for key, value in modal.items() if key != "accessors"
-        }
     if "materials" in hashed:
         materials = hashed["materials"]
         hashed["materials"] = cast(
@@ -199,28 +193,6 @@ def _stored_hashed(document: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
             ),
         )
     return hashed
-
-
-def _hashed_modal(modal: Mapping[str, object] | None) -> JsonValue:
-    """Return the general modal identity as the resume key sees it.
-
-    Everything in the record except ``accessors``. Every other entry says what
-    *was computed* -- which guide, which tables, which basis, which responses, how
-    far from orthonormal it measured -- and a resume must refuse when one of them
-    moves. ``accessors`` says what *this package version can compute*, which is a
-    property of the build and not of the run: leaving it in the key would make
-    every accessor this package gains invalidate every general modal file ever
-    written, for a capability those files **gain** rather than lose. The list stays in
-    the record for a reader, and the resume door checks it as a **subset** instead
-    (:func:`solprop.output.hdf5.check_cache`).
-
-    - ``modal``: the identity, as :func:`solprop.translate.general.modal_identity`
-      writes it, or ``None`` for a run that is not a general modal one.
-    - Returns: the serialised identity without ``accessors``, or ``None``.
-    """
-    if modal is None:
-        return None
-    return serialise({key: value for key, value in modal.items() if key != "accessors"})
 
 
 def _guide_text(guide: object) -> str:
@@ -471,10 +443,10 @@ class RunMetadata(Displayed):
         is rebuilt from, the gauge, the frame, the active band, the noise reference
         basis and the accessors this basis admits, as
         :func:`solprop.translate.general.modal_identity` writes it. ``None`` for
-        every other route. Included in the resume key, less the accessor list, so
-        that a run continued against a different guide, a different table or a
-        reordered mode axis is refused by the field that changed
-        (:mod:`solprop.output.capability`).
+        every other route. Included in the resume key, accessor list and all, so
+        that a run continued against a different guide, a different table, a
+        reordered mode axis or another set of admitted accessors is refused by the
+        field that changed (:mod:`solprop.output.capability`).
     materials : solprop.physdata.selection.MaterialManifest
         The run's **material manifest**: the optmat version, the
         identity of every optmat model the run resolved, its species, compositions
@@ -582,10 +554,8 @@ class RunMetadata(Displayed):
     spatial: Mapping[str, object] | None = dataclasses.field(
         default=None, metadata=_HASHED
     )
-    # The whole identity is stored; the key leaves out the accessor list, which is
-    # the build's capability and not the run's description (_hashed_modal).
     modal: Mapping[str, object] | None = dataclasses.field(
-        default=None, metadata={**_HASHED, "key": _hashed_modal}
+        default=None, metadata=_HASHED
     )
     # The whole manifest, measurements included, is stored; the key takes its
     # identities and policies, and a run of solprop's own materials keys on `None`.
@@ -766,8 +736,6 @@ class RunMetadata(Displayed):
         git provenance are excluded, so that a resume survives an unrelated commit or a
         dirty working tree, as long as they move no number the record holds; a new
         library or platform may move one, and the resume is then refused.
-        ``modal.accessors`` is excluded for the same reason -- it is what this build can
-        compute, not what this run did (``_hashed_modal``).
 
         Returns
         -------
@@ -1022,11 +990,10 @@ class RunMetadata(Displayed):
         Returns
         -------
         str
-            Canonical JSON carrying the hashed part plus the whole general modal
-            identity, whose published accessor list the hashed part leaves out, the
-            whole material manifest, the plane-reference record, the noise model's
-            resolution, the conventions, the backend record, the versions, the git
-            provenance and the creation time.
+            Canonical JSON carrying the hashed part plus the whole material
+            manifest, the plane-reference record, the noise model's resolution, the
+            conventions, the backend record, the versions, the git provenance and the
+            creation time.
 
         Examples
         --------

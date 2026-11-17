@@ -381,14 +381,11 @@ same budget as the knot defect — and `modal.metric.active_departure` is the sa
 quantity over every bin the active band admits, weighted by nothing, which is warned on
 rather than gated (see [general modal propagation](../waveguides/general-modal.md)).
 
-**`modal.accessors` is in the record and deliberately *not* in the key.** It is the list
-of statistic names the basis admits, which is a statement about what the package version
-that wrote the file could compute — not about what the run computed, which is what every
-other entry of `modal` says. Were it in the key, every accessor solprop gains would
-invalidate every general modal file already written, for a capability those files *gain*
-rather than lose. {py:func}`~solprop.output.hdf5.check_cache` compares the two lists as
-a **subset** instead: a file whose list lacks a name this version admits resumes, and a
-file naming an accessor this version does not admit is refused by that name.
+**The key holds `modal.accessors` too**, the list of statistic names the basis admits.
+A file whose list differs from the run's, by a name more or a name fewer, has another
+configuration hash, and {py:func}`~solprop.output.hdf5.check_cache` refuses it as it
+refuses any other change, naming `modal.accessors`. A file written by a solprop version
+that admitted other accessors is therefore finished with that version, or rerun.
 
 Because the record holds the metric's **identity** and not its arrays,
 {py:func}`solprop.processing.modal.physical_energy` refuses a file whose metric is not
