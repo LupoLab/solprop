@@ -213,7 +213,7 @@ measured while it existed.
     transform planned within the stage's share), and so still does this one without
     patient plans: the stage needs more of the levels' time than it gets.
     Timed alone, the measured threaded plans ran 0.53–1.05 of estimate's time
-    (medians 0.74 on the EPYC 7763, 0.91 on the Xeon, about 0.95 on the M5 Max), and
+    (medians 0.74 on the EPYC 7763, 0.91 on the Xeon Gold 6240, about 0.95 on the M5 Max), and
     estimate's serial plans 1.06–2.8 of measure's. Those timings ran outside the native
     wait scope, so LLVM's runtime woke its idle threads at each loop; the timing alone
     now runs inside it, as a step's transforms do (on the M5 Max a 4 × 10240 plan took
@@ -346,7 +346,7 @@ measured while it existed.
   the per-element form. The other per-element transcendentals
   [#338](https://github.com/LupoLab/solprop/issues/338) listed (the envelope and
   trapezoid plasma columns, two-component magnitudes, the Adams corrector and dense
-  observation) were negligible in one-thread profiles of the tracked cases on the Xeon.
+  observation) were negligible in one-thread profiles of the tracked cases on the Xeon Gold 6240.
   The largest left is the lossy planar medium's complex square root (`hypot`), about 7 %
   of `planar`'s one-thread march.
 - **A pooled allocator.** Allocation service in the warmed propagation window is below

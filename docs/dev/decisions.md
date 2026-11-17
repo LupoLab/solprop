@@ -2002,8 +2002,8 @@ Withdrawn (development-process record, not a design decision).
   apart from 2 recipes with unseeded noise, which a resume redraws from the file's seed. All
   31 differed between those and an Intel Xeon Gold 6240, which also had another glibc and
   Python patch version, in the launch, absorber rates, quadrature weights, effective areas
-  and noise spectra. Forcing other OpenBLAS kernels on the Xeon moved 23 to 27 of 34 recipes.
-  So a long job has to stay on one CPU family to resume.
+  and noise spectra. Forcing other OpenBLAS kernels on the Xeon Gold 6240 moved 23 to 27 of
+  34 recipes. So a long job has to stay on one CPU family to resume.
 - **Why not a SEP:** SEP 42 stays `Final` as the record of what it did, with a note pointing
   here. The maintainer judged a decision record enough for removing a mechanism, and the same
   goes for ADR-067.
@@ -2342,10 +2342,10 @@ Withdrawn (development-process record, not a design decision).
   across four comparisons on the EPYC (same build and against #598, two independent
   stored measurements), no slower than plans measured in place; `ctc` 1.003–1.017, its
   range spanning 1 with a second stored measurement, so the plan a single measurement
-  picks; `rdw` 1.00; the Xeon's geometric mean 1.015, every range spanning 1. Fields agree
-  to rounding. A first attempt that planned each transform from nothing measured a key
-  seeded twice twice and lost shared sub-plans (`rdw` 6.7 s cold on the Xeon against 1.4 s);
-  a transform to measure now starts from the workspace's own measurements. The store
+  picks; `rdw` 1.00; the Xeon Gold 6240's geometric mean 1.015, every range spanning 1.
+  Fields agree to rounding. A first attempt that planned each transform from nothing measured
+  a key seeded twice twice and lost shared sub-plans (`rdw` 6.7 s cold on the Xeon Gold 6240
+  against 1.4 s); a transform to measure now starts from the workspace's own measurements. The store
   holds about 20 kB a case at one width (80 kB for four cases on the EPYC) and grows with
   the shapes a user runs; nothing evicts a plan, and `--clear` empties it. Plans kept by
   the earlier opt-in file are not read. Measured threaded rows stay off by default: a
