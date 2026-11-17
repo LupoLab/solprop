@@ -246,12 +246,12 @@ in both directions; a second test checks the flags and counts named in the `flag
 against the fields of `Flags`.
 
 **The transverse edge.** `NumpyWorkspace.edge_reading(edge, *, faces, current, full)`
-(native's `NativeBackend._edge_reading`) returns an `_EdgeReading` ([SEP 44](seps/archive/sep-0044-native-edge-read.md)): region sums, each column's unweighted energy, each
-line's `(inward, windowed)` strip and the summed rectified current, never the field. The default forms them with
-`_HostEdgeReduction` on a host copy. Native's takes the edge's `_EdgeTables` and `_EdgeLine`s, whose weights, strides,
+(native's `GeneralResident::edge_reading` in C++, `native/src/march/engines.cpp`) returns an `_EdgeReading` ([SEP 44](seps/archive/sep-0044-native-edge-read.md)): region sums, each column's unweighted energy, each
+line's `(inward, windowed)` strip and the summed rectified current, never the field. The reference forms them with
+the edge's host reduction (`_HostEdgeReduction`) on its host state. Native's takes the edge's `_EdgeTables` and `_EdgeLine`s, whose weights, strides,
 windows and onsets say all there is to know about the geometry, so a backend holds no face, mask or judgement of its own. It
 reads the state at a committed position, so it may use scratch that a step writes before reading, and it must leave the march
-as it was. `Backend.edge_memory(space)` says what binding holds, from the grid alone, for `estimate`: the default holds
+as it was. `Backend.edge_memory(space)` says what binding holds, from the grid alone, for `estimate`: the reference holds
 nothing beyond the state, and native's is `_transverse_edge_bytes`, equal to its `transverse_edge` ledger row.
 
 **Source reservations in the Adams march.** The engine protocol's
@@ -287,8 +287,9 @@ sample, a trial's predictor, source, corrector and scored defect norms (`trial(z
 stencil)`), and the adoption and transport of an accepted step, which receives the
 retained entries oldest first (`accept(dz, free, stencil, kept)`). Only scalars, the
 coefficient tables and the norms cross the interface. The reference's engine is
-`HostHistory` over the workspace; it still holds and restores the accepted state around
-a dense observation, and the observation itself, until SEP 52 moves them to the session.
+`HostHistory` over the workspace; a dense observation is the session's (`HostSession`),
+which asks the reference's dense output (`numpy_ref/dense.py`) to hold the accepted state
+aside, interpolate the plane and restore it.
 `native` keeps its engine resident in its native state and refuses the untransported
 compensation witness by name.
 
@@ -1190,12 +1191,13 @@ spatial kind it does not execute.
 
 `Observation` (host arrays only, FFT convention): `z`, `field` in the lab frame `(n_modes,
 n_pol, n_omega)`, `noise_phase` (if a noise model is active, so processing can restore the
-background), both `None` for an observation made with `observe(field=False)`: nothing then crosses to the host and nothing scans the field, so a
+background), both `None` for a field-free observation (a plane whose field is not kept): nothing then crosses to the host and nothing scans the field, so a
 diverged field-free run is caught by the step loop's finite-norm rule and the
 statistics, `step_history` (arrays of z, h, error norm, accepted flag, wall time since the
 last observation; recorded whether the run was adaptive or replayed a schedule, since the
-embedded estimate is computed either way), `n_steps`, `n_rejected`, and `step_stats`. `stats()` returns a dict of small host arrays
-keyed by statistic name, without a batch axis. Nothing writes to an observation's
+embedded estimate is computed either way), `n_steps`, `n_rejected`, and `step_stats`. A plane's statistics, computed by the backend (the
+reference's workspace `stats`) and carried by its `ObservationReady` event, are a dict of small host arrays keyed by
+statistic name. Nothing writes to an observation's
 arrays again, the backend included: `run_problem` hands them to the output without a copy,
 and a handler may keep them. The array-backed state of a host backend is observed as it is
 and frozen, so its next step replaces it rather than accepting in place; the run's conversion
