@@ -1678,17 +1678,10 @@ def check_cache(path: Path | str | Output, metadata: RunMetadata) -> bool:
         logger.debug("no cache at %s; starting from the beginning", path)
         return False
     stored, _ = _stored_metadata(path)
-    _check_plasma_benchmark(stored)
     _check_accessors(path, stored, metadata)
     if stored.configuration_hash() == metadata.configuration_hash():
         return True
     raise OutputError(_resume_refusal(path, stored, metadata))
-
-
-def _check_plasma_benchmark(metadata: RunMetadata) -> None:
-    """Keep the historical gated equation out of every continuation path."""
-    if metadata.configuration.get("_benchmark_plasma_source"):
-        raise OutputError("gated plasma benchmark output cannot be resumed")
 
 
 def _check_accessors(
@@ -1835,7 +1828,6 @@ def resume(path: Path | str | Output) -> ResumeState:
     """
     path = _file_path(path, "resume")
     metadata, _ = _stored_metadata(path)
-    _check_plasma_benchmark(metadata)
     with h5py.File(path, "r") as file:
         outcome = _read_outcome(file)
         checkpoint = _current_checkpoint(

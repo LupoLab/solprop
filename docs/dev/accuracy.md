@@ -22,8 +22,7 @@ conversion built from Luna's own archived cladding and gas data, and the witness
 launch the *true* energy of Luna's pulse — the nominal energy times the
 launch-spectrum-weighted mean of `Re n_eff(ω, 0)`, 1.0000357 for the reduced M2 case
 and 1.0049222 for the reduced CtC case. That mean agrees with the true energy of the
-archives' own plane zero to 2e-16 on both RDW cases and the full CtC one, and to 1.2e-11
-on the reduced CtC one.
+reduced CtC archive's own plane zero to 1.2e-11.
 
 **Comparisons between time windows.** Runs on different windows differ by a band-edge
 term at first order in the window factor, whatever the boundary does: Kerr-generated
@@ -256,10 +255,7 @@ hyperpolarisability.
 fill reaching a true vacuum has `dp/dz` diverging at the exit. Measured on the reduced
 case at 250, 500 and 1000 fixed steps, all four rows run back to back, changing one
 thing at a time (coarser rungs exceed the in-stage absorber's stability limit, 5.5 mm on
-this metre, ADR-025). The plasma rows use the held-current source; the Luna comparisons
-below run the time-domain gated plasma source through a test-only hook
-(`tests/gated_source.py`), which `numpy_ref` and `native` both run, held to each other
-by the gated rows of the case catalogue (`tests/backends/plasma_rows.py`):
+this metre, ADR-025). The plasma rows use the held-current source:
 
 | fill | plasma | order |
 |---|---|---|
@@ -273,9 +269,6 @@ is the second candidate — and at these rungs it costs nothing: the switch-on i
 once the steps are fine enough, and the vacuum end never is, so the diverging `dp/dz` of
 [stepper.md](stepper.md) section 10, trap 5, is the whole of it. Coarser ladders, at which
 the plasma row is not yet asymptotic, attribute the gradient's cost to the plasma instead.
-
-The answer is converged regardless: two decades of tolerance move the reduced case's
-shape by 6.7e-6 under the default integrator (`m2_witness_metrics.json`).
 ```{eval-rst}
 .. plot::
    :filename-prefix: accuracy-m2-order
@@ -288,51 +281,33 @@ shape by 6.7e-6 under the default integrator (`m2_witness_metrics.json`).
 ```
 
 
-**Against Luna.** The witness is production Luna at `rtol = 1e-6`, the tolerance its
-interface cannot change; a second witness at `rtol = 1e-9` is the converged one. All rows
-are asserted in `tests/driver/test_prop_capillary.py`.
-
-| metric | reduced case (2 modes, 1 m) |
-|---|---|
-| fundamental, shape | 5.7e-2 |
-| fundamental, content | 1.02783 |
-| VUV band, 100–140 nm | 1.43× in the fundamental, 1.30× over both modes; arrival 4.730 fs against 4.622 fs |
-| second mode, energy | 1.107 |
-
-The witness runs use the true-power conversion and launch of the introduction; that
-launch moves the reduced M2 metrics by parts in 1e4 and not to zero, because the fill is
-a gradient, whose change of variables keeps a `−½[ln w(z) − ln w(0)]` term.
-
-Most of the reduced fundamental's 5.7e-2 shape is the witness rate's barrier-suppression
-factor, which Luna's rate lacks: the reduced case run as in
-`tests/driver/test_prop_capillary.py` with that factor alone off — Luna's own PPT, Stark
-shift and dipole factor kept — measures 2.0e-2 and a content of 0.995, and on optmat's
-default helium rate also 2.0e-2. Taking the Stark shift and the dipole factor off as well
-raises the shape again to 5.2e-2, so they are not part of the gap.
-
-On the full case the second mode is Luna's to converge: the `benchmark`-marked
-`test_the_full_m2_case_against_its_witness` holds solprop's second mode to between 0.97
-and 1.03 of Luna's own converged answer (`rtol = 1e-9`), where against production Luna
-it is between 0.45 and 0.7. With the barrier-suppression correction off the two codes'
-on-axis electron densities agree to 0.04 %, which is what excludes the rate as a cause.
+**Against Luna.** No exit spectrum of this case is compared with Luna. The comparisons
+were of the reduced case (two modes, 1 m: the fundamental's shape and content, the
+100–140 nm band and its arrival, the second mode's energy) and the full case (four
+modes, 1.5 m, against production Luna at `rtol = 1e-6` and a converged Luna at
+`rtol = 1e-9`), and each ran a private, test-only copy of the time-domain gated plasma
+source that Luna steps. Since [SEP 27](seps/archive/sep-0027-held-plasma-current.md)
+solprop's plasma is the held current, which no stored Luna run computes, so with that
+gated source removed nothing compares like with like, and the comparisons and their
+field archives went with it. What stays compared with Luna is what such a comparison
+controls for: the grid (bitwise), the helium susceptibility, its equation-of-state
+offset and the launch, all asserted in `tests/driver/test_prop_capillary.py`.
 
 
 ## 6. Milestone M4: the comb-to-continuum case
 
 All rows are asserted in `tests/driver/test_prop_capillary.py`. Luna is compared on the
-reduced case only; the full case (six modes, 0.3 m on a 4 ps window) is solprop's own.
+reduced case only (the fundamental alone, 0.1 m on a 2 ps window, without input noise);
+the full case (six modes, 0.3 m on a 4 ps window) is solprop's own. The two codes start
+from the same state (measured 1.8e-13 apart in total energy) and reach the same peak
+electron density (measured 1.1e-6 apart, bounded at 1e-3).
 
-| metric | reduced case (1 mode, 2 ps window, 0.1 m) |
-|---|---|
-| exit energy, ours over Luna's | 1.00001 |
-| fundamental, content | 1.00001 |
-| fundamental, shape | 0.03833 |
-
-The reduced case is the fundamental alone on a window five pulse widths wide, so the
-pump stays clear of both codes' temporal collars, and it runs without input noise.
-Noise-free, its Raman cascade grows only from rounding, so the two codes agree on the
-fundamental and its energy, and the shape row is the relative L2 distance of the
-normalised exit spectra. Seeded with shot noise the same case forms the cascade
+The exit-spectrum bounds (the fundamental's shape and content and the exit energy, each
+against Luna's) ran the private gated plasma source of section 5 under Luna's
+vibrational Raman amplitude, half of solprop's, and were dropped with it for the same
+reason: the time-domain gated integral no longer exists to compare like with like.
+The reduced case's window is five pulse widths wide, so the pump stays clear of both
+codes' temporal collars. Seeded with shot noise it forms the Raman cascade
 (`test_the_seeded_reduced_ctc_case_forms_the_raman_cascade`), which is asserted on
 solprop alone. The former reduced case, two modes on a 1 ps window, clipped the 400 fs
 pump at the window's edge, and the stimulated Raman scattering it seeded in both codes
@@ -494,12 +469,6 @@ field's contraction pragma removed
 
 ## 8. Where Luna is not converged, and where the two codes still differ
 
-- **Luna's weak modes on a stiff case**: the second mode of the full M2 case at Luna's
-  default tolerance is far from its converged one (`rtol = 1e-9`, above); its global weak norm gives a
-  mode at a percent of the fundamental no relative error control, and the tolerance is
-  unsettable through its interface. The quadrature-off control excludes its two
-  first-order mechanisms, the right-endpoint operator and the per-step window, on that
-  case.
 - **Accepted-step counts.** Luna's are not reproducible across machines (4856 against 4851
   on one case); solprop's were identical on both when measured, an observation rather
   than a requirement ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)).
@@ -511,8 +480,7 @@ field's contraction pragma removed
 ## 9. Regenerating the numbers
 
 **The witnesses.** Every Luna witness has a generator beside it under `tests/data/`
-(`generate_luna_rdw.py`, `generate_luna_ctc.py`,
-`generate_luna_rdw_converged.py` and the others named
+(`generate_luna_rdw.py`, `generate_luna_ctc.py` and the others named
 `generate_luna_*.py`), each recording Luna's commit, the thread counts and the run time in
 its provenance; none is run by the suite, and nothing on this page needs a new Luna run.
 
@@ -575,7 +543,7 @@ SOLPROP_FFTW_PLAN=estimate SOLPROP_WRITE_RECORDS=1 \
 ```
 
 then each `benchmark`-marked writer by hand, per its own docstring — the two middle
-switches of the M2 order study and the full-size witness comparison. The environment
+switches of the M2 order study. The environment
 matters: the thread pins are the slow lane's own (`poe test-slow`) and `estimate` is
 the plan flag CI uses, so a record taken without them is compared in CI against a run
 that had them.

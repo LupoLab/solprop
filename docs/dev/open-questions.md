@@ -118,14 +118,14 @@ between backends.
 ## Validation
 
 **Systematic differences against Luna's mixture witness.**
-`tests/backends/test_luna_mixture_propagation.py` propagates a single gas, the same gas
-split into two populations, and a two-channel plasma case over 64 fixed steps from Luna's
-own inputs and compares the exit field with Luna.jl's
-(`tests/data/luna_mixture_propagation.json`). The relative L2 differences are 5.25e-9
-(single and split) and 1.12e-8 (plasma), the same on every run. The test admits them
-under a predeclared rounding budget, $64\,n_{to}\,n_{\rm channels}\cdot 7\cdot{\rm
-steps}\cdot\varepsilon$ (1.30e-8 and 2.61e-8), which is an allowance rather than a count
-of operations, so the margin is 2.3–2.5. Open: what the systematic difference is —
+`tests/backends/test_luna_mixture_propagation.py` propagates a single gas and the same
+gas split into two populations over 64 fixed steps from Luna's own inputs and compares
+the exit field with Luna.jl's (`tests/data/luna_mixture_propagation.json`). The relative
+L2 differences are 5.25e-9, the same on every run. The test admits them under a
+predeclared rounding budget, $64\,n_{to}\cdot 7\cdot{\rm steps}\cdot\varepsilon$
+(1.30e-8), which is an allowance rather than a count of operations, so the margin is
+2.5. (The witness's two-channel plasma case ran the gated plasma source and was dropped
+with it; its arrays stay in the archive.) Open: what the systematic difference is —
 summation order, an input conversion or a small model difference — so that the bound can
 be derived rather than budgeted.
 

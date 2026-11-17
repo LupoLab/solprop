@@ -271,7 +271,7 @@ bool GeneralWorkspace::use_chunked_blas_for_synthesis() const noexcept {
 bool GeneralWorkspace::folds_single_node() const noexcept {
   if constexpr (build::device)
     return false;
-  return !general_ && !dispersive_ && !held_radial() && !gated_plasma() &&
+  return !general_ && !dispersive_ && !held_radial() &&
          !problem_.separable_geometry() && problem_.dims.n_modes == 1 &&
          problem_.dims.n_nodes == 1 && problem_.dims.node_chunk == 1 &&
          problem_.dims.n_pol_state == 1 && problem_.dims.n_pol_transform == 1 &&

@@ -49,7 +49,7 @@ from solprop.translate.coupling import frame_record
 from solprop.translate.envelope_plasma import assembly_record
 from solprop.translate.flux import flux_record
 from solprop.translate.plasma_integration import integration_record
-from solprop.translate.plasma_source import _BENCHMARK_GATED, plasma_source_record
+from solprop.translate.plasma_source import plasma_source_record
 from solprop.translate.problem import PropagationProblem, StepperSettings
 from solprop.translate.responses import declares_harmonic_carrier
 from solprop.translate.routes import flux_of, tdse_descriptor, transverse_of
@@ -206,11 +206,9 @@ def metadata_for(
         # belongs to backend execution evidence, like the TDSE certificate. Its
         # last bits may change with the host FFT implementation.
         source = plasma_source_record(problem.grids)
-        identity = {key: value for key, value in source.items() if key != "certificate"}
-        if _BENCHMARK_GATED.get():
-            identity["form"] = "gated_benchmark"
-            record["_benchmark_plasma_source"] = "gated_nonresumable"
-        record["plasma_source"] = identity
+        record["plasma_source"] = {
+            key: value for key, value in source.items() if key != "certificate"
+        }
     # The planes and the statistics come from the request rather than from the caller:
     # a resume continues at a plane index, so two runs that differ in either are not the
     # same run, and neither is carried by StepperRecord.

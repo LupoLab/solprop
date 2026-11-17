@@ -247,8 +247,6 @@ class Problem:
 
         envelope: bool
 
-        gated: bool
-
         stash: bool
 
         envelope_rule_nodes: npt.NDArray[np.float64]

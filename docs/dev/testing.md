@@ -37,7 +37,7 @@ do not launch the full suite merely because a SEP is being committed or merged.
 | property-based | `hypothesis` over grid sizes, pulse parameters, pressures | grids, pulses, materials, Chebyshev |
 | golden regression | `pytest-regressions` (`num_regression`) with tolerance, reference stored next to the test | materials tables, stored Luna results |
 | reference problem | the ladder in [stepper.md §11](stepper.md#11-verification-ladder-for-solprops-solver-tests): P0 linear, P1 N-soliton with phase, P2 analytic z-varying loss and dispersion, P3 cross-scheme Richardson | solver work |
-| target simulation | RDW VUV and CtC against stored Luna results and solprop's own converged references (§8) | the named problems M2, M3, M4 |
+| target simulation | RDW VUV and CtC against solprop's own converged references, and their inputs and plasma against stored Luna results (§8) | the named problems M2, M3, M4 |
 | doctest | every `Examples` section runs | all docstrings |
 | smoke | import time budget; a run of every gallery example in reduced size | package, docs |
 
@@ -504,6 +504,6 @@ Tests, records and benchmarks refer to these by name.
 |---|---|
 | **P0–P3** | the solver's verification ladder: linear only (P0), N-soliton recurrence with phase (P1), analytic z-varying loss and dispersion (P2), full UPPE against a Richardson reference (P3); see [stepper.md](stepper.md) §11 |
 | **M1** | N = 6 soliton recurrence through `prop_gnlse`: GNLSE, envelope grid, mode-averaged, checked against the analytic solution with its phase |
-| **M2**, **RDW** | resonant dispersive-wave emission into the VUV in a hollow capillary: 125 µm core radius, 1.5 m, helium from 0.8 bar to vacuum, four HE₁ₘ modes, a 7.5 fs 275 µJ pulse, field grid, Kerr and plasma; full and reduced sizes, against a stored Luna witness and solprop's own converged reference |
-| **M3** | the M2 case on a compiled backend (`numba_cpu` when it was recorded): against `numpy_ref` (and Luna) at equal achieved error; the whole-run benchmark rows |
-| **M4**, **CtC** | the comb-to-continuum supercontinuum: 16 µm core radius, 0.2 m of hydrogen at 40 bar, six HE₁ₘ modes, a 400 fs pulse at 515 nm on a 4 ps field grid, Raman and plasma; full and reduced sizes, against a stored Luna witness |
+| **M2**, **RDW** | resonant dispersive-wave emission into the VUV in a hollow capillary: 125 µm core radius, 1.5 m, helium from 0.8 bar to vacuum, four HE₁ₘ modes, a 7.5 fs 275 µJ pulse, field grid, Kerr and plasma; full and reduced sizes, against solprop's own converged reference, with its inputs against a stored Luna witness ([accuracy.md](accuracy.md) §5) |
+| **M3** | the M2 case on a compiled backend (`numba_cpu` when it was recorded): against `numpy_ref` at equal achieved error; the whole-run benchmark rows |
+| **M4**, **CtC** | the comb-to-continuum supercontinuum: 16 µm core radius, 0.2 m of hydrogen at 40 bar, six HE₁ₘ modes, a 400 fs pulse at 515 nm on a 4 ps field grid, Raman and plasma; full and reduced sizes, with the reduced case's inputs and plasma against a stored Luna witness ([accuracy.md](accuracy.md) §6) |

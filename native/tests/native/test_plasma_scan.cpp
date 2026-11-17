@@ -120,7 +120,10 @@ std::vector<double> filter_tolerance(const std::vector<double>& row,
   return tolerance;
 }
 
-// One band scan of `rows` rows of `samples` samples, staged or direct, on the host.
+// One band scan of `rows` rows of `samples` samples, staged or direct, on the host:
+// one team per pair of rows, as the device column treats a node's two components, each
+// row `team_band_filter` then `team_trapezoid_prefix` through one tile. `team_size` 0
+// is the build's: the device team width, or Kokkos' choice.
 template <bool Staged>
 std::pair<std::vector<double>, std::vector<double>>
 team_band_scan(const std::vector<double>& values, const std::size_t rows,
@@ -142,8 +145,40 @@ team_band_scan(const std::vector<double>& values, const std::size_t rows,
     host_taps(k) = taps[k];
   Kokkos::deep_copy(execution_space, input, host_input);
   Kokkos::deep_copy(execution_space, tap_view, host_taps);
-  native::portable_team_band_scan<Staged>(execution_space, input, filtered, prefixes,
-                                          tap_view, spacing, team_size);
+  using TeamPolicy = Kokkos::TeamPolicy<native::ExecutionSpace>;
+  const auto pairs = static_cast<int>((rows + 1) / 2);
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  TeamPolicy policy(execution_space, pairs,
+                    team_size > 0 ? team_size : SOLPROP_NATIVE_DEVICE_TEAM_SIZE);
+#else
+  TeamPolicy policy = team_size > 0
+                          ? TeamPolicy(execution_space, pairs, team_size)
+                          : TeamPolicy(execution_space, pairs, Kokkos::AUTO());
+#endif
+  if constexpr (Staged)
+    policy.set_scratch_size(
+        0,
+        Kokkos::PerTeam(native::band_staging_bytes<Staged, native::ExecutionSpace>()));
+  const int half = static_cast<int>(taps.size()) - 1;
+  const int count = static_cast<int>(samples);
+  Kokkos::parallel_for(
+      "solprop_native.test.band_team_scan", policy,
+      KOKKOS_LAMBDA(const TeamPolicy::member_type& team) {
+        const auto first_row = 2 * static_cast<std::size_t>(team.league_rank());
+        double local[native::plasma_max_taps] = {};
+        for (int k = 0; k <= half; ++k)
+          local[k] = tap_view(static_cast<std::size_t>(k));
+        const auto tile = native::band_tile<Staged>(team);
+        for (auto row = first_row; row < first_row + 2 && row < rows; ++row) {
+          native::team_band_filter<Staged>(team, tile, input, row, filtered, row, count,
+                                           local, half);
+          native::team_trapezoid_prefix(
+              team, filtered, row, count, spacing,
+              [&](const int sample, const double prefix) {
+                prefixes(row, static_cast<std::size_t>(sample)) = prefix;
+              });
+        }
+      });
   execution_space.fence("solprop_native band team-scan test");
   const auto host_filtered =
       Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, filtered);

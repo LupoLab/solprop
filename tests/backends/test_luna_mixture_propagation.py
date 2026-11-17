@@ -12,13 +12,11 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from gated_source import _gated_source
-from mixture_cases import AnalyticRate
 from sessions.runs import run as session_run
 from solprop.constants import EPS0, C
 from solprop.grid import FieldGrid
 from solprop.modes import MarcatiliMode
-from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
+from solprop.nonlinear.responses import KerrResponse
 from solprop.physdata import (
     Component,
     IonisationData,
@@ -84,26 +82,11 @@ def problem_for(tag, steps):
         zip(LUNA[tag + "_DENSITY"], LUNA[tag + "_GAMMA3"], strict=True)
     ):
         label = f"population-{index}"
-        potential = p["potentials"][index] if tag == "PLASMA" else 1e-18
         material = Species(
-            label, optical, gamma3=gamma3, ionisation=IonisationData(potential)
+            label, optical, gamma3=gamma3, ionisation=IonisationData(1e-18)
         )
         components.append(Component(material, Constant(density), label))
         responses.append(KerrResponse(gamma3, thg=True, species=label))
-        if tag == "PLASMA":
-            responses.append(
-                PlasmaResponse(
-                    material,
-                    # Luna's column is the cumulative trapezoid (SEP 18).
-                    integration="trapezoid",
-                    rate=AnalyticRate(
-                        scale=p["rate_scales"][index],
-                        reference=p["rate_reference"],
-                        threshold=0.0,
-                    ),
-                    species=label,
-                )
-            )
     mixture = Mixture.of(*components)
     mode = MarcatiliMode(
         p["radius"], mixture=mixture, cladding=1.45, loss_scale=0.0, model="full"
@@ -121,9 +104,8 @@ def problem_for(tag, steps):
         dz_max=grid.length / steps,
         dz_init=grid.length / steps,
         schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / steps),
-        ionisation_field_range=(1.0, 1e12) if tag == "PLASMA" else None,
     )
-    _, epsilon0, charge_mass_ratio, nlscale = LUNA["CONSTANTS"]
+    _, epsilon0, _, nlscale = LUNA["CONSTANTS"]
     low, high = problem.linear.z_span
     aeff = LUNA[tag + "_AEFF"][0]
     transform = dataclasses.replace(
@@ -133,10 +115,6 @@ def problem_for(tag, steps):
     )
     kerr = problem.responses.kerr_coefficients
     assert kerr is not None
-    channels = tuple(
-        dataclasses.replace(channel, charge_mass_ratio=charge_mass_ratio)
-        for channel in problem.responses.plasma_channels
-    )
     prefactor = (
         spectrum(tag + "_PREFACTOR")
         * np.asarray(LUNA["OMEGA_WINDOW"])
@@ -147,7 +125,6 @@ def problem_for(tag, steps):
         kerr_coefficients=dataclasses.replace(
             kerr, coefficient=kerr.coefficient * epsilon0 / EPS0
         ),
-        plasma_channels=channels,
         prefactor_constant=prefactor,
         prefactor=tabulate(
             lambda z: np.repeat(prefactor[None], len(z), axis=0), low, high
@@ -178,28 +155,15 @@ def problem_for(tag, steps):
 
 @pytest.mark.parametrize("tag", ["SINGLE", "SPLIT"])
 def test_luna_mixture_field_witness(tag, backend_class):
-    check_luna_mixture_field_witness(tag, backend_class)
-
-
-def test_luna_plasma_witness_retains_the_historical_gated_equation(backend_class):
-    # The archived array and its tolerance retain their original equation, which
-    # both backends run privately. The production current source has independent
-    # all-backend mixture ladders.
-    with _gated_source():
-        check_luna_mixture_field_witness("PLASMA", backend_class)
-
-
-def check_luna_mixture_field_witness(tag, backend_class):
     steps = 64
     problem, run_request, grid = problem_for(tag, steps)
-    channels = max(1, problem.flags.n_channels)
     # This coefficient and refinement formula were recorded before Luna ran.
     # The finest DOPRI5 remainder is estimated from the preceding refinement;
-    # arithmetic accumulates 64 eps/sample/channel/stage/step.
+    # arithmetic accumulates 64 eps/sample/channel/stage/step, over one channel:
+    # neither witness has a plasma column.
     rounding = (
         DATA["bounds"]["roundoff_coefficient"]
         * grid.n_to
-        * channels
         * 7
         * steps
         * np.finfo(float).eps

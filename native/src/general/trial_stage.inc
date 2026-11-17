@@ -353,8 +353,6 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
       const Kokkos::Profiling::ScopedRegion region("solprop_native.held.response");
       held_response(stage, first_node, node_count);
     }
-    if (gated_plasma())
-      gated_response(node_count);
     if (stage_projects && !folded && !held_radial()) {
       const Kokkos::Profiling::ScopedRegion region("solprop_native.projection");
       project(first_node, node_count, first_chunk);

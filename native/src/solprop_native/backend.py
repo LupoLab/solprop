@@ -63,10 +63,7 @@ from solprop.translate.linop import (
     delta_phi,
     unitary_phase,
 )
-from solprop.translate.plasma_source import (
-    _BENCHMARK_GATED,  # pyright: ignore[reportPrivateUsage] - the private gated benchmark
-    plasma_source_record,
-)
+from solprop.translate.plasma_source import plasma_source_record
 from solprop.translate.problem import (
     PropagationProblem,
     PropagatorMode,
@@ -210,14 +207,9 @@ class NativeBackend:
         tdse_binding: TDSEBinding | None = None,
     ) -> None:
         check_build()
-        # The private gated benchmark is captured where the backend is built, as the
-        # reference captures it; the run's identity carries it from the driver.
-        self._gated_plasma = _BENCHMARK_GATED.get()
         stepper = request.stepper
         _refuse_unsupported(problem, stepper)
         _refuse_tdse(problem, request, tdse_binding)
-        if self._gated_plasma:
-            _refuse_gated_route(problem)
         validate_run(problem, request)
         stats = request.observation.stats
         refused = metric_refusal(problem, (*stats.names, *stats.periodic))
@@ -882,10 +874,7 @@ class NativeBackend:
             **self._chunk_plan.record(),
             "node_chunk": self.node_chunk,
         }
-        if self._problem.responses.plasma_channels and self._gated_plasma:
-            work["_benchmark_plasma_source"] = "gated_nonresumable"
-            work["plasma_source"] = {"form": "gated_benchmark", "resumable": False}
-        elif self._problem.responses.plasma_channels:
+        if self._problem.responses.plasma_channels:
             work["plasma_source"] = plasma_source_record(self._problem.grids)
         # The evaluations this backend made: the Adams ledger's logical calls, the
         # low-storage march's physical ones (SEP 24 section 5), or the native
@@ -1244,30 +1233,6 @@ def _refuse_adams(problem: PropagationProblem, stepper: StepperSettings) -> None
         "native (device build)" if device else "native",
         delivered=frozenset() if device else frozenset({"scalar"}),
     )
-
-
-def _refuse_gated_route(problem: PropagationProblem) -> None:
-    """Refuse the private gated plasma benchmark where native has no form for it.
-
-    It is a field plasma column's, off the general route; the engine refuses anything
-    else too, as a safety net, but by then the problem is being built.
-    """
-    responses = problem.responses
-    if responses.population_channels and (
-        responses.envelope_plasma is not None
-        or problem.transform.modal_tables is not None
-    ):
-        route = (
-            "the envelope plasma"
-            if responses.envelope_plasma is not None
-            else "a general modal guide's"
-        )
-        msg = (
-            "native runs the private gated plasma benchmark on a field plasma column "
-            f"off the general route, and this problem's plasma is {route}, which has "
-            "no gated form"
-        )
-        raise BackendError(msg)
 
 
 def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -> None:
