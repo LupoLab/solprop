@@ -97,10 +97,14 @@ def test_the_spectrogram_and_figures(run: str, tmp_path: Path, monkeypatch):
     # On frequency the map starts at the transform's lowest, not the window's.
     assert gated["x"][0] < 1e14 < gated["x"][-1]
     assert np.all(np.abs(gated["t"]) <= 5e-14)
+    import matplotlib.pyplot as plt  # noqa: PLC0415 - only here
+
+    before = plt.get_fignums()
     for kind in ("prop_2d", "spec_1d", "time_1d", "spectrogram", "plot_stats"):
         file = tmp_path / f"{kind}.png"
         written = ask("result_figure", {"path": run, "file": str(file), "plot": kind})
         assert all(Path(path).stat().st_size > 1000 for path in written)
+        assert plt.get_fignums() == before  # drawn, written and let go
     with pytest.raises(ValueError, match="no plot"):
         ask(
             "result_figure", {"path": run, "file": str(tmp_path / "x.png"), "plot": "x"}

@@ -648,26 +648,34 @@ def figure(payload: Payload) -> list[str] | list[dict[str, object]]:
     """
     import io  # noqa: PLC0415 - only here
 
+    import matplotlib.pyplot as plt  # noqa: PLC0415 - loaded by solprop.plotting
+
     target = Path(str(payload["file"]))
     with open_file(str(payload["path"])) as handler:
         drawn = _drawn(handler, payload)
     written: list[str] = []
     given: list[dict[str, object]] = []
-    for number, one in enumerate(drawn, start=1):
-        path = (
-            target
-            if len(drawn) == 1
-            else target.with_name(f"{target.stem}-{number}{target.suffix}")
-        )
-        if payload.get("bytes"):
-            buffer = io.BytesIO()
-            kind = path.suffix.lstrip(".").lower() or "png"
-            one.savefig(buffer, dpi=200, format=kind)
-            data = np.frombuffer(buffer.getvalue(), dtype=np.uint8)
-            given.append({"name": path.name, "data": data})
-        else:
-            one.savefig(path, dpi=200)
-            written.append(str(path))
+    try:
+        for number, one in enumerate(drawn, start=1):
+            path = (
+                target
+                if len(drawn) == 1
+                else target.with_name(f"{target.stem}-{number}{target.suffix}")
+            )
+            if payload.get("bytes"):
+                buffer = io.BytesIO()
+                kind = path.suffix.lstrip(".").lower() or "png"
+                one.savefig(buffer, dpi=200, format=kind)
+                data = np.frombuffer(buffer.getvalue(), dtype=np.uint8)
+                given.append({"name": path.name, "data": data})
+            else:
+                one.savefig(path, dpi=200)
+                written.append(str(path))
+    finally:
+        # The plots draw through pyplot, which keeps every figure until it is
+        # closed: in the long-lived kernel each export would stay for the session.
+        for one in drawn:
+            plt.close(one)
     return given if payload.get("bytes") else written
 
 
