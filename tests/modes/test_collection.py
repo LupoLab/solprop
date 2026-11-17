@@ -179,6 +179,19 @@ def test_many_high_order_capillary_modes_are_orthonormal():
     np.testing.assert_allclose(modes.orthonormality(), np.eye(48), rtol=0.0, atol=1e-12)
 
 
+def test_a_high_azimuthal_order_does_not_alias_into_a_false_overlap():
+    """HE with n = 64 against TM01: their product carries cos(64 theta), which the
+    16- and 32-node offset rules both read as +1 at every node. Started there, the two
+    rules agreed on an overlap of 0.16; started above the products' harmonics (128
+    nodes, then 256 to show convergence), the pair is orthogonal."""
+    modes = [
+        MarcatiliMode(RADIUS, "He", 1.0, n=64),
+        MarcatiliMode(RADIUS, "He", 1.0, kind="TM", n=0),
+    ]
+    assert collection_module._first_nodes(modes) == 128
+    np.testing.assert_allclose(orthonormality(modes), np.eye(2), rtol=0.0, atol=1e-9)
+
+
 def test_orthonormality_refuses_a_rule_that_does_not_converge(monkeypatch):
     """With no room to double the azimuthal rule, there is no convergence to show."""
     monkeypatch.setattr(collection_module, "_MAX_NODES", 16)
