@@ -323,7 +323,7 @@ def test_a_variant_is_told_apart_by_its_fields(phase_a_case: PhaseACase) -> None
 
 # -- the workspace: a backend's own records, through the bindings directly ------------
 
-_PLANNING = {"mode": "legacy"}
+_PLANNING = {"mode": "policy"}
 _OBSERVATION, _TERMINAL = 0, 3
 
 

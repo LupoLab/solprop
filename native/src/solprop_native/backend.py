@@ -1365,7 +1365,7 @@ def _planning(
         return None
     if given is not None:
         return dict(given)
-    chosen = _package.PLANNING or {"mode": "legacy"}
+    chosen = _package.PLANNING or {"mode": "policy"}
     return dict(chosen) | {"stored": dict(stored), "keep": True}
 
 
