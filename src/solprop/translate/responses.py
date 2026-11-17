@@ -2407,8 +2407,9 @@ def _material_profiles(
 ) -> _MaterialProfiles:
     """Resolve component profiles while preserving the original single path.
 
-    - ``mixture``: ordered component populations; None retains the legacy material path.
-    - ``profile``: total density path in m^-3, or the legacy nonlinear scale.
+    - ``mixture``: ordered component populations; None keeps the single-material path.
+    - ``profile``: total density path in m^-3, or the single material's nonlinear
+      scale.
     """
     if mixture is None and modes:
         declared = getattr(modes[0], "mixture", None)
@@ -2880,7 +2881,8 @@ def compile_responses(
 
     mixture : Mixture or None, optional
         Explicit species and component paths for a spatial material. Modal assembly
-        also discovers the mixture carried by its modes. None keeps the legacy path.
+        also discovers the mixture carried by its modes. None keeps the
+        single-material path.
     regional_responses : RegionalResponseTables or None, optional
         The compiled per-region response of a general modal guide, carried through
         to contract section 5's optional leaf unchanged. It is not compiled here:

@@ -901,7 +901,7 @@ def _material_mixture(
     - ``modes``: ordered mode set, empty for spatial geometry.
     - ``medium``: spatial material, or None for modal geometry.
     - ``density``: optional explicit response density in m^-3.
-    - Returns: the declared mixture, or None for the legacy single material.
+    - Returns: the declared mixture, or None for a single material.
     """
     if medium is not None and isinstance(medium.material, Gas) and density is not None:
         # The linear operator takes the medium's own density path; an explicit one

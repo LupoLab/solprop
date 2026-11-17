@@ -125,8 +125,8 @@ class RateTable:
         A digest of the rate's parameters and the build settings, stable across
         processes. Names a cache entry; two tables with the same key are the same table.
     convention : str
-        Optical-cycle convention retained from the source rate. Legacy manually
-        constructed tables default to ``'unspecified'``.
+        Optical-cycle convention retained from the source rate. A table constructed
+        by hand defaults to ``'unspecified'``.
     species_identity : str or None
         Chemical species name, when declared by the source rate.
     ionisation_potential : float or None
