@@ -86,9 +86,9 @@ sampling when those effects matter.
 The source needs no option: `plasma=True` on the capillary interface, for example,
 selects it. A direct
 {meth}`~solprop.nonlinear.responses.PlasmaResponse.evaluate` call still returns the
-physical, ungated $P=\int J\,dt$, including any residual drift. Gated-source
-comparisons use a private NumPy benchmark hook with a distinct, non-resumable
-configuration; it is not a propagation option.
+physical, ungated $P=\int J\,dt$, including any residual drift. The gated source
+of the original equation is not available: the held current is the only form either
+backend runs.
 
 ## How the current integrals are formed
 
@@ -188,7 +188,7 @@ uncertainties.
 
 **The trapezoid** (`integration="trapezoid"`) is the plain rule, with no filter, no
 reflection and no floor. Luna integrates the same way, and comparisons with Luna use it
-together with the private gated benchmark hook ([luna.md](../workflows/luna.md)).
+([luna.md](../workflows/luna.md)).
 
 The band rule is the default. A propagation's drivers take `plasma_integration=` and
 hand it to every field plasma response. The plasma channels

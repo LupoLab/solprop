@@ -27,9 +27,7 @@ import numpy as np
 from solprop.backends.records import STATUSES, EdgeNotice, EdgeNoticeKind
 from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.transverse_monitor import (
-    _UNWATCHED_MESSAGE,  # pyright: ignore[reportPrivateUsage] - the edge's texts
-    _UNWATCHED_REASON,  # pyright: ignore[reportPrivateUsage]
-    _clip_message,  # pyright: ignore[reportPrivateUsage]
+    _clip_message,  # pyright: ignore[reportPrivateUsage] - the edge's texts
     _coarse_message,  # pyright: ignore[reportPrivateUsage]
     _face_message,  # pyright: ignore[reportPrivateUsage]
     _insensitive_message,  # pyright: ignore[reportPrivateUsage]
@@ -115,7 +113,7 @@ def record_of(edge: TransverseEdge, native: Mapping[str, object]) -> dict[str, o
     launch = number("launch_energy")
     warned_at = number("warned_at")
     allowance = number("noise_allowance")
-    reasons = ("", _UNWATCHED_REASON, _insensitive_reason(allowance))
+    reasons = ("", _insensitive_reason(allowance))
     return {
         "launch_energy": launch if math.isfinite(launch) else None,
         "noise_ramp_removed": number("noise_ramp_removed"),
@@ -172,8 +170,6 @@ def notice_warning(edge: TransverseEdge, notice: EdgeNotice) -> BoundaryWarning:
         raise BackendError(msg)
     if kind is EdgeNoticeKind.RAMP_BAND:
         text = _ramp_band_message(notice.value, stop=False)
-    elif kind is EdgeNoticeKind.UNWATCHED:
-        text = _UNWATCHED_MESSAGE
     elif kind is EdgeNoticeKind.CLIP:
         text = _clip_message(notice.value, _face(edge, notice))
     elif kind is EdgeNoticeKind.INSENSITIVE:

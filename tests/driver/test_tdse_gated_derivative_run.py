@@ -231,7 +231,7 @@ def test_the_edge_entry_is_the_last_evaluation_and_keeps_no_history(bindings):
     simulation = _sae(TDSEAtomicWindow(40e-15, 5e-15))
     problem = simulation.translate()
     # Two planes, each a session's observation, read between the session's batches.
-    run_request = to_planes(bare(simulation._run_request()), [2 * _STEP, 4 * _STEP])
+    run_request = to_planes(bare(simulation.run_request()), [2 * _STEP, 4 * _STEP])
     assert tdse_descriptor(problem.route) is not None
     binding = ManufacturedBinding(tdse_descriptor(problem.route), 1000, _drift)
     backend = NumpyRefBackend(

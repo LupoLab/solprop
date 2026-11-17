@@ -113,7 +113,7 @@ def launch_source(problem, run_request, grid) -> tuple[np.ndarray, float]:
 def without(name, switch) -> np.ndarray:
     """Return the launch source of one case with one response switched off."""
     reduced = simulation(name, **{switch: False})
-    return launch_source(reduced.translate(), reduced._run_request(), reduced.grid)[0]
+    return launch_source(reduced.translate(), reduced.run_request(), reduced.grid)[0]
 
 
 def rate_sensitivity(table: RateTable) -> tuple[float, float]:
@@ -158,7 +158,7 @@ def lipschitz_scale(name) -> float:
     :func:`parity_bound` states.
     """
     built = simulation(name)
-    problem, run_request = built.translate(), built._run_request()
+    problem, run_request = built.translate(), built.run_request()
     plasma_leaf = problem.responses.plasma_coefficients
     assert plasma_leaf is not None
     sensitivity, _ = rate_sensitivity(plasma_leaf.rate)
@@ -203,7 +203,7 @@ def parity_bound(name, backend, reference) -> float:
     ``B_10``'s per-step source term exactly.
     """
     built = simulation(name)
-    problem, run_request = built.translate(), built._run_request()
+    problem, run_request = built.translate(), built.run_request()
     grid = built.grid
     transform, contraction = COMPILED[backend]
     eps = 2.0 * UNIT

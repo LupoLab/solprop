@@ -76,7 +76,7 @@ def _attached(simulation: Simulation, state: np.ndarray) -> Any:
     as the native session binds its own (``backends.native_edge.bind_edge_monitor``).
     """
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = cast(
         "Any",
         select(
@@ -273,7 +273,7 @@ def test_a_read_at_every_step_leaves_the_march_where_it_was(
         backend = select(
             name,
             problem,
-            simulation._run_request(),
+            simulation.run_request(),
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -524,7 +524,7 @@ def test_the_edge_holds_memory_only_once_a_monitor_binds_it(route: str) -> None:
     # A check-off run pays nothing, and the formula an estimate adds is the row itself.
     simulation = _case(route)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = cast(
         "Any",
         select(

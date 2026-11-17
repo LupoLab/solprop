@@ -603,7 +603,7 @@ every accessor door refuses them with :func:`solprop.output.capability.refusal_f
 ACCESSOR_ADVICE: Mapping[str, str] = {
     name: entry.advice for name, entry in CATALOGUE.items() if entry.advice is not None
 }
-"""What to use instead of each legacy name on a general modal basis.
+"""What to use instead of each per-channel name on a general modal basis.
 
 A name with no entry here gets the generic advice of
 :mod:`solprop.output.capability`: a general modal basis has ``physical_energy``,

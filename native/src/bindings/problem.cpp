@@ -98,19 +98,19 @@ native::CpuExecution cpu_execution_from(const nb::dict& values) {
 // solprop SEP 46 phase 3: a workspace's FFT planning, as solprop_native's backend
 // writes it: its mode, each group's effort, the profile's wisdom by plan key, a
 // capture's effort and time limit, and the plans runs measured before with whether to
-// keep new ones (ADR-076); absent, the plan policy (`legacy`).
+// keep new ones (ADR-076); absent, the plan policy (`policy`).
 [[maybe_unused]] native::FftPlanning fft_planning_from(const nb::dict& values) {
   native::FftPlanning result;
   try {
     const auto mode = nb::cast<std::string>(values["mode"]);
-    if (mode == "legacy")
-      result.mode = native::FftPlanning::Mode::legacy;
+    if (mode == "policy")
+      result.mode = native::FftPlanning::Mode::policy;
     else if (mode == "profile")
       result.mode = native::FftPlanning::Mode::profile;
     else if (mode == "capture")
       result.mode = native::FftPlanning::Mode::capture;
     else
-      throw std::invalid_argument("an FFT planning mode is legacy, profile or capture, "
+      throw std::invalid_argument("an FFT planning mode is policy, profile or capture, "
                                   "not '" +
                                   mode + "'");
     if (values.contains("efforts")) {
@@ -157,7 +157,7 @@ native::CpuExecution cpu_execution_from(const nb::dict& values) {
 
 // The planning a workspace is asked for, as `fft_planning_from` reads it back.
 nb::dict fft_request_dict(const native::FftPlanning& planning) {
-  static constexpr std::array<const char*, 3> modes{"legacy", "profile", "capture"};
+  static constexpr std::array<const char*, 3> modes{"policy", "profile", "capture"};
   nb::dict efforts;
   efforts["rows"] = planning.rows;
   efforts["threaded_rows"] = planning.threaded_rows;

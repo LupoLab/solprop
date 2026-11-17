@@ -8,9 +8,7 @@ The page's figures are drawn from the records (`tests/test_accuracy_figures.py`)
 its tables and prose quote numbers by hand, and a regenerated record does not rewrite
 them.
 `QUOTES` lists every number the page quotes from a record: the passage of the page it
-stands in, the number as printed, and how it is read from `tests/data/convergence/` --
-or, for a measurement a test holds as a constant rather than a record (milestone M4's),
-from that constant.
+stands in, the number as printed, and how it is read from `tests/data/convergence/`.
 Each passage must be on the page, and each number must equal the record's value to the
 precision printed -- within half a unit of its last printed digit. So a record that
 moves a quoted number fails here, and so does an edit that changes a quoted passage
@@ -31,7 +29,6 @@ from pathlib import Path
 import pytest
 
 import convergence_records as cr
-from driver.test_prop_capillary import M4_REDUCED_MEASURED
 
 PAGE = Path(__file__).resolve().parents[1] / "docs" / "dev" / "accuracy.md"
 
@@ -85,17 +82,11 @@ ALARM = ("quadrature_alarm", "three HE_1m modes")
 EQUIVALENCE = "backend_equivalence"
 NATIVE = "native against numpy_ref"
 CUDA = "native_cuda against numpy_ref"
-M2 = "m2_witness_metrics"
-M2_REDUCED = "reduced case"
 
 _ALARMS = (
     "**2.365e-1, 3.316e-2, 1.451e-4, 1.777e-8, 4.224e-15** at n_r = 8, 16, 24, 32, 48"
 )
 _N6 = "9.2e-6 and 6.1e-8 at 8000 and 16000 steps: order 7.2"
-# The page's own multiplication sign and en dashes, which a passage must match.
-_VUV = (
-    "1.43× in the fundamental, 1.30× over both modes; arrival 4.730 fs against 4.622 fs"  # noqa: RUF001
-)
 _CUDA_RUNGS = "9.56e-22, 7.62e-18, 5.42e-17, 6.10e-16, 9.31e-16 and 2.73e-17"
 _LADDER = (
     "one linear application",
@@ -156,7 +147,7 @@ QUOTES = (
         _N6, "6.1e-8", lambda: at("soliton_n6", "wide band, taper off", 16000, "error")
     ),
     Quote(_N6, "7.2", lambda: at("soliton_n6", "wide band, taper off", 16000, "order")),
-    # Section 5: milestone M2, the order study, the tolerance claim and the witness.
+    # Section 5: milestone M2, the order study.
     Quote(
         "| constant | off | 6.21 |",
         "6.21",
@@ -176,50 +167,6 @@ QUOTES = (
         "| vacuum gradient | on | **1.51** |",
         "1.51",
         lambda: at("m2_order", "vacuum gradient, plasma", 500, "order"),
-    ),
-    Quote(
-        "move the reduced case's shape by 6.7e-6",
-        "6.7e-6",
-        lambda: at(M2, M2_REDUCED, "two decades of tolerance, relative move", "value"),
-    ),
-    Quote(
-        "| fundamental, shape | 5.7e-2 |",
-        "5.7e-2",
-        lambda: at(M2, M2_REDUCED, "fundamental, shape", "value"),
-    ),
-    Quote(
-        "| fundamental, content | 1.02783 |",
-        "1.02783",
-        lambda: at(M2, M2_REDUCED, "fundamental, content", "value"),
-    ),
-    Quote(
-        _VUV, "1.43", lambda: at(M2, M2_REDUCED, "VUV band in the fundamental", "value")
-    ),
-    Quote(
-        _VUV, "1.30", lambda: at(M2, M2_REDUCED, "VUV band over both modes", "value")
-    ),
-    Quote(_VUV, "4.730", lambda: at(M2, M2_REDUCED, "VUV arrival, solprop", "value")),
-    Quote(_VUV, "4.622", lambda: at(M2, M2_REDUCED, "VUV arrival, Luna", "value")),
-    Quote(
-        "| second mode, energy | 1.107 |",
-        "1.107",
-        lambda: at(M2, M2_REDUCED, "second mode, content", "value"),
-    ),
-    # Section 6: milestone M4, from the constants its slow test asserts against.
-    Quote(
-        "| exit energy, ours over Luna's | 1.00001 |",
-        "1.00001",
-        lambda: M4_REDUCED_MEASURED["exit energy, ours over Luna's"],
-    ),
-    Quote(
-        "| fundamental, content | 1.00001 |",
-        "1.00001",
-        lambda: M4_REDUCED_MEASURED["fundamental, content"],
-    ),
-    Quote(
-        "| fundamental, shape | 0.03833 |",
-        "0.03833",
-        lambda: M4_REDUCED_MEASURED["fundamental, shape"],
     ),
     # Section 7: backend equivalence, the native CPU build against the reference.
     *(

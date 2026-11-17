@@ -625,6 +625,7 @@ std::unique_ptr<Run> Workspace::start(RunStart start) {
   if (method_kind == MethodKind::adams) {
     if (!start.adams)
       refuse("an Adams run's start needs the march's state");
+    march::validate(*start.adams);
     initial = std::move(*start.adams);
   } else {
     if (!start.runge_kutta)

@@ -356,7 +356,7 @@ def rounding(simulation: Simulation, steps: int, phi: float) -> float:
     """Return the march's rounding over `steps`, relative to the state, unmargined."""
     return march_bound(
         simulation.translate(),
-        simulation._run_request(),
+        simulation.run_request(),
         steps,
         phi=phi,
         margin=1.0,

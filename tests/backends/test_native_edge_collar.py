@@ -74,7 +74,7 @@ def _attached(simulation: Simulation, state: np.ndarray) -> tuple[Any, Any]:
     as the native session binds its own (``backends.native_edge.bind_edge_monitor``).
     """
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = cast(
         "Any",
         select(
@@ -372,7 +372,7 @@ def test_a_collars_read_leaves_the_march_where_it_was(route: str, name: str) -> 
             made = select(
                 backend,
                 problem,
-                simulation._run_request(),
+                simulation.run_request(),
                 grid=simulation.grid,
                 modes=simulation.modes,
                 profiles=simulation.profiles,
@@ -670,7 +670,7 @@ def test_a_supplied_unmasked_draw_judges_as_the_host_does_with_no_transfer(
     def launch(name: str) -> tuple[dict[str, Any], int | None]:
         simulation = collar_case(route, noise="input")
         problem = simulation.translate()
-        run_request = simulation._run_request()
+        run_request = simulation.run_request()
         assert transverse_of(problem.route) is not None
         backend = cast(
             "Any",
@@ -730,7 +730,7 @@ def test_a_resume_with_no_monitor_record_crosses_no_state() -> None:
     # nothing crosses back (SEP 52).
     simulation = collar_case("line", noise="input")
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = cast(
         "Any",
         select(

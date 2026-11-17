@@ -140,11 +140,11 @@ the gate.
   generators or other facilities that Kokkos, Kokkos Kernels or Kokkos-FFT supply.
 - **Reproducibility to the error bound** (solprop SEP 25). Independent floating-point
   computations are compared by numerical error, not bits: no bitwise agreement is
-  required across backends, builds, machines, thread counts, batch membership, scans or
-  repeated runs. Matched discrete computations use rounding budgets derived before the
-  comparison; adaptive runs and replay use accuracy envelopes. Exact structural
-  contracts (lossless copies, integer accounting, identity metadata, hard-mask zeros,
-  explicit no-ops) stay exact.
+  required across backends, builds, machines, thread counts, scans or repeated runs.
+  Matched discrete computations use rounding budgets derived before the comparison;
+  adaptive runs and replay use accuracy envelopes. Exact structural contracts (lossless
+  copies, integer accounting, identity metadata, hard-mask zeros, explicit no-ops) stay
+  exact.
 - Kernels may reorder, vectorise, thread and contract. Contraction is on by default
   (`-ffp-contract=fast` for GCC, `-ffp-contract=fast-honor-pragmas` for Clang: plain
   `fast` makes Clang ignore the pragmas). A protected block (a stable

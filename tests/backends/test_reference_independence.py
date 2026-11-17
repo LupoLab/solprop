@@ -5,18 +5,19 @@
 """The NumPy reference runs on its own host machinery.
 
 SEP 47 section 6.6: the reference session is built independently of the native
-backend. The reference's marches are the host copies, and the run layer serves a
-reference backend with the host session.
+backend. The reference's marches are its own
+(:mod:`solprop.backends.numpy_ref.marches`), and the run layer serves a reference
+backend with its own session (:class:`~solprop.backends.numpy_ref.session.HostSession`).
 """
 
 from contextlib import closing
 
 import pytest
 
-from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.host.low_storage import HostLowStorageMarch
-from solprop.backends.host.session import HostSession
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
+from solprop.backends.numpy_ref.marches.low_storage import HostLowStorageMarch
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.records import adams_policy
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -24,7 +25,7 @@ from solprop.exceptions import BackendError
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep
 
 
-def test_the_reference_marches_with_the_host_copies(soliton_problem, narrow_grid):
+def test_the_reference_runs_its_own_marches(soliton_problem, narrow_grid):
     length = 1e-3
     schedule = FixedSchedule.uniform(0.0, length, length / 4, save_planes=[length])
     marches = {

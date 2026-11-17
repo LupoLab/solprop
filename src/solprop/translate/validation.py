@@ -8,9 +8,10 @@ The policy :func:`solprop.translate.assembly.assemble` applies to its arguments 
 the problem it assembled: the refusals of a route's settings (a wall off the capillary
 route, operator settings without a spatial grid, a save plane on an index jump, a frame
 that removes ``beta_0`` beside the third harmonic, a TDSE response off its route, the
-general modal route's legacy knobs), the split collar's fixed-schedule limit and the
-coupled flow's advisory step (:func:`validate_coupled_flow`). The kernel contract's own
-checks are :meth:`solprop.translate.problem.PropagationProblem.validate` and
+static-quadrature knobs a general modal route refuses), the split collar's
+fixed-schedule limit and the coupled flow's advisory step
+(:func:`validate_coupled_flow`). The kernel contract's own checks are
+:meth:`solprop.translate.problem.PropagationProblem.validate` and
 :func:`solprop.translate.problem.validate_run`, which also refuses dense observation
 where its interpolant is not the run's field, so a request changed after assembly is
 refused there too.
@@ -43,6 +44,7 @@ from solprop.profiles import ZProfile
 from solprop.spatial import SpatialMedium
 from solprop.spatial_absorber import SpatialAbsorber
 from solprop.stepper.schedule import FixedSchedule
+from solprop.stepper.settings import StepperSettings
 from solprop.translate.coupled import (
     CoupledFlowTables,
     advisory_step,
@@ -56,7 +58,6 @@ from solprop.translate.masks import AbsorberScheme
 from solprop.translate.problem import (
     NoiseModel,
     PropagationProblem,
-    StepperSettings,
     TranslationReuse,
     validate_run,
 )
@@ -382,11 +383,11 @@ def _check_general(
     grid: TimeGrid,
     refusals: _Assembly,
 ) -> None:
-    """Refuse every legacy knob and every grid a general modal route cannot take.
+    """Refuse every static-quadrature knob and grid a general modal route cannot take.
 
-    - ``refusals``: the assembly's knobs; each legacy one is refused by name when it is
-      set, and the declared responses must be empty, a general guide's belonging to its
-      material regions.
+    - ``refusals``: the assembly's knobs; each static-quadrature one is refused by name
+      when it is set, and the declared responses must be empty, a general guide's
+      belonging to its material regions.
     """
     named = (
         ("quadrature", refusals.quadrature),

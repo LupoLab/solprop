@@ -193,7 +193,7 @@ def watched(
         For a backend other than the reference (:func:`as_reference`).
     """
     problem = simulation.translate() if problem is None else problem
-    run_request = simulation._run_request() if run_request is None else run_request
+    run_request = simulation.run_request() if run_request is None else run_request
     backend = select(
         name,
         problem,
@@ -262,7 +262,7 @@ def record_after_march(
     crossing cap (``monitor_cap``) itself.
     """
     problem = simulation.translate() if problem is None else problem
-    run_request = simulation._run_request() if run_request is None else run_request
+    run_request = simulation.run_request() if run_request is None else run_request
     monitor = simulation._boundary_monitor()
     assert monitor is not None
     if interval is not None:

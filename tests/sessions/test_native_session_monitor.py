@@ -56,7 +56,7 @@ from solprop.backends.events import (
     emit_warning,
 )
 from solprop.backends.export import ExportRecipe
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.constants import C
@@ -157,7 +157,7 @@ def _prepared(simulation: Simulation, period: int = 2) -> tuple[Any, Any]:
     accepted steps after each step's check (SEP 47 section 5.3), as the request's own:
     the reference takes its rows from the request it is built with.
     """
-    return simulation.translate(), simulation._run_request().for_run(
+    return simulation.translate(), simulation.run_request().for_run(
         stats=StatsSpec(
             names=("energy", "peak_power"), periodic=("energy",), period=period
         ),

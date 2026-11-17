@@ -20,6 +20,7 @@ import numpy as np
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER
+from solprop._helpers import PLAIN, Helpers
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import DEFAULT_BOUNDARY_N, Absorber, absorber
 from solprop.driver import Simulation
@@ -41,6 +42,7 @@ __all__ = [
     "numpy_ref_launch_derivative",
     "reference_trial",
     "run_python",
+    "stage_helpers",
 ]
 
 HASH_PROBE = textwrap.dedent(
@@ -147,6 +149,15 @@ def numpy_ref_launch_derivative(
         return launch_derivative(backend, problem)
     finally:
         backend.close()
+
+
+def stage_helpers(backend: object) -> Helpers:
+    """Return the scalar evaluations a backend's march forms its stage tables with.
+
+    Native's own record (``NativeBackend.helpers``); the reference evaluates with the
+    plain forms, ``PLAIN`` (SEP 29 section 6.6).
+    """
+    return getattr(backend, "helpers", PLAIN)
 
 
 def run_python(path: Path) -> "subprocess.CompletedProcess[str]":

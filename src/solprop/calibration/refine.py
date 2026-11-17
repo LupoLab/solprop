@@ -116,10 +116,10 @@ class _Windows:
         )
 
         problem = simulation.translate()
-        stepper = simulation._run_request().stepper
+        stepper = simulation.run_request().stepper
         self.backend = NativeBackend(
             problem,
-            simulation._run_request(),
+            simulation.run_request(),
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -313,7 +313,7 @@ def _refine(
             "inconclusive", "", reason="SOLPROP_CALIBRATION=off: no profile to refine"
         )
     problem = simulation.translate()
-    rtol = float(simulation._run_request().stepper.controller.rtol)
+    rtol = float(simulation.run_request().stepper.controller.rtol)
     base_record = cast(dict[str, int | bool], native.EXECUTION.native())
     opened = [_Windows(simulation, None)]
     base = opened[0]
@@ -325,7 +325,7 @@ def _refine(
             # problem (SEP 47 section 6.2) are found again.
             shape=(1, *problem.shape),
             grid_kind=problem.grid_kind,
-            integrator=type(simulation._run_request().stepper.integrator).__name__,
+            integrator=type(simulation.run_request().stepper.integrator).__name__,
             sizing=sizing,
             process=native.PROCESS,
             fingerprint=native.PROFILE.fingerprint.digest,

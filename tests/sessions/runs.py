@@ -8,7 +8,7 @@ SEP 47 phase 5 retired the native backend's step-driver calls, and SEP 52 the
 reference's: every run starts through
 :func:`solprop.backends.sessions.start_session`, which opens the native session for a
 native backend and the reference's own
-:class:`~solprop.backends.host.session.HostSession` for ``numpy_ref``, so one call
+:class:`~solprop.backends.numpy_ref.session.HostSession` for ``numpy_ref``, so one call
 serves both sides of a parity check. These helpers start that session on a backend the
 test built, drive it with the conformance suite's driver
 (:func:`sessions.executors.drive`) and hand back its
@@ -95,8 +95,7 @@ __all__ = [
 def bare(request: RunRequest) -> RunRequest:
     """Return a request that observes no statistics and watches no boundary.
 
-    What the step driver's direct calls ran: a march between planes, with no
-    statistics evaluated and no monitor attached.
+    A march between planes, with no statistics evaluated and no monitor attached.
 
     Parameters
     ----------
@@ -175,8 +174,7 @@ def run(
         the run with its terminal failure.
     export : solprop.backends.export.ExportRecipe or None, optional
         The recipe every observation's field is exported with: the state as the
-        session holds it by default, as the step driver's observation read it;
-        ``None`` exports nothing.
+        session holds it by default; ``None`` exports nothing.
     stop : object or None, optional
         The run's stop token.
     observations : int or None, optional
@@ -610,7 +608,7 @@ def run_error(
 def summary(result: Run) -> StepSummary:
     """Return a run's summary from its launch: every plane's attempts together.
 
-    What the step driver's one march to the last plane summarised.
+    The summary of one march from the launch to the last plane.
 
     Parameters
     ----------
@@ -651,7 +649,7 @@ def adams_ledger(backend: Any, record: Mapping[str, object]) -> CallLedger:
 
     Returns
     -------
-    solprop.backends.numpy_ref.multistep.CallLedger
+    solprop.backends.ledger.CallLedger
         The ledger.
     """
     if backend.name == "numpy_ref":
@@ -699,7 +697,7 @@ def watched_run(
         memory ledger after the run.
     """
     problem = simulation.translate() if problem is None else problem
-    run_request = simulation._run_request() if run_request is None else run_request
+    run_request = simulation.run_request() if run_request is None else run_request
     backend = select(
         name,
         problem,

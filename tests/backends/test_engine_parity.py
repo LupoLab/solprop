@@ -78,7 +78,7 @@ class Budget:
 
     def __init__(self, simulation: Simulation, steps: int | None = None) -> None:
         problem = simulation.translate()
-        request = simulation._run_request()
+        request = simulation.run_request()
         phi, kappa = measured_scales(simulation)
         phi = max(phi, 0.1)
         schedule = request.stepper.schedule
@@ -161,7 +161,7 @@ def _runge_kutta_case(case: Opened, simulation: Simulation) -> list[dict[str, An
     """Take :data:`STEPS` steps, each after a rejected trial; what each read."""
     engine = case.runge_kutta
     assert engine is not None
-    request = simulation._run_request()
+    request = simulation.run_request()
     schedule = request.stepper.schedule
     assert schedule is not None
     n_stages = request.stepper.tableau.n_stages
@@ -235,7 +235,7 @@ def test_a_dense_extension_leaves_the_trial_and_its_accept_alone() -> None:
     # the committed state nor what the accept commits, on either backend.
     simulation = capillary("numpy_ref", RungeKutta(), interpolated=True)
     budget = Budget(simulation, steps=1)
-    dz = float(simulation._run_request().stepper.dz_init)
+    dz = float(simulation.run_request().stepper.dz_init)
     found = {}
     for backend in BACKENDS:
         with opened(
@@ -259,7 +259,7 @@ def test_a_dense_extension_leaves_the_trial_and_its_accept_alone() -> None:
 def test_a_low_storage_engine_is_in_flight_and_commits_as_the_reference_s() -> None:
     simulation = walking_fibre("numpy_ref", LowStorageRungeKutta())
     budget = Budget(simulation)
-    schedule = simulation._run_request().stepper.schedule
+    schedule = simulation.run_request().stepper.schedule
     assert schedule is not None
     played: dict[str, list[tuple[AcceptRecord, np.ndarray]]] = {}
     for backend in BACKENDS:

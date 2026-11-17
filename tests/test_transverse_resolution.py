@@ -130,7 +130,7 @@ def test_the_scaled_suite_collar_is_the_full_case_s_design_scaled() -> None:
     # lengths by 1/8 scales the rate by 8.
     simulation = suite(2.6, SpatialAbsorber())
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     design = transverse_of(problem.route)
     assert design is not None and design.has_collar
     assert design.alpha0 == pytest.approx(8 * 242, rel=0.01)
@@ -240,22 +240,6 @@ def test_the_record_holds_the_specification_and_the_design() -> None:
     assert "spatial_absorber" not in default.configuration
     assert default.transverse is not None
     assert default.transverse["collar"] is False
-
-
-def test_a_backend_that_does_not_read_the_edge_refuses_a_collar(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # SEP 40 section 6: a requested collar is refused by name where its return
-    # monitor is not carried. Every solprop backend carries it; numpy_ref with its
-    # reading switched off stands in for one that does not.
-    from solprop.backends.numpy_ref import NumpyRefBackend  # noqa: PLC0415
-    from solprop.exceptions import BackendError  # noqa: PLC0415
-
-    monkeypatch.setattr(NumpyRefBackend, "reads_transverse_edge", False)
-    simulation = suite(2.6, SpatialAbsorber())
-    simulation.settings = dataclasses.replace(simulation.settings, backend="numpy_ref")
-    with pytest.raises(BackendError, match="numpy_ref backend does not carry"):
-        simulation.run(progress="none")
 
 
 def test_a_requested_band_without_an_active_bin_is_refused() -> None:

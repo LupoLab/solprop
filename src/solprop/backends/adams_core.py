@@ -4,13 +4,13 @@
 
 """The Adams march's controller as functions of its policy and its state (SEP 39).
 
-The decisions of :class:`~solprop.backends.host.adams.HostAdamsMarch` -- the stencil and
-scored orders, the step-size factor, a rejection and its restart, the order choice, the
-proposal's caps and the approach to a landing -- each as a function of the run's
-:class:`~solprop.stepper.multistep.MarchPolicy` and the values it decides on, with no
-backend, engine or field in reach. The march calls them, and SEP 39 section 4 specifies
-them; the native march executes the same algorithm and is held to these functions by
-the decision traces of ``tests/data/adams_traces.json.gz``.
+The decisions of :class:`~solprop.backends.numpy_ref.marches.adams.HostAdamsMarch` --
+the stencil and scored orders, the step-size factor, a rejection and its restart, the
+order choice, the proposal's caps and the approach to a landing -- each as a function of
+the run's :class:`~solprop.stepper.multistep.MarchPolicy` and the values it decides on,
+with no backend, engine or field in reach. The march calls them, and SEP 39 section 4
+specifies them; the native march executes the same algorithm and is held to these
+functions by the decision traces of ``tests/data/adams_traces.json.gz``.
 
 Every function performs the operations of the code it was extracted from, in the same
 order, including how a comparison treats a NaN: ``min(a, b)`` is ``b`` only if
@@ -354,8 +354,8 @@ def carrier_capped(
 
     Under a carrier frame no step covers more than the policy's carrier cap of carrier
     phase (SEP 35 section 6.4), measured by one chord of the reference element's
-    operator over the proposal, the largest over the batch. Applied before the landing
-    rule, so a shortened step is not a landing; a fixed schedule's replay is not capped.
+    operator over the proposal. Applied before the landing rule, so a shortened step is
+    not a landing; a fixed schedule's replay is not capped.
 
     Parameters
     ----------
@@ -366,7 +366,7 @@ def carrier_capped(
     proposal : float
         The controller's proposal, m.
     chord_phase : callable
-        ``(z1, z2) -> phase``, the chord's largest phase over the batch, rad.
+        ``(z1, z2) -> phase``, the chord's carrier phase, rad.
 
     Returns
     -------

@@ -34,6 +34,7 @@ import flow_parity
 from backends.carrier_frame_cases import WINDOW, capillary, gradient
 from backends.conftest import EQUIVALENCE_BACKENDS
 from bounds import EPS, assert_within, carrier_increment_budget
+from builders import stage_helpers
 from sessions.executors import IDENTITY, Started, drive
 from sessions.runs import adams_ledger, bare, final_field, run
 from solprop.backends.events import ObservationKind, ObservationReady
@@ -47,7 +48,6 @@ from solprop.backends.exponential import (
     phi_functions,
     refuse_carrier_frame,
 )
-from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.adams_kernels import (
@@ -55,6 +55,7 @@ from solprop.backends.numpy_ref.adams_kernels import (
     ExponentialKernels,
     coupled_moments,
 )
+from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
 from solprop.backends.numpy_ref.multistep import HostHistory
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -178,7 +179,7 @@ def march(
     native run (``None``) keeps natively.
     """
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     if changes:
         run_request = run_request.with_stepper(
             dataclasses.replace(run_request.stepper, **changes)
@@ -308,7 +309,7 @@ def test_the_refusals_name_the_policy_and_the_route():
 
 def test_a_backend_refuses_what_it_does_not_deliver():
     simulation = capillary(SCALAR)
-    problem, stepper = simulation.translate(), simulation._run_request().stepper
+    problem, stepper = simulation.translate(), simulation.run_request().stepper
     with pytest.raises(BackendError, match="carrier_frame='scalar'"):
         refuse_carrier_frame(problem, stepper, "a backend")
     refuse_carrier_frame(problem, stepper, "numpy_ref", delivered=frozenset({"scalar"}))
@@ -322,7 +323,7 @@ def test_a_compiled_cpu_backend_accepts_the_shift(backend_name):
     for method in (OFF, SCALAR):
         built = capillary(method)
         COMPILED[backend_name](
-            built.translate(), built._run_request(), grid=built.grid, modes=built.modes
+            built.translate(), built.run_request(), grid=built.grid, modes=built.modes
         ).close()
 
 
@@ -692,7 +693,7 @@ def test_the_adaptive_march_resolves_what_the_shift_leaves(kind):
     # the controller's variable steps, and then replayed on its own accepted steps.
     simulation = capillary(SCALAR, rtol=1e-6, n_save=2, interpolate=False)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     source = (
         manufactured(problem, harmonic=0.1)
         if kind == "mixed"
@@ -856,7 +857,7 @@ def gradient_run(
     """Run the gradient window with the given compensation; return field and march."""
     simulation = gradient(method, 1e-8)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NumpyRefBackend(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
@@ -947,7 +948,7 @@ def coupled_run(name, integrator, rtol, backend_class=NumpyRefBackend):
             simulation.settings, integrator=integrator
         )
         problem = simulation.translate()
-        run_request = simulation._run_request()
+        run_request = simulation.run_request()
     backend = backend_class(
         problem,
         run_request,
@@ -985,7 +986,7 @@ def test_coupled_sections_agree_with_runge_kutta_under_the_frame(name, bound):
 def test_a_snapshot_continues_only_under_its_own_policy():
     simulation = capillary(SCALAR, energy=1e-6, interpolate=False, n_save=3)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     planes = [float(z) for z in run_request.stepper.save_planes]
     first = NumpyRefBackend(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
@@ -1200,13 +1201,13 @@ def test_the_chord_is_the_engine_s_exponent_at_the_reference(backend_name, opera
     assert reference is not None and reference.chord is not None
     assert reference.bin is not None
     backend = backends[backend_name](
-        problem, simulation._run_request(), grid=simulation.grid, modes=simulation.modes
+        problem, simulation.run_request(), grid=simulation.grid, modes=simulation.modes
     )
     try:
         for z1, z2 in ((0.0, 1e-4), (1e-3, 1.7e-3)):
             # The stage's scalars as either backend's march forms them, and the
             # backend's own exponent of them.
-            bundle = scalars(problem, z1, z2, helpers=backend.helpers)
+            bundle = scalars(problem, z1, z2, helpers=stage_helpers(backend))
             owner = getattr(backend, "workspace", None)
             full = (
                 backend._delta_phi(bundle) if owner is None else owner.delta_phi(bundle)

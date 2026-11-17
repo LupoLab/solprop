@@ -53,8 +53,8 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule, replay_tolerance
+from solprop.stepper.settings import PropagatorMode
 from solprop.translate.masks import AbsorberScheme
-from solprop.translate.problem import PropagatorMode
 
 __all__ = [
     "DEFAULT_N_SAVE",

@@ -49,7 +49,7 @@ from solprop.backends.events import (
     Progress,
     Terminal,
 )
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import SessionError, StopToken
 from solprop.exceptions import BackendError, StopRequested

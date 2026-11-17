@@ -366,20 +366,6 @@ def test_cartesian_material_loss_gain_and_evanescence(
     )
 
 
-def test_cartesian_resume_distinguishes_legacy_cutoff_arithmetic(free_case):
-    grid, space, pulse, settings = free_case
-    simulation = Simulation.from_free(
-        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
-    )
-    current = simulation.metadata()
-    assert current.schema_version == 3
-    assert current.configuration["spatial_arithmetic"] == "split-square-v1"
-    legacy_configuration = dict(current.configuration)
-    del legacy_configuration["spatial_arithmetic"]
-    legacy = dataclasses.replace(current, configuration=legacy_configuration)
-    assert legacy.configuration_hash() != current.configuration_hash()
-
-
 # --- the line (x-only) free space, uniform in y ---------------------------------------
 
 

@@ -131,6 +131,12 @@ void validate(const Policy& policy) {
     refuse_policy("quiet_interval", policy.quiet_interval);
 }
 
+void validate(const State& state) {
+  if (state.history.size() > max_history)
+    refuse("the Adams march's history holds ", state.history.size(),
+           " entries, more than the ", max_history, " it keeps");
+}
+
 double factor(const Policy& policy, const double norm, const std::size_t order,
               const double growth) {
   if (norm <= 0.0)

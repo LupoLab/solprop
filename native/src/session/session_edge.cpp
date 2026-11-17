@@ -39,7 +39,8 @@ double Session::next_step() const {
 
 transverse::Reading Session::edge_reading(const bool faces, const bool whole,
                                           const bool current) {
-  // `NativeBackend._edge_reading`: a collar's totals and, with the faces, its strip.
+  // As `NumpyWorkspace.edge_reading`: a collar's totals and, with the faces, its
+  // strip.
   const bool collar = edge_->every_step();
   return resident_->edge_reading(faces, whole, collar, faces && collar, current);
 }

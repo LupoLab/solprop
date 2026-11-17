@@ -17,8 +17,8 @@ import pytest
 from legacy_geometry import LEGACY_GRID
 from sessions.runs import bare
 from sessions.runs import run as session_run
-from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
 from solprop.backends.registry import resolve_name
 from solprop.backends.session import Start
 from solprop.driver.settings import SimulationSettings
@@ -396,7 +396,7 @@ def test_an_interior_kink_restarts_the_history():
         noise=None,
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     assert 0.1 in problem.linear.hard_kinks
     backend = NumpyRefBackend(
         problem, run_request, grid=simulation.grid, modes=simulation.modes

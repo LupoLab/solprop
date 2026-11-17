@@ -74,13 +74,10 @@ from solprop.profiles import ZProfile
 from solprop.stats import (
     StatsSpec,
 )
+from solprop.stepper.settings import PropagatorMode, StepperSettings
 from solprop.translate.linop import delta_phi, unitary_phase
 from solprop.translate.masks import noise_spectrum
-from solprop.translate.problem import (
-    PropagationProblem,
-    PropagatorMode,
-    StepperSettings,
-)
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.responses import prefactor_at
 from solprop.translate.routes import (
     transverse_of,
@@ -110,8 +107,8 @@ class NumpyWorkspace:
     Built once per backend from the validated problem and request, and reused for every
     run the backend serves: :meth:`load` replaces the state and everything that
     describes it. It keeps no march state. The engines read and write the state only
-    through these operations, and the session (today the backend's step driver) reads
-    the statistics and the boundary readings from them.
+    through these operations, and the session reads the statistics and the boundary
+    readings from them.
 
     Parameters
     ----------
@@ -186,7 +183,6 @@ class NumpyWorkspace:
             grid=grid,
             modes=modes,
             profiles=profiles,
-            tdse=tdse_binding is not None,
             name=name,
         )
         self.stage_source = StageSource(
@@ -516,13 +512,10 @@ class NumpyWorkspace:
         Returns
         -------
         dict
-            The benchmark-gated plasma source's form and, with a host source, its
-            ledger, execution and last evaluation; JSON-serialisable.
+            With a host source, its ledger, execution and last evaluation; empty
+            otherwise. JSON-serialisable.
         """
         record: dict[str, object] = {}
-        if self.stage_source.gated_plasma:
-            record["_benchmark_plasma_source"] = "gated_nonresumable"
-            record["plasma_source"] = {"form": "gated_benchmark", "resumable": False}
         if self._tdse_binding is not None:
             record["atomic_calls"] = dataclasses.asdict(self._tdse_binding.ledger)
             record["tdse_execution"] = dict(self._tdse_binding.metadata())
@@ -1275,7 +1268,7 @@ class NumpyWorkspace:
             tables = problem.transform.modal_tables
             assert tables is not None
             general = general_memory(maps, tables, problem.grids.n_to)
-        ledger = adams_memory(problem, self._stepper) | {
+        return adams_memory(problem, self._stepper) | {
             # The rows' one definition, in `solprop.backends.memory`.
             **reference_base_memory(
                 problem,
@@ -1305,7 +1298,7 @@ class NumpyWorkspace:
             # The general modal route's buffers are its own: the two execution maps,
             # the per-node tensor and the record's resident E/H reference are
             # whole-problem allocations no chunk shrinks, and its chunk buffers are
-            # three components wide and complex on a grid where the legacy ones are
+            # three components wide and complex on a grid where the channel ones are
             # one or two and real. Every row is zero on every
             # other route.
             **general,
@@ -1320,14 +1313,6 @@ class NumpyWorkspace:
                 }
             ),
         }
-        if self.stage_source.gated_plasma:
-            for name in ledger:
-                if (
-                    name.startswith("held_current_")
-                    and name != "held_current_derivative"
-                ):
-                    ledger[name] = 0
-        return ledger
 
     def close(self) -> None:
         """Release the buffers. Idempotent."""

@@ -21,10 +21,8 @@ import inspect
 import json
 import logging
 import math
-import time
 import warnings
 from collections.abc import Sequence
-from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -47,7 +45,6 @@ from builders import load_reference
 from convergence_records import Column, Study, record
 from convergence_studies import BACKEND_EQUIVALENCE
 from former_raman import FORMER_H2
-from gated_source import _gated_source
 from march_bounds import (
     FIXED_ORDER,
     STATISTIC_FACTOR,
@@ -93,7 +90,7 @@ from solprop.modes.quadrature import RadialRule, mode_matrix, transverse_quadrat
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.optmat_raman import OptmatRamanResponse
 from solprop.nonlinear.optmat_rates import OptmatRate
-from solprop.nonlinear.raman import DampedOscillator, RamanResponse, RotationalLines
+from solprop.nonlinear.raman import RamanResponse, RotationalLines
 from solprop.nonlinear.responses import KerrResponse
 from solprop.output import MemoryOutput, open_file
 from solprop.output.hdf5 import resume
@@ -798,7 +795,7 @@ def test_the_default_field_range_brackets_the_input_peak():
 def _peak_intensity(simulation):
     """Return the peak on-axis intensity of a simulation's input, in W/m^2."""
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NumpyRefBackend(
         problem,
         run_request,
@@ -1496,10 +1493,12 @@ def test_the_undepleted_ratio_does_not_depend_on_the_pump_energy():
 # where the reduced M4 case's constant fill has none -- and both codes' spectra are
 # compared as true power, so a distance or a band ratio between them is weighted by `w`.
 #
-# What is left is a large and unexplained disagreement in the *higher* modes, measured
-# and documented below. It is not the grid, the media, the linear operator, the
-# quadrature order or either code's step size, and solprop's inter-mode drive is exactly
-# the analytic quartic overlap of the Bessel profiles.
+# The comparisons of the exit spectra with Luna's ran the private gated plasma source,
+# the time-domain integral Luna steps, and went with it (docs/dev/accuracy.md section
+# 5): solprop's plasma is SEP 27's held current, which no stored Luna run computes.
+# What stays is what the comparison controls for, asserted below, solprop's
+# inter-mode drive against the analytic quartic overlap of the Bessel profiles, and
+# solprop against itself on the same case.
 
 WITNESS = json.loads((Path(__file__).parents[1] / "data/luna_rdw.json").read_text())
 MEDIA = json.loads((Path(__file__).parents[1] / "data/luna_rdw_media.json").read_text())
@@ -1692,8 +1691,7 @@ LUNA_HYDROGEN_RAMAN = FORMER_H2
 
 solprop's former registry at dc4ca0d (``raman_parameters("H2")``), the input of this
 witness, supplied as the caller's data (``tests/former_raman.py``). Luna's own
-vibrational amplitude is half of this one's; ``ctc_run(luna_vibration=True)`` matches
-it for the historical bounds.
+vibrational amplitude is half of this one's.
 """
 
 
@@ -1828,41 +1826,27 @@ def witness_grid(case):
 
 
 def stored_field(name) -> np.ndarray:
-    """Convert Luna's vacuum amplitudes with the solprop mode's plane index."""
+    """Convert Luna's stored CtC vacuum amplitudes with the solprop mode's index."""
     with h5py.File(Path(__file__).parents[1] / "data" / name, "r") as file:
-        dataset = cast("h5py.Dataset", file[LUNA_FIELD])
-        field = np.asarray(dataset[()])
+        field = np.asarray(cast("h5py.Dataset", file[LUNA_FIELD])[()])
         positions = np.asarray(cast("h5py.Dataset", file["z"])[()])
-        stored_planes = json.loads(str(file.attrs.get("stored_planes", '"all"')))
-        if stored_planes != "all":
-            positions = positions[stored_planes]
         assert len(positions) == len(field)
-    ctc = "ctc" in name
-    tag = "REDUCED" if "reduced" in name else "FULL"
-    witness = CTC_WITNESS if ctc else WITNESS
-    case = witness[tag.lower()]
-    grid = ctc_grid(case) if ctc else witness_grid(case)
-    pressure = (
-        case["pressure"]
-        if ctc
-        else PressureGradient.two_point(
-            case["length"], case["p_in"], case["p_out"], floor=0.0
-        )
-    )
+    case = CTC_WITNESS["reduced"]
+    grid = ctc_grid(case)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
         for m in range(field.shape[1]):
             mode = MarcatiliMode(
                 case["radius"],
-                "H2" if ctc else "He",
-                pressure,
+                "H2",
+                case["pressure"],
                 m=m + 1,
-                temperature=witness["temperature_k"],
-                # Luna's runs, read with Luna's own hydrogen or helium law.
-                susceptibility=luna_hydrogen() if ctc else luna_helium(),
+                temperature=CTC_WITNESS["temperature_k"],
+                # Luna's run, read with Luna's own hydrogen law.
+                susceptibility=luna_hydrogen(),
                 model="full",
-                cladding=luna_cladding(tag, grid, CTC_MEDIA if ctc else MEDIA),
-                loss_scale=0.0 if ctc else 1.0,
+                cladding=luna_cladding("REDUCED", grid, CTC_MEDIA),
+                loss_scale=0.0,
             )
             for plane, z in enumerate(positions):
                 weight = np.ones(grid.n_omega)
@@ -1956,40 +1940,6 @@ def luna_launch_energy(case, tag, *, ctc=False):
     return witness["energy"] * float(np.sum(weight * spectrum) / np.sum(spectrum))
 
 
-def test_trimmed_luna_witness_uses_its_stored_plane_positions():
-    """The archived field uses endpoint indices, not the first two z values."""
-    name = "luna_rdw_full.h5"
-    converted = stored_field(name)
-    with h5py.File(Path(__file__).parents[1] / "data" / name, "r") as file:
-        original = np.asarray(cast("h5py.Dataset", file[LUNA_FIELD])[()])
-        positions = np.asarray(cast("h5py.Dataset", file["z"])[()])[[0, -1]]
-    grid = witness_grid(FULL)
-    pressure = PressureGradient.two_point(
-        FULL["length"], FULL["p_in"], FULL["p_out"], floor=0.0
-    )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", MaterialRangeWarning)
-        mode = MarcatiliMode(
-            FULL["radius"],
-            "He",
-            pressure,
-            temperature=WITNESS["temperature_k"],
-            susceptibility=luna_helium(),
-            model="full",
-            cladding=luna_cladding("FULL", grid, MEDIA),
-            loss_scale=1.0,
-        )
-        for plane, z in enumerate(positions):
-            weight = np.ones(grid.n_omega)
-            weight[grid.active_mask] = np.real(
-                mode.neff(grid.omega[grid.active_mask], float(z))
-            )
-            # The reader and direct endpoint evaluation use identical arithmetic.
-            np.testing.assert_array_equal(
-                converted[plane, 0], original[plane, 0] * np.sqrt(weight)
-            )
-
-
 def witness_run(
     case,
     tag,
@@ -2039,12 +1989,6 @@ def witness_run(
     )
 
 
-def gated_witness_run(case, tag, **keywords):
-    """Compare an archive with its original equation and unchanged tolerance."""
-    with _gated_source():
-        return witness_run(case, tag, backend=TEST_BACKEND, **keywords)
-
-
 def band_mask(grid, limits):
     """Return the mask of a wavelength band on the stored frequency axis."""
     positive = grid.omega > 0.0
@@ -2053,76 +1997,6 @@ def band_mask(grid, limits):
     )
     return (wavelength >= limits[0]) & (wavelength <= limits[1])
 
-
-def arrival_of(grid, spectrum, mask):
-    """Return the intensity-weighted arrival time of a band, s."""
-    field = np.fft.irfft(np.where(mask, spectrum, 0.0), n=grid.n_t, axis=-1)
-    power = np.sum(np.abs(field) ** 2, axis=tuple(range(field.ndim - 1)))
-    return float(np.sum(grid.t * power) / np.sum(power))
-
-
-def in_band_distance(ours, theirs, band):
-    """Return the relative L2 distance of two spectral energy densities in a band."""
-    a, b = np.abs(ours)[..., band] ** 2, np.abs(theirs)[..., band] ** 2
-    return float(np.linalg.norm(a - b) / np.linalg.norm(b))
-
-
-# The record behind the witness-comparison table of `docs/dev/accuracy.md` section 5
-# (section 6's numbers are M4_REDUCED_MEASURED below). It stays a table rather than a
-# figure -- scalars, not a ladder -- but each number comes from a file the suite
-# maintains, together with the band its own test asserts, so a bound quietly widened
-# to fit a measurement is a failure. The tolerance is a fiftieth: an adaptive run on
-# another platform may put its steps in slightly different places, and what that is
-# worth is the controller's own tolerance of 1e-6, four orders inside this.
-WITNESS_COLUMNS = (
-    Column(
-        name="value",
-        unit="1 for a ratio or a relative L2 distance, fs for an arrival",
-        why="a fiftieth: an adaptive run's step sequence is not bitwise across "
-        "platforms, and what that costs the answer is the controller's 1e-6, four "
-        "orders inside this, while every band below is wider still",
-        rtol=0.02,
-    ),
-    Column(
-        name="low",
-        unit="as the value",
-        why="the lower end of the band the test asserts, compared exactly so that a "
-        "bound widened to fit a measurement is itself a failure",
-        rtol=0.0,
-    ),
-    Column(
-        name="high",
-        unit="as the value",
-        why="the upper end of the same band, compared exactly for the same reason",
-        rtol=0.0,
-    ),
-)
-
-M2_WITNESS_METRICS = Study(
-    name="m2_witness_metrics",
-    title="Milestone M2 against its Luna witness, metric by metric",
-    case={
-        "witness": "tests/data/luna_rdw_reduced.h5 and luna_rdw_full.h5, production "
-        "Luna at the rtol = 1e-6 its interface cannot change",
-        "media": "Luna's own helium susceptibility and cladding table",
-        "reduced case": "2 modes, 1 m",
-        "full case": "4 modes, 1.5 m",
-    },
-    axis={"name": "metric", "unit": "1", "label": "metric"},
-    columns=WITNESS_COLUMNS,
-)
-
-M4_REDUCED_MEASURED = {
-    "fundamental, shape": 0.03833276438933937,
-    "fundamental, content": 1.0000061488827905,
-    "exit energy, ours over Luna's": 1.0000061488826115,
-}
-"""What milestone M4's reduced case measured against its Luna witness, metric by metric.
-
-Each is asserted to a fiftieth: an adaptive run's step sequence is not bitwise across
-platforms, and what that costs the answer is the controller's 1e-6, four orders inside
-this. ``docs/dev/accuracy.md`` section 6 quotes them.
-"""
 
 # The record behind the two "what an alarm costs" rows of section 2: the same run at
 # three radial orders, with the observable the case is about beside the alarm that is
@@ -2159,48 +2033,12 @@ M2_ALARM_COST = Study(
 )
 
 
-def metric_rows(series, entries):
-    """Return the record rows of a witness-metric table.
-
-    Parameters
-    ----------
-    series : str
-        Which case the metrics are of.
-    entries : sequence of (str, float, float, float)
-        The metric's name, its measured value, and the band the test asserts.
-    """
-    return [
-        {
-            "series": series,
-            "axis": name,
-            "value": float(value),
-            "low": low,
-            "high": high,
-        }
-        for name, value, low, high in entries
-    ]
-
-
 @pytest.fixture(scope="module")
 def reduced():
-    """The reduced case at Luna's tolerance: the run the regression is measured on."""
+    """The reduced case at Luna's tolerance, on the held plasma current."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        return gated_witness_run(REDUCED, "REDUCED")
-
-
-@pytest.fixture(scope="module")
-def reduced_tight():
-    """The same case two decades tighter, to separate solprop's own step error out."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", MaterialRangeWarning)
-        return gated_witness_run(REDUCED, "REDUCED", rtol=1e-8)
-
-
-@pytest.fixture(scope="module")
-def luna_reduced():
-    """Luna's stored spectra for the reduced case."""
-    return stored_field("luna_rdw_reduced.h5")
+        return witness_run(REDUCED, "REDUCED")
 
 
 # ------------------------------------------------------ what the comparison controls
@@ -2279,92 +2117,7 @@ def test_the_equation_of_state_offset_cancels_out_of_the_susceptibility():
     assert abs(gas_ratio * density_ratio - 1.0) < 1e-14
 
 
-# -------------------------------------------------------------- the M2 regression
-
-
-@pytest.mark.slow
-def test_the_fundamental_mode_matches_luna_within_the_measured_bound(
-    reduced, luna_reduced, request
-):
-    """The mode that carries the pulse, over the in-band mask, at the last plane.
-
-    Measured 6.330e-2 at Luna's tolerance, with the two codes' total content in that
-    mode agreeing to 2.89 %; 5.685e-2 under the bounded temporal profile. The
-    bound is that measurement with a margin, asserted from both sides: a distance that
-    suddenly collapsed would mean the witness had been regenerated with different
-    physics, not that the solver had improved.
-
-    With each mode in its own frame these were 5.811e-2 and 3.47 %; the
-    fundamental barely moved when the frame became shared, because its own frame was
-    the shared one. The higher modes are the test below.
-    """
-    grid = witness_grid(REDUCED)
-    ours = reduced.fields("fft")[-1, :, 0, :]
-    distance = in_band_distance(ours[0], luna_reduced[-1][0], grid.inband_mask)
-    assert 0.05 < distance < 0.08
-    norms = float(
-        np.sum(np.abs(ours[0]) ** 2) / np.sum(np.abs(luna_reduced[-1][0]) ** 2)
-    )
-    assert 1.01 < norms < 1.05
-    # The launch is Luna's own pulse, so this is like for like: launching the
-    # nominal energy instead moves the shape by 1.40e-4 and the content by 5.2e-6
-    # relative, well inside both bands and the record's rtol=0.02.
-    record(
-        M2_WITNESS_METRICS,
-        request=request,
-        backend="numpy_ref",
-        rows=metric_rows(
-            "reduced case",
-            [
-                ("fundamental, shape", distance, 0.05, 0.08),
-                ("fundamental, content", norms, 1.01, 1.05),
-            ],
-        ),
-    )
-
-
-@pytest.mark.slow
-def test_the_step_tolerance_is_not_what_separates_the_two_codes(
-    reduced, reduced_tight, luna_reduced, request
-):
-    """Two decades of solprop's tolerance leave the distance where it is.
-
-    The part of the gap that is discretisation error measures 1.6e-5 of itself on
-    solprop's side (1.1e-6 before SEP 14's step limits, which leave the ``rtol =
-    1e-6`` arm a little further from converged), far below the gap; Luna's own part is
-    the same size, its stored result being unchanged to 1e-3 between ``rtol = 1e-6`` and
-    ``1e-9`` (measured with `Luna.run` called directly, because Luna's interface cannot
-    set a tolerance at all). This rules discretisation out as the cause of the
-    higher-mode disagreement, and left the frame as the only remaining candidate.
-    """
-    grid = witness_grid(REDUCED)
-    band = grid.inband_mask
-    theirs = luna_reduced[-1][0]
-    loose = in_band_distance(reduced.fields("fft")[-1, 0, 0, :], theirs, band)
-    tight = in_band_distance(reduced_tight.fields("fft")[-1, 0, 0, :], theirs, band)
-    assert abs(loose - tight) / loose < 1e-3
-    assert loose > 0.03
-    # Both arms move with the launch, not with the tolerance, which is the point: a
-    # launch 0.0036 % lower moves the tight arm by 1.40e-4 relative, exactly as the
-    # loose one, so their difference moves by 1.48e-4 of itself and stays four orders
-    # inside the gap.
-    record(
-        M2_WITNESS_METRICS,
-        request=request,
-        backend="numpy_ref",
-        rows=metric_rows(
-            "reduced case",
-            [
-                ("fundamental shape at rtol 1e-8", tight, 0.05, 0.08),
-                (
-                    "two decades of tolerance, relative move",
-                    abs(loose - tight) / loose,
-                    0.0,
-                    1e-3,
-                ),
-            ],
-        ),
-    )
+# --------------------------------------------------------- the dispersive wave
 
 
 @pytest.mark.slow
@@ -2405,95 +2158,6 @@ def test_the_dispersive_wave_is_phase_matched_where_the_gradient_has_thinned(red
     # package's own, and because the peak of a structured band is read to a bin.
     position = 1.0 - (matched / p_in) ** 2
     assert 0.5 < position < 0.9
-
-
-@pytest.mark.slow
-def test_the_vuv_band_is_the_measured_fraction_of_lunas(reduced, luna_reduced, request):
-    """The 100-140 nm band: the quantity milestone M2 is about.
-
-    In the fundamental alone solprop puts 1.426 times Luna's energy in the band, and
-    summed over both modes 1.298 times as much. The arrival times are 4.730 fs and
-    4.622 fs. All four numbers are stable to 1e-4 across two decades of step tolerance,
-    so they are what the two codes mean, not what their steppers did.
-
-    With each mode in its own frame these were 1.560 and 0.664, and an arrival of
-    3.966 fs against the same 4.622 fs. The band summed over both modes was the number
-    that moved most: with each mode in its own frame the second one was empty, so the
-    total was *below* Luna's while the fundamental alone was above it. Both are now on
-    the same side and the arrival agrees to 0.11 fs rather than 0.66 fs.
-    """
-    grid = witness_grid(REDUCED)
-    vuv = band_mask(grid, VUV)
-    ours = reduced.fields("fft")[-1, :, 0, :]
-    theirs = luna_reduced[-1]
-    fundamental = np.sum(np.abs(ours[0, vuv]) ** 2) / np.sum(
-        np.abs(theirs[0, vuv]) ** 2
-    )
-    total = np.sum(np.abs(ours[:, vuv]) ** 2) / np.sum(np.abs(theirs[:, vuv]) ** 2)
-    assert 1.35 < fundamental < 1.50
-    assert 1.22 < total < 1.37
-    ours_arrival = arrival_of(grid, ours, vuv)
-    theirs_arrival = arrival_of(grid, theirs, vuv)
-    assert 4.4e-15 < ours_arrival < 5.1e-15
-    assert 4.2e-15 < theirs_arrival < 5.0e-15
-    # Launching the nominal energy instead of Luna's own pulse moves the two band
-    # ratios by 6.2e-5 and 1.05e-4 and solprop's arrival by 2.1e-5 relative. Luna's
-    # arrival does not move at all, as it must not -- nothing on this side of the
-    # comparison reaches it. All four are well inside the bands and the rtol=0.02.
-    record(
-        M2_WITNESS_METRICS,
-        request=request,
-        backend="numpy_ref",
-        rows=metric_rows(
-            "reduced case",
-            [
-                ("VUV band in the fundamental", float(fundamental), 1.35, 1.50),
-                ("VUV band over both modes", float(total), 1.22, 1.37),
-                ("VUV arrival, solprop", 1e15 * ours_arrival, 4.4, 5.1),
-                ("VUV arrival, Luna", 1e15 * theirs_arrival, 4.2, 5.0),
-            ],
-        ),
-    )
-
-
-@pytest.mark.slow
-def test_the_higher_modes_agree_now_that_the_set_shares_one_frame(
-    reduced, luna_reduced, request
-):
-    """The second mode carries 1.106 times Luna's, not 1/90.
-
-    With each mode in its own frame this was 0.011, and a comparison alone could not
-    say which code was right. The two oracles above settled it: Luna's own projection of
-    a field that is the fundamental alone returns the analytic quartic overlap to
-    1.9e-12 (above), and on the undepleted-pump case both codes reproduce first-order
-    perturbation theory to 1e-5 (above). What was wrong was solprop's linear operator,
-    which gave every mode its own co-moving frame and so let the modes walk apart in
-    time by ``(beta_1,p - beta_1,1) z`` -- 43 fs per metre between these two -- while
-    the nonlinear term went on multiplying them at the same time sample.
-
-    On the full four-mode case the three higher modes go from 1.7e-3, 1.4e-5 and 1.7e-5
-    of Luna's to 0.564, 1.080 and 1.165; that case is the ``benchmark``-marked test at
-    the end of this file, and what is left of its 0.564 is **Luna's step control, not
-    either code's physics**: at ``rtol = 1e-9`` Luna's second mode is 1.77 times smaller
-    than at the ``1e-6`` its interface cannot change, and the two codes then agree on it
-    to 0.44 %. The reduced case's 1.106 is against the same unconverged reference and
-    is not corrected for it either: the witness is production Luna, deliberately.
-
-    The band below is the measurement, not a tolerance: it fails if either code changes.
-    """
-    ours = reduced.fields("fft")[-1, :, 0, :]
-    theirs = luna_reduced[-1]
-    ratio = float(np.sum(np.abs(ours[1]) ** 2) / np.sum(np.abs(theirs[1]) ** 2))
-    assert 1.0 < ratio < 1.2
-    # Launching the nominal energy instead of Luna's own pulse moves this by
-    # 2.54e-4 relative, the largest of the reduced M2 moves and two orders inside the
-    # band.
-    record(
-        M2_WITNESS_METRICS,
-        request=request,
-        backend="numpy_ref",
-        rows=metric_rows("reduced case", [("second mode, content", ratio, 1.0, 1.2)]),
-    )
 
 
 # ------------------------------------------------------------------- the ladders
@@ -2859,12 +2523,13 @@ def test_the_quadrature_ladder_converges_and_the_alarm_falls_with_it(request):
 #   energy, asserted below, so the pulse, the mode and the normalisation are not what
 #   any later difference is.
 #
-# What is left, under the witness's vibrational amplitude, is a case where the two
-# codes agree on the fundamental's spectrum to 3.8 %, on its content and the exit
-# energy to 1e-5, and on the plasma to 1e-6. Until 2026-10-24 the case ran on a 1 ps
-# window with two modes; its launch reached the temporal collar, both codes' Raman
-# cascades grew from that clipped edge, and the continuum and the disagreements
-# recorded for it were the boundary's, not the solvers'.
+# What is compared with Luna is the input state and the plasma, on which the two codes
+# agree to 1e-6. The exit-spectrum bounds of milestone M4 ran the private gated plasma
+# source under the witness's vibrational amplitude and went with it
+# (docs/dev/accuracy.md section 6). Until 2026-10-24 the case ran on a 1 ps window with
+# two modes; its launch reached the temporal collar, both codes' Raman cascades grew
+# from that clipped edge, and the continuum and the disagreements recorded for it were
+# the boundary's, not the solvers'.
 
 CTC_WITNESS = json.loads((Path(__file__).parents[1] / "data/luna_ctc.json").read_text())
 CTC_MEDIA = json.loads(
@@ -2890,17 +2555,15 @@ def ctc_run(
     *,
     planes=None,
     backend=TEST_BACKEND,
-    luna_vibration=False,
     seed=None,
 ):
-    """Run CtC with corrected vibration, or explicitly select the old witness model.
+    """Run solprop's side of the stored CtC case, with Luna's media in the mode.
 
     A `seed` launches the case with input shot noise of that seed; without one the run
     is noise-free, as the witness is.
     """
     grid = ctc_grid(case)
-    context = _gated_source() if luna_vibration else nullcontext()
-    with warnings.catch_warnings(), context:
+    with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
         simulation = Simulation.from_capillary(
             case["radius"],
@@ -2935,29 +2598,6 @@ def ctc_run(
                 "seed": seed,
             },
         )
-        if luna_vibration:
-            # Test-only matching of the archived witness's physical model, not
-            # a production compatibility mode. The default fixture below retains
-            # corrected vibration and still exercises the octave/plasma/grid
-            # checks. Only the historical M4 numerical bounds use this override.
-            responses = []
-            for response in simulation.responses:
-                updated_response = response
-                if isinstance(response, RamanResponse):
-                    terms = tuple(
-                        replace(
-                            term,
-                            model=replace(
-                                term.model, amplitude=term.model.amplitude / 2
-                            ),
-                        )
-                        if isinstance(term.model, DampedOscillator)
-                        else term
-                        for term in response.tensor_terms
-                    )
-                    updated_response = replace(response, tensor_terms=terms)
-                responses.append(updated_response)
-            simulation._responses = tuple(responses)
         return simulation.run()
 
 
@@ -3239,64 +2879,6 @@ def test_the_two_codes_start_from_the_same_state(ctc_reduced, luna_ctc_reduced):
     assert abs(float(ours / theirs) - 1.0) < 1e-5
 
 
-@pytest.mark.slow
-def test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4(
-    luna_ctc_reduced, test_backend_name
-):
-    """Bound the solver against Luna under an explicitly matched Raman model.
-
-    solprop's scalar vibrational Raman amplitude is twice the witness's (Luna's
-    prefactor has ``4 mu Omega`` where the induced-dipole Hamiltonian gives
-    ``2 mu Omega``). Here only, the witness's weaker vibration is restored before
-    propagation, so that these bounds compare the two solvers on the same physics; the
-    default run (spectral distance 0.409, content 0.983) is exercised by the ionisation,
-    quadrature and backend checks.
-
-    Measured at Luna's tolerance on `numpy_ref`, solprop against Luna, at the exit
-    plane: the fundamental's in-band spectral energy density differs by **0.0383**
-    (relative L2), its content is **1 + 6.1e-6** of Luna's, and the exit energy is
-    **1 + 6.9e-6** of the launch here against **1 + 7.4e-7** in Luna. None of these
-    is a continuum: noise-free, the case forms none, and with shot noise the two codes'
-    cascades grow from different realisations. The 1 ps window's clipped launch seeded
-    a cascade in both codes alike, which is what these bounds once described (0.154,
-    1.044, and a Stokes ladder); the seeded cascade is now solprop's own check.
-    """
-    ctc_reduced = ctc_run(
-        CTC_REDUCED, "REDUCED", backend=test_backend_name, luna_vibration=True
-    )
-    grid = ctc_grid(CTC_REDUCED)
-    fields = ctc_reduced.fields("fft")
-    ours = fields[-1, :, 0, :]
-    theirs = luna_ctc_reduced[-1]
-    fundamental = in_band_distance(ours[0], theirs[0], grid.inband_mask)
-    content = float(np.sum(np.abs(ours[0]) ** 2) / np.sum(np.abs(theirs[0]) ** 2))
-    surviving = float(
-        np.sum(np.abs(ours) ** 2) / np.sum(np.abs(fields[0, :, 0, :]) ** 2)
-    )
-    luna_surviving = float(
-        np.sum(np.abs(theirs) ** 2) / np.sum(np.abs(luna_ctc_reduced[0]) ** 2)
-    )
-
-    # ---------------------------------------------------- milestone M4's bounds
-    #
-    # The shape is bounded at +-10 % of its measurement, two-sided: these are
-    # deterministic runs against a fixed witness, so only a change in solprop can move
-    # it, and a collapse would mean the witness had been regenerated with different
-    # physics rather than that the solver had improved. The two energies sit within
-    # 1e-5 of Luna's; their bounds are 1e-4, which a step sequence that differs across
-    # platforms at the controller's 1e-6 cannot reach.
-    assert 0.0345 < fundamental < 0.0422
-    assert abs(content - 1.0) < 1e-4
-    assert abs(surviving / luna_surviving - 1.0) < 1e-4
-    measured = {
-        "fundamental, shape": fundamental,
-        "fundamental, content": content,
-        "exit energy, ours over Luna's": surviving / luna_surviving,
-    }
-    for name, value in measured.items():
-        assert value == pytest.approx(M4_REDUCED_MEASURED[name], rel=0.02), name
-
-
 # ====================================== the statistics channel between planes
 
 
@@ -3348,7 +2930,7 @@ def reduced_m2_channel():
         # case accepts; the warning is the subject of its own test elsewhere.
         warnings.simplefilter("ignore", MaterialRangeWarning)
         problem = simulation.translate()
-    plain = simulation._run_request()
+    plain = simulation.run_request()
     spec = StatsSpec(names=PERIODIC_SUBSET, periodic=PERIODIC_SUBSET, period=1)
     return simulation, problem, plain, plain.for_run(stats=spec)
 
@@ -3359,7 +2941,7 @@ def test_a_periodic_row_at_a_plane_is_the_plane_s_own_statistic_on_the_m2_case(
 ):
     """On a real multimode run with a plasma and a gradient fill.
 
-    The row goes through the same :meth:`~solprop.backends.protocol.Backend.stats` the
+    The row goes through the same statistics evaluation (the workspace's ``stats``) the
     save plane uses, so where a row lands on a plane the two are the same statistic of
     one state, evaluated twice -- including the electron density, whose cheap path
     must therefore agree with the synthesis it replaces. Two evaluations of one
@@ -3406,13 +2988,9 @@ def test_a_periodic_row_at_a_plane_is_the_plane_s_own_statistic_on_the_m2_case(
 
 # ============================================ milestone M3, the CPU backend
 
-#: Luna's own wall time for the full M2 case on an Apple-silicon laptop, from the
-#: witness's provenance (Luna de9db7c9 on modal-fixed). What M3 has to beat.
-LUNA_M2_SECONDS = 104.96
-
 
 @pytest.mark.slow
-def test_the_reduced_m2_case_is_the_same_run_on_either_backend(request, reduced):
+def test_the_reduced_m2_case_is_the_same_run_on_either_backend(request):
     """Milestone M3, the equivalence half: the two backends step the same trajectory.
 
     The bound is derived and then measured, and the measurement is the interesting
@@ -3424,8 +3002,7 @@ def test_the_reduced_m2_case_is_the_same_run_on_either_backend(request, reduced)
     plasma into a vacuum end where dp/dz diverges, which caps it at first order
     and amplifies any perturbation. **Measured 6.5e-12 at the
     exit**, about four hundred times the per-step figure, and the bound is set at 1e-10
-    -- fifteen times the measurement, and still four orders inside the 2.6e-1 at which
-    this case agrees with Luna at all.
+    -- fifteen times the measurement.
 
     That the amplification is round-off and not a different integration is what the
     step counts say: both backends take the same number of steps and reject the same
@@ -3458,158 +3035,6 @@ def test_the_reduced_m2_case_is_the_same_run_on_either_backend(request, reduced)
                 "order": 6.0,
             }
         ],
-    )
-    # And the same case against Luna, at the reference's own bound, so that agreeing
-    # with the reference cannot stand in for agreeing with the physics.
-    grid = witness_grid(REDUCED)
-    luna = stored_field("luna_rdw_reduced.h5")[-1]
-    mine = reduced.fields("fft")[-1, :, 0, :]
-    # The reference's own bound for this case, which it meets at 6.330e-2; the retired
-    # numba_cpu met it at 6.330e-2 too, to four figures.
-    assert 0.05 < in_band_distance(mine[0], luna[0], grid.inband_mask) < 0.08
-
-
-@pytest.mark.benchmark
-def test_the_historical_full_m2_case_against_luna_wall_time():
-    """Retain the historical gated comparison and its original wall-time limit.
-
-    SEP 27 confines this equation to the private NumPy hook. The measurements below
-    predate that change; production performance was qualified on SEP 27's ten-step
-    windows, separately from this historical witness.
-
-    Measured on an Apple-silicon laptop: **12.2 s on a quiet machine and 14.0 s under
-    a load average of eight**, against numpy_ref's 63.7 s in the same session and Luna's
-    recorded 104.96 s -- a factor of 4.6 over the reference and 8.6 over Luna, at
-    *identical* achieved error: both backends return the same in-band distance and the
-    same in-band content to five figures, which is what "at equal achieved error" has to
-    mean here.
-
-    The bound below is deliberately loose. What M3 asks is that the case is faster
-    than Luna's, and a factor of eight has room for a machine under load; asserting
-    the measured number would make this a test of how busy the machine is.
-    """
-    started = time.perf_counter()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", MaterialRangeWarning)
-        output = gated_witness_run(FULL, "FULL", planes=2)
-    wall = time.perf_counter() - started
-    grid = witness_grid(FULL)
-    theirs = stored_field("luna_rdw_full.h5")[-1]
-    ours = output.fields("fft")[-1, :, 0, :]
-    assert wall < LUNA_M2_SECONDS
-    # The same bounds the reference's own full-case test asserts: faster is only
-    # milestone M3 if it is the same answer.
-    assert 0.15 < in_band_distance(ours[0], theirs[0], grid.inband_mask) < 0.4
-    norms = np.sum(np.abs(ours[0]) ** 2) / np.sum(np.abs(theirs[0]) ** 2)
-    assert 0.98 < norms < 1.01
-
-
-@pytest.mark.benchmark
-def test_the_full_m2_case_against_its_witness(request):
-    """Milestone M2 at full size, against the trimmed Luna witness beside it.
-
-    Measured on one workstation at Luna's tolerance: 1761 accepted steps, 92 s; the
-    fundamental agrees with Luna to 4.7e-3 in its total in-band content and 2.6e-1 in
-    the shape of its spectral energy density, and the three higher modes to 0.564,
-    1.080 and 1.165 of Luna's energy. Solprop's own answer is converged: two decades of
-    tolerance move the VUV band's energy by 7.5e-5 and its arrival time by 1.2e-5.
-
-    With a frame per mode this was 1824 steps, 88 s, 1.2e-3 in content, and higher
-    modes at 1.7e-3, 1.4e-5 and 1.7e-5 of Luna's; giving the mode set one co-moving
-    frame instead of one each is what closed the higher modes.
-
-    **The second mode's 0.564 is a bound against an unconverged reference.** The
-    witness is Luna at ``rtol = 1e-6``, which its interface cannot change, and here that
-    is 1.77 times its own converged answer for this mode: 3.3408 uJ at 1e-6 against
-    1.8929 at 1e-9, over 4365 steps against 117486, where solprop moves by 2.3e-4 across
-    the same three decades. Against a converged Luna the ratio is 0.9956. Neither the
-    witness nor this bound is changed for it -- the comparison is deliberately against
-    the Luna every published result carries -- but the number is not a physics
-    discrepancy and should not be read as one.
-    """
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", MaterialRangeWarning)
-        output = gated_witness_run(FULL, "FULL", planes=2)
-    grid = witness_grid(FULL)
-    theirs = stored_field("luna_rdw_full.h5")[-1]
-    ours = output.fields("fft")[-1, :, 0, :]
-    # Against production Luna, from the capped-logarithm absorber in the vacuum-
-    # amplitude form to the bounded profile in the true-power form: shape .2594200275 ->
-    # .2586611274 (-.2925372%); content .9953527961 -> .9946881720 (-.0667727%); VUV
-    # 1.0895199672 -> 1.0894263605 (-.0085916%); modes 2/3/4 .5640228623/1.0796669968/
-    # 1.1648044943 -> .5638943939/1.0797012283/1.1645067591 (-.0227772%, +.0031706%,
-    # -.0255610%); all inside the two-sided bounds below. The full-case rows of
-    # m2_witness_metrics were measured with the nominal launch energy rather than the
-    # true energy of Luna's pulse (1.0000228218 times the nominal one here) and were
-    # not regenerated with the reduced ones, this test being the `benchmark`-marked
-    # writer that produces them.
-    fundamental = in_band_distance(ours[0], theirs[0], grid.inband_mask)
-    assert 0.15 < fundamental < 0.4
-    norms = np.sum(np.abs(ours[0]) ** 2) / np.sum(np.abs(theirs[0]) ** 2)
-    assert 0.98 < norms < 1.01
-    vuv = band_mask(grid, VUV)
-    band_ratio = np.sum(np.abs(ours[:, vuv]) ** 2) / np.sum(np.abs(theirs[:, vuv]) ** 2)
-    assert 0.95 < band_ratio < 1.25
-    higher = [
-        np.sum(np.abs(ours[m]) ** 2) / np.sum(np.abs(theirs[m]) ** 2) for m in (1, 2, 3)
-    ]
-    assert 0.45 < higher[0] < 0.7
-    assert 0.95 < higher[1] < 1.25
-    assert 1.0 < higher[2] < 1.35
-
-    # ------------------------------------------------ against *converged* Luna
-    #
-    # The same run against `luna_rdw_full_converged.h5`, which is Luna's own answer
-    # to this case at `rtol = 1e-9` -- 117 486 accepted steps against the 4365 the
-    # tolerance its interface cannot change gives it. The bounds above stay
-    # exactly as they are: they are the regression against what a user of Luna
-    # actually gets, and that is what a regression should be. These are the physics
-    # numbers.
-    #
-    # Measured: the fundamental's in-band distance falls from 0.2594 to **0.0908**,
-    # and the second mode goes from 0.564 of Luna's energy to **0.9958** -- agreement
-    # to 0.42 %. Luna's second mode is 1.77 times larger unconverged than converged,
-    # so almost all of the 0.564 was Luna's step control and none of it was solprop.
-    # In the same two forms as above: converged-reference shape .09074989575 ->
-    # .08923627499 (-1.6679036%); modes 2/3/4 .9954845118/1.0506817651/.8457296069
-    # -> .9952546625/1.0507146353/.8455127507 (-.0230892%, +.0031285%, -.0256413%),
-    # all inside the bounds.
-    converged = stored_field("luna_rdw_full_converged.h5")[-1]
-    assert 0.06 < in_band_distance(ours[0], converged[0], grid.inband_mask) < 0.13
-    second = np.sum(np.abs(ours[1]) ** 2) / np.sum(np.abs(converged[1]) ** 2)
-    assert 0.97 < second < 1.03
-    # Modes three and four move much less between Luna's two tolerances and are
-    # recorded rather than tightened: 1.051 and 0.846 against the converged witness,
-    # where they read 1.080 and 1.165 against the unconverged one.
-    third = float(np.sum(np.abs(ours[2]) ** 2) / np.sum(np.abs(converged[2]) ** 2))
-    fourth = float(np.sum(np.abs(ours[3]) ** 2) / np.sum(np.abs(converged[3]) ** 2))
-    assert 0.95 < third < 1.2
-    assert 0.7 < fourth < 1.0
-    shape = in_band_distance(ours[0], converged[0], grid.inband_mask)
-    record(
-        M2_WITNESS_METRICS,
-        request=request,
-        backend="numpy_ref",
-        rows=metric_rows(
-            "full case, against production Luna",
-            [
-                ("fundamental, shape", fundamental, 0.15, 0.4),
-                ("fundamental, content", float(norms), 0.98, 1.01),
-                ("VUV band over four modes", float(band_ratio), 0.95, 1.25),
-                ("second mode, content", float(higher[0]), 0.45, 0.7),
-                ("third mode, content", float(higher[1]), 0.95, 1.25),
-                ("fourth mode, content", float(higher[2]), 1.0, 1.35),
-            ],
-        )
-        + metric_rows(
-            "full case, against converged Luna",
-            [
-                ("fundamental, shape", shape, 0.06, 0.13),
-                ("second mode, content", float(second), 0.97, 1.03),
-                ("third mode, content", third, 0.95, 1.2),
-                ("fourth mode, content", fourth, 0.7, 1.0),
-            ],
-        ),
     )
 
 

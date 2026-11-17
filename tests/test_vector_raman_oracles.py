@@ -48,10 +48,10 @@ from vector_raman_tensor_oracle import (
 
 def test_proposed_declaration_preserves_one_authority_and_scalar_metadata():
     existing = RamanResponse(models=former_response(FORMER_H2).models)
-    legacy = Declaration(
+    scalar_only = Declaration(
         existing.models, existing.fraction, existing.thg, existing.species
     )
-    assert legacy.record() == serialise(existing)
+    assert scalar_only.record() == serialise(existing)
     tensor = Declaration(
         tensor_terms=(
             Term(existing.models[0], "rank2"),

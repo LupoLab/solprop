@@ -6,11 +6,12 @@
 
 The counterparts of native's ``engines::RungeKuttaDense`` and ``engines::AdamsDense``
 (``native/src/march/dense.cpp``), which implement the session's ``Dense``: the session
-(:class:`~solprop.backends.host.session.HostSession`) decides when a plane is observed
-inside the last accepted step, and asks one of these to hold the committed state aside,
-make the state the interpolated field there, and restore the committed state before
-the march goes on (SEP 14 phase 3, ADR-036, SEP 52 section 5.2). An observation
-neither rewinds the controller nor advances the history, and evaluates no source.
+(:class:`~solprop.backends.numpy_ref.session.HostSession`) decides when a plane is
+observed inside the last accepted step, and asks one of these to hold the committed
+state aside, make the state the interpolated field there, and restore the committed
+state before the march goes on (SEP 14 phase 3, ADR-036, SEP 52 section 5.2). An
+observation neither rewinds the controller nor advances the history, and evaluates no
+source.
 
 - :class:`RungeKuttaDense` evaluates DOPRI5's continuous extension of Hairer, Norsett
   and Wanner II.6, which the engine held when the step was accepted
@@ -18,17 +19,17 @@ neither rewinds the controller nor advances the history, and evaluates no source
   it to the plane by the exact linear flow.
 - :class:`AdamsDense` evaluates the Adams march's interpolant over its last accepted
   step: the weights at the plane's fraction from the march's record of the step
-  (:class:`~solprop.backends.host.adams.AcceptedStep`), its carrier rotations applied
-  to the samples the engine kept (SEP 35 section 4.1).
+  (:class:`~solprop.backends.numpy_ref.marches.adams.AcceptedStep`), its carrier
+  rotations applied to the samples the engine kept (SEP 35 section 4.1).
 """
 
 import numpy as np
 from jaxtyping import Complex
 
 from solprop._helpers import PLAIN
-from solprop.backends.host.adams import AcceptedStep, HostAdamsMarch
 from solprop.backends.numpy_ref.adams_kernels import ExponentialKernels, weighted_sum
 from solprop.backends.numpy_ref.engines import NumpyRungeKutta
+from solprop.backends.numpy_ref.marches.adams import AcceptedStep, HostAdamsMarch
 from solprop.backends.numpy_ref.multistep import (
     ExponentialHistory,
     HostHistory,
@@ -144,10 +145,10 @@ class AdamsDense:
         The workspace whose state is observed.
     engine : solprop.backends.numpy_ref.multistep.HostHistory
         The engine that kept the step's samples.
-    march : solprop.backends.host.adams.HostAdamsMarch
+    march : solprop.backends.numpy_ref.marches.adams.HostAdamsMarch
         The march whose record of the step
-        (:attr:`~solprop.backends.host.adams.HostAdamsMarch.last_step`) gives the
-        weights' nodes and the carrier rotations.
+        (:attr:`~solprop.backends.numpy_ref.marches.adams.HostAdamsMarch.last_step`)
+        gives the weights' nodes and the carrier rotations.
     """
 
     def __init__(

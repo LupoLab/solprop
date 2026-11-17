@@ -435,8 +435,8 @@ class TraceAdamsMarch(march_module._NativeAdamsMarch):
         self._last_rejected = bool(state["last_rejected"])
         self._collar_was_quiet = bool(state["collar_was_quiet"])
         self._history = [
-            Derivative(float(z), None, identity, int(slot))
-            for z, identity, slot in state["history"]
+            Derivative(float(entry["z"]), None, entry["identity"], int(entry["row"]))
+            for entry in state["history"]
         ]
         ledger = self.ledger
         for name, value in state["ledger"].items():
@@ -610,6 +610,7 @@ class TraceRungeKuttaMarch:
             "z": float(backend._z),
             "proposal": float(backend._proposal),
             "norms": [float(norm) for norm in backend._accepted_norms],
+            "watch": dict(march_module.FRESH_WATCH),
             "cursor": int(backend._schedule_index),
         }
         if watching:

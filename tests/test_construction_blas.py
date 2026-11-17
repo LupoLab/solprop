@@ -537,7 +537,7 @@ def test_construction_beside_a_live_backend_restores_its_pools(
     backend = registry.select(
         name,
         problem,
-        simulation._run_request(),
+        simulation.run_request(),
         grid=simulation.grid,
         modes=simulation.modes,
     )

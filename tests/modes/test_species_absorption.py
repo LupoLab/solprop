@@ -48,7 +48,7 @@ def test_species_loss_refuses_alpha_and_invalid_frequency():
             )
 
 
-def test_legacy_gas_and_vacuum_have_one_zero_absorption_row():
+def test_a_single_gas_and_vacuum_have_one_zero_absorption_row():
     omega = np.array([2 * np.pi * C / 800e-9])
     for mode in (MarcatiliMode(30e-6), MarcatiliMode(30e-6, "He", 1.0)):
         np.testing.assert_array_equal(

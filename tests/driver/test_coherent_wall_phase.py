@@ -120,7 +120,7 @@ def test_two_phases_of_one_superposition_lose_differently_through_the_wall(
     """
     simulation = uncollared(wall=CoherentWall())
     problem, grid = simulation.translate(), simulation.grid
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     bound = 1e-12 + 1e-13 + 1e-13
     got = {sign: transmitted(problem, run_request, grid, sign) for sign in (1.0, -1.0)}
     expected = {sign: predicted(problem, grid, sign) for sign in (1.0, -1.0)}
@@ -147,7 +147,7 @@ def test_a_diagonal_loss_takes_the_same_power_from_either_phase(record_property)
     """
     simulation = uncollared()
     problem, grid = simulation.translate(), simulation.grid
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     assert problem.linear.coupled_flow is None
     got = {sign: transmitted(problem, run_request, grid, sign) for sign in (1.0, -1.0)}
     record_property("difference", got[1.0] - got[-1.0])

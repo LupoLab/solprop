@@ -173,7 +173,7 @@ def _reference(problem, run_request, spec, seen, *, grid, modes=None, profiles=N
     Returns
     -------
     list of dict
-        The reference's statistics, without a batch axis, one per observation.
+        The reference's statistics, one per observation.
     """
     backend = select(
         "numpy_ref", problem, run_request, grid=grid, modes=modes, profiles=profiles
@@ -219,7 +219,6 @@ def _check_structure(seen, status, counters):
     }
     assert sum(record["native_returns"].values()) == status.batches
     assert record["field_crossings"] == {"export": len(seen)}
-    assert record["host_attempts"] == record["transverse_reads"] == 0
 
 
 def _within(actual, expected, bound, what):
@@ -827,7 +826,7 @@ def _beam(route):
         settings=settings,
         noise=None,
     )
-    return grid, simulation.translate(), simulation._run_request()
+    return grid, simulation.translate(), simulation.run_request()
 
 
 def _host_widths(problem, run_request, grid, record, monkeypatch):

@@ -195,11 +195,11 @@ public:
   /**
    * A Runge-Kutta march's dense output in a native session (solprop SEP 47 section
    * 5.3), DOPRI5's continuous extension (Hairer, Norsett and Wanner II.6) as solprop's
-   * `extension_coefficients` and `_observe_inside` form it. `rk_dense_allocate` keeps
-   * the tableau's dense-output weights, one per stage, and the views the extension
-   * needs; `rk_dense_hold` contracts the accepted, unfinished trial over `dz` -- the
-   * state before it and its stages -- into the extension's five coefficients and marks
-   * the bins the step's flow changes by more than an e-fold;
+   * `extension_coefficients` and `RungeKuttaDense.observe` form it. `rk_dense_allocate`
+   * keeps the tableau's dense-output weights, one per stage, and the views the
+   * extension needs; `rk_dense_hold` contracts the accepted, unfinished trial over `dz`
+   * -- the state before it and its stages -- into the extension's five coefficients and
+   * marks the bins the step's flow changes by more than an e-fold;
    * `rk_dense_observe` holds the committed state aside and makes the state the
    * extension at the fraction `theta`, carried from the anchor by the flow of `carry`
    * (a trial's arrays from the anchor to the plane) and masked; `rk_dense_restore`
@@ -291,14 +291,9 @@ public:
                       const std::vector<double>& cosines,
                       const std::vector<double>& sines);
   /**
-   * The modal state's spectrum at one physical point: `matrix`, one or two rows of
-   * `n_modes` columns, contracted with the modes, as `(n_rows * n_pol, n_omega)`
-   * samples. What an on-axis scan needs of the state.
-   */
-  [[nodiscard]] std::vector<Complex> axis_spectrum(const std::vector<double>& matrix);
-  /**
    * solprop SEP 19's on-axis plasma populations of the accepted state: `matrix`'s row
-   * (as `axis_spectrum` takes it, the pad scale and the taper in it) on the fine time
+   * (one or two rows of `n_modes` columns contracted with the modes, the pad scale and
+   * the taper in it) on the fine time
    * grid, scanned by the node scan with each channel's preionisation. Returns each
    * channel's final ionised fraction and peak rate, `(n_channels, 2)`.
    */
@@ -322,13 +317,12 @@ public:
              const std::vector<double>& power_weight = {});
   /**
    * solprop SEP 47: a general modal basis's statistics, functionals of the physical
-   * flux `a.H W a` (`solprop.stats._whitened`). The state's columns are whitened by
-   * `root`, `W^(1/2)` at each frequency, `(n_omega, n_modes, n_modes)` row-major
-   * (empty for the identity), into a statistics scratch, and the temporal `flags`
-   * (omega0, energy, peak power total and the width's trace) are evaluated on
-   * `c = W^(1/2) a`. Returns their packed values, then each column's `sum |c|^2`,
-   * then, with `spectral`, each bin's `sum |c|^2` over the columns. The state is
-   * unchanged.
+   * flux `a.H W a` (`solprop.stats.definitions._whitened`). The state's columns are
+   * whitened by `root`, `W^(1/2)` at each frequency, `(n_omega, n_modes, n_modes)`
+   * row-major (empty for the identity), into a statistics scratch, and the temporal
+   * `flags` (omega0, energy, peak power total and the width's trace) are evaluated on
+   * `c = W^(1/2) a`. Returns their packed values, then each column's `sum |c|^2`, then,
+   * with `spectral`, each bin's `sum |c|^2` over the columns. The state is unchanged.
    */
   [[nodiscard]] std::vector<double>
   whitened_statistics(const std::vector<Complex>& root, std::uint64_t flags,

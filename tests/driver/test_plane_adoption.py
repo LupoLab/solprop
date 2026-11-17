@@ -25,7 +25,7 @@ from driver.test_runner import capillary
 from solprop import fourier
 from solprop.backends.events import ObservationReady
 from solprop.backends.export import ExportRecipe
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.protocol import BackendHistory, Observation
 from solprop.backends.registry import available, select
 from solprop.backends.session import Start
@@ -293,7 +293,7 @@ def test_a_borrowed_observed_field_is_detached(case):
     backend = "numpy_ref"
     simulation = STORED[case](backend)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     stepping = select(
         backend,
         problem,

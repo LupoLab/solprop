@@ -20,8 +20,7 @@ run reports a ``TransverseStatus``; only ``clear`` is a clean verdict.
 A backend reduces its committed spectral state where the state lives and hands the
 edge an ``_EdgeReading``, numbers and never the field; ``_HostEdgeReduction`` is the
 reference, and everything else here (the faces, weights, spacing, ledgers and
-judgement) is the same on every backend (SEP 44). A backend that does not read the
-edge leaves the run ``unwatched``, which it says before the first step.
+judgement) is the same on every backend (SEP 44).
 """
 
 from __future__ import annotations
@@ -76,22 +75,10 @@ NOISE_FACTOR = 8.0
 _SMALL_TRANSFORM = 2**18
 """Host transforms below this many elements run on one thread."""
 
-TransverseStatus = Literal[
-    "clear", "warned", "stopped", "insensitive", "coarse", "unwatched", "off"
-]
+TransverseStatus = Literal["clear", "warned", "stopped", "insensitive", "coarse", "off"]
 
 # What the edge reports, one text for every owner of its decisions: the edge here and a
 # backend whose session judges natively (SEP 47 section 6.4).
-
-_UNWATCHED_REASON = "this backend does not read the transverse edge"
-"""The ``transverse_reason`` of a run whose backend does not read the edge."""
-
-_UNWATCHED_MESSAGE = (
-    "this backend does not read the transverse edge of a free-space run: "
-    "the run is unwatched there and cannot report a clean verdict; "
-    "solprop's own backends read it (SEP 40 section 5.3)"
-)
-"""The warning such a run issues before its first step."""
 
 
 def _ramp_band_message(share: float, *, stop: bool) -> str:
@@ -965,7 +952,7 @@ class TransverseEdge:
         """
         return self._resumed
 
-    def launch(  # noqa: PLR0912, PLR0915 - the launch and judgements, in order
+    def launch(
         self,
         reading: _EdgeReading,
         z: float,
@@ -973,7 +960,6 @@ class TransverseEdge:
         noise: Complex[np.ndarray, "n_modes n_pol n_omega"] | None,
         clean_columns: Float[np.ndarray, " n_columns"] | None = None,
         steps: Float[np.ndarray, " n_steps"] | None,
-        reads: bool,
         declared: bool,
     ) -> None:
         """Record the launch, judge it, and set the first read.
@@ -991,8 +977,6 @@ class TransverseEdge:
             judgement. ``None`` when there is no noise, or the launch was resumed.
         steps : numpy.ndarray or None
             A fixed schedule's steps, which the read spacing cannot limit.
-        reads : bool
-            Whether the backend reads the edge.
         declared : bool
             Whether the user declared content above ``discard_above``.
 
@@ -1014,12 +998,10 @@ class TransverseEdge:
                 )
             self._last_columns = self._column_power(columns)
             self._respace(self._last_columns, launch=True)
-            self._next = z + self._spacing_now if reads else math.inf
+            self._next = z + self._spacing_now
             self._last_rate = (z, self._collar_rate(reading))
             if reading.current is not None and self._launch > 0.0:
                 self._current_last = (z, reading.current / self._launch)
-            if not reads:
-                self._status = "unwatched"
             return
         assert reading.clip is not None and reading.totals is not None
         self._launch = float(reading.totals[0])
@@ -1028,18 +1010,12 @@ class TransverseEdge:
             self._next = math.inf
             return
         warn, stop = self.budget**2, (self.stop_factor * self.budget) ** 2
-        # About the launch, not the backend: judged whether or not the edge is read.
         self._judge_ramp_band(
             self._column_power(columns if clean_columns is None else clean_columns),
             stop,
             warn,
             declared=declared,
         )
-        if not reads:
-            self._status = "unwatched"
-            self._reason = _UNWATCHED_REASON
-            self._warn(_UNWATCHED_MESSAGE, 4)
-            return
         for index, face in enumerate(self._faces):
             self._baseline[index] = float(reading.faces[index]) / self._launch
             clipped = float(reading.clip[index]) / self._launch
@@ -1215,10 +1191,9 @@ class TransverseEdge:
         Returns
         -------
         bool
-            False when nothing was launched, the edge is unwatched, or it was last
-            read at `z`.
+            False when nothing was launched, or the edge was last read at `z`.
         """
-        return self._launch > 0.0 and self._status != "unwatched" and z > self._last_z
+        return self._launch > 0.0 and z > self._last_z
 
     def read(self, reading: _EdgeReading, z: float) -> None:
         """Take a reading at a committed position, credit the removals and judge.
@@ -1315,12 +1290,7 @@ class TransverseEdge:
         z : float
             Its position, m.
         """
-        if (
-            self.design is None
-            or not self.design.has_collar
-            or not self._launch > 0.0
-            or self._status == "unwatched"
-        ):
+        if self.design is None or not self.design.has_collar or not self._launch > 0.0:
             return
         share = current / self._launch
         if self._current_last is not None:
@@ -1436,8 +1406,7 @@ class TransverseEdge:
     def status(self) -> TransverseStatus:  # numpydoc ignore=RT01
         """The run's transverse status (section 5.3).
 
-        ``clear``, ``warned``, ``stopped``, ``insensitive``, ``coarse`` or
-        ``unwatched``.
+        ``clear``, ``warned``, ``stopped``, ``insensitive`` or ``coarse``.
         """
         return self._status
 

@@ -163,7 +163,8 @@ struct Config {
   /** The collar's power rate on the coarse axis, 1/m (`weights[3]`); its length is the
       axis's. */
   std::vector<double> rate;
-  /** Whether the route's stages may leave a quiet collar out (`_collar_can_rest`). */
+  /** Whether the route's stages may leave a quiet collar out
+      (`solprop.backends.records.collar_rests`). */
   bool can_rest = false;
 };
 
@@ -391,11 +392,11 @@ private:
 };
 
 /** A march's check of the step just committed at `z` under an owning monitor (SEP 47
-    section 6.4): skip it, or take `read()`'s reading and check it, as `_monitor_step`
-    and `_check_at` do; a replay whose longest step before the next check passes the
-    cap this check read is refused (`_refuse_scheduled_crossing`) where the check
-    neither stopped nor warned. A warning's refusal is the caller's, after the warning
-    is serviced. */
+    section 6.4): skip it, or take `read()`'s reading and check it, as
+    `HostSession._account_step` and `_check` do; a replay whose longest step before the
+    next check passes the cap this check read is refused
+    (`HostSession._refuse_scheduled_crossing`) where the check neither stopped nor
+    warned. A warning's refusal is the caller's, after the warning is serviced. */
 template <class Reader>
 [[nodiscard]] Verdict owned_check(Monitor& monitor, Reader&& read, const double z,
                                   const bool replay, const std::vector<double>& steps,

@@ -10,13 +10,13 @@ engine keeps a short history of source samples and decides each step on a local-
 estimate formed from that history without another evaluation (SEP 13 sections 4.1--4.3);
 a trial touches no row, so a rejection leaves the history as it was.
 :class:`HostHistory` is the engine the march
-(:class:`solprop.backends.host.adams.HostAdamsMarch`) drives, with its two formulations:
-:class:`InteractionHistory` keeps **transported** sources, re-anchored at every accepted
-step by the step's propagator, and :class:`ExponentialHistory` keeps untransported ones
-and integrates them exactly against the step's flow, with a coupled flow's frozen block,
-a varying operator's compensation and the carrier frame (SEP 35). :class:`AdamsRows` is
-where the rows live, which the session exports and installs. The field arithmetic is
-:mod:`~solprop.backends.numpy_ref.adams_kernels`', the coefficients
+(:class:`solprop.backends.numpy_ref.marches.adams.HostAdamsMarch`) drives, with its two
+formulations: :class:`InteractionHistory` keeps **transported** sources, re-anchored at
+every accepted step by the step's propagator, and :class:`ExponentialHistory` keeps
+untransported ones and integrates them exactly against the step's flow, with a coupled
+flow's frozen block, a varying operator's compensation and the carrier frame (SEP 35).
+:class:`AdamsRows` is where the rows live, which the session exports and installs. The
+field arithmetic is :mod:`~solprop.backends.numpy_ref.adams_kernels`', the coefficients
 :mod:`~solprop.backends.numpy_ref.adams_tables`'.
 """
 
@@ -73,7 +73,8 @@ class _DenseStep:
     """The last accepted step, in its anchor's frame, for dense observation.
 
     Its slopes, the new source first; the observation's weights are the session's, from
-    the march's record of the step (:class:`solprop.backends.host.adams.AcceptedStep`).
+    the march's record of the step
+    (:class:`solprop.backends.numpy_ref.marches.adams.AcceptedStep`).
     """
 
     z: float
@@ -88,7 +89,7 @@ class _ExponentialStep:
 
     Its samples as stored, the new one first; the observation's coefficients and, under
     a carrier frame, its rotations are the session's, from the march's record of the
-    step (:class:`solprop.backends.host.adams.AcceptedStep`).
+    step (:class:`solprop.backends.numpy_ref.marches.adams.AcceptedStep`).
     """
 
     z: float
@@ -387,14 +388,14 @@ class HostHistory:
 
     The reference's :class:`~solprop.backends.engines.AdamsEngine` (native's
     ``march::Engine``, SEP 52 section 5.2). The march
-    (:class:`~solprop.backends.host.adams.HostAdamsMarch`) keeps the controller -- the
-    orders, the entries, rejection, restarts, the budget and the ledger -- and hands
-    every state-sized operation to this engine over the workspace: the startup sample,
-    a trial's predictor, source, corrector and defect norms, and the adoption of an
-    accepted step. The engine writes the history's rows into :class:`AdamsRows`, which
-    the session exports and installs; between a trial and its acceptance it holds the
-    trial, and an interpolated run's accepted step keeps what its dense observation
-    reads (``dense``; :mod:`solprop.backends.numpy_ref.dense`).
+    (:class:`~solprop.backends.numpy_ref.marches.adams.HostAdamsMarch`) keeps the
+    controller -- the orders, the entries, rejection, restarts, the budget and the
+    ledger -- and hands every state-sized operation to this engine over the workspace:
+    the startup sample, a trial's predictor, source, corrector and defect norms, and the
+    adoption of an accepted step. The engine writes the history's rows into
+    :class:`AdamsRows`, which the session exports and installs; between a trial and its
+    acceptance it holds the trial, and an interpolated run's accepted step keeps what
+    its dense observation reads (``dense``; :mod:`solprop.backends.numpy_ref.dense`).
 
     This base holds the lifecycle the two formulations share; each formulation is a
     subclass, :class:`InteractionHistory` or :class:`ExponentialHistory`, which forms

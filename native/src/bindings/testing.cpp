@@ -27,6 +27,7 @@
 #include "solprop_native/march/rk_march.hpp"
 #include "solprop_native/march/stage_tables.hpp"
 #include "solprop_native/problem/problem.hpp"
+#include "solprop_native/response/flow_functions.hpp"
 #include "solprop_native/runtime/cpu_execution.hpp"
 #include "solprop_native/runtime/crossing.hpp"
 #include "solprop_native/runtime/execution.hpp"
@@ -256,7 +257,7 @@ public:
         norms_(real_vector(norms)), h0_(h0),
         schedule_{.steps = real_vector(steps), .edges = real_vector(edges)} {}
   nb::dict run(const nb::dict state_values, const nb::dict bounds_values) {
-    auto state = rk_state_from(state_values);
+    auto state = native::records::read<native::rk::State>(state_values, "state");
     const auto bounds = march_bounds_from(bounds_values);
     native::engines::ScriptedRungeKutta engine(norms_, next_, h0_, policy_.power, log_);
     const auto result = native::rk::run(policy_, state, engine, bounds, schedule_);
@@ -412,7 +413,7 @@ public:
   [[nodiscard]] nb::dict rk_march_run(const nb::dict state_values,
                                       const nb::dict bounds_values) const {
     workspace_->require_unleased();
-    auto state = rk_state_from(state_values);
+    auto state = native::records::read<native::rk::State>(state_values, "state");
     const auto bounds = march_bounds_from(bounds_values);
     native::rk::Result result;
     {
@@ -449,10 +450,6 @@ public:
                       const std::vector<double>& sines) const {
     return open_state().plane_fluence_trace(center_x, center_y, dx, dy, extent, spacing,
                                             n_radii, cosines, sines);
-  }
-  [[nodiscard]] std::vector<native::Complex>
-  axis_spectrum(const std::vector<double>& matrix) const {
-    return open_state().axis_spectrum(matrix);
   }
   [[nodiscard]] std::vector<double> monitor_reading() const {
     return open_state().monitor_reading();
@@ -753,6 +750,11 @@ void bind_testing(nb::module_& testing) {
         return out;
       },
       "policy"_a, "state"_a, "reading"_a, "z"_a);
+  // The coupled flow's series constants compiled into the kernels no `FlowGuard`
+  // reaches, which a test holds to solprop's (`solprop.backends.exponential`).
+  testing.attr("flow_taylor_order") = native::flow_functions::taylor_order;
+  testing.attr("flow_taylor_scale") = native::flow_functions::taylor_scale;
+  testing.attr("flow_max_squarings") = native::flow_functions::max_squarings;
   // solprop SEP 47: the native half-maximum width the statistics plan finishes with.
   testing.def(
       "half_width",
@@ -1130,8 +1132,8 @@ void bind_testing(nb::module_& testing) {
         auto weights = exponential_weights(slots, predictor, corrector, rows);
         carrier_frame(weights, carrier, weights.width - 1);
         const auto rate_weights = real_vector(rate);
-        // A varying operator's compensation tables (solprop's
-        // backends.multistep.compensation_tables); empty for a constant one.
+        // A varying operator's compensation tables (solprop's `compensation_tables`,
+        // numpy_ref/adams_tables.py); empty for a constant one.
         weights.compensated = !rate_weights.empty();
         if (weights.compensated) {
           const auto span_values = real_vector(spans);
@@ -1686,21 +1688,6 @@ void bind_testing(nb::module_& testing) {
       },
       "workspace"_a, "center_x"_a, "center_y"_a, "dx"_a, "dy"_a, "extent"_a,
       "spacing"_a, "n_radii"_a, "cosines"_a.noconvert(), "sines"_a.noconvert());
-  testing.def(
-      "axis_spectrum",
-      [](BoundWorkspace& owner, const RealInput matrix) {
-        TestState self(owner);
-        if (matrix.ndim() != 2)
-          throw std::invalid_argument("an on-axis matrix must be two-dimensional");
-        const auto held = real_vector(matrix);
-        std::vector<native::Complex> values;
-        {
-          const nb::gil_scoped_release release;
-          values = self.axis_spectrum(held);
-        }
-        return complex_output(values, {values.size()});
-      },
-      "workspace"_a, "matrix"_a.noconvert());
   testing.def(
       "monitor_reading",
       [](BoundWorkspace& owner) {

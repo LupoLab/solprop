@@ -425,7 +425,7 @@ def _refuse_gas_keywords(supplied: Mapping[str, object]) -> None:
 def _general_stats() -> StatsSpec:
     """Return the statistics a general modal run records by default.
 
-    The route's **own** names, not the legacy ones: ``physical_energy`` is the
+    The route's **own** names, not the per-channel ones: ``physical_energy`` is the
     metric-weighted energy through the plane and ``analytic_flux`` the peak total
     analytic Poynting flux, both scalars, because a coordinate energy and a
     coordinate power are not additive on a basis that is not orthonormal

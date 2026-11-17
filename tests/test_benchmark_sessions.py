@@ -13,7 +13,6 @@ served by the native execution session, as in production (SEP 47 section 7.3).
 
 import warnings
 
-import numpy as np
 import pytest
 from benchmarks.builders import build
 from benchmarks.records import SuiteError
@@ -24,7 +23,6 @@ from solprop.exceptions import HostMarchWarning
 
 backend = pytest.importorskip("solprop_native.backend")
 _counters = pytest.importorskip("solprop_native._counters")
-_march = pytest.importorskip("solprop_native._march")
 NativeBackend = backend.NativeBackend
 
 
@@ -120,7 +118,6 @@ def test_period_one_statistics_take_a_row_at_every_accepted_step(name, tmp_path)
     assert counts["planes"] == observations - 1
     assert counts["field_crossings"] == {"export": observations}
     assert counts["statistics_evaluations"] == counts["statistics_rows"] + observations
-    assert counts["host_attempts"] == counts["transverse_reads"] == 0
     assert timed is not None
     assert (timed["accepted"], timed["rejected"]) == (run["accepted"], run["rejected"])
 
@@ -187,25 +184,8 @@ def test_repeated_inputs_and_scans_run_their_members(tmp_path):
     assert counts["field_bytes"] == 0
 
 
-def test_counters_attribute_a_host_step_to_the_work_due_on_it():
+def test_counters_count_a_session_batch_by_its_event():
     counters = _counters.Counters()
-    rows = np.zeros((3, 6))
-    rows[:, 3] = (1, 0, 1)
-    due = {"statistics": 2, "step_planes": 5}
-    counters.march("rk_march", "host_step", rows, due, None)
-    due = {"statistics": 2, "step_planes": 2}
-    counters.march("rk_march", "host_step", rows, due, None)
-    counters.march("rk_march", "host_step", rows, {"statistics": 4}, 0.1)
-    counters.march("adams_march", "reached", rows[:1], {}, None)
-    record = counters.record()
-    assert record["native_returns"] == {
-        "host_step:statistics": 1,
-        "host_step:statistics+step_planes": 1,
-        "host_step:transverse_read": 1,
-        "reached": 1,
-    }
-    assert record["march_calls"] == {"adams_march": 1, "rk_march": 3}
-    assert (record["attempts"], record["accepted"]) == (10, 7)
     # A native session's batch: one return by its event, its chunk's work.
     counters.session_batch(
         "progress:work_limit",
@@ -224,8 +204,8 @@ def test_counters_attribute_a_host_step_to_the_work_due_on_it():
     record = counters.record()
     assert record["native_returns"]["session_progress:work_limit"] == 1
     assert record["native_returns"]["session_observation"] == 1
-    assert record["march_calls"]["session_adams"] == 2
-    assert (record["attempts"], record["accepted"]) == (14, 10)
+    assert record["march_calls"] == {"session_adams": 2}
+    assert (record["attempts"], record["accepted"]) == (4, 3)
     assert (record["statistics_rows"], record["statistics_evaluations"]) == (3, 4)
     assert record["planes"] == 1
     assert (record["field_crossings"], record["field_bytes"]) == ({"export": 1}, 64)
@@ -238,8 +218,6 @@ def test_counters_attribute_a_host_step_to_the_work_due_on_it():
     assert dict(vars(NativeBackend)) == before
     assert isinstance(_counters.disable(), _counters.Counters)
     assert _counters.active is None
-    # The reason names are the native march's, in march::Reason order.
-    assert _march._REASONS[_march._HOST_STEP] == "host_step"
 
 
 def test_cases_that_set_their_integrator_refuse_an_override():
@@ -276,4 +254,3 @@ def test_a_narrow_and_a_wide_flow_march_natively(tmp_path):
     assert HostMarchWarning not in {type(item.message) for item in caught}
     for counts in (narrow, wide):
         assert counts["march_calls"].get("session_adams", 0) > 0
-        assert counts["host_attempts"] == 0

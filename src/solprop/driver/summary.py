@@ -202,7 +202,7 @@ def run_summary(
             [
                 (
                     "transverse edge",
-                    _transverse(problem, request, boundary_check, backend),
+                    _transverse(problem, request, boundary_check),
                 )
             ]
             if problem.transform.geometry is not None
@@ -630,15 +630,12 @@ def _absorber(problem: PropagationProblem, check: BoundaryCheck | None) -> str:
 
 
 def _transverse(
-    problem: PropagationProblem,
-    request: RunRequest,
-    check: BoundaryCheck | None,
-    backend: str,
+    problem: PropagationProblem, request: RunRequest, check: BoundaryCheck | None
 ) -> str:
     """Describe a free-space run's transverse boundary and what its edge can report.
 
-    SEP 40 section 5.3: ``unwatched``, ``coarse`` and ``off`` are said before the
-    first step, so that a run that cannot reach a clean verdict says so.
+    SEP 40 section 5.3: ``coarse`` and ``off`` are said before the first step, so that
+    a run that cannot reach a clean verdict says so.
 
     - ``check``: the edge thresholds, or ``None`` when nothing is watched.
     """
@@ -654,8 +651,6 @@ def _transverse(
         boundary = "wall or wrap with the safety ramp"
     if check is None:
         return f"{boundary}; off (boundary_check=None)"
-    if backend != "numpy_ref":
-        return f"{boundary}; unwatched on {backend} (numpy_ref reads it)"
     schedule = request.stepper.schedule
     if (
         schedule is not None

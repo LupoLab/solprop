@@ -94,9 +94,7 @@ had two more: `numba_cpu`, a third double-precision backend whose last release i
 and `mlx`, an experimental single-precision backend for Apple GPUs. Naming either now
 raises {py:class}`~solprop.exceptions.BackendError`, naming `native` and `numpy_ref`, as
 any name that is neither does, so a script or recipe that selects one needs
-`backend="native"`, or no `backend=` at all. Output, snapshots and a scan's execution
-metadata that record a retired backend still load, and keep saying so: a recorded name is
-not a request, and the record is not rewritten. A run started on a release that had the
+`backend="native"`, or no `backend=` at all. A run started on a release that had the
 backend finishes on that release.
 
 The settings of `numba_cpu` are gone too: `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`,

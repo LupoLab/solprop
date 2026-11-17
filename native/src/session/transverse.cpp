@@ -267,7 +267,7 @@ Notice Edge::launch(const Reading& reading, const double z, const LaunchSums* su
     last_columns_ = weighted(reading.columns);
     has_last_columns_ = true;
     respace(last_columns_, true);
-    next_ = config_.reads_edge ? z + spacing_now_ : infinity;
+    next_ = z + spacing_now_;
     last_rate_ = collar_rate(reading);
     last_rate_z_ = z;
     has_last_rate_ = true;
@@ -276,8 +276,6 @@ Notice Edge::launch(const Reading& reading, const double z, const LaunchSums* su
       current_last_ = *reading.current / launch_;
       has_current_last_ = true;
     }
-    if (!config_.reads_edge)
-      status_ = Status::unwatched;
     return {};
   }
   if (!reading.clip || !reading.totals)
@@ -294,7 +292,7 @@ Notice Edge::launch(const Reading& reading, const double z, const LaunchSums* su
     held_noise_ = *noise;
   else
     held_noise_.reset();
-  // About the launch, not the backend: judged whether or not the edge is read.
+  face_ = 0;
   if (config_.design) {
     const LaunchSums band =
         sums != nullptr
@@ -303,11 +301,11 @@ Notice Edge::launch(const Reading& reading, const double z, const LaunchSums* su
                                                            : reading.columns);
     const Notice notice = judge_ramp_band(band);
     if (notice.kind != Notice::Kind::none) {
-      stage_ = notice.stop ? Stage::none : Stage::launch_unread;
+      stage_ = notice.stop ? Stage::none : Stage::launch_clip;
       return notice;
     }
   }
-  stage_ = Stage::launch_unread;
+  stage_ = Stage::launch_clip;
   return run_launch();
 }
 
@@ -334,16 +332,6 @@ Notice Edge::run_launch() {
   // The launch's stages after its ramp band, in solprop's order; a warning keeps the
   // stage it arose in, and `proceed` resumes from the next.
   switch (stage_) {
-  case Stage::launch_unread:
-    if (!config_.reads_edge) {
-      stage_ = Stage::none;
-      status_ = Status::unwatched;
-      reason_ = Reason::unwatched;
-      return notice_of(Notice::Kind::unwatched, 0.0);
-    }
-    face_ = 0;
-    stage_ = Stage::launch_clip;
-    [[fallthrough]];
   case Stage::launch_clip:
     while (face_ < n_faces_) {
       const std::size_t face = face_++;
@@ -571,8 +559,7 @@ Notice Edge::proceed() {
 
 void Edge::step(const double current, const double z) {
   // `step`: a collar's inward current, integrated by the trapezoid rule.
-  if (!config_.design || !config_.collar || !(launch_ > 0.0) ||
-      status_ == Status::unwatched)
+  if (!config_.design || !config_.collar || !(launch_ > 0.0))
     return;
   const double share = current / launch_;
   if (has_current_last_)
@@ -590,9 +577,7 @@ bool Edge::due(const double z, const double proposal) const {
   return z + proposal >= next_ - 1e-12 * py_max(std::fabs(z), 1.0);
 }
 
-bool Edge::wants_read(const double z) const {
-  return launch_ > 0.0 && status_ != Status::unwatched && z > last_z_;
-}
+bool Edge::wants_read(const double z) const { return launch_ > 0.0 && z > last_z_; }
 
 double Edge::ramp_removed() const {
   return ramp_raw_ - py_min(ramp_noise_, noise_share_in_ramp_) - declared_share_;

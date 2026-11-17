@@ -19,9 +19,10 @@ import numpy.typing as npt
 from solprop._process import acquire_host_blas, thread_budget
 from solprop.backends import tdse_source
 from solprop.backends.exponential import (
+    FLOW_MAX_SQUARINGS,
+    FLOW_TAYLOR_SCALE,
     carrier_reference,
-    refuse_carrier_frame,
-    refuse_formulation,
+    refuse_adams,
 )
 from solprop.backends.ledger import source_absent
 from solprop.backends.node_chunk import (
@@ -52,6 +53,7 @@ from solprop.spatial import FAR_FIELD_STATISTICS
 from solprop.stats import StatsSpec
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
+from solprop.stepper.settings import PropagatorMode, StepperSettings
 from solprop.stepper.tableau import continuous_extension
 from solprop.translate.coupled import (
     CoupledFlowFactors,
@@ -63,16 +65,8 @@ from solprop.translate.linop import (
     delta_phi,
     unitary_phase,
 )
-from solprop.translate.plasma_source import (
-    _BENCHMARK_GATED,  # pyright: ignore[reportPrivateUsage] - the private gated benchmark
-    plasma_source_record,
-)
-from solprop.translate.problem import (
-    PropagationProblem,
-    PropagatorMode,
-    StepperSettings,
-    validate_run,
-)
+from solprop.translate.plasma_source import plasma_source_record
+from solprop.translate.problem import PropagationProblem, validate_run
 from solprop.translate.routes import (
     GeneralRoute,
     ModalRoute,
@@ -88,7 +82,6 @@ from solprop.translate.stage import (
     terms,
 )
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding
-from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
 from solprop.transverse_monitor import (
     TransverseEdge,
     _transverse_edge_bytes,  # pyright: ignore[reportPrivateUsage] - released together
@@ -191,9 +184,6 @@ class NativeBackend:
     solprop's registry admits them on this backend by this attribute and refuses
     them, by name, on a build without it.
     """
-    reads_transverse_edge = True
-    """The transverse edge is read from the native state where it lives (solprop SEP 40
-    section 5.3, SEP 44), by the native session at each read."""
 
     def __init__(
         self,
@@ -210,14 +200,9 @@ class NativeBackend:
         tdse_binding: TDSEBinding | None = None,
     ) -> None:
         check_build()
-        # The private gated benchmark is captured where the backend is built, as the
-        # reference captures it; the run's identity carries it from the driver.
-        self._gated_plasma = _BENCHMARK_GATED.get()
         stepper = request.stepper
         _refuse_unsupported(problem, stepper)
-        _refuse_tdse(problem, request, tdse_binding)
-        if self._gated_plasma:
-            _refuse_gated_route(problem)
+        _refuse_tdse(problem, tdse_binding)
         validate_run(problem, request)
         stats = request.observation.stats
         refused = metric_refusal(problem, (*stats.names, *stats.periodic))
@@ -565,7 +550,7 @@ class NativeBackend:
 
         Either formulation keeps its history, its step arithmetic and its norms in the
         workspace (solprop ADR-043), beside a coupled flow too (SEP 16 phase 6), whose
-        interaction formulation the admission refuses (`_refuse_adams`). A varying
+        interaction formulation the admission refuses (`refuse_adams`). A varying
         operator's exponential formulation carries the transported compensation
         natively, as does a frozen-residual flow's residual, whatever the diagonal's
         representation; the untransported test witness is the reference's alone.
@@ -854,17 +839,6 @@ class NativeBackend:
         self._probe = probe
         return NativeProbe(self, probe, loaded)
 
-    def march_export_refusal(self) -> str | None:
-        """Return ``None``: every march the backend admits carries its history.
-
-        Returns
-        -------
-        None
-            The resident Adams engine exports and installs its rows; a Runge-Kutta
-            or low-storage march keeps none.
-        """
-        return None
-
     def metadata(self) -> dict[str, object]:
         """Return the shared execution metadata plus the native build record.
 
@@ -882,10 +856,7 @@ class NativeBackend:
             **self._chunk_plan.record(),
             "node_chunk": self.node_chunk,
         }
-        if self._problem.responses.plasma_channels and self._gated_plasma:
-            work["_benchmark_plasma_source"] = "gated_nonresumable"
-            work["plasma_source"] = {"form": "gated_benchmark", "resumable": False}
-        elif self._problem.responses.plasma_channels:
+        if self._problem.responses.plasma_channels:
             work["plasma_source"] = plasma_source_record(self._problem.grids)
         # The evaluations this backend made: the Adams ledger's logical calls, the
         # low-storage march's physical ones (SEP 24 section 5), or the native
@@ -1182,26 +1153,10 @@ def host_rows_refusal(problem: PropagationProblem) -> str | None:
     )
 
 
-def _refuse_tdse(
-    problem: PropagationProblem, request: RunRequest, binding: TDSEBinding | None
-) -> None:
-    """Refuse a TDSE problem without its binding, or a binding without one.
-
-    And the legacy statistics the TDSE response does not define, by name, as the
-    reference refuses them, before anything is allocated.
-    """
+def _refuse_tdse(problem: PropagationProblem, binding: TDSEBinding | None) -> None:
+    """Refuse a TDSE problem without its binding, or a binding without one."""
     if (tdse_descriptor(problem.route) is None) != (binding is None):
         raise BackendError("TDSE problems require an explicit host response binding")
-    if binding is None:
-        return
-    stats = request.observation.stats
-    unavailable = TDSE_UNAVAILABLE_STATISTICS.intersection(
-        (*stats.names, *stats.periodic)
-    )
-    if unavailable:
-        raise BackendError(
-            f"TDSE does not define legacy statistics {sorted(unavailable)}"
-        )
 
 
 def _refuse_unknown_method(stepper: StepperSettings) -> None:
@@ -1214,60 +1169,6 @@ def _refuse_unknown_method(stepper: StepperSettings) -> None:
             f"solprop-native does not step the method {type(integrator).__name__}; "
             "use Multistep(), LowStorageRungeKutta() or a Runge-Kutta tableau"
         )
-
-
-def _refuse_adams(problem: PropagationProblem, stepper: StepperSettings) -> None:
-    integrator = stepper.integrator
-    # The low-storage march (solprop SEP 24 phase 3) runs on every route the
-    # translation admits it on: no coupled flow and no TDSE response.
-    if integrator is None or isinstance(integrator, LowStorageRungeKutta):
-        return
-    # solprop SEP 16 phase 3: every route's stage source serves both formulations,
-    # with the modified noise. A coupled flow is stepped by the exponential
-    # formulation only (phase 5), as solprop's reference does.
-    if (
-        problem.linear.coupled_flow is not None
-        and integrator.formulation != "exponential"
-    ):
-        raise BackendError(
-            "solprop-native does not step a problem with a coupled linear flow with "
-            f"the {integrator.name} integrator; use Multistep(formulation="
-            "'exponential') or the Runge-Kutta march"
-        )
-    refuse_formulation(problem, stepper, "native")
-    # SEP 35 phase 3: the scalar shift on CPU builds; device builds wait for their
-    # qualification.
-    device = _on_device()
-    refuse_carrier_frame(
-        problem,
-        stepper,
-        "native (device build)" if device else "native",
-        delivered=frozenset() if device else frozenset({"scalar"}),
-    )
-
-
-def _refuse_gated_route(problem: PropagationProblem) -> None:
-    """Refuse the private gated plasma benchmark where native has no form for it.
-
-    It is a field plasma column's, off the general route; the engine refuses anything
-    else too, as a safety net, but by then the problem is being built.
-    """
-    responses = problem.responses
-    if responses.population_channels and (
-        responses.envelope_plasma is not None
-        or problem.transform.modal_tables is not None
-    ):
-        route = (
-            "the envelope plasma"
-            if responses.envelope_plasma is not None
-            else "a general modal guide's"
-        )
-        msg = (
-            "native runs the private gated plasma benchmark on a field plasma column "
-            f"off the general route, and this problem's plasma is {route}, which has "
-            "no gated form"
-        )
-        raise BackendError(msg)
 
 
 def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -> None:
@@ -1294,30 +1195,15 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
             raise BackendError(
                 f"solprop-native does not execute the {type(route).__name__} route"
             )
-    # Schema 16's low-call Adams integrator (solprop SEP 13) runs here on the modal
-    # fibre route (SEP 14 phase 2), its source evaluated by the general engine's stage
-    # pipeline; elsewhere it is refused by name rather than stepped by this backend's
-    # Runge-Kutta march, which would silently be a different method.
-    _refuse_adams(problem, stepper)
-    flags = problem.flags
-    if problem.transform.n_pol * problem.shape[1] > 2:
-        raise BackendError(
-            "the polarisation components must belong to one of the two supported "
-            "representations; Kokkos supports at most two effective node "
-            "components, but the transform and state request "
-            f"{problem.transform.n_pol * problem.shape[1]}"
-        )
-    if (
-        flags.has_raman
-        and problem.transform.n_pol * problem.shape[1] != 1
-        and (
-            not problem.responses.raman_terms
-            or not all(term.tensor_capable for term in problem.responses.raman_terms)
-        )
-    ):
-        raise BackendError(
-            "vector Raman requires tensor-capable terms; found scalar_only"
-        )
+    # solprop SEP 35 phase 3: the scalar carrier shift on CPU builds; device builds
+    # wait for their qualification.
+    device = _on_device()
+    refuse_adams(
+        problem,
+        stepper,
+        "native (device build)" if device else "native",
+        delivered=frozenset() if device else frozenset({"scalar"}),
+    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1394,13 +1280,6 @@ def _decomposed_flow(problem: PropagationProblem) -> _HostFlow | None:
     )
 
 
-_TAYLOR_SCALE = 0.5
-"""Row-sum norm solprop's reference scales an exponent below before its series."""
-
-_MAX_FLOW_SQUARINGS = 30
-"""Largest number of squarings a flow action may need before it is refused."""
-
-
 def _flow_allowance(modes: int) -> float:
     """Return the rounding allowance on two spectral norms of `modes` channels."""
     return 1.0 + 64.0 * modes * float(np.finfo(float).eps)
@@ -1409,9 +1288,10 @@ def _flow_allowance(modes: int) -> float:
 def _flow_guard(flow: _HostFlow | None) -> dict[str, object] | None:
     """Return a coupled flow's certificate and the guard's constants, or ``None``.
 
-    Each section's row-sum norm and conditioning bound per active bin, with the scale
-    solprop's reference reduces an exponent below, the most squarings and the
-    rounding allowance on two spectral norms (solprop SEP 45 phase 4).
+    Each section's row-sum norm and conditioning bound per active bin, with solprop's
+    shared flow constants (:mod:`solprop.backends.exponential`: the scale an exponent
+    is reduced below and the most squarings) and the rounding allowance on two
+    spectral norms (solprop SEP 45 phase 4).
     """
     if flow is None:
         return None
@@ -1421,8 +1301,8 @@ def _flow_guard(flow: _HostFlow | None) -> dict[str, object] | None:
         "condition_bound": np.ascontiguousarray(
             flow.condition_bound, dtype=np.float64
         ).reshape(row_sum.size, -1),
-        "taylor_scale": _TAYLOR_SCALE,
-        "max_squarings": _MAX_FLOW_SQUARINGS,
+        "taylor_scale": FLOW_TAYLOR_SCALE,
+        "max_squarings": FLOW_MAX_SQUARINGS,
         "allowance": _flow_allowance(int(flow.vectors.shape[-1])),
     }
 
@@ -1481,7 +1361,7 @@ def _planning(
         return None
     if given is not None:
         return dict(given)
-    chosen = _package.PLANNING or {"mode": "legacy"}
+    chosen = _package.PLANNING or {"mode": "policy"}
     return dict(chosen) | {"stored": dict(stored), "keep": True}
 
 

@@ -184,7 +184,7 @@ def test_the_collar_is_carried_by_the_frozen_flow_alone(name):
     """
     backend = backend_class(name)
     simulation = varying(wall=CoherentWall(), absorber=_no_temporal_collar())
-    problem, run_request = simulation.translate(), simulation._run_request()
+    problem, run_request = simulation.translate(), simulation.run_request()
     index = int(np.flatnonzero(collar_bins(problem))[0])
     assert not GRID.inband_mask[index]
     launched = _launched_in(problem, index)
@@ -233,7 +233,7 @@ def _transient_case():
     with warnings.catch_warnings():
         for category in (*QUIET, SolpropWarning):
             warnings.simplefilter("ignore", category)
-        return simulation.translate(), simulation._run_request(), simulation.grid
+        return simulation.translate(), simulation.run_request(), simulation.grid
 
 
 def _transient_simulation():
@@ -446,7 +446,7 @@ def test_the_in_band_answer_moves_by_less_than_the_derived_bound(case):
     """
     simulation = IN_BAND_CASES[case]()
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     grid = simulation.grid
     band = problem.grids.inband_mask
     # Every step's end observed, through the backend's session (SEP 47).
@@ -519,7 +519,7 @@ def test_a_flow_with_nothing_unscored_is_what_it_was(
         problem = scored_everywhere(problem)
     else:
         assert flow.section_methods == ("constant_schur",)
-    state = run(backend, problem, simulation._run_request(), simulation.grid)
+    state = run(backend, problem, simulation.run_request(), simulation.grid)
     check_state(
         ndarrays_regression,
         state,

@@ -130,7 +130,6 @@ transverse::Config transverse_config_from(const nb::dict values) {
     config.collar = nb::cast<bool>(values["collar"]);
     config.collar_rate = nb::cast<bool>(values["collar_rate"]);
     config.declared = nb::cast<bool>(values["declared"]);
-    config.reads_edge = nb::cast<bool>(values["reads_edge"]);
     if (const auto longest = present(values, "longest_step"))
       config.longest_step = nb::cast<double>(*longest);
     config.noise_share = nb::cast<double>(values["noise_share"]);

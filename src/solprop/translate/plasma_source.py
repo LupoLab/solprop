@@ -12,7 +12,6 @@ stores it. The certificate tests that identity, not arbitrary product aliasing; 
 denominator is the complete fine-grid collar transform, including DC.
 """
 
-from contextvars import ContextVar
 from dataclasses import dataclass
 from weakref import WeakKeyDictionary
 
@@ -25,10 +24,6 @@ __all__ = ["PLASMA_SOURCE_CERTIFICATE_LIMIT", "plasma_source_record"]
 
 PLASMA_SOURCE_CERTIFICATE_LIMIT = 1e-10
 """Largest admitted steady-current residual, relative to the full collar transform."""
-
-# Only the private benchmark harness sets this, for a new simulation and its entire
-# run. Backends capture it at construction; the driver binds it into the run identity.
-_BENCHMARK_GATED: ContextVar[bool] = ContextVar("plasma_benchmark_gated", default=False)
 
 
 @dataclass(frozen=True)
@@ -94,11 +89,7 @@ def plasma_source_record(grids: Grids) -> dict[str, object]:
     Notes
     -----
     SEP 27 sections 4.4--4.6 derive the identity and its operand-based error budget.
-    The private historical benchmark uses its original collar and equation; its
-    record is labelled non-resumable and does not claim the held-current certificate.
     """
-    if _BENCHMARK_GATED.get():
-        return {"form": "gated_benchmark", "resumable": False}
     certificate = _certificate(grids)
     value = certificate.residual
     tapers = [certificate.leading, certificate.trailing]

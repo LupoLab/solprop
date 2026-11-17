@@ -251,7 +251,7 @@ def test_modes_with_a_zero_coefficient_propagate_independently_and_exactly(
 
 
 def total_energy(grid, field):
-    """Return the energy summed over the modes of one batch member, in joules."""
+    """Return the energy of a state summed over its modes, in joules."""
     return float(fourier.energy_omega(field, grid.dt, kind=grid.kind).sum())
 
 

@@ -37,8 +37,8 @@ from sessions.executors import (
     window,
 )
 from solprop.backends.events import Eligibility, Outcome
-from solprop.backends.host.low_storage import HostLowStorageMarch
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.marches.low_storage import HostLowStorageMarch
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import select
 from solprop.exceptions import ConvergenceError
 from solprop.pulses import SechPulse
@@ -189,7 +189,7 @@ def _reference(
 
     Returns
     -------
-    solprop.backends.host.session.HostSession
+    solprop.backends.numpy_ref.session.HostSession
         The session.
     """
     driver = select(
@@ -269,7 +269,6 @@ def test_no_step_returns_to_python():
         "session_observation": len(run.observations),
         "session_terminal": 1,
     }
-    assert record["low_storage_steps"] == record["host_attempts"] == 0
     assert len(run.batches) == len(run.observations) + 1 == status.batches
     rows = sum(event.step_stats.n_rows for event in run.observations)
     assert rows == status.rows_taken == run.attempts == STEPS

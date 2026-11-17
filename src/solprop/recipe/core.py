@@ -34,6 +34,7 @@ from solprop.exceptions import DriverError, SolpropError, SolpropWarning
 from solprop.grid import EnvelopeGrid
 from solprop.output.hdf5 import open_file
 from solprop.output.records import RecipeRecord
+from solprop.output.store import PlaneStore
 from solprop.recipe import export, preview, provenance
 from solprop.recipe.document import (
     FORMAT,
@@ -72,7 +73,6 @@ from solprop.recipe.registry import (
     coerce,
     decode_keyword,
     plane_parameter,
-    retired,
 )
 
 if TYPE_CHECKING:
@@ -198,10 +198,6 @@ class Recipe:
     ) -> None:
         """Adopt a checked document."""
         self._document: Document = validate_document(document)
-        build = self._document.get("build", {})
-        for key in [key for key in build if retired("build", key, build[key], key)]:
-            # A retired key whose value is what solprop does anyway is dropped.
-            del build[key]
         self._text = text
         self._base = base
         self._allow_outside = allow_outside
@@ -376,14 +372,16 @@ class Recipe:
             return cls.load(path)
 
     @classmethod
-    def from_output(cls, path: str | Path, *, resolved: bool = False) -> "Recipe":
+    def from_output(
+        cls, path: str | Path | PlaneStore, *, resolved: bool = False
+    ) -> "Recipe":
         """Read back the recipe a run's output records (SEP 41, S2).
 
         Parameters
         ----------
-        path : str or pathlib.Path
+        path : str, pathlib.Path or solprop.output.store.PlaneStore
             The HDF5 output of a run, or a scan's file, which records the authored
-            recipe only.
+            recipe only; or a run's opened output, in memory or on disk.
         resolved : bool, optional
             Read the resolved recipe, which rebuilds the run as it ran, rather than
             the authored one, for editing.
@@ -401,14 +399,18 @@ class Recipe:
         """
         from solprop.processing.scans import ScanOutput  # noqa: PLC0415 - layer above
 
-        with h5py.File(path, "r") as file:
-            scan = "scan_schema_version" in file.attrs
-        if scan:
-            # Through the scan reader's own check of the schema its records declare.
-            record = ScanOutput(path).recipe
+        if isinstance(path, PlaneStore):
+            record = path.recipe
         else:
-            with open_file(path) as handler:
-                record = handler.recipe
+            with h5py.File(path, "r") as file:
+                scan = "scan_schema_version" in file.attrs
+            if scan:
+                # Through the scan reader's own check of the schema its records
+                # declare.
+                record = ScanOutput(path).recipe
+            else:
+                with open_file(path) as handler:
+                    record = handler.recipe
         if record is None:
             msg = (
                 f"{path} records no recipe: it was written from a script, which is "

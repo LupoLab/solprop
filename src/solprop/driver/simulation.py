@@ -42,7 +42,6 @@ from solprop.coupling import (
     CouplingModel,
     InputPort,
     PlaneBasis,
-    modal_basis_identity,
 )
 from solprop.driver.defaults import (
     DEFAULT_ATOL,
@@ -73,6 +72,7 @@ from solprop.driver.material_output import material_manifest
 from solprop.driver.metadata import (
     RecipeSource,
     _frame_follows_the_electronic_rule,
+    _plane_frame,
     metadata_for,
 )
 from solprop.driver.mixtures import (
@@ -913,13 +913,42 @@ class Simulation(Displayed):
                 )
         return self._problem
 
-    def _run_request(self) -> RunRequest:
-        """Return the request translation returned with the problem, translating once.
+    def run_request(self) -> RunRequest:
+        """Return the run request built beside the problem, translating once.
 
         Every policy of a fresh run of :meth:`translate`'s problem: the method, the
         error control, the itinerary, the planes and the statistics (SEP 47 section
-        5.2). A run adapts it to its start, retention, monitor and history
-        (:meth:`~solprop.translate.run_request.RunRequest.for_run`).
+        5.2). Translation builds the problem and the request together and caches
+        both, so this translates only when :meth:`translate` has not run yet, and
+        returns the same object on every call. The problem and this request are what
+        the run-layer functions take when the outer loop is run by hand
+        (``docs/dev/architecture.md`` section 5):
+        :func:`~solprop.backends.registry.select`,
+        :func:`~solprop.translate.problem.validate_run`,
+        :meth:`~solprop.translate.problem.PropagationProblem.validate_launch` and
+        :func:`~solprop.driver.run.field_retention`. A run adapts it to its start,
+        retention, monitor and history
+        (:meth:`~solprop.translate.run_request.RunRequest.for_run`), which returns a
+        new request and leaves this one as it is.
+
+        Returns
+        -------
+        solprop.translate.run_request.RunRequest
+            The request of a fresh run from the simulation's launch.
+
+        Examples
+        --------
+        >>> from solprop.driver import Simulation
+        >>> simulation = Simulation.from_gnlse(
+        ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
+        ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
+        ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
+        ... )
+        >>> request = simulation.run_request()
+        >>> request.integration.kind.value, request.observation.save_planes.tolist()
+        ('runge_kutta', [0.005, 0.01])
+        >>> simulation.run_request() is request
+        True
         """
         self.translate()
         assert self._request is not None  # set with the problem
@@ -955,11 +984,9 @@ class Simulation(Displayed):
             release, or an interior entrance outside the run.
         """
         problem = self.translate()
-        metadata = self.metadata()
-        reference = cast("Mapping[str, object]", metadata.reference)
-        bases = cast("Mapping[str, object]", reference["basis"])
-        route = cast("str", bases["route"])
-        if route == "planar":
+        geometry = problem.transform.geometry
+        kind = "multimode" if geometry is None else geometry.kind
+        if kind == "slab":
             msg = (
                 "a hybrid planar run's columns are slab amplitudes per y frequency; "
                 "planar planes are not exchanged in this release"
@@ -971,31 +998,29 @@ class Simulation(Displayed):
         ):
             msg = f"an interior entrance lies inside the run, got z = {z!r} m"
             raise DriverError(msg)
-        identity = cast("list[str]", bases["identity"])[0]
-        if route == "modal" and z is not None:
-            identity = modal_basis_identity(self.modes, self.grid, z)
-        labels = tuple(mode.channel_label.display_label for mode in self.modes)
-        space = (
-            self.spatial_grid
-            if isinstance(self.spatial_grid, RadialGrid | FreeGrid)
-            else None
-        )
-        basis = PlaneBasis(
-            cast("Literal['modal', 'general_modal', 'radial', 'cartesian']", route),
-            identity,
-            labels,
-            space,
+        basis = PlaneBasis.of_run(
+            kind,
+            labels=tuple(mode.channel_label.display_label for mode in self.modes),
+            space=(
+                self.spatial_grid
+                if isinstance(self.spatial_grid, RadialGrid | FreeGrid)
+                else None
+            ),
+            modal=None if self.general is None else self._modal_identity(),
+            modes=self.modes,
+            grid=self.grid,
+            z=problem.initial.z if z is None else z,
         )
         return fill_port(
             problem,
             self.grid,
             route=basis.kind,
             basis=basis,
-            frame=cast("dict[str, object] | None", reference["frame"]),
+            frame=_plane_frame(problem, self.grid, self.frame),
             medium=self.medium,
             tables=None if self.general is None else self.general.tables,
             z=z,
-            modes=tuple(self.modes) if route == "modal" else (),
+            modes=tuple(self.modes) if basis.kind == "modal" else (),
             guide=self.guide if isinstance(self.guide, ModalGuide) else None,
         )
 
@@ -1169,7 +1194,7 @@ class Simulation(Displayed):
         updated._problem = _with_noise(
             dataclasses.replace(original, initial=record), replacement_noise
         )
-        request = self._run_request()
+        request = self.run_request()
         updated._request = request.with_stepper(
             dataclasses.replace(
                 request.stepper, save_planes=updated.settings.save_planes
@@ -1549,7 +1574,7 @@ class Simulation(Displayed):
         with _optmat.material_context(self._material_log):
             return metadata_for(
                 self.translate(),
-                self._run_request(),
+                self.run_request(),
                 self.grid,
                 modes=self.modes,
                 configuration=configuration,
@@ -1748,7 +1773,7 @@ class Simulation(Displayed):
     ) -> TransverseEdge:
         """Return the transverse edge a free-space run's monitor reads (SEP 40 5.3)."""
         problem = self.translate()
-        planes = self._run_request().observation.save_planes
+        planes = self.run_request().observation.save_planes
         length = float(np.max(planes)) - float(problem.initial.z)
         k_min = self._edge_k_min.get(length)
         if k_min is None:
@@ -1902,7 +1927,7 @@ class Simulation(Displayed):
             if resume:
                 _adopt_recorded_seed(self, output)
             problem = self.translate()
-            request = self._run_request()
+            request = self.run_request()
             _refuse_pending_check(problem)
             metadata = self.metadata()
             handler, state = _open_output(output, metadata, resume=resume)
@@ -1975,7 +2000,6 @@ class Simulation(Displayed):
                 restoration: dict[str, object] = {}
                 start = _start(
                     self,
-                    backend,
                     problem,
                     state,
                     kept=kept is not None,
@@ -2116,9 +2140,9 @@ class Simulation(Displayed):
     def _reseeded(self, seed: int) -> "Simulation":
         """Return this run with unseeded noise drawn from `seed`, leaving it as it is.
 
-        A scan's builder may return one object for every point, and a batch keeps each
-        member by reference, so a point's realisation must not land on the object the
-        other points share. Translated first, so that they share its translation.
+        A scan's builder may return one object for every point, so a point's realisation
+        must not land on the object the other points share. Translated first, so that
+        they share its translation.
 
         - Returns: a copy carrying the new realisation and sharing the translation's
           other leaves, with its own material log as any derived run has; or this run,
@@ -3381,7 +3405,7 @@ class Simulation(Displayed):
         kerr_form : {'real', 'analytic'}, optional
             Which instantaneous cubic a general modal run's material regions respond
             with. ``"real"``, the default, is the real-field cubic
-            ``P = eps0 chi3 (E.E) E`` the legacy field route evaluates, third harmonic
+            ``P = eps0 chi3 (E.E) E`` the channel field route evaluates, third harmonic
             included; ``"analytic"`` is the analytic-signal form
             ``eps0 chi3 (2 |E|^2 E + (E.E) E*) / 4``, which carries the fundamental
             band alone and is what a comparison with an envelope route wants. The real

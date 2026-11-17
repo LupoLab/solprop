@@ -19,8 +19,8 @@
 // packed values and assembles the schema.
 //
 // The one native implementation of each statistic: a native session takes its plane
-// statistics and its periodic rows through it, and `NativeBackend.stats` its plane
-// statistics, so coincident requests give the same bits.
+// statistics and its periodic rows through it, so coincident requests give the same
+// bits.
 //
 // Kokkos-free: the native passes are behind `GeneralState`, declared elsewhere.
 //
@@ -48,11 +48,8 @@ namespace statistics {
     general modal basis, whose statistics are functionals of `a.H W a`. */
 enum class Route : int { modal = 0, spatial = 1, general = 2 };
 
-/** Each statistic a plan can emit, by its solprop catalogue name, and the per-node
-    channel populations (`node_populations`, final fraction and peak rate at each
-    node and channel), which the transitional session's host axis statistics reuse
-    (SEP 19). The values are the Python adapter's
-    (`solprop_native._statistics.STATISTIC_IDS`). */
+/** Each statistic a plan can emit, by its solprop catalogue name. The values are the
+    Python adapter's (`solprop_native._statistics.STATISTIC_IDS`). */
 enum class Stat : int {
   omega0 = 0,
   energy = 1,
@@ -87,18 +84,17 @@ enum class Stat : int {
   density = 30,
   pressure = 31,
   core_radius = 32,
-  node_populations = 33,
-  beam_radius = 34,
-  fwhm_r = 35,
-  zdw = 36,
-  on_axis_electron_density = 37,
-  on_axis_peak_ionisation_rate = 38,
-  on_axis_species_electron_density = 39,
-  on_axis_species_peak_ionisation_rate = 40,
+  beam_radius = 33,
+  fwhm_r = 34,
+  zdw = 35,
+  on_axis_electron_density = 36,
+  on_axis_peak_ionisation_rate = 37,
+  on_axis_species_electron_density = 38,
+  on_axis_species_peak_ionisation_rate = 39,
 };
 
 /** The number of `Stat` values. */
-inline constexpr int stat_count = 41;
+inline constexpr int stat_count = 40;
 
 /** A piecewise Chebyshev table of z: on interval `k` of `edges`, `coefficients[(k *
     n_terms + i) * n_values + j]` is value `j`'s coefficient of degree `i`. A position
@@ -162,7 +158,8 @@ struct Plan {
   std::vector<double> weight;
   RealTable weight_table;
   // The on-axis synthesis at the reference position, rows times modes, which the
-  // taper rescales (`NumpyWorkspace._on_axis_synthesis`), and the taper's table.
+  // taper rescales (`ReferenceStatistics._on_axis_synthesis`, numpy_ref/statistics.py),
+  // and the taper's table.
   std::vector<double> on_axis;
   RealTable taper;
   // The on-axis plasma statistics (solprop SEP 19): the pad scale their row carries
@@ -239,8 +236,8 @@ struct Plan {
 [[nodiscard]] std::vector<double> evaluate(GeneralState& state, const Plan& plan,
                                            double z);
 
-/** solprop's half-maximum width of a power trace (`_half_width` of the native
-    adapter, `solprop.stats._half_max_range`): the outer or the central crossings,
+/** solprop's half-maximum width of a power trace
+    (`solprop.stats.definitions._half_max_range`): the outer or the central crossings,
     NaN when undefined. Strict, as solprop's NumPy rounds it. */
 [[nodiscard]] double half_width(const double* t, const double* power, std::size_t n,
                                 bool outer);

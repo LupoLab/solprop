@@ -154,7 +154,7 @@ and the Runge-Kutta march."""
 def marches_case(name: str, march: str) -> Built:
     """Return a ``flow_parity`` case on `march` (:data:`MARCHES`), ten fixed steps."""
     simulation, problem = _translated(name)
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     if march == "runge_kutta":
         run_request = run_request.with_stepper(
             dataclasses.replace(run_request.stepper, integrator=None)
@@ -186,14 +186,14 @@ def bound_case(descriptors: tuple, **basis: Any) -> Built:
 def off_route_case(name: str) -> Built:
     """Return a ``flow_parity`` case on the exponential Adams march, ten fixed steps."""
     simulation, problem = _translated(name)
-    run_request = coupled_flow_cases.on_adams(simulation._run_request())
+    run_request = coupled_flow_cases.on_adams(simulation.run_request())
     return Built(problem, run_request, simulation.grid)
 
 
 def wide_case(modes: int) -> Built:
     """Return the lossless taper with `modes` channels, ten fixed steps of 2 um."""
     simulation = coupled_flow_cases.wide_simulation(modes)
-    return Built(simulation.translate(), simulation._run_request(), simulation.grid)
+    return Built(simulation.translate(), simulation.run_request(), simulation.grid)
 
 
 @contextlib.contextmanager
@@ -231,7 +231,7 @@ def driver_case(simulation: Any) -> Built:
     """Return a driver's row: the simulation's translation, request, grid and itself."""
     return Built(
         simulation.translate(),
-        simulation._run_request(),
+        simulation.run_request(),
         simulation.grid,
         simulation=simulation,
     )

@@ -156,8 +156,9 @@ Complex cexp(const Complex value) {
   return {scale * std::cos(value.imag()), scale * std::sin(value.imag())};
 }
 
-// solprop `NumpyRefBackend._trial_step` on a linear coupled flow, with its
-// `_channels` and `_residual_drive`, written directly: every stage input carried
+// solprop's Runge-Kutta trial on a linear coupled flow (`NumpyRungeKutta.trial`, with
+// `NumpyWorkspace.channels` and numpy_ref/coupled_flow.py's `residual_drive`),
+// written directly: every stage input carried
 // forward, the source (the residual alone, since no response is declared) carried
 // back, the accepted step carried by the whole action.
 std::vector<Complex> reference_step(const native::Problem& problem, const Actions& flow,

@@ -65,7 +65,6 @@ from solprop.translate.problem import (
     Flags,
     Initial,
     PropagationProblem,
-    StepperSettings,
 )
 from solprop.translate.raman import (
     MAX_DECAY_EXPONENT,
@@ -135,7 +134,6 @@ __all__ = [
     "StageScalars",
     "StageTerms",
     "StepAnchor",
-    "StepperSettings",
     "TDSESource",
     "Transform",
     "anchor",

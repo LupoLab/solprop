@@ -334,7 +334,6 @@ def test_missing_backend_history_stops_clearly(working):
     keeper._method = "adams"
     keeper._over_limit = keeper._within_limit = False
     keeper._decision = None
-    keeper._refusal = lambda: None
     keeper._save = None
     with pytest.raises(OutputError, match="backend and output"):
         keeper.keep(0.125, required=True)

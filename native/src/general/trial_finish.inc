@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The stage's finish: the held and gated responses, the transforms and the
-// projection, the absorber, finish_stage, the flow-action copies and the weighted
-// error; then the plasma statistics scan, which sits here in the unit's order;
-// then the step's finish, the quadrature, FSAL and the mask.
+// The stage's finish: the held response, the transforms and the projection, the
+// absorber, finish_stage, the flow-action copies and the weighted error; then the
+// plasma statistics scan, which sits here in the unit's order; then the step's
+// finish, the quadrature, FSAL and the mask.
 //
 // Part of trial.cpp's translation unit (included there, in order; never
 // compiled alone).
@@ -67,34 +67,6 @@ void GeneralWorkspace::held_response(const std::size_t stage,
         });
     held_radial_projection(first_node, node_count);
   }
-}
-
-// solprop's private gated benchmark (`NumpyRefBackend._column_sources`): the chunk's
-// live current rows are integrated by the problem's running-integral rule, the band
-// rule's filter then the trapezoid (solprop SEP 18), and w(t) times each prefix joins
-// the local polarisation, which is then projected as the held current's streams would
-// have been. The scans are the device column's portable primitives; no hot column
-// changes, and a run without the benchmark never reaches this.
-void GeneralWorkspace::gated_response(const std::size_t node_count) {
-  const Kokkos::Profiling::ScopedRegion region("solprop_native.gated.response");
-  const auto live = std::pair<std::size_t, std::size_t>(
-      0, node_count * problem_.effective_node_pol());
-  const auto current = Kokkos::subview(held_current_, live, Kokkos::ALL);
-  const auto prefix = Kokkos::subview(gated_prefix_, live, Kokkos::ALL);
-  const auto& space = response_space_for(node_count);
-  if (problem_.plasma.band)
-    portable_team_band_scan(space, current,
-                            Kokkos::subview(gated_filtered_, live, Kokkos::ALL), prefix,
-                            plasma_taps_, problem_.grid.dt_fine);
-  else
-    portable_team_trapezoid_scan(space, current, prefix, problem_.grid.dt_fine);
-  const auto window = time_window_;
-  const auto polarisation = polarisation_real_;
-  cartesian_for(
-      "solprop_native.gated.polarisation", space, live.second, problem_.dims.n_to,
-      KOKKOS_LAMBDA(const std::size_t row, const std::size_t time) {
-        polarisation(row, time) += window(time) * prefix(row, time);
-      });
 }
 
 // A stage's forward rows in one transform: all of them when the absorber's are due,

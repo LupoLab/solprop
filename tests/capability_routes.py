@@ -72,7 +72,7 @@ entry point's saved plane among them), the retired column tests
 ten-step marches, the moving guides, the bins off the eigenbasis route, the wide flows,
 and the driver runs that read the last saved plane). The last family joined the
 driver's other fixed-schedule runs (``backends/driver_rows.py``: the slab guide's
-projected multimode launch, the legacy entry points and the Runge-Kutta replays), the
+projected multimode launch, the entry points and the Runge-Kutta replays), the
 on-axis plasma statistics at the launch (``backends/axis_plasma_rows.py``) and the
 vector Raman on the spatial geometries and the modal complete run
 (``backends/vector_raman_rows.py``).

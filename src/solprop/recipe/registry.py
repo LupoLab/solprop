@@ -16,8 +16,7 @@ export is the way out. :func:`decode` turns one value into what a keyword takes
 ``{file, sha256}`` into a checked array, a typed table into an object through
 :func:`build_object`, ``"none"`` into ``None``); :func:`decode_keyword` does it for a
 build keyword by its metadata, and :func:`coerce` gives a list its annotated container.
-:func:`retired` and :data:`RETIRED_KEYWORDS`, and :func:`plane_parameter` and
-:func:`refuse_plane_count` (SEP 51), name a refused keyword.
+:func:`plane_parameter` and :func:`refuse_plane_count` (SEP 51) name a refused keyword.
 """
 
 import functools
@@ -91,7 +90,6 @@ from solprop.stepper.schedule import FixedSchedule
 __all__ = [
     "PLANE_PARAMETERS",
     "REGISTRY",
-    "RETIRED_KEYWORDS",
     "BuildContext",
     "Context",
     "Factory",
@@ -102,7 +100,6 @@ __all__ = [
     "decode_keyword",
     "plane_parameter",
     "refuse_plane_count",
-    "retired",
     "unit_of",
 ]
 
@@ -289,77 +286,6 @@ density, prefactor index, transverse quadrature and components are set by a rout
 builder, an adiabatic budget and a TDSE's resources have no registered type, and the
 underscored fields are private.
 """
-
-_BINARY64: Final = "solprop computes in binary64 only (ADR-077); remove the key"
-_CF4: Final = (
-    "CF4 coupled-flow sections were retired (ADR-077): the default frozen-residual "
-    "flow is used; remove the key"
-)
-_GRID_TRANSFORMS: Final = (
-    "transforms was retired in SEP 47 with the mlx backend: fft_size='auto' takes "
-    "FFTW's transform cost; remove the key"
-)
-
-RETIRED_KEYWORDS: Final[Mapping[tuple[str, str], str]] = {
-    ("build", "precision"): _BINARY64,
-    ("SimulationSettings", "precision"): _BINARY64,
-    ("FieldGrid.from_limits", "transforms"): _GRID_TRANSFORMS,
-    ("EnvelopeGrid.from_limits", "transforms"): _GRID_TRANSFORMS,
-    ("CoherentWall", "method"): _CF4,
-    ("CoherentWall", "growth_limit"): _CF4,
-    ("CoherentWall", "fallback"): _CF4,
-}
-"""Why a recipe table no longer takes a keyword it once did, by owner and keyword.
-
-The owner is a registered type's name, or ``"build"`` for a route's ``[build]``
-table."""
-
-_STILL_SO: Final[Mapping[str, object]] = {"precision": "double"}
-"""A retired keyword's value that says what solprop does anyway, so an old recipe
-holding it still loads: the key is dropped."""
-
-
-def retired(owner: str, key: str, value: object, path: str) -> bool:
-    """Refuse a retired keyword by name, or say it is to be dropped.
-
-    Parameters
-    ----------
-    owner : str
-        The registered type's name, or ``"build"`` for a route's ``[build]`` table.
-    key : str
-        The keyword.
-    value : object
-        Its value in the recipe.
-    path : str
-        The keyword's path, for the refusal.
-
-    Returns
-    -------
-    bool
-        True when the keyword is retired and its value is what solprop does anyway,
-        such as ``precision = "double"``, so the caller drops it; False when the
-        keyword is not retired.
-
-    Raises
-    ------
-    RecipeError
-        If the keyword is retired, naming why and the fix.
-
-    Examples
-    --------
-    >>> from solprop.recipe.registry import retired
-    >>> retired("build", "precision", "double", "precision")
-    True
-    >>> retired("build", "length", "1 m", "length")
-    False
-    """
-    reason = RETIRED_KEYWORDS.get((owner, key))
-    if reason is None:
-        return False
-    if key in _STILL_SO and value == _STILL_SO[key]:
-        return True
-    raise RecipeError(reason, path=path)
-
 
 _FILL_UNITS: Final[Mapping[str, UnitSpec]] = {
     "pressure": "bar",
@@ -719,8 +645,6 @@ def build_object(
     for key, item in keywords.items():
         if key == factory.data_file:
             arguments[key] = item
-            continue
-        if retired(factory.name, key, item, f"{path}.{key}"):
             continue
         if factory.target is SimulationSettings and key in _EXECUTION_FIELDS:
             msg = f"{key} is set in the recipe's [execution] table, not in settings"

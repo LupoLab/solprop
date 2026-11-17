@@ -68,7 +68,7 @@ _testing = pytest.importorskip("solprop_native._core")._testing
 def scalar_case():
     """Return the scalar wall's problem, request and grid: three modes, ten steps."""
     simulation = build("scalar")
-    return simulation.translate(), simulation._run_request(), simulation.grid
+    return simulation.translate(), simulation.run_request(), simulation.grid
 
 
 def with_factors(held, triangular):

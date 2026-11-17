@@ -4,8 +4,8 @@
 
 """The reference's step control, driven through a stage evaluation that is scripted.
 
-The reference's session (:class:`solprop.backends.host.session.HostSession`) schedules
-a run and drives its march; here the march's engine is a script
+The reference's session (:class:`solprop.backends.numpy_ref.session.HostSession`)
+schedules a run and drives its march; here the march's engine is a script
 (:class:`scripted_driver.HostScriptedDriver`), so every claim is about the *step
 control* -- landing, acceptance, the controller's state, the history, the noise models,
 the guards, the statistics rows -- and none of them depends on any physics being
@@ -28,9 +28,9 @@ from scripted_driver import HostScriptedDriver
 from sessions.executors import IDENTITY, Started, drive
 from sessions.runs import run
 from solprop.backends.events import ObservationReady
-from solprop.backends.host.session import INITIAL_STEP_STATS_CAPACITY
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.dense import RungeKuttaDense
+from solprop.backends.numpy_ref.session import INITIAL_STEP_STATS_CAPACITY
 from solprop.backends.protocol import Backend
 from solprop.backends.session import Start
 from solprop.exceptions import BackendError
@@ -950,7 +950,6 @@ BACKEND_MEMBERS = (
     "close",
     "closed",
     "edge_memory",
-    "march_export_refusal",
     "memory_ledger",
     "metadata",
     "prepare",
@@ -958,17 +957,19 @@ BACKEND_MEMBERS = (
     "timing_probe",
 )
 """The :class:`~solprop.backends.protocol.Backend` protocol's methods and properties,
-complete (SEP 52 section 5.1): its attributes are ``name`` and
-``reads_transverse_edge``. A change here changes the seam, in the same commit."""
+complete (SEP 52 section 5.1): its one attribute is ``name``. A change here changes the
+seam, in the same commit."""
 
 RETIRED_MEMBERS = (
     "attach_monitor",
     "drain_attempts",
     "halt_ahead",
+    "march_export_refusal",
     "march_snapshot",
     "march_snapshot_nbytes",
     "observe",
     "propagate_to",
+    "reads_transverse_edge",
     "request_halt",
     "restore_call_ledgers",
     "restore_march",
@@ -978,23 +979,17 @@ RETIRED_MEMBERS = (
     "set_stop",
     "stats",
 )
-"""The host stepping seam SEP 52 deleted: every run is a session's, which schedules it
-and reads the state through the workspace."""
+"""The members the seam dropped: the host stepping seam SEP 52 deleted, every run
+being a session's, which schedules it and reads the state through the workspace, and
+the answers every backend gave alike."""
 
-REFERENCE_ATTRIBUTES = (
-    "helpers",
-    "name",
-    "propagator_default",
-    "reads_transverse_edge",
-)
+REFERENCE_ATTRIBUTES = ("name",)
 """The class attributes the NumPy reference backend sets."""
 
 
 def test_the_backend_surface_the_reference_implements_is_frozen():
     members = {
-        name
-        for name in dir(Backend)
-        if not name.startswith("_") and name not in {"name", "reads_transverse_edge"}
+        name for name in dir(Backend) if not name.startswith("_") and name != "name"
     }
     assert members == set(BACKEND_MEMBERS)
     assert isinstance(NumpyRefBackend.__dict__["request"], property)

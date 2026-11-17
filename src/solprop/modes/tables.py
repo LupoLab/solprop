@@ -1122,7 +1122,7 @@ def channel_area(sample: ModalSample, nodes: ModalNodeRule, channel: int) -> flo
 
     The scalar definition ``A_eff = (int |E|^2 dA)^2 / int |E|^4 dA`` with
     ``|E|^2 = E . E*`` summed over the three Cartesian components, integrated on the
-    caller's rule. It is a **surrogate**: it is what the legacy mode-averaged
+    caller's rule. It is a **surrogate**: it is what the mode-averaged
     interfaces mean by an area, and it is not the nonlinear coefficient of a vector
     channel, which is the full contraction of
     :func:`solprop.nonlinear.normalisation.modal_kerr_coefficient` over the material

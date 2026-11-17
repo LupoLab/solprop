@@ -177,7 +177,7 @@ completed step (irrelevant without dense output, but tested).
 
 **Who marches** ([SEP 47](seps/archive/sep-0047-run-ownership.md), [SEP 52](seps/archive/sep-0052-backend-shape.md)).
 The NumPy reference's session schedules its runs and drives its marches in
-`backends/host/`: `HostSession` over `RungeKuttaMarch`, `HostAdamsMarch` and
+`backends/numpy_ref/`: `HostSession` over `RungeKuttaMarch`, `HostAdamsMarch` and
 `HostLowStorageMarch`. Every native run is its native session's, whose compiled Runge-Kutta, Adams and low-storage
 marches decide natively from one policy record each: the native backend loads a start
 itself (`solprop_native._load`) and keeps its Adams march's policy, ledger and history
@@ -319,7 +319,7 @@ picture, transporting the history, on request
 - a corrector one order higher than its predictor;
 - variable order up to five by default.
 
-The reference's march (`backends/host/adams.py`) hands every state-sized operation to its
+The reference's march (`backends/numpy_ref/marches/adams.py`) hands every state-sized operation to its
 engine, `HostHistory` (`backends/numpy_ref/multistep.py`), over the workspace's
 operations: `source`, one source evaluation at a lab-frame field returned in the step's
 anchor frame, and `propagator`. `native` marches natively, its source stage zero of a
@@ -350,7 +350,7 @@ take the matrix functions from the flow actions' eigenbasis (`CoupledBlock.basis
 compensation below,
 formed from each sample's flow weights against the step's own section. The lab-frame
 source runs without the flow's pipeline on every backend. The interaction formulation
-is refused by name (`backends.exponential.refuse_formulation`).
+is refused by name (`backends.exponential.refuse_adams`).
 
 **The carrier frame** ([SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md),
 `Multistep.carrier_frame`, opt-in) changes what an exponential trial interpolates and
@@ -425,40 +425,40 @@ record, `MarchPolicy`, formed by `march_policy` from the method and the settings
 the decisions are pure functions of the policy, the march's state and a trial's norms
 (`backends/adams_core.py`). The kernel contract's section 11 specifies them. `native`
 executes `Multistep()` in either formulation and replayed schedules from that record on its resident engine
-(`native/src/march/adams_march.cpp`), a run of attempts per call, and returns to solprop
-only at an event: the target reached or crossed, an accepted step on which the driver
-has work (a statistics row, a natural stop), a boundary check whose verdict needs
-solprop, the call's bound, the budget, the floor or a native error. The march takes the
+(`native/src/march/adams_march.cpp`), a run of attempts per call, and returns to its
+native session (`native/src/session/session.cpp`) only at an event: the target reached
+or crossed, an accepted step on which the session has work (a statistics row, a natural
+stop), a boundary check whose verdict the session gives, the call's bound, the budget, the floor or a native error. The march takes the
 boundary monitor's checks itself ([SEP 45](seps/archive/sep-0045-native-rk-march.md) §4.8),
 buffers their readings and predicts the monitor's verdict; a run with a transverse
 edge keeps returning at each check. The run's stop flag is polled before each call
 and a signal's handler runs after it, so the call's bound, 256 attempts or 0.1 s, is
-what either waits for. The driver books the call's attempts through
-`_record_attempt` and `_account_step`, inside one commit, replaying each buffered
-reading through the monitor at its own step. The Python march is the reference --
+what either waits for. The session books the call's attempts (`absorb`, as
+`HostSession.record`) and accounts each accepted step as `HostSession._account_step`
+does, inside one commit, replaying each buffered reading through the monitor at its own
+step. The Python march is the reference --
 `HostAdamsMarch` for `numpy_ref`; native steps every configuration it admits with the
 native march and has no Python march to fall back on (SEP 47 phase 5): the interaction
 formulation beside a coupled flow, a representation its stage tables do not read and
 the untransported compensation witness are refused by name. A z table's carrier frame steps natively: the stage tables carry the imaginary
 part of the table's reference element as a scalar table, read by the Clenshaw helper
-solprop's tables use, so its shift and step cap are the host's (issue #255). A native
-group replays each member in its own native session (`solprop_native.group`).
+solprop's tables use, so its shift and step cap are the host's (issue #255).
 
-**Resume** (ADR-046): an engine that can export its rows (`snapshot_rows`, and
-`load_rows` to install them) lets `HostAdamsMarch.snapshot` (and the native session's
-`march_snapshot`) return a `MarchSnapshot` -- the
-accepted state, the rows, each history entry's position, kind and row, the order, the
-rejection count and the proposed step -- which the run loop keeps beside every save
+**Resume** (ADR-046): an Adams history keeps its rows where the state lives, behind the
+session's `HistoryRows` (`export`, and `install` to put them back; the reference's
+`AdamsRows`, which `HostHistory` writes). The session's `march_snapshot` returns a
+`MarchSnapshot` -- the accepted state, the rows, and, from
+`HostAdamsMarch.snapshot_fields`, each history entry's position, kind and row, the order,
+the rejection count and the proposed step -- which the run loop keeps beside every save
 plane and terminal checkpoint through an output's `save_march`, and which
-`HostAdamsMarch.load` installs at the same position on a resume. `HostHistory` exports
-them, and so does the native backend's resident engine (SEP 29 §6.6): it copies its
+`HostAdamsMarch.load` installs at the same position on a resume, its rows installed
+beside it. The native backend's resident engine exports them too (SEP 29 §6.6): it copies its
 persistent views to the host, losslessly, under the host engine's names and layout
 (`store`, and `states` and `rates` for a compensated history), and a frozen-residual
 flow's `G(z_j) u_j` per sample as `applied` where the host engine keeps the sample's
 weights (`weights_<row>`). Each engine refuses rows it does not keep, so those two
 histories do not cross; every other history does. The engines' trial and dense-step
-bookkeeping is not exported: a load forgets it (`reset`), as the next step is a new
-trial. Both methods are part of the `AdamsEngine` protocol. A march whose saved rows
+bookkeeping is not exported: a load forgets it, as the next step is a new trial. A march whose saved rows
 the engine refuses (another engine's rows, another build's shapes) resumes afresh, and
 the driver warns.
 Nothing in the trial lifecycle reads a held trial across the snapshot: it is taken

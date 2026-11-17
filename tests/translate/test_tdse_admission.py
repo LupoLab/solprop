@@ -100,7 +100,7 @@ def admitted_request(admitted_translation):
     return admitted_translation.request
 
 
-def test_legacy_helium_mode_refuses_a_separate_nonlinear_density(declaration):
+def test_a_single_gas_helium_mode_refuses_a_separate_nonlinear_density(declaration):
     _, mode, _ = declaration
     assert mode.mixture is None
     with pytest.raises(TranslationError, match=r"density.*helium fill"):
@@ -125,14 +125,14 @@ def test_initial_seam_refuses_invalid_absolute_positions(admitted, z):
 
 
 @pytest.mark.parametrize("periodic", [False, True])
-def test_manual_atomic_seam_refuses_legacy_plasma_statistics(
+def test_manual_atomic_seam_refuses_the_rate_model_statistics(
     admitted, admitted_request, periodic
 ):
     stats = StatsSpec(
         names=("energy", "electron_density"),
         periodic=("electron_density",) if periodic else (),
     )
-    with pytest.raises(TranslationError, match="TDSE does not define legacy"):
+    with pytest.raises(TranslationError, match="TDSE does not define the rate-model"):
         validate_run(admitted, admitted_request.for_run(stats=stats))
 
 

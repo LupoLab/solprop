@@ -91,8 +91,8 @@ struct ZSlotsConfig {
 /** A coupled flow's certificate and the guard's constants (solprop SEP 45 phase 4):
     each section's row-sum norm, each section's conditioning bound per active bin
     `(n_sections, n_bins)`, the Taylor scale, the most squarings and the rounding
-    allowance, as solprop's `_flow_squarings` and `_check_flow_conditioning` read
-    them. */
+    allowance, as solprop's `numpy_ref/coupled_flow.py` reads them
+    (`_flow_squarings`, `check_flow_conditioning`). */
 struct FlowGuard {
   std::vector<double> row_sum;
   std::vector<double> condition_bound;

@@ -9,10 +9,10 @@
 the constant field and rate with its closed form, the Drude limit of a pre-ionised gas,
 and the energy identity -- are reproduced here through
 :func:`~solprop.backends.numpy_ref.passes.plasma.ionisation_rate`,
-:func:`~solprop.backends.numpy_ref.passes.plasma_scan` and
-:func:`~solprop.backends.numpy_ref.passes.plasma_current` at a quadrature node. They are
-imported from ``tests/plasma_cases.py`` rather than restated, so there is one statement
-of each closed form.
+:func:`~solprop.backends.numpy_ref.passes.plasma.plasma_scan` and
+:func:`~solprop.backends.numpy_ref.passes.plasma.plasma_current` at a quadrature node.
+They are imported from ``tests/plasma_cases.py`` rather than restated, so there is one
+statement of each closed form.
 """
 
 import dataclasses

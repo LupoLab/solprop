@@ -231,12 +231,13 @@ def test_tdse_output_defaults_and_their_explicit_overrides():
 
 # Computed on the base commit of SEP 20 Phase 1: a rate-based capillary call without
 # `tdse` builds this exact configuration, responses, itinerary and statistics. A change
-# of optmat's models would legitimately move it; recompute it there, not here. Until
-# SEP 25 one SHA-256 pinned the whole record, last bits of its derived numbers
-# included, which another platform's libm and FFT move. Its structure is still hashed
+# of optmat's models would legitimately move it, as optmat 0.10's versioned equations
+# of state did; recompute it there, not here. Until SEP 25 one SHA-256 pinned the whole
+# record, last bits of its derived numbers included, which another platform's libm and
+# FFT move. Its structure is still hashed
 # exactly; its numbers are stored beside this test (recorded from the state the
 # former digest certified) and compared within a bound (tests/record_numbers.py).
-_UNCHANGED = "fe3cea40a780789cb5b8a8d3da0d4cb1abf5aea0654ad6da91c80a2f82f6d9b8"
+_UNCHANGED = "fa82edecbf9b7c1b03cac3e0229915882eb133035b98d541e14cde448a1840ca"
 
 
 def test_without_tdse_a_representative_call_is_unchanged():

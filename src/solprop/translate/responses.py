@@ -1450,7 +1450,7 @@ def isotropic_kerr_tensor(form: KerrForm = "analytic") -> Float[np.ndarray, "3 3
     index convention of the record and of the reference pass that reads it.
 
     On the **real** three-component field the same contraction is the real cubic
-    ``P = eps0 T:EEE`` the legacy field route evaluates, whose scalar limit is
+    ``P = eps0 T:EEE`` the channel field route evaluates, whose scalar limit is
     ``P = eps0 chi3 E^3``. Each of the three delta terms then contributes
     ``E_i (E.E)``, so the normalisation is a third and not a quarter:
 
@@ -1596,8 +1596,8 @@ def regional_responses(
 
     ``chi3`` is stored as one Chebyshev coefficient on one interval, because a
     declared material is constant along a constant guide; a z-varying
-    susceptibility needs the density path of the legacy compiler and is not
-    compiled here.
+    susceptibility needs the density path of the channel routes' compiler and is
+    not compiled here.
 
     Parameters
     ----------
@@ -2407,8 +2407,9 @@ def _material_profiles(
 ) -> _MaterialProfiles:
     """Resolve component profiles while preserving the original single path.
 
-    - ``mixture``: ordered component populations; None retains the legacy material path.
-    - ``profile``: total density path in m^-3, or the legacy nonlinear scale.
+    - ``mixture``: ordered component populations; None keeps the single-material path.
+    - ``profile``: total density path in m^-3, or the single material's nonlinear
+      scale.
     """
     if mixture is None and modes:
         declared = getattr(modes[0], "mixture", None)
@@ -2880,7 +2881,8 @@ def compile_responses(
 
     mixture : Mixture or None, optional
         Explicit species and component paths for a spatial material. Modal assembly
-        also discovers the mixture carried by its modes. None keeps the legacy path.
+        also discovers the mixture carried by its modes. None keeps the
+        single-material path.
     regional_responses : RegionalResponseTables or None, optional
         The compiled per-region response of a general modal guide, carried through
         to contract section 5's optional leaf unchanged. It is not compiled here:

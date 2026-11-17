@@ -271,7 +271,7 @@ class Case:
 def _capillary_case(simulation: Simulation) -> Case:
     """Wrap a capillary simulation's problem."""
     return Case(
-        simulation.translate(), simulation._run_request(), simulation.grid, LENGTH
+        simulation.translate(), simulation.run_request(), simulation.grid, LENGTH
     )
 
 
@@ -362,7 +362,7 @@ def split_block() -> Case:
     simulation = guide_simulation(guide, grid, energy=2e-9)
     return Case(
         simulation.translate(),
-        simulation._run_request(),
+        simulation.run_request(),
         simulation.grid,
         GENERAL_Z_END,
     )

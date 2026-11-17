@@ -173,7 +173,7 @@ void release_seed(const std::string& key, const bool planned) {
 } // namespace
 
 FftPlanningScope::FftPlanningScope(FftPlanning& planning)
-    : saved_(detail::planning), forgets_(planning.mode != FftPlanning::Mode::legacy) {
+    : saved_(detail::planning), forgets_(planning.mode != FftPlanning::Mode::policy) {
   detail::planning = &planning;
   if (forgets_) {
     fftw_init_threads();
@@ -197,7 +197,7 @@ std::optional<unsigned> begin_seed(const std::string& key, const FftShape shape,
     return effort;
   }
   unsigned effort = FFTW_ESTIMATE;
-  if (planning->mode == FftPlanning::Mode::legacy) {
+  if (planning->mode == FftPlanning::Mode::policy) {
     effort = fftw_seed_effort(shape, threads);
   } else {
     const char* group = shape == FftShape::planes ? "planes"
@@ -410,7 +410,7 @@ void seed_fftw_wisdom(const ExecutionSpace& space, Complex* input, Complex* outp
   // The policy has always tolerated a plane it cannot seed; a profile records it.
   if (seeded == nullptr && (*chosen & FFTW_WISDOM_ONLY) == 0U &&
       (detail::planning == nullptr ||
-       detail::planning->mode == FftPlanning::Mode::legacy)) {
+       detail::planning->mode == FftPlanning::Mode::policy)) {
     release_seed(key, false);
     return;
   }

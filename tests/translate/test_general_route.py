@@ -356,7 +356,7 @@ def test_the_prefactor_is_the_crop_scale_inside_the_band_and_zero_outside(case):
         ({"shock": False}, "shock=False"),
     ],
 )
-def test_a_legacy_knob_beside_a_general_route_is_refused_by_name(
+def test_a_static_quadrature_knob_beside_a_general_route_is_refused_by_name(
     case, override, message
 ):
     with pytest.raises(TranslationError, match=message):

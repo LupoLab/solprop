@@ -270,7 +270,7 @@ def test_a_probe_whose_launch_fails_raises_the_launch_s_own_error(point, monkeyp
     backend = select(
         "numpy_ref",
         problem,
-        simulation._run_request(),
+        simulation.run_request(),
         grid=simulation.grid,
         modes=simulation.modes,
     )

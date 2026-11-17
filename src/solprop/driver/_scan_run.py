@@ -116,7 +116,7 @@ def launch_statistics(
     assembled with: the builders' own is in true sqrt(W), while ``initial.noise0``
     is already divided by the entrance weight.
 
-    - Returns: the launch plane's statistics, without a batch axis.
+    - Returns: the launch plane's statistics.
     """
     session = start_session(
         backend, problem, backend.request, Start.entrance(problem), owns=False
@@ -544,7 +544,7 @@ class _Work:
             name_seed(self.scan_name, point.index) if point.seed is None else point.seed
         )
         requested = self.options.stats
-        available = simulation._run_request().observation.stats.names
+        available = simulation.run_request().observation.stats.names
         if not isinstance(requested, str) and set(requested) - set(available):
             raise DriverError(
                 "requested scan statistics are not collected by the simulation"
@@ -581,7 +581,7 @@ class _Work:
         backend = select(
             simulation.settings.backend,
             simulation.translate(),
-            simulation._run_request(),
+            simulation.run_request(),
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -631,7 +631,7 @@ class _Work:
             for name, value in statistics.items()
             if keep == "all" or (not isinstance(keep, str) and name in keep)
         )
-        request = simulation._run_request()
+        request = simulation.run_request()
         spec = request.observation.stats
         schedule = request.stepper.schedule
         periodic_bytes = 0

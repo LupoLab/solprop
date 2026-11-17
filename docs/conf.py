@@ -155,8 +155,8 @@ nitpick_ignore = [
     # part of the API reference for the same reason as above.
     ("py:class", "solprop._display.Displayed"),
     # The private record of a backend's per-stage and per-step helpers (SEP 29),
-    # which the shared stage and Adams functions take as a keyword and StepDriver
-    # carries as a class attribute; private for the same reason.
+    # which the shared stage, operator and Adams-table functions take as a keyword and
+    # the native backend carries as a class attribute; private for the same reason.
     ("py:class", "solprop._helpers.Helpers"),
     # Private to solprop and solprop-native, released together, and named in the public
     # `TransverseEdge`'s signatures.

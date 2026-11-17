@@ -24,7 +24,7 @@ physics or numerics rather than style, ask rather than guess.
 | Purpose | Ultrafast nonlinear pulse propagation (UPPE and GNLSE; field and envelope; single-mode, multimode and general modal guides; radial, Cartesian, planar and line free space) |
 | Python | 3.14 — equal to `requires-python` in `pyproject.toml` |
 | Platforms | solprop runs where solprop-native installs: wheels for osx-arm64, linux-64, linux-aarch64, win-64 and win-arm64; from source on Linux and macOS (GPU builds on Linux); the Queue and Slurm scan executors POSIX-only |
-| Backends | `native` (required; `auto`; CPU and GPU; implements every feature, the TDSE response on CPU builds only) and `numpy_ref` (the numerical reference). No other backend. Binary64 only (ADR-077): the single-precision code, CF4 sections, `ComparisonMultistep` and `PIController` overrides that still run on `numpy_ref` are being removed |
+| Backends | `native` (required; `auto`; CPU and GPU; implements every feature, the TDSE response on CPU builds only) and `numpy_ref` (the numerical reference). No other backend. Binary64 only (ADR-077), with one method set on both: `PIController` is final, and the single-precision code, CF4 sections and `ComparisonMultistep` are retired |
 | Type checker | `basedpyright`, pinned exactly in the dev group |
 | Materials | [optmat](https://github.com/LupoLab/optmat), the curated optical-materials package |
 | Planned work | [GitHub issues](https://github.com/LupoLab/solprop/issues), not the roadmap, which lists only SEPs (ADR-062); [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write and label one |
@@ -113,11 +113,12 @@ validity range is cited to its primary source; say what you verified and what yo
   fallbacks.
 - Validate once at the public boundary; inner layers trust validated objects.
 - Respect the layers (`architecture.md §3`): physics code holds no performance tricks,
-  backend code no physics; the kernel contract (`kernel-contract.md`) and the protected
-  driver surface (frozen in `tests/backends/test_driver.py`) are the crossings. Imports
-  flow P → S → T → B → D → X ⚙ (`tests/test_layers.py`; a deliberate exception goes in
-  its allowlist with its reason, and in `architecture.md §3`). No `utils` modules:
-  organise by domain concept, in the package tree of `architecture.md §4`.
+  backend code no physics; the kernel contract (`kernel-contract.md`) and the seam it
+  freezes in `tests/backends/test_driver.py` (the `Backend` protocol's members, the
+  problem and request fields, the stage bundles) are the crossings. Imports flow
+  P → S → T → B → D → X ⚙ (`tests/test_layers.py`; a deliberate exception goes in its
+  allowlist with its reason, and in `architecture.md §3`). No `utils` modules: organise
+  by domain concept, in the package tree of `architecture.md §4`.
 
 ### Style
 
@@ -188,7 +189,7 @@ to it; a function that departs from it says so in the first line of its docstrin
 | Fourier sign | **Optics convention at the interface**: `Ẽ(ω) = ∫ E(t) e^{+iωt} dt`, plane wave `e^{i(βz − ωt)}`, delay `e^{+iωτ}`. **FFT convention inside the seam**: raw forward DFTs, `e^{i(ωt − βz)}`. The boundary is a conjugation in exactly three named places (`fourier.to_optics`/`to_internal`); HDF5 files are optics-convention (`conventions.md §2`) |
 | Linear operator (internal) | `D = −i(β − β₀ − β₁(ω − ω₀)) − α/2`, `Im n_eff > 0` is loss |
 | Amplitudes | interface modal amplitude `b = sqrt(Re n_eff) a` in true √W; the internal `a` is vacuum-normalised (`conventions.md §4`) |
-| Kernel state layout | `(n_modes, n_pol, n_omega)` complex128, ω contiguous, one trajectory (a group is a sequence of problems); saved fields `(n_z, n_modes, n_pol, n_omega)` |
+| Kernel state layout | `(n_modes, n_pol, n_omega)` complex128, ω contiguous, one trajectory; saved fields `(n_z, n_modes, n_pol, n_omega)` |
 | Axis names | `n_modes n_pol n_omega n_omega_fine n_t n_to n_nodes n_z n_intervals n_deg n_windows`, reused verbatim in annotations |
 
 ## Backends, kernels and hot paths

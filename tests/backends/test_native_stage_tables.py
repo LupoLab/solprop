@@ -64,7 +64,7 @@ def translated(route: str, integrator: Multistep | None = None):
         simulation.settings = dataclasses.replace(
             simulation.settings, integrator=integrator or Multistep()
         )
-        return simulation, simulation.translate(), simulation._run_request()
+        return simulation, simulation.translate(), simulation.run_request()
 
 
 def backend_of(simulation, problem, run_request):

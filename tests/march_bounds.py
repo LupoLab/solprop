@@ -4,10 +4,10 @@
 
 """Budgets for two runs of one discrete march, and envelopes for adaptive ones.
 
-The driver, output and scan tests compare whole runs: a batch member with its solo run,
-a scan point with the same simulation alone, a resumed file with the uninterrupted one,
-two entry points that build one problem, a run with a stored record of itself. SEP 25
-classes each pair (``tests/bounds.py``):
+The driver, output and scan tests compare whole runs: a scan point with the same
+simulation alone, a resumed file with the uninterrupted one, two entry points that build
+one problem, a run with a stored record of itself. SEP 25 classes each pair
+(``tests/bounds.py``):
 
 - **Matched marches** (class R) take the same method, orders, startup and history on a
   prescribed schedule, so they differ by rounding alone. :func:`march_bound` is their
@@ -177,7 +177,7 @@ def measured_scales(simulation) -> tuple[float, float]:
     from solprop.backends.numpy_ref.source import _general_maps  # noqa: PLC0415
 
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
         state = problem.initial.field0
@@ -203,7 +203,7 @@ def simulation_bound(simulation, *, margin: float = MARGIN, backend="numpy_ref")
     phi, kappa = measured_scales(simulation)
     return march_bound(
         simulation.translate(),
-        simulation._run_request(),
+        simulation.run_request(),
         phi=max(phi, 0.1),
         kappa=kappa,
         margin=margin,
@@ -322,7 +322,7 @@ def assert_points_matched(
     """Assert every point of a scan agrees with the same point run another way.
 
     Both scans step each point on its prescribed schedule, so a point is a matched
-    march (a batch member against its solo run, a pool worker against the local loop):
+    march (a pool worker against the local loop):
     its stored arrays are held to :func:`simulation_bound` of the point's own
     simulation by :func:`assert_stored_matched`, the schedule's positions exactly,
     and the point's recorded configuration exactly.

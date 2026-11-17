@@ -185,7 +185,7 @@ def as_case(simulation: Simulation, length=LENGTH) -> Case:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         problem = simulation.translate()
-    return Case(problem, simulation._run_request(), simulation.grid, length)
+    return Case(problem, simulation.run_request(), simulation.grid, length)
 
 
 def grin_kinked() -> Case:
@@ -354,7 +354,7 @@ def bound_kinked():
     guide = grin_taper(kinked_radius(), kerr=True)
     simulation = moving_simulation(guide, grid, energy=BOUND_ENERGY)
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
-    return simulation.translate(), simulation._run_request(), grid
+    return simulation.translate(), simulation.run_request(), grid
 
 
 def bound_step_problem(descriptors, *, blocks=(), basis_block=None):
@@ -404,7 +404,7 @@ def bound_step_problem(descriptors, *, blocks=(), basis_block=None):
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return simulation.translate(), simulation._run_request(), grid
+        return simulation.translate(), simulation.run_request(), grid
 
 
 BOUND_PAIR = (("HE", 1, 1, "even"), ("HE", 1, 2, "even"))

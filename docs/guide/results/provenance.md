@@ -86,8 +86,9 @@ A saved result needs the grid, field convention, material models, response choic
        (`SEP 31 <../../dev/seps/archive/sep-0031-simulation-coupling.html>`_): the carrier, the
        frame integral of the terms the linear operator removed (exact Chebyshev
        antiderivatives of the frame's ``beta_0`` and ``beta_1`` tables, with the frequency
-       origin of the linear term), the reference origin of the run's path, the parent
-       plane of a run launched from one, and the basis identity at each planned plane.
+       origin of the linear term), the reference origin of the run's path, and the
+       parent plane of a run launched from one. It holds no basis identity: a plane's
+       basis is derived when the plane is read.
        :func:`~solprop.coupling.plane.reference_at` rebuilds any saved plane's phase and time
        reference from it alone; :func:`~solprop.processing.planes.field_plane` reads it
        (:doc:`coupling simulations <../workflows/coupling>`).
@@ -96,7 +97,7 @@ A saved result needs the grid, field convention, material models, response choic
        strength, and a collar's strength, band, threshold and step limit; ``None``
        without a transverse boundary.
    * - ``schema_version``, ``spectral_convention``, ``field_layout``
-     - The version of this record layout (currently 3), the sign convention of the
+     - The version of this record layout (currently 4), the sign convention of the
        stored field (always ``"optics"``) and the axis order of the stored field.
 ```
 

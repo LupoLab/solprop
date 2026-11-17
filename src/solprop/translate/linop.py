@@ -264,7 +264,7 @@ class LinearOperator:
     modal_metric : solprop.translate.coupled.ModalMetricTables or None
         Kernel schema 12: the explicit physical flux metric, a documented leaf here
         and not a nested record, so that the controller, the flow and the output
-        layer share one W by identity. ``None`` for the legacy orthogonal routes,
+        layer share one W by identity. ``None`` for the orthogonal channel routes,
         whose power weight is the row above.
 
     Raises
@@ -1508,8 +1508,9 @@ def endpoint_phi(
     resolved as the endpoint function itself, never as a differentiated table, and
     joined to ``Phi``: a z table gains the resolved function less its entrance value,
     an expansion an endpoint block over its own parameter box, whose weights
-    :func:`~solprop.translate.expansion.reweight_expansion` rebuilds for batch reuse.
-    An expansion that already carries an endpoint block is returned unchanged.
+    :func:`~solprop.translate.expansion.reweight_expansion` rebuilds when a material
+    update reuses the expansion. An expansion that already carries an endpoint block is
+    returned unchanged.
 
     Parameters
     ----------
@@ -2505,8 +2506,8 @@ def walk_off_buckets(
     every ``(mode, frequency)`` bin, read from the operator ``D = -i (beta -
     beta_frame) - alpha / 2`` by centred differences along the sorted frequency axis,
     one-sided at the edges of what may be read (the axis's ends, the active band's
-    edges, the last propagating bin before evanescence), the fastest of its batch
-    members and polarisations, as its bucket
+    edges, the last propagating bin before evanescence), the fastest of its
+    polarisations, as its bucket
     (:func:`solprop.boundaries.split_rate_buckets`). Inactive bins, and a separable
     operator's evanescent bins, are in the slowest bucket: no propagating light sits
     there. A tabulated operator's columns, modes or a radial grid's, are read as they

@@ -84,7 +84,7 @@ def test_the_flow_s_actions_are_the_reference_s_within_the_formation_bound(
     eigenbasis limit to zero, so every bin is formed by native's scaling and squaring.
     """
     simulation, problem = cases(name)
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     if route == "scaling_and_squaring":
         monkeypatch.setattr(
             "solprop.translate.coupled.eigenbasis_limit", lambda n_modes: 0.0
@@ -175,7 +175,7 @@ def test_the_formed_actions_are_the_reference_s_on_either_route(
     is the production one with the original's operands.
     """
     simulation, problem = cases("scalar")
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     rng = np.random.default_rng(6)
     n_active = 5
     n_modes = problem.shape[0]

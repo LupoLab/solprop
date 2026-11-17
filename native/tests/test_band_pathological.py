@@ -144,7 +144,7 @@ def capillary(
             simulation.settings, quadrature=None, components=None
         )
         problem = simulation.translate()
-    run_request = simulation._run_request()  # pyright: ignore[reportPrivateUsage]
+    run_request = simulation.run_request()
     grid = simulation.grid
     assert isinstance(grid, FieldGrid)
     field = np.zeros(problem.shape, complex)

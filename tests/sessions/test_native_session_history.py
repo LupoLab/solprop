@@ -48,7 +48,7 @@ from sessions.test_native_session import (
 )
 from solprop._interrupts import handled
 from solprop.backends.events import ObservationReady, Outcome
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import SessionError, Start
 from solprop.backends.sessions import start_session
@@ -598,7 +598,7 @@ def test_a_noisy_run_meets_the_reference(noise, check, march):
         pytest.skip("the translation refuses dense output beside the modified noise")
     simulation = _noisy(noise, check=check, march=march)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     assert problem.initial.noise_model == noise
     request = run_request.for_run(monitor=simulation._boundary_monitor())
     skip_device_refused(problem)
@@ -715,7 +715,7 @@ def test_a_noisy_run_on_a_z_table_meets_the_reference(noise, march):
     problem = simulation.translate()
     assert problem.linear.phi_representation == "table"
     assert problem.initial.noise_model == noise
-    request = simulation._run_request()
+    request = simulation.run_request()
     skip_device_refused(problem)
     assert native_session.refusal(problem, request) is None
     context = {"grid": simulation.grid, "modes": simulation.modes}
@@ -761,7 +761,7 @@ def test_a_z_table_s_noise_phase_needs_a_pending_ticket():
     """
     simulation = _walkoff("modified", Multistep())
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     skip_device_refused(problem)
     context = {"grid": simulation.grid, "modes": simulation.modes}
     start = Start(field=problem.initial.field0, z=float(problem.initial.z))

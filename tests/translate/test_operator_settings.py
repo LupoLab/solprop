@@ -330,7 +330,7 @@ def test_a_backend_handed_the_refused_step_forms_a_non_finite_stage():
     past = 1.1 * LOG_DBL_MAX / RATE
     simulation = line(evanescent_rate=RATE, step=allowed, length=4 * allowed)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
         load_reference(backend)
@@ -457,7 +457,7 @@ def test_a_radial_backend_handed_the_refused_step_forms_a_non_finite_stage():
     allowed = 0.85 * LOG_DBL_MAX / RATE
     simulation = radial(step=allowed, length=4 * allowed)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
         load_reference(backend)

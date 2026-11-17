@@ -515,8 +515,7 @@ class ScanReporter(Protocol):
             ``"stopped"`` for a point the stop flag stopped, which is not committed and
             a rerun computes again.
         wall : float
-            The point's build and run time as its worker measured it, s; for a batch
-            member, its group's.
+            The point's build and run time as its worker measured it, s.
         """
 
     def scan_finished(self) -> None:

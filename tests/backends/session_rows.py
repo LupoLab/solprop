@@ -128,11 +128,12 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, PIController
+from solprop.stepper.settings import PropagatorMode
 from solprop.translate.assembly import assemble
 from solprop.translate.chebyshev import build as chebyshev
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.linop import delta_phi, phi_rate
-from solprop.translate.problem import PropagationProblem, PropagatorMode, Translation
+from solprop.translate.problem import PropagationProblem, Translation
 from solprop.translate.responses import prefactor_at
 from solprop.translate.routes import flux_of
 
@@ -216,7 +217,7 @@ def varying(mode: str) -> Built:
     simulation = varying_capillary()
     problem, run_request = with_mode(
         simulation.translate(),
-        simulation._run_request().for_run(stats=StatsSpec()),
+        simulation.run_request().for_run(stats=StatsSpec()),
         mode,
     )
     return Built(problem, run_request, simulation.grid, modes=simulation.modes)
@@ -262,7 +263,7 @@ def tabled_fibre(mode: str) -> Built:
         absorber=False,
     )
     problem, run_request = with_mode(
-        simulation.translate(), simulation._run_request(), mode
+        simulation.translate(), simulation.run_request(), mode
     )
     assert problem.linear.phi_representation == "table"
     return Built(problem, run_request, simulation.grid)
@@ -1110,7 +1111,7 @@ def _general_rows() -> tuple[Row, ...]:
             route="general guide (constant)",
             stepper="low storage",
             response="kerr",
-            features="the general route's legacy transform for the in-stage collar",
+            features="the general route's real modal transform for the in-stage collar",
             why="The general route's in-stage collar rides the low-storage march as "
             "on the reference.",
             build=partial(general, "pair", 2e-5, collar=True),

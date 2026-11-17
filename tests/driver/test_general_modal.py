@@ -1008,7 +1008,7 @@ def test_a_declared_basis_draws_once_in_the_reference_basis_and_carries_it(grid)
 # ------------------------------------------------------------- statistics, output
 
 
-def test_the_route_records_its_own_names_and_refuses_the_legacy_ones(guide, grid):
+def test_the_route_records_its_own_names_and_refuses_the_per_channel_ones(guide, grid):
     """The record's whitelist: `physical_energy` and `analytic_flux`, not `energy`.
 
     `energy` and `peak_power` are refused in favour of the route's own names,
@@ -1064,7 +1064,9 @@ def test_the_spectral_flux_is_admitted_by_name_and_integrates_to_the_energy(
     "name",
     ["energy", "energy_window", "peak_power", "peak_power_window", "peak_power_total"],
 )
-def test_every_legacy_power_name_is_refused_on_the_general_basis(guide, grid, name):
+def test_every_per_channel_power_name_is_refused_on_the_general_basis(
+    guide, grid, name
+):
     """Each by name, with the replacement, at the run loop's admission."""
     asked = build(
         guide,
@@ -1134,7 +1136,7 @@ def test_the_backend_refuses_an_inadmissible_name_on_its_own(guide, grid):
     """Asked directly, without the driver's loop (defence in depth)."""
     simulation = build(guide, grid)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = select("numpy_ref", problem, run_request, grid=grid)
     try:
         load_reference(backend)
@@ -1157,7 +1159,7 @@ def test_a_record_that_misnames_the_basis_is_refused_at_the_run_loop(
 
     `run_problem(general_problem, backend, handler, metadata=...)` with a record
     carrying no `modal` identity would write a file that `capability_of`
-    reads as an **ordinary modal** run, and every legacy accessor would then be
+    reads as an **ordinary modal** run, and every per-channel accessor would then be
     admitted on a three-component basis -- the one thing the whitelist exists to
     prevent. The other way round, a record claiming a guide for a problem that
     carries no tables would promise a reconstruction that cannot be rebuilt.
@@ -1167,12 +1169,12 @@ def test_a_record_that_misnames_the_basis_is_refused_at_the_run_loop(
     simulation = build(guide, grid)
     general = simulation.metadata()
     if direction == "record_is_silent":
-        problem, run_request = simulation.translate(), simulation._run_request()
+        problem, run_request = simulation.translate(), simulation.run_request()
         metadata = dataclasses.replace(general, modal=None)
         expected = "carries transform.modal_tables and its run record carries"
     else:
         ordinary = ordinary_simulation(("energy",))
-        problem, run_request = ordinary.translate(), ordinary._run_request()
+        problem, run_request = ordinary.translate(), ordinary.run_request()
         metadata = general
         expected = "carries a general modal identity and the problem"
     with pytest.raises(DriverError, match=expected):
@@ -1196,7 +1198,7 @@ def test_an_hdf5_file_carries_the_labels_and_the_identities(guide, grid, tmp_pat
     simulation = build(guide, grid)
     simulation.run(path, progress="none")
     stored = resume(path).metadata
-    assert stored.schema_version == 3
+    assert stored.schema_version == 4
     assert stored.modal is not None
     assert dict(stored.modal)["basis"] == "general_modal"
     labels = [dict(one.label) for one in stored.modes if one.label is not None]

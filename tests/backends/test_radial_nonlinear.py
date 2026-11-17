@@ -29,7 +29,7 @@ from sessions.runs import native_trial, run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
 from solprop.constants import EPS0, C
-from solprop.exceptions import BackendError, TranslationError
+from solprop.exceptions import TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
@@ -138,7 +138,7 @@ def _native_first_stage(backend, problem):
     )
 
 
-def test_radial_vector_raman_keeps_the_named_refusal(spatial_backend_class):
+def test_radial_vector_raman_is_refused_before_the_backend(spatial_backend_class):
     grid = EnvelopeGrid.from_limits(
         LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
@@ -153,8 +153,10 @@ def test_radial_vector_raman_keeps_the_named_refusal(spatial_backend_class):
     scalar, run_request = make_problem(
         grid, space, np.zeros((space.n_r, 1, grid.n_omega), complex), [response]
     )
+    # A scalar problem relabelled as a vector one: validate_run refuses it, before the
+    # backend allocates, at the first array that does not carry the vector state.
     problem = dataclasses.replace(scalar, shape=(space.n_r, 2, grid.n_omega))
-    with pytest.raises(BackendError, match="Raman"):
+    with pytest.raises(TranslationError, match=r"initial\.field0 has shape"):
         spatial_backend_class(problem, run_request, grid=grid)
 
 

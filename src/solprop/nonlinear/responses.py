@@ -81,7 +81,20 @@ Sector = Literal["full", "conserving"]
 with two positive and two negative signed legs (SEP 6, Phase 0, decision Q4)."""
 
 MAX_N_POL = 2
-"""Largest polarisation axis a response accepts: ``(x, y)`` (``conventions.md`` 5)."""
+"""Most entries the state's polarisation axis may have, ``(x, y)`` (``conventions.md``).
+
+The largest polarisation axis a response accepts. The transverse components are carried
+either by the transform's rows or by the state's polarisation axis, never by both: a row
+of ``synthesis`` is one Cartesian component at one node, and so is one entry of the
+state's polarisation axis, so a problem that set both would count them twice.
+
+It stays 2 at kernel schema 14. A general modal guide's three Cartesian components
+are *not* three state polarisations: one vector eigenmode has E_x, E_y and E_z and
+stores one amplitude, so the guide carries ``n_pol = 1`` and
+:data:`solprop.translate.problem.MAX_N_COMPONENTS` local field components. Setting this
+to 3 would instead admit three independent amplitudes per eigenmode, which is a
+different and unphysical problem.
+"""
 
 _PREIONISATION_PATH = (
     "this plasma response carries its preionisation as a path along z, and the "

@@ -262,10 +262,7 @@ Accurate arithmetic does not remove the lossless $1/k_z$ singularity at exact
 cutoff. An exact zero remains in the documented evanescent clamp and is warned;
 no additional angular filter or physical regularisation is introduced. A field with
 significant power at exact grazing incidence is outside this model, and treating it
-would need a separate derivation. Cartesian runs record the arithmetic in their
-configuration (`spatial_arithmetic`), so a checkpoint written with a different
-arithmetic — a single rounded square, say — cannot silently resume with different
-coefficients.
+would need a separate derivation.
 
 ## Fluence widths
 
