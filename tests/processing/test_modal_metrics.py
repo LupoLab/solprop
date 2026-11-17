@@ -7,8 +7,8 @@
 What is tested here: the reconstruction round trip against the coefficient dual, the
 distinction between the physical energy, the cycle-averaged flux, the instantaneous flux
 and the per-coordinate intensity, the labels a file carries, and the refusals -- an
-ordinary file asked for a general name, a general file asked for a legacy one, and a
-reconstruction offered the wrong guide's tables.
+ordinary file asked for a general name, a general file asked for a per-channel one, and
+a reconstruction offered the wrong guide's tables.
 
 **Every bound is written before the run.** The reconstruction is one matrix product per
 node and one transform, so its round trip against the dual is a rounding statement whose
@@ -51,7 +51,7 @@ from solprop.output.capability import (
     refusal_for,
 )
 from solprop.output.memory import MemoryOutput
-from solprop.processing import time as legacy
+from solprop.processing import time as per_channel
 from solprop.processing._examples import example_general_output, example_output
 from solprop.processing.axes import grid_of
 from solprop.processing.modal import (
@@ -416,7 +416,7 @@ def test_the_file_based_energy_is_the_statistic_the_run_recorded(run):
     assert float(physical_energy(run, plane=-1)) == recorded[-1]
 
 
-def test_the_two_statistics_are_call_throughs_to_their_legacy_arithmetic(run):
+def test_the_two_statistics_are_call_throughs_to_their_per_channel_arithmetic(run):
     """A regression guard, not a measurement: the two are literal call-throughs.
 
     `stats.physical_energy` calls `stats.energy` and sums it, and
@@ -775,27 +775,27 @@ def test_a_basis_independent_step_diagnostic_is_let_through_by_the_gate():
     assert refusal_for("modal", ["quadrature_error"]) is None
 
 
-def test_the_legacy_processing_metrics_are_refused_on_a_general_file(run):
+def test_the_per_channel_processing_metrics_are_refused_on_a_general_file(run):
     """The whitelist's fourth door: `solprop.processing.energy` and `peak_power`.
 
     `peak_power(modes='sum')` is `peak_power_total`, which the run loop, both CPU
     backends and `solprop.processing.modal` all refuse on this basis; without this
     the same number came back through a different import.
     """
-    for accessor in (legacy.energy, legacy.peak_power):
+    for accessor in (per_channel.energy, per_channel.peak_power):
         with pytest.raises(OutputError, match="is unavailable for this nonorthogonal"):
             accessor(run, plane=-1)
     # A run on an ordinary basis is untouched: the shape functionals of this module
     # are admitted on every basis either way.
-    assert float(np.ravel(legacy.energy(example_output(), plane=0))[0]) > 0.0
-    assert float(np.ravel(legacy.peak_power(example_output(), plane=0))[0]) > 0.0
-    assert float(np.ravel(legacy.fwhm_t(run, plane=-1))[0]) > 0.0
+    assert float(np.ravel(per_channel.energy(example_output(), plane=0))[0]) > 0.0
+    assert float(np.ravel(per_channel.peak_power(example_output(), plane=0))[0]) > 0.0
+    assert float(np.ravel(per_channel.fwhm_t(run, plane=-1))[0]) > 0.0
 
 
-def test_the_legacy_gate_says_nothing_about_a_handler_with_no_record():
+def test_the_per_channel_gate_says_nothing_about_a_handler_with_no_record():
     """There is no basis to read, so the gate defers to the accessor's own refusal."""
     with pytest.raises(OutputError, match="carries no metadata"):
-        legacy.energy(MemoryOutput(), plane=0)
+        per_channel.energy(MemoryOutput(), plane=0)
 
 
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])

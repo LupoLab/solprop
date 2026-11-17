@@ -1305,7 +1305,7 @@ class NumpyWorkspace:
             # The general modal route's buffers are its own: the two execution maps,
             # the per-node tensor and the record's resident E/H reference are
             # whole-problem allocations no chunk shrinks, and its chunk buffers are
-            # three components wide and complex on a grid where the legacy ones are
+            # three components wide and complex on a grid where the channel ones are
             # one or two and real. Every row is zero on every
             # other route.
             **general,

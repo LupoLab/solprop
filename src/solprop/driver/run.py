@@ -819,10 +819,11 @@ def _refuse_a_record_that_misnames_the_basis(
     pieces itself: ``run_problem(general_problem, backend, handler, metadata=...)``
     with a record that carries no ``modal`` identity would write a file that
     :func:`solprop.output.capability.capability_of` reads as an **ordinary modal**
-    run, and every per-channel accessor would then be admitted on a three-component basis
-    -- the one thing the whitelist exists to prevent. The two are required to agree
-    in both directions: a record claiming a general modal guide for a problem that
-    carries no tables would promise a reconstruction no guide can be rebuilt for.
+    run, and every per-channel accessor would then be admitted on a three-component
+    basis -- the one thing the whitelist exists to prevent. The two are required to
+    agree in both directions: a record claiming a general modal guide for a problem
+    that carries no tables would promise a reconstruction no guide can be rebuilt
+    for.
 
     What is compared is the record's **basis**, not whether it carries an identity at
     all, and it is read exactly as :func:`solprop.output.capability.capability_of` reads

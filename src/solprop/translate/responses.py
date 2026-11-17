@@ -1450,7 +1450,7 @@ def isotropic_kerr_tensor(form: KerrForm = "analytic") -> Float[np.ndarray, "3 3
     index convention of the record and of the reference pass that reads it.
 
     On the **real** three-component field the same contraction is the real cubic
-    ``P = eps0 T:EEE`` the legacy field route evaluates, whose scalar limit is
+    ``P = eps0 T:EEE`` the channel field route evaluates, whose scalar limit is
     ``P = eps0 chi3 E^3``. Each of the three delta terms then contributes
     ``E_i (E.E)``, so the normalisation is a third and not a quarter:
 
@@ -1596,8 +1596,8 @@ def regional_responses(
 
     ``chi3`` is stored as one Chebyshev coefficient on one interval, because a
     declared material is constant along a constant guide; a z-varying
-    susceptibility needs the density path of the legacy compiler and is not
-    compiled here.
+    susceptibility needs the density path of the channel routes' compiler and is
+    not compiled here.
 
     Parameters
     ----------

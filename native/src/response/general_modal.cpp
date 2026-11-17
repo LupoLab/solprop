@@ -173,7 +173,7 @@ void require_general_modal(const Problem& problem) {
   if (problem.kerr.nonlinear || problem.plasma.enabled || problem.raman.enabled ||
       problem.plasma.envelope)
     throw std::invalid_argument("the general modal route carries its own regional "
-                                "responses and no legacy nonlinear term");
+                                "responses and no channel nonlinear term");
   if (problem.dims.n_to == 0 || problem.dims.n_to % 2 != 0)
     throw std::invalid_argument("the general modal route needs an even fine grid");
   // A field grid's coarse bins are the leading bins of the fine spectrum (solprop

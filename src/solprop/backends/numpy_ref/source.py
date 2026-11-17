@@ -363,16 +363,17 @@ class StageSource:
         not an extension of it. The synthesis is a complex
         frequency-dependent map of three Cartesian components, so it happens in the
         frequency domain and the field a response sees is the analytic signal. What
-        is shared with the legacy path is everything after the projection -- the
-        prefactor, which is the crop scale alone here, the spectral collar, the
-        in-stage absorber and the return to the interaction picture.
+        is shared with the channel node pipeline is everything after the projection
+        -- the prefactor, which is the crop scale alone here, the spectral collar,
+        the in-stage absorber and the return to the interaction picture.
 
         The quadrature alarm is not scored on this route: the general node rule has
         no embedded coarse pair, and a difference that is identically zero read as
         convergence would be wrong, as for any unpaired rule.
 
-        A guide with no responding region is short-circuited, as the legacy path
-        short-circuits a problem whose `response_order` is the accumulation alone.
+        A guide with no responding region is short-circuited, as the channel node
+        pipeline short-circuits a problem whose `response_order` is the accumulation
+        alone.
         """
         assert self._general is not None
         grids = self._problem.grids

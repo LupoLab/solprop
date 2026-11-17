@@ -895,7 +895,7 @@ def _check_evaluate(
 
     - ``dt``: sample spacing of the fine grid, s.
     - ``max_components``: how many Cartesian components the caller carries: two for the
-      legacy routes, whose transverse state is at most two-component, and three for the
+      channel routes, whose transverse state is at most two-component, and three for the
       general modal guide's tensor responses.
     """
     if kind not in ("field", "envelope"):

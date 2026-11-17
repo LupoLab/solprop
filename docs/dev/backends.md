@@ -1229,7 +1229,7 @@ and envelope plasma (`src/response/dispersive.cpp`). The operator is the referen
 `G[w (G E)^3]`: the temporal collar on the products, before `Π₊` and the output multipliers.
 Everywhere the multipliers move off the nodes, to wherever the route already holds a spectrum:
 
-- **The fused node path** (`DispersiveResponse`). The legacy transform synthesises and projects
+- **The fused node path** (`DispersiveResponse`). The channel transform synthesises and projects
   with real matrices that do not depend on frequency, and the collar is the same at every node,
   so a spectral multiplier and the collar commute with both: `P G[w (G E)^3] = G[w P (G E)^3]`.
   The input multipliers act on the padded modal spectrum the stage combination already formed (no

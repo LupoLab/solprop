@@ -10,7 +10,7 @@ node's, which a few-node field-scale rule may place well off the axis, while the
 tables and rule of the node scan. The checks: the axis value is the same whatever the
 rule; a Radau rule's axis node supplies it without a further scan; a five-node Gauss
 rule's node maximum misses the axial peak; a multimode field's off-axis maximum stays in
-the legacy statistic; and every route and backend that does not define them refuses
+the node statistic; and every route and backend that does not define them refuses
 them by name.
 """
 
@@ -292,7 +292,7 @@ def test_consecutive_planes_scan_their_own_field(grid, table, name):
     assert first != second
 
 
-def test_a_multimode_off_axis_maximum_stays_in_the_legacy_statistic(grid, table):
+def test_a_multimode_off_axis_maximum_stays_in_the_node_statistic(grid, table):
     """HE_11 minus HE_12, cancelled on the axis: the densest node is elsewhere."""
     modes = [argon(1), argon(2)]
     rule = transverse_quadrature(modes, n_r=32, radial_rule="gauss_kronrod")

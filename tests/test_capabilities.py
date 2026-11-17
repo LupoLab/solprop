@@ -82,8 +82,8 @@ def test_a_spatial_file_refuses_compression_and_the_column_readers():
     statement = capabilities.output(_spatial_output())
     assert statement.quantities["field"].kind == "coordinate"
     assert not statement.admits("compression")
-    # The energy statistic is the beam's flux and is admitted; the legacy readers of
-    # the columns are not, and their refusals are the readers' own.
+    # The energy statistic is the beam's flux and is admitted; the per-channel readers
+    # of the columns are not, and their refusals are the readers' own.
     assert statement.admits("energy") and statement.admits("peak_power")
     for name in ("energy", "peak_power"):
         with pytest.raises(OutputError) as caught:

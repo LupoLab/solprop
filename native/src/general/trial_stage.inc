@@ -458,7 +458,7 @@ void GeneralWorkspace::host_core() {
 
 // The general modal route's stage core: the shared lab-frame input, the in-stage
 // absorber on the modal time field as on every route, and the general source in place
-// of the legacy node pipeline; the finish applies the shared normalisation and the
+// of the channel node pipeline; the finish applies the shared normalisation and the
 // return to the interaction picture (solprop `NumpyRefBackend._nonlinear_general`).
 void GeneralWorkspace::general_core(const std::size_t stage) {
   if (problem_.absorber.in_stage) {

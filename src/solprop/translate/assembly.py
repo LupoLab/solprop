@@ -173,7 +173,7 @@ _GENERAL_INDEX = 1.0
 
 A general guide's basis is Poynting-normalised by construction, so its amplitude is
 already the true-power amplitude every route carries and the statistics power
-weight is the constant one: the legacy ``sqrt(Re n_eff)`` boundary is not
+weight is the constant one: the channel routes' ``sqrt(Re n_eff)`` boundary is not
 crossed on this route. The same override removes the cumulative normalisation term
 from ``Phi``, which is the term that renormalises a vacuum amplitude along a varying
 index and has no meaning for a basis that carries its own flux metric.

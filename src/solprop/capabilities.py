@@ -115,7 +115,8 @@ class OutputCapabilities:
         For each processing or plotting reader of
         :data:`~solprop.output.capability.COLUMN_READINGS` that refuses the file, its
         refusal: on a spatial file every one of them, which would read its columns as
-        modes, and on a general modal file the legacy ``energy`` and ``peak_power``.
+        modes, and on a general modal file the per-channel ``energy`` and
+        ``peak_power``.
     needs : collections.abc.Mapping
         For an operation a reader admits only with something the file does not hold,
         what it needs: a general modal file's reconstruction needs its guide and

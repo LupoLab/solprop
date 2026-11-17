@@ -914,7 +914,7 @@ DispersiveResponse::DispersiveResponse(const Problem& problem, CpuExecutionPool&
                pool.get(CpuOperation::stage, problem.dispersive.inputs.size())) {
   if (problem.general.enabled || problem.separable_geometry())
     throw std::invalid_argument(
-        "the fused dispersive response runs on the legacy transform's node path");
+        "the fused dispersive response runs on the channel transform's node path");
   const bool complex = form_ != DispersiveForm::real;
   spectrum_bins_ = complex ? n_to_ : n_to_ / 2 + 1;
   const bool symmetric = weights_.symmetric();

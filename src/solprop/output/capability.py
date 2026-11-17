@@ -14,9 +14,9 @@ accessor that capability does not admit is refused by name rather than redefined
   :func:`withheld_accessors` and :func:`withheld_from` what a run withholds beyond it.
   The name sets come from :mod:`solprop.stats.catalogue`, so that a translation module
   records them without importing an output one.
-- The legacy readers: :func:`reading_refusal` refuses the processing readers and plots
-  on a basis they do not describe, and :data:`COLUMN_READINGS` names the readers of a
-  spatial file's columns as modes with the spatial functional to use instead
+- The per-channel readers: :func:`reading_refusal` refuses the processing readers and
+  plots on a basis they do not describe, and :data:`COLUMN_READINGS` names the readers
+  of a spatial file's columns as modes with the spatial functional to use instead
   (:func:`spatial_field_unit` gives those columns' unit).
 - :func:`quantities` returns a :class:`Quantity` per derived quantity of a file
   (:data:`QuantityKind`: a physical flux or a coordinate quantity, with its unit), and
@@ -285,7 +285,7 @@ def refusal_for(
     name refused in processing say the same thing. The message names the basis and
     the replacement, and never redefines the old name.
 
-    **Each name is refused for its own reason.** A legacy power name is refused
+    **Each name is refused for its own reason.** A per-channel power name is refused
     because a general basis's coordinate quantities are not additive; a gas or
     spatial name is refused because this guide has no gas fill and no transverse
     geometry, which is not a statement about the basis at all; and a

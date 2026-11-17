@@ -1008,7 +1008,7 @@ def test_a_declared_basis_draws_once_in_the_reference_basis_and_carries_it(grid)
 # ------------------------------------------------------------- statistics, output
 
 
-def test_the_route_records_its_own_names_and_refuses_the_legacy_ones(guide, grid):
+def test_the_route_records_its_own_names_and_refuses_the_per_channel_ones(guide, grid):
     """The record's whitelist: `physical_energy` and `analytic_flux`, not `energy`.
 
     `energy` and `peak_power` are refused in favour of the route's own names,
@@ -1064,7 +1064,9 @@ def test_the_spectral_flux_is_admitted_by_name_and_integrates_to_the_energy(
     "name",
     ["energy", "energy_window", "peak_power", "peak_power_window", "peak_power_total"],
 )
-def test_every_legacy_power_name_is_refused_on_the_general_basis(guide, grid, name):
+def test_every_per_channel_power_name_is_refused_on_the_general_basis(
+    guide, grid, name
+):
     """Each by name, with the replacement, at the run loop's admission."""
     asked = build(
         guide,
@@ -1157,7 +1159,7 @@ def test_a_record_that_misnames_the_basis_is_refused_at_the_run_loop(
 
     `run_problem(general_problem, backend, handler, metadata=...)` with a record
     carrying no `modal` identity would write a file that `capability_of`
-    reads as an **ordinary modal** run, and every legacy accessor would then be
+    reads as an **ordinary modal** run, and every per-channel accessor would then be
     admitted on a three-component basis -- the one thing the whitelist exists to
     prevent. The other way round, a record claiming a guide for a problem that
     carries no tables would promise a reconstruction that cannot be rebuilt.
