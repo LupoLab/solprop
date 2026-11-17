@@ -4,8 +4,10 @@
    documented on the submodule's own page. Documenting them here too would register
    two objects under one name -- `solprop.physdata.density` is both a module and the
    function that module exports -- which Sphinx reports as a duplicate object
-   description and `-W` turns into a build failure. So a package page carries only its
-   module list; a leaf module documents its members as usual. #}
+   description and `-W` turns into a build failure. So a package page carries its
+   module list, and documents only the names no submodule's page can: those defined in
+   its own `__init__` or in a private module (`package_members`, from
+   `docs/api_surface.py`). A leaf module documents its members as usual. #}
 {#- The front end's service is front-end support, not user interface (the front end's
    design, D20): its package page says what it is, and its modules get no pages, as
    they change without notice. #}
@@ -35,6 +37,9 @@ Its design is the desktop front end's (``docs/dev/gui/design.md``, sections 13.3
 {%- elif modules %}
 .. automodule:: {{ fullname }}
    :no-members:
+{% for directive, name in package_members.get(fullname, []) %}
+.. {{ directive }}:: {{ fullname }}.{{ name }}
+{% endfor %}
 
 .. rubric:: Modules
 

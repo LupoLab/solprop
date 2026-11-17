@@ -25,6 +25,9 @@ from sphinx.errors import ConfigError
 from sphinx_gallery.sorting import ExplicitOrder
 from sphinx_gallery.utils import get_md5sum
 
+_DOCS = Path(__file__).parent
+sys.path.insert(0, str(_DOCS))  # api_surface and gallery_session, named below
+
 # Read the Docs discards the log of a build it stops at its time limit. There
 # `docs/build-on-read-the-docs.sh` sets SOLPROP_DOCS_WATCHDOG to a delay in seconds
 # after which every thread's stack is written to the log, before the build is stopped.
@@ -95,6 +98,11 @@ myst_heading_anchors = 3
 # ---------------------------------------------------------------------
 autosummary_generate = True
 autosummary_imported_members = False
+# A package page documents the public names that no submodule's page can (the module
+# template says why); `tests/test_api_reference.py` holds the result to `__all__`.
+autosummary_context = {
+    "package_members": importlib.import_module("api_surface").package_members()
+}
 # Source links belong to the defining module. Following re-exported aliases makes
 # viewcode reuse one alias prefix with another page's anchors, breaking backlinks.
 # The complete API still documents aliases; their home modules retain source links.
@@ -206,8 +214,6 @@ nitpick_ignore_regex = [
 # code and figures disagree, with nothing on it to say so, and rendering it without
 # output would overwrite the committed page in the working tree. The refusal names the
 # command that refreshes it (`_check_committed_galleries` below).
-_DOCS = Path(__file__).parent
-sys.path.insert(0, str(_DOCS))  # gallery_session, named below
 _GALLERIES = (
     (_DOCS / "introduction" / "tutorials", _DOCS / "introduction" / "lessons"),
     (_DOCS / "tutorials", _DOCS / "auto_tutorials"),

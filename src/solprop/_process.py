@@ -420,7 +420,7 @@ class ThreadBudget:
 
         Examples
         --------
-        >>> from solprop._process import ThreadBudget
+        >>> from solprop.backends import ThreadBudget
         >>> ThreadBudget(4, "affinity").explicit(8)
         4
         >>> ThreadBudget(4, "affinity", oversubscribe=True).explicit(8)
@@ -732,12 +732,12 @@ def parallel_rows[T](n_rows: int, nbytes: int, work: Callable[[slice], T]) -> li
 def thread_budget() -> ThreadBudget:
     """Return how many threads this process may run at once (ADR-052).
 
-    The smallest of the CPUs it may run on (:func:`allowed_cpus`: ``taskset``, a batch
+    The smallest of the CPUs it may run on (``allowed_cpus``: ``taskset``, a batch
     scheduler's allocation), the physical cores that hold them
-    (:func:`physical_cores`) and, on a chip with cores of several kinds, those of the
-    fastest kind (:func:`top_tier_cores`), both unless ``SOLPROP_THREADS`` is set, its
+    (``physical_cores``) and, on a chip with cores of several kinds, those of the
+    fastest kind (``top_tier_cores``), both unless ``SOLPROP_THREADS`` is set, its
     control groups'
-    CPU quota (:func:`cgroup_cpus`) and ``SOLPROP_THREADS``. Every pool solprop sizes
+    CPU quota (``cgroup_cpus``) and ``SOLPROP_THREADS``. Every pool solprop sizes
     is held within it, and so is any count asked for explicitly unless
     ``SOLPROP_OVERSUBSCRIBE=1``
     (:meth:`ThreadBudget.explicit`); the pools take turns, so each may use the whole
@@ -756,7 +756,7 @@ def thread_budget() -> ThreadBudget:
 
     Examples
     --------
-    >>> from solprop._process import thread_budget
+    >>> from solprop.backends import thread_budget
     >>> thread_budget().threads >= 1
     True
     """
