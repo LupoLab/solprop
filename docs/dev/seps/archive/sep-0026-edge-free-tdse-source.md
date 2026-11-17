@@ -1172,7 +1172,7 @@ hash `d9a512d3…` is recorded. The private `run_short.py` was not used.
    recorded figure is each run's `tdse_last_evaluation` complete-source norm,
    reproduced within twice its recorded floor.
 5. *The current-form 60 fs segment was not rerun.* The provider pin has not moved
-   since `benchmarks/hacc_perf/evidence/perf.json` (job 483804, solprop `d482cdf0`):
+   since `benchmarks/hacc_perf/evidence/perf.json` (solprop `d482cdf0`):
    `time_collar` keeps its formula and path. The SAE rerun is compared with SEP 20
    Phase 4's `sae-window` run at `ea2bfcaa`. No native file differs between
    `ea2bfcaa` and `876b72d1` (only `pyroraptor/hacc/*.py` changed), so the comparison
@@ -1199,12 +1199,12 @@ The L6 segments ran on cluster CPU nodes:
 
 Placement was verified with taskset and numactl:
 
-| run | job | node | CPUs | NUMA domains | elapsed | core-hours |
-|---|---|---|---|---|---|---|
-| (a) | 483988 | node19 | 0–31 | 0–1 | 1 h 15 | 39.8 |
-| (b) | 483989 | node19 | 32–63 | 2–3 | 1 h 46 | 56.4 |
-| (c) | 483990 | node20 | 0–31 | 0–1 | 1 h 35 | 50.7 |
-| SAE | 483991 | node14 | 0–31 | 0–2 | 1 h 21 | 43.2 |
+| run | CPUs | NUMA domains | elapsed | core-hours |
+|---|---|---|---|---|
+| (a) | 0–31 | 0–1 | 1 h 15 | 39.8 |
+| (b) | 32–63 | 2–3 | 1 h 46 | 56.4 |
+| (c) | 0–31 | 0–1 | 1 h 35 | 50.7 |
+| SAE | 0–31 | 0–2 | 1 h 21 | 43.2 |
 
 With the build and the analysis, the total is 191.5 core-hours, against 215–270
 estimated. Timing was not the aim; (a) and (b) shared a node.

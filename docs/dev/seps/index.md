@@ -34,11 +34,6 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [17](sep-0017-gas-two-photon-ionisation.md) | Broadband two-photon continuum response beside strong-field ionisation | Accepted | Feature |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
 
-SEP 13, the standalone numerical prerequisite for SEP 12, SEP 14, which carried it to
-the compiled backends, and SEP 16, which unified the multistep family and made it the
-default, are final and archived; numbering records creation order, not implementation
-order.
-
 ## Archived
 
 Proposals that are final, rejected, withdrawn or superseded; the
@@ -77,7 +72,7 @@ Proposals that are final, rejected, withdrawn or superseded; the
 | [39](archive/sep-0039-native-adams-march.md) | A native Adams march: the Multistep step loop in the compiled backend | Final | Change |
 | [40](archive/sep-0040-transverse-absorbing-boundaries.md) | Transverse absorbing boundaries for free-space propagation | Final | Change |
 | [41](archive/sep-0041-recipes-and-front-ends.md) | Recipes, and the hooks a front end needs | Final | Change |
-| [42](archive/sep-0042-tolerant-resume.md) | Resuming by what matters to the run | Superseded | Change |
+| [42](archive/sep-0042-tolerant-resume.md) | Resuming by what matters to the run | Final | Change |
 | [43](archive/sep-0043-retire-numba-cpu.md) | Retire `numba_cpu` | Final | Change |
 | [44](archive/sep-0044-native-edge-read.md) | Reading the transverse edge where the state lives | Final | Change |
 | [45](archive/sep-0045-native-rk-march.md) | A native Runge–Kutta march, and boundary checks inside the compiled marches | Final | Change |

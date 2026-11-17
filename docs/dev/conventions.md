@@ -100,6 +100,24 @@ convention-free (`|Ẽ|²`). A round-trip test guards the sign: build a pulse wi
 group-delay dispersion, read the spectral phase back, delay it by τ and check that it arrives
 later.
 
+**Transverse axes and their signs** (`FreeGrid` and `LineGrid`; a `RadialGrid`'s Hankel
+transform has no direction). The stored transverse spectrum is the raw forward DFT of the
+samples taken in the order of `FreeGrid.x` and `FreeGrid.y`,
+`Ẽ(k_x, k_y) = Σ E(x, y) e^{−i(k_x x + k_y y)}` (NumPy's `fft2` over `(y, x)`, x fastest
+in the node index), with `k_x` and `k_y` in unshifted FFT order. It has the time
+transform's sign, and the boundary does not conjugate it. A beam travelling towards +x
+with physical transverse wave number `κ_x > 0` carries `e^{+iκ_x x}` in the optics
+convention and so `e^{−iκ_x x}` on the internal samples: it is stored at **negative**
+`k_x`, and a stored column's axis is `k^{(s)} = −κ` (`spatial.mask_plane_offsets`,
+[SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md) §4.1). A **positive
+displacement** `d_x` moves the beam towards +x, `E(x) → E(x − d_x)`, which multiplies the
+stored spectrum by `e^{−i k_x d_x}`. A **positive tilt** `θ_x` makes the beam propagate
+towards +x: the screen `e^{+i k x sin θ_x}` in the optics convention
+(`coupling.elements.Alignment`, which converts it with `fourier.to_internal`), which is
+`e^{−i k x sin θ_x}` on the internal samples (`pulses.SpatialPulse`), `k` the medium's real
+wave number. The same holds for y. `tests/test_beam_alignment.py` and
+`tests/coupling/test_transport.py` hold both signs.
+
 The amplitude conversion is a separate, named boundary beside these Fourier helpers:
 `fourier.power_amplitude` maps internal `a` to saved `b`, and its inverse maps a resumed
 plane back. A session applies it on export (`backends.export.ExportRecipe` with

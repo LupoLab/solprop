@@ -228,9 +228,12 @@ maps of one coefficient — reports `None`. Moving maps are admitted only beside
 `"frozen_residual"` flow that carries their connection.
 
 **The frozen literals.** `tests/backends/test_driver.py` freezes
-`LINEAR_OPERATOR_FIELDS` (`dataclasses.fields(LinearOperator)`), the descriptor's and the
-request's fields, `STAGE_TERMS_FIELDS`, `STAGE_SCALARS_FIELDS`,
-`SEPARABLE_OPERATOR_FIELDS` and `MARCH_POLICY_FIELDS`; a change to the seam rewrites the
+`PROPAGATION_PROBLEM_FIELDS`, `RUN_REQUEST_FIELDS`, `ROUTE_VARIANT_FIELDS`,
+`TDSE_SOURCE_FIELDS` and `SPATIAL_KINDS` (the descriptor, the request and the route union),
+the `LinearOperator` fields (inline in
+`test_linear_operator_fields_are_frozen_with_the_driver_seam`), `STAGE_TERMS_FIELDS`,
+`STAGE_SCALARS_FIELDS`, `SEPARABLE_OPERATOR_FIELDS`, `MARCH_POLICY_FIELDS` and
+`BACKEND_MEMBERS` (the reference's backend surface); a change to the seam rewrites the
 literal it changes, and `native` and solprop are changed together in the same commit.
 
 The dataclass tree is exactly `PropagationProblem` and the five array groups `grids`,
@@ -308,12 +311,14 @@ meets the fit's rounding.
 
 `validate()` checks: all arrays finite, read-only, C-contiguous (but `initial.field0`,
 which may be a broadcast view: section 6), and of the stated dtype
-(float64, complex128, bool and intp everywhere, and `int32` at exactly three declared
+(float64, complex128, bool and intp everywhere, `int32` at exactly four declared
 index leaves — `transform.modal_tables.region_index`,
-`responses.regional_responses.response_region` and
-`responses.regional_responses.kernel_valid_samples`, named in
-`translate.problem._INT32_LEAVES`; the dtype rule applies to every leaf the tree walk
-reaches, so `int32` is admitted by name and not globally)
+`responses.regional_responses.response_region`,
+`responses.regional_responses.kernel_valid_samples` and
+`responses.dispersive_kerr.regions`, named in `translate.problem._INT32_LEAVES` — and
+`uint8` at `split_crossing.buckets` alone (`_UINT8_LEAVES`); the dtype rule applies to
+every leaf the tree walk reaches, so `int32` and `uint8` are admitted by name and not
+globally)
 and shape; masks Boolean; breakpoints strictly increasing and covering `[0, z_max]`; hard
 kinks are breakpoints; every `ZProfile` table covers the same z range as `Phi`; every
 general-modal leaf tabulated along z covers `[0, z_max]` and carries `grids.omega`
@@ -501,7 +506,7 @@ the **measured** round-off floor of `D`: the frame subtracts `β₀ + β₁(ω �
 that reaches 8·10⁷ m⁻¹ at the top of a wide field grid's active band, so `D` is only known
 to about 1e-11 relative and no interpolant can resolve it below its own noise. The floor
 is a property of one evaluation of `D` and serves both representations. See
-[`docs/guide/numerics/linear-operator.md`](../guide/numerics/linear-operator.md), "The table".
+[`docs/guide/numerics/linear-tables.md`](../guide/numerics/linear-tables.md#the-table), "The table".
 
 ### The coupled-flow leaf
 
@@ -960,11 +965,12 @@ those exist to recover from the eight digits the co-moving frame cancels out of 
 the tolerance it is asked for. Why the prefactor follows z, and what carrying it costs, is
 in [the kernel problem](kernel-problem.md#where-the-normalisations-live).
 
-A backend evaluates the prefactor only through `translate.responses.prefactor_at`, as it
-evaluates the linear flow only through `translate.linop.delta_phi` and `unitary_phase`,
-never by reading the coefficient arrays. That is what lets the representation change —
-a z table, an expansion in the scalar parameters, a constant — without a backend
-noticing.
+The NumPy reference evaluates the prefactor through `translate.responses.prefactor_at`,
+as it evaluates the linear flow through `translate.linop.delta_phi` and `unitary_phase`;
+a compiled backend combines the same coefficient arrays through the stage bundle
+(`stage.terms` and `stage.scalars`, §1), which is the same arithmetic rearranged. That is
+what lets the representation change — a z table, an expansion in the scalar parameters, a
+constant — without a backend's stage code changing.
 
 Each plasma channel also carries `label`, `density` and `electrons_per_event=1.0`. Dissociation and multiple electrons per event are unsupported. Channel
 labels select species metadata by name, and rates are identity-checked per channel.
@@ -1221,7 +1227,7 @@ both distributions, never through an untyped optional field
 
 | Addition | Contract, admission and qualification |
 |---|---|
-| Route | Add a variant to the union in `translate.routes`, with its scientific validation in its own `__post_init__` and in `PropagationProblem.validate`'s visit of the route (and in `validate_run`'s, for a check that reads the run's policy). Each backend visits it (`numpy_ref`'s `refuse_route`, `native`'s `_refuse_native_route`) and either prepares it or refuses it by name before workspace allocation. Qualify the route's transforms, flow, source and export against independent references. |
+| Route | Add a variant to the union in `translate.routes`, with its scientific validation in its own `__post_init__` and in `PropagationProblem.validate`'s visit of the route (and in `validate_run`'s, for a check that reads the run's policy). Each backend visits it (each backend's `_refuse_unsupported`) and either prepares it or refuses it by name before workspace allocation. Qualify the route's transforms, flow, source and export against independent references. |
 | Response/operator | Add a typed component within the finite representation vocabulary (§3, §5), its units, shape, validity and error contract, and its validation. Extend reference evaluation, native lowering and the capability tests; never pass it through an untyped optional field. |
 | Statistic | Add its typed specification, dependencies, units and sampling rules to the statistics request (§8); qualify periodic and plane equivalence and reference and native reductions, including field-free execution. |
 | Auxiliary evolving state | Add a typed physical-state component, separate from method history. Its own physics SEP specifies initialisation, evolution and stage coupling, rejection rollback, error control, observations, checkpoint and reset, and group ownership before admission. The present set is empty. |
@@ -1229,7 +1235,7 @@ both distributions, never through an untyped optional field
 Every addition updates the rows of this document (which
 `tests/translate/test_problem.py` checks against the dataclasses in both directions),
 the frozen descriptor tables in `tests/backends/test_driver.py`, the capability and refusal
-tests, the memory ledger ([architecture.md §8](architecture.md)), the manual and the
+tests, the memory ledger ([backends.md §8](backends.md)), the manual and the
 source and error-budget evidence, and adds a release-note fragment. It lands on
 `numpy_ref` and native CPU, in either order (ADR-068), unless its accepted SEP records
 an exception. There is no version counter to bump (ADR-068).
@@ -1244,9 +1250,9 @@ reference.
 ## 11. The Adams march
 
 *Normative since kernel schema 39 ([SEP 39](seps/archive/sep-0039-native-adams-march.md),
-ADR-060). The native backend executes it on its CPU build for `Multistep()` in either
-formulation, adaptive or replayed; every other configuration and backend runs the
-reference.*
+ADR-060). The native backend executes it for `Multistep()` in either formulation,
+adaptive or replayed, and has no Python march (its Runge–Kutta and low-storage marches are
+native too, §12); `numpy_ref` runs the reference.*
 
 The step loop of `Multistep()` is one algorithm with one reference implementation,
 solprop's `HostAdamsMarch` and the controller core it calls (`solprop.backends.adams_core`).
@@ -1389,18 +1395,20 @@ backends read):
 | field | meaning |
 |---|---|
 | the controller's `safety`, `beta1`, `beta2`, `min_factor`, `max_factor`, `lag`, `reject_free`, `estimator_order` | `PIController`'s gains, factors and acceptance rule (§7) |
-| `START_GROWTH` | the start-up rule's cap on the second proposal (100) |
+| `RungeKuttaPolicy.start_growth` | the start-up rule's cap on the second proposal (`START_GROWTH`, 100) |
 | `RungeKuttaPolicy.auto_init` | whether the first accepted step takes the start-up rule |
 | `RungeKuttaPolicy.dz_min`, `RungeKuttaPolicy.dz_max` | the floor and the cap on a proposal, m |
+| `RungeKuttaPolicy.interpolate` | whether the planes are interpolated rather than landed on (`save_planes` is then empty) |
 | the landings: `stretch`, `z_end`, `save_planes`, `hard_kinks`, `breakpoints`, `landing_ulps` | as §11's, shared with the Adams march |
 | the tableau's nodes | the stage positions $z + c_i\,\Delta z$, with the whole step at $z + \Delta z$ |
-| the norm's scale | `rtol`, `atol` and the region of §7, applied by the engine's scorer; a weighted norm keeps the reference march |
+| the norm's scale | `rtol`, `atol` and the region of §7, applied by the engine's scorer, weighted or not |
 | the quiet collar's interval | the monitor's, or none |
 
 **The state**: the position; the controller's proposal; the accepted-norm history, at
 most `lag + 2` values, oldest first; the accepted count; the replay cursor. It is a
 continuation between the calls of one march only. A load resets it (the native
-backend's `_load`), on a fresh launch and on a resume alike, and `march_snapshot()` is `None` for this march.
+backend's `_load`), on a fresh launch and on a resume alike, and
+`RunSession.march_snapshot(ticket)` is `None` for this march.
 
 **One attempt**, in order (SEP 45 §4.3):
 

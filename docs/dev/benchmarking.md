@@ -311,9 +311,10 @@ uv run python -m benchmarks ab --set sep47 --threads 1 --counters \
 | `cartesian_filament_128_{saved,free}_{memory,hdf5}` | the Cartesian filament's first 1 mm, likewise | the same on a 128² grid |
 | `taper_flow_4`, `taper_flow_17` | 40 µm of a He capillary tapering from 50 to 48 µm with taper coupling, 4 or 17 modes | a coupled flow on the native Adams march, and one wider than 16 channels, whose host passes hold each bin's channel vectors in a row of their own (a device build's passes hold none) |
 
-Today a snapshot controller needs `step_planes=1` and HDF5 output, so the snapshot cases
-save a plane at every step; their variant without step planes becomes possible with SEP
-47's independent snapshot scheduling, and the cases will be extended then. Every case uses
+The snapshot cases save a plane at every step (`step_planes=1`) to HDF5; the harness
+requires HDF5 output of a snapshot case (`benchmarks/registry.py`). A snapshot itself no longer needs
+step planes: SEP 47 takes it at the next accepted endpoint and writes a running checkpoint
+where no plane is saved; no case measures that yet. Every case uses
 only public interfaces of the current code; one whose interface changes is updated with
 it, and the harness copied into each A/B run keeps both arms on one definition.
 

@@ -151,6 +151,14 @@ with $\beta_1 = 3/25$ and $\beta_2 = -1/25$ — Söderlind's $0.6$ and $-0.2$ di
 $k = q+1 = 5$, the **estimator's** order, not the scheme's — safety $S = 0.8$, growth cap
 $f_{\max} = 1.1$, and a lag of one step by default.
 
+That is the Runge–Kutta march's controller (`RungeKutta()`). The Adams march
+(`Multistep()`, the default on the capillary, radial and planar routes) scores its
+predictor–corrector defect, scaled by the state before the step, and takes the elementary
+factor $\operatorname{clip}\!\big(S\,e_n^{-1/(k+1)}, f_{\min}, f_{\max}\big)$ of the order
+$k$ it chose, with $S = 0.8$, $f_{\min} = 0.2$ and its own growth cap $f_{\max} = 2$
+(`factor` in `backends/adams_core.py`; [stepper.md §2](stepper.md), *Low-call Adams
+methods*).
+
 **Where.** {py:func}`solprop.stepper.controller.weak_norm_scale` and
 {py:func}`solprop.stepper.controller.weighted_norm_scale`;
 {py:class}`solprop.stepper.controller.PIController`;
