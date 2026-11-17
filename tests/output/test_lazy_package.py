@@ -56,3 +56,9 @@ def test_the_public_names_are_exactly_those_with_a_home():
 def test_an_unknown_name_is_an_attribute_error():
     with pytest.raises(AttributeError, match="no attribute 'Nope'"):
         _ = solprop.output.Nope  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def test_a_submodule_not_yet_bound_is_imported_on_first_use(monkeypatch):
+    # Importing a submodule binds it on the package; unbind one to reach the lazy path.
+    monkeypatch.delattr(solprop.output, "hdf5")
+    assert solprop.output.hdf5 is importlib.import_module("solprop.output.hdf5")

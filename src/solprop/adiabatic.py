@@ -788,16 +788,10 @@ def _recorded_array(value: object, dtype: type) -> np.ndarray:
     """Return an array as held in memory or as read back from a file.
 
     A record written to JSON or HDF5 and read back nests each array as the
-    ``{"__ndarray__": ..., "__imaginary__": ...}`` form of
-    :func:`solprop.output.serialisation.serialise`. The same reading as
-    ``solprop.translate.flux``'s for its coefficients; kept here because this module
-    sits below the output layer and must not import it.
+    ``{"__ndarray__": ...}`` form of :func:`solprop.output.serialisation.serialise`.
+    Every array of a certificate is real or boolean, so there is no imaginary part to
+    rejoin; this module sits below the output layer and does not import its decoder.
     """
     if isinstance(value, Mapping) and "__ndarray__" in value:
-        real = np.asarray(value["__ndarray__"], dtype=float)
-        if "__imaginary__" in value:
-            return np.asarray(
-                real + 1j * np.asarray(value["__imaginary__"], dtype=float), dtype
-            )
         return np.asarray(value["__ndarray__"], dtype=dtype)
     return np.asarray(value, dtype=dtype)
