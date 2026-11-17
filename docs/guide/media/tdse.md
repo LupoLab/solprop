@@ -66,7 +66,7 @@ and every higher order stay inside the current, and no optmat Kerr or plasma ter
 added for these atoms. The shadow is subtracted unscaled, then density and scale enter
 once. In the internal Fourier convention the projected current enters mode $m$ as
 $-\mathcal Q_m[\widehat J_{\rm NL}]/(2\epsilon_0c\operatorname{Re}n_{{\rm eff},m})$ through
-the existing modal projection, which supplies the area weights; a one-mode run still
+the modal projection, which supplies the area weights; a one-mode run still
 integrates the actual radial field. No mean, pulse area or residual current is removed.
 
 Two research policies for SAE, `"optmat_cubic"` and `"tdse_shadow"`, instead subtract
