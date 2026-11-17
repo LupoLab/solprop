@@ -32,7 +32,7 @@ It also shows the two ways of saying what is launched: into a named channel, or
 as a declared transverse **field** that the route projects onto the channels and
 reports what it captured.
 
-.. GENERATED FROM PYTHON SOURCE LINES 20-60
+.. GENERATED FROM PYTHON SOURCE LINES 20-58
 
 .. code-block:: Python
 
@@ -49,11 +49,9 @@ reports what it captured.
         ModalGuide,
         PowerLawPermittivity,
     )
+    from solprop.modes.tables import sample_modal_table
     from solprop.translate.general import general_modal_route
-    from solprop.translate.modal_tables import (
-        project_transverse_field,
-        sample_modal_table,
-    )
+    from solprop.translate.modal_tables import project_transverse_field
 
     RADIUS = 25e-6
     """Core radius, m."""
@@ -89,14 +87,14 @@ reports what it captured.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 61-65
+.. GENERATED FROM PYTHON SOURCE LINES 59-63
 
 The guide. A radial provider owns its sector, its channel count, its element
 count and its matching radius; the ``LP`` family is the scalar weak-guidance
 approximation, which is what the parabolic closed form below describes. No
 response is declared, so this is a linear guide and the run is pure dispersion.
 
-.. GENERATED FROM PYTHON SOURCE LINES 65-75
+.. GENERATED FROM PYTHON SOURCE LINES 63-73
 
 .. code-block:: Python
 
@@ -117,7 +115,7 @@ response is declared, so this is a linear guide and the run is pure dispersion.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 76-83
+.. GENERATED FROM PYTHON SOURCE LINES 74-81
 
 The grid, and the guide's knots across its whole **active** band, which starts
 at half the lowest declared frequency and so reaches 2.1 um here. Thirteen
@@ -127,7 +125,7 @@ identity, and it is refused by name; and below thirteen it still leaves that
 budget at the long-wavelength end of the active band, where this pulse puts
 nothing but a broadening run would, which the route warns about by name.
 
-.. GENERATED FROM PYTHON SOURCE LINES 83-92
+.. GENERATED FROM PYTHON SOURCE LINES 81-90
 
 .. code-block:: Python
 
@@ -153,14 +151,14 @@ nothing but a broadening run would, which the route warns about by name.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 93-97
+.. GENERATED FROM PYTHON SOURCE LINES 91-95
 
 The closed form. An ideal parabolic profile has
 ``beta_g = sqrt(q^2 - 2 q sqrt(2 Delta) g) / a`` with ``q = omega n_axis a / c``
 and the group number ``g = 2m + l + 1``, which for these two ``l = 0`` channels
 is 1 and 3. Their spacing sets the self-imaging length ``2 pi / Delta beta``.
 
-.. GENERATED FROM PYTHON SOURCE LINES 97-111
+.. GENERATED FROM PYTHON SOURCE LINES 95-109
 
 .. code-block:: Python
 
@@ -193,7 +191,7 @@ is 1 and 3. Their spacing sets the self-imaging length ``2 pi / Delta beta``.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 112-118
+.. GENERATED FROM PYTHON SOURCE LINES 110-116
 
 A continuous wave in both channels at once, propagated to that length in ten
 steps. One coarse bin is exactly periodic on the time window, so the beat is
@@ -202,7 +200,7 @@ wants neither the temporal collar nor the watch on the window's edges. A run
 ends at its grid's length, so its grid samples as the guide's did, built for the
 imaging length.
 
-.. GENERATED FROM PYTHON SOURCE LINES 118-139
+.. GENERATED FROM PYTHON SOURCE LINES 116-137
 
 .. code-block:: Python
 
@@ -234,13 +232,13 @@ imaging length.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 140-143
+.. GENERATED FROM PYTHON SOURCE LINES 138-141
 
 The transverse intensity along the beat. The two channels' patterns add in
 phase at the entrance, cancel on the axis half a beat later, and come back at
 the imaging length: the guide has reproduced its own launch.
 
-.. GENERATED FROM PYTHON SOURCE LINES 143-166
+.. GENERATED FROM PYTHON SOURCE LINES 141-164
 
 .. code-block:: Python
 
@@ -279,13 +277,13 @@ the imaging length: the guide has reproduced its own launch.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 167-170
+.. GENERATED FROM PYTHON SOURCE LINES 165-168
 
 The residual phase after a full turn is the solved spacing's departure from the
 ideal one, and nothing else: the guide reproduces its own dispersion, and what
 is left over is the P1 discretisation of an analytic answer.
 
-.. GENERATED FROM PYTHON SOURCE LINES 170-179
+.. GENERATED FROM PYTHON SOURCE LINES 168-177
 
 .. code-block:: Python
 
@@ -312,14 +310,14 @@ is left over is the P1 discretisation of an analytic answer.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 180-184
+.. GENERATED FROM PYTHON SOURCE LINES 178-182
 
 A launch declared as a **field** rather than as a channel. The route projects
 it onto the channels through the record's coordinate dual and reports what the
 bound channels did not capture, so a profile the guide cannot carry says so
 instead of being quietly rescaled.
 
-.. GENERATED FROM PYTHON SOURCE LINES 184-195
+.. GENERATED FROM PYTHON SOURCE LINES 182-193
 
 .. code-block:: Python
 
@@ -352,13 +350,13 @@ instead of being quietly rescaled.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 196-199
+.. GENERATED FROM PYTHON SOURCE LINES 194-197
 
 A field the channels cannot span leaves a remainder, and the projection names
 it rather than rescaling it away: here the same pattern with its sign flipped
 on every other node, which is no combination of the two channels at all.
 
-.. GENERATED FROM PYTHON SOURCE LINES 199-204
+.. GENERATED FROM PYTHON SOURCE LINES 197-202
 
 .. code-block:: Python
 
@@ -380,7 +378,7 @@ on every other node, which is no combination of the two channels at all.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 205-211
+.. GENERATED FROM PYTHON SOURCE LINES 203-209
 
 The same happens, less obviously, to a profile declared at **one** frequency and
 held across the band: the channels' patterns change with frequency, so away from
@@ -389,7 +387,7 @@ projection reports that too. The share is a reconstruction residual on the
 guide's nodes, not radiated power: the energy account of an incident beam is
 what ``incident=`` records (:doc:`/guide/waveguides/general-modal`).
 
-.. GENERATED FROM PYTHON SOURCE LINES 211-217
+.. GENERATED FROM PYTHON SOURCE LINES 209-215
 
 .. code-block:: Python
 
@@ -412,7 +410,7 @@ what ``incident=`` records (:doc:`/guide/waveguides/general-modal`).
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 218-224
+.. GENERATED FROM PYTHON SOURCE LINES 216-222
 
 Related reading
 ---------------
@@ -424,7 +422,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.800 seconds)
+   **Total running time of the script:** (0 minutes 2.027 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_06_graded_index.py:

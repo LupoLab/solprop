@@ -49,7 +49,7 @@ from solprop.stepper import FixedSchedule
 # The loss, without a run
 # -----------------------
 #
-# :func:`~solprop.modes.capillary.wall_operator` builds the block itself, in 1/m and
+# :func:`~solprop.modes.wall.wall_operator` builds the block itself, in 1/m and
 # in the optics convention, so the field-loss rate of a channel is minus the real part
 # of its diagonal entry. Against the evacuated bore's own Marcatili rate
 # ``(omega/c) Im n_eff`` it departs by the prediction above, for one channel and for

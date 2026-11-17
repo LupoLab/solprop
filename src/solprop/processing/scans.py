@@ -10,7 +10,7 @@
   :func:`on_axis_intensity` and :func:`beam_radius`, and :func:`custom` for one of your
   own. Their numerical definitions are the ordinary processing functions.
 - :func:`open_scan` returns a :class:`ScanOutput`, which reads a collected file without
-  holding it open, under the shared lock of :mod:`solprop.output._scan_lock`. Missing
+  holding it open, under the shared lock of ``solprop.output._scan_lock``. Missing
   points are masked, never presented as successful zero-valued results.
 
 The manual page is ``docs/guide/workflows/scans.md`` ("Retention, reductions and

@@ -30,11 +30,9 @@ from solprop.modes import (
     ModalGuide,
     PowerLawPermittivity,
 )
+from solprop.modes.tables import sample_modal_table
 from solprop.translate.general import general_modal_route
-from solprop.translate.modal_tables import (
-    project_transverse_field,
-    sample_modal_table,
-)
+from solprop.translate.modal_tables import project_transverse_field
 
 RADIUS = 25e-6
 """Core radius, m."""

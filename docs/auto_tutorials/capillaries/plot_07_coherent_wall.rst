@@ -76,7 +76,7 @@ why raising the channel count ``N`` makes it larger rather than smaller.
 The loss, without a run
 -----------------------
 
-:func:`~solprop.modes.capillary.wall_operator` builds the block itself, in 1/m and
+:func:`~solprop.modes.wall.wall_operator` builds the block itself, in 1/m and
 in the optics convention, so the field-loss rate of a channel is minus the real part
 of its diagonal entry. Against the evacuated bore's own Marcatili rate
 ``(omega/c) Im n_eff`` it departs by the prediction above, for one channel and for
@@ -305,7 +305,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 4.317 seconds)
+   **Total running time of the script:** (0 minutes 5.497 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_capillaries_plot_07_coherent_wall.py:

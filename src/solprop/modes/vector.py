@@ -11,7 +11,7 @@ frequency and position's E/H, generator and flux metric), the
 :class:`ModalProvider` protocol that produces them, and :func:`flux_product`, the
 Hermitian Poynting product. :class:`ChannelBasis` declares a unitary change of a
 guide's degenerate channel coordinates (:func:`circular_pair`, read against
-:func:`provider_channels`), unitary to :data:`BASIS_UNITARY_ATOL`. These physics
+:func:`provider_channels`), unitary to ``BASIS_UNITARY_ATOL``. These physics
 records do not extend the propagation kernel contract. Bound, lossless modes use
 the Hermitian Poynting product and true-power amplitudes.
 """
@@ -554,7 +554,7 @@ class ChannelBasis(Displayed):
     ----------
     transform : numpy.ndarray
         The unitary ``U``, shape (n_modes, n_modes), dimensionless. It is the
-        identity outside `blocks`, and unitary to :data:`BASIS_UNITARY_ATOL`.
+        identity outside `blocks`, and unitary to ``BASIS_UNITARY_ATOL``.
     blocks : tuple of tuple of int
         Disjoint channel-index blocks ``U`` acts inside, each with at least two
         members. They must be blocks the guide declared degenerate.

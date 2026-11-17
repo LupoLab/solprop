@@ -517,8 +517,9 @@ class WallFamily:
         How the family prints: ``"HE_1m"``, ``"EH_1m"``, ``"TE_0m"``, ``"TM_0m"`` and
         the higher orders in the same spelling.
     azimuthal_order : int
-        The channels' own :attr:`MarcatiliMode.n`. Within one sector the two families
-        carry ``+nu`` and ``-nu``; ``nu = 0`` carries the two transverse kinds.
+        The channels' own :attr:`~solprop.modes.capillary.MarcatiliMode.n`. Within one
+        sector the two families carry ``+nu`` and ``-nu``; ``nu = 0`` carries the two
+        transverse kinds.
     bessel_order : int
         ``p``, the order of the Bessel function the family's radial basis is built
         from, ``>= 0``: ``|n - 1|`` for a hybrid family and ``1`` for a transverse
@@ -535,7 +536,8 @@ class WallFamily:
         diagonal and the impedance **difference** between them.
     radial_sign : float
         The sign of the family's **implemented** radial profile against ``J_p``,
-        ``+1`` or ``-1``. :meth:`MarcatiliMode.field` builds a hybrid from
+        ``+1`` or ``-1``. :meth:`~solprop.modes.capillary.MarcatiliMode.field` builds a
+        hybrid from
         ``jv(n - 1, .)``, and ``J_{-p} = (-1)^p J_p``, so the ``n = -nu`` family of an
         **even** order is implemented with the opposite sign to ``J_{nu+1}``. It is a
         gauge of the mode and cancels out of every diagonal quantity, but it is the
@@ -1531,8 +1533,8 @@ def taper_coupling_block(modes: Sequence[Mode]) -> tuple[MarcatiliMode, ...] | N
     :func:`taper_connection` in a coupled flow, with each channel's own propagation
     constant on the flow's diagonal -- is carried by default on a **multimode capillary
     whose radius varies along z**, lossless or not. That is a set of two or more plain
-    :class:`MarcatiliMode` channels forming the contiguous ``HE_11`` to ``HE_1N`` block,
-    whose core radius is not constant.
+    :class:`~solprop.modes.capillary.MarcatiliMode` channels forming the contiguous
+    ``HE_11`` to ``HE_1N`` block, whose core radius is not constant.
     Every other set is ``None``: one channel needs no connection; a constant bore --
     a pressure gradient included, which changes the effective index and not the
     ``J_0(u_m r/a)`` field -- has none; and a structured cladding (a Vincetti mode), a

@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The seam's per-stage evaluation form: fixed terms, host scalars and :func:`combine`.
+"""The seam's per-stage evaluation form: fixed terms, host scalars and their sum.
 
 A stage needs three z-dependent *arrays* -- the propagator's exponent ``dPhi``, the
 response prefactor and the noise's unitary phase -- and a handful of *scalars*. This

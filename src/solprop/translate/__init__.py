@@ -4,13 +4,13 @@
 
 """The translation layer: physics objects turned into the kernel problem a backend runs.
 
-:func:`assemble` is the entry point. It builds the cumulative linear operator, the
-masks, the modal or spatial transform and the compiled responses, and returns a
-:class:`~solprop.translate.problem.Translation` ``(problem, request)``: the validated
-:class:`PropagationProblem` that crosses into a backend
-(``docs/dev/kernel-contract.md``) and the
-:class:`~solprop.translate.run_request.RunRequest` of a fresh run of it. The modules,
-by role:
+:func:`~solprop.translate.assembly.assemble` is the entry point. It builds the
+cumulative linear operator, the masks, the modal or spatial transform and the compiled
+responses, and returns a :class:`~solprop.translate.problem.Translation` ``(problem,
+request)``: the validated :class:`~solprop.translate.problem.PropagationProblem` that
+crosses into a backend (``docs/dev/kernel-contract.md``) and the
+:class:`~solprop.translate.run_request.RunRequest` of a fresh run of it. The modules, by
+role:
 
 - Contract and assembly: ``problem``, ``routes``, ``run_request``, ``assembly``,
   ``validation``, ``walls`` (a capillary's coupled flows), ``admission`` and ``stage``

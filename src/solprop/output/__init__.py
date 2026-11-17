@@ -6,17 +6,21 @@
 
 - The record of a run (layer S, imported by translation and the backends without the
   handlers): :mod:`~solprop.output.records` (the record types of a saved run and its
-  planes), :mod:`~solprop.output.metadata` (:class:`RunMetadata` and the resume key),
+  planes), :mod:`~solprop.output.metadata`
+  (:class:`~solprop.output.metadata.RunMetadata` and the resume key),
   :mod:`~solprop.output.serialisation`, :mod:`~solprop.output.provenance`,
-  :mod:`~solprop.output.store` (the save protocol, :class:`Output`, and field
-  retention) and :mod:`~solprop.output.capability` (what a saved basis can be asked).
-- The handlers: :mod:`~solprop.output.memory` (:class:`MemoryOutput`),
-  :mod:`~solprop.output.hdf5` (:class:`HDF5Output` with :func:`open_file`,
-  :func:`resume` and :func:`check_cache`) and :mod:`~solprop.output.callback`
-  (:class:`CallbackOutput`, for a run reduced plane by plane).
+  :mod:`~solprop.output.store` (the save protocol,
+  :class:`~solprop.output.store.Output`, and field retention) and
+  :mod:`~solprop.output.capability` (what a saved basis can be asked).
+- The handlers: :mod:`~solprop.output.memory`
+  (:class:`~solprop.output.memory.MemoryOutput`), :mod:`~solprop.output.hdf5`
+  (:class:`~solprop.output.hdf5.HDF5Output` with :func:`~solprop.output.hdf5.open_file`,
+  :func:`~solprop.output.hdf5.resume` and :func:`~solprop.output.hdf5.check_cache`) and
+  :mod:`~solprop.output.callback` (:class:`~solprop.output.callback.CallbackOutput`, for
+  a run reduced plane by plane).
 - The other files a run leaves: :mod:`~solprop.output.tdse_archive` (the raw TDSE
-  response archive), :mod:`~solprop.output.snapshots` (checkpoints published while a
-  run computes), :mod:`~solprop.output.resumable` (whether a file can continue), and a
+  response archive), :mod:`~solprop.output.snapshots` (checkpoints published while a run
+  computes), :mod:`~solprop.output.resumable` (whether a file can continue), and a
   scan's collected file and per-point artifacts (:mod:`~solprop.output.scan`,
   :mod:`~solprop.output.scan_artifacts`).
 

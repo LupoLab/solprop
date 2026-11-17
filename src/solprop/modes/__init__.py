@@ -7,8 +7,9 @@
 This namespace re-exports the names a run is built from; the rest is imported from
 its submodule.
 
-- Protocol and derived quantities: :mod:`~solprop.modes.protocol` (:class:`Mode`),
-  :mod:`~solprop.modes.base` (``beta1``, ``beta2``, ``zdw``, ``aeff``, ...).
+- Protocol and derived quantities: :mod:`~solprop.modes.protocol`
+  (:class:`~solprop.modes.protocol.Mode`), :mod:`~solprop.modes.base` (``beta1``,
+  ``beta2``, ``zdw``, ``aeff``, ...).
 - Mode families: :mod:`~solprop.modes.capillary` (Marcatili, sharing
   :mod:`~solprop.modes.fill`), :mod:`~solprop.modes.antiresonant`,
   :mod:`~solprop.modes.rectangular`, :mod:`~solprop.modes.slab` (planar),
@@ -18,10 +19,10 @@ its submodule.
   :mod:`~solprop.modes.wall`.
 - General modal guides: :mod:`~solprop.modes.vector` (the provider records),
   :mod:`~solprop.modes.material` (region laws and responses), the providers
-  :mod:`~solprop.modes.stepindex_vector` and :mod:`~solprop.modes.graded_index`,
-  their sampling in :mod:`~solprop.modes.tables` and, along a moving geometry,
-  :mod:`~solprop.modes.path`, the moving-basis :mod:`~solprop.modes.connection`, and
-  the guide itself, :mod:`~solprop.modes.guide`.
+  :mod:`~solprop.modes.stepindex_vector` and :mod:`~solprop.modes.graded_index`, their
+  sampling in :mod:`~solprop.modes.tables` and, along a moving geometry,
+  :mod:`~solprop.modes.path`, the moving-basis :mod:`~solprop.modes.connection`, and the
+  guide itself, :mod:`~solprop.modes.guide`.
 """
 
 from solprop.modes.antiresonant import (

@@ -4,22 +4,24 @@
 
 """Couple simulations through a coherent field at a reference plane (SEP 31).
 
-- :mod:`~solprop.coupling.plane`: :class:`FieldPlane`, one physical plane of a field
-  in its native representation, with its references, geometry, medium, metric and
-  provenance.
-- :mod:`~solprop.coupling.remap`: :func:`regrid` moves a plane onto another temporal
-  lattice or reference.
-- :mod:`~solprop.coupling.port`: :class:`InputPort`, what a receiving simulation
-  accepts at its entrance, and the :class:`CouplingLaunch` bound to it.
+- :mod:`~solprop.coupling.plane`: :class:`~solprop.coupling.plane.FieldPlane`, one
+  physical plane of a field in its native representation, with its references, geometry,
+  medium, metric and provenance.
+- :mod:`~solprop.coupling.remap`: :func:`~solprop.coupling.remap.regrid` moves a plane
+  onto another temporal lattice or reference.
+- :mod:`~solprop.coupling.port`: :class:`~solprop.coupling.port.InputPort`, what a
+  receiving simulation accepts at its entrance, and the
+  :class:`~solprop.coupling.port.CouplingLaunch` bound to it.
 - :mod:`~solprop.coupling.coupler` and :mod:`~solprop.coupling.models`:
-  :func:`couple` launches a plane into a port under a declared
-  :class:`CouplingModel`, admitted against the recorded pair envelopes of
-  :mod:`~solprop.coupling.envelopes`.
-- :mod:`~solprop.coupling.outcouple`: :class:`Outcouple` synthesises a guide's exit
-  field on a spatial grid.
-- :mod:`~solprop.coupling.elements` and the ``transport`` module (whose function
-  shadows it): :func:`transport` carries a spatial plane through an ordered sequence
-  of linear elements, with its :class:`TransportReport`.
+  :func:`~solprop.coupling.coupler.couple` launches a plane into a port under a declared
+  :class:`~solprop.coupling.models.CouplingModel`, admitted against the recorded pair
+  envelopes of :mod:`~solprop.coupling.envelopes`.
+- :mod:`~solprop.coupling.outcouple`: :class:`~solprop.coupling.outcouple.Outcouple`
+  synthesises a guide's exit field on a spatial grid.
+- :mod:`~solprop.coupling.elements` and the ``transport`` module (whose function shadows
+  it): :func:`~solprop.coupling.transport.transport` carries a spatial plane through an
+  ordered sequence of linear elements, with its
+  :class:`~solprop.coupling.transport.TransportReport`.
 
 A physics-layer package: it imports no translation, driver or backend module. A
 spatial plane's power metric is a :class:`solprop.spatial.SpatialFlux` (SEP 34), whose

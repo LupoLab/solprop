@@ -15,7 +15,7 @@ that light cannot cross the edge unseen between two of them, ``min(L/16, 4 g / v
 with ``g`` the guard's width and ``v_q`` the reach of the current spectrum
 (:data:`READS`, :data:`BACKSTOP_READS`, :data:`REACH_GROWTH`), and the spacing is a
 ceiling on the step. The safety ramp's removal is credited per read interval. Every
-run reports a :data:`TransverseStatus`; only ``clear`` is a clean verdict.
+run reports a ``TransverseStatus``; only ``clear`` is a clean verdict.
 
 A backend reduces its committed spectral state where the state lives and hands the
 edge an ``_EdgeReading``, numbers and never the field; ``_HostEdgeReduction`` is the

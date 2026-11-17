@@ -8,7 +8,7 @@
   provenance available, to the single writer; :func:`validate_result` checks it before
   any committed data changes.
 - :class:`ScanWriter` owns the collected file for one controller session, under the
-  exclusive lock of :mod:`solprop.output._scan_lock`: points are staged and flushed
+  exclusive lock of ``solprop.output._scan_lock``: points are staged and flushed
   before they are marked done, the staged groups are the recovery source, and the layout
   arrays and the concatenated periodic statistics are rebuilt from them at close.
 - :func:`read_point` and :func:`grid_values` read committed points, masking unfinished

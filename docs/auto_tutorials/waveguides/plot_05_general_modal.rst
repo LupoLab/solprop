@@ -53,9 +53,9 @@ a per cent here. On a sub-micron strand the two differ by a quarter.
         ModalGuide,
         StepIndexMode,
     )
+    from solprop.modes.tables import channel_area, sample_modal_table
     from solprop.nonlinear.normalisation import modal_kerr_coefficient
     from solprop.physdata import chi3_from_n2, n2_from_chi3
-    from solprop.translate.modal_tables import channel_area, sample_modal_table
 
     LENGTH = 2e-5
     """Twenty microns, in about ten accepted steps.
@@ -351,7 +351,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 8.945 seconds)
+   **Total running time of the script:** (0 minutes 10.622 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_05_general_modal.py:
