@@ -918,10 +918,7 @@ def _path_reference(
         guide.field_provider,
         sampling.omega,
         sampling.nodes,
-        path.z_edges,
-        rtol=path.rtol,
-        degree=path.degree,
-        measured=(path.z_error, path.gram_departure),
+        path=path,
         degenerate_blocks=sampling.degenerate_blocks,
         basis=sampling.basis,
         gram_atol=gram_atol,
@@ -1002,7 +999,7 @@ def _moving_route(
     """Build the leaves of a guide whose geometry moves along z.
 
     The guide's path is solved again at exactly the positions its accuracy check
-    qualified (:class:`solprop.modes.guide.ModalPath`), on the provider's own rule and
+    qualified (:class:`solprop.modes.path.ModalPath`), on the provider's own rule and
     gauge at each, and three things are expanded along z on its sections:
 
     * the **maps** ``S`` and ``Q``

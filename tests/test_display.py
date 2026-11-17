@@ -50,8 +50,8 @@ from solprop.modes import (
     wall_operator,
 )
 from solprop.modes.connection import ModalConnection
-from solprop.modes.guide import ModalPath, circular_pair
-from solprop.modes.path import sample_modal_path
+from solprop.modes.guide import circular_pair
+from solprop.modes.path import ModalPath, sample_modal_path
 from solprop.modes.protocol import ChannelLabel
 from solprop.modes.tables import sample_modal_table
 from solprop.nonlinear.raman import SilicaTensorResponse
@@ -258,10 +258,7 @@ def modal_records():
             moving_grin,
             np.linspace(0.99 * grin_omega, 1.01 * grin_omega, 4),
             moving_grin.node_rule(0.99 * grin_omega, 0.0),
-            np.array([0.0, 1e-3]),
-            rtol=1.0,
-            degree=1,
-            measured=(2.0e-6, 5.8e-6),
+            path=ModalPath(np.array([0.0, 1e-3]), 1, 1, 1.0, 2.0e-6, 5.8e-6),
         ),
         "StepIndexProvider": provider,
         "MaterialRegion": guide.regions[0],

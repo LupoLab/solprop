@@ -10,8 +10,10 @@ A solid guide's modes change *shape* along a taper, so the general route's synth
 :func:`path_snapshot` solve one position on the provider's own rule there and in its
 own gauge; :func:`sample_modal_path` doubles the Chebyshev-Lobatto degree per section
 (from :data:`INITIAL_PATH_DEGREE` to :data:`MAX_PATH_DEGREE`) until the expansion
-reproduces held-out solves, returning a :class:`ModalPathTable`. What a run reads of it
-is built in :mod:`solprop.translate.modal_path`.
+reproduces held-out solves, returning a :class:`ModalPathTable`: the snapshots beside
+the :class:`ModalPath` record of the sampling, which a guide keeps and a run rebuilds
+the same snapshots from. What a run reads of it is built in
+:mod:`solprop.translate.modal_path`.
 
 Two invariants. The node rule **moves with the geometry**, so node ``q`` stays in one
 material region and a map stored there is smooth in z; the connection's Eulerian
@@ -30,12 +32,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
-from jaxtyping import Float
+from jaxtyping import Float, Inexact
 from numpy.polynomial import chebyshev as chebyshev_basis
 
 from solprop._display import Displayed, engineering, line
 from solprop._ownership import frozen_copy
 from solprop.exceptions import ModeError
+from solprop.modes.material import JsonValue, quantised_measurement
 from solprop.modes.quadrature import (
     lobatto_coefficients,
     lobatto_points,
@@ -61,6 +64,7 @@ __all__ = [
     "INITIAL_PATH_DEGREE",
     "MAX_PATH_DEGREE",
     "PATH_RTOL_FLOOR",
+    "ModalPath",
     "ModalPathTable",
     "path_rule",
     "path_sections",
@@ -110,6 +114,270 @@ connection's, which is refused rather than propagated.
 """
 
 
+def _count(name: str, value: object) -> int:
+    """Return a path's positive integer declaration, refusing anything else by name."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ModeError(f"a path's {name} is a positive integer, got {value!r}")
+    return value
+
+
+def _measure(name: str, value: float, *, positive: bool) -> float:
+    """Return a path's finite budget or measurement, refusing anything else by name.
+
+    - ``positive``: whether zero is refused too, as it is for a budget.
+    """
+    number = float(value)
+    if not math.isfinite(number) or number < 0.0 or (positive and number == 0.0):
+        raise ModeError(
+            f"a path's {name} is a {'positive' if positive else 'non-negative'} "
+            f"finite number, got {value!r}"
+        )
+    return number
+
+
+@dataclass(frozen=True, eq=False)
+class ModalPath(Displayed):
+    """Record how a moving guide was sampled along z, and what that measured.
+
+    The z half of a guide's sampling (:class:`~solprop.modes.guide.ModalSampling`),
+    filled by :meth:`~solprop.modes.guide.ModalGuide.from_provider` for a provider
+    whose geometry moves. The path is cut into **sections** -- the provider's declared
+    kink intervals, each divided `sections` times (:func:`path_sections`) -- and every
+    section is solved at the Chebyshev-Lobatto points of one degree along z, the
+    degree the accuracy check demanded: doubled until the expansion reproduced a fresh
+    solve at the points a doubling adds to within `rtol` (:func:`sample_modal_path`,
+    whose :class:`ModalPathTable` holds the snapshots beside this record). A run
+    rebuilds the same positions from this record rather than searching again.
+
+    Attributes
+    ----------
+    z_edges : numpy.ndarray
+        Section edges in m, strictly increasing, shape ``(n_edges_path,)``: the
+        provider's z domain split at its interior breakpoints and subdivided.
+    degree : int
+        The Chebyshev degree along z every section is sampled at, positive; each
+        section holds ``degree + 1`` positions, its two ends included.
+    sections : int
+        How many sections each kink interval was divided into, positive.
+    rtol : float
+        The budget the degree was searched against, positive: by default the
+        frequency interpolation's own measured profile error, so that the sampling in
+        z is never the coarser of the two.
+    z_error : float
+        The measured held-out departure at the degree kept, dimensionless and
+        non-negative: the largest relative maximum-norm departure of E, H or the
+        generator from a fresh solve between the sampled positions.
+    gram_departure : float
+        The largest ``norm(W - I, 2)`` of the expanded basis at those same held-out
+        positions, dimensionless and non-negative.
+
+    Raises
+    ------
+    ModeError
+        Naming the field that is out of range.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.modes.path import ModalPath
+    >>> path = ModalPath(np.array([0.0, 1e-3]), 2, 1, 1e-6, 3e-7, 1e-8)
+    >>> path.positions.round(6).tolist()
+    [[0.0, 0.0005, 0.001]]
+    >>> round(float(path.interpolate(np.array([0.0, 1.0, 2.0]), 2.5e-4)), 12)
+    0.5
+    """
+
+    z_edges: Float[np.ndarray, " n_edges_path"]
+    degree: int
+    sections: int
+    rtol: float
+    z_error: float
+    gram_departure: float
+
+    def __post_init__(self) -> None:
+        """Freeze the edges and check every declaration and measurement.
+
+        Raises
+        ------
+        ModeError
+            Naming the field that is out of range.
+        """
+        edges = frozen_copy(np.reshape(self.z_edges, -1), np.float64)
+        if (
+            edges.size < 2
+            or not np.all(np.isfinite(edges))
+            or np.any(np.diff(edges) <= 0.0)
+        ):
+            raise ModeError(
+                "a path's section edges are at least two finite, strictly increasing "
+                f"positions, got {edges.tolist()}"
+            )
+        object.__setattr__(self, "z_edges", edges)
+        _count("degree", self.degree)
+        _count("sections", self.sections)
+        _measure("rtol", self.rtol, positive=True)
+        _measure("z_error", self.z_error, positive=False)
+        _measure("gram_departure", self.gram_departure, positive=False)
+
+    @property
+    def n_intervals(self) -> int:  # numpydoc ignore=RT01
+        """How many sections the path is cut into."""
+        return int(self.z_edges.size - 1)
+
+    @property
+    def positions(
+        self,
+    ) -> Float[np.ndarray, "n_intervals_path n_deg_path"]:  # numpydoc ignore=RT01
+        """Every sampled position, section by section, m.
+
+        Shape ``(n_intervals, degree + 1)``, increasing inside a section, so a position
+        on an interior edge appears twice.
+        """
+        # The same Chebyshev-Lobatto points the path was sampled at, bit for bit,
+        # because the run solves exactly these positions again.
+        return np.stack(
+            [
+                lobatto_points(self.degree, float(lo), float(hi))
+                for lo, hi in zip(self.z_edges[:-1], self.z_edges[1:], strict=True)
+            ]
+        )
+
+    def section(self, z: float) -> int:
+        """Return the section a position lies in, clamped to the path's ends.
+
+        Parameters
+        ----------
+        z : float
+            Position in m.
+
+        Returns
+        -------
+        int
+            The section index; a position on an interior edge takes the section
+            starting there, and one outside the path the nearest end's.
+        """
+        raw = int(np.searchsorted(self.z_edges, float(z), side="right")) - 1
+        return min(max(raw, 0), self.n_intervals - 1)
+
+    def interpolate(
+        self,
+        values: Inexact[np.ndarray, " n_positions *value"],
+        z: float,
+    ) -> np.ndarray:
+        """Evaluate values sampled at the path's positions at any position.
+
+        The barycentric form of the interpolating polynomial through one section's
+        Chebyshev-Lobatto samples -- weights ``(-1)^j``, halved at the two ends -- which
+        is the same polynomial the translation layer's Chebyshev coefficients carry,
+        evaluated stably. A position outside the path **holds** the nearest end's
+        value, as a :class:`~solprop.profiles.ZProfile` holds its own beyond its span:
+        a run's tables reach a few per cent past its end, and the geometry is not
+        declared there.
+
+        Parameters
+        ----------
+        values : numpy.ndarray
+            One value per position, in :attr:`positions` order flattened, position
+            axis first, shape ``(n_intervals * (degree + 1), *value_shape)``.
+        z : float
+            Position in m.
+
+        Returns
+        -------
+        numpy.ndarray
+            The value at `z`, shape ``value_shape``.
+
+        Raises
+        ------
+        ModeError
+            If `values` does not carry one row per position.
+        """
+        rows = np.asarray(values)
+        width = self.degree + 1
+        if rows.shape[0] != self.n_intervals * width:
+            raise ModeError(
+                f"a path of {self.n_intervals} section(s) at degree {self.degree} "
+                f"interpolates one value per position, {self.n_intervals * width} in "
+                f"all, and got {rows.shape[0]}"
+            )
+        index = self.section(z)
+        lo, hi = float(self.z_edges[index]), float(self.z_edges[index + 1])
+        x = min(max((2.0 * float(z) - lo - hi) / (hi - lo), -1.0), 1.0)
+        section = rows[index * width : (index + 1) * width]
+        nodes = -np.cos(np.pi * np.arange(width) / self.degree)
+        # A position that maps onto a node to within a few ulp -- the mid-section
+        # node is -cos(pi/2) = -6e-17, which no position maps to exactly -- is that
+        # node, whose value is returned as sampled rather than through a quotient.
+        exact = np.flatnonzero(np.abs(nodes - x) <= 4.0 * np.finfo(float).eps)
+        if exact.size:
+            return np.asarray(section[int(exact[0])])
+        weights = (-1.0) ** np.arange(width)
+        weights[0] *= 0.5
+        weights[-1] *= 0.5
+        terms = weights / (x - nodes)
+        return np.asarray(np.tensordot(terms, section, axes=1) / float(np.sum(terms)))
+
+    @property
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """What a run records of the path, and a resume compares.
+
+        The declared edges, degree, subdivision and budget exactly; the two measured
+        departures at :data:`~solprop.modes.material.MEASURED_DIGITS`, as every other
+        measured entry of a guide's identity is.
+
+        JSON-serialisable scalars and lists of scalars.
+        """
+        return {
+            "z_edges": [float(one) for one in self.z_edges],
+            "degree": int(self.degree),
+            "sections": int(self.sections),
+            "rtol": float(self.rtol),
+            "z_error": quantised_measurement(self.z_error),
+            "gram_departure": quantised_measurement(self.gram_departure),
+        }
+
+    def __repr__(self) -> str:
+        """Return a one-line description, never an array.
+
+        Returns
+        -------
+        str
+            For example ``ModalPath(1 section, degree 8, 0 to 1 mm)``.
+        """
+        count = self.n_intervals
+        return line(
+            "ModalPath",
+            [
+                ("", f"{count} section{'' if count == 1 else 's'}"),
+                ("", f"degree {self.degree}"),
+                (
+                    "",
+                    f"{engineering(float(self.z_edges[0]), 'm')} to "
+                    f"{engineering(float(self.z_edges[-1]), 'm')}",
+                ),
+            ],
+        )
+
+    def _describe(self) -> tuple[str, list[tuple[str, object]]]:
+        """Return the title and rows of the printed block.
+
+        - Returns: the title and ``(key, value)`` rows.
+        """
+        return "ModalPath: how a moving guide was sampled along z", [
+            ("sections", f"{self.n_intervals} ({self.sections} per kink interval)"),
+            (
+                "span",
+                f"{engineering(float(self.z_edges[0]), 'm')} to "
+                f"{engineering(float(self.z_edges[-1]), 'm')}",
+            ),
+            ("degree", self.degree),
+            ("positions", self.n_intervals * (self.degree + 1)),
+            ("budget", f"{self.rtol:.3e}"),
+            ("held-out error", f"{self.z_error:.3e}"),
+            ("gram departure", f"{self.gram_departure:.3e}"),
+        ]
+
+
 def path_sections(
     provider: ModalProvider, sections: int = 1
 ) -> Float[np.ndarray, " n_edges"]:
@@ -156,11 +424,7 @@ def path_sections(
     >>> [round(one, 6) for one in path_sections(guide, 2).tolist()]
     [0.0, 0.0002, 0.0004, 0.0007, 0.001]
     """
-    if isinstance(sections, bool) or not isinstance(sections, int) or sections < 1:
-        raise ModeError(
-            f"a moving guide's sections per kink interval is a positive integer, got "
-            f"{sections!r}"
-        )
+    _count("sections", sections)
     low, high = (float(one) for one in provider.z_domain)
     kinks = sorted(
         {low, high, *(float(one) for one in provider.z_breakpoints if low < one < high)}
@@ -339,104 +603,50 @@ def path_snapshot(
 
 @dataclass(frozen=True, eq=False)
 class ModalPathTable(Displayed):
-    """Hold a moving guide's snapshots at its sections' Chebyshev-Lobatto points.
+    """Hold a moving guide's snapshots at its path's Chebyshev-Lobatto points.
+
+    What :func:`sample_modal_path` returns: the record of how the path was sampled
+    and the snapshot solved at each of its positions.
 
     Attributes
     ----------
-    z_edges : numpy.ndarray
-        Section edges in m, shape ``(n_edges_path,)``, strictly increasing.
-    degree : int
-        The Chebyshev degree along z every section is sampled at, at least one; each
-        section holds ``degree + 1`` positions, its two ends included.
+    path : ModalPath
+        How the path was sampled and what that measured: its section edges, degree,
+        positions and held-out departures.
     tables : tuple of solprop.modes.tables.DenseModalTable
-        One snapshot per position, section by section and increasing inside each, so
-        a position on an edge between two sections appears twice, as the end of one
-        and the start of the next.
-    z_error : float
-        The measured held-out error of the expansion along z, dimensionless and
-        non-negative: the largest relative maximum-norm departure of E, H or the
-        generator from a fresh solve at the positions a degree doubling adds.
-    gram_departure : float
-        The largest ``norm(W - I, 2)`` of the expanded basis at those same positions,
-        on the rule there, dimensionless and non-negative.
+        One snapshot per position of ``path.positions``, section by section and
+        increasing inside each, so a position on an edge between two sections appears
+        twice, as the end of one and the start of the next.
 
     Raises
     ------
     solprop.exceptions.ModeError
-        If the counts, the positions or the measurements are inconsistent.
+        If the tables do not sit at the path's positions, in order.
     """
 
-    z_edges: Float[np.ndarray, " n_edges_path"]
-    degree: int
+    path: ModalPath
     tables: tuple[DenseModalTable, ...]
-    z_error: float
-    gram_departure: float
 
     def __post_init__(self) -> None:
-        """Freeze the edges and check each table sits where it should.
+        """Check each table sits where the path places it.
 
         Raises
         ------
         solprop.exceptions.ModeError
-            Naming what is inconsistent.
+            Naming the count expected.
         """
-        edges = frozen_copy(np.reshape(self.z_edges, -1), np.float64)
-        if (
-            edges.size < 2
-            or not np.all(np.isfinite(edges))
-            or np.any(np.diff(edges) <= 0)
-        ):
-            raise ModeError(
-                "a path's section edges are at least two finite increasing positions"
-            )
-        object.__setattr__(self, "z_edges", edges)
-        if (
-            isinstance(self.degree, bool)
-            or not isinstance(self.degree, int)
-            or self.degree < 1
-        ):
-            raise ModeError(
-                f"a path's degree is a positive integer, got {self.degree!r}"
-            )
-        expected = self.positions.reshape(-1)
+        path = self.path
+        expected = path.positions.reshape(-1)
         if len(self.tables) != expected.size or any(
             float(table.z[0]) != float(position)
             for table, position in zip(self.tables, expected, strict=False)
         ):
             raise ModeError(
-                f"a path of {self.n_intervals} section(s) at degree {self.degree} "
+                f"a path of {path.n_intervals} section(s) at degree {path.degree} "
                 f"holds one snapshot at each of its {expected.size} Chebyshev-Lobatto "
                 f"positions, in order; got {len(self.tables)}"
             )
-        for name in ("z_error", "gram_departure"):
-            value = float(getattr(self, name))
-            if not math.isfinite(value) or value < 0.0:
-                raise ModeError(
-                    f"a path's {name} is a measured non-negative number, got "
-                    f"{getattr(self, name)!r}"
-                )
-
-    @property
-    def n_intervals(self) -> int:  # numpydoc ignore=RT01
-        """How many sections the path is cut into."""
-        return int(self.z_edges.size - 1)
-
-    @property
-    def positions(
-        self,
-    ) -> Float[
-        np.ndarray, "n_intervals_positions n_deg_positions"
-    ]:  # numpydoc ignore=RT01
-        """Every sampled position, section by section, m.
-
-        Shape ``(n_intervals, degree + 1)``.
-        """
-        return np.stack(
-            [
-                lobatto_points(self.degree, float(lo), float(hi))
-                for lo, hi in zip(self.z_edges[:-1], self.z_edges[1:], strict=True)
-            ]
-        )
+        object.__setattr__(self, "tables", tuple(self.tables))
 
     def section_tables(self, index: int) -> tuple[DenseModalTable, ...]:
         """Return one section's snapshots, increasing in z.
@@ -444,14 +654,14 @@ class ModalPathTable(Displayed):
         Parameters
         ----------
         index : int
-            The section, in ``[0, n_intervals)``.
+            The section, in ``[0, path.n_intervals)``.
 
         Returns
         -------
         tuple of solprop.modes.tables.DenseModalTable
-            Its ``degree + 1`` snapshots.
+            Its ``path.degree + 1`` snapshots.
         """
-        width = self.degree + 1
+        width = self.path.degree + 1
         return self.tables[index * width : (index + 1) * width]
 
     def __repr__(self) -> str:
@@ -462,14 +672,12 @@ class ModalPathTable(Displayed):
         str
             For example ``ModalPathTable(1 section, degree 8, 9 positions)``.
         """
+        count = self.path.n_intervals
         return line(
             "ModalPathTable",
             [
-                (
-                    "",
-                    f"{self.n_intervals} section{'' if self.n_intervals == 1 else 's'}",
-                ),
-                ("", f"degree {self.degree}"),
+                ("", f"{count} section{'' if count == 1 else 's'}"),
+                ("", f"degree {self.path.degree}"),
                 ("", f"{len(self.tables)} positions"),
             ],
         )
@@ -479,17 +687,18 @@ class ModalPathTable(Displayed):
 
         - Returns: the title and ``(key, value)`` rows.
         """
+        path = self.path
         return "ModalPathTable: a moving guide's snapshots along z", [
-            ("sections", self.n_intervals),
+            ("sections", path.n_intervals),
             (
                 "span",
-                f"{engineering(float(self.z_edges[0]), 'm')} to "
-                f"{engineering(float(self.z_edges[-1]), 'm')}",
+                f"{engineering(float(path.z_edges[0]), 'm')} to "
+                f"{engineering(float(path.z_edges[-1]), 'm')}",
             ),
-            ("degree", self.degree),
+            ("degree", path.degree),
             ("positions", len(self.tables)),
-            ("held-out error", f"{self.z_error:.3e}"),
-            ("gram departure", f"{self.gram_departure:.3e}"),
+            ("held-out error", f"{path.z_error:.3e}"),
+            ("gram departure", f"{path.gram_departure:.3e}"),
         ]
 
 
@@ -557,11 +766,10 @@ def sample_modal_path(
     provider: ModalProvider,
     omega: Float[np.ndarray, " n_omega"],
     rule: ModalNodeRule,
-    z_edges: Float[np.ndarray, " n_edges"],
     *,
-    rtol: float,
-    degree: int | None = None,
-    measured: tuple[float, float] = (0.0, 0.0),
+    rtol: float | None = None,
+    sections: int | None = None,
+    path: ModalPath | None = None,
     degenerate_blocks: Sequence[Sequence[int]] = (),
     basis: ChannelBasis | None = None,
     gram_atol: float = DEFAULT_GRAM_ATOL,
@@ -569,7 +777,8 @@ def sample_modal_path(
 ) -> ModalPathTable:
     """Sample a moving guide along its sections, at the degree its accuracy demands.
 
-    Each section is solved at the Chebyshev-Lobatto points of a degree, starting at
+    The path is cut into sections (:func:`path_sections`), and each section is solved
+    at the Chebyshev-Lobatto points of a degree, starting at
     :data:`INITIAL_PATH_DEGREE`, on the provider's own rule at each position
     (:func:`path_rule`) and in its own gauge (:func:`path_snapshot`). The expansion
     along z is then checked against **fresh** solves at the points a doubling adds,
@@ -581,9 +790,9 @@ def sample_modal_path(
     was **measured**, not the doubled one, so that the certificate is a measurement of
     what is stored.
 
-    With `degree` given, nothing is searched or measured: the path is sampled at that
-    degree and carries the `measured` numbers it was certified with, which is how a
-    run rebuilds the path its guide already qualified.
+    With a qualified `path` given instead, nothing is searched or measured: the
+    snapshots are solved at its edges and degree, and it is carried as it stands,
+    which is how a run rebuilds the path its guide already qualified.
 
     Parameters
     ----------
@@ -594,15 +803,14 @@ def sample_modal_path(
     rule : solprop.modes.vector.ModalNodeRule
         The entrance rule, which every position's rule is asked for like
         (:func:`path_rule`).
-    z_edges : numpy.ndarray
-        Section edges in m (:func:`path_sections`), shape (n_edges,).
-    rtol : float
-        Budget on the held-out departure, positive and finite.
-    degree : int or None, optional
-        A degree already qualified, which skips the search.
-    measured : tuple of float, optional
-        The held-out error and Gram departure the qualified `degree` was measured
-        at; carried, not re-measured.
+    rtol : float or None, optional
+        Budget on the held-out departure, positive and finite, for a search; given
+        unless `path` is.
+    sections : int or None, optional
+        Sections per kink interval of a search, positive; ``None`` is one. Not given
+        with `path`.
+    path : ModalPath or None, optional
+        A path already qualified, which skips the search.
     degenerate_blocks : sequence of sequence of int, optional
         The declared degenerate blocks.
     basis : solprop.modes.guide.ChannelBasis or None, optional
@@ -615,19 +823,23 @@ def sample_modal_path(
     Returns
     -------
     ModalPathTable
-        The snapshots and the measurements.
+        The path record and its snapshots.
 
     Raises
     ------
     solprop.exceptions.ModeError
-        If `rtol` is not positive and finite, the held-out departure is still above
-        it at :data:`MAX_PATH_DEGREE`, or on anything a snapshot refuses.
+        If neither or both of a search's budget and a qualified `path` are given,
+        `rtol` is not positive and finite, `sections` is not a positive integer, the
+        held-out departure is still above `rtol` at :data:`MAX_PATH_DEGREE`, or on
+        anything a snapshot refuses.
     """
-    if not math.isfinite(float(rtol)) or float(rtol) <= 0.0:
+    if (path is None) == (rtol is None) or (path is not None and sections is not None):
         raise ModeError(
-            f"a path's held-out budget is positive and finite, got {rtol!r}"
+            "a moving guide's path is either searched, within a budget rtol over its "
+            "sections, or rebuilt from a path already qualified: give rtol (and "
+            f"sections) or path, not both, got rtol={rtol!r}, sections={sections!r} "
+            f"and path={path!r}"
         )
-    edges = np.asarray(z_edges, dtype=np.float64)
     memo: dict[float, DenseModalTable] = dict(known or {})
 
     def _at(position: float) -> DenseModalTable:
@@ -647,14 +859,16 @@ def sample_modal_path(
             )
         return memo[position]
 
-    sections = list(itertools.pairwise(edges))
-    if degree is not None:
-        chosen, (error, departure) = int(degree), measured
-    else:
+    if path is None:
+        assert rtol is not None  # the budget of a search, checked above
+        budget = _measure("rtol", rtol, positive=True)
+        count = 1 if sections is None else sections
+        edges = path_sections(provider, count)
+        spans = list(itertools.pairwise(edges))
         chosen = INITIAL_PATH_DEGREE
         while True:
             error = departure = 0.0
-            for lo, hi in sections:
+            for lo, hi in spans:
                 section = [_at(float(one)) for one in lobatto_points(chosen, lo, hi)]
                 fresh = [_at(float(one)) for one in refinement_points(chosen, lo, hi)]
                 measured_error, measured_departure = _held_out(section, fresh, lo, hi)
@@ -664,26 +878,27 @@ def sample_modal_path(
                 "modal path: degree %d over %d section(s), held-out error %.3e against "
                 "%.3e, gram departure %.3e",
                 chosen,
-                len(sections),
+                len(spans),
                 error,
-                rtol,
+                budget,
                 departure,
             )
-            if error <= float(rtol):
+            if error <= budget:
                 break
             if 2 * chosen > MAX_PATH_DEGREE:
                 raise ModeError(
                     f"a moving guide's expansion along z does not resolve: at degree "
                     f"{chosen} its held-out departure from a fresh solve is "
-                    f"{error:.4g}, above the {float(rtol):.4g} budget, and the next "
+                    f"{error:.4g}, above the {budget:.4g} budget, and the next "
                     f"degree would exceed {MAX_PATH_DEGREE}. Divide the path into more "
                     "sections, or declare the structure as a kink of the geometry"
                 )
             chosen *= 2
+        path = ModalPath(edges, chosen, count, budget, error, departure)
     tables = tuple(
         _at(float(one))
-        for lo, hi in sections
-        for one in lobatto_points(chosen, float(lo), float(hi))
+        for lo, hi in itertools.pairwise(path.z_edges)
+        for one in lobatto_points(path.degree, float(lo), float(hi))
     )
     # Every neighbouring pair of positions, the ones given in `known` included: the
     # check is an overlap per pair and costs nothing beside the solves.
@@ -694,4 +909,4 @@ def sample_modal_path(
             memo[second].nodes,
             f"between z = {first:.6g} and {second:.6g} m",
         )
-    return ModalPathTable(edges, chosen, tables, float(error), float(departure))
+    return ModalPathTable(path, tables)
