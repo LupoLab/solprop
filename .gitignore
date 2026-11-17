@@ -36,6 +36,7 @@ docs/introduction/lessons/sg_execution_times.rst
 # OS and editors
 .DS_Store
 .idea/
+.vscode/
 
 # The galleries' generated pages under docs/introduction/lessons/, docs/auto_tutorials/
 # and docs/auto_examples/ ARE committed (they are reused, not regenerated, by every

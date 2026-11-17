@@ -1776,7 +1776,7 @@ Withdrawn (development-process record, not a design decision).
   table of classes and one table of neutral values rather than versioned hashers.
 - **Consequences:** a new recorded field needs a decision, which the frozen records of
   `tests/output/test_record_stability.py` enforce; each release adds its frozen records
-  from its tag (`docs/dev/releasing.md`). 0.2.0, the first release of output schema 2,
+  from its tag (`docs/dev/releasing.md`); both were removed with ADR-066. 0.2.0, the first release of output schema 2,
   is tagged after SEP 42, so that every released reader of schema 2 knows these rules; a
   later change to what force records bumps the schema.
 - **Amendment, how often the schema is bumped** (maintainer, 2026-11-02): the bump rule
