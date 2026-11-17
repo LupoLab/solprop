@@ -137,7 +137,6 @@ class RunPanel(QWidget):
         self.resume_mode: object = None
         self.can_run = False
         self._pending: dict[int, str] = {}
-        self._last_index = -1
         self._z_end = 0.0
         self.options = PlotOptions()
         self.report: Callable[[str, str, str], None] = self._report
@@ -402,8 +401,7 @@ class RunPanel(QWidget):
                 threads=self.threads,
                 reductions=tuple(self.reductions),
                 owner=self._owner(),
-            ),
-            fresh=True,
+            )
         )
 
     def resume(self) -> None:
@@ -424,8 +422,7 @@ class RunPanel(QWidget):
                 resume=mode,  # pyright: ignore[reportArgumentType]
                 display=self.display(),
                 owner=self._owner(),
-            ),
-            fresh=False,
+            )
         )
 
     def display(self) -> Display:
@@ -487,20 +484,16 @@ class RunPanel(QWidget):
         for bar in (self.progress, self.bar):
             bar.setValue(min(max(value, 0), 1000))
 
-    def _launch(self, spec: RunSpec, *, fresh: bool) -> None:
-        """Start a worker.
+    def _launch(self, spec: RunSpec) -> None:
+        """Start a run, new or continued, through its machine's helper.
 
         Parameters
         ----------
         spec : solprop.service.worker.RunSpec
             What it runs.
-        fresh : bool
-            Whether it is a new run, rather than a continued one.
         """
         self.run_id = spec.run_id
         self.folder = self._place(spec.folder)
-        if fresh:
-            self._last_index = -1
         self._z_end = 0.0
         self.lamp.setText("boundary: ok")
         self.lamp.setStyleSheet("")
@@ -562,7 +555,6 @@ class RunPanel(QWidget):
         self.client = self.bridge.attach_on(machine, run_id, folder)
         self.run_id = run_id
         self.folder = self._place(folder)
-        self._last_index = -1
         self.view.clear()
         self.log.clear()
         self.state = ExecutionState.RUNNING
@@ -643,11 +635,6 @@ class RunPanel(QWidget):
         if event.kind == "axes":
             self.view.set_axes(data)
         elif event.kind == "row":
-            index = int(data["index"])  # pyright: ignore[reportArgumentType]
-            if index > self._last_index + 1 and self.client is not None:
-                # Rows were dropped on the way: the worker replays them.
-                self.client.subscribe(self._last_index + 1)
-            self._last_index = max(self._last_index, index)
             self.view.add_row(data)
             z = float(data["z"])  # pyright: ignore[reportArgumentType]
             self.steps.setText(

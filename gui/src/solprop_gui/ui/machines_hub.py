@@ -161,16 +161,6 @@ class MachineRun:
         """Ask the run to stop at its next step."""
         self.hub.call(self.machine, "stop", {"folder": self.folder})
 
-    def subscribe(self, from_plane: int = 0) -> None:
-        """Do nothing: a run's record drops no rows, so none need replaying.
-
-        Parameters
-        ----------
-        from_plane : int, optional
-            The first plane wanted.
-        """
-        del from_plane
-
     def cancel(self) -> None:
         """End the run's job (``SIGTERM``, ``scancel``); solprop saves where it was."""
         self.hub.call(self.machine, "cancel", {"folder": self.folder})

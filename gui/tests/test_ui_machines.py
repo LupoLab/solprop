@@ -170,7 +170,6 @@ def test_a_run_is_started_and_followed_through_a_machine(qtbot: QtBot, tmp_path:
     assert kinds.count("row") == 6 and kinds[-1] == "finished"
     again = bridge.attach_on(Machine(LOCAL), "r1", str(tmp_path / "r1"))
     qtbot.waitUntil(again.ended.is_set, timeout=WAIT_MS)
-    handle.subscribe(3)  # a record drops nothing: no replay needed
     bridge.close()
 
 
