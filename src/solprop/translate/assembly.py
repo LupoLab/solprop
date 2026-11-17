@@ -1021,9 +1021,9 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
         :func:`solprop.translate.responses.compile_responses`. A TDSE response
         owns the complete gas nonlinearity and refuses another Kerr or plasma term.
     field0 : numpy.ndarray
-        Initial state, shape ``(n_modes, n_pol, n_omega)`` or already batched, complex,
-        in the square root of watts and the internal FFT convention — a
-        :meth:`solprop.pulses.Pulse.build` result, or a stack of them.
+        Initial state, shape ``(n_modes, n_pol, n_omega)``, complex, in the square root
+        of watts and the internal FFT convention — a :meth:`solprop.pulses.Pulse.build`
+        result.
     controller : solprop.stepper.controller.PIController
         Tolerances, norm and step-control parameters.
     save_planes : array_like

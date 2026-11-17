@@ -807,8 +807,7 @@ class HostSession:
         Returns
         -------
         tuple
-            The attempts and the rows (without a batch axis); empty when every attempt
-            was delivered.
+            The attempts and the rows; empty when every attempt was delivered.
         """
         self._ledger.check_ticket(ticket)
         return self._chunk()
@@ -1750,8 +1749,8 @@ class HostSession:
     def _chunk(self) -> tuple[BackendHistory, StepStats]:
         """Drain the attempts and rows since the previous event, for the next one.
 
-        - Returns: the attempts and the rows (without a batch axis), delivered by
-          exactly one event (:mod:`solprop.backends.events`).
+        - Returns: the attempts and the rows, delivered by exactly one event
+          (:mod:`solprop.backends.events`).
         """
         drained = (
             self._counted(self._drain_attempts())
