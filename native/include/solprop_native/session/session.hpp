@@ -54,8 +54,8 @@
  *
  * The scheduler's decisions -- which plane is next, when a step plane, a statistics
  * row, a bounded yield or a snapshot falls due, and the reached and replay tolerances
- * -- are solprop's host session's (`solprop.backends.numpy_ref.session`: `HostSession` and
- * its functions), transcribed. Like the marches they are compiled strict (no
+ * -- are solprop's host session's (`solprop.backends.numpy_ref.session`: `HostSession`
+ * and its functions), transcribed. Like the marches they are compiled strict (no
  * contraction, no fast-math) in their own translation unit, so they round as solprop's
  * Python does; that unit also holds the export, whose recipe is
  * `solprop.backends.export`'s `apply_recipe` operation for operation.
