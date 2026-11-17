@@ -238,12 +238,9 @@ estimate with the linear condition.
    :alt: Computed phase mismatch versus wavelength for a helium-filled capillary; the Kerr term shifts the short-wavelength zero.
    :caption: The phase mismatch of the fundamental mode of a 125 µm capillary filled with 1 bar of helium, for an 800 nm soliton, with and without the nonlinear wavenumber of a 30 GW soliton. The dispersive wave is phase matched where a curve crosses zero; the linear curve has a double zero at the pump because its carrier and group-delay terms have been subtracted. The nonlinear curve is shifted and need not vanish there.
 
-   import warnings
-
    import matplotlib.pyplot as plt
    import numpy as np
 
-   from solprop.exceptions import MaterialRangeWarning
    from solprop.modes import MarcatiliMode
    from solprop.physdata import n2
    from solprop.tools import lambda_rdw, nonlinear_coefficient, phase_mismatch
@@ -254,14 +251,11 @@ estimate with the linear condition.
    omega = 2 * np.pi * 299792458.0 / wavelength
 
    fig, ax = plt.subplots(figsize=(6.0, 3.4))
-   with warnings.catch_warnings():
-       # The window reaches below the 210 nm of the silica fit.
-       warnings.simplefilter("ignore", MaterialRangeWarning)
-       for power, label in ((None, "linear"), (30e9, "with the Kerr term, 30 GW")):
-           kerr = {} if power is None else {"peak_power": power, "gamma": gamma, "nonlinear_phase": "supplied_power"}
-           ax.plot(wavelength * 1e9, phase_mismatch(mode, omega, 800e-9, **kerr), label=label)
-           root = lambda_rdw(mode, 800e-9, **kerr)
-           ax.axvline(root * 1e9, color="0.6", lw=0.8, ls=":")
+   for power, label in ((None, "linear"), (30e9, "with the Kerr term, 30 GW")):
+       kerr = {} if power is None else {"peak_power": power, "gamma": gamma, "nonlinear_phase": "supplied_power"}
+       ax.plot(wavelength * 1e9, phase_mismatch(mode, omega, 800e-9, **kerr), label=label)
+       root = lambda_rdw(mode, 800e-9, **kerr)
+       ax.axvline(root * 1e9, color="0.6", lw=0.8, ls=":")
    ax.axhline(0.0, color="k", lw=0.6)
    ax.set_ylim(-60, 60)
    ax.set_xlabel("wavelength (nm)")
@@ -284,10 +278,11 @@ at its ends, rather than returning a placeholder that would propagate silently.
 travels in, and the first argument the mode the wave is emitted into.
 
 **Range warnings.** The search evaluates the index across a window far wider than its
-answer, and those probes are silent. The answer is not: a dispersive wave at 187 nm in a
-silica capillary lies below the 210 nm of Malitson's fit, and
-{py:class}`~solprop.exceptions.MaterialRangeWarning` says so, because the number then
-rests on an extrapolated cladding index.
+answer, and those probes are silent. The answer is not: the index is evaluated again at
+the roots it finds, outside the probing, so a root that takes the gas or the cladding
+beyond its index model's qualified range raises
+{py:class}`~solprop.exceptions.MaterialRangeWarning`, because the number then rests on an
+extrapolated index.
 
 ## The pressure that tunes it
 
@@ -304,9 +299,9 @@ step, so a search costs milliseconds.
 >>> from solprop.modes import MarcatiliMode
 >>> mode = MarcatiliMode(125e-6, "He", 1.0, cladding=1.45)
 >>> f"{lambda_rdw(mode, 800e-9) * 1e9:.1f} nm"
-'186.8 nm'
+'200.1 nm'
 >>> f"{pressure_rdw(125e-6, 'He', 160e-9, 800e-9, cladding=1.45):.2f} bar"
-'0.74 bar'
+'0.66 bar'
 ```
 
 Both refuse a bracket without a root by name. `pressure_rdw` samples the pressure
