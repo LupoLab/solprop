@@ -34,7 +34,7 @@ from scipy.special import jn_zeros, jv, jvp, kve
 from solprop._display import Displayed, engineering, line
 from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError
-from solprop.modes.fill import LossFunction
+from solprop.modes.fill import LossFunction, _alpha_values
 from solprop.modes.protocol import ChannelLabel, CrossSection
 from solprop.physdata.glasses import GlassIndex, fused_silica, lossless_index
 from solprop.profiles import ZProfile, as_profile
@@ -1038,40 +1038,6 @@ class StepIndexMode(Displayed):
             return "alpha(omega)"
         return "none" if self.alpha == 0 else f"alpha {self.alpha:g} 1/m"
 
-    def _alpha_values(
-        self, omega: Float[np.ndarray, " n_omega"]
-    ) -> tuple[Float[np.ndarray, " n_omega"], Float[np.ndarray, " n_omega"]]:
-        """Return absolute power attenuation and its slope.
-
-        - ``omega``: positive angular frequencies in rad/s.
-        - Returns: attenuation in 1/m and its derivative in s/(rad m).
-        """
-        if not callable(self.alpha):
-            return np.full_like(omega, self.alpha), np.zeros_like(omega)
-        attenuation = np.asarray(self.alpha(omega), dtype=float)
-        if (
-            attenuation.shape != omega.shape
-            or not np.all(np.isfinite(attenuation))
-            or np.any(attenuation < 0)
-        ):
-            raise ModeError(
-                "alpha callable must return finite non-negative coefficients "
-                "with the shape of omega"
-            )
-        analytic = getattr(self.alpha, "derivative", None)
-        if callable(analytic):
-            slope = np.asarray(analytic(omega), dtype=float)
-        else:
-            # Same fourth-order difference and step as the existing absolute-loss
-            # path; the lossless eigenvalue derivative is always analytic.
-            step, curve = omega * 1e-5, self.alpha
-            wide = (curve(omega + step) - curve(omega - step)) / (2 * step)
-            narrow = (curve(omega + step / 2) - curve(omega - step / 2)) / step
-            slope = (4 * narrow - wide) / 3
-        if slope.shape != omega.shape or not np.all(np.isfinite(slope)):
-            raise ModeError("alpha derivative must be finite with the shape of omega")
-        return attenuation, slope
-
     def neff(
         self, omega: ArrayLike | float, z: float = 0.0
     ) -> Complex[np.ndarray, " n_omega"]:
@@ -1095,7 +1061,7 @@ class StepIndexMode(Displayed):
             If inputs are invalid or any frequency is below cutoff.
         """
         values = _checked_omega(omega)
-        attenuation, _ = self._alpha_values(values)
+        attenuation, _ = _alpha_values(self.alpha, values)
         return np.asarray(
             self._eigenpairs(values, z)[0] + 0.5j * C * attenuation / values
         )
@@ -1175,7 +1141,7 @@ class StepIndexMode(Displayed):
             if partial_index == 0 or not math.isfinite(float(partial_index)):
                 raise ModeError("eigenvalue derivative is singular")
             slope[row] = -partial_frequency / partial_index
-        attenuation, dattenuation = self._alpha_values(values)
+        attenuation, dattenuation = _alpha_values(self.alpha, values)
         result = np.asarray(
             slope + 0.5j * C * (dattenuation * values - attenuation) / values**2
         )

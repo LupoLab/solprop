@@ -367,6 +367,24 @@ def test_an_alpha_callable_replaces_the_model_loss_with_an_absolute_alpha():
     )
 
 
+@pytest.mark.parametrize("output", [-0.5, np.nan, np.inf])
+def test_an_alpha_callable_returning_gain_or_nan_is_refused(output):
+    """As the step-index modes refuse it: NaN would propagate and -0.5 is gain."""
+
+    def curve(omega):
+        return np.full_like(omega, output)
+
+    mode = MarcatiliMode(125e-6, "He", 1.0, alpha=curve)
+    with pytest.raises(ModeError, match="alpha callable"):
+        mode.neff(omega_of(np.array([800e-9])))
+
+
+def test_an_alpha_callable_of_the_wrong_shape_is_refused():
+    mode = MarcatiliMode(125e-6, "He", 1.0, alpha=lambda omega: np.array([1.0, 2.0]))
+    with pytest.raises(ModeError, match="alpha callable"):
+        mode.neff(omega_of(np.array([800e-9])))
+
+
 @pytest.mark.parametrize("model", MODELS)
 def test_a_constant_alpha_is_a_flat_curve(model):
     omega = omega_of(np.linspace(400e-9, 1000e-9, 16))
