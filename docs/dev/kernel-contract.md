@@ -1006,13 +1006,15 @@ owning read-only `TDSEResult` arrays. Each consumed sample is valid and finite.
 Its atomic counter is charged immediately before every provider invocation,
 including failed calls and requested diagnostics. Stable chunks are reserved for
 the entire Adams trial before startup. Unused reservations are released on every
-exit path. `restore_call_ledgers(logical, atomic)` restores cumulative counters
-after loading a field; it restores no Adams history or atomic state.
+exit path. A resumed start's cumulative counters are restored by the session after it
+loads the field (the reference's `HostSession._restore_ledgers`); that restores no Adams
+history or atomic state.
 
 The host binding protocol also labels its evaluations for an optional raw archive. Each reservation opens one optical trial, `evaluate` takes
 an optional `density` label (m⁻³), and `record_trial(accepted=...)` reports the
-stepper's decision on the latest trial. The reference backend calls it from its
-step record (`_record`), which every Adams attempt reaches, rejected or accepted;
+stepper's decision on the latest trial. The reference backend calls it through its
+workspace's `record_trial` when its Adams engine ends an attempt (`end_attempt`), which
+every decided Adams attempt reaches, rejected or accepted;
 it changes no step, charge or reservation. None of this is part of the descriptors
 or the kernel problem, which compiled backends see, so it is
 outside the kernel schema.
