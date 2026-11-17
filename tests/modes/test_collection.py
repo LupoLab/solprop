@@ -192,9 +192,27 @@ def test_a_high_azimuthal_order_does_not_alias_into_a_false_overlap():
     np.testing.assert_allclose(orthonormality(modes), np.eye(2), rtol=0.0, atol=1e-9)
 
 
+def test_a_first_rule_at_the_cap_is_still_refined(monkeypatch):
+    """A polar set whose first rule reaches the cap still gets two doublings: with the
+    cap at 128, the n = 64 / TM01 pair starts there and converges on 256 nodes, where
+    a single rule had nothing to compare against and was refused."""
+    monkeypatch.setattr(collection_module, "_MAX_NODES", 128)
+    modes = [
+        MarcatiliMode(RADIUS, "He", 1.0, n=64),
+        MarcatiliMode(RADIUS, "He", 1.0, kind="TM", n=0),
+    ]
+    np.testing.assert_allclose(orthonormality(modes), np.eye(2), rtol=0.0, atol=1e-9)
+
+
 def test_orthonormality_refuses_a_rule_that_does_not_converge(monkeypatch):
-    """With no room to double the azimuthal rule, there is no convergence to show."""
-    monkeypatch.setattr(collection_module, "_MAX_NODES", 16)
+    """A rule whose answer keeps moving on doubling is refused at the cap."""
+    rule = collection_module._second_rule
+
+    def drifting(kind, limits, nodes):
+        points, weights = rule(kind, limits, nodes)
+        return points, weights * (1.0 + 1.0 / nodes)
+
+    monkeypatch.setattr(collection_module, "_second_rule", drifting)
     with pytest.raises(ModeError, match="did not converge"):
         orthonormality(he_modes(2))
 

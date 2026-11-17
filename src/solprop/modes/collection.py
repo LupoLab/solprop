@@ -76,8 +76,8 @@ _FIRST_NODES = 16
 starts above its products' highest harmonic (:func:`_first_nodes`)."""
 
 _MAX_NODES = 1024
-"""Most nodes of the second coordinate's rule, or four times a polar set's first rule
-where that is already above it: a set that needs more is refused."""
+"""Most nodes of the second coordinate's rule, or four times the first rule if that is
+more: a set that needs more is refused."""
 
 
 def _normalisation(mode: Mode, z: float) -> float:
@@ -248,8 +248,9 @@ def orthonormality(
         # Uniform in y: one node at y = 0 of unit weight, per metre of y as N is.
         return _gram(modes, scale, first, (np.zeros(1), np.ones(1)), z=z, polar=False)
     nodes = _first_nodes(modes) if kind == "polar" else _FIRST_NODES
-    # A set whose first rule already exceeds the cap is still allowed two doublings.
-    most = _MAX_NODES if nodes <= _MAX_NODES else 4 * nodes
+    # Every set is allowed at least two doublings, so that convergence is shown on
+    # three rules even where a polar set's first rule reaches the cap.
+    most = max(_MAX_NODES, 4 * nodes)
     previous = None
     while nodes <= most:
         rule = _second_rule(kind, (lower[1], upper[1]), nodes)
