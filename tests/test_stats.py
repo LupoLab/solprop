@@ -649,19 +649,10 @@ def two_channel(grid):
 
 
 @pytest.mark.parametrize("name", sorted(METRIC_WEIGHTED_STATISTICS))
-def test_no_metric_is_the_identity_and_is_what_it_was(field_grid, name):
-    """`metric=None` is the fast path and changes no existing number.
-
-    The default is ``metric=None``, so both calls run one computation: an explicitly
-    exact no-op, compared exactly.
-    """
+def test_the_identity_metric_is_the_default_s_number(field_grid, name):
+    """An identity metric weighs every channel as ``metric=None``, the default, does."""
     field = two_channel(field_grid)
     function = getattr(stats, name)
-    assert np.array_equal(
-        np.asarray(function(field_grid, field)),
-        np.asarray(function(field_grid, field, metric=None)),
-        equal_nan=True,
-    )
     identity = np.broadcast_to(
         np.eye(2, dtype=complex)[:, :, None], (2, 2, field_grid.n_omega)
     ).copy()

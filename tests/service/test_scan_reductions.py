@@ -97,7 +97,7 @@ def test_a_point_of_a_gradient_reads_back_in_its_unit(tmp_path: Path) -> None:
     assert axis["unit"] == "bar"
 
 
-def test_a_range_is_written_as_numbers_and_reductions_reach_the_worker(
+def test_a_range_is_written_as_numbers_and_reductions_reach_the_scan(
     tmp_path: Path,
 ) -> None:
     text = TINY + (
@@ -111,10 +111,19 @@ def test_a_range_is_written_as_numbers_and_reductions_reach_the_worker(
         reductions=({"kind": "peak_power_in_band", "band": [600e-9, 900e-9]},),
     )
     collector = Collector(spec).start()
-    collector.collect(until="point", then="stop")
+    collector.collect()
     started = next(e.data for e in collector.events if e.kind == "scan_started")
     assert started["values"] == [["5e-05", "0.0001"]]
     assert _point_value("x") == "x"
+    final = collector.events[-1].data
+    found: Any = results.scan_overview({"path": final["path"]})
+    peak = found["results"]["reduced/peak_power_in_band"]["values"]
+    # A 10 fs Gaussian of 50 uJ peaks at 0.94 E / fwhm = 4.7 GW over its whole band;
+    # 600-900 nm holds most of it (4.56 GW measured).
+    assert peak.shape == (2,) and 4.0e9 < peak[0] < 4.7e9
+    # Twice the energy, twice the peak power: the short fill barely reshapes the
+    # pulse (2.0001 measured), far from what a reading of the wrong point would give.
+    assert peak[1] / peak[0] == pytest.approx(2.0, rel=1e-2)
 
 
 def test_a_beam_s_scan_is_refused_the_readers_of_a_guided_run() -> None:

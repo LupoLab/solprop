@@ -10,7 +10,6 @@ import time
 import warnings
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pytest
@@ -20,8 +19,6 @@ from record_numbers import (
     assert_record_numbers,
     record_skeleton,
     skeleton_hash,
-    with_former_names,
-    without_sep21_absorber,
 )
 from solprop import _display, tools
 from solprop.coupling import AdmissionItem, CouplingReport
@@ -642,65 +639,25 @@ def without_optmat_release(value: object, *, materials: bool = False) -> object:
     return value
 
 
-RUN_RECORD_SKELETON = "2634b5a114d9ccfbb2c40a2d945c95f7ec2b22c28755da6798a831ac735fb975"
-"""The structure of the example run's record, as the projection below takes it."""
+RUN_RECORD_SKELETON = "52adea809aeee0c100d56663a5dd8102f9fc7da680923375f84abaa0399f443a"
+"""The structure of the example run's record, without what an optmat release writes."""
 
 
-def test_the_run_record_is_what_it_was_before_the_printing(examples):
-    # The run record, without what an optmat release writes into it, is what it was
-    # when the printing was added, less what was added to the record since, which
-    # the projection here takes back out: the launch position, the TDSE descriptor,
-    # the transverse quadrature, the norm's region in the controller, the
-    # interaction formulation's name in an Adams method's representation, the
-    # held-current identity, whose record and hash
-    # separation have their own held-source contract test, the absorber's spatial
-    # flag (SEP 21), and the names later renames changed (with_former_names).
-    # Every built-in material is optmat's since SEP 3, so the manifest is never
-    # empty here.
-    #
-    # Since the pin to optmat 0.8.0 the optmat version, the citations and the
-    # manifest's model digests are neutralised (without_optmat_release), so that only a
-    # change to solprop's record, or to a number in it, fails here. The record was a
-    # single SHA-256 literal until SEP 25; that hash also covered the last bits of its
-    # derived numbers, which a platform's libm moves. Its structure is still hashed
-    # exactly (identity metadata); its numbers are stored beside this test and
-    # compared to RECORD_RTOL.
+def test_the_run_record_keeps_its_structure_and_numbers(examples):
+    # The run record, less what an optmat release writes into it
+    # (without_optmat_release), is pinned in two parts: its structure is identity
+    # metadata and is hashed exactly; its numbers, whose last bits a platform's libm
+    # moves, are stored beside this test and compared to RECORD_RTOL. Every built-in
+    # material is optmat's, so the manifest is never empty here.
     metadata = quiet(examples["Simulation"].metadata)
     assert not metadata.materials.empty
-    hashed: dict[str, Any] = metadata.hashed()
-    # Output schemas 2 and 3 change only `DataPulse` and a march snapshot, which this
-    # run does not hold.
-    hashed["schema_version"] = 1
-    for later in ("initial_z", "tdse", "quadrature"):
-        del hashed[later]
-    hashed["configuration"] = {
-        key: value
-        for key, value in hashed["configuration"].items()
-        if key != "plasma_source"
-    }
-    # A pulse's Taylor coefficients were its `phase` field before they took the
-    # drivers' name.
-    pulse = dict(hashed["configuration"]["pulse"])
-    pulse = {("phase" if key == "phases" else key): item for key, item in pulse.items()}
-    hashed["configuration"]["pulse"] = pulse
-    stepper = dict(hashed["stepper"])
-    stepper["controller"] = {
-        key: value for key, value in stepper["controller"].items() if key != "region"
-    }
-    if isinstance(stepper["method"], str):
-        stepper["method"] = stepper["method"].replace(
-            ", formulation='interaction'", "", 1
-        )
-    hashed["stepper"] = stepper
-    skeleton, values, floor = record_skeleton(
-        with_former_names(without_optmat_release(without_sep21_absorber(hashed)))
-    )
+    skeleton, values, floor = record_skeleton(without_optmat_release(metadata.hashed()))
     assert skeleton_hash(skeleton) == RUN_RECORD_SKELETON
     assert_record_numbers(
         values,
         floor,
         Path(__file__).with_suffix("")
-        / "test_the_run_record_is_what_it_was_before_the_printing.npz",
+        / "test_the_run_record_keeps_its_structure_and_numbers.npz",
     )
 
 

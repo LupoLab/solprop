@@ -124,15 +124,6 @@ def test_the_safety_ramp_s_strength_and_its_floor() -> None:
     )
 
 
-def test_the_ramp_s_strength_does_not_depend_on_the_run_length() -> None:
-    # Section 4.4: nothing in the design takes L; the length is the collar's width or
-    # the requested size.
-    k = _suite_band()
-    assert safety_ramp_strength(6e5, k, 300e-6) == safety_ramp_strength(6e5, k, 300e-6)
-    kappa_p = 3 * math.sqrt(2) / 100e-6
-    assert collar_strength(kappa_p, k, 300e-6) == collar_strength(kappa_p, k, 300e-6)
-
-
 def test_the_crossing_limit() -> None:
     k = np.array([K800])
     kappa_p, width = 1e5, 300e-6

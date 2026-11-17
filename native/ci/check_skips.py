@@ -69,8 +69,6 @@ EXPECTED: tuple[str, ...] = (
     r"this build does not fuse a product and a sum, so the witness proves nothing",
     # Settings of the lane: ci.yml's coverage lane runs the type checks.
     r"the runtime type checks are off \(SOLPROP_TEST_TYPECHECK=0\)",
-    # A record cites a commit that a squash removed from the history.
-    r"[0-9a-f]{12} is not in this checkout \(squashed or rebased\)",
     # pytest-xdist's report for a collected module with nothing to run.
     r"collection skipped",
 )

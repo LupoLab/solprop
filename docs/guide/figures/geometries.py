@@ -78,7 +78,6 @@ __all__ = [
     "DARK",
     "FIGURES",
     "LIGHT",
-    "PENDING",
     "UNFIGURED",
     "WIDTH",
     "Figure",
@@ -2945,9 +2944,6 @@ FIGURES = {
     ),
 }
 """File stem to the figure; the page shows exactly these, each in its own section."""
-
-PENDING: dict[str, str] = {}
-"""Sections of the page whose decomposition, and so whose figure, a later slice adds."""
 
 UNFIGURED = ("The map", "Choosing a decomposition")
 """Sections of the page that are about every decomposition and draw none."""

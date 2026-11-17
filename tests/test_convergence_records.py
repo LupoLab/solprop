@@ -9,9 +9,10 @@ files honest. Three properties matter and none of them is checked by the studies
 write the records:
 
 * the files parse and describe what they claim to describe;
-* every row names a commit on this tree's own line of history, and a test that still
-  exists -- so a renamed writer or a row from an abandoned branch is caught here rather
-  than surviving as a number on the accuracy page that nothing reproduces;
+* every row names a commit on this tree's own line of history (or one of the commits
+  measured before its public history began), and a test that still exists -- so a
+  renamed writer or a row from an abandoned branch is caught here rather than
+  surviving as a number on the accuracy page that nothing reproduces;
 * the write gate refuses everything it is supposed to refuse.
 """
 
@@ -137,13 +138,43 @@ def test_the_file_on_disk_is_formatted_the_way_the_writer_writes_it(stored):
 # -------------------------------------------------------------- the provenance
 
 
+# The commits the stored records were measured at before this repository's public
+# history begins: no clone of it holds them, so they cannot be placed on its line of
+# history. A record measured again is stamped with a commit that can, and its old
+# commit then leaves this list, which may only shrink.
+BEFORE_PUBLIC_HISTORY = frozenset(
+    {
+        "0d140a277a5a471c564adf45b006ebac7cd88339",
+        "0d44e0148cd90feeded94dfbc67aaf0dc8fa4755",
+        "14a9ea96faa85dc5386b2709765642ee30242fe2",
+        "14d18f3f9fd5ab97e01683c062a609a728b67963",
+        "182f7ac7bcd0047fce324394eff16528a98da60f",
+        "2005f96d77c2d7d508cf21dc443fb41794aa8aac",
+        "30d03b4a456303e6935a1040e310d9d286008c3f",
+        "5577d091f899d40ab10ea23ad2006c75f79fca4e",
+        "6665cc804ce844c951e357f041a8c0b666f376c2",
+        "678b8d0c84ac3c88a15c0ea199b8989c3915fd34",
+        "782cb766d03477a59cb94507a355a2ebbe2a17f8",
+        "7fc63c9186a39331811f099607000cb9687bd0ea",
+        "92e9b576671a0ea28731e47a9989e95bb433b7c7",
+        "93e8ee6a2376b69d02db74dceaea4abf05a91699",
+        "9bc569d1378dea180158480752beb35e1f98c1cf",
+        "adcdaccc60133bd34435a71a4713964279551fc0",
+        "b2b2e0da16c94ebd50f31c77931888944b1456e1",
+        "b71045467c6c14c5c790a12431896c1cef98e799",
+        "c3c8cbc73c4abf921306ac688a955884de83fe4e",
+        "d9f9f413f83207d1466bfeb0de8402fe589057cd",
+    }
+)
+
+
 def test_every_recorded_commit_is_on_this_tree_s_line_of_history(stored):
     """A row measured on an unrelated branch is a number nothing here reproduces.
 
     Asserted both ways round rather than "is an ancestor of HEAD": under ``git bisect``
     HEAD legitimately predates the record, and on a pull request HEAD is a merge commit
     the record is an ancestor of. What it still rejects is a record from a branch this
-    one never touched.
+    one never touched, or from one squashed or rebased away.
     """
     if git("rev-parse", "HEAD") is None:
         pytest.skip("not a git checkout")
@@ -152,14 +183,24 @@ def test_every_recorded_commit_is_on_this_tree_s_line_of_history(stored):
     for write in stored["writes"]:
         commit = write["commit"]
         assert commit is not None, stored["study"]
+        if commit in BEFORE_PUBLIC_HISTORY:
+            continue
         present = subprocess.run(
             ["git", "-C", str(cr.REPO), "cat-file", "-e", f"{commit}^{{commit}}"],
             capture_output=True,
             check=False,
         )
-        if present.returncode != 0:
-            pytest.skip(f"{commit[:12]} is not in this checkout (squashed or rebased)")
+        assert present.returncode == 0, (
+            f"{stored['study']}: {commit[:12]} is not in this checkout"
+        )
         assert _related(commit, "HEAD"), f"{stored['study']}: {commit[:12]}"
+
+
+def test_the_list_of_commits_before_the_public_history_only_shrinks():
+    recorded = {
+        write["commit"] for study in cr.studies() for write in cr.load(study)["writes"]
+    }
+    assert recorded >= BEFORE_PUBLIC_HISTORY, sorted(BEFORE_PUBLIC_HISTORY - recorded)
 
 
 def _related(one, other):
