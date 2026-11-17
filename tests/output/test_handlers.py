@@ -38,6 +38,7 @@ from solprop.output.records import (
     HISTORY_FIELDS,
     GridRecord,
     NoiseRecord,
+    RecipeRecord,
     SavedPlane,
     StepHistory,
     StepLimits,
@@ -1005,6 +1006,16 @@ def test_to_file_writes_what_the_file_handler_would_have(grid, metadata, tmp_pat
             path = f"step_history/{name}"
             assert np.array_equal(item(one, path)[()], item(two, path)[()]), path
         assert item(one, "meta/json")[()] == item(two, "meta/json")[()]
+
+
+def test_to_file_keeps_the_recipe_the_run_was_built_from(grid, metadata, tmp_path):
+    # The recipe is what resumes the file and what rebuilds its planes' modes.
+    record = RecipeRecord(1, 'route = "gnlse"\n', 'route = "gnlse"\nseed = "7"\n')
+    memory = MemoryOutput()
+    run_into(memory, grid, metadata, 2)
+    memory.record_recipe(record)
+    memory.to_file(tmp_path / "run.h5")
+    assert hdf5_module.open_file(tmp_path / "run.h5").recipe == record
 
 
 def test_to_file_passes_its_compression_through(grid, metadata, tmp_path):
