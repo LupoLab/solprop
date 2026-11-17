@@ -580,8 +580,7 @@ class SimulationSettings(Displayed):
             )
             raise DriverError(msg, parameter="integrator")
         if isinstance(self.integrator, LowStorageRungeKutta):
-            backend = _admit_low_storage(self.integrator, self.backend, self)
-            object.__setattr__(self, "backend", backend)
+            _admit_low_storage(self.integrator, self)
         # An Adams integrator resolves "auto" as the Runge-Kutta march does: every
         # backend steps the exponential formulation on every route, and the
         # interaction one on every route but a coupled flow, which it refuses by name
@@ -902,13 +901,13 @@ integrator (:func:`solprop.backends.registry.resolve_name`: the native backend).
 
 
 def _admit_low_storage(
-    integrator: LowStorageRungeKutta, backend: str, settings: SimulationSettings
-) -> str:
+    integrator: LowStorageRungeKutta, settings: SimulationSettings
+) -> None:
     """Refuse what the low-storage march cannot run, before translation (SEP 24 5).
 
     The march replays a prescribed schedule, lands on its edges and accepts every
     step, so it needs a schedule and has no interpolated planes. Every registered
-    backend executes it (:data:`LOW_STORAGE_BACKENDS`), so the backend passes as asked.
+    backend executes it (:data:`LOW_STORAGE_BACKENDS`).
     """
     if settings.schedule is None:
         msg = (
@@ -928,7 +927,6 @@ def _admit_low_storage(
             parameter=("integrator", "interpolate_planes"),
             rule="low-storage-no-interpolation",
         )
-    return backend
 
 
 def _same_setting(old: object, new: object) -> bool:
