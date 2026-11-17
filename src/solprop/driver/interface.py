@@ -93,8 +93,9 @@ output : solprop.output.store.Output or pathlib.Path or str or None, optional
     Where the run goes: a handler, a path to stream an HDF5 file to, or ``None`` for
     a :class:`solprop.output.memory.MemoryOutput`.
 snapshots : solprop.output.SnapshotController or None, optional
-    Immutable local checkpoints at committed accepted steps; requires HDF5,
-    all fields and non-interpolated observations.
+    Immutable local checkpoints at committed accepted steps, each after every
+    interpolated plane its step crossed; requires HDF5 and ``fields='all'``
+    (:meth:`~solprop.driver.simulation.Simulation.run`).
 resume : bool or {'interpolated'}, optional
     Continue the file at `output` when its record and this run's have one
     configuration hash; otherwise it is refused, naming what changed. Only a
