@@ -4,9 +4,13 @@
 
 """Bridge solprop's physics layer to optmat: units, identities, warnings and errors.
 
-Every call into optmat goes through this module, which imports optmat only inside its
-functions: optmat's registries take more than a second to import, and ``import solprop``
-must not pay for them.
+The units, identities, warning and error translation and caching that every optmat
+adapter shares live here; each adapter (``species``, ``sellmeier``, ``glasses``,
+``nonlinear_data``, ``transport``, ``solprop.nonlinear.optmat_rates`` and
+``optmat_raman``, ``solprop.capabilities``) imports the optmat modules it needs
+directly. All of them, this module included, import optmat only inside functions:
+optmat's registries take more than a second to import, and ``import solprop`` must not
+pay for them.
 
 - **Units**: :func:`bar_to_pa` and :func:`pa_to_bar` (exactly ``1e5``),
   :func:`omega_to_wavelength` and :func:`wavelength_to_omega` (``omega = 0`` is optmat's
