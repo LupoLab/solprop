@@ -535,7 +535,7 @@ def test_construction_refuses_what_optmat_does_not_serve():
     ):
         with pytest.raises(MaterialError, match=keyword):
             OptmatRate("Ar", WAVELENGTH, **cast("Any", {keyword: value}))
-    with pytest.raises(MaterialError, match="wavelength must be positive"):
+    with pytest.raises(MaterialError, match="wavelength must be finite and positive"):
         OptmatRate("Ar", True)
     for span in ((1e9, 1e8), (0.0, 1e9), (1e9, math.inf)):
         with pytest.raises(MaterialError, match="field_range"):
