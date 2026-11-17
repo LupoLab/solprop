@@ -98,11 +98,11 @@ eigenbasis_actions(const double length, const std::size_t section,
 }
 
 // `Z exp(l T) Z^H` of one bin by solprop's reference scaling, series and squaring
-// (`_triangular_exponential` and `_flow_action`), with the bin's own squaring count.
-// The series degree and the row-sum norm the exponent is scaled below are
-// flow_functions.hpp's `taylor_order` and `taylor_scale`, solprop's reference
-// `_TAYLOR_ORDER` and `_TAYLOR_SCALE` (`numpy_ref/workspace.py`); the host refuses a
-// length needing more than 30 squarings first.
+// (`numpy_ref/coupled_flow.py`: `_triangular_exponential` and `flow_action`), with the
+// bin's own squaring count. The series degree and the row-sum norm the exponent is
+// scaled below are flow_functions.hpp's `taylor_order` and `taylor_scale`, solprop's
+// `FLOW_TAYLOR_ORDER` and `FLOW_TAYLOR_SCALE`; the workspace's guard refuses a length
+// needing more squarings than its `FlowGuard` admits first (`Workspace::guard_flow`).
 KOKKOS_INLINE_FUNCTION void
 squared_series_action(const double length, const std::size_t fallback,
                       const std::size_t modes, const ComplexView3& vectors,
@@ -633,12 +633,12 @@ void CoupledFlowAction::add_residual(const std::size_t stage,
   const auto drive = drive_;
   const auto modes = n_modes_;
   const auto section = section_;
-  // `R_s(z_i) = sum_t w_t G_t - G_s` on the active bins, zero off them (solprop
-  // `_residual_action` and `_residual_drive`), carried back by the stage's own
-  // `exp(-dPhi)` before the block's inverse action is applied. The sum runs over the
-  // stage's non-zero weights in increasing term order: a zero weight adds an exact
-  // zero to a running sum that starts at +0 and so is never -0, which leaves every
-  // bit as the full sum has it.
+  // `R_s(z_i) = sum_t w_t G_t - G_s` on the active bins, zero off them (solprop's
+  // `residual_action` and `residual_drive`, `numpy_ref/coupled_flow.py`), carried back
+  // by the stage's own `exp(-dPhi)` before the block's inverse action is applied. The
+  // sum runs over the stage's non-zero weights in increasing term order: a zero weight
+  // adds an exact zero to a running sum that starts at +0 and so is never -0, which
+  // leaves every bit as the full sum has it.
   launch::parallel_for(
       "solprop_native.flow.add_residual", Range2(kernels_, {0, 0}, {modes, n_omega_}),
       KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {

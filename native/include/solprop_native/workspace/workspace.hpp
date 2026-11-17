@@ -64,7 +64,7 @@ public:
 
   /** A method-history snapshot at the pending ticket: the march's state, the accepted
       field and each persistent history row with its extents; none for a Runge-Kutta
-      march or before any history (`HostAdamsMarch.snapshot`). */
+      march or before any history (`HostAdamsMarch.snapshot_fields`). */
   struct Snapshot {
     march::State state;
     std::vector<std::complex<double>> field;
@@ -180,10 +180,10 @@ public:
   /** A Runge-Kutta trial whose stage rows the state forms from the stage tables at
       `z + c_i dz` and the step's end (solprop SEP 45 phase 2): the partials. */
   std::vector<double> staged_trial(double z, double dz, bool prepare_only);
-  /** `_flow_trial`'s guards, transcribed (solprop SEP 45 phase 4): a set of actions is
-      held for one (section, step); a length whose exponent needs too many squarings
-      is refused before forming, and a measured conditioning above the certificate's
-      after, each as a `BackendRefusal`. */
+  /** The reference's flow guards (`NumpyWorkspace.flow_actions`), transcribed (solprop
+      SEP 45 phase 4): a set of actions is held for one (section, step); a length whose
+      exponent needs too many squarings is refused before forming, and a measured
+      conditioning above the certificate's after, each as a `BackendRefusal`. */
   void guard_flow(std::size_t section, double dz, const std::vector<double>& nodes);
   /** Forget the held actions' key (a test forming its own). */
   void forget_flow_key() noexcept { flow_key_.reset(); }

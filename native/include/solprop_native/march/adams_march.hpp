@@ -126,6 +126,10 @@ struct State {
   watch::State watch;
 };
 
+/** Refuse a state the march could not hold: a history past `max_history`, whose
+    stencil would overrun its fixed arrays. */
+void validate(const State& state);
+
 // The field tables (solprop SEP 52 section 5.3): the policy as
 // `solprop.stepper.multistep.MarchPolicy`, the state as a run's start holds it.
 [[nodiscard]] constexpr auto describe(const Policy* /*unused*/) {

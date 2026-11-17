@@ -1170,8 +1170,9 @@ name.
   row and one scalar per diagonal of the rest, upper triangular, which is the full augmented
   algorithm's arithmetic to the sign of a zero, in one scratch row per active bin (a trial reads
   one section). A trial whose moments' exponent, or a history sample's carry, would need more
-  than 30 squarings, or whose exponent there is not finite, is refused by name before it moves
-  the state. Past 16 channels the per-bin host
+  than 30 squarings (`solprop.backends.exponential.FLOW_MAX_SQUARINGS`, compiled in and held
+  to solprop's by a test), or whose exponent there is not finite, is refused by name before it
+  moves the state. Past 16 channels the per-bin host
   passes hold a bin's channel vectors in a row of their own (`adams_channels_`) rather than on
   the stack; a device build's passes take a thread per (bin, channel), hold no channel
   vectors and step any width too. A device build takes a bin off the eigenbasis route by the

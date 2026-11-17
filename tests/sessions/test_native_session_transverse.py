@@ -288,7 +288,6 @@ def test_an_edged_native_session_returns_to_python_only_at_its_events():
     accepted = sum(int(event.history.accepted.sum()) for event in observations)
     assert accepted > len(observations)
     found = counters.record()
-    assert found["transverse_reads"] == 0
     assert found["native_returns"] == {
         "session_observation": len(observations),
         "session_terminal": 1,

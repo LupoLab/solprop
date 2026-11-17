@@ -39,15 +39,16 @@ void require_coupled_flow(const Problem& problem);
 /**
  * The per-frequency channel mixing of solprop's `linear.coupled_flow`.
  *
- * The execution twin of `NumpyWorkspace.channels` and `_residual_drive` in solprop:
- * on the bins a section's generator is non-zero at, the interaction picture of a
- * coupled block carries every stage input forward by `U(c_i h)` and its source back
- * by `U(c_i h)^-1`, the accepted step forward by `U(h)`, and a frozen-residual flow
- * adds `R_s(z_i) u` to each stage's lab-frame source before it is carried back. The
- * actions themselves are formed by the host adapter from the section's Schur factors
- * (as solprop's reference forms them) and uploaded into persistent Views only when the
- * step's section or length changes; the residual's terms and frozen blocks are
- * uploaded once, and its per-stage combination is formed here.
+ * The execution twin of solprop's `NumpyWorkspace.channels` and of
+ * `numpy_ref/coupled_flow.py` (`apply_flow`, `residual_drive`): on the bins a section's
+ * generator is non-zero at, the interaction picture of a coupled block carries every
+ * stage input forward by `U(c_i h)` and its source back by `U(c_i h)^-1`, the accepted
+ * step forward by `U(h)`, and a frozen-residual flow adds `R_s(z_i) u` to each stage's
+ * lab-frame source before it is carried back. The actions themselves are formed by the
+ * host adapter from the section's Schur factors (as solprop's reference forms them) and
+ * uploaded into persistent Views only when the step's section or length changes; the
+ * residual's terms and frozen blocks are uploaded once, and its per-stage combination
+ * is formed here.
  *
  * Every product is a fixed-order serial loop over the channel axis inside one output
  * element, so the result does not depend on the thread count. All Views are

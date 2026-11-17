@@ -55,11 +55,9 @@ from march_bounds import FIXED_ORDER
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from sessions.runs import bare, final_field
 from solprop.backends import available
+from solprop.backends.exponential import FLOW_MAX_SQUARINGS
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.coupled_flow import (
-    _MAX_FLOW_SQUARINGS,
-    _triangular_exponential,
-)
+from solprop.backends.numpy_ref.coupled_flow import _triangular_exponential
 from solprop.boundaries import absorber
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation, prop_capillary
@@ -987,7 +985,7 @@ def test_a_flow_action_that_needs_squaring_is_the_exponential_all_the_same():
 
 def test_an_exponent_too_large_to_square_is_refused():
     """A flow action needing more squarings than are admitted is named, not tried."""
-    huge = np.full((1, 2, 2), 2.0 ** (_MAX_FLOW_SQUARINGS + 2), dtype=complex)
+    huge = np.full((1, 2, 2), 2.0 ** (FLOW_MAX_SQUARINGS + 2), dtype=complex)
     with pytest.raises(BackendError, match="squarings"):
         _triangular_exponential(huge)
 

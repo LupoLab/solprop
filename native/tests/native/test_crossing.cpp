@@ -4,7 +4,8 @@
 
 // Tests of the crossing ring (`runtime/crossing.hpp`): every byte crosses both ways at
 // each size, the ring holds nothing before its first crossing and after its release,
-// takes no turn on a host build or below its threshold, and `host_buffer` is writable.
+// takes no turn on a host build or below its threshold, and `host_buffer` is writable
+// and refuses a size that overflows.
 
 #include "solprop_native/runtime/crossing.hpp"
 
@@ -12,7 +13,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <numeric>
+#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -80,6 +83,18 @@ TEST(HostBuffer, GivesWritableMemoryOfEitherSize) {
     buffer[count - 1] = 2.0;
     EXPECT_EQ(buffer[count - 1], 2.0);
   }
+}
+
+// A count whose bytes, or a large buffer's huge-page round-up, would wrap is refused
+// before anything is allocated, rather than allocating the wrapped, smaller size.
+TEST(HostBuffer, RefusesACountWhoseSizeOverflows) {
+  constexpr std::size_t most = std::numeric_limits<std::size_t>::max();
+  EXPECT_THROW(static_cast<void>(host_buffer(most / sizeof(double) + 1)),
+               std::length_error);
+#if defined(__linux__) && (defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP))
+  EXPECT_THROW(static_cast<void>(host_buffer(most / sizeof(double))),
+               std::length_error);
+#endif
 }
 
 } // namespace

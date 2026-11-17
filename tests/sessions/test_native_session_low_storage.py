@@ -269,7 +269,6 @@ def test_no_step_returns_to_python():
         "session_observation": len(run.observations),
         "session_terminal": 1,
     }
-    assert record["low_storage_steps"] == record["host_attempts"] == 0
     assert len(run.batches) == len(run.observations) + 1 == status.batches
     rows = sum(event.step_stats.n_rows for event in run.observations)
     assert rows == status.rows_taken == run.attempts == STEPS

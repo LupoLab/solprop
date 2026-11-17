@@ -107,8 +107,7 @@ _REASONS = (
     "stopped",
     "halted",
 )
-"""Why a native march call returned (``march::Reason``), by name, in its order; the
-benchmark counters (:mod:`solprop_native._counters`) report these names."""
+"""Why a native march call returned (``march::Reason``), by name, in its order."""
 (
     _REACHED,
     _HOST_STEP,
@@ -265,8 +264,9 @@ class _NativeAdamsMarch:
     ) -> tuple[dict[str, object], ...]:
         """Return a snapshot's rows as the workspace takes them, for a state of `shape`.
 
-        The rows keep ``HostHistory``'s names and layout, ``(n_slots, n_modes,
-        n_pol, n_omega)``: ``"store"`` and, compensated, ``"states"`` and
+        The rows keep the reference's names and layout (``AdamsRows.export``,
+        ``numpy_ref/multistep.py``), ``(n_slots, n_modes, n_pol, n_omega)``:
+        ``"store"`` and, compensated, ``"states"`` and
         ``"rates"``. A frozen-residual flow's history holds each sample's generator
         applied to its state, ``"applied"``, where the host engine holds the sample's
         weights (``"weights_<row>"``); the two are not interchangeable, and each engine
@@ -359,7 +359,8 @@ class _NativeAdamsMarch:
             "collar_was_quiet": self._collar_was_quiet,
             "cursor": int(cursor),
             "history": [
-                (entry.z, entry.identity, entry.slot) for entry in self._history
+                {"z": entry.z, "identity": entry.identity, "row": entry.slot}
+                for entry in self._history
             ],
             "ledger": {name: getattr(ledger, name) for name in _MARCH_COUNTERS},
             "watch": dict(FRESH_WATCH),

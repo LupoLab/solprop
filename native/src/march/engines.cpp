@@ -79,7 +79,8 @@ void ResidentEngine::trial(const double z, const double dz,
   state_.host_evaluation(z + dz, HostPurpose::predictor);
   if (fused_) {
     // The interaction formulation: the history transported to the anchor, the
-    // source evaluated at the step's end (solprop's `HostHistory.fused_trial`).
+    // source evaluated at the step's end (solprop's `InteractionHistory._trial`,
+    // `numpy_ref/multistep.py`).
     const auto weights = stage::fused_weights(stencil.nodes.data(), stencil.held,
                                               stencil.rows.data(), slots, stencil.order,
                                               stencil.orders.data(), stencil.n_orders);
@@ -97,7 +98,7 @@ void ResidentEngine::trial(const double z, const double dz,
                                 stencil.n_orders, compensated_);
   const double end = z + dz;
   if (tables_.chord != stage::Chord::none) {
-    // The carrier frame (solprop's `HostHistory.exponential_trial`): the chord's shift
+    // The carrier frame (solprop's `ExponentialHistory._trial`): the chord's shift
     // and each history row's rotation exp(i shift (1 - theta_t)).
     const double shift = stage::chord(tables_, z, end);
     const std::size_t rows = weights.width - 1;
@@ -145,7 +146,7 @@ void ResidentEngine::accept(const double dz, const std::size_t free,
 }
 
 double ResidentEngine::chord_phase(const double z1, const double z2) {
-  // One batch member per native state: its phase is the batch's largest.
+  // The chord's largest phase over the interval (`HostHistory.chord_phase`).
   return std::fabs(stage::chord(tables_, z1, z2));
 }
 
@@ -258,8 +259,8 @@ double GeneralResident::quadrature_peak() { return state_.quadrature_peak(); }
 transverse::Reading GeneralResident::edge_reading(const bool faces, const bool whole,
                                                   const bool totals, const bool strip,
                                                   const bool current) {
-  // The state's reading where it lives (solprop SEP 44), laid out as
-  // `NativeBackend._edge_reading` lays it out: the faces' four sums, then the clip's
+  // The state's reading where it lives (solprop SEP 44), laid out as the reference's
+  // `NumpyWorkspace.edge_reading` lays it out: the faces' four sums, then the clip's
   // and the totals' for every node, or a collar's totals alone.
   const EdgeNumbers numbers = state_.edge_reading(faces, whole, totals, strip, current);
   transverse::Reading reading;
@@ -289,8 +290,8 @@ transverse::Reading GeneralResident::edge_reading(const bool faces, const bool w
 }
 
 void GeneralResident::set_collar_quiet(const bool quiet) {
-  // `NativeBackend._collar_changed`: the reused stage was evaluated under the other
-  // setting, so it is dropped.
+  // As the reference's `HostSession._set_collar_quiet`: the reused stage was evaluated
+  // under the other setting, so it is dropped.
   state_.set_absorber_quiet(quiet);
   state_.clear_fsal();
 }

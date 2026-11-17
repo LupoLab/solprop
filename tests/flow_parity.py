@@ -108,12 +108,9 @@ from modal_provider_cases import (
     split_basis,
 )
 from sessions.runs import bare, final_field
+from solprop.backends.exponential import FLOW_TAYLOR_ORDER, FLOW_TAYLOR_SCALE
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.coupled_flow import (
-    _TAYLOR_ORDER,
-    _TAYLOR_SCALE,
-    held_flow,
-)
+from solprop.backends.numpy_ref.coupled_flow import held_flow
 from solprop.backends.numpy_ref.source import _general_maps
 from solprop.boundaries import absorber
 from solprop.driver import Simulation
@@ -335,7 +332,7 @@ class FlowScales:
     formation: float = 0.0
 
 
-HARMONIC_16 = sum(1.0 / term for term in range(1, _TAYLOR_ORDER + 1))
+HARMONIC_16 = sum(1.0 / term for term in range(1, FLOW_TAYLOR_ORDER + 1))
 """``H_16``, the sum of the Horner steps' ``1 / k``."""
 
 
@@ -350,7 +347,7 @@ def horner_rounding(n_modes, scaled):
     ``scaled`` is the scaled matrix's norm ``a``; the module's docstring derives it.
     """
     gamma = product_rounding(n_modes)
-    tail = scaled ** (_TAYLOR_ORDER + 1) * math.exp(scaled) / math.factorial(17)
+    tail = scaled ** (FLOW_TAYLOR_ORDER + 1) * math.exp(scaled) / math.factorial(17)
     return (
         16.0 * UNIT
         + ((gamma + 2.0 * UNIT) * n_modes + UNIT)
@@ -389,9 +386,9 @@ def reference_formation_bound(n_modes, norm, squarings):
 
 def reference_squarings(row_sum):
     """Return the squarings solprop's reference takes at a row-sum norm."""
-    if row_sum <= _TAYLOR_SCALE:
+    if row_sum <= FLOW_TAYLOR_SCALE:
         return 0
-    return math.ceil(math.log2(row_sum / _TAYLOR_SCALE))
+    return math.ceil(math.log2(row_sum / FLOW_TAYLOR_SCALE))
 
 
 AUGMENTED_WEIGHTS = (0.125, 0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0)
@@ -512,8 +509,8 @@ def section_formation_bounds(vectors, triangular, lengths, certificate, route=No
         largest = length * rows
         squarings = (
             0
-            if largest <= _TAYLOR_SCALE
-            else math.ceil(math.log2(largest / _TAYLOR_SCALE))
+            if largest <= FLOW_TAYLOR_SCALE
+            else math.ceil(math.log2(largest / FLOW_TAYLOR_SCALE))
         )
         reference = np.array(
             [

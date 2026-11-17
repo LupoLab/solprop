@@ -11,6 +11,7 @@
 #include "solprop_native/runtime/crossing.hpp"
 
 #include "solprop_native/runtime/build.hpp"
+#include "solprop_native/runtime/setup_data.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -99,12 +100,14 @@ bool takes_ring(const std::size_t bytes) noexcept {
 void BufferDeleter::operator()(double* pointer) const noexcept { std::free(pointer); }
 
 HostBuffer host_buffer(const std::size_t count) {
-  const std::size_t bytes = count * sizeof(double);
+  // Checked before anything is allocated: a wrapped size would allocate too little.
+  const std::size_t bytes = checked_product(count, sizeof(double), "a host buffer's");
 #ifdef __linux__
   if (takes_ring(bytes)) {
     // The size huge pages come in, which a large buffer is aligned to.
     constexpr std::size_t huge_page = std::size_t{2} << 20;
-    const std::size_t rounded = (bytes + huge_page - 1) / huge_page * huge_page;
+    const std::size_t rounded =
+        checked_sum(bytes, huge_page - 1, "a host buffer's") / huge_page * huge_page;
     auto* pointer = static_cast<double*>(std::aligned_alloc(huge_page, rounded));
     if (pointer == nullptr)
       throw std::bad_alloc{};

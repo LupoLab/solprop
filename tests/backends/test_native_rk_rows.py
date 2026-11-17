@@ -174,9 +174,7 @@ def test_the_native_flow_guards_refuse_as_the_host_s(route, monkeypatch):
     tiny = 1e-12
     # Both refuse at the first stage length past the scale, in the nodes' order.
     first = next(float(f) * dz * float(flow.row_sum[section]) for f in fractions if f)
-    monkeypatch.setattr(backend_module, "_TAYLOR_SCALE", tiny)
-    expected = _refusal(lambda: flow_squarings(backend_module, first))
-    monkeypatch.undo()
+    expected = _refusal(lambda: flow_squarings(first, scale=tiny))
     backend, _, _ = _guarded(route, monkeypatch, taylor_scale=tiny)
     try:
         assert _refusal(lambda: native_trial(backend, z, dz)) == expected

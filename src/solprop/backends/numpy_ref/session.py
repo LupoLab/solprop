@@ -1208,8 +1208,8 @@ class HostSession:
         z = self._march.state.z
         dense = self._method.dense
         if not self._stopped_short and dense is not None and dense.crosses(z, target):
-            # `_observe_inside` and the Adams march's observation: the state becomes
-            # the crossing step's interpolated field at the plane, the committed state
+            # The method's dense observation (`Dense.observe`): the state becomes the
+            # crossing step's interpolated field at the plane, the committed state
             # held aside, and the plane is observed there (SEP 47 section 5.3).
             dense.observe(target)
             self._observed = True

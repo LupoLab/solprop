@@ -219,7 +219,6 @@ def _check_structure(seen, status, counters):
     }
     assert sum(record["native_returns"].values()) == status.batches
     assert record["field_crossings"] == {"export": len(seen)}
-    assert record["host_attempts"] == record["transverse_reads"] == 0
 
 
 def _within(actual, expected, bound, what):

@@ -19,9 +19,9 @@
 // history's rows, the trial's predictor, source, corrected field and defect norms, the
 // adoption and transport of an accepted step and dense observation all stay in device
 // memory; only the trial's scalars, its coefficient tables (by value, in AdamsWeights)
-// and the norms cross. Each pass is the host engine's arithmetic (solprop's
-// backends/numpy_ref/multistep.py, HostHistory and AdamsKernels), checked against it
-// in parity.
+// and the norms cross. Each pass is the reference engine's arithmetic (solprop's
+// numpy_ref/multistep.py, `HostHistory`, and numpy_ref/adams_kernels.py,
+// `AdamsKernels`), checked against it in parity.
 
 void GeneralWorkspace::adams_allocate(const std::size_t slots, const bool compensated,
                                       const bool interpolate) {
@@ -3429,7 +3429,7 @@ void GeneralWorkspace::rk_dense_observe(const double theta, const TrialScalars& 
   mask(current_);
   stash_is_current_ = false;
   // A plane inside a step already taken has no quadrature score of its own, as on
-  // the driver's path, which reloads the observed field.
+  // the reference's path, which installs the observed field.
   quadrature_error_ = Kokkos::Experimental::quiet_NaN_v<double>;
   quadrature_stale_ = false;
   execution_space_.fence("solprop_native Runge-Kutta observation boundary");
@@ -3439,9 +3439,10 @@ void GeneralWorkspace::rk_dense_restore() {
   if (rk_dense_held_.extent(0) == 0)
     throw std::logic_error("Runge-Kutta dense output storage is not allocated");
   graph::deep_copy(execution_space_, current_, rk_dense_held_);
-  // As the driver's march reloads the committed state (`_adams_restore`): the next
+  // As the reference reloads the committed state (`RungeKuttaDense.restore`,
+  // numpy_ref/dense.py), whose engine evaluates every step's first stage: the next
   // step evaluates its first stage afresh rather than reuse the crossing step's last,
-  // so that the session's run is the driver's whatever FFT plans round each.
+  // so that the session's run is the reference's whatever FFT plans round each.
   clear_fsal();
   execution_space_.fence("solprop_native Runge-Kutta restore boundary");
 }
