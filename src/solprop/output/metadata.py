@@ -168,21 +168,24 @@ def _refuse_schema(declared: object) -> None:
     """
     if type(declared) is int and declared == SCHEMA_VERSION:
         return
-    # A bool equals 0 or 1 but is not a schema number, so it names no release.
-    release = _WRITTEN_BY.get(declared) if type(declared) is int else None
-    remedy = (
-        "read it with the solprop version that wrote it"
-        if release is None
-        else f"output schema {declared} is solprop {release}.x's: read it with that "
-        "release"
-    )
     msg = (
         f"this record declares output schema_version {declared!r}, and this release "
         f"of solprop reads output schema {SCHEMA_VERSION} only: a file written by an "
         "earlier release, by a development version of solprop or by a later release is "
-        f"not read; {remedy}"
+        f"not read; {_schema_remedy(declared)}"
     )
     raise OutputError(msg)
+
+
+def _schema_remedy(declared: object) -> str:
+    """Say which solprop reads a file of another output schema: its release if known."""
+    # A bool equals 0 or 1 but is not a schema number, so it names no release.
+    release = _WRITTEN_BY.get(declared) if type(declared) is int else None
+    if release is None:
+        return "read it with the solprop version that wrote it"
+    return (
+        f"output schema {declared} is solprop {release}.x's: read it with that release"
+    )
 
 
 def _stored_hashed(document: Mapping[str, JsonValue]) -> dict[str, JsonValue]:

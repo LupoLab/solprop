@@ -161,14 +161,20 @@ def test_a_lock_failure_naming_another_writer_is_no_live_writer(tmp_path, monkey
     assert not resumable_module._writer_alive(directory / "file.h5")
 
 
-def test_a_file_of_another_schema_is_named(tmp_path):
+@pytest.mark.parametrize("declared", [1, 2], ids=["0.1.0", "0.2.0"])
+def test_a_file_of_another_schema_is_named(tmp_path, declared):
+    # A file 0.1.0 or 0.2.0 wrote is not resumed, and the answer names its release.
     path = tmp_path / "old.h5"
     _stopped(path)
     with h5py.File(path, "r+") as file:
-        file.attrs["schema_version"] = 1
+        file.attrs["schema_version"] = declared
     answer = resumability(path)
     assert not answer.resumable
-    assert answer.reason is not None and "output schema 1" in answer.reason
+    assert answer.reason == (
+        f"the file is of output schema {declared}, and this solprop reads 3 only; "
+        f"output schema {declared} is solprop 0.{declared}.x's: read it with that "
+        "release"
+    )
 
 
 def test_a_failure_before_any_plane_leaves_nothing_to_continue(tmp_path):

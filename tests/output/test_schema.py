@@ -557,7 +557,7 @@ def test_the_output_schema_is_the_current_one(envelope_grid, stepper):
 @pytest.mark.parametrize(
     "declared",
     [0, 1, 2, 10, 28, SCHEMA_VERSION + 1, True],
-    ids=["zero", "first-release", "last-release", "ten", "last", "later", "bool"],
+    ids=["zero", "0.1.0", "0.2.0", "ten", "last", "later", "bool"],
 )
 def test_a_record_of_another_output_schema_is_refused_by_name(
     envelope_grid, stepper, declared

@@ -1371,11 +1371,17 @@ def test_five_columns_continue_as_before(grid, metadata, tmp_path):
     assert hdf5_module.check_cache(path, metadata)
 
 
-@pytest.mark.parametrize("declared", [1, 2, 10, 28, SCHEMA_VERSION + 1])
+@pytest.mark.parametrize(
+    "declared",
+    [1, 2, 10, 28, SCHEMA_VERSION + 1],
+    ids=["0.1.0", "0.2.0", "ten", "last", "later"],
+)
 def test_a_file_of_another_output_schema_is_refused_by_name(
     grid, metadata, tmp_path, declared
 ):
-    """A development file or one from a later release is not read, at any door.
+    """A released file, a development file or one from a later release is not read.
+
+    Every door refuses it: reading, resuming, the cache check and appending.
 
     The file is a current one whose record is restamped with another version, so the
     refusal is the version's and not that of some field the layout lacks.
@@ -1398,9 +1404,10 @@ def test_a_file_of_another_output_schema_is_refused_by_name(
         rf"^{re.escape(str(path))}: this record declares output schema_version "
         rf"{declared}.*reads output schema 3 only.*"
         + (
-            rf"solprop 0\.{declared}\.x's"
+            rf"; output schema {declared} is solprop 0\.{declared}\.x's: read it with "
+            "that release$"
             if declared in {1, 2}
-            else "version that wrote"
+            else "; read it with the solprop version that wrote it$"
         )
     )
     with pytest.raises(OutputError, match=refusal):
