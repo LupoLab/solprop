@@ -878,14 +878,29 @@ def _columns(
       (rad/m), in m, shape ``(n_modes, n_k)``.
     - Returns: as :func:`target_columns`.
     """
+    kappa, phase = _column_geometry(space)
+    transform = hankel(kappa)
+    if phase is None:
+        return transform.astype(np.complex128)
+    return transform * phase[None, :]
+
+
+def _column_geometry(
+    space: RadialGrid | FreeGrid,
+) -> tuple[Float[np.ndarray, " n_columns"], Complex[np.ndarray, " n_columns"] | None]:
+    r"""Return each column's transverse wavenumber and its factor on a Hankel transform.
+
+    - Returns: the wavenumbers, rad/m, and None on a radial grid, whose columns are
+      the transform itself; on a Cartesian grid :math:`2\pi` times the raw DFT's
+      origin phase over the cell area.
+    """
     if isinstance(space, RadialGrid):
-        return hankel(np.asarray(space.k_r)).astype(np.complex128)
+        return np.asarray(space.k_r), None
     kx = np.tile(space.k_x, space.n_y)
     ky = np.repeat(space.k_y, space.n_x)
-    transform = 2.0 * np.pi * hankel(np.hypot(kx, ky))
     area = float(space.spatial_weights[0])
-    origin = np.exp(1j * (kx * space.x[0] + ky * space.y[0])) / area
-    return transform * origin[None, :]
+    phase = 2.0 * np.pi * np.exp(1j * (kx * space.x[0] + ky * space.y[0])) / area
+    return np.hypot(kx, ky), phase
 
 
 def _channels(
@@ -1298,7 +1313,6 @@ def _beam_leaky(
     """
     jones, mode_of = channels
     space = cast("RadialGrid | FreeGrid", plane.basis.space)
-    weights = np.asarray(space.spectral_weights)
     delta_all = cast("np.ndarray", profiles.leaky(plane.grid.omega))
     result = np.zeros(plane.grid.n_omega)
     live = np.flatnonzero(occupied & (delta_all > 0.0) & (delta_all <= _LEAKY_TOP))
@@ -1307,25 +1321,21 @@ def _beam_leaky(
     radius = profiles.radius
     u, profile_of = np.unique(profiles.u, return_inverse=True)
     count = _leaky.taylor_count(float(np.max(u) * np.max(delta_all[live])))
-    columns = _columns(lambda kappa: _taylor_transforms(u, kappa, radius, count), space)
-    weighted = columns.conj() * weights[None, :]
     n_pol = samples.shape[1]
+    terms_all, energy_all = _taylor_overlaps(samples, space, live, (u, radius, count))
     projection = jones[:, :n_pol]
     exact = profiles.gram()[np.ix_(mode_of, mode_of)] * (jones @ jones.T)
     pairs = jones @ jones.T
     channel_profile = profile_of[mode_of]
     scalar_norm = np.sqrt(math.pi) * radius * np.abs(j1(u))
     powers = np.arange(count)
-    for block in np.array_split(live, -(-live.size // _LEAKY_CHUNK)):
-        field = samples[:, :, block]
-        # The beam's overlap with every Taylor term, per polarisation then channel.
-        terms = np.einsum("tj,jpw->wpt", weighted, field).reshape(
-            block.size, n_pol, count, u.size
-        )
+    for rows in np.array_split(np.arange(live.size), -(-live.size // _LEAKY_CHUNK)):
+        block = live[rows]
+        terms = terms_all[rows].reshape(block.size, n_pol, count, u.size)
         per_channel = np.einsum(
             "cp,wpnc->wcn", projection, terms[:, :, :, channel_profile]
         )
-        energy = np.einsum("j,jpw,jqw->wpq", weights, field.conj(), field)
+        energy = energy_all[rows]
         power = np.real(np.einsum("wpp->w", energy))
         channel_energy = np.real(
             np.einsum("cp,wpq,cq->wc", projection, energy, projection)
@@ -1357,6 +1367,48 @@ def _beam_leaky(
             error,
         )
     return result
+
+
+_COLUMN_BLOCK = 1 << 22
+"""Most complex values of a block of a plane's columns held at once, about 64 MiB:
+the Taylor overlaps stream over a plane's columns in blocks of this size."""
+
+
+def _taylor_overlaps(
+    samples: Complex[np.ndarray, "n_columns n_pol n_omega"],
+    space: RadialGrid | FreeGrid,
+    live: np.ndarray,
+    taylor: tuple[Float[np.ndarray, " n_modes"], float, int],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return a plane's overlaps with the Taylor terms, and its energy, on given bins.
+
+    Streamed over the plane's columns, so no array of the plane's size times the
+    terms or the bins is ever formed: a 512 x 512 plane with 14 terms of 24 profiles
+    would otherwise need gigabytes.
+
+    - ``live``: the bins, indices into the frequency axis.
+    - ``taylor``: the profiles' J0 zeros, the core radius in m and the term count.
+    - Returns: ``int conj(column) f`` per bin, polarisation and term, shape
+      ``(n_live, n_pol, n_terms)``, and the energy matrix ``sum_j w f_p^* f_q`` per
+      bin, shape ``(n_live, n_pol, n_pol)``.
+    """
+    u, radius, count = taylor
+    kappa, phase = _column_geometry(space)
+    weights = np.asarray(space.spectral_weights)
+    n_pol = samples.shape[1]
+    terms = np.zeros((live.size, n_pol, count * u.size), dtype=np.complex128)
+    energy = np.zeros((live.size, n_pol, n_pol), dtype=np.complex128)
+    step = max(64, _COLUMN_BLOCK // max(n_pol * live.size, count * u.size))
+    for start in range(0, kappa.size, step):
+        cols = slice(start, start + step)
+        factor = (
+            weights[cols] if phase is None else weights[cols] * np.conj(phase[cols])
+        )
+        weighted = _taylor_transforms(u, kappa[cols], radius, count) * factor[None, :]
+        field = samples[cols][:, :, live]
+        terms += np.einsum("tj,jpw->wpt", weighted, field)
+        energy += np.einsum("j,jpw,jqw->wpq", weights[cols], field.conj(), field)
+    return terms, energy
 
 
 def _taylor_transforms(
