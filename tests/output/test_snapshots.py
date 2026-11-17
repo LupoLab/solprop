@@ -14,7 +14,7 @@ import h5py
 import numpy as np
 import pytest
 
-from solprop.exceptions import OutputError
+from solprop.exceptions import OutputError, OutputRequestError
 from solprop.output import (
     HDF5Output,
     RunOutcome,
@@ -67,13 +67,13 @@ def generation(working):
 
 @pytest.mark.parametrize("interval", [0, -1, float("inf"), float("nan"), True])
 def test_invalid_interval_is_refused(tmp_path, interval):
-    with pytest.raises(OutputError, match="interval"):
+    with pytest.raises(OutputRequestError, match="interval"):
         SnapshotController(tmp_path, interval_seconds=interval)
 
 
 @pytest.mark.parametrize("capacity", [0, -1, True, 1.5])
 def test_invalid_capacity_is_refused(tmp_path, capacity):
-    with pytest.raises(OutputError, match="max_snapshots"):
+    with pytest.raises(OutputRequestError, match="max_snapshots"):
         inspect.unwrap(SnapshotController.__init__)(
             SnapshotController.__new__(SnapshotController),
             tmp_path,
