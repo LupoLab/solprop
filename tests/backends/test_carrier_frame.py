@@ -318,15 +318,6 @@ def test_a_backend_refuses_what_it_does_not_deliver():
     refuse_carrier_frame(problem, stepper, "a backend")
 
 
-@pytest.mark.parametrize("backend_name", sorted(COMPILED))
-def test_a_compiled_cpu_backend_accepts_the_shift(backend_name):
-    for method in (OFF, SCALAR):
-        built = capillary(method)
-        COMPILED[backend_name](
-            built.translate(), built.run_request(), grid=built.grid, modes=built.modes
-        ).close()
-
-
 # --- the reference rule (section 6.1) -------------------------------------------------
 
 

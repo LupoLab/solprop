@@ -54,14 +54,15 @@ def radial_blas_case(n_r, n_pol, chunk, duration):
 
 @pytest.mark.parametrize(("n_r", "n_pol", "chunk", "duration"), RADIAL_BLAS_CASES)
 def test_radial_real_blas_preserves_transform_and_memory_contract(
-    spatial_backend_class, n_r, n_pol, chunk, duration, request
+    spatial_equivalence_backend_class, n_r, n_pol, chunk, duration, request
 ):
+    backend_class = spatial_equivalence_backend_class
     grid, problem, run_request, options = radial_blas_case(n_r, n_pol, chunk, duration)
     # Two radial reductions and temporal transforms, with the existing chunk
     # ladder's association allowance, fixed before either backend runs.
     bound = gamma(64 * n_r + 32 * grid.n_to)
     reference = derivative(NumpyRefBackend, problem, run_request, grid, options)
-    actual = derivative(spatial_backend_class, problem, run_request, grid, options)
+    actual = derivative(backend_class, problem, run_request, grid, options)
     np.testing.assert_allclose(
         actual, reference, rtol=0, atol=bound * np.max(np.abs(reference))
     )
@@ -71,28 +72,27 @@ def test_radial_real_blas_preserves_transform_and_memory_contract(
         f"r={n_r}, p={n_pol}, chunk={chunk}, time={grid.n_to}",
         np.max(np.abs(actual - reference)) / np.max(np.abs(reference)),
         bound,
-        spatial_backend_class.name,
+        backend_class.name,
     )
-    backend = spatial_backend_class(problem, run_request, grid=grid, options=options)
+    backend = backend_class(problem, run_request, grid=grid, options=options)
     try:
         metadata, ledger = backend.metadata(), backend.memory_ledger()
-        if backend.name == "native":
-            # Device builds keep their existing provider.
-            packed = str(metadata["synthesis_provider"]).endswith("-packed-real")
-            eligible = (
-                metadata["device_backend"] == "none"
-                and n_pol == 1
-                and chunk == n_r
-                and n_r >= 256
-                and grid.n_to >= 256
-                and 22 * 16 * n_r * grid.n_to <= 64 * 1024 * 1024
-            )
-            assert packed == eligible
-            if packed:
-                assert n_pol == 1 and chunk == n_r
-                assert ledger["radial_blas_buffers"] == 32 * n_r * grid.n_to
-                assert 22 * 16 * n_r * grid.n_to <= 64 * 1024 * 1024
-            else:
-                assert ledger["radial_blas_buffers"] == 0
+        # Device builds keep their existing provider.
+        packed = str(metadata["synthesis_provider"]).endswith("-packed-real")
+        eligible = (
+            metadata["device_backend"] == "none"
+            and n_pol == 1
+            and chunk == n_r
+            and n_r >= 256
+            and grid.n_to >= 256
+            and 22 * 16 * n_r * grid.n_to <= 64 * 1024 * 1024
+        )
+        assert packed == eligible
+        if packed:
+            assert n_pol == 1 and chunk == n_r
+            assert ledger["radial_blas_buffers"] == 32 * n_r * grid.n_to
+            assert 22 * 16 * n_r * grid.n_to <= 64 * 1024 * 1024
+        else:
+            assert ledger["radial_blas_buffers"] == 0
     finally:
         backend.close()
