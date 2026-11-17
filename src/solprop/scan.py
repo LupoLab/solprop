@@ -63,8 +63,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             epilog=_COLLECT_HELP,
             formatter_class=argparse.RawDescriptionHelpFormatter,
         )
-        parser.add_argument("queue", type=Path)
-        parser.add_argument("--output", "-o", type=Path, required=True)
+        parser.add_argument("queue", type=Path, help="the shared queue directory")
+        parser.add_argument(
+            "--output", "-o", type=Path, required=True, help="the scan file to write"
+        )
         args = parser.parse_args(arguments[1:])
         collect(args.queue, args.output)
         return 0
@@ -94,25 +96,87 @@ def _parser() -> argparse.ArgumentParser:
         epilog=_COLLECT_HELP,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("script", type=Path)
-    parser.add_argument("--local", action="store_true")
-    parser.add_argument("--queue", type=Path)
-    parser.add_argument("--chunk")
-    parser.add_argument("--submit", action="store_true")
-    parser.add_argument("--emit-slurm", type=Path)
-    parser.add_argument("--workers", type=int)
-    parser.add_argument("--threads", type=int, default=1)
-    parser.add_argument("--memory-limit", type=int)
-    parser.add_argument("--fresh", action="store_true")
-    parser.add_argument("--stale-age", type=float, default=600.0)
-    parser.add_argument("--ntasks", type=int, default=1)
-    parser.add_argument("--cpus-per-task", type=int, default=1)
-    parser.add_argument("--mem", default="4G")
-    parser.add_argument("--time", default="01:00:00")
-    parser.add_argument("--partition")
-    parser.add_argument("--gres")
-    parser.add_argument("--mode", choices=("queue", "chunk"), default="queue")
-    parser.add_argument("--instances", type=int, default=0)
+    parser.add_argument("script", type=Path, help="the scan script to run")
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="run every point in this process, one after another",
+    )
+    parser.add_argument(
+        "--queue", type=Path, help="the shared queue directory to claim points from"
+    )
+    parser.add_argument(
+        "--chunk",
+        help="claim only chunk k of n of the points, zero-based, written k/n",
+    )
+    parser.add_argument(
+        "--submit", action="store_true", help="submit the scan as a Slurm array"
+    )
+    parser.add_argument(
+        "--emit-slurm",
+        type=Path,
+        help="write the Slurm array script to this file instead of submitting it",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        help="the most worker processes (default: as the CPUs and memory admit)",
+    )
+    parser.add_argument(
+        "--threads", type=int, default=1, help="threads per worker (default: 1)"
+    )
+    parser.add_argument(
+        "--memory-limit",
+        type=int,
+        help="the memory the workers may use, in bytes (default: the allocation's)",
+    )
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="start a fresh interpreter for every point",
+    )
+    parser.add_argument(
+        "--stale-age",
+        type=float,
+        default=600.0,
+        help="seconds after which a remote claim on a point lapses (default: 600)",
+    )
+    parser.add_argument(
+        "--ntasks", type=int, default=1, help="Slurm array tasks (default: 1)"
+    )
+    parser.add_argument(
+        "--cpus-per-task",
+        type=int,
+        default=1,
+        help="CPUs allocated to each Slurm task (default: 1)",
+    )
+    parser.add_argument(
+        "--mem",
+        default="4G",
+        help="memory for each Slurm task, MiB without a K/M/G/T suffix (default: 4G)",
+    )
+    parser.add_argument(
+        "--time",
+        default="01:00:00",
+        help="the Slurm wall-clock limit of each task (default: 01:00:00)",
+    )
+    parser.add_argument("--partition", help="the Slurm partition")
+    parser.add_argument(
+        "--gres", help="Slurm generic resources for each task, for example gpu:1"
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("queue", "chunk"),
+        default="queue",
+        help="Slurm tasks claim points from a shared queue, or each runs a disjoint "
+        "chunk (default: queue)",
+    )
+    parser.add_argument(
+        "--instances",
+        type=int,
+        default=0,
+        help="controllers per Slurm task; 0 runs one (default: 0)",
+    )
     return parser
 
 

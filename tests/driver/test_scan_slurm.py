@@ -366,6 +366,15 @@ def test_cli_help_documents_the_collect_mode(capsys):
     assert "collect QUEUE --output OUT.h5" in capsys.readouterr().out
 
 
+def test_cli_help_explains_every_option():
+    from solprop.scan import _parser  # noqa: PLC0415 - the parser the help prints
+
+    unexplained = [
+        action.dest for action in _parser()._actions if not (action.help or "").strip()
+    ]
+    assert unexplained == []
+
+
 def test_slurm_production_guard_refuses_unknown_mode_without_session_hook():
     with pytest.raises(DriverError, match="mode must be"):
         inspect.unwrap(Slurm.__init__)(Slurm.__new__(Slurm), "scan.py", mode="unknown")
