@@ -199,7 +199,9 @@ class SimulationSettings(Displayed):
         reject-free controller.
     interval_cap : bool or None
         Whether a step is capped at the width of its operator-table interval. ``None``
-        caps it only for a coupled flow or a reject-free controller (SEP 14).
+        caps it only for a coupled flow or a reject-free controller (SEP 14). An Adams
+        integrator caps by its own ``Multistep(interval_cap=...)``; a different value
+        here is refused.
     interpolate_planes : bool
         Observe the save planes inside accepted steps instead of landing on them (SEP
         14 phase 3): through the Adams march's own polynomial or, with

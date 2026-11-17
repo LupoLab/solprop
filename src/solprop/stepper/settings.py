@@ -113,7 +113,10 @@ class StepperSettings:
         Whether a step is capped at the width of the operator-table interval it starts
         in. The cumulative table makes the flow exact across intervals, so the cap is
         off on the diagonal-flow routes and on for a coupled flow, whose flow error the
-        embedded estimate does not see (SEP 14 section 4.1).
+        embedded estimate does not see (SEP 14 section 4.1). The Runge-Kutta and
+        low-storage marches read it; an Adams march caps by its method's own
+        :attr:`~solprop.stepper.multistep.Multistep.interval_cap`, which ``assemble``
+        records here.
     auto_init : bool
         Whether the start-up rule takes the step after the first from the first step's
         own error estimate (``PIController.start_factor``); ``False`` grows from

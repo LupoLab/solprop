@@ -941,9 +941,21 @@ def _stepper_settings(
     an overshoot, so both keep the version-16 policy: the interval cap and no start-up
     rule.
 
-    - ``interval_cap``: the interval cap asked for; ``None`` takes the route's.
+    - ``interval_cap``: the interval cap asked for; ``None`` takes the route's. The
+      Adams march caps by its method's own ``interval_cap`` (ADR-037), which is what
+      is recorded; a different request is refused.
     """
     restrained = linear.coupled_flow is not None or controller.reject_free
+    method = fields.get("integrator")
+    if isinstance(method, Multistep):
+        if interval_cap is not None and interval_cap != method.interval_cap:
+            msg = (
+                f"interval_cap={interval_cap} would be ignored: Multistep() caps its "
+                f"steps by its own interval_cap. Use "
+                f"Multistep(interval_cap={interval_cap}), or leave interval_cap unset"
+            )
+            raise TranslationError(msg)
+        interval_cap = method.interval_cap
     return StepperSettings(
         controller=controller,
         interval_cap=restrained if interval_cap is None else interval_cap,
@@ -1083,6 +1095,8 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
     interval_cap : bool or None, optional
         Whether a step is capped at its operator-table interval's width. ``None`` caps
         it only for a coupled flow or a reject-free controller (SEP 14 section 4.1).
+        An Adams `integrator` caps by its own ``interval_cap``, which ``None`` takes and
+        a different value is refused.
     auto_init : bool, optional
         Whether the start-up rule chooses the step after the first; `dz_init` is the
         first. Default ``False``, the convenience interfaces' choice when no `dz_init`
