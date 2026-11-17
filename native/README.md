@@ -121,7 +121,7 @@ and `tests/test_band_stress.py` with `SOLPROP_NATIVE_BAND_TILES=4`; on a GPU,
 
 ```sh
 uv run poe check-native   # at the repository root; runs native/scripts/check.sh
-uv run poe check-all      # solprop's gate, then this one
+uv run poe check-all      # solprop's, this and the front end's gates (gui extra)
 uv run poe fmt-native     # format every tracked C++ file in place
 uv run poe tidy-native    # clang-tidy on the C++ files changed from main, or on those named
 ```
@@ -139,7 +139,7 @@ weekly in `.github/workflows/native-deep.yml` and report without gating: source
 coverage, the extension under ASan and UBSan, and an include-cleaner report.
 `SOLPROP_NATIVE_QUALIFICATION_PYTHON=/path/to/python` installs the wheel into that
 environment and runs the Python tests there instead. A change to the backend also passes
-solprop's own suite with this package installed (`poe check-all`, or `uv run poe test`
+solprop's own suite with this package installed (`poe check`, or `uv run poe test`
 with `SOLPROP_TEST_BACKEND=native`).
 
 ### The kernel contract

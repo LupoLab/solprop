@@ -24,7 +24,7 @@ physics or numerics rather than style, ask rather than guess.
 | Purpose | Ultrafast nonlinear pulse propagation (UPPE and GNLSE; field and envelope; single-mode, multimode and general modal guides; radial, Cartesian, planar and line free space) |
 | Python | 3.14 — equal to `requires-python` in `pyproject.toml` |
 | Platforms | solprop runs where solprop-native installs: wheels for osx-arm64, linux-64, linux-aarch64, win-64 and win-arm64; from source on Linux and macOS (GPU builds on Linux); the Queue and Slurm scan executors POSIX-only |
-| Backends | `native` (required; `auto`; CPU and GPU; implements every feature, the TDSE response on CPU builds only) and `numpy_ref` (the numerical reference). No other backend. Binary64 only (ADR-077), with one method set on both: `PIController` is final, and the single-precision code, CF4 sections and `ComparisonMultistep` are retired |
+| Backends | `native` (required; `auto`; CPU and GPU; implements every feature, the TDSE response on CPU builds only) and `numpy_ref` (the numerical reference). No other backend. Binary64 only (ADR-077), with one method set on both |
 | Type checker | `basedpyright`, pinned exactly in the dev group |
 | Materials | [optmat](https://github.com/LupoLab/optmat), the curated optical-materials package |
 | Planned work | [GitHub issues](https://github.com/LupoLab/solprop/issues), not the roadmap, which lists only SEPs (ADR-062); [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write and label one |
@@ -36,7 +36,7 @@ physics or numerics rather than style, ask rather than guess.
 |---|---|
 | Sync environment | `uv sync` (builds native editable; needs a C++20 compiler). `--extra gui --group gui-test` adds the front end. No compiler: the lightweight setup and `poe fetch-wheel` ([`docs/dev/contributing.md`](docs/dev/contributing.md)) |
 | Full gate | `uv run poe check` |
-| Native gate | `uv run poe check-native`; `uv run poe check-all` runs the three gates |
+| Native gate | `uv run poe check-native`; `uv run poe check-all` runs the three gates (the front end's needs its extra, below) |
 | Front-end gate | `uv run poe check-gui` (needs `--extra gui --group gui-test`) |
 | Lint, format, types | `uv run ruff check --fix .`, `uv run ruff format .`, `uv run basedpyright` |
 | Docstrings, spelling, licences | `uv run poe docstrings`, `uv run codespell`, `uv run poe reuse` |
@@ -60,9 +60,9 @@ roadmap change, and `uv run poe docs` when Sphinx content or links change (`test
 with `--fix`, ruff format, ruff check, basedpyright) and the modules that exercise what
 changed (`uv run pytest -n auto <files>`). The full gate, slow and coverage lanes run in CI
 on the pull request, not locally; after a CI failure, rerun the failing modules, never the
-whole lane. `poe check` and CI run the same steps ([`tooling.md`](docs/dev/tooling.md)):
-change both in the same commit. Coverage is 100 % of statements and branches; a
-`# pragma: no cover` gives its reason on its line. `gui/` and `native/` add their own gates.
+whole lane. CI runs `poe check`'s checks, split across its jobs
+([`tooling.md`](docs/dev/tooling.md)): change both in the same commit. Coverage is 100 %
+of statements and branches; a `# pragma: no cover` gives its reason on its line. `gui/` and `native/` add their own gates.
 
 **Qualification scope:** `numpy_ref` and the native CPU build; GPU builds separately with
 `poe test-gpu` on a device. **No test, lane or timing runs a full-length propagation**

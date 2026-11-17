@@ -14,7 +14,7 @@ this page is out of date.
   first tag); there is no version string to edit.
 - The target-specific native backend, `solprop-native`, is the repository's second
   distribution, built from `native/`, and a required dependency. The root is a uv workspace
-  with `native/` as its member and one `uv.lock`; `hatch_build.py` pins `solprop-native` to
+  with `native/` and `gui/` as its members and one `uv.lock`; `hatch_build.py` pins `solprop-native` to
   solprop's own version in the built metadata, and both take that version from the
   repository's tags.
   A plain `uv sync` builds and installs it editable. It removes a hand-installed Pyroraptor
@@ -41,23 +41,30 @@ Runs, in order: `ruff check --fix .` → `ruff format .` → `ruff check .` → 
 `numpydoc lint` (on `src/solprop` and the figure scripts) → `codespell` → `reuse lint` →
 `poe changelog-check` → `poe size-check` → `poe test`
 (fast and medium tiers, doctests included, under xdist) →
-`sphinx-build -b html -W -n --keep-going docs docs/_build/html`. CI runs exactly the same
-sequence plus `poe test-slow` and the CPU coverage lane; keep the two identical.
+`sphinx-build -b html -W -n --keep-going docs docs/_build/html`. CI runs the same checks,
+split across jobs ([CI](#ci)): **static** runs their non-mutating forms (`ruff check .`,
+`ruff format --check .`) and adds `uv lock --check`; the default lane runs as **test**
+and **coverage** shards; **docs** runs `poe docs` and executes the lessons and tutorials
+again. It also runs `poe test-slow` and the other lanes listed there. A check added to
+or removed from `poe check` is added to or removed from its CI job in the same commit.
 
 Other tasks: `poe test-medium` (the medium tier alone, timed against its budget),
 `poe test-slow`, `poe cov` (the default lane with coverage), `poe test-gpu` (the GPU
 lane, on a CUDA or HIP build with a device), `poe bench`
 (the benchmark plan in `benchmarks/`; `track` runs it on a quiet machine;
-[manual](benchmarking.md)), `poe docs`, `poe docs-clean`, `poe figures` (redraw the
-committed structure and geometry SVGs) and `poe docs-examples` (execute the stale
+[manual](benchmarking.md)), `poe docs`, `poe docs-clean` (remove the untracked build
+output, `docs/_build` and `docs/api/generated`; the committed gallery pages stay),
+`poe figures` (redraw the
+committed structure, geometry and primer figures) and `poe docs-examples` (execute the stale
 gallery scripts and refresh their committed output).
 
 The native package has a gate of its own, `uv run poe check-native`
 (`native/scripts/check.sh`, bash, so Linux and macOS): its ruff and strict pyright,
 clang-format, clang-tidy, the native tests, ASan and UBSan, its pytest suite on an
-editable build, and the distribution wheel's build and isolated smoke test. `uv run poe
-check-all` runs `check` and then `check-native`; a change that touches `native/` runs it.
-Its rules are in `native/AGENTS.md`.
+editable build, and the distribution wheel's build and isolated smoke test. A change that
+touches `native/` runs `check` and `check-native`, and follows `native/AGENTS.md`.
+`uv run poe check-all` runs three gates, `check`, `check-native` and the front end's
+`check-gui`, so it needs `uv sync --extra gui --group gui-test`.
 
 ## ruff
 
@@ -83,7 +90,7 @@ drop them too and allow `print` and cell-style imports; benchmarks allow `print`
 
 ## basedpyright
 
-`include = ["src", "tests"]` without the oracles, `typeCheckingMode = "standard"` (strict once the baseline is
+`include = ["src", "tests", "benchmarks", "tools"]` without the oracles, `typeCheckingMode = "standard"` (strict once the baseline is
 clean), `pythonVersion = "3.14"`, `failOnWarnings = true`, `reportMissingTypeStubs = false`
 because some dependencies ship no stubs (narrow ignores are still preferred over
 broad ones); `scipy-stubs` supplies SciPy's. The checker is pinned to an exact version and
@@ -108,13 +115,11 @@ format refuses those properties under the suite's warnings-as-errors policy.
 
 ## coverage
 
-One configuration: `coverage-cpu.ini` (`source = solprop`, `branch = True`) for
-`poe cov`, one pass of the default lane; in CI, `poe cov-part` per shard and
-`poe cov-report`, which combines them.
-The `[tool.coverage]` tables in `pyproject.toml` are the shared defaults. The lane requires
-100 % of statements and branches of the whole package
-(`fail_under = 100`);
-`# pragma: no cover` requires a reason on the same line.
+One configuration, the `[tool.coverage]` tables in `pyproject.toml` (`source = ["solprop"]`,
+`branch = true`), for `poe cov`, one pass of the default lane; in CI, `poe cov-part` per
+shard and `poe cov-report`, which combines them. The lane requires 100 % of statements
+and branches of the whole package (`fail_under = 100`); `# pragma: no cover` requires a
+reason on the same line.
 
 ## numpydoc validation
 
@@ -172,7 +177,7 @@ Python oracle for every result, and end-to-end runs as the measure of speed.
 | clang-tidy (pinned 23.1.4), whole families | adopted | `bugprone`, `performance`, `modernize`, `misc`, `readability`, `clang-analyzer` and `cppcoreguidelines-special-member-functions`, each exclusion stated in `native/.clang-tidy`; warnings are errors; the tidy stage; `poe tidy-native` for changed files |
 | compiler warnings | adopted | `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wundef -Wnon-virtual-dtor -Woverloaded-virtual`, with Clang's `-Wimplicit-fallthrough` and GCC's `-Wduplicated-cond -Wduplicated-branches -Wlogical-op`; errors in development and CI builds |
 | ASan + UBSan with Kokkos bounds checks | adopted | the `cpu-sanitize` preset over the GoogleTest suite, UBSan stopping at its first report |
-| compute-sanitizer (memcheck, racecheck, initcheck, synccheck) | adopted | `.github/workflows/cuda.yml`, on a device |
+| compute-sanitizer (memcheck, racecheck, initcheck, synccheck) | ad hoc | `.github/workflows/cuda.yml`, dispatched by hand: it needs a self-hosted runner labelled `nvidia-gpu`, and is part of no gate |
 | Clang source coverage | scheduled | `.github/workflows/native-deep.yml`, weekly: GoogleTest and native pytest, a report whose zero-count lines are the dead-code candidates |
 | ASan + UBSan on the extension | scheduled | `native-deep.yml`: the native pytest suite through the bindings |
 | `misc-include-cleaner` | scheduled | `native-deep.yml`, a report; too noisy across Kokkos's umbrella headers to gate |
@@ -268,9 +273,12 @@ the test lanes below are skipped. A push to `main` that merges a pull request ru
 further jobs when its tree is the pull request head's tree and CI passed on that head:
 the pull request was up to date with `main`, so its run tested exactly what was merged.
 A pull request that was behind `main` merges to a new tree, which runs in full. A change
-confined to the front end (`gui/`, with `docs/` and Markdown files) runs static, docs and
-**gui** only. Any other change, or a push whose base is unknown, runs every job except
-docs-tests, gui included, so a change to solprop is checked against the front end.
+confined to the front end (`gui/`, with `docs/` and Markdown files), or one that touches
+its chapter of the user guide (`docs/guide/front-end/`, which its tests read), runs
+static, docs, docs-tests and **gui** only. Any other change, `gui/pyproject.toml`
+included (solprop's release tests read it), or a push whose base is unknown, runs every
+job except docs-tests, gui included, so a change to solprop is checked against the front
+end.
 
 The long lanes run as **shards**, parallel jobs that each take whole modules:
 `SOLPROP_TEST_SHARD=i/n` keeps shard *i* of *n* (`tests/shards.py`, ADR-053). The shards
@@ -345,17 +353,19 @@ it does not reuse a previous commit's CI result or bypass required checks.
 
 `.github/workflows/wheels.yml` builds the native release wheels (Linux x86-64 and
 aarch64, macOS arm64, Windows x64 and Arm) on pull requests that change the wheel recipe
-(`native/ci/`, `native/pyproject.toml`, the CMake files, the workflow), weekly, on release
-tags and by hand, and tests each installed wheel. It also builds solprop's sdist and
-wheel and checks a fresh install of each, builds solprop-gui's and checks that
-`solprop[gui]` installs from the files and answers at the version, and on a release
-tag, once enabled, publishes solprop-native, then solprop, then (once `PUBLISH_GUI` is
-set) solprop-gui ([Releasing and the native wheels](releasing.md), whose
-pre-flight checklist sets publishing up).
+or a pure-Python distribution's build inputs (`native/ci/`, `native/pyproject.toml`, the
+CMake files, `hatch_build.py`, `gui/pyproject.toml`, `gui/hatch_build.py`, `gui/README.md`,
+the front end's chapter of the user guide `docs/guide/front-end/`, and the workflow),
+weekly, on release tags and by hand, and tests each installed wheel. It also builds
+solprop's sdist and wheel and checks a fresh install of each, builds solprop-gui's and
+checks that `solprop[gui]` installs from the files and answers at the version, and on a
+release tag publishes solprop-native, then solprop, then solprop-gui
+([Releasing and the native wheels](releasing.md)).
 
 `native` runs in the coverage lane's driver tests; the parity tests check it against
 `numpy_ref` in every job. GPU tests run by hand on a node with a device
-(`poe test-gpu`), at each release and on pull requests that change device code. The
-self-hosted `.github/workflows/cuda.yml`, started by hand, builds the CUDA extension and runs the
-native package's pytest suite and Compute Sanitizer on it. Keep the gate's steps identical to
-`poe check`; a change to one is a change to the other, in the same commit.
+(`poe test-gpu`), at each release and on pull requests that change device code.
+`.github/workflows/cuda.yml` builds the CUDA extension with the `cuda` preset's options and
+runs the native package's pytest suite and Compute Sanitizer on it. It is dispatch-only,
+needs a self-hosted runner labelled `nvidia-gpu`, and is part of no gate. Keep CI's checks in step with
+`poe check` ([the gate](#the-gate-uv-run-poe-check)), in the same commit.

@@ -1537,8 +1537,8 @@ coupled flow, the moving guide and the others) are executed by both backends in 
 combinations, and the problem's own validation refuses every other by name
 ({py:func}`~solprop.translate.admission.check_general_route`), so neither backend repeats
 the list. A change that
-touches `native/` is complete only when the gates (`poe check-all`) and solprop's lanes
-are green with the current build installed.
+touches `native/` is complete only when the gates (`poe check`, `poe check-native`) and
+solprop's lanes are green with the current build installed.
 
 **The fused route.** The backend runs the three field families, the Kerr variants, both
 noise and absorber schemes, adaptive/replay/resume, FSAL and hard masking, multimode scalar

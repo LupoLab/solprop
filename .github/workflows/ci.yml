@@ -27,12 +27,15 @@ env:
 jobs:
   # Which lanes to run. A change confined to docs/ and Markdown files runs the static
   # checks, the documentation build and the tests that read the documentation
-  # (docs-tests), not the test lanes; one confined to the front end (gui/, with docs/
-  # and Markdown) runs the static checks, the documentation build and the front end's
-  # own job; anything else, or a push whose base is unknown, runs everything, the front
-  # end's job included, so a change to solprop is checked against the front end. A push to main that merges a pull request runs nothing when the
-  # pushed tree is the pull request head's tree and CI passed on that head: the pull
-  # request was up to date with main, so its run already tested exactly this tree.
+  # (docs-tests), not the test lanes. Otherwise, one confined to gui/, docs/ and
+  # Markdown files runs those and the front end's own job; so does a documentation
+  # change to the front end's chapter of the user guide (docs/guide/front-end/), which
+  # its tests read. Anything else, gui/pyproject.toml included (solprop's release tests
+  # read it), or a push whose base is unknown, runs everything, the front end's job
+  # included, so a change to solprop is checked against the front end. A push to main
+  # that merges a pull request runs nothing when the pushed tree is the pull request
+  # head's tree and CI passed on that head: the pull request was up to date with main,
+  # so its run already tested exactly this tree.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -65,9 +68,11 @@ jobs:
           if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             git diff --name-only "$BASE" HEAD > changed.txt
             cat changed.txt
-            if ! grep -qvE '^docs/|\.md$' changed.txt; then
+            # The front end's tests read its chapter of the user guide, and solprop's
+            # release tests read gui/pyproject.toml.
+            if ! grep -qvE '^docs/|\.md$' changed.txt && ! grep -q '^docs/guide/front-end/' changed.txt; then
               lanes=docs
-            elif ! grep -qvE '^gui/|^docs/|\.md$' changed.txt; then
+            elif ! grep -qvE '^gui/|^docs/|\.md$' changed.txt && ! grep -qx 'gui/pyproject.toml' changed.txt; then
               lanes=gui
             fi
           fi
@@ -96,7 +101,7 @@ jobs:
 
   docs-tests:
     needs: [changes, native-wheel]
-    if: needs.changes.outputs.lanes == 'docs'
+    if: needs.changes.outputs.lanes == 'docs' || needs.changes.outputs.lanes == 'gui'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

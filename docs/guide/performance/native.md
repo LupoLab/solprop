@@ -127,8 +127,8 @@ It needs a C++20 compiler; a contributor to the Python or the documentation can 
 one ([contributing](../../dev/contributing.md)). The editable install does not rebuild
 itself: run `uv sync --reinstall-package solprop-native` after a native change.
 `uv run poe check-native` runs the native gate
-and `uv run poe check-all` both gates. A build stays valid across solprop changes until
-the sources under `native/` change, when `check_build()` refuses it and names that
+and a native change runs it after `uv run poe check`. A build stays valid across solprop
+changes until the sources under `native/` change, when `check_build()` refuses it and names that
 command, or until `check_build()` names a member the installed solprop lacks. Running solprop's test lanes against the build is described in
 the developer notes on [testing](../../dev/testing.md#tiers-and-backends).
 

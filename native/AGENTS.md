@@ -82,7 +82,7 @@ The native gate runs from the repository root:
 
 ```console
 uv run poe check-native   # native/scripts/check.sh
-uv run poe check-all      # solprop's gate (poe check), then the native gate
+uv run poe check-all      # solprop's, the native and the front end's gates (gui extra)
 uv run poe fmt-native     # clang-format every tracked C++ file in place
 uv run poe tidy-native    # clang-tidy the C++ files changed from main (or those named)
 ```
@@ -91,8 +91,8 @@ uv run poe tidy-native    # clang-tidy the C++ files changed from main (or those
 clang-tidy and warnings, native tests, ASan+UBSan native tests, an editable build with
 pytest, a distribution wheel build and a clean wheel smoke test; per-file copyright and
 licence (`reuse lint`) is in solprop's `poe check`, which covers `native/` too. A change
-under `native/` is finished when `poe check-all` is green, so that solprop's test suite
-has passed with this backend freshly built. Report the compiler, build type, execution
+under `native/` is finished when `poe check` and `poe check-native` are green, so that
+solprop's test suite has passed with this backend freshly built. Report the compiler, build type, execution
 space, thread settings and any check that was not run.
 
 CI (the repository's `.github/workflows/ci.yml`) runs on every push and pull request:
@@ -101,9 +101,9 @@ each (`SOLPROP_NATIVE_CHECK_STAGES`). The `native-wheel` jobs build the CPU dist
 wheel on Linux, macOS and Windows, cached under a hash of `native/`, and solprop's
 default lane runs on it on macOS and Windows with the native backend selected, and in
 the coverage lane on Linux. The `device-compile` lanes compile the CUDA and HIP targets, tests included, on a change to
-`native/`, with no device. Running on one stays by hand
-(`.github/workflows/cuda.yml` on a self-hosted runner, with compute-sanitizer's four
-tools, or `pytest -m gpu` on a machine with a device). `.github/workflows/native-deep.yml`
+`native/`, with no device. Running on one stays by hand: `poe test-gpu` on a machine with
+a device, or `.github/workflows/cuda.yml`, dispatched on a self-hosted runner labelled
+`nvidia-gpu` (part of no gate), with compute-sanitizer's four tools. `.github/workflows/native-deep.yml`
 runs weekly and reports without gating: source coverage over the native tests, the
 extension under ASan and UBSan through the native pytest suite, and
 `misc-include-cleaner`. The tools adopted, scheduled and rejected are in

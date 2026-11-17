@@ -145,8 +145,8 @@ native build has the [lightweight setup](../../dev/contributing.md). The editabl
 install does not rebuild itself: run `uv sync --reinstall-package
 solprop-native` after a native change, with any build options in `CMAKE_ARGS`
 ([below](#passing-cmake-options)); a device build is made the same way. `uv run poe
-check-native` runs the native gate and `uv run poe check-all` both gates. A build stays
-valid across solprop changes until the sources under `native/` change, when `check_build()`
+check-native` runs the native gate, and a native change runs it after `uv run poe check`.
+A build stays valid across solprop changes until the sources under `native/` change, when `check_build()`
 refuses it and names that command, or until `check_build()` names a member the installed
 solprop lacks. Running solprop's test lanes
 against the build is in the developer notes on

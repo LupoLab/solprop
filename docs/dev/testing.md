@@ -39,7 +39,7 @@ do not launch the full suite merely because a SEP is being committed or merged.
 | reference problem | the ladder in [stepper.md §11](stepper.md#11-verification-ladder-for-solprops-solver-tests): P0 linear, P1 N-soliton with phase, P2 analytic z-varying loss and dispersion, P3 cross-scheme Richardson | solver work |
 | target simulation | RDW VUV and CtC against solprop's own converged references, and their inputs and plasma against stored Luna results (§8) | the named problems M2, M3, M4 |
 | doctest | every `Examples` section runs | all docstrings |
-| smoke | import time budget; a run of every gallery example in reduced size | package, docs |
+| smoke | the top-level import loads no heavy module; a gallery script that an example recipe mirrors builds the recipe's simulation, up to its first run (`tests/recipe/test_examples.py`); CI's docs job executes every lesson and tutorial at full size, and the worked examples run only by hand | package, docs |
 
 ## 2. Tiers and lanes
 
@@ -78,10 +78,10 @@ instead of a tier marker:
 
 | lane | command | what it selects |
 |---|---|---|
-| default | `uv run poe test` | fast **and** medium, compiled kernels, random order (`pytest-randomly`), warnings as errors, doctests included, under xdist with every thread pool at one thread per worker. Step 8 of `poe check`. Plain `uv run pytest` runs the same selection serially (`addopts` carries no `-n`), for one file or test and for debugging. |
+| default | `uv run poe test` | fast **and** medium, compiled kernels, random order (`pytest-randomly`), warnings as errors, doctests included, under xdist with every thread pool at one thread per worker. The `test` step of `poe check`. Plain `uv run pytest` runs the same selection serially (`addopts` carries no `-n`), for one file or test and for debugging. |
 | medium alone | `uv run poe test-medium` | the medium tier, timed against its budget |
 | slow | `uv run poe test-slow` | the slow tier under xdist, one worker per core, `--dist loadgroup`, every thread pool pinned to one thread per worker |
-| coverage | `uv run poe cov` | the fast and medium tiers under xdist with one thread per worker; 100 % of the package (`coverage-cpu.ini`) |
+| coverage | `uv run poe cov` | the fast and medium tiers under xdist with one thread per worker; 100 % of the package (`[tool.coverage]` in `pyproject.toml`) |
 | gpu | `uv run poe test-gpu` | the `gpu`-marked tests of solprop and of solprop-native, against an installed CUDA or HIP build that sees a device; it fails on a CPU build rather than skipping every test |
 | benchmark | by hand, per docstring; `uv run poe bench` for `benchmarks/` | see [benchmarks.md](benchmarks.md) |
 
@@ -153,8 +153,9 @@ For native development, a plain `uv sync` builds `native/` and installs it
 editable into the repository's environment before a lane runs; how, and when a build
 must be rebuilt, is
 [Building the native backend](../guide/performance/building-native.md#a-development-build).
-`uv run poe check-native` runs the native package's own gate and `uv run poe check-all`
-both gates. What the backend does not support it refuses by name
+`uv run poe check-native` runs the native package's own gate, and a native change runs it
+after `uv run poe check` ([tooling](tooling.md#the-gate-uv-run-poe-check)). What the
+backend does not support it refuses by name
 ([backends.md](backends.md)).
 The `gpu` lane checks build coherence, one complete device step and same-card
 repeats within a rounding bound on an accelerator build; host thread-count tests skip on a
