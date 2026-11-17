@@ -11,11 +11,13 @@ coordinate has to be resolved and to what order, and expands a spatial set into 
 polarisation partners (:func:`polarisation_pairs`). :func:`transverse_measure` names
 the measure a set is integrated over.
 
-:func:`overlap` and :func:`orthonormality` integrate adaptively
-(:func:`scipy.integrate.dblquad`, or :func:`scipy.integrate.quad` over x alone, per
-metre of y, for a slab set), deliberately *not* on the fixed rule whose orthonormality
-they check. They use the package normalisation (``docs/dev/conventions.md`` section
-4), :math:`\langle m_1|m_2\rangle = \tfrac12\sqrt{\varepsilon_0/\mu_0}\int e_1^*\cdot
+:func:`overlap` integrates adaptively (:func:`scipy.integrate.dblquad`, or
+:func:`scipy.integrate.quad` over x alone, per metre of y, for a slab set), and
+:func:`orthonormality` integrates the whole matrix in one pass, adaptively in the first
+coordinate with :func:`scipy.integrate.quad_vec` and on a rule refined to convergence
+in the second -- both deliberately *not* on the fixed rule whose orthonormality they
+check. They use the package normalisation (``docs/dev/conventions.md`` section 4),
+:math:`\langle m_1|m_2\rangle = \tfrac12\sqrt{\varepsilon_0/\mu_0}\int e_1^*\cdot
 e_2\,\mathrm{d}A / \sqrt{N_1N_2}`, so a mode overlaps itself by one. The manual page is
 ``docs/guide/waveguides/mode-sets.md``.
 """
@@ -28,7 +30,7 @@ from typing import cast
 
 import numpy as np
 from jaxtyping import Float
-from scipy.integrate import dblquad, quad
+from scipy.integrate import dblquad, quad, quad_vec
 
 from solprop._display import Displayed
 from solprop.constants import EPS0, C
@@ -63,6 +65,17 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+_GRAM_TOLERANCE = 1e-12
+"""Absolute tolerance on each normalised overlap of :func:`orthonormality`: of the
+adaptive integral in the first coordinate, and of the change on doubling the rule in
+the second. Far below the driver's acceptance of a set (1e-6)."""
+
+_FIRST_NODES = 16
+"""Nodes of the second coordinate's rule before the first doubling."""
+
+_MAX_NODES = 1024
+"""Most nodes of the second coordinate's rule: a set that needs more is refused."""
 
 
 def _normalisation(mode: Mode, z: float) -> float:
@@ -184,12 +197,25 @@ def orthonormality(
     Returns
     -------
     numpy.ndarray
-        Shape ``(n_modes, n_modes)``, symmetric, the identity for an orthonormal set.
+        Shape ``(n_modes, n_modes)``, symmetric, the identity for an orthonormal set;
+        each entry the :func:`overlap` of its pair to about ``1e-12``.
 
     Raises
     ------
     ModeError
-        If `modes` is empty, or the modes do not share a cross-section.
+        If `modes` is empty, the modes do not share a cross-section or one has no
+        closed-form normalisation, or the integration does not converge in either
+        coordinate.
+
+    Notes
+    -----
+    Every entry is integrated in one pass: adaptively in the first coordinate
+    (``r`` or ``x``) with :func:`scipy.integrate.quad_vec`, whose error control covers
+    the whole matrix, and in the second on an offset periodic trapezoid (polar) or a
+    Gauss--Legendre rule (Cartesian), doubled from 16 nodes until no entry changes by
+    more than ``1e-12``. Each mode's field is evaluated once per node, not once per
+    pair, so a set of 48 modes takes seconds rather than the minutes of
+    :func:`overlap` pair by pair. A slab set integrates over x alone, per metre of y.
 
     Examples
     --------
@@ -202,15 +228,103 @@ def orthonormality(
     """
     if not modes:
         raise ModeError("orthonormality needs at least one mode")
-    count = len(modes)
-    matrix = np.eye(count)
-    for row in range(count):
-        matrix[row, row] = overlap(modes[row], modes[row], z)
-        for column in range(row + 1, count):
-            value = overlap(modes[row], modes[column], z)
-            matrix[row, column] = value
-            matrix[column, row] = value
-    return matrix
+    limits = modes[0].dimlimits(z)
+    for mode in modes[1:]:
+        if mode.dimlimits(z) != limits:
+            raise ModeError(
+                f"an overlap needs one cross-section; {limits} and "
+                f"{mode.dimlimits(z)} differ"
+            )
+    kind, lower, upper = limits
+    # Each mode's share of the overlap's normalisation, inside the integrand: the
+    # integrals are then of order one, as the absolute tolerance assumes.
+    scale = np.sqrt(0.5 * EPS0 * C / np.array([_normalisation(m, z) for m in modes]))
+    first = (lower[0], upper[0])
+    if kind == "slab":
+        # Uniform in y: one node at y = 0 of unit weight, per metre of y as N is.
+        return _gram(modes, scale, first, (np.zeros(1), np.ones(1)), z=z, polar=False)
+    nodes = _FIRST_NODES
+    previous = None
+    while nodes <= _MAX_NODES:
+        rule = _second_rule(kind, (lower[1], upper[1]), nodes)
+        matrix = _gram(modes, scale, first, rule, z=z, polar=kind == "polar")
+        if (
+            previous is not None
+            and np.max(np.abs(matrix - previous)) <= _GRAM_TOLERANCE
+        ):
+            return matrix
+        previous = matrix
+        nodes *= 2
+    raise ModeError(
+        f"the overlaps of this {kind} mode set did not converge in the second "
+        f"coordinate with {_MAX_NODES} nodes"
+    )
+
+
+def _second_rule(
+    kind: CrossSection, limits: tuple[float, float], nodes: int
+) -> tuple[Float[np.ndarray, " n_nodes"], Float[np.ndarray, " n_nodes"]]:
+    """Return the nodes and weights of the rule in the second coordinate.
+
+    Polar: the offset periodic trapezoid over the full circle, exact for trigonometric
+    polynomials below degree `nodes`; its offset keeps nodes off the axes, where
+    products such as ``E_x E_y`` vanish (:mod:`solprop.modes.quadrature`). Cartesian:
+    Gauss--Legendre over the y limits.
+    """
+    low, high = limits
+    if kind == "polar":
+        step = (high - low) / nodes
+        return low + step * (np.arange(nodes) + 0.5), np.full(nodes, step)
+    x, weights = np.polynomial.legendre.leggauss(nodes)
+    half = 0.5 * (high - low)
+    return low + half * (x + 1.0), half * weights
+
+
+def _gram(
+    modes: Sequence[Mode],
+    scale: Float[np.ndarray, " n_modes"],
+    limits: tuple[float, float],
+    rule: tuple[Float[np.ndarray, " n_nodes"], Float[np.ndarray, " n_nodes"]],
+    *,
+    z: float,
+    polar: bool,
+) -> Float[np.ndarray, "n_modes n_modes"]:
+    """Return the normalised overlap matrix on one rule in the second coordinate.
+
+    - ``scale``: each mode's ``sqrt(eps0 c / (2 N))``: two scaled fields' product
+      integrates over the area to the dimensionless overlap.
+    - ``limits``: the first coordinate's range, m.
+    - ``polar``: whether the first coordinate is a radius; its Jacobian r is folded in.
+    """
+    second, weights = rule
+
+    def _line(first: float) -> Float[np.ndarray, "n_modes n_modes"]:
+        """Return the matrix integrand at one value of the first coordinate."""
+        points = np.column_stack((np.full(second.size, first), second))
+        fields = np.stack([mode.field(points, z) for mode in modes])
+        fields = fields * scale[:, None, None]
+        matrix = np.einsum("mpc,p,npc->mn", fields, weights, fields)
+        return matrix * first if polar else matrix
+
+    matrix, _, info = quad_vec(
+        _line,
+        limits[0],
+        limits[1],
+        epsabs=_GRAM_TOLERANCE,
+        epsrel=0.0,
+        norm="max",
+        full_output=True,
+    )
+    # quad_vec returns its best estimate without a warning when it stops short of the
+    # tolerance; an unconverged matrix must not pass as an orthonormality check.
+    if info.status != 0:
+        raise ModeError(
+            "the overlaps of this mode set did not converge in the first coordinate: "
+            f"{info.message}"
+        )
+    matrix = np.asarray(matrix)
+    # Symmetric by construction up to the summation order; made exactly so.
+    return 0.5 * (matrix + matrix.T)
 
 
 def transverse_measure(modes: Sequence[Mode]) -> TransverseMeasure:
