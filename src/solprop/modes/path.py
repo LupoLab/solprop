@@ -142,12 +142,14 @@ class ModalPath(Displayed):
     The z half of a guide's sampling (:class:`~solprop.modes.guide.ModalSampling`),
     filled by :meth:`~solprop.modes.guide.ModalGuide.from_provider` for a provider
     whose geometry moves. The path is cut into **sections** -- the provider's declared
-    kink intervals, each divided `sections` times (:func:`path_sections`) -- and every
-    section is solved at the Chebyshev-Lobatto points of one degree along z, the
-    degree the accuracy check demanded: doubled until the expansion reproduced a fresh
-    solve at the points a doubling adds to within `rtol` (:func:`sample_modal_path`,
-    whose :class:`ModalPathTable` holds the snapshots beside this record). A run
-    rebuilds the same positions from this record rather than searching again.
+    kink intervals, each divided `sections` times
+    (:func:`~solprop.modes.path.path_sections`) -- and every section is solved at the
+    Chebyshev-Lobatto points of one degree along z, the degree the accuracy check
+    demanded: doubled until the expansion reproduced a fresh solve at the points a
+    doubling adds to within `rtol` (:func:`~solprop.modes.path.sample_modal_path`,
+    whose :class:`~solprop.modes.path.ModalPathTable` holds the snapshots beside this
+    record). A run rebuilds the same positions from this record rather than searching
+    again.
 
     Attributes
     ----------
