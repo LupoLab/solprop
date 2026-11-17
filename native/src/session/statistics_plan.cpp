@@ -59,8 +59,6 @@ constexpr std::uint64_t temporal_intensity = statistics_peak_intensity;
 constexpr std::uint64_t temporal_quadrature = statistics_quadrature_error;
 constexpr std::uint64_t temporal_populations = statistics_populations;
 constexpr std::uint64_t temporal_integration = statistics_plasma_integration;
-/** The parts of the plasma integration diagnostics, packed last. */
-constexpr std::size_t integration_parts = 6;
 
 // `GeneralState::aperture_statistics`' flags (far_field.hpp), packed in this order.
 constexpr std::uint64_t far_beam = 1ULL << 5U;
@@ -457,7 +455,7 @@ void temporal(GeneralState& state, const Plan& plan, const double z, const doubl
     rows = cursor.take(2 * plan.n_nodes * plan.n_channels);
   if ((flags & temporal_integration) != 0U) {
     // `plasma_integration_statistics`: each ratio zero where its denominator is.
-    const auto parts = cursor.take(integration_parts);
+    const auto parts = cursor.take(plasma_diagnostic_parts);
     const auto ratio = [](const double top, const double bottom) {
       return bottom > 0.0 ? top / bottom : 0.0;
     };
