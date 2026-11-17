@@ -404,27 +404,27 @@ sequence = [
 env = { PYTHONUTF8 = "1", SOLPROP_TEST_BACKEND = "native" }
 help = "GPU lane: the gpu-marked tests of solprop and solprop-native against an installed CUDA or HIP build, on a device."
 
-# The CPU coverage lane measures coverage-cpu.ini's source, which is the whole package.
+# The coverage lane measures [tool.coverage]'s source, which is the whole package.
 # It runs under xdist with one thread per worker, as `poe test` does, and pytest-cov
 # combines the workers' data.
 [tool.poe.tasks.cov]
-cmd = "pytest --cov --cov-config=coverage-cpu.ini --cov-report=term-missing --cov-report=xml --durations=25 -m 'not slow and not gpu and not benchmark' -n auto --dist loadgroup"
+cmd = "pytest --cov --cov-report=term-missing --cov-report=xml --durations=25 -m 'not slow and not gpu and not benchmark' -n auto --dist loadgroup"
 env = { PYTHONUTF8 = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
-help = "Coverage lane: 100 % of the CPU source required."
+help = "Coverage lane: 100 % of the package required."
 
 # CI runs the coverage lane as parallel jobs: cov-part once per shard
 # (SOLPROP_TEST_SHARD=i/n, tests/shards.py), each leaving its own data file, which
 # cov-report combines from coverage-data/ and holds to the 100 %.
 [tool.poe.tasks.cov-part]
-cmd = "pytest --cov --cov-config=coverage-cpu.ini --cov-report= --cov-fail-under=0 -m 'not slow and not gpu and not benchmark' -n auto --dist loadgroup"
+cmd = "pytest --cov --cov-report= --cov-fail-under=0 -m 'not slow and not gpu and not benchmark' -n auto --dist loadgroup"
 env = { PYTHONUTF8 = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
 help = "The coverage lane for one shard (SOLPROP_TEST_SHARD), without the 100 % check."
 
 [tool.poe.tasks.cov-report]
 sequence = [
-    { cmd = "coverage combine --rcfile=coverage-cpu.ini coverage-data" },
-    { cmd = "coverage xml --rcfile=coverage-cpu.ini --fail-under=0" },
-    { cmd = "coverage report --rcfile=coverage-cpu.ini" },
+    { cmd = "coverage combine coverage-data" },
+    { cmd = "coverage xml --fail-under=0" },
+    { cmd = "coverage report" },
 ]
 help = "Combine the coverage parts in coverage-data/, write coverage.xml, require 100 %."
 
