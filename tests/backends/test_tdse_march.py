@@ -357,12 +357,14 @@ def test_a_binding_cannot_be_attached_to_an_ordinary_problem(
 
 
 @pytest.mark.parametrize("name", ["electron_density", "peak_ionisation_rate"])
-def test_tdse_runtime_statistics_refuse_legacy_rate_observables(march_problem, name):
+def test_tdse_runtime_statistics_refuse_the_rate_model_statistics(march_problem, name):
     """A dynamic request for rate-model statistics cannot trigger another solve."""
     backend, binding = opened_backend(march_problem, 4)
     try:
         load_reference(backend)
-        with pytest.raises(BackendError, match="does not define legacy statistics"):
+        with pytest.raises(
+            BackendError, match="does not define the rate-model statistics"
+        ):
             backend.workspace.stats(StatsSpec(names=(name,)), 0.0)
         assert binding.ledger.attempted == 0
     finally:

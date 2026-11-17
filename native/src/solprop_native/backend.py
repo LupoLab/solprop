@@ -1187,8 +1187,8 @@ def _refuse_tdse(
 ) -> None:
     """Refuse a TDSE problem without its binding, or a binding without one.
 
-    And the legacy statistics the TDSE response does not define, by name, as the
-    reference refuses them, before anything is allocated.
+    And the rate-model statistics the TDSE response does not define, by name,
+    as the reference refuses them, before anything is allocated.
     """
     if (tdse_descriptor(problem.route) is None) != (binding is None):
         raise BackendError("TDSE problems require an explicit host response binding")
@@ -1200,7 +1200,7 @@ def _refuse_tdse(
     )
     if unavailable:
         raise BackendError(
-            f"TDSE does not define legacy statistics {sorted(unavailable)}"
+            f"TDSE does not define the rate-model statistics {sorted(unavailable)}"
         )
 
 

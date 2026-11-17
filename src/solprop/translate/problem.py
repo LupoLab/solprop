@@ -947,7 +947,7 @@ class PropagationProblem:
                 )
                 if unavailable:
                     msg = (
-                        "TDSE does not define legacy statistics "
+                        "TDSE does not define the rate-model statistics "
                         f"{sorted(unavailable)}; request explicitly labelled atomic "
                         "diagnostics"
                     )

@@ -99,8 +99,8 @@ class ReferenceStatistics:
     profiles : collections.abc.Mapping or None
         The z-profiles keyed by statistic name.
     tdse : bool
-        Whether a host TDSE response is bound, which defines none of the legacy
-        plasma statistics.
+        Whether a host TDSE response is bound, which defines none of the rate-model
+        statistics.
     name : str
         The backend's name, for messages.
 
@@ -191,7 +191,8 @@ class ReferenceStatistics:
             unavailable = TDSE_UNAVAILABLE_STATISTICS.intersection(spec.names)
             if unavailable:
                 raise BackendError(
-                    f"TDSE does not define legacy statistics {sorted(unavailable)}"
+                    "TDSE does not define the rate-model statistics "
+                    f"{sorted(unavailable)}"
                 )
         # Before the spatial branch: a spatial run asked for a
         # general name would otherwise reach `collect_spatial` and be answered from a
