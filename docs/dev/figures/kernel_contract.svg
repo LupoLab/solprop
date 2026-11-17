@@ -156,8 +156,8 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="396.0" y="477.5" font-size="12" class="dim">initial state and noise</text>
 <text x="396.0" y="493.0" font-size="12" class="dim">translate.problem.Initial</text>
 <rect x="864.0" y="440.0" width="304.0" height="51.0" rx="7" ry="7" class="fill-b" />
-<text x="874.0" y="461.75" font-size="12" class="dim">set_initial once; the noise advances as N0</text>
-<text x="874.0" y="477.25" font-size="12" class="dim">· exp(i Im Φ)</text>
+<text x="874.0" y="461.75" font-size="12" class="dim">loaded once at the start; the noise</text>
+<text x="874.0" y="477.25" font-size="12" class="dim">advances as N0 · exp(i Im Φ)</text>
 <path d="M334.0,465.5 L380.0,465.5" class="arrow" />
 <path d="M380.0,465.5 L371.0,469.1 L371.0,461.9 Z" class="head" />
 <path d="M812.0,465.5 L858.0,465.5" class="arrow" />

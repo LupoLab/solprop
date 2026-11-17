@@ -1106,7 +1106,7 @@ CONTRACT_SECTIONS = (
         "translate.problem.Initial",
         ("pulses.py", "noise.py"),
         "P",
-        "set_initial once; the noise advances as N0 · exp(i Im Φ)",
+        "loaded once at the start; the noise advances as N0 · exp(i Im Φ)",
     ),
     Section(
         7,
