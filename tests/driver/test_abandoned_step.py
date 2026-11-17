@@ -24,7 +24,12 @@ from solprop.driver import Simulation
 from solprop.driver.run import run_problem
 from solprop.exceptions import DriverError, StopRequested
 from solprop.log import NullReporter
-from solprop.output import MemoryOutput, SnapshotController, open_file, resume
+from solprop.output import (
+    MemoryOutput,
+    SnapshotController,
+    open_file,
+    read_resume_state,
+)
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta
 
 # A soliton in a tight window, without a collar: its edges are not what is tested here.
@@ -267,7 +272,8 @@ def test_a_step_abandoned_after_a_running_checkpoint_falls_back_to_it(
     # the matched march's rounding budget (SEP 25).
     for name in ("z", "h", "accepted"):
         assert np.array_equal(
-            getattr(resume(path).history, name), getattr(resume(whole).history, name)
+            getattr(read_resume_state(path).history, name),
+            getattr(read_resume_state(whole).history, name),
         ), name
     with open_file(path) as stored, open_file(whole) as reference:
         assert stored.terminal_checkpoint is None

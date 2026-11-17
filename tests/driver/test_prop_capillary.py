@@ -93,7 +93,7 @@ from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.raman import RamanResponse, RotationalLines
 from solprop.nonlinear.responses import KerrResponse
 from solprop.output import MemoryOutput, open_file
-from solprop.output.hdf5 import resume
+from solprop.output.hdf5 import read_resume_state
 from solprop.physdata import Gas, Mixture, ReferenceState, gamma, n2
 from solprop.physdata._optmat import composition_fractions
 from solprop.physdata.glasses import TabulatedGlass, fused_silica
@@ -978,7 +978,7 @@ def test_a_replayed_schedule_resumes_onto_the_same_trajectory(tmp_path):
     with open_file(path) as partial:
         # The entrance plus the two planes the reporter saw before it stopped.
         assert partial["z"].size == 3
-    continued = resume(path).march is not None
+    continued = read_resume_state(path).march is not None
     run(output=path, resume=True, **settings)
     with open_file(path) as stored:
         np.testing.assert_array_equal(stored["z"], whole["z"])

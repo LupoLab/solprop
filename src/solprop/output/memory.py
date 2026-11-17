@@ -585,7 +585,7 @@ class MemoryOutput(PlaneStore):
         >>> from pathlib import Path
         >>> from solprop.grid import EnvelopeGrid
         >>> from solprop.output import HDF5Output, MemoryOutput
-        >>> from solprop.output.hdf5 import resume
+        >>> from solprop.output.hdf5 import read_resume_state
         >>> from solprop.output.metadata import RunMetadata
         >>> from solprop.output.records import GridRecord, SavedPlane, StepperRecord
         >>> from solprop.stepper import DOPRI5, PIController
@@ -606,7 +606,7 @@ class MemoryOutput(PlaneStore):
         >>> with tempfile.TemporaryDirectory() as folder:
         ...     path = Path(folder) / "run.h5"
         ...     handler.to_file(path)
-        ...     resume(path).plane.z
+        ...     read_resume_state(path).plane.z
         0.5
         """
         # Imported here rather than at the top so that this module, and everything

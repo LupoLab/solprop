@@ -20,9 +20,9 @@ from solprop.output import (
     HDF5Output,
     SnapshotController,
     TDSEArchive,
+    read_resume_state,
     read_snapshot,
     restore_snapshot,
-    resume,
 )
 from solprop.output import snapshots as module
 from solprop.output.tdse_archive import TDSEArchiveWriter
@@ -72,14 +72,14 @@ def main():
         fake.response = alpha_law(1.0, lambda5=2.0**-200)
         if phase == "restore":
             files = restore_snapshot(sys.argv[3], directory / "restored")
-            before = resume(files.output)
+            before = read_resume_state(files.output)
             _run(
                 _simulation(),
                 files.output,
                 resume=True,
                 tdse_archive=files.tdse_archive,
             )
-            after = resume(files.output)
+            after = read_resume_state(files.output)
             assert before.outcome is not None and after.outcome is not None
             assert after.outcome.status == "complete"
             assert (
@@ -116,7 +116,7 @@ def main():
         assert controller.last_result.generation is not None
         assert controller.last_result.disposition == "published"
         info = read_snapshot(controller.last_result.generation)
-        stopped = resume(directory / "working.h5")
+        stopped = read_resume_state(directory / "working.h5")
         assert stopped.outcome is not None
         assert stopped.outcome.status == "failed" and stopped.march is not None
         assert info.z == stopped.outcome.z

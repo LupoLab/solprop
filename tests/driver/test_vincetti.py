@@ -24,7 +24,7 @@ from solprop.modes import MarcatiliMode, ModeCollection, TubeLattice, VincettiMo
 from solprop.modes.base import alpha, beta, beta1, zdw
 from solprop.modes.quadrature import mode_matrix, transverse_quadrature
 from solprop.output import open_file
-from solprop.output.hdf5 import resume
+from solprop.output.hdf5 import read_resume_state
 from solprop.output.records import ModeRecord
 from solprop.physdata import Component, Mixture, Species, TabulatedSusceptibility
 from solprop.profiles import Constant
@@ -353,7 +353,7 @@ def test_argon_kerr_readback_and_resume(tmp_path):
             output=path,
             progress=Interrupt(),
         )
-    continued = resume(path).march is not None
+    continued = read_resume_state(path).march is not None
     # No range warning: optmat's models are qualified here (SEP 3, Phase 4a).
     with nullcontext():
         prop_capillary(

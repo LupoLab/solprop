@@ -23,7 +23,7 @@ from solprop.driver.scan import Scan
 from solprop.exceptions import OutputError
 from solprop.grid import FieldGrid
 from solprop.output import HDF5Output, MemoryOutput, open_file
-from solprop.output.hdf5 import check_cache, resume
+from solprop.output.hdf5 import check_cache, read_resume_state
 from solprop.output.metadata import SCHEMA_VERSION, RunMetadata
 from solprop.output.records import SavedPlane
 from solprop.output.scan import PointResult, ScanWriter
@@ -95,7 +95,7 @@ def test_the_manifest_round_trips_through_hdf5_and_resumes(tmp_path, selected):
     path = written(tmp_path / "run.h5", selected)
     stored: Any = open_file(path).metadata
     assert stored.materials == selected.materials
-    assert resume(path).metadata.materials == selected.materials
+    assert read_resume_state(path).metadata.materials == selected.materials
     assert check_cache(path, selected)
     # An identical manifest rebuilt in the same process resumes too.
     assert check_cache(path, metadata())

@@ -26,7 +26,7 @@ from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.raman import RamanResponse
 from solprop.nonlinear.responses import KerrResponse
 from solprop.output import open_file
-from solprop.output.hdf5 import resume
+from solprop.output.hdf5 import read_resume_state
 from solprop.physdata import Mixture
 from solprop.processing import node_fluence, species_ionisation
 from solprop.stats import StatsSpec
@@ -211,7 +211,7 @@ def test_envelope_hdf5_resume_and_reconstruction(
     whole = build(**options).run(progress="none")
     path = tmp_path / "envelope.h5"
     run_until(build(**options), path, after=1)
-    continued = resume(path).march is not None
+    continued = read_resume_state(path).march is not None
     build(**options).run(path, resume=True, progress="none")
     with open_file(path) as restored:
         scale = float(np.max(np.abs(whole.fields())))

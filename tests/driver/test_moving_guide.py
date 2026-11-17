@@ -75,7 +75,7 @@ from solprop.modes.path import path_rule, path_snapshot
 from solprop.modes.tables import apply_channel_basis, channel_area
 from solprop.nonlinear.gnlse import GnlseProblem, SpecifiedMode, _warn_surrogate_area
 from solprop.nonlinear.normalisation import modal_kerr_coefficient
-from solprop.output.hdf5 import check_cache, resume
+from solprop.output.hdf5 import check_cache, read_resume_state
 from solprop.output.memory import MemoryOutput
 from solprop.output.records import ModeRecord
 from solprop.processing.modal import (
@@ -245,7 +245,7 @@ def test_a_resume_across_a_changed_path_is_refused_by_the_field_that_moved(
     first = moving_simulation(kinked, grid)
     first.settings = dataclasses.replace(first.settings, absorber=None)
     first.run(written, progress="none")
-    stored = resume(written).metadata
+    stored = read_resume_state(written).metadata
     other = moving_simulation(grin_taper(kinked_radius(), kerr=True, sections=2), grid)
     other.settings = dataclasses.replace(other.settings, absorber=None)
     metadata = other.metadata()

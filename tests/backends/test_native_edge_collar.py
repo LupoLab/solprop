@@ -41,7 +41,7 @@ from solprop.exceptions import BoundaryWarning, StopRequested
 from solprop.grid import LineGrid
 from solprop.log import NullReporter
 from solprop.noise import NoiseRealisation
-from solprop.output.hdf5 import resume
+from solprop.output.hdf5 import read_resume_state
 from solprop.stepper import (
     FixedSchedule,
     LowStorageRungeKutta,
@@ -486,7 +486,7 @@ def test_a_stopped_collar_run_resumes_to_the_whole_runs_record(
         flag = threading.Event()
         build().run(path, progress=_StopAtFirstPlane(flag), stop=flag)
         build().run(path, resume=True, progress="none")
-    resumed = resume(path).outcome
+    resumed = read_resume_state(path).outcome
     assert resumed is not None
     expected = whole.outcome.execution["boundary_monitor"]["transverse"]
     found = cast("Any", resumed).execution["boundary_monitor"]["transverse"]
@@ -519,7 +519,7 @@ def test_a_collar_run_stopped_before_its_first_step_resumes_as_a_launch(
             build().run(path, progress="none", stop=flag)
         whole = cast("Any", build().run(progress="none"))
         build().run(path, resume=True, progress="none")
-    resumed = resume(path).outcome
+    resumed = read_resume_state(path).outcome
     assert resumed is not None
     expected = whole.outcome.execution["boundary_monitor"]["transverse"]
     found = cast("Any", resumed).execution["boundary_monitor"]["transverse"]

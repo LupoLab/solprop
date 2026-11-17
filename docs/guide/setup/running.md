@@ -727,7 +727,7 @@ What the handler cannot do, it refuses by name:
   {py:class}`~solprop.exceptions.OutputError`, and so does whatever reads a run through
   them; `key in handler` answers `False`.
 - A resume: `resume=True` needs a path, and
-  {py:func}`~solprop.output.hdf5.check_cache`, {py:func}`~solprop.output.hdf5.resume` and
+  {py:func}`~solprop.output.hdf5.check_cache`, {py:func}`~solprop.output.hdf5.read_resume_state` and
   {py:func}`~solprop.output.resumable.resumability` read a file and refuse any handler.
 - A second run: having kept no plane, it has nothing to continue, so build one per run.
 - A TDSE run, whose call ledger has to be recorded.

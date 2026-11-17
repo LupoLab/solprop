@@ -32,8 +32,8 @@ from solprop.output import (
     HDF5Output,
     SnapshotController,
     open_file,
+    read_resume_state,
     read_snapshot,
-    resume,
 )
 from solprop.output.hdf5 import _dataset
 from solprop.stepper import Multistep, RungeKutta
@@ -76,7 +76,7 @@ def warned_once_and_reset(build, path, text, reason) -> None:
 def interrupted(build, path) -> float:
     """Run into `path`, stop after two planes and return where it stopped."""
     run_until(build(), path, after=2)
-    return resume(path).plane.z
+    return read_resume_state(path).plane.z
 
 
 @pytest.mark.parametrize(
@@ -200,7 +200,7 @@ def test_a_low_storage_resume_has_no_history_to_record(tmp_path):
         return low_storage(fields="all")
 
     run_until(build(), path, after=1)
-    z = resume(path).plane.z
+    z = read_resume_state(path).plane.z
     assert restart(path)["retention"] == {
         "state": "not_applicable",
         "reason": "no_method_history",
@@ -233,7 +233,7 @@ def test_a_record_that_states_no_retention_reads_as_unknown_and_resumes(
         )
         if not march:
             del file["march_snapshot"]
-    state = resume(path)
+    state = read_resume_state(path)
     assert state.outcome is not None and "restart" not in state.outcome.execution
     assert run_module.retention_at(state.outcome.execution, z) is None
     assert resumed(build, path) == []
@@ -302,7 +302,7 @@ def test_a_history_write_cut_short_warns_once_on_resume(
             build().run(path, progress="none")
     retention = restart(path)["retention"]
     assert (retention["state"], retention["reason"]) == ("omitted", "write_failed")
-    assert resume(path).march is None
+    assert read_resume_state(path).march is None
     warned_once_and_reset(build, path, "write failed", "unavailable_history")
 
 

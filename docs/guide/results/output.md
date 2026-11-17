@@ -289,7 +289,7 @@ first and the count raised last, so a hard stop — a SIGKILL, an out-of-memory 
 lost node — leaves the count at the last complete plane, even part-way through the next.
 The attempts and rows belonging to the counted planes are the sums of
 `step_history/counts` and `step_stats/counts` over them, so the one count fixes every
-column. Every reader, {py:func}`~solprop.output.hdf5.resume` and a handler continuing
+column. Every reader, {py:func}`~solprop.output.hdf5.read_resume_state` and a handler continuing
 the file use only what is counted, and a clean close trims every dataset to it, so a
 finished file holds no unused rows and its datasets' extents are exactly the counts.
 Read a file through {py:func}`~solprop.output.hdf5.open_file`, not
@@ -397,7 +397,7 @@ coarse for the tolerance the norm is scaled by ([stepper.md](../../dev/stepper.m
 A rejected attempt that diverged, whose propagator or error overflowed (a long step
 under a strong collar), records an infinite norm; the
 stepper retried it at a much shorter step, so take the largest norm over the accepted
-attempts. {py:func}`~solprop.output.hdf5.resume` returns the history recorded so far with the last
+attempts. {py:func}`~solprop.output.hdf5.read_resume_state` returns the history recorded so far with the last
 plane, and an appending handler numbers the next attempt where the file left off, so a
 resumed run's file keeps one continuous record.
 
@@ -505,7 +505,7 @@ before it, with four columns, is not supported: read it with the build that wrot
 ```{code-block} python
 import numpy as np
 from solprop.grid import EnvelopeGrid
-from solprop.output import HDF5Output, MemoryOutput, resume
+from solprop.output import HDF5Output, MemoryOutput, read_resume_state
 from solprop.output.metadata import RunMetadata
 from solprop.output.records import GridRecord, SavedPlane, StepperRecord
 from solprop.stepper import DOPRI5, PIController
@@ -524,7 +524,7 @@ memory.open(metadata)
 memory.save(SavedPlane(z=0.0, field=np.ones((1, 1, grid.n_omega), complex)))
 memory.to_file("run.h5", compression="lzf")
 
-state = resume("run.h5")
+state = read_resume_state("run.h5")
 assert state.plane.z == 0.0
 assert np.array_equal(state.plane.field, memory.planes()[0].field)
 ```

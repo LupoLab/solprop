@@ -9,9 +9,9 @@
   count ``n_saved`` last so a hard stop leaves a readable file, follows the run's field
   retention, and with ``append=True`` continues a file it wrote earlier.
 - :func:`check_cache` is the resume gate: the file's configuration hash must equal the
-  requested one (ADR-066); :func:`resume` returns a :class:`ResumeState`: the record,
-  the terminal checkpoint or else the last plane, back in the internal convention, the
-  whole step history, the outcome and any Adams march snapshot.
+  requested one (ADR-066); :func:`read_resume_state` returns a :class:`ResumeState`: the
+  record, the terminal checkpoint or else the last plane, back in the internal
+  convention, the whole step history, the outcome and any Adams march snapshot.
 - :func:`open_file` opens a finished run read-only through the same protocol, which is
   how :mod:`solprop.processing` reads it; :func:`read_recipe` and :func:`write_recipe`
   read and write the recipe group (SEP 41).
@@ -69,7 +69,7 @@ __all__ = [
     "check_cache",
     "open_file",
     "read_recipe",
-    "resume",
+    "read_resume_state",
     "write_recipe",
 ]
 
@@ -705,11 +705,11 @@ class HDF5Output(PlaneStore):
         Level for ``'gzip'``, 0 to 9; not accepted for the other choices.
     append : bool, optional
         Continue the run the file already holds instead of replacing the file: the
-        resume path, after :func:`resume` has handed the driver the last plane. The
-        record given to ``open`` is refused when its configuration hash differs from
-        the file's; the file's own record is kept, creation time included, and becomes
-        the handler's ``metadata``, and the run's layout is read from the file so that
-        the next plane is checked against the ones already there.
+        resume path, after :func:`read_resume_state` has handed the driver the last
+        plane. The record given to ``open`` is refused when its configuration hash
+        differs from the file's; the file's own record is kept, creation time
+        included, and becomes the handler's ``metadata``, and the run's layout is read
+        from the file so that the next plane is checked against the ones already there.
     readonly : bool, optional
         Open the file at once, for reading only: the handler comes back open, with
         the file's own record as its ``metadata``, and refuses ``open`` and ``save``.
@@ -1760,7 +1760,7 @@ def _last_step_stats(file: h5py.File, index: int) -> StepStats:
     )
 
 
-def resume(path: Path | str | Output) -> ResumeState:
+def read_resume_state(path: Path | str | Output) -> ResumeState:
     """Read a file's resumable state and cumulative work, preferring its checkpoint.
 
     The last plane comes back in the **internal** FFT convention, through
@@ -1800,7 +1800,7 @@ def resume(path: Path | str | Output) -> ResumeState:
     >>> from pathlib import Path
     >>> from solprop.grid import EnvelopeGrid
     >>> from solprop.output import HDF5Output
-    >>> from solprop.output.hdf5 import resume
+    >>> from solprop.output.hdf5 import read_resume_state
     >>> from solprop.output.metadata import _example_metadata
     >>> from solprop.output.records import SavedPlane
     >>> metadata = _example_metadata()
@@ -1810,7 +1810,7 @@ def resume(path: Path | str | Output) -> ResumeState:
     ...     handler.open(metadata)
     ...     handler.save(SavedPlane(z=0.25, field=np.ones((1, 1, n_omega), complex)))
     ...     handler.close()
-    ...     state = resume(Path(folder) / "run.h5")
+    ...     state = read_resume_state(Path(folder) / "run.h5")
     >>> state.n_saved, state.plane.z
     (1, 0.25)
 
@@ -1825,10 +1825,10 @@ def resume(path: Path | str | Output) -> ResumeState:
     ...     again.open(metadata)
     ...     again.save(SavedPlane(z=0.5, field=np.ones((1, 1, n_omega), complex)))
     ...     again.close()
-    ...     resume(Path(folder) / "run.h5").n_saved
+    ...     read_resume_state(Path(folder) / "run.h5").n_saved
     2
     """
-    path = _file_path(path, "resume")
+    path = _file_path(path, "read_resume_state")
     metadata, _ = _stored_metadata(path)
     with h5py.File(path, "r") as file:
         outcome = _read_outcome(file)
@@ -1910,8 +1910,8 @@ def open_file(path: Path | str) -> HDF5Output:
     ``stat_names``, ``n_saved`` and ``metadata`` answer from the file, ``open`` and
     ``save`` are refused, and ``close`` releases the file -- a ``with`` block does that
     on the way out. It is how :mod:`solprop.processing` reads a file after the run that
-    wrote it has ended; :func:`resume` reads the last plane only, and a handler built
-    with ``append=True`` opens the file read-write to continue the run.
+    wrote it has ended; :func:`read_resume_state` reads the last plane only, and a
+    handler built with ``append=True`` opens the file read-write to continue the run.
 
     Parameters
     ----------

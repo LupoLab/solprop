@@ -28,7 +28,7 @@ from solprop.exceptions import BackendError, DriverError, OutputError
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
 from solprop.output import MemoryOutput
-from solprop.output.hdf5 import resume
+from solprop.output.hdf5 import read_resume_state
 from solprop.stepper import FixedSchedule
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
@@ -282,7 +282,7 @@ def test_a_file_holding_only_its_launch_plane_resumes_without_a_second_draw(
 
     with pytest.raises(CrashError):
         build().run(path, progress=StopAtTheEntrance())
-    stored = resume(path)
+    stored = read_resume_state(path)
     assert stored.n_saved == 1
     assert stored.plane.z == 0.0
     assert stored.plane.field is not None
@@ -325,7 +325,7 @@ def test_an_interior_launch_plane_resumes_without_a_second_draw(
     path = tmp_path / "part.h5"
     with pytest.raises(CrashError):
         interior().run(path, progress=StopAtTheEntrance())
-    assert resume(path).plane.z == interior().grid.length / 2
+    assert read_resume_state(path).plane.z == interior().grid.length / 2
     interior().run(path, resume=True)
     interior().run(tmp_path / "whole.h5")
     whole = read_file(tmp_path / "whole.h5", "field")
@@ -432,13 +432,13 @@ def test_a_default_noise_run_without_a_seed_resumes_from_the_seed_it_recorded(
         path,
         after=2,
     )
-    stored = resume(path).metadata.noise
+    stored = read_resume_state(path).metadata.noise
     assert stored is not None and stored.seed is not None
     again = scheduled(build_simulation, noise="default", backend="numpy_ref")
     assert again.noise is not None and again.noise.seed != stored.seed
     again.run(path, resume=True)
     assert again.noise.seed == stored.seed
-    assert resume(path).n_saved == N_SAVE
+    assert read_resume_state(path).n_saved == N_SAVE
     whole = scheduled(
         build_simulation, noise="default", seed=stored.seed, backend="numpy_ref"
     )
@@ -497,9 +497,9 @@ def test_a_resumed_run_continues_the_file_rather_than_replacing_it(
 ):
     path = tmp_path / "run.h5"
     run_until(scheduled(build_simulation), path, after=1)
-    created = resume(path).metadata.created
+    created = read_resume_state(path).metadata.created
     scheduled(build_simulation).run(path, resume=True)
-    state = resume(path)
+    state = read_resume_state(path)
     assert state.n_saved == N_SAVE
     # The file keeps its own record, creation time included: it is the same run.
     assert state.metadata.created == created
@@ -545,7 +545,7 @@ def test_a_run_interrupted_before_its_first_plane_resumes_without_a_second_entra
             patch.setattr(native.NativeSession, "advance", fail_first_march)
         with pytest.raises(CrashError, match="before the first step"):
             scheduled(build_simulation).run(path, progress="none")
-    stopped = resume(path)
+    stopped = read_resume_state(path)
     assert stopped.n_saved == 1 and stopped.plane.z == 0.0
     assert stopped.checkpoint is not None and stopped.checkpoint.landed
     scheduled(build_simulation).run(path, resume=True)

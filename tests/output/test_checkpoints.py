@@ -23,7 +23,7 @@ from solprop.output import (
     SavedPlane,
     StepHistory,
     open_file,
-    resume,
+    read_resume_state,
 )
 from solprop.output.hdf5 import _dataset, _write_checkpoint
 from solprop.output.metadata import _example_metadata
@@ -100,7 +100,7 @@ def test_memory_checkpoint_round_trip_preserves_counts_and_fft(metadata, tmp_pat
         assert_array_equal(
             stored.terminal_checkpoint.plane.field, checkpoint.plane.field
         )
-    state = resume(path)
+    state = read_resume_state(path)
     assert state.n_saved == 1
     assert state.plane.z == 0.25
     assert state.checkpoint is not None and state.checkpoint.next_save_index == 0
@@ -123,7 +123,7 @@ def test_checkpoint_history_moves_to_next_regular_save_once(metadata, tmp_path):
         assert_array_equal(stored["step_history/counts"], [0, 2])
         assert_array_equal(stored["step_stats/step"], [0, 1])
         assert_array_equal(stored["step_history/z"], [0.125, 0.375])
-    assert resume(path).history.n_steps == 2
+    assert read_resume_state(path).history.n_steps == 2
 
 
 def test_second_stop_retains_previous_unsaved_attempts(metadata, tmp_path):
@@ -136,7 +136,7 @@ def test_second_stop_retains_previous_unsaved_attempts(metadata, tmp_path):
             RunOutcome("failed", 0.375),
             TerminalCheckpoint(plane(metadata, 0.375, history=True), 0),
         )
-    state = resume(path)
+    state = read_resume_state(path)
     assert state.n_saved == 1 and state.history.n_steps == 2
     assert_array_equal(state.plane.step_stats.step, [0, 1])
 
@@ -144,7 +144,7 @@ def test_second_stop_retains_previous_unsaved_attempts(metadata, tmp_path):
 def test_checkpoint_can_exist_before_first_regular_save(metadata, tmp_path):
     path = tmp_path / "entrance-failure.h5"
     stopped(metadata, path, 0.0)
-    state = resume(path)
+    state = read_resume_state(path)
     assert state.n_saved == 0 and state.plane.z == 0.0
     assert state.checkpoint is not None
 
@@ -197,7 +197,7 @@ def test_checkpoint_validation_preserves_interpolated_classification(
             RunOutcome("failed", 0.1),
             TerminalCheckpoint(plane(metadata, 0.1), 0, landed=False),
         )
-    state = resume(path)
+    state = read_resume_state(path)
     assert state.checkpoint is not None and not state.checkpoint.landed
     assert state.n_saved == 0 and state.plane.z == 0.1
     assert state.outcome is not None and state.outcome.z == state.plane.z
@@ -206,7 +206,7 @@ def test_checkpoint_validation_preserves_interpolated_classification(
         file["terminal_checkpoint"].attrs["landed"] = True
         del file["meta/outcome"]
     with pytest.raises(OutputError, match="matching execution outcome"):
-        resume(path)
+        read_resume_state(path)
 
 
 def test_execution_records_own_json_values_and_keep_resume_history(metadata, tmp_path):
@@ -377,7 +377,7 @@ def test_checkpoint_roundtrip_retains_available_statistics_and_noise(
         handler.record_outcome(
             RunOutcome("failed", saved.z), TerminalCheckpoint(saved, 0)
         )
-    restored = resume(path).plane
+    restored = read_resume_state(path).plane
     assert_array_equal(restored.noise_phase, saved.noise_phase)
     assert_array_equal(restored.stats["energy"], saved.stats["energy"])
 
@@ -401,7 +401,7 @@ def test_read_refuses_malformed_checkpoint_scalar_attributes(
     with h5py.File(path, "r+") as stored:
         stored["terminal_checkpoint"].attrs[name] = value
     with pytest.raises(OutputError, match="typed scalars"):
-        resume(path)
+        read_resume_state(path)
 
 
 def test_new_checkpoint_replaces_an_interrupted_staging_group(metadata, tmp_path):
@@ -415,7 +415,7 @@ def test_new_checkpoint_replaces_an_interrupted_staging_group(metadata, tmp_path
         handler.record_outcome(
             RunOutcome("failed", 0.1), TerminalCheckpoint(plane(metadata, 0.1), 0)
         )
-    assert resume(path).plane.z == 0.1
+    assert read_resume_state(path).plane.z == 0.1
     with h5py.File(path) as stored:
         assert "_terminal_checkpoint_writing" not in stored
 
@@ -426,7 +426,7 @@ def test_resume_refuses_checkpoint_older_than_last_regular_save(metadata, tmp_pa
     with h5py.File(path, "r+") as stored:
         stored["terminal_checkpoint"].attrs["z"] = 0.1
     with pytest.raises(OutputError, match="precedes the last saved plane"):
-        resume(path)
+        read_resume_state(path)
 
 
 def test_storage_hook_can_clear_checkpoint_without_rewriting_outcome(
@@ -489,7 +489,7 @@ def test_a_running_checkpoint_is_superseded_by_the_next_plane(
     if store == "hdf5":
         with h5py.File(tmp_path / "r.h5", "r") as file:
             assert "terminal_checkpoint" not in file
-        assert resume(tmp_path / "r.h5").plane.z == 0.375
+        assert read_resume_state(tmp_path / "r.h5").plane.z == 0.375
 
 
 def test_a_resume_from_a_running_checkpoint_neither_repeats_nor_loses_attempts(
@@ -501,7 +501,7 @@ def test_a_resume_from_a_running_checkpoint_neither_repeats_nor_loses_attempts(
         handler.save(plane(metadata, 0.0))
         handler.record_outcome(*_running(metadata, 0.125, [0.0]))
     # A snapshot copy, or a run killed after its running checkpoint.
-    state = resume(path)
+    state = read_resume_state(path)
     assert state.checkpoint is not None and state.plane.z == 0.125
     assert_array_equal(state.history.z, [0.0])
     with HDF5Output(path, append=True) as handler:
@@ -544,7 +544,7 @@ def test_a_failure_without_a_checkpoint_falls_back_to_the_running_one(
                 dataclasses.replace(held.plane), held.next_save_index, held.landed
             )
         handler.record_outcome(RunOutcome("failed", 0.25, "abandoned"), held)
-    state = resume(path)
+    state = read_resume_state(path)
     assert state.outcome is not None and state.outcome.status == "failed"
     assert state.checkpoint is not None and state.plane.z == 0.25
     assert_array_equal(state.history.z, [0.0, 0.125])
@@ -559,7 +559,7 @@ def test_a_closing_outcome_without_a_checkpoint_still_clears_the_running_one(
         handler.save(plane(metadata, 0.0))
         handler.record_outcome(*_running(metadata, 0.125, [0.0]))
         handler.record_outcome(RunOutcome("failed", 0.0, "no state"))
-    assert resume(path).checkpoint is None
+    assert read_resume_state(path).checkpoint is None
 
 
 def _stale_running_file(metadata, path, *, window):
@@ -602,7 +602,7 @@ def test_a_stale_running_checkpoint_is_ignored_rather_than_refused(
     path = tmp_path / "stale.h5"
     _stale_running_file(metadata, path, window=window)
     with caplog.at_level(logging.INFO, logger="solprop.output.hdf5"):
-        state = resume(path)
+        state = read_resume_state(path)
     assert "ignoring the checkpoint" in caplog.text
     assert state.checkpoint is None
     last = 0.25 if window == "append" else 0.0
@@ -637,4 +637,4 @@ def test_a_closing_record_disagreeing_with_its_checkpoint_is_refused(
             assert kept is not None
             assert kept.plane.z == 0.375
     with pytest.raises(OutputError, match="no matching execution outcome"):
-        resume(path)
+        read_resume_state(path)

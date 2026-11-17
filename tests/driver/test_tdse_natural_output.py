@@ -29,7 +29,7 @@ from solprop.exceptions import (
 )
 from solprop.log import NullReporter
 from solprop.nonlinear.tdse import TDSEExecution
-from solprop.output.hdf5 import open_file, resume
+from solprop.output.hdf5 import open_file, read_resume_state
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 
@@ -203,13 +203,13 @@ def test_a_callback_interruption_resumes_from_its_saved_endpoint(fake, tmp_path)
         _run(_simulation(), path, progress=_Stop(5))
     with open_file(path) as saved:
         z_stopped = np.asarray(saved["z"]).copy()
-    stopped = resume(path)
+    stopped = read_resume_state(path)
     # The entrance is saved before the first callback, then five accepted steps.
     assert stopped.n_saved == 6
     assert stopped.outcome is not None
     calls_at_stop = plain(stopped.outcome.atomic_calls)["attempted"]
     _run(_simulation(), path, resume=True)
-    finished = resume(path)
+    finished = read_resume_state(path)
     assert finished.plane.z == _LENGTH
     assert finished.outcome is not None and finished.outcome.status == "complete"
     with open_file(path) as saved:

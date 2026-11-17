@@ -46,7 +46,7 @@ from solprop.monitor import (
 )
 from solprop.nonlinear.responses import KerrResponse
 from solprop.output import MemoryOutput, open_file, records
-from solprop.output.hdf5 import resume
+from solprop.output.hdf5 import read_resume_state
 from solprop.output.records import RunOutcome, TerminalCheckpoint
 from solprop.output.scan import read_point
 from solprop.output.store import CheckpointOutput, Output, PlaneStore
@@ -491,7 +491,7 @@ class _StopAfterFirstPlane(NullReporter):
 
 def _file_record(path: Path) -> tuple[dict[str, Any], int]:
     """Return a run file's monitor record and how many executions it holds."""
-    outcome = resume(path).outcome
+    outcome = read_resume_state(path).outcome
     record = _monitor_record(outcome)
     assert outcome is not None and record is not None
     return record, len(outcome.previous_executions) + 1
@@ -1361,7 +1361,7 @@ def test_a_stretch_without_a_monitor_keeps_the_totals_and_is_listed(
             build(None).run(path, resume=True, progress=_CrashAtPlane(3))
         build(_RELAXED).run(path, resume=True, progress="none")
     record, executions = _file_record(path)
-    outcome = resume(path).outcome
+    outcome = read_resume_state(path).outcome
     assert outcome is not None
     first_end, middle_end = (
         float(cast("float", one["z"])) for one in outcome.previous_executions

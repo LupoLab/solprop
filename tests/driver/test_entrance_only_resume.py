@@ -8,7 +8,7 @@ import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
 
 from solprop.driver import Simulation
-from solprop.output import MemoryOutput, open_file, resume
+from solprop.output import MemoryOutput, open_file, read_resume_state
 from solprop.output.metadata import INTERPOLATED_RESUMES_ANNOTATION
 from solprop.stats import StatsSpec
 from solprop.stepper.multistep import Multistep
@@ -43,7 +43,7 @@ def test_entrance_without_terminal_checkpoint_resumes_dense_run_normally(tmp_pat
     path = tmp_path / "entrance-only.h5"
     # A file written from a MemoryOutput has its planes but no terminal checkpoint.
     entrance_only.to_file(path)
-    state = resume(path)
+    state = read_resume_state(path)
     assert state.n_saved == 1
     assert state.plane.z == 0.0
     assert state.history.n_steps == 0

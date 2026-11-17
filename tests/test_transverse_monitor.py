@@ -29,7 +29,7 @@ from solprop.grid import FreeGrid, LineGrid, RadialGrid
 from solprop.log import NullReporter
 from solprop.modes import PlanarGrid, SlabMode
 from solprop.monitor import BoundaryCheck
-from solprop.output.hdf5 import resume
+from solprop.output.hdf5 import read_resume_state
 from solprop.output.store import PlaneStore
 from solprop.translate.transverse import _nodes_window
 from solprop.transverse_monitor import BACKSTOP_READS, TransverseEdge, _row_energy
@@ -280,7 +280,7 @@ def test_a_resume_judges_against_the_original_launch(tmp_path: Path) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)
         build().run(path, resume=True, progress="none")
-    outcome = resume(path).outcome
+    outcome = read_resume_state(path).outcome
     assert outcome is not None
     resumed = cast("dict[str, Any]", outcome.execution["boundary_monitor"])[
         "transverse"

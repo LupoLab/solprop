@@ -27,8 +27,13 @@ from solprop.driver.run import retention_at
 from solprop.exceptions import DriverError, SolpropWarning
 from solprop.fourier import power_amplitude
 from solprop.nonlinear.tdse import TDSEExecution
-from solprop.output.hdf5 import HDF5Output, ResumeState, _stored_metadata, check_cache
-from solprop.output.hdf5 import resume as resume_state
+from solprop.output.hdf5 import (
+    HDF5Output,
+    ResumeState,
+    _stored_metadata,
+    check_cache,
+    read_resume_state,
+)
 from solprop.output.memory import MemoryOutput
 from solprop.output.metadata import RunMetadata
 from solprop.output.records import MarchSnapshot
@@ -326,7 +331,7 @@ def _open_output(
     if isinstance(output, Path | str):
         path = Path(output)
         if resume and check_cache(path, metadata):
-            return HDF5Output(path, append=True), resume_state(path)
+            return HDF5Output(path, append=True), read_resume_state(path)
         return HDF5Output(path), None
     if resume:
         msg = (

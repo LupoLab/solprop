@@ -37,7 +37,7 @@ import numpy as np
 from solprop._interrupts import deferred_handlers
 from solprop.exceptions import OutputError, TDSEArchiveError
 from solprop.output._writer_lock import SNAPSHOT_SCHEMA, WriterLock
-from solprop.output.hdf5 import HDF5Output, ResumeState, resume
+from solprop.output.hdf5 import HDF5Output, ResumeState, read_resume_state
 from solprop.output.metadata import RunMetadata
 from solprop.output.tdse_archive import (
     ArchiveOutputs,
@@ -596,11 +596,11 @@ def _checkpoint(directory: Path, records: list[_FileRecord]) -> dict[str, object
     - Returns: checkpoint identity and provenance checked against the actual files.
     """
     optical = directory / records[0].path
-    state = resume(optical)
+    state = read_resume_state(optical)
     outcome = state.outcome
     # The endpoint is the last saved plane, or a running checkpoint beyond it at the
-    # running outcome's position (SEP 47 section 5.5), which `resume` prefers; it is
-    # an accepted endpoint, never a dense observation.
+    # running outcome's position (SEP 47 section 5.5), which `read_resume_state`
+    # prefers; it is an accepted endpoint, never a dense observation.
     if (
         outcome is None
         or outcome.status != "running"

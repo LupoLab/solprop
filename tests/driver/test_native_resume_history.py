@@ -45,7 +45,7 @@ from solprop.backends.sessions import start_session
 from solprop.driver import Simulation
 from solprop.grid import EnvelopeGrid
 from solprop.output import open_file
-from solprop.output.hdf5 import resume
+from solprop.output.hdf5 import read_resume_state
 from solprop.output.records import MarchSnapshot
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep, RungeKutta
 
@@ -314,7 +314,7 @@ def test_a_resumed_native_run_is_the_uninterrupted_one(
         tmp_path / "tight.h5",
     )
     run_until(build(), part, after=2)
-    state = resume(part)
+    state = read_resume_state(part)
     assert state.march is not None
     assert set(state.march.rows) == ROWS[case]
     # The resume decides in the simulation; the run's session installs the history.
@@ -348,7 +348,7 @@ def test_a_native_run_stopped_between_planes_continues_from_its_checkpoint(
         with_fault(patch, "trial", 120, "backend")
         with pytest.raises(RuntimeError, match="an injected native failure"):
             build().run(part, progress="none")
-    state = resume(part)
+    state = read_resume_state(part)
     assert state.checkpoint is not None
     assert state.march is not None and state.march.z == state.checkpoint.plane.z
     stop = state.checkpoint.plane.z
@@ -539,7 +539,7 @@ def test_a_native_resume_under_modified_noise_continues_the_same_march(
     whole = build(**options).run(progress="none")
     path = tmp_path / "envelope.h5"
     run_until(build(**options), path, after=1)
-    stored = resume(path).march
+    stored = read_resume_state(path).march
     assert stored is not None
     # The snapshot installs losslessly beside the modified noise: a session resumed at
     # its plane, the plane owed, holds exactly the stored history there.

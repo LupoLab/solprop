@@ -580,8 +580,8 @@ print(f"time-bandwidth product {float(time_bandwidth(output, plane=-1)):.3f}")
 Reading a run from disk goes through a handler that is **open**: during the run it already
 is, and afterwards {py:func}`~solprop.output.hdf5.open_file` opens the file read-only
 through the same protocol, as a context manager if you like.
-{py:func}`~solprop.output.hdf5.resume` returns the last plane only; it is for continuing a
-run, not for reading one.
+{py:func}`~solprop.output.hdf5.read_resume_state` returns the last plane only, the state a
+resume continues from; it is not for reading a run.
 
 ```{code-block} python
 from solprop.output import open_file

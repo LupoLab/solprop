@@ -25,7 +25,7 @@ from solprop.driver.settings import DEFAULT_N_SAVE, _observation_planes
 from solprop.exceptions import DriverError
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
-from solprop.output.hdf5 import resume
+from solprop.output.hdf5 import read_resume_state
 from solprop.recipe import Recipe, resume_file
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep, RungeKutta
@@ -476,7 +476,7 @@ def resumable(**keywords) -> Simulation:
 
 def ends_complete(path) -> None:
     """Assert a file holds its whole run, ending at the grid's length."""
-    state = resume(path)
+    state = read_resume_state(path)
     assert state.plane.z == LENGTH
     assert state.n_saved == 5
     assert state.checkpoint is None
@@ -487,7 +487,7 @@ def test_an_interrupted_file_resumes_to_the_declared_end(tmp_path):
     path = tmp_path / "run.h5"
     with pytest.raises(CrashError):
         resumable().run(path, progress=Interrupt(2))
-    assert resume(path).plane.z < LENGTH
+    assert read_resume_state(path).plane.z < LENGTH
     resumable().run(path, resume=True, progress="none")
     ends_complete(path)
 
@@ -509,7 +509,7 @@ def test_a_file_holding_a_terminal_checkpoint_resumes_to_the_declared_end(
         patch.setattr(NumpyWorkspace, "stats", fail_at_the_end)
         with pytest.raises(CrashError):
             resumable().run(path, progress="none")
-    stopped = resume(path)
+    stopped = read_resume_state(path)
     # The march reached the end; its last plane was never saved.
     assert stopped.checkpoint is not None and stopped.n_saved < 5
     resumable().run(path, resume=True, progress="none")

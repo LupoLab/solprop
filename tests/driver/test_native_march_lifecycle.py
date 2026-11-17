@@ -42,7 +42,7 @@ from solprop.backends.session import DEFAULT_WORK_LIMIT
 from solprop.cli import main
 from solprop.exceptions import ConvergenceError, ResponseBudgetError, RunTerminated
 from solprop.log import NullReporter
-from solprop.output.hdf5 import open_file, resume
+from solprop.output.hdf5 import open_file, read_resume_state
 from solprop.recipe import Recipe
 from solprop.stepper.multistep import Multistep
 
@@ -80,7 +80,7 @@ def with_fault(monkeypatch, stage: str, after: int, category: str) -> list[Any]:
 
 def assert_consistent_stop(part) -> None:
     """Assert the stopped run's checkpoint and march state belong to one position."""
-    state = resume(part)
+    state = read_resume_state(part)
     assert state.checkpoint is not None and state.march is not None
     assert state.march.z == state.checkpoint.plane.z
     assert state.march.positions[-1] == state.march.z
@@ -118,7 +118,7 @@ def test_a_native_failure_raises_its_class_at_the_last_accepted_step(
         # The startup sample was charged before it failed, and nothing was accepted:
         # the checkpoint is the entrance, with no history to keep.
         assert (ledger["startup"], ledger["accepted_steps"]) == (1, 0)
-        state = resume(part)
+        state = read_resume_state(part)
         assert state.checkpoint is not None and state.checkpoint.plane.z == 0.0
         assert state.march is None
         return
@@ -127,7 +127,7 @@ def test_a_native_failure_raises_its_class_at_the_last_accepted_step(
     orders = cast("list[list[int]]", ledger["orders"])
     assert sum(count for _, count in orders) == ledger["accepted_steps"]
     assert_consistent_stop(part)
-    state = resume(part)
+    state = read_resume_state(part)
     assert state.march is not None
     assert state.march.z == state.outcome.z  # pyright: ignore[reportOptionalMemberAccess]
 
@@ -169,7 +169,7 @@ def test_a_failure_inside_a_trial_s_source_leaves_the_accepted_state(
             with pytest.raises(RuntimeError, match="an injected native failure"):
                 build().run(part, progress="none")
         assert_consistent_stop(part)
-        stops[stage] = resume(part)
+        stops[stage] = read_resume_state(part)
     before, inside = stops["trial"], stops["trial_source"]
     assert before.checkpoint is not None and inside.checkpoint is not None
     assert before.march is not None and inside.march is not None
@@ -248,7 +248,7 @@ def test_sigterm_during_a_native_call_waits_for_its_commit(
     with pytest.raises(RunTerminated):
         build().run(part, progress="none")
     assert calls.signalled(40)
-    state = resume(part)
+    state = read_resume_state(part)
     assert state.checkpoint is not None and state.march is not None
     # The call ran to its end before the signal was raised: the checkpoint is where
     # it returned, past where it began.
@@ -614,7 +614,7 @@ def test_a_reporter_cannot_lose_the_failure_s_checkpoint(
         build().run(part, progress=reporter)
     assert not getattr(stopped.value, "__notes__", None)
     assert_consistent_stop(part)
-    state = resume(part)
+    state = read_resume_state(part)
     assert state.checkpoint is not None
     history = state.checkpoint.plane.step_history
     assert history.n_steps > 0

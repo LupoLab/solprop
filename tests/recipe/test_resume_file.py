@@ -256,14 +256,14 @@ def test_a_last_plane_without_a_field_and_no_checkpoint_cannot_continue(
 ):
     path = tmp_path / "fieldless.h5"
     _stopped(path)
-    original = resumable_module.resume
+    original = resumable_module.read_resume_state
 
     def fieldless(where):
         state = original(where)
         plane = dataclasses.replace(state.plane, field=None, noise_phase=None)
         return dataclasses.replace(state, plane=plane, checkpoint=None)
 
-    monkeypatch.setattr(resumable_module, "resume", fieldless)
+    monkeypatch.setattr(resumable_module, "read_resume_state", fieldless)
     answer = resumability(path)
     assert not answer.resumable
     assert answer.reason == (
