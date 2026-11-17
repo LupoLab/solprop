@@ -208,8 +208,10 @@ class Flags:
     """Static booleans a kernel specialises on at compile time.
 
     Section 1 of the kernel contract. They are *derived* from the content of the problem
-    by :meth:`from_content` and never passed in, so a flag cannot disagree with the
-    arrays it describes.
+    by :meth:`from_content`, which every solprop path that builds or changes a problem
+    calls, so that a flag agrees with the arrays it describes. The problem's
+    constructor and :func:`validate` do not re-derive them: a problem built by hand
+    keeps them consistent itself.
 
     Attributes
     ----------
