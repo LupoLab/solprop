@@ -19,7 +19,7 @@
 - :mod:`~solprop.coupling.outcouple`: :class:`~solprop.coupling.outcouple.Outcouple`
   synthesises a guide's exit field on a spatial grid.
 - :mod:`~solprop.coupling.elements` and the ``transport`` module (whose function shadows
-  it): :func:`~solprop.coupling.transport.transport` carries a spatial plane through an
+  it): :func:`solprop.coupling.transport` carries a spatial plane through an
   ordered sequence of linear elements, with its
   :class:`~solprop.coupling.transport.TransportReport`.
 
