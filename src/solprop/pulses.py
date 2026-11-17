@@ -178,7 +178,8 @@ class SpatialPulse(Displayed):
     Raises
     ------
     PulseError
-        If the waist, `m`, distance, Jones vector, displacement or tilt is invalid.
+        If the temporal pulse is a beam, or the waist, `m`, distance, Jones vector,
+        displacement or tilt is invalid.
 
     Notes
     -----
@@ -207,10 +208,15 @@ class SpatialPulse(Displayed):
 
     def __post_init__(self) -> None:
         """Validate the beam specification before sampling any grids."""
+        if isinstance(self.temporal, SpatialPulse | SpatialPulseSum):
+            msg = (
+                f"the temporal pulse of a SpatialPulse is a "
+                f"{type(self.temporal).__name__}, which is a beam: give a temporal "
+                "pulse such as a GaussianPulse"
+            )
+            raise PulseError(msg, parameter="temporal")
         positive(self.waist, "waist", PulseError, parameter="waist")
-        if isinstance(self.m, bool) or not isinstance(self.m, int) or self.m < 1:
-            msg = f"m must be a super-Gaussian order of at least 1, got {self.m!r}"
-            raise PulseError(msg, parameter="m")
+        _check_order(self.m)
         if not math.isfinite(self.propz):
             msg = "spatial propz must be finite"
             raise PulseError(msg)
@@ -332,7 +338,7 @@ class SpatialPulse(Displayed):
         if isinstance(space, PlanarGrid):
             msg = (
                 "a planar grid's launch is projected onto its slab modes in x: use "
-                "PlanarPulse(temporal, waist_y, waist_x=...), not a SpatialPulse"
+                "PlanarPulse(temporal, waist, waist_x=...), not a SpatialPulse"
             )
             raise PulseError(msg)
         aligner = _Aligner.of(self, grid, space, medium, plane_sample(medium, z, side))
@@ -966,13 +972,13 @@ class PlanarPulse(SpatialPulse):
         Returns
         -------
         str
-            For example ``PlanarPulse(waist_x=47 um, waist_y=2 mm, ...)``.
+            For example ``PlanarPulse(waist_x=47 um, waist=2 mm, ...)``.
         """
         return line(
             "PlanarPulse",
             [
                 ("waist_x", engineering(self.waist_x, "m")),
-                ("waist_y", engineering(self.waist, "m")),
+                ("waist", engineering(self.waist, "m")),
                 ("", repr(self.temporal)),
             ],
         )
@@ -1394,6 +1400,13 @@ def _frozen_phase(phases: Sequence[float] | np.ndarray) -> Float[np.ndarray, " n
     return coefficients
 
 
+def _check_order(m: object) -> None:
+    """Refuse a super-Gaussian order that is not an integer of at least 1."""
+    if isinstance(m, bool) or not isinstance(m, int) or m < 1:
+        msg = f"m must be a super-Gaussian order of at least 1, got {m!r}"
+        raise PulseError(msg, parameter="m")
+
+
 def _check_delay(grid: TimeGrid, t0: float) -> None:
     """Reject a delay that would move the pulse out of the time window.
 
@@ -1713,13 +1726,21 @@ class PulseSum(Displayed):
         Raises
         ------
         PulseError
-            If there are no members, or a member has no ``build`` method.
+            If there are no members, or a member is a beam or has no ``build``
+            method.
         """
         members = tuple(self.pulses)
         if not members:
             msg = "a PulseSum needs at least one pulse"
             raise PulseError(msg)
         for index, member in enumerate(members):
+            if isinstance(member, SpatialPulse | SpatialPulseSum):
+                msg = (
+                    f"member {index} of the PulseSum is a {type(member).__name__}, "
+                    "which is a beam: a PulseSum adds temporal pulses, and a "
+                    "SpatialPulseSum adds beams"
+                )
+                raise PulseError(msg)
             if not callable(getattr(member, "build", None)):
                 msg = (
                     f"member {index} of the PulseSum is a {type(member).__name__}, "
@@ -1850,13 +1871,11 @@ class GaussianPulse(ShapedPulse):
         Raises
         ------
         PulseError
-            If ``fwhm`` is not positive or ``m`` is less than one.
+            If ``fwhm`` is not positive or ``m`` is not an integer of at least one.
         """
         super().__post_init__()
         positive(self.fwhm, "fwhm", PulseError, parameter="fwhm")
-        if self.m < 1:
-            msg = f"m must be a super-Gaussian order of at least 1, got {self.m!r}"
-            raise PulseError(msg)
+        _check_order(self.m)
 
     def _shape_fields(self) -> list[tuple[str, object]]:
         """Return the duration, and the order when it is not the plain Gaussian's.

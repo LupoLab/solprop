@@ -73,8 +73,10 @@ $m$ is; a $\operatorname{sech}^2$ pulse uses $\tau_w = \tau/[2\ln(1+\sqrt2)]$.
 ## Energy or peak power, never both
 
 A pulse is scaled by its `energy` or by its `peak_power`. Giving both, or neither, is an
-error rather than a precedence rule. Both are realised *exactly* on the grid: the
-spectrum is built, the
+error rather than a precedence rule. That choice belongs to the three shaped pulses,
+`GaussianPulse`, `SechPulse` and `CustomPulse`: the measured `DataPulse` and
+`TimeDataPulse` are scaled by `energy` alone, and `CWPulse` by its `average_power`.
+Whichever is given is realised *exactly* on the grid: the spectrum is built, the
 phase is applied, the realised quantity is measured with the grid's own functional, and
 one multiplication by a square root fixes it. Nothing is left to a quadrature error, and
 the round trip closes to a part in $10^{12}$ or better.
