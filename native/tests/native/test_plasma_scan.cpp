@@ -157,7 +157,8 @@ team_band_scan(const std::vector<double>& values, const std::size_t rows,
 #endif
   if constexpr (Staged)
     policy.set_scratch_size(
-        0, Kokkos::PerTeam(native::band_staging_bytes<Staged, native::ExecutionSpace>()));
+        0,
+        Kokkos::PerTeam(native::band_staging_bytes<Staged, native::ExecutionSpace>()));
   const int half = static_cast<int>(taps.size()) - 1;
   const int count = static_cast<int>(samples);
   Kokkos::parallel_for(
@@ -171,11 +172,11 @@ team_band_scan(const std::vector<double>& values, const std::size_t rows,
         for (auto row = first_row; row < first_row + 2 && row < rows; ++row) {
           native::team_band_filter<Staged>(team, tile, input, row, filtered, row, count,
                                            local, half);
-          native::team_trapezoid_prefix(team, filtered, row, count, spacing,
-                                        [&](const int sample, const double prefix) {
-                                          prefixes(row, static_cast<std::size_t>(sample)) =
-                                              prefix;
-                                        });
+          native::team_trapezoid_prefix(
+              team, filtered, row, count, spacing,
+              [&](const int sample, const double prefix) {
+                prefixes(row, static_cast<std::size_t>(sample)) = prefix;
+              });
         }
       });
   execution_space.fence("solprop_native band team-scan test");
