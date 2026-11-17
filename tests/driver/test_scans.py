@@ -115,6 +115,35 @@ def test_scan_order_global_subsets_and_seed_independence():
     assert [p.seed for p in explicit.points()] == [7, 8]
 
 
+def test_derived_point_seeds_follow_the_documented_rule():
+    # Literals computed once from the documented derivations: a scan's base seed, or the
+    # little-endian first eight bytes of SHA-256 of its name, as the root entropy of
+    # SeedSequence([root, global_index]).generate_state(1, dtype=uint64)[0].
+    assert [name_seed("unseeded", index) for index in (0, 1)] == [
+        13766556482837212248,
+        10884373728482101469,
+    ]
+    assert [p.seed for p in Scan("s", base_seed=91, x=[0, 1]).points()] == [
+        15497448034978523998,
+        1624429969735552845,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("values", "row"),
+    [
+        ([1.0, 2.5], "2 values, 1 to 2.5"),
+        (["He", "Ar"], "2 values, 'He' to 'Ar'"),
+        ([], "no values"),
+        ([{"gas": "He"}], "1 values, {'gas': 'He'} to {'gas': 'He'}"),
+    ],
+)
+def test_a_printed_scan_describes_each_axis_whatever_its_kind(values, row):
+    lines = str(Scan("scan", power=values)).splitlines()
+    key, value = lines[1].split(":", 1)
+    assert (key.strip(), value.strip()) == ("power", row)
+
+
 @pytest.mark.parametrize(
     "call",
     [
