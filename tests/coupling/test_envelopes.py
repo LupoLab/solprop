@@ -615,6 +615,28 @@ def test_a_capillary_beyond_the_leaky_range_is_refused():
         couple(plane, port, model=CouplingModel("scalar_paraxial", model_error=0.2))
 
 
+def test_a_capillary_exit_beyond_the_leaky_range_is_refused():
+    """An exit whose every occupied bin is beyond the leaky range is refused.
+
+    No bin is evaluated: a 12 um pair has delta 1.57e-2 at 800 nm, past the range's
+    1e-2, so the envelope refuses the pair on its delta rather than on a discrepancy.
+    """
+    source = capillary_simulation(12e-6, 2, GRID)
+    port = capillary_simulation(12e-6, 2, GRID).input_port()
+    plane, _ = modal_plane(source, [1.0, 0.5j])
+    with pytest.raises(CouplingError, match=r"leaky = .* lies outside"):
+        couple(plane, port, model=CouplingModel("scalar_paraxial", model_error=0.2))
+
+
+def test_a_capillary_exit_beyond_the_radius_range_is_refused():
+    """An exit from a capillary three times the target's radius is refused."""
+    source = capillary_simulation(3 * RADIUS, 2, GRID)
+    port = capillary_simulation(RADIUS, 2, GRID).input_port()
+    plane, _ = modal_plane(source, [1.0, 0.5j])
+    with pytest.raises(CouplingError, match=r"radius_ratio = 3\.0 lies outside"):
+        couple(plane, port, model=CouplingModel("scalar_paraxial", model_error=0.2))
+
+
 def test_a_capillary_beyond_the_mode_range_is_refused():
     """The 25th HE1m order lies outside the envelope's range, and is refused."""
     assert CAPILLARY_ENVELOPE.ranges["modes"] == (1.0, 24.0)
