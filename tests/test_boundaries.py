@@ -885,3 +885,26 @@ def test_the_split_scheme_removes_the_same_light():
 def test_the_temporal_profile_rejects_a_bad_reference_length(bad):
     with pytest.raises(GridError, match="reference_length must be positive"):
         temporal_collar_rate(np.array([0.0]), Collar(-2.0, -1.0, 1.0, 2.0), bad)
+
+
+def test_the_walk_off_warning_names_the_line_outside_solprop(field_grid):
+    # The route calls warn_walkoff from inside the package; the warning must still name
+    # the user's line, not the route's. The call is compiled as if it sat in a package
+    # module, so a fixed stacklevel would stop there.
+    import inspect  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+
+    import solprop  # noqa: PLC0415
+
+    package = Path(solprop.__file__).resolve().parent
+    frame = compile(
+        "warn_walkoff(grid, 2e-12)",
+        str(package / "driver" / "routes" / "caller.py"),
+        "exec",
+    )
+    # The session's jaxtyping hook wraps every solprop function in a frame of its own,
+    # outside the package, where the walk would stop; a user's session has none.
+    namespace = {"warn_walkoff": inspect.unwrap(warn_walkoff), "grid": field_grid}
+    with pytest.warns(SolpropWarning, match="wrapping around") as caught:
+        exec(frame, namespace)  # noqa: S102 - a call placed inside the package
+    assert [w.filename for w in caught] == [__file__]

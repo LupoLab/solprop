@@ -43,6 +43,7 @@ import numpy as np
 from jaxtyping import Bool, Complex, Float, Inexact, UInt8
 
 from solprop._process import parallel_rows
+from solprop._validation import PACKAGE_FILES
 from solprop.exceptions import GridError, SolpropWarning
 from solprop.grid import Collar, TimeGrid
 from solprop.spatial_absorber import SpatialAbsorber, SpatialAbsorberDesign
@@ -1356,7 +1357,7 @@ def warn_walkoff(
         "strengthening the spectral collar too, raise boundary_N above "
         f"{grid.length / length * MIN_COLLAR_ATTENUATION / max(crossing, 1e-30):.3g}",
         SolpropWarning,
-        stacklevel=2,
+        skip_file_prefixes=PACKAGE_FILES,
     )
 
 
