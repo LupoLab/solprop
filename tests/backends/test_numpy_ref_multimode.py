@@ -19,7 +19,10 @@ import warnings
 import numpy as np
 import pytest
 
+from bounds import assert_within
+from builders import load_reference
 from convergence_records import Column, Study, record
+from march_bounds import evaluation_rounding
 from sessions.executors import IDENTITY
 from sessions.runs import launch_statistics, launched, run
 from solprop import fourier
@@ -34,6 +37,7 @@ from solprop.exceptions import (
 from solprop.grid import FieldGrid
 from solprop.modes import MarcatiliMode, ModeCollection, transverse_quadrature
 from solprop.nonlinear.responses import KerrResponse
+from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec, analytic_field
 from solprop.stepper import FixedSchedule, PIController
@@ -312,6 +316,52 @@ def test_a_kerr_run_keeps_the_energy_the_medium_does_not_hold(
     # allows for the second-order term, which is a further factor of ten down.
     assert 9.9 < strong / weak < 10.1
     assert strong < 1e-7
+
+
+# ------------------------------------------------------------------------ a taper
+
+
+def test_a_taper_s_source_at_z_is_the_local_radius_s_source(grid):
+    """A tapered capillary's source at ``z`` is a straight one's of radius ``a(z)``.
+
+    The reference synthesises the fields on the entrance's quadrature times the taper
+    factor and projects back divided by it: the Bessel modes are self-similar in the
+    radius, so that is the straight capillary's own pipeline on its own nodes, scaled.
+    One evaluation each, on the reference alone (native's taper is held to this by the
+    parity catalogue's taper rows), for the same internal modal state.
+    """
+    taper = Linear(125e-6, 75e-6, LENGTH)
+    z = 0.75 * LENGTH
+
+    def built(radius):
+        modes = [
+            MarcatiliMode(radius, "He", 1.0, m=m, cladding=1.45, loss_scale=0.0)
+            for m in (1, 2)
+        ]
+        rule = transverse_quadrature(modes, n_r=CONVERGED_N_R_SET)
+        # Steps short enough for the taper's mode coupling, which would warn at the
+        # module's default; the source evaluated here does not depend on them.
+        problem, run_request = build(
+            grid, modes, pulse(grid, 2), quadrature=rule, dz_max=LENGTH / 16
+        )
+        return NumpyRefBackend(problem, run_request, grid=grid, modes=modes), rule
+
+    tapered, rule = built(taper)
+    straight, _ = built(float(taper(np.array([z]))[0]))
+    try:
+        state = load_reference(straight)
+        scale = float(tapered.workspace.problem.transform.taper_scale(z))
+        expected = straight.workspace.lab_source(state, 0.0)
+        found = tapered.workspace.lab_source(state, z)
+    finally:
+        tapered.close()
+        straight.close()
+    # Both sides' rounding of one evaluation, on the same nodes up to the radius.
+    # Measured 9.0e-16 of the source. A projection that applied the factor the wrong
+    # way round would be off by its square less one, 1.04 here.
+    bound = evaluation_rounding(grid.n_to, rule.n_nodes, 2)
+    assert scale**2 - 1.0 > 1e6 * bound
+    assert_within(found, expected, bound, what="tapered source")
 
 
 # ----------------------------------------------------------------------- node chunks
