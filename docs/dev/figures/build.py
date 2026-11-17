@@ -796,7 +796,7 @@ MODULES = {
         ),
         Module(
             "backends/numpy_ref/marches/",
-            ("runge_kutta", "adams", "low_storage"),
+            ("host", "runge_kutta", "adams", "low_storage"),
         ),
         Module(
             "backends/numpy_ref/passes/",

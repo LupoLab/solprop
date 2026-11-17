@@ -227,7 +227,8 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="578.0" y="1206.0" font-size="12" class="dim">session · session_parts</text>
 <rect x="307.0" y="1244.5" width="242.75000000000003" height="66.0" rx="7" ry="7" class="fill-b" />
 <text x="317.0" y="1266.5" font-size="15" class="bold ink-b">backends/numpy_ref/marches/</text>
-<text x="317.0" y="1282.0" font-size="12" class="dim">runge_kutta · adams · low_storage</text>
+<text x="317.0" y="1282.0" font-size="12" class="dim">host · runge_kutta · adams</text>
+<text x="317.0" y="1297.5" font-size="12" class="dim">low_storage</text>
 <rect x="559.75" y="1244.5" width="234.50000000000003" height="66.0" rx="7" ry="7" class="fill-b" />
 <text x="569.75" y="1266.5" font-size="15" class="bold ink-b">backends/numpy_ref/passes/</text>
 <text x="569.75" y="1282.0" font-size="12" class="dim">transforms · responses · plasma</text>
