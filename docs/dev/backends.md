@@ -1585,7 +1585,7 @@ alone, in `wisdom.json` in the calibration store's directory of the machine and 
 in memory for its later workspaces either way. A run's own planning (the policy's, or
 the profile's) is offered the stored plans (`FftPlanning::stored`) and asked to keep
 what it measures (`keep`). In `begin_seed` a key the profile holds is planned from the
-profile's wisdom, as before; any other seeded above estimate plans *alone*: the
+profile's wisdom; any other seeded above estimate plans *alone*: the
 workspace's accumulated wisdom is exported and forgotten, only that key's known wisdom
 imported (stored, or measured earlier in this workspace, so a key seeded twice is
 measured once; a key to measure starts from what the workspace measured so far, whose
@@ -1612,7 +1612,8 @@ Contiguous Raman transforms use the same planning policy, including long doubled
 rows and partial chunks. On macOS, NEON FFTW handles serial and long Raman rows;
 short parallel power-of-two rows (at most 16384 samples) retain Accelerate. Selection
 uses the linked FFTW's codelet family and the plan's dimensions and thread width at
-construction. A local FFTW without NEON retains the previous short-serial FFTW rule.
+construction. With a local FFTW without NEON, FFTW takes only serial rows of at most 16384
+samples and Accelerate the other power-of-two rows (`transforms/raman_fft.hpp`).
 The full-chunk Raman provider and task counts, planning seconds, and plan heap growth remain
 in execution metadata. General-modal tail views add no field buffers. These choices preserve
 explicit transform scaling and the device paths. See the multimode CPU measurements
