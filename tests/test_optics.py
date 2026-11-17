@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from solprop import fourier, optics, pulses
+from solprop import optics
 from solprop.constants import C
 from solprop.exceptions import MaterialError, MaterialRangeWarning
 from solprop.optics import Chain, ChirpedMirror, Material, TaylorPhase, stored_factor
@@ -191,28 +191,6 @@ def test_a_chirp_built_into_a_pulse_is_removed_by_the_opposite_taylor_phase():
     np.testing.assert_allclose(
         restored, clean, rtol=0.0, atol=1e-12 * np.abs(clean).max()
     )
-
-
-def test_the_pulse_phase_factor_is_what_it_was():
-    coefficients, delay = np.array([0.3, 0.0, 250e-30, -4000e-45]), 12e-15
-    for kind in ("field", "envelope"):
-        grid = example_grid(kind)
-        # The loop the builders carried before the formula moved to solprop.optics.
-        detuning = grid.omega - OMEGA0
-        phase = grid.omega * delay
-        for order, coefficient in enumerate(coefficients):
-            phase = phase + coefficient * detuning**order / math.factorial(order)
-        expected = fourier.to_internal(np.exp(1j * phase))
-        # The same sum of five terms, in whatever order the helper forms it: a few
-        # roundings of the largest phase (16 eps of it), then one complex exponential
-        # of unit modulus (a few ulps), compared absolutely, the peak being one.
-        bound = 16 * np.finfo(float).eps * float(np.max(np.abs(phase)))
-        np.testing.assert_allclose(
-            pulses._phase_factor(grid, coefficients, delay, OMEGA0),
-            expected,
-            rtol=0,
-            atol=bound + 8 * np.finfo(float).eps,
-        )
 
 
 def test_stored_factor_is_the_conjugate_on_the_active_band_and_one_elsewhere():

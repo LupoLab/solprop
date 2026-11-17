@@ -370,6 +370,40 @@ def test_a_taylor_phase_gives_the_group_delay_it_asks_for(grid_name, request):
 
 
 @pytest.mark.parametrize("grid_name", GRIDS)
+def test_third_and_fourth_order_phases_give_the_group_delay_they_ask_for(
+    grid_name, request
+):
+    grid = request.getfixturevalue(grid_name)
+    # About 0.2 ps of group delay at the band's edge from each term: well inside the
+    # 2 ps window, and under a radian of phase between neighbouring bins to unwrap.
+    tod, fod = 20000e-45, 3e5 * 1e-60
+    spectrum = GaussianPulse(
+        wavelength=WAVELENGTH,
+        fwhm=FWHM,
+        energy=ENERGY,
+        phases=(0.0, 0.0, 0.0, tod, fod),
+    ).build(grid)[0, 0]
+    optics = fourier.spectrum_to_optics(spectrum, kind=grid.kind)
+    band = np.abs(spectrum) > 0.05 * np.abs(spectrum).max()
+    order = np.argsort(grid.omega[band])
+    omega = grid.omega[band][order]
+    delay = np.gradient(np.unwrap(np.angle(optics[band][order])), omega)[1:-1]
+    detuning = omega[1:-1] - 2.0 * np.pi * C / WAVELENGTH
+    reach = float(np.max(np.abs(detuning)))
+    cubic = np.polynomial.Polynomial.fit(
+        detuning / reach, delay, 3, domain=[-1, 1], window=[-1, 1]
+    ).coef
+    # The group delay of c3 x^3/3! + c4 x^4/4! is c3 x^2/2 + c4 x^3/6. A central
+    # difference of a quartic phase is exact in those two coefficients (its error
+    # adds only h^2 c3/6 and h^2 c4 x/6), so the fit recovers them to rounding: a few
+    # eps of 20 rad of phase over 2h ~ 5e12 rad/s is ~1e-27 s, under 1e-14 of the
+    # 0.3 ps delay at the edge (1e-15 measured); 1e-10 leaves the fit's conditioning
+    # ample room and is far below the factor 6 or 24 of a wrong factorial.
+    assert_allclose(cubic[2], tod / 2 * reach**2, rtol=1e-10, atol=0.0)
+    assert_allclose(cubic[3], fod / 6 * reach**3, rtol=1e-10, atol=0.0)
+
+
+@pytest.mark.parametrize("grid_name", GRIDS)
 def test_the_spectrum_helpers_round_trip_a_built_pulse(grid_name, request):
     grid = request.getfixturevalue(grid_name)
     spectrum = GaussianPulse(
