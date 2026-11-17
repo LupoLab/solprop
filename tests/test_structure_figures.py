@@ -27,8 +27,8 @@ from pathlib import Path
 
 import pytest
 
-from solprop.backends.host.session import HostSession
 from solprop.backends.numpy_ref.passes import plasma, responses, stepping, transforms
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.protocol import Backend
 from solprop.output.metadata import RunMetadata
 from solprop.output.records import HISTORY_FIELDS

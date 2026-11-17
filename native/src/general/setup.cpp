@@ -521,7 +521,7 @@ void GeneralWorkspace::allocate_transforms(const std::size_t columns,
 }
 
 // The forward rows and spectra: the projection's, the absorber's, a device's pack and
-// the held and gated plasma currents'.
+// the held plasma current's.
 void GeneralWorkspace::allocate_forward_rows(const std::size_t columns,
                                              const std::size_t chunk_rows,
                                              const std::size_t temporal_columns) {
@@ -663,17 +663,9 @@ void GeneralWorkspace::allocate_forward_rows(const std::size_t columns,
             : RealView2("solprop_native.absorber.fine_real", temporal_columns,
                         problem_.dims.n_to);
   }
-  if (field_plasma())
+  if (held_plasma()) {
     held_current_ =
         RealView2("solprop_native.held.current", chunk_rows, problem_.dims.n_to);
-  if (gated_plasma()) {
-    gated_prefix_ =
-        RealView2("solprop_native.gated.prefix", chunk_rows, problem_.dims.n_to);
-    if (problem_.plasma.band)
-      gated_filtered_ =
-          RealView2("solprop_native.gated.filtered", chunk_rows, problem_.dims.n_to);
-  }
-  if (held_plasma()) {
     held_derivative_ = RealView("solprop_native.held.derivative", problem_.dims.n_to);
     held_inverse_ = RealView("solprop_native.held.inverse", problem_.dims.n_omega);
     const bool radial = held_radial();
@@ -1725,7 +1717,6 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
   return {
       {"held_current_host_derivative", reserved(problem_.grid.time_window_derivative)},
       {"held_current", bytes(held_current_)},
-      {"gated_current_prefix", bytes(gated_prefix_, gated_filtered_)},
       {"held_current_gj", held_streams_[0].bytes()},
       {"held_current_edge", held_streams_[1].bytes()},
       {"held_current_nonplasma", held_streams_[2].bytes()},

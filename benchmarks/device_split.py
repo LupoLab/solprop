@@ -198,7 +198,7 @@ def _native(simulation: Simulation) -> tuple[Any, Any, Any]:
         which the caller closes.
     """
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     backend = select(
         "native",
         problem,

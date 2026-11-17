@@ -35,7 +35,7 @@ backend_module = pytest.importorskip("solprop_native.backend")
 def built(simulation, **keywords):
     """Return the native backend for `simulation`, translated."""
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     return NativeBackend(
         problem, run_request, grid=simulation.grid, modes=simulation.modes, **keywords
     )
@@ -80,7 +80,7 @@ def test_the_fused_method_is_native():
 
 
 def test_a_replayed_schedule_is_native():
-    stepper = on_route("capillary (mode-averaged)", Multistep())._run_request().stepper
+    stepper = on_route("capillary (mode-averaged)", Multistep()).run_request().stepper
     simulation = on_route("capillary (mode-averaged)", Multistep())
     schedule = FixedSchedule.uniform(
         0.0,
@@ -110,7 +110,7 @@ def test_a_representation_the_stage_tables_do_not_read_is_refused_at_admission(
     # admission, before the native state is built, not stepped on host rows.
     simulation = on_route("gnlse", Multistep())
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     owner = copy.copy(problem.linear if leaf == "operator" else problem.responses)
     object.__setattr__(
         owner, "phi_constant" if leaf == "operator" else "prefactor_constant", None

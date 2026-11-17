@@ -37,7 +37,7 @@ from solprop._ownership import frozen_copy, is_held
 from solprop.backends import protocol
 from solprop.backends.events import ExportTicket, ObservationReady
 from solprop.backends.export import ExportRecipe, apply_recipe
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import available, select
 from solprop.driver.metadata import metadata_for
 from solprop.driver.run import run_problem
@@ -341,7 +341,7 @@ def _from_simulation(simulation: Any) -> tuple[Any, Any, dict[str, Any]]:
         "modes": simulation.modes,
         "profiles": simulation.profiles,
     }
-    return simulation.translate(), simulation._run_request(), context
+    return simulation.translate(), simulation.run_request(), context
 
 
 def _capillary() -> tuple[Any, Any, dict[str, Any]]:

@@ -141,7 +141,7 @@ def _check_block(
     # its factor's size is inside the bound's margin. A device build adds its
     # transforms' declared envelope, eight round trips a step at most. A reading sums
     # squares of the same samples, at twice the state's relative rounding.
-    problem, run_request = simulation.translate(), simulation._run_request()
+    problem, run_request = simulation.translate(), simulation.run_request()
     low_storage = parity_bound(
         problem, run_request, transverse=problem.transform.n_nodes
     )
@@ -201,7 +201,7 @@ def test_real_rows_keep_their_buffers() -> None:
     backend = select(
         "native",
         problem,
-        simulation._run_request(),
+        simulation.run_request(),
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,

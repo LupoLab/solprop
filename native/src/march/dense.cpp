@@ -144,7 +144,7 @@ RungeKuttaDense::RungeKuttaDense(GeneralState& state, const stage::Tables& table
 RungeKuttaDense::~RungeKuttaDense() { state_.rk_dense_release(); }
 
 void RungeKuttaDense::hold(const double z, const double dz) {
-  // `_dense_record`, before the step's state is adopted.
+  // `NumpyRungeKutta.extend`, before the step's state is adopted.
   state_.rk_dense_hold(dz);
   held_ = true;
   z_ = z;
@@ -163,8 +163,8 @@ void RungeKuttaDense::observe(const double position) {
   if (!held_)
     throw std::logic_error(
         "no accepted Runge-Kutta step is held for a dense observation");
-  // `_observe_inside`: the extension at the plane's fraction, carried there from the
-  // step's anchor by `U(position, z)`.
+  // `RungeKuttaDense.observe`: the extension at the plane's fraction, carried there
+  // from the step's anchor by `U(position, z)`.
   const double theta = dense::fraction(position, z_, dz_);
   const auto carry = stage::trial(tables_, stage::row(tables_, anchor_, z_, position));
   state_.rk_dense_observe(theta, carry);

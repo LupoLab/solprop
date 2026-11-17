@@ -13,9 +13,9 @@
 //
 // Each function performs the operations of the solprop function it is named after in
 // the same order: `table_steps` and `schedule_key` of `solprop.backends.low_storage`,
-// and `scalars`, the arrays `HostLowStorage` forms from its stage bundles, as the
-// native backend's adapter once packed them. The translation unit is compiled without
-// contraction on every build, as the marches' are.
+// and `scalars`, the arrays solprop's `NumpyLowStorage` (`numpy_ref/engines.py`)
+// forms from its stage bundles. The translation unit is compiled without contraction
+// on every build, as the marches' are.
 //
 // A step is accepted in place: from its first pass to its finish the state is neither
 // end of the step, and a failure there -- a native exception, or a non-finite norm --
@@ -82,7 +82,7 @@ inline constexpr std::size_t evaluations = 4;
                                   double dz);
 
 /**
- * A step's scalars from `z` over `dz`, as `HostLowStorage` forms them: each
+ * A step's scalars from `z` over `dz`, as `NumpyLowStorage` forms them: each
  * of the start, the midpoint and the end read as its own anchor, the end's row repeated
  * to the tableau's stages; the increment's rows the flows' -- a separable operator's
  * half steps, or a varying operator's `Phi(z_m) - Phi(z)` and `Phi(z + h) - Phi(z_m)`
@@ -108,7 +108,7 @@ namespace solprop_native::engines {
  * natively, scoring 0.0 ("not estimated") or, when the field diverged, the accepted
  * state's non-finite squared norm; the accept is the backend's finish and the
  * accepted-step hook. A constant operator's table is rebuilt only where the schedule's
- * key changes, as `HostLowStorage` keeps it.
+ * key changes, as `NumpyLowStorage` keeps it.
  */
 class ResidentLowStorage final : public rk::Engine {
 public:

@@ -182,7 +182,7 @@ Chebyshev-Lobatto points of one degree, starting at four and doubled until the e
 reproduces a **fresh** solve at the points the doubling adds to within `path_rtol`, which
 by default is the frequency interpolation's own measured profile error: sampling in z is
 then never the coarser of the two
-({py:class}`~solprop.modes.guide.ModalPath`,
+({py:class}`~solprop.modes.path.ModalPath`,
 {py:func}`~solprop.modes.path.sample_modal_path`). A relative error $e$ in a
 propagation constant costs a phase of about $e|\beta|L$ over a length $L$, so a run that
 needs the phase along a long guide should tighten `path_rtol`. On the graded-index taper

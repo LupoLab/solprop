@@ -232,7 +232,7 @@ def test_a_negligible_wall_beside_a_two_component_set_is_the_uncoupled_run(kind)
     # The TE/TM wall beside a TE_0m or TM_0m pair, a launch strong enough that the
     # Kerr half (now with E_y) is exercised (``tests/flow_parity.py``).
     simulation = build(kind)
-    problem, run_request = simulation.translate(), simulation._run_request()
+    problem, run_request = simulation.translate(), simulation.run_request()
     assert problem.transform.n_pol == 2
     # The wall changes the linear operator alone: the synthesis and projection are
     # the wall-free run's, bit for bit.
@@ -291,7 +291,7 @@ def test_beside_the_wall_the_kerr_increment_is_eight_thirds_of_the_x_only_one(ki
     # term, so its ratio is 8/3 up to the second-order part, relative O(Phi) with the
     # launch's Phi of order 1e-4 (``tests/flow_parity.py``): bound 1e-3.
     def increment(simulation):
-        problem, run_request = simulation.translate(), simulation._run_request()
+        problem, run_request = simulation.translate(), simulation.run_request()
         weak = replace(
             problem,
             initial=replace(problem.initial, field0=problem.initial.field0 * 1e-3),

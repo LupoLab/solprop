@@ -91,7 +91,7 @@ def radial_case(medium):
         settings=flux_settings(LOCAL),
         noise=None,
     )
-    return grid, simulation.translate(), simulation._run_request()
+    return grid, simulation.translate(), simulation.run_request()
 
 
 def free_case(space):
@@ -107,7 +107,7 @@ def free_case(space):
         settings=flux_settings(names, apertures=HOLES, spectral_regions=HALVES),
         noise=None,
     )
-    return grid, simulation.translate(), simulation._run_request()
+    return grid, simulation.translate(), simulation.run_request()
 
 
 def planar_flux_case():

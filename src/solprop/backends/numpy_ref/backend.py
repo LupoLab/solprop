@@ -4,8 +4,8 @@
 
 """The reference backend: its lowering, its marches and the refusals (SEP 52).
 
-One :class:`NumpyRefBackend` steps one problem in plain NumPy. It builds the
-workspace that holds the state and does every state-sized operation
+One :class:`NumpyRefBackend` steps one problem in plain NumPy. It builds the workspace
+that holds the state and does every state-sized operation
 (:class:`~solprop.backends.numpy_ref.workspace.NumpyWorkspace`) and, for each run, the
 engines a march asks of it
 (:class:`~solprop.backends.numpy_ref.engines.NumpyRungeKutta`,
@@ -13,11 +13,11 @@ engines a march asks of it
 :class:`~solprop.backends.numpy_ref.engines.NumpyLowStorage`), the run's march and its
 dense output (:meth:`NumpyRefBackend.method`); it keeps ``prepare``, the metadata, the
 memory ledger, the timing probe and ``close``. Every run is the reference's own
-session's (:class:`~solprop.backends.host.session.HostSession`), which schedules it.
-The step control follows ``docs/dev/stepper.md`` section 3 exactly: the controller's
-*proposal* is its state, the executed step's own norm decides acceptance and is what
-the history records, and the equivalent norm of the proposal is what the controller
-and a rejection see.
+session's (:class:`~solprop.backends.numpy_ref.session.HostSession`), which schedules
+it. The step control follows ``docs/dev/stepper.md`` section 3 exactly: the controller's
+*proposal* is its state, the executed step's own norm decides acceptance and is what the
+history records, and the equivalent norm of the proposal is what the controller and a
+rejection see.
 """
 
 import logging
@@ -27,25 +27,20 @@ from typing import TYPE_CHECKING, Literal, cast
 import numpy as np
 from jaxtyping import Complex
 
-from solprop._helpers import PLAIN, Helpers
-from solprop.backends.exponential import (
-    CarrierReference,
-    refuse_carrier_frame,
-    refuse_formulation,
-)
-from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.host.low_storage import HostLowStorageMarch
-from solprop.backends.host.runge_kutta import RungeKuttaMarch
-from solprop.backends.host.session import HostMethod, HostPrepared, start_position
+from solprop.backends.exponential import CarrierReference, refuse_adams
 from solprop.backends.ledger import CallLedger
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.numpy_ref.dense import AdamsDense, RungeKuttaDense
 from solprop.backends.numpy_ref.engines import NumpyLowStorage, NumpyRungeKutta
+from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
+from solprop.backends.numpy_ref.marches.low_storage import HostLowStorageMarch
+from solprop.backends.numpy_ref.marches.runge_kutta import RungeKuttaMarch
 from solprop.backends.numpy_ref.multistep import (
     ExponentialHistory,
     HostHistory,
     InteractionHistory,
 )
+from solprop.backends.numpy_ref.session import HostMethod, HostPrepared, start_position
 from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.protocol import TimingProbe
 from solprop.backends.records import adams_policy, runge_kutta_policy
@@ -56,14 +51,9 @@ from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
+from solprop.stepper.settings import PropagatorMode, StepperSettings
 from solprop.translate.plasma_source import plasma_source_record
-from solprop.translate.problem import (
-    MAX_N_POL,
-    PropagationProblem,
-    PropagatorMode,
-    StepperSettings,
-    validate_run,
-)
+from solprop.translate.problem import PropagationProblem, validate_run
 from solprop.translate.routes import (
     GeneralRoute,
     ModalRoute,
@@ -136,11 +126,6 @@ class NumpyRefBackend:
     ----------
     name : str
         The registry name, ``"numpy_ref"``.
-    reads_transverse_edge : bool
-        True: the reference reads a free-space run's transverse edge on the host.
-    helpers : solprop._helpers.Helpers
-        The uncompiled stage-table and Adams-basis evaluations, ``PLAIN``: the oracle
-        never runs the compiled code it exists to check (SEP 29 section 6.6).
 
     Raises
     ------
@@ -181,14 +166,7 @@ class NumpyRefBackend:
     >>> session.close()
     """
 
-    reads_transverse_edge: bool = True
-
     name: str = "numpy_ref"
-    helpers: Helpers = PLAIN
-    # The reference forms `exp(+dPhi)` and `exp(-dPhi)` afresh at every stage, so
-    # keeping the six distinct exponents of a step is worth its memory here where it is
-    # not on a backend that takes both signs from one transcendental.
-    propagator_default: PropagatorMode = "tabulate"
 
     def __init__(
         self,
@@ -264,12 +242,12 @@ class NumpyRefBackend:
         ----------
         host : object
             The run's session, the march's
-            :class:`~solprop.backends.host.marches.MarchHost`; ``None`` for a march
-            that never steps.
+            :class:`~solprop.backends.numpy_ref.marches.host.MarchHost`; ``None`` for a
+            march that never steps.
 
         Returns
         -------
-        solprop.backends.host.session.HostMethod
+        solprop.backends.numpy_ref.session.HostMethod
             The march, with its dense output when the run interpolates its planes and
             the Adams history's rows.
         """
@@ -422,7 +400,10 @@ class NumpyRefBackend:
             return "tabulate" if self._problem.flags.constant_linop else "recompute"
         if asked == "auto" and self._problem.linear.separable is not None:
             return "recompute"
-        return self.propagator_default if asked == "auto" else asked
+        # The reference forms `exp(+dPhi)` and `exp(-dPhi)` afresh at every stage, so
+        # keeping the six distinct exponents of a step is worth its memory here where
+        # it is not on a backend that takes both signs from one transcendental.
+        return "tabulate" if asked == "auto" else asked
 
     def prepare(
         self, problem: PropagationProblem, request: RunRequest
@@ -434,7 +415,7 @@ class NumpyRefBackend:
         request a run serves -- this backend's own, or one run's adaptation of it
         (:meth:`~solprop.translate.run_request.RunRequest.for_run`) -- and each start
         of the result opens the reference's own session
-        (:class:`~solprop.backends.host.session.HostSession`).
+        (:class:`~solprop.backends.numpy_ref.session.HostSession`).
 
         Parameters
         ----------
@@ -516,10 +497,9 @@ class NumpyRefBackend:
         not recorded is not reproducible. The record is the name, the resolved
         propagator mode and the node chunk; for an Adams run the latest run's
         cumulative logical source calls, and otherwise its physical
-        ``source_evaluations`` (SEP 24 section 5); and the workspace's facts: the
-        benchmark-gated plasma source and a host source's ledger, execution and last
-        evaluation. A PEC predictor is explicitly labelled and is never reported as an
-        accepted-field diagnostic.
+        ``source_evaluations`` (SEP 24 section 5); and the workspace's facts: a host
+        source's ledger, execution and last evaluation. A PEC predictor is explicitly
+        labelled and is never reported as an accepted-field diagnostic.
 
         Returns
         -------
@@ -548,17 +528,6 @@ class NumpyRefBackend:
             record["response_calls"] = ledger.to_record()
         record.update(self._workspace.metadata())
         return record
-
-    def march_export_refusal(self) -> str | None:
-        """Return ``None``: every march the reference admits carries its history.
-
-        Returns
-        -------
-        None
-            The Adams engines export and install their rows; the Runge-Kutta and
-            low-storage marches keep none.
-        """
-        return None
 
     def edge_memory(self, space: object) -> int:
         """Return what reading the edge holds in the state's memory space.
@@ -687,43 +656,6 @@ class _TrialProbe:
         return np.array(finished)
 
 
-def _refuse_adams(problem: PropagationProblem, stepper: StepperSettings) -> None:
-    """Refuse what the Adams march does not execute (SEP 13 sections 2 and 6.2).
-
-    The interaction formulation's history is of source samples transported along a
-    diagonal flow, so a coupled flow is refused by name rather than transported through
-    inverse actions; the exponential formulation refuses the coupled-flow sections it
-    does not step (:func:`solprop.backends.exponential.refuse_formulation`) and the
-    carrier frames it does not deliver. The ``modified`` noise is
-    admitted for both formulations (SEP 16 section 4.4): its draw is fixed for the run
-    and added to each sample's field at that sample's own position, never to the
-    propagating state, so conditional on the draw the source is a deterministic,
-    nonautonomous function of position that the history interpolates. The split-step
-    temporal collar is admitted: it changes
-    the state only inside the collar, where its first-order splitting error already
-    lies (``docs/dev/stepper.md`` section 6), and it removes the collar's stability
-    limit, which binds the Adams methods long before Runge-Kutta's (SEP 13 phase 2).
-    """
-    integrator = stepper.integrator
-    if not isinstance(integrator, Multistep):
-        return
-    if (
-        problem.linear.coupled_flow is not None
-        and integrator.formulation != "exponential"
-    ):
-        # SEP 16 Q3: only the exponential formulation steps a coupled flow; the
-        # interaction one would transport its history through inverse actions.
-        msg = (
-            f"the {integrator.name} integrator does not step a problem with a "
-            "coupled linear flow; use Multistep(formulation='exponential') or the "
-            "Runge-Kutta march"
-        )
-        raise BackendError(msg)
-    refuse_formulation(problem, stepper, "numpy_ref")
-    # SEP 35: the scalar shift, on the guided routes.
-    refuse_carrier_frame(problem, stepper, "numpy_ref", delivered=frozenset({"scalar"}))
-
-
 def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -> None:
     """Refuse, by name, every problem this backend does not execute."""
     # The route first, by its variant (SEP 47 section 6.2): the reference executes
@@ -738,23 +670,5 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
         case route:
             msg = f"numpy_ref does not execute the {route_name(route)} route"
             raise BackendError(msg)
-    _refuse_adams(problem, stepper)
-    if (
-        problem.flags.has_raman
-        and problem.transform.n_pol * problem.shape[1] > 1
-        and (
-            not problem.responses.raman_terms
-            or not all(term.tensor_capable for term in problem.responses.raman_terms)
-        )
-    ):
-        raise BackendError(
-            "vector Raman requires tensor-capable terms; found scalar_only"
-        )
-    _, n_pol, _ = problem.shape
-    if problem.transform.n_pol * n_pol > MAX_N_POL:
-        msg = (
-            f"the transform resolves {problem.transform.n_pol} transverse components "
-            f"and the state carries {n_pol}; the components belong to one of the two "
-            "and not to both, so this problem would count them twice"
-        )
-        raise BackendError(msg)
+    # SEP 35: the scalar carrier shift, on the guided routes.
+    refuse_adams(problem, stepper, "numpy_ref", delivered=frozenset({"scalar"}))

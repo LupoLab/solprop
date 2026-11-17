@@ -179,11 +179,11 @@ class Row:
     rung, and at the ``last_plane`` rung's plane, each with the :class:`Statistic` it
     returns.
     ``context`` makes the context the whole check runs in, so that every backend of the
-    row, the reference's and the guard's included, is constructed inside it (the private
-    gated plasma benchmark, ``tests/gated_source.py``). ``record`` writes the row's
-    readings into an accuracy record once every rung is inside its bound: it takes the
-    test's pytest ``request`` and the readings (``tests/spatial_records.py`` and
-    ``docs/dev/accuracy.md``).
+    row, the reference's and the guard's included, is constructed inside it (a coupled
+    flow held off its eigenbasis route, ``tests/backends/flow_rows.py``). ``record``
+    writes the row's readings into an accuracy record once every rung is inside its
+    bound: it takes the test's pytest ``request`` and the readings
+    (``tests/spatial_records.py`` and ``docs/dev/accuracy.md``).
     """
 
     id: str

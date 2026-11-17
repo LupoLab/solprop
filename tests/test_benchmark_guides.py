@@ -94,7 +94,7 @@ def test_the_nonlinear_grin_guide_takes_its_planes_and_stepper_at_construction()
     # builder passes the planes and integrator to the constructor.
     case = CASES["grin_nonlinear"]
     simulation = build(configuration("grin_nonlinear", "multistep"))
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     np.testing.assert_allclose(
         run_request.stepper.save_planes,
         np.linspace(0, case.length, case.planes + 1)[1:],

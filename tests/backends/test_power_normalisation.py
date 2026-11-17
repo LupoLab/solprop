@@ -88,7 +88,7 @@ def test_constant_fill_internal_trajectory_is_unchanged(backend_class):
     # count with one tap).
     simulation = constant_fill_m2()
     problem = simulation.translate()
-    run_request = fixed_order(simulation._run_request())
+    run_request = fixed_order(simulation.run_request())
     grid = simulation.grid
     root_weight = np.ones(problem.shape)
     for mode_index, mode in enumerate(simulation.modes):

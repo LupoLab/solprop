@@ -13,9 +13,9 @@ from numpy.testing import assert_allclose, assert_array_equal
 
 from sessions.runs import IDENTITY, bare
 from solprop.backends.events import ObservationReady, Terminal
-from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
 from solprop.backends.numpy_ref.multistep import InteractionHistory
 from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.session import Start
@@ -174,7 +174,7 @@ FORMULATIONS = pytest.mark.parametrize(
 def test_fused_predictor_failure_charges_both_ledgers_before_invocation(formulation):
     simulation = _atomic_simulation(method=Multistep(formulation=formulation))
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     assert tdse_descriptor(problem.route) is not None
     binding = _Binding(tdse_descriptor(problem.route), 20, fail_at=3)
     backend = NumpyRefBackend(

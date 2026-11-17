@@ -25,8 +25,8 @@ or acknowledging an older one, is refused, so no barrier is crossed twice.
 
 **Attempts are delivered exactly once, in chunks.** Every event carries the attempts
 (:class:`~solprop.backends.protocol.BackendHistory`) and periodic statistics rows
-(:class:`~solprop.backends.protocol.StepStats`, without a batch axis) made since the
-*previous event*, whatever its kind -- not since the previous observation. Each
+(:class:`~solprop.backends.protocol.StepStats`) made since the *previous event*,
+whatever its kind -- not since the previous observation. Each
 attempt and each row is in exactly one event's chunk, so a session buffers at most
 the attempts of one bounded advance, and a full buffer yields a :class:`Progress`
 rather than discarding records (SEP 47 section 5.3). A row's ``step`` indexes the
@@ -203,7 +203,7 @@ class ObservationReady:
     step_stats : solprop.backends.protocol.StepStats
         The periodic statistics rows sampled since the previous event, likewise.
     stats : collections.abc.Mapping
-        The plane's statistics by catalogue name, without a row or batch axis.
+        The plane's statistics by catalogue name, without a row axis.
     summary : solprop.backends.protocol.StepSummary
         The cost and tolerance of the propagation that reached this plane.
     ticket : ExportTicket
@@ -424,7 +424,7 @@ def join_attempts(
     Returns
     -------
     tuple
-        The assembled history and rows (rows without a batch axis).
+        The assembled history and rows.
 
     Examples
     --------

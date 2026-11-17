@@ -49,7 +49,7 @@ def replayed(route: str, steps: int) -> Simulation:
 
     The schedule lands on the route's own save planes.
     """
-    stepper = runge_kutta_route(route)._run_request().stepper
+    stepper = runge_kutta_route(route).run_request().stepper
     end = float(stepper.z_end)
     schedule = FixedSchedule.uniform(
         0.0, end, end / steps, save_planes=np.asarray(stepper.save_planes).tolist()

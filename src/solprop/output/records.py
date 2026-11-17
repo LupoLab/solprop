@@ -280,7 +280,7 @@ class ModeRecord:
         # sequence or a callable, and a mode is none of those, so the cast is total.
         configuration = cast("dict[str, JsonValue]", serialise(mode))
         if getattr(mode, "mixture", None) is not None:
-            # These legacy constructor slots are placeholders when a mixture owns
+            # These single-gas constructor slots are placeholders when a mixture owns
             # every species model and density path; they would imply a second fill.
             for name in ("gas", "pressure", "temperature", "source", "susceptibility"):
                 configuration.pop(name, None)

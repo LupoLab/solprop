@@ -67,12 +67,11 @@ enum class Status : int {
   stopped = 2,
   insensitive = 3,
   coarse = 4,
-  unwatched = 5,
 };
 
-/** Why the status is not a verdict (`_reason`): none, an unread edge, or the input
-    noise's allowance, whose text solprop formats from the record. */
-enum class Reason : int { none = 0, unwatched = 1, insensitive = 2 };
+/** Why the status is not a verdict (`_reason`): none, or the input noise's allowance,
+    whose text solprop formats from the record. */
+enum class Reason : int { none = 0, insensitive = 1 };
 
 /** Every number the edge reads, formed by solprop from its `TransverseEdge` and module
     constants. */
@@ -108,10 +107,8 @@ struct Config {
   std::vector<double> ramp_rate;
   bool collar = false;
   bool collar_rate = false;
-  /** Whether content above `discard_above` was declared; whether the backend reads
-      the edge (every native session does). */
+  /** Whether content above `discard_above` was declared. */
   bool declared = false;
-  bool reads_edge = true;
   /** A fixed schedule's longest step, m, which the spacing cannot limit; none
       without a schedule. */
   std::optional<double> longest_step;
@@ -142,7 +139,6 @@ struct Config {
       fields::value("collar", &C::collar),
       fields::value("collar_rate", &C::collar_rate),
       fields::value("declared", &C::declared),
-      fields::value("reads_edge", &C::reads_edge),
       fields::value("longest_step", &C::longest_step),
       fields::value("noise_share", &C::noise_share),
       fields::value("noise_modes", &C::noise_modes));
@@ -208,14 +204,13 @@ struct Notice {
   enum class Kind : int {
     none = 0,
     ramp_band = 1,    ///< the launch's share in the safety ramp's band (`value`)
-    unwatched = 2,    ///< the backend does not read the edge
-    clip = 3,         ///< a face's clip of the launch (`face`, `value`)
-    insensitive = 4,  ///< the input noise's allowance (`value`)
-    coarse = 5,       ///< a fixed schedule's longest step (`value`) past `spacing`
-    face = 6,         ///< a face's judged share (`face`, `value`) at `z`; a stop names
+    clip = 2,         ///< a face's clip of the launch (`face`, `value`)
+    insensitive = 3,  ///< the input noise's allowance (`value`)
+    coarse = 4,       ///< a fixed schedule's longest step (`value`) past `spacing`
+    face = 5,         ///< a face's judged share (`face`, `value`) at `z`; a stop names
                       ///< where it first warned, `warned_at` (NaN for nowhere)
-    returned = 7,     ///< a collar's returned share (`value`) at `z`
-    ramp_removal = 8, ///< the safety ramp's removal (`value`)
+    returned = 6,     ///< a collar's returned share (`value`) at `z`
+    ramp_removal = 7, ///< the safety ramp's removal (`value`)
   };
   Kind kind = Kind::none;
   bool stop = false;
@@ -354,15 +349,13 @@ public:
 private:
   enum class Stage : int {
     none = 0,
-    // The launch, after its ramp band's warning, before the unread edge's verdict.
-    launch_unread = 1,
-    // The launch's clip, from face `face_`.
-    launch_clip = 2,
-    launch_noise = 3,
-    launch_spacing = 4,
-    launch_rest = 5,
+    // The launch's clip, from face `face_`, after its ramp band's warning.
+    launch_clip = 1,
+    launch_noise = 2,
+    launch_spacing = 3,
+    launch_rest = 4,
     // A read, after its face or return judgement: the ramp's removal.
-    read_ramp = 6,
+    read_ramp = 5,
   };
 
   Notice run_launch();

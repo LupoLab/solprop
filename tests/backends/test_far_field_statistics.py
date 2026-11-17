@@ -120,7 +120,7 @@ def free_simulation(grid, space, launch, *, medium=None, spec=None, **settings):
 def entrance(simulation, backend="numpy_ref", spec=None):
     """The statistics of the launch on a backend, and the problem they belong to."""
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     owner = select(backend, problem, run_request, grid=simulation.grid)
     try:
         values = launch_statistics(
@@ -233,7 +233,7 @@ def test_a_radial_problem_takes_no_partials(grid):
         ),
         noise=None,
     )
-    spec = radial._run_request().observation.stats
+    spec = radial.run_request().observation.stats
     assert far_field_partials(radial.translate(), spec) == (0, 0)
 
 
@@ -688,7 +688,7 @@ def test_radial_and_planar_geometry_are_refused_before_any_step(grid):
         noise=None,
     )
     with pytest.raises(OutputError, match="radial grid"):
-        select("numpy_ref", radial.translate(), radial._run_request(), grid=grid)
+        select("numpy_ref", radial.translate(), radial.run_request(), grid=grid)
     planar_grid, _, problem, run_request = planar_case("kerr", steps=0)
     run_request = run_request.for_run(stats=spec)
     native = importlib.util.find_spec("solprop_native") is not None
@@ -704,7 +704,7 @@ def test_an_older_native_build_is_refused_the_far_field_statistics_by_name(
     space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0.1)
     simulation = free_simulation(grid, space, gaussian(60e-6))
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     # A build that declares none of them, as every build before SEP 23's third phase:
     # the refusal precedes the native build and names the backend that forms them.
     monkeypatch.setattr(native.NativeBackend, "far_field_statistics", frozenset())
@@ -767,7 +767,7 @@ def test_the_host_pass_refuses_what_it_was_not_given(grid):
     space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0.1)
     simulation = free_simulation(grid, space, gaussian(60e-6))
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     field = problem.initial.field0
     with pytest.raises(BackendError, match="tables"):
         collect_spatial(
@@ -805,7 +805,7 @@ def test_the_host_pass_refuses_what_it_was_not_given(grid):
 def test_the_tables_are_formed_once_and_reused(grid):
     space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0.1)
     problem = free_simulation(grid, space, gaussian(60e-6)).translate()
-    run_request = free_simulation(grid, space, gaussian(60e-6))._run_request()
+    run_request = free_simulation(grid, space, gaussian(60e-6)).run_request()
     held = FarFieldTables(problem, run_request.observation.stats)
     own = held.for_spec(run_request.observation.stats)
     assert own is not None
@@ -840,7 +840,7 @@ def test_the_tables_are_formed_once_and_reused(grid):
     )
     with pytest.raises(OutputError, match="without spatial geometry"):
         FarFieldTables(
-            modal.translate(), modal._run_request().observation.stats
+            modal.translate(), modal.run_request().observation.stats
         ).for_spec(StatsSpec(names=("beam_spectrum",)))
 
 

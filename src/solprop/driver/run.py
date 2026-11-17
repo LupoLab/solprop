@@ -190,14 +190,13 @@ def plane_from_observation(
 
 
 class SessionFacts:
-    """A session's execution facts, as the service loop's records read a backend's.
+    """A session's execution facts, as the service loop's records read them.
 
-    The transitional output and record helpers (:mod:`solprop.driver.run`) read a
-    backend: its name, metadata, method history and in-flight state. A session that
-    owns its backend answers them through its protocol: its execution record, its
-    method-history size, and the in-place step a failure left in flight, which a
-    session that steps in place reports as ``in_flight`` (the native session's
-    low-storage replay, SEP 47 section 5.5); any other leaves none.
+    The output and record helpers (:mod:`solprop.driver.run`) read the run's name,
+    metadata, method history and in-flight state, which the session answers through
+    its protocol: its execution record, its method-history snapshot and size, and the
+    in-place step a failure left in flight (``in_flight``, a low-storage step's, SEP 47
+    section 5.5).
 
     Parameters
     ----------
@@ -210,9 +209,6 @@ class SessionFacts:
         self._session = session
         record = session.execution_record()
         self.name = str(record.get("backend", type(session).__name__))
-        self.reads_transverse_edge = bool(
-            getattr(session, "reads_transverse_edge", False)
-        )
 
     @property
     def in_flight(self) -> tuple[float, float] | None:  # numpydoc ignore=RT01
@@ -220,7 +216,7 @@ class SessionFacts:
 
         Where the step started and its length, m, as the session reports it.
         """
-        return getattr(self._session, "in_flight", None)
+        return self._session.in_flight
 
     def metadata(self) -> dict[str, object]:
         """Return the session's execution record.
@@ -262,17 +258,6 @@ class SessionFacts:
         """
         del z
         return self._session.march_snapshot_nbytes()
-
-    def march_export_refusal(self) -> str | None:
-        """Return why the session's method history is not exported here, or ``None``.
-
-        Returns
-        -------
-        str or None
-            The session's own reason
-            (:meth:`~solprop.backends.session.RunSession.march_export_refusal`).
-        """
-        return self._session.march_export_refusal()
 
 
 @handled()  # SIGTERM and Ctrl-C stop a run between its commits
@@ -520,9 +505,7 @@ def run_problem(
     )
     try:
         if march is not None and restoration is not None:
-            restoration = _restored(
-                march, restoration, getattr(session, "march_refusal", None)
-            )
+            restoration = _restored(march, restoration, session.march_refusal)
         serve(
             session,
             output,
@@ -666,7 +649,7 @@ def field_retention(
     ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
     ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
     ... )
-    >>> field_retention(simulation._run_request(), "planes", [-1]).field_planes
+    >>> field_retention(simulation.run_request(), "planes", [-1]).field_planes
     (2,)
     """
     refusal = field_retention_refusal(fields, field_planes)
@@ -751,13 +734,12 @@ def open_run(
 RESTART_RECORD = "restart"
 """The execution record's entry for what a restart keeps and restores (SEP 47 5.5).
 
-Optional, under the output compatibility rules: ``"retention"``, what the run kept of
-its method history at the record's position (``_MarchKeeper``), and, in a resumed
-execution, ``"restoration"`` (what it restored,
-``solprop.driver.resume._continue_march``) and ``"monitor"`` (how
-the boundary monitor was restored). Each decision is a mapping with a ``"state"`` and
-a ``"reason"``. A file written before this record has none, which a reader takes as
-unknown, never as a reason (``retention_at``).
+Optional: ``"retention"``, what the run kept of its method history at the record's
+position (``_MarchKeeper``), and, in a resumed execution, ``"restoration"`` (what it
+restored, ``solprop.driver.resume._continue_march``) and ``"monitor"`` (how the
+boundary monitor was restored). Each decision is a mapping with a ``"state"`` and a
+``"reason"``. An execution that has persisted nothing yet records none, which a reader
+takes as unknown, never as a reason (``retention_at``).
 """
 
 
@@ -777,8 +759,8 @@ def retention_at(
     -------
     collections.abc.Mapping or None
         The retention decision recorded there, or ``None`` when the record states
-        none at `z`: a file written before the restart record, or a position where no
-        method history was persisted.
+        none at `z`: nothing persisted yet, or a decision recorded at another
+        position.
     """
     if execution is None:
         return None
@@ -820,10 +802,11 @@ def _refuse_a_record_that_misnames_the_basis(
     pieces itself: ``run_problem(general_problem, backend, handler, metadata=...)``
     with a record that carries no ``modal`` identity would write a file that
     :func:`solprop.output.capability.capability_of` reads as an **ordinary modal**
-    run, and every legacy accessor would then be admitted on a three-component basis
-    -- the one thing the whitelist exists to prevent. The two are required to agree
-    in both directions: a record claiming a general modal guide for a problem that
-    carries no tables would promise a reconstruction no guide can be rebuilt for.
+    run, and every per-channel accessor would then be admitted on a three-component
+    basis -- the one thing the whitelist exists to prevent. The two are required to
+    agree in both directions: a record claiming a general modal guide for a problem
+    that carries no tables would promise a reconstruction no guide can be rebuilt
+    for.
 
     What is compared is the record's **basis**, not whether it carries an identity at
     all, and it is read exactly as :func:`solprop.output.capability.capability_of` reads

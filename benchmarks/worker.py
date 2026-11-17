@@ -382,9 +382,12 @@ def _run_request(simulation: Any) -> Any:
     """Return a simulation's run request, or ``None`` on a build without one.
 
     From SEP 47's request on, the stepping policy and the statistics are the
-    request's and a backend is built with it; before, the problem carried them.
+    request's and a backend is built with it; before, the problem carried them. The
+    public ``run_request`` is preferred; an older build named it ``_run_request``.
     """
-    request = getattr(simulation, "_run_request", None)
+    request = getattr(simulation, "run_request", None)
+    if request is None:
+        request = getattr(simulation, "_run_request", None)
     return None if request is None else request()
 
 

@@ -156,7 +156,7 @@ def transform_weights(
 
 
 def path_transform_tables(
-    path: ModalPathTable,
+    sampled: ModalPathTable,
     omega: Float[np.ndarray, " n_omega"],
     *,
     z_end: float,
@@ -181,7 +181,7 @@ def path_transform_tables(
 
     Parameters
     ----------
-    path : ModalPathTable
+    sampled : solprop.modes.path.ModalPathTable
         The sampled path.
     omega : numpy.ndarray
         Coarse angular frequencies in rad/s, shape (n_omega,), increasing.
@@ -208,6 +208,7 @@ def path_transform_tables(
         If the path does not reach `z_end`, or the record does not validate.
     """
     end = float(z_end)
+    path = sampled.path
     edges = path.z_edges
     if not edges[0] <= 0.0 < end <= edges[-1]:
         raise ModeError(
@@ -220,7 +221,7 @@ def path_transform_tables(
     kept = max(kept, 1)
     coarse = np.ascontiguousarray(omega, dtype=np.float64)
     fine = coarse if omega_fine is None else np.ascontiguousarray(omega_fine, float)
-    first = path.tables[0]
+    first = sampled.tables[0]
     reference = first.samples[0][0]
     modes = int(reference.electric.shape[2])
     nodes = int(first.nodes.weights.size)
@@ -230,7 +231,7 @@ def path_transform_tables(
     synthesis = np.zeros((kept, width, nodes, 3, modes, coarse.size), np.complex128)
     projection = np.zeros((kept, width, modes, nodes, 3, coarse.size), np.complex128)
     for section in range(kept):
-        for position, table in enumerate(path.section_tables(section)):
+        for position, table in enumerate(sampled.section_tables(section)):
             weights = table.nodes.weights
             for column in np.flatnonzero(inside):
                 sample = table.evaluate(float(coarse[column]), float(table.z[0]))
@@ -240,8 +241,8 @@ def path_transform_tables(
                 )
     synthesis = section_coefficients(synthesis)
     projection = section_coefficients(projection)
-    ends = [path.section_tables(index)[0] for index in range(kept)]
-    ends.append(path.section_tables(kept - 1)[-1])
+    ends = [sampled.section_tables(index)[0] for index in range(kept)]
+    ends.append(sampled.section_tables(kept - 1)[-1])
     reciprocal = reference.reciprocal_gram is not None
     shape = (len(ends), nodes, 3, modes, coarse.size)
     electric = np.zeros(shape, np.complex128)
@@ -304,7 +305,7 @@ def path_transform_tables(
 
 
 def path_connections(
-    path: ModalPathTable,
+    sampled: ModalPathTable,
     provider: ModalProvider,
     *,
     sections: int | None = None,
@@ -327,7 +328,7 @@ def path_connections(
 
     Parameters
     ----------
-    path : ModalPathTable
+    sampled : solprop.modes.path.ModalPathTable
         The sampled path.
     provider : solprop.modes.vector.ModalProvider
         The moving guide.
@@ -347,13 +348,14 @@ def path_connections(
         Per position of the measured sections, section by section, one
         :class:`~solprop.modes.connection.ModalConnection` per frequency knot.
     """
+    path = sampled.path
     count = path.n_intervals if sections is None else int(sections)
     width = path.degree + 1
     result: list[tuple[ModalConnection, ...]] = []
     for index in range(count):
         lo, hi = float(path.z_edges[index]), float(path.z_edges[index + 1])
         inset = float(np.spacing(max(abs(lo), abs(hi), hi - lo)))
-        for position, table in enumerate(path.section_tables(index)):
+        for position, table in enumerate(sampled.section_tables(index)):
             z = float(table.z[0])
             if position == 0:
                 z = lo + inset

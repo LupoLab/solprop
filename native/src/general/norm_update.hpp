@@ -62,7 +62,7 @@ inline int host_reduction_team_size(const ExecutionSpace& execution,
 // own partial sums: one team per column fills a GPU only when the columns are many, so
 // a one-node fibre's column takes up to `reduction_target_teams` teams of at least
 // `reduction_min_bins` bins each. The host keeps one slot per column. The slots depend
-// on the member's columns and bins alone, so a batch member and its solo run sum in one
+// on the state's columns and bins alone, so every run of one problem sums in one
 // order.
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
 constexpr std::size_t reduction_target_teams = 256;

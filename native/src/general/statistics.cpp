@@ -10,9 +10,9 @@
 // basis's; the magnetic closure (require_flux_closure, fill_statistics_closure,
 // solprop SEP 34); the separable geometries' time statistics and fluence
 // (separable_time_statistics, separable_fluence, plane_fluence_moments,
-// plane_fluence_trace); the on-axis spectrum and populations (axis_spectrum,
-// statistics_modal_time, axis_populations, solprop SEP 19); spatial_statistics, the
-// transverse plane's; and aperture_statistics, the far-field pass's (solprop SEP 23).
+// plane_fluence_trace); the on-axis populations (statistics_modal_time,
+// axis_populations, solprop SEP 19); spatial_statistics, the transverse plane's; and
+// aperture_statistics, the far-field pass's (solprop SEP 23).
 
 #include "general_workspace.hpp"
 #include "memory.hpp"
@@ -1291,63 +1291,6 @@ std::vector<double> GeneralWorkspace::plane_fluence_trace(
   return result;
 }
 
-// The field's spectrum at one physical point, the matrix `(n_rows, n_modes)` contracted
-// with the modal state: `(n_rows * n_pol, n_omega)` samples, each a real and an
-// imaginary part in turn. The transitional session's on-axis statistics scan this row
-// on the host (solprop SEP 19), so that it is all a plane's scan brings across; the
-// native session scans it in place (`axis_populations`).
-std::vector<Complex>
-GeneralWorkspace::axis_spectrum(const std::vector<double>& matrix) {
-  if (!initialized_)
-    throw std::logic_error("no initial field has been loaded");
-  if (problem_.separable_geometry() || matrix.empty() ||
-      matrix.size() % problem_.dims.n_modes != 0 ||
-      matrix.size() / problem_.dims.n_modes >
-          statistics_on_axis_.size() / problem_.dims.n_modes)
-    throw std::invalid_argument(
-        "an on-axis row needs a modal state and at most two rows of n_modes columns");
-  const auto n_rows = matrix.size() / problem_.dims.n_modes;
-  const auto n_pol = problem_.dims.n_pol_state;
-  const auto n_modes = problem_.dims.n_modes;
-  const auto n = problem_.dims.n_omega;
-  const auto columns = checked_product(n_rows, n_pol, "on-axis columns");
-  const auto samples = checked_product(columns, n, "on-axis samples");
-  const auto packed_size = checked_product(2, samples, "on-axis samples");
-  if (statistics_packed_.size() < packed_size) {
-    execution_space_.fence("solprop_native statistics output resize");
-    statistics_packed_ = RealView("solprop_native.statistics.packed", packed_size);
-  }
-  copy_vector(execution_space_,
-              Kokkos::subview(statistics_on_axis_,
-                              std::make_pair<std::size_t>(0, matrix.size())),
-              matrix);
-  const auto weights = statistics_on_axis_;
-  const auto packed = statistics_packed_;
-  const auto current = current_;
-  launch::parallel_for(
-      "solprop_native.statistics.axis_spectrum",
-      Range2(execution_space_, {0, 0}, {columns, n}),
-      KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-        const auto row = column / n_pol;
-        const auto pol = column % n_pol;
-        Complex sum{};
-        for (std::size_t mode = 0; mode < n_modes; ++mode)
-          sum += weights(row * n_modes + mode) * current(mode * n_pol + pol, index);
-        const auto at = 2 * (column * n + index);
-        packed(at) = sum.real();
-        packed(at + 1) = sum.imag();
-      });
-  const auto filled =
-      Kokkos::subview(packed, std::make_pair<std::size_t>(0, packed_size));
-  auto host = Kokkos::create_mirror_view(filled);
-  graph::deep_copy(execution_space_, host, filled);
-  execution_space_.fence("solprop_native on-axis row boundary");
-  std::vector<Complex> result(samples);
-  for (std::size_t index = 0; index < samples; ++index)
-    result[index] = Complex(host(2 * index), host(2 * index + 1));
-  return result;
-}
-
 // The modal state on the fine time grid, in `modal_real_` or `modal_complex_`: the
 // coarse bins padded at `crop_index_` and transformed back, the node scans' own first
 // pass (`statistics`); a retained synthesis transforms at its nodes instead.
@@ -1386,7 +1329,7 @@ void GeneralWorkspace::statistics_modal_time() {
 // field's magnitude, `hypot(E_x, E_y)`, which is all a field grid's scan reads; an
 // envelope's scan reads their polarisation ellipse, so they go to a row of their own
 // and the envelope scan reads it as a node of two components
-// (`solprop.backends.populations.envelope_populations` on the host's row).
+// (solprop's `envelope_populations`, numpy_ref/passes/plasma.py, on the host's row).
 std::vector<double>
 GeneralWorkspace::axis_populations(const std::vector<double>& matrix,
                                    const std::vector<double>& channel_preionisation) {

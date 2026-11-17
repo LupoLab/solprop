@@ -226,7 +226,7 @@ def on_a_table(simulation: Simulation) -> Case:
         The tabulated problem, the simulation's request and context.
     """
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     linear = problem.linear
     table = build_table(
         lambda z: np.stack([delta_phi(linear, 0.0, float(one)) for one in z]),
@@ -295,7 +295,7 @@ def _run(name: str, simulation: Simulation | Case, start: Start | None = None):
     """
     case = simulation
     if not isinstance(case, Case):
-        case = Case(case.translate(), case._run_request(), _context(case))
+        case = Case(case.translate(), case.run_request(), _context(case))
     started = EXECUTORS[name].start(
         case.problem,
         case.request,
@@ -333,7 +333,7 @@ def test_the_chord_is_a_varying_table_the_session_admits():
     # own march steps it natively.
     simulation = capillary()
     problem = simulation.translate()
-    request = simulation._run_request()
+    request = simulation.run_request()
     assert problem.linear.phi_representation == "table"
     assert problem.responses.prefactor_representation == "table"
     reference = carrier_reference(problem, SCALAR)
@@ -431,7 +431,7 @@ def _at_second_plane(simulation: Simulation) -> tuple[MarchSnapshot, dict[str, A
     problem = simulation.translate()
     started = EXECUTORS["native-session"].start(
         problem,
-        simulation._run_request(),
+        simulation.run_request(),
         entrance(problem),
         context=_context(simulation),
     )
@@ -460,7 +460,7 @@ def test_a_resumed_history_continues_the_uninterrupted_run():
     simulation = capillary()
     snapshot, ledger = _at_second_plane(simulation)
     assert snapshot.z > 0.0 and ledger["accepted_steps"]
-    planes = simulation._run_request().stepper.save_planes
+    planes = simulation.run_request().stepper.save_planes
 
     def resumed() -> Start:
         return Start(

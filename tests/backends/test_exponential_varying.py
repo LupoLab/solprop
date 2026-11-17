@@ -81,7 +81,7 @@ def gradient(
 def march(simulation, backend_class=NumpyRefBackend, *, compensation=None, plane=-1):
     """Run to the last plane; return a plane's field, the march and the steps."""
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = backend_class(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
@@ -103,7 +103,7 @@ def session_march(simulation, backend_class):
     """Run to the last plane through the backend's own session; return its field, the
     march's call ledger and every attempt's step."""
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     owner = backend_class(
         problem,
         run_request,
@@ -284,7 +284,7 @@ def _tabulated(problem):
 
 def _table_field(candidate, simulation, backend_class):
     """Land on every save plane of `candidate` and return the last field."""
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = backend_class(
         candidate, run_request, grid=simulation.grid, modes=simulation.modes
     )
@@ -311,7 +311,7 @@ def test_a_compiled_backend_steps_a_z_table_as_the_reference(backend_name):
     simulation = gradient()
     tabulated = _tabulated(simulation.translate())
     reference = _table_field(tabulated, simulation, NumpyRefBackend)
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     owner = COMPILED[backend_name](
         tabulated,
         run_request,

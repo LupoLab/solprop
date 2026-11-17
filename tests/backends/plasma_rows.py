@@ -12,9 +12,7 @@ and line free-space routes and the hybrid planar argon gap (the cases of
 ``plasma_column_cases.py``; the three spatial routes run in node chunks that leave a
 remainder, so the band column meets a partial block), each under both running-integral
 rules, SEP 18's band rule and the trapezoid. Native holds the free current as SEP 27's
-held current; the private gated form of the original equation
-(``tests/gated_source.py``) is a benchmark both backends also run. On native against
-``numpy_ref``:
+held current. On native against ``numpy_ref``:
 
 - ``derivative``: one nonlinear evaluation, the first stage's derivative at the
   launch, ``N(a_0)``; and, on the mode-averaged capillary and the radial route, the
@@ -93,7 +91,6 @@ from backends.plasma_column_cases import (
 )
 from backends.plasma_column_cases import case as band_case
 from bounds import INTEGRATION_AGREEMENT
-from gated_source import _gated_source
 from parity_ladder import Bound, Built, Detection, Row, Statistic, StatisticRule
 from solprop.nonlinear.ionisation import RunningIntegral
 from solprop.stats import PLASMA_INTEGRATION_STATISTICS
@@ -516,60 +513,6 @@ def cold_column_rows() -> Iterator[Row]:
                 )
 
 
-# --- the private gated benchmark ------------------------------------------------------
-
-
-def gated_rows() -> Iterator[Row]:
-    """Yield the private gated form on every route, under both rules, pre-ionised.
-
-    Pre-ionised, so the free current, and with it the gated integral, is live from the
-    first sample rather than a rounding-level population. Every backend of the row,
-    the guard's included, is built under the private switch. That native runs the
-    gated form at all, rather than its held current, and that it lands nothing outside
-    the band, are ``test_native_held_plasma.py``'s.
-    """
-    for name in CASES:
-        case = ROUTES[name]
-        for rule in RULES:
-            yield plasma_row(
-                name=f"gated {name} {rule} one step",
-                route=case.route,
-                stepper=case.stepper,
-                features=f"{rule} rule, pre-ionised, gated benchmark",
-                why=f"On {case.what} the private gated form under the {rule} rule is "
-                "the reference's in one evaluation at the launch and after one "
-                "fixed step.",
-                bound_note="The gated form replaces the held current's two "
-                "transforms and products by one filter and one trapezoid scan of the "
-                "same current rows and a product with the window: at most "
-                "gamma(2 width n_to + 2) of the integral's magnitudes, inside the "
-                "ladder's per-call gamma(12 width n_to), so the held form's budget, "
-                "fixed before the evaluation, holds it (docs/dev/testing.md section "
-                "3). Measured at most 1.2e-3 of the bound (the evaluation).",
-                build=partial(
-                    built_column, name, rule, preionisation=PREIONISED, steps=1
-                ),
-                rungs={"derivative": one_evaluation, "steps": over_steps(1)},
-                context=_gated_source,
-            )
-            yield plasma_row(
-                name=f"gated {name} {rule} eight steps",
-                route=case.route,
-                stepper=case.stepper,
-                features=f"{rule} rule, pre-ionised, gated benchmark",
-                why=f"On {case.what} the private gated form under the {rule} rule is "
-                "the reference's after eight fixed steps.",
-                bound_note="The band-rule ladder's bound at seven source evaluations "
-                "a step, fixed before the march, as for the one evaluation. Measured "
-                "at most 1.5 % of it (2.6e-12, the mixture's trapezoid).",
-                build=partial(
-                    built_column, name, rule, preionisation=PREIONISED, steps=8
-                ),
-                rungs={"steps": over_steps(8)},
-                context=_gated_source,
-            )
-
-
 # --- every row ------------------------------------------------------------------------
 
 
@@ -581,5 +524,4 @@ def rows() -> tuple[Row, ...]:
         *one_tap_rows(),
         *preionised_column_rows(),
         *cold_column_rows(),
-        *gated_rows(),
     )

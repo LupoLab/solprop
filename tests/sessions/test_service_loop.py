@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from sessions.executors import PLANES, entrance, fibre, soliton, window
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import StopToken
 from solprop.driver.metadata import metadata_for

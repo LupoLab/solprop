@@ -105,7 +105,7 @@ def test_gnlse_kerr_coefficient_per_true_watt(fibre):
         absorber=False,
         **({"noise": None, **({"fibre": mode, "n2": n2} if fibre else {})}),
     )
-    problem, run_request = simulation.translate(), simulation._run_request()
+    problem, run_request = simulation.translate(), simulation.run_request()
     measured, _ = true_watt_slope(problem, run_request, grid)
     bound = 256 * np.finfo(float).eps * (grid.n_omega + problem.transform.n_nodes)
     np.testing.assert_allclose(measured, gamma, rtol=bound, atol=0)

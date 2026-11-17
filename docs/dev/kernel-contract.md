@@ -52,7 +52,7 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 | `responses` | frozen dataclass | section 5 (`translate.responses.CompiledResponses`) |
 | `initial` | frozen dataclass | section 6 (`translate.problem.Initial`) |
 | `route` | `ModalRoute \| GeneralRoute \| SpatialRoute` | the closed union of route descriptions (`translate.routes`), each variant carrying exactly the fields its executor needs: the transform (§4) and the route's own leaves. Below, under *The route union* |
-| `split_crossing` | `SplitCrossing` or `None` | the split temporal collar's crossing limit (`boundaries.SplitCrossing`): `buckets`, each `(mode, frequency)` bin's walk-off bucket as `(n_modes,n_omega) uint8` (the fastest of its polarisations and positions, a coupled flow's channels with the generator's diagonal added to the shared carrier; `boundaries.split_rate_buckets`), the fastest rate a bin reaches `fastest` (the open first bucket's rate), the collar's `width` and the launch's limit `launch_limit`, which holds an adaptive `dz_max` and a fixed schedule at translation. A backend that reads the boundary monitor under the `"split_step"` scheme returns the state's energy per bucket with every reading (`BoundaryEnergies.occupancy`; native: the buckets in the run's start record, then `monitor_reading`'s ten numbers followed by the 128 buckets); the monitor turns it into a cap on the steps until the next check (`host.session.step_cap`, the native Adams march's required `step_cap` bound), and a fixed schedule whose steps before the next check exceed it, at a check or when a resumed state is watched, stops with a `BoundaryError`. `None` under the in-stage scheme or without a temporal collar. Added in version 43 |
+| `split_crossing` | `SplitCrossing` or `None` | the split temporal collar's crossing limit (`boundaries.SplitCrossing`): `buckets`, each `(mode, frequency)` bin's walk-off bucket as `(n_modes,n_omega) uint8` (the fastest of its polarisations and positions, a coupled flow's channels with the generator's diagonal added to the shared carrier; `boundaries.split_rate_buckets`), the fastest rate a bin reaches `fastest` (the open first bucket's rate), the collar's `width` and the launch's limit `launch_limit`, which holds an adaptive `dz_max` and a fixed schedule at translation. A backend that reads the boundary monitor under the `"split_step"` scheme returns the state's energy per bucket with every reading (`BoundaryEnergies.occupancy`; native: the buckets in the run's start record, then `monitor_reading`'s ten numbers followed by the 128 buckets); the monitor turns it into a cap on the steps until the next check (`numpy_ref.session.step_cap`, the native Adams march's required `step_cap` bound), and a fixed schedule whose steps before the next check exceed it, at a check or when a resumed state is watched, stops with a `BoundaryError`. `None` under the in-stage scheme or without a temporal collar. Added in version 43 |
 `PropagationProblem` also carries two **properties**, which are not fields and so not rows
 above: `transform`, the route's transform, and `device_ready`, true when Φ (§3) and the prefactor (§5) are each a weighted sum
 of a fixed set of arrays, and false when either took the z table.
@@ -246,12 +246,12 @@ in both directions; a second test checks the flags and counts named in the `flag
 against the fields of `Flags`.
 
 **The transverse edge.** `NumpyWorkspace.edge_reading(edge, *, faces, current, full)`
-(native's `NativeBackend._edge_reading`) returns an `_EdgeReading` ([SEP 44](seps/archive/sep-0044-native-edge-read.md)): region sums, each column's unweighted energy, each
-line's `(inward, windowed)` strip and the summed rectified current, never the field. The default forms them with
-`_HostEdgeReduction` on a host copy. Native's takes the edge's `_EdgeTables` and `_EdgeLine`s, whose weights, strides,
+(native's `GeneralResident::edge_reading` in C++, `native/src/march/engines.cpp`) returns an `_EdgeReading` ([SEP 44](seps/archive/sep-0044-native-edge-read.md)): region sums, each column's unweighted energy, each
+line's `(inward, windowed)` strip and the summed rectified current, never the field. The reference forms them with
+the edge's host reduction (`_HostEdgeReduction`) on its host state. Native's takes the edge's `_EdgeTables` and `_EdgeLine`s, whose weights, strides,
 windows and onsets say all there is to know about the geometry, so a backend holds no face, mask or judgement of its own. It
 reads the state at a committed position, so it may use scratch that a step writes before reading, and it must leave the march
-as it was. `Backend.edge_memory(space)` says what binding holds, from the grid alone, for `estimate`: the default holds
+as it was. `Backend.edge_memory(space)` says what binding holds, from the grid alone, for `estimate`: the reference holds
 nothing beyond the state, and native's is `_transverse_edge_bytes`, equal to its `transverse_edge` ledger row.
 
 **Source reservations in the Adams march.** The engine protocol's
@@ -287,8 +287,9 @@ sample, a trial's predictor, source, corrector and scored defect norms (`trial(z
 stencil)`), and the adoption and transport of an accepted step, which receives the
 retained entries oldest first (`accept(dz, free, stencil, kept)`). Only scalars, the
 coefficient tables and the norms cross the interface. The reference's engine is
-`HostHistory` over the workspace; it still holds and restores the accepted state around
-a dense observation, and the observation itself, until SEP 52 moves them to the session.
+`HostHistory` over the workspace; a dense observation is the session's (`HostSession`),
+which asks the reference's dense output (`numpy_ref/dense.py`) to hold the accepted state
+aside, interpolate the plane and restore it.
 `native` keeps its engine resident in its native state and refuses the untransported
 compensation witness by name.
 
@@ -1005,13 +1006,15 @@ owning read-only `TDSEResult` arrays. Each consumed sample is valid and finite.
 Its atomic counter is charged immediately before every provider invocation,
 including failed calls and requested diagnostics. Stable chunks are reserved for
 the entire Adams trial before startup. Unused reservations are released on every
-exit path. `restore_call_ledgers(logical, atomic)` restores cumulative counters
-after loading a field; it restores no Adams history or atomic state.
+exit path. A resumed start's cumulative counters are restored by the session after it
+loads the field (the reference's `HostSession._restore_ledgers`); that restores no Adams
+history or atomic state.
 
 The host binding protocol also labels its evaluations for an optional raw archive. Each reservation opens one optical trial, `evaluate` takes
 an optional `density` label (m⁻³), and `record_trial(accepted=...)` reports the
-stepper's decision on the latest trial. The reference backend calls it from its
-step record (`_record`), which every Adams attempt reaches, rejected or accepted;
+stepper's decision on the latest trial. The reference backend calls it through its
+workspace's `record_trial` when its Adams engine ends an attempt (`end_attempt`), which
+every decided Adams attempt reaches, rejected or accepted;
 it changes no step, charge or reservation. None of this is part of the descriptors
 or the kernel problem, which compiled backends see, so it is
 outside the kernel schema.
@@ -1131,7 +1134,7 @@ the immutable `translate.run_request.RunRequest`
 `assemble` fills the route's defaults and holds `dz_max` and `dz_init` to the collars'
 limits — and handed to a backend where it is built. The request structures them as its
 integration, error-control, replay and observation specifications; `RunRequest.stepper`
-gathers them back into `translate.problem.StepperSettings`, the record whose fields are
+gathers them back into `stepper.settings.StepperSettings`, the record whose fields are
 the rows below and which the march drivers, `validate_run` and the run's configuration
 record read. `RunRequest.for_run` adapts a request to one run's start plane, retention,
 monitor, history and snapshot policy, leaving these rows alone, so a backend built for a
@@ -1190,12 +1193,13 @@ spatial kind it does not execute.
 
 `Observation` (host arrays only, FFT convention): `z`, `field` in the lab frame `(n_modes,
 n_pol, n_omega)`, `noise_phase` (if a noise model is active, so processing can restore the
-background), both `None` for an observation made with `observe(field=False)`: nothing then crosses to the host and nothing scans the field, so a
+background), both `None` for a field-free observation (a plane whose field is not kept): nothing then crosses to the host and nothing scans the field, so a
 diverged field-free run is caught by the step loop's finite-norm rule and the
 statistics, `step_history` (arrays of z, h, error norm, accepted flag, wall time since the
 last observation; recorded whether the run was adaptive or replayed a schedule, since the
-embedded estimate is computed either way), `n_steps`, `n_rejected`, and `step_stats`. `stats()` returns a dict of small host arrays
-keyed by statistic name, without a batch axis. Nothing writes to an observation's
+embedded estimate is computed either way), `n_steps`, `n_rejected`, and `step_stats`. A plane's statistics, computed by the backend (the
+reference's workspace `stats`) and carried by its `ObservationReady` event, are a dict of small host arrays keyed by
+statistic name. Nothing writes to an observation's
 arrays again, the backend included: `run_problem` hands them to the output without a copy,
 and a handler may keep them. The array-backed state of a host backend is observed as it is
 and frozen, so its next step replaces it rather than accepting in place; the run's conversion
@@ -1439,8 +1443,9 @@ flow:* the stage rows carry the anchor's section and each stage's residual weigh
 state forms the step's actions for one (section, step) at a time behind
 the reference's `_flow_squarings` and `check_flow_conditioning`
 (`backends/numpy_ref/coupled_flow.py`), transcribed, with the Taylor scale, the
-squarings admitted, the sections' row sums, the certificate and the rounding allowance in
-a record; a refusal returns as `BackendError`. *A z table:* the state loads the stages'
+squarings admitted (solprop's `solprop.backends.exponential.FLOW_TAYLOR_SCALE` and
+`FLOW_MAX_SQUARINGS`, which the reference reads too), the sections' row sums, the
+certificate and the rounding allowance in a record; a refusal returns as `BackendError`. *A z table:* the state loads the stages'
 positions into the one slot cache. *The transverse edge:* its ceiling caps every candidate
 after the quiet interval and before the split cap, the call returns before a step would
 carry past the next read, and solprop takes the monitor's checks by its distance test. *A

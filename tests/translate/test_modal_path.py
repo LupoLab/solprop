@@ -20,10 +20,11 @@ from modal_provider_cases import grin_grid, grin_provider
 from solprop.backends.numpy_ref.general_modal import GeneralMaps
 from solprop.exceptions import BackendError, ModeError
 from solprop.modes.connection import band_connection, modal_connection
-from solprop.modes.guide import ModalGuide, ModalPath, ProviderChannelMode
+from solprop.modes.guide import ModalGuide, ProviderChannelMode
 from solprop.modes.path import (
     INITIAL_PATH_DEGREE,
     MAX_PATH_DEGREE,
+    ModalPath,
     path_rule,
     path_sections,
     path_snapshot,
@@ -62,6 +63,11 @@ def kinked():
     )
 
 
+def qualified(degree):
+    """Return a one-section record of the millimetre path at a degree, as qualified."""
+    return ModalPath(np.array([0.0, LENGTH]), degree, 1, 1.0, 0.0, 0.0)
+
+
 def knots():
     """Return five knots over the graded-index grid's active band, in rad/s."""
     grid = grin_grid()
@@ -87,7 +93,7 @@ def test_the_sections_split_at_every_interior_kink_and_subdivide_equally():
     edges = path_sections(kinked(), 2)
     assert np.allclose(edges, [0.0, 2e-4, 4e-4, 7e-4, 1e-3], rtol=0, atol=1e-18)
     for bad in (0, -1, True):
-        with pytest.raises(ModeError, match="positive integer"):
+        with pytest.raises(ModeError, match="sections is a positive integer"):
             path_sections(kinked(), bad)  # type: ignore[arg-type]
 
 
@@ -189,9 +195,7 @@ def test_a_provider_whose_own_gauge_is_not_continuous_is_refused_by_name():
             flipped,  # type: ignore[arg-type]
             frequencies,
             rule,
-            np.array([0.0, LENGTH]),
-            rtol=1.0,
-            degree=2,
+            path=qualified(2),
         )
 
 
@@ -233,7 +237,6 @@ def test_the_degree_search_is_measured_and_refused_where_it_cannot_resolve(guide
             guide.field_provider,
             sampling.omega,
             sampling.nodes,
-            path.z_edges,
             rtol=1e-17,
         )
 
@@ -313,36 +316,43 @@ def test_a_path_record_refuses_what_it_cannot_describe():
 
 
 def test_a_path_table_refuses_tables_out_of_place(guide):
-    """One snapshot per Chebyshev-Lobatto position, in order, and a sane record."""
+    """One snapshot per Chebyshev-Lobatto position of its path record, in order."""
     sampling = guide.sampling
     assert sampling is not None and sampling.path is not None
+    record = qualified(1)
     table = sample_modal_path(
-        guide.field_provider,
-        sampling.omega,
-        sampling.nodes,
-        sampling.path.z_edges,
-        rtol=1.0,
-        degree=1,
-        measured=(1e-8, 1e-9),
+        guide.field_provider, sampling.omega, sampling.nodes, path=record
     )
-    assert table.n_intervals == 1 and len(table.tables) == 2
+    assert table.path is record and len(table.tables) == 2
     assert len(table.section_tables(0)) == 2
-    for change, message in (
-        ({"z_edges": np.array([0.0])}, "at least two"),
-        ({"degree": 0}, "positive integer"),
-        ({"tables": table.tables[:1]}, "Chebyshev-Lobatto"),
-        ({"z_error": -1.0}, "measured non-negative"),
+    for change in (
+        {"tables": table.tables[:1]},
+        {"tables": table.tables[::-1]},
+        {"path": qualified(2)},
     ):
-        with pytest.raises(ModeError, match=message):
+        with pytest.raises(ModeError, match="Chebyshev-Lobatto"):
             dataclasses.replace(table, **change)
-    with pytest.raises(ModeError, match="positive and finite"):
-        sample_modal_path(
-            guide.field_provider,
-            sampling.omega,
-            sampling.nodes,
-            sampling.path.z_edges,
-            rtol=0.0,
-        )
+
+
+def test_the_sampler_is_asked_either_to_search_or_to_rebuild(guide):
+    """A budget and its sections search, a qualified record rebuilds; never both.
+
+    The budget is checked as the record checks it, before anything is solved.
+    """
+    sampling = guide.sampling
+    assert sampling is not None and sampling.path is not None
+    arguments = (guide.field_provider, sampling.omega, sampling.nodes)
+    for request in (
+        {},
+        {"rtol": 1.0, "path": qualified(1)},
+        {"sections": 2, "path": qualified(1)},
+    ):
+        with pytest.raises(ModeError, match="not both"):
+            sample_modal_path(*arguments, **request)
+    with pytest.raises(ModeError, match="rtol is a positive finite number"):
+        sample_modal_path(*arguments, rtol=0.0)
+    with pytest.raises(ModeError, match="sections is a positive integer"):
+        sample_modal_path(*arguments, rtol=1.0, sections=0)
 
 
 @pytest.fixture(scope="module")
@@ -352,13 +362,7 @@ def moving_tables(guide):
     assert sampling is not None and sampling.path is not None
     grid = grin_grid()
     path = sample_modal_path(
-        guide.field_provider,
-        sampling.omega,
-        sampling.nodes,
-        sampling.path.z_edges,
-        rtol=sampling.path.rtol,
-        degree=sampling.path.degree,
-        measured=(sampling.path.z_error, sampling.path.gram_departure),
+        guide.field_provider, sampling.omega, sampling.nodes, path=sampling.path
     )
     tables = path_transform_tables(
         path,
@@ -392,7 +396,8 @@ def test_the_maps_reproduce_each_sampled_snapshot_and_a_fresh_solve_between(
     terms = tables.synthesis.reshape(-1, *tables.synthesis.shape[2:])
     projection = tables.projection.reshape(-1, *tables.projection.shape[2:])
     scale = float(np.max(abs(terms[..., column])))
-    for position, table in zip(path.positions[0], path.section_tables(0), strict=True):
+    positions = path.path.positions
+    for position, table in zip(positions[0], path.section_tables(0), strict=True):
         weights = transform_weights(tables, float(position))
         assert weights is not None
         synthesised = np.tensordot(weights, terms[..., column], axes=1)
@@ -401,7 +406,7 @@ def test_the_maps_reproduce_each_sampled_snapshot_and_a_fresh_solve_between(
             float(np.max(abs(synthesised - sample.electric)))
             < 64 * np.finfo(float).eps * scale * 16
         )
-    held = float(0.5 * (path.positions[0, 1] + path.positions[0, 2]))
+    held = float(0.5 * (positions[0, 1] + positions[0, 2]))
     rule = path_rule(guide.field_provider, sampling.nodes, held)
     fresh = path_snapshot(guide.field_provider, sampling.omega, held, rule)
     sample = fresh.evaluate(float(grid.omega[column]), held)
@@ -420,9 +425,9 @@ def test_the_maps_reproduce_each_sampled_snapshot_and_a_fresh_solve_between(
 def test_the_record_stores_its_sections_edges_and_one_region_per_node(moving_tables):
     """The flat record of a moving guide: its edges, its rule at each, its maps."""
     grid, path, tables = moving_tables
-    assert tables.z_edges.tolist() == path.z_edges.tolist()
+    assert tables.z_edges.tolist() == path.path.z_edges.tolist()
     assert tables.synthesis is not None
-    assert tables.synthesis.shape[:2] == (1, path.degree + 1)
+    assert tables.synthesis.shape[:2] == (1, path.path.degree + 1)
     assert not tables.frozen_rule
     assert np.array_equal(tables.region_index, path.tables[0].nodes.region_index)
     assert transform_section(tables, 0.5 * LENGTH) == 0
@@ -510,7 +515,7 @@ def test_the_moving_guide_s_expanded_basis_is_orthonormal_between_positions(
     sampling = guide.sampling
     assert sampling is not None and sampling.path is not None
     assert sampling.path.gram_departure < 1e-3
-    held = float(0.5 * (path.positions[0, 0] + path.positions[0, 1]))
+    held = float(0.5 * (path.path.positions[0, 0] + path.path.positions[0, 1]))
     rule = path_rule(guide.field_provider, sampling.nodes, held)
     fresh = path_snapshot(guide.field_provider, sampling.omega, held, rule)
     sample = fresh.samples[0][0]
@@ -559,9 +564,7 @@ def test_a_path_without_reciprocal_partners_stores_none_of_them():
         provider,  # type: ignore[arg-type]
         frequencies,
         rule,
-        np.array([0.0, LENGTH]),
-        rtol=1.0,
-        degree=1,
+        path=qualified(1),
     )
     grid = grin_grid()
     tables = path_transform_tables(path, grid.omega, z_end=LENGTH, profile_error=0.0)

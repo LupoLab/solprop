@@ -65,12 +65,54 @@ def test_the_problem_is_translated_once_for_two_runs(build_simulation, monkeypat
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("first", ["translate", "run_request"])
+def test_the_run_request_is_the_one_translated_beside_the_problem(
+    build_simulation, monkeypatch, first
+):
+    """Either call translates, once; the other returns what that translation built."""
+    calls = []
+    original = simulation_module.assemble
+
+    def counted(*arguments, **keywords):
+        calls.append(1)
+        return original(*arguments, **keywords)
+
+    monkeypatch.setattr(simulation_module, "assemble", counted)
+    simulation = build_simulation(n_save=2)
+    getattr(simulation, first)()
+    request = simulation.run_request()
+    problem = simulation.translate()
+    assert len(calls) == 1
+    assert simulation.run_request() is request
+    assert request.observation.start_plane == 0
+    np.testing.assert_array_equal(
+        request.observation.save_planes, simulation.settings.save_planes
+    )
+    # A run adapts a copy; the cached request stays the fresh run's.
+    assert request.for_run(start_plane=1) is not request
+    assert simulation.run_request().observation.start_plane == 0
+    assert simulation.translate() is problem
+
+
+def test_a_derived_simulation_has_its_own_run_request(build_simulation):
+    """An interior launch's request holds the planes beyond it, its parent's all."""
+    simulation = build_simulation(n_save=3)
+    planes = simulation.run_request().observation.save_planes
+    launch_z = 0.5 * float(planes[0] + planes[1])
+    derived = simulation.with_input(simulation._field0, initial_z=launch_z)
+    request = derived.run_request()
+    assert request is derived.run_request()
+    assert request.observation.start_plane == 0
+    np.testing.assert_array_equal(request.observation.save_planes, planes[1:])
+    assert simulation.run_request().observation.save_planes is planes
+
+
 def test_settings_assigned_before_the_first_translation_take_effect(build_simulation):
     """A replacement before :meth:`translate` reaches the problem."""
     simulation = build_simulation(n_save=2)
     simulation.settings = dataclasses.replace(simulation.settings, dz_max=1e-4)
     assert simulation.settings.dz_max == 1e-4
-    assert simulation._run_request().stepper.dz_max == 1e-4
+    assert simulation.run_request().stepper.dz_max == 1e-4
 
 
 @pytest.mark.parametrize("first", ["translate", "run"])

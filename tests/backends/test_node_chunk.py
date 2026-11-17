@@ -233,7 +233,7 @@ def test_the_plan_is_the_translation_s_former_chunk(name):
 def multimode_run():
     """A three-mode capillary on nine nodes, with no response admission."""
     simulation = capillary(modes=3, plasma=False)
-    return simulation.translate(), simulation._run_request()
+    return simulation.translate(), simulation.run_request()
 
 
 @pytest.fixture(scope="module")
@@ -524,7 +524,7 @@ def test_the_native_backend_executes_and_records_its_lowered_chunk(native_backen
     )
 
     simulation = collar.collar_case("planar")
-    problem, run_request = simulation.translate(), simulation._run_request()
+    problem, run_request = simulation.translate(), simulation.run_request()
     geometry = problem.transform.geometry
     assert geometry is not None
     n_x = geometry.shape[0]

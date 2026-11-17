@@ -199,7 +199,8 @@ class GeneralModalRoute(Displayed):
     exact arithmetic and is not the identity in the measured Gram the run actually
     has, so it is stored and declared rather than decorated. Either way the
     statistics power weight is the constant one: the Poynting amplitude **is** the
-    true-power amplitude and the legacy ``sqrt(Re n_eff)`` boundary is not crossed.
+    true-power amplitude and the channel routes' ``sqrt(Re n_eff)`` boundary is not
+    crossed.
     The two leaves are different objects and both exist: ``linear.power_weight`` is
     the statistics boundary and ``linear.modal_metric`` is the basis Gram.
 
@@ -735,7 +736,7 @@ def general_modal_route(
         A region that declares ``chi3`` ignores it.
     kerr_form : {'real', 'analytic'}, optional
         Which instantaneous cubic the regions' Kerr responses are. ``"real"``, the
-        default, is the real-field cubic ``P = eps0 chi3 (E.E) E`` the legacy field
+        default, is the real-field cubic ``P = eps0 chi3 (E.E) E`` the channel field
         route evaluates, third harmonic included; ``"analytic"`` is the
         analytic-signal form, which carries the fundamental band alone and is the
         tested oracle for it.
@@ -918,10 +919,7 @@ def _path_reference(
         guide.field_provider,
         sampling.omega,
         sampling.nodes,
-        path.z_edges,
-        rtol=path.rtol,
-        degree=path.degree,
-        measured=(path.z_error, path.gram_departure),
+        path=path,
         degenerate_blocks=sampling.degenerate_blocks,
         basis=sampling.basis,
         gram_atol=gram_atol,
@@ -1002,7 +1000,7 @@ def _moving_route(
     """Build the leaves of a guide whose geometry moves along z.
 
     The guide's path is solved again at exactly the positions its accuracy check
-    qualified (:class:`solprop.modes.guide.ModalPath`), on the provider's own rule and
+    qualified (:class:`solprop.modes.path.ModalPath`), on the provider's own rule and
     gauge at each, and three things are expanded along z on its sections:
 
     * the **maps** ``S`` and ``Q``

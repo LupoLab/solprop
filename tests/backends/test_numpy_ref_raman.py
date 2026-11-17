@@ -32,7 +32,7 @@ import numpy as np
 import pytest
 
 from bounds import assert_within, fft_bound
-from builders import load_reference
+from builders import load_reference, stage_helpers
 from former_raman import FORMER_H2, FORMER_N2, former_response
 from legacy_geometry import LEGACY_GRID
 from sessions.runs import run as session_run
@@ -472,7 +472,7 @@ def test_the_kernel_is_transformed_once_per_change_of_the_decay_rates(
     problem, run_request, _, _ = raman_capillary(responses)
     backend = backend_class(problem, run_request)
     for z in (0.0, 0.05, 0.05, 0.15, 0.15):
-        rates = scalars(problem, 0.0, z, helpers=backend.helpers).raman_rates
+        rates = scalars(problem, 0.0, z, helpers=stage_helpers(backend)).raman_rates
         prepare_raman(backend, rates)
     transforms = raman_refreshes(backend)
     backend.close()
@@ -484,7 +484,7 @@ def test_a_problem_without_a_raman_kernel_has_no_spectrum(
 ):
     problem, run_request, _, _ = raman_capillary([KerrResponse(chi3=1.0e-51, thg=True)])
     backend = backend_class(problem, run_request)
-    rates = scalars(problem, 0.0, 0.0, helpers=backend.helpers).raman_rates
+    rates = scalars(problem, 0.0, 0.0, helpers=stage_helpers(backend)).raman_rates
     assert prepare_raman(backend, rates) is None
     backend.close()
 
@@ -923,26 +923,6 @@ def test_the_shock_term_conserves_photon_number_and_raman_costs_energy(
 
 
 # ------------------------------------------------------------------------- the refusals
-
-
-def test_a_vector_state_with_a_raman_kernel_is_refused_by_name(
-    backend_class, soliton_problem, narrow_grid, substitute
-):
-    """The vector form needs a tensor kernel that no backend can consume.
-
-    The translation layer refuses it first, so the flags have to be declared by hand
-    here -- which is exactly the case a backend's own refusal exists for.
-    """
-    base, run_request = soliton_problem(narrow_grid, 1, save_planes=[0.01])
-    two = dataclasses.replace(base.transform, _n_pol=2, kind="modal")
-    problem = substitute(
-        base,
-        flags=dataclasses.replace(base.flags, has_raman=True),
-        validate=False,
-        route=dataclasses.replace(base.route, transform=two),
-    )
-    with pytest.raises(BackendError, match="tensor-capable"):
-        backend_class(problem, run_request)
 
 
 def test_a_raman_run_steps_and_shifts_a_capillary_pulse(

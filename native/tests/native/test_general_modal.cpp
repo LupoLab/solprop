@@ -417,9 +417,9 @@ TEST(GeneralModal, MalformedDataIsRefusedBeforeAllocation) {
   auto two = modal_problem(true, 2, true);
   two.general.components = 2;
   EXPECT_THROW(native::require_general_modal(two), std::invalid_argument);
-  auto legacy = modal_problem(true, 2, false);
-  legacy.kerr.nonlinear = true;
-  EXPECT_THROW(native::require_general_modal(legacy), std::invalid_argument);
+  auto channel_kerr = modal_problem(true, 2, false);
+  channel_kerr.kerr.nonlinear = true;
+  EXPECT_THROW(native::require_general_modal(channel_kerr), std::invalid_argument);
   auto envelope = modal_problem(true, 2, false);
   envelope.dims.family = native::FieldFamily::envelope;
   EXPECT_THROW(native::require_general_modal(envelope), std::invalid_argument);

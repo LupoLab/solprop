@@ -733,7 +733,7 @@ class TabulatedMode(_TableMode):
         Returns
         -------
         numpy.ndarray
-            Zeros in 1/m, shape ``(n_species, n_omega)``; one row for a legacy gas.
+            Zeros in 1/m, shape ``(n_species, n_omega)``; one row for a single gas.
         """
         del z
         values = self.table._checked(omega)

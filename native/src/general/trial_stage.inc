@@ -246,9 +246,10 @@ void GeneralWorkspace::evaluate_stage(const std::size_t stage, const double dz) 
     evaluate_stage_source(stage, dz);
     return;
   }
-  // solprop `NumpyRefBackend._trial_step` on a coupled flow: the stage input is
-  // carried forward by the stage's action, the source (with a frozen-residual flow's
-  // explicit residual) is evaluated into the flow's drive, and carried back.
+  // solprop's Runge-Kutta trial on a coupled flow (`NumpyRungeKutta.trial`,
+  // numpy_ref/engines.py): the stage input is carried forward by the stage's action,
+  // the source (with a frozen-residual flow's explicit residual) is evaluated into the
+  // flow's drive, and carried back.
   if (!flow_->identity(stage))
     flow_->carry_input(stage, dz, current_, stages_, tableau_);
   evaluate_stage_source(stage, dz);
@@ -353,8 +354,6 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
       const Kokkos::Profiling::ScopedRegion region("solprop_native.held.response");
       held_response(stage, first_node, node_count);
     }
-    if (gated_plasma())
-      gated_response(node_count);
     if (stage_projects && !folded && !held_radial()) {
       const Kokkos::Profiling::ScopedRegion region("solprop_native.projection");
       project(first_node, node_count, first_chunk);
@@ -458,8 +457,9 @@ void GeneralWorkspace::host_core() {
 
 // The general modal route's stage core: the shared lab-frame input, the in-stage
 // absorber on the modal time field as on every route, and the general source in place
-// of the legacy node pipeline; the finish applies the shared normalisation and the
-// return to the interaction picture (solprop `NumpyRefBackend._nonlinear_general`).
+// of the channel node pipeline; the finish applies the shared normalisation and the
+// return to the interaction picture (solprop's `StageSource._nonlinear_general`,
+// numpy_ref/source.py).
 void GeneralWorkspace::general_core(const std::size_t stage) {
   if (problem_.absorber.in_stage) {
     graph::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,

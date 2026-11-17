@@ -16,7 +16,7 @@ import pytest
 
 from scripted_driver import HostScriptedDriver
 from sessions.executors import fibre, soliton, window
-from solprop.backends.host.session import HostPrepared, HostSession
+from solprop.backends.numpy_ref.session import HostPrepared, HostSession
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import available, select
 from solprop.backends.session import (

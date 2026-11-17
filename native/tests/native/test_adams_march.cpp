@@ -108,6 +108,16 @@ TEST(AdamsMarch, APolicyIsRefusedByTheFieldAtFault) {
   EXPECT_NO_THROW(march::validate(policy()));
 }
 
+// A history past `max_history` would overrun the stencil's fixed arrays, so a state
+// that holds one is refused wherever it crosses: the bindings and a run's start.
+TEST(AdamsMarch, AStateWhoseHistoryOverrunsTheStencilIsRefused) {
+  march::State state;
+  state.history.resize(march::max_history);
+  EXPECT_NO_THROW(march::validate(state));
+  state.history.emplace_back();
+  EXPECT_THROW(march::validate(state), std::invalid_argument);
+}
+
 TEST(AdamsMarch, ARunKeepsItsLedgerAndLandsOnItsTarget) {
   const auto rules = policy();
   march::State state;

@@ -146,7 +146,7 @@ def test_wisdom_that_no_longer_builds_a_plan_falls_back_and_is_recorded(
 @pytest.mark.parametrize(
     ("planning", "message"),
     [
-        ({"mode": "sometimes"}, "legacy, profile or capture"),
+        ({"mode": "sometimes"}, "policy, profile or capture"),
         (
             {"mode": "profile", "efforts": {"rows": "quickly"}},
             "estimate, measure or patient",

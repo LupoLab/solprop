@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Pin the held-source identity, admission and private historical comparison."""
+"""Pin the held-source identity and its admission."""
 
 import dataclasses
 
@@ -10,69 +10,13 @@ import numpy as np
 import pytest
 from tests.backends import test_numpy_ref_plasma as plasma_fixtures
 
-from gated_source import _gated_source
-from solprop.backends import registry
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver.metadata import metadata_for
-from solprop.driver.resume import _open_output
-from solprop.exceptions import DriverError, OutputError, TranslationError
-from solprop.output import HDF5Output, check_cache, resume
-from solprop.output.records import SavedPlane
-from solprop.translate.plasma_source import _BENCHMARK_GATED, plasma_source_record
+from solprop.exceptions import TranslationError
+from solprop.translate.plasma_source import plasma_source_record
 
 field_grid = plasma_fixtures.field_grid
 ionising_capillary = plasma_fixtures.ionising_capillary
-
-
-def test_benchmark_identity_and_both_resume_doors(
-    ionising_capillary, field_grid, tmp_path
-):
-    problem, run_request, _, _ = ionising_capillary()
-    production = metadata_for(problem, run_request, field_grid)
-    with _gated_source():
-        historical = metadata_for(problem, run_request, field_grid)
-        backend = NumpyRefBackend(problem, run_request)
-        source_metadata = backend.metadata()["plasma_source"]
-        assert isinstance(source_metadata, dict)
-        assert source_metadata["form"] == "gated_benchmark"
-        ledger = backend.memory_ledger()
-        assert ledger["held_current_derivative"] == problem.grids.n_to * 8
-        assert all(
-            size == 0
-            for name, size in ledger.items()
-            if name.startswith("held_current_") and name != "held_current_derivative"
-        )
-        backend.close()
-    assert not _BENCHMARK_GATED.get()
-    assert historical.configuration_hash() != production.configuration_hash()
-    assert historical.configuration["_benchmark_plasma_source"] == "gated_nonresumable"
-    path = tmp_path / "gated.h5"
-    with HDF5Output(path) as output:
-        output.open(historical)
-        output.save(SavedPlane(z=0.0, field=problem.initial.field0))
-    with pytest.raises(OutputError, match="gated plasma benchmark"):
-        check_cache(path, historical)
-    with pytest.raises(OutputError, match="gated plasma benchmark"):
-        check_cache(path, production)
-    with pytest.raises(OutputError, match="gated plasma benchmark"):
-        resume(path)
-    with pytest.raises(DriverError, match="gated plasma benchmark"):
-        _open_output(path, historical, resume=True)
-
-
-def test_gated_hook_runs_on_native_and_resets_after_exception(ionising_capillary):
-    pytest.importorskip("solprop_native")
-    problem, run_request, _, _ = ionising_capillary()
-    with pytest.raises(RuntimeError, match="leaves the context"), _gated_source():
-        backend = registry.select("native", problem, run_request)
-        try:
-            source = backend.metadata()["plasma_source"]
-            assert isinstance(source, dict)
-            assert source["form"] == "gated_benchmark"
-        finally:
-            backend.close()
-        raise RuntimeError("an error leaves the context")
-    assert not _BENCHMARK_GATED.get()
 
 
 def test_metadata_and_memory_name_the_source(ionising_capillary, field_grid):
@@ -107,32 +51,13 @@ def test_certificate_refuses_zero_gate_and_nonpositive_active_frequency(
         plasma_source_record(broken)
 
 
-def test_private_historical_collar_cannot_bypass_production_admission(
-    ionising_capillary, field_grid
-):
-    problem, run_request, _, _ = ionising_capillary()
+def test_validation_refuses_an_unresolved_collar(ionising_capillary):
+    problem, _, _, _ = ionising_capillary()
     legacy = np.ones(problem.grids.n_to)
     legacy[0] = 0.0
-    historical = dataclasses.replace(
+    unresolved = dataclasses.replace(
         problem,
         grids=dataclasses.replace(problem.grids, t_window_fine=legacy),
     )
     with pytest.raises(TranslationError, match="collar certificate"):
-        historical.validate()
-    with _gated_source():
-        historical.validate()
-        metadata = metadata_for(historical, run_request, field_grid)
-        assert metadata.configuration["plasma_source"] == {
-            "form": "gated_benchmark",
-            "resumable": False,
-        }
-        if "native" in registry.available():
-            backend = registry.select("native", historical, run_request)
-            try:
-                source = backend.metadata()["plasma_source"]
-                assert isinstance(source, dict)
-                assert source["form"] == "gated_benchmark"
-            finally:
-                backend.close()
-    with pytest.raises(TranslationError, match="collar certificate"):
-        historical.validate()
+        unresolved.validate()

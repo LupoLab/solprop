@@ -320,7 +320,7 @@ def test_backend_preparation_refuses_a_request_adapted_to_interpolate(name):
     # A landed split-collar request, adapted to dense observation after translation,
     # is refused where the backend is built, as assembly refuses it outright.
     simulation = capillary(absorber_scheme="split_step")
-    problem, landed = simulation.translate(), simulation._run_request()
+    problem, landed = simulation.translate(), simulation.run_request()
     dense = dataclasses.replace(
         landed, observation=dataclasses.replace(landed.observation, dense=True)
     )

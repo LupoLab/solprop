@@ -15,8 +15,8 @@ from tests.driver.test_resume import run_until
 from tests.driver.test_run import NullBackend
 
 from builders import load_reference
-from solprop.backends.host.session import HostSession
 from solprop.backends.ledger import CallLedger
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.registry import select
 from solprop.backends.session import Start
@@ -148,7 +148,7 @@ def test_with_input_retains_absolute_tables_and_filters_only_explicit_launch():
     original = simulation.translate()
     launch = simulation.with_input(simulation._field0, initial_z=5e-6)
     problem = launch.translate()
-    run_request = launch._run_request()
+    run_request = launch.run_request()
     assert launch.initial_z == problem.initial.z == 5e-6
     assert problem.linear is original.linear
     assert launch.grid is simulation.grid
@@ -517,7 +517,7 @@ def _position(backend) -> float:
 def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path):
     simulation = tiny_simulation()
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     memory = MemoryOutput()
     memory.open(simulation.metadata())
     memory.save(SavedPlane(z=0.0, field=simulation._field0))
@@ -537,7 +537,7 @@ def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path
                 backend,
                 problem,
                 run_request,
-                resume_module._start(simulation, backend, problem, state),
+                resume_module._start(simulation, problem, state),
             )
             == 0
         )
@@ -547,7 +547,7 @@ def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path
             state, checkpoint=dataclasses.replace(state.checkpoint, next_save_index=1)
         )
         with pytest.raises(DriverError, match="next_save_index"):
-            resume_module._start(simulation, backend, problem, invalid)
+            resume_module._start(simulation, problem, invalid)
     finally:
         backend.close()
 
@@ -560,7 +560,7 @@ def test_ordinary_resume_without_outcome_restores_plane_and_starts_fresh_ledgers
         simulation.settings, save_planes=[5e-6, 1e-5]
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     memory = MemoryOutput()
     memory.open(simulation.metadata())
     memory.save(SavedPlane(z=0.0, field=simulation._field0))
@@ -578,7 +578,7 @@ def test_ordinary_resume_without_outcome_restores_plane_and_starts_fresh_ledgers
                 backend,
                 problem,
                 run_request,
-                resume_module._start(simulation, backend, problem, state),
+                resume_module._start(simulation, problem, state),
             )
             == 1
         )
@@ -600,7 +600,7 @@ def test_statistics_failure_keeps_drained_history_without_retrying_statistics(
 ):
     simulation = tiny_simulation()
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = select(
         "numpy_ref", problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
@@ -876,7 +876,7 @@ def test_a_logical_ledger_continues_under_another_integrator():
     # installed in a Runge-Kutta march (SEP 42 section 5.6).
     simulation = tiny_simulation(max_calls=None)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     run_request = run_request.with_stepper(
         dataclasses.replace(run_request.stepper, integrator=None)
     )
@@ -918,7 +918,7 @@ def test_resume_rejects_incompatible_state_before_backend_allocation(case):
         simulation.metadata(), saved, 1, StepHistory.empty(), outcome=outcome
     )
     with pytest.raises(DriverError, match=message):
-        resume_module._validate_resume(problem, simulation._run_request(), state, None)
+        resume_module._validate_resume(problem, simulation.run_request(), state, None)
 
 
 @pytest.mark.parametrize("case", ["unused", "mixed", "missing"])
@@ -971,7 +971,7 @@ def test_tdse_settings_revalidation_refuses_unsupported_execution(
         tdse_run_module._check_tdse_execution(simulation, settings)
 
 
-class LegacyOutput:
+class UncheckpointedOutput:
     """Delegate ordinary output while deliberately offering no checkpoint protocol."""
 
     def __init__(self):
@@ -1025,12 +1025,12 @@ def test_tdse_requires_checkpoint_output_before_preparing_native_resources(
     monkeypatch.setattr(runtime_module, "prepare_binding", forbidden)
     with pytest.raises(DriverError, match="terminal checkpoints"):
         if entry == "simulation":
-            atomic_simulation.run(LegacyOutput(), progress="none")
+            atomic_simulation.run(UncheckpointedOutput(), progress="none")
         else:
             run_problem(
                 atomic_simulation.translate(),
-                NullBackend(request=atomic_simulation._run_request()),
-                LegacyOutput(),
+                NullBackend(request=atomic_simulation.run_request()),
+                UncheckpointedOutput(),
                 start=Start.entrance(atomic_simulation.translate()),
                 metadata=atomic_simulation.metadata(),
                 progress="none",
@@ -1049,13 +1049,13 @@ def test_a_handler_that_keeps_nothing_is_refused_a_tdse_run(
 
 
 @pytest.mark.medium
-def test_legacy_custom_output_retains_ordinary_success_and_failure_behavior():
+def test_a_custom_output_without_checkpoints_retains_ordinary_success_and_failure():
     simulation = tiny_simulation()
-    output = LegacyOutput()
+    output = UncheckpointedOutput()
     simulation.run(output, progress="none")
     assert output.n_saved == 2
     limited = tiny_simulation(max_calls=1)
-    stopped = LegacyOutput()
+    stopped = UncheckpointedOutput()
     with pytest.raises(ResponseBudgetError):
         limited.run(stopped, progress="none")
     assert stopped.n_saved == 1
@@ -1166,7 +1166,7 @@ def test_a_resume_without_an_outcome_loads_the_field_without_restoring_ledgers(
 ):
     simulation = tiny_simulation()
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     state = ResumeState(
         simulation.metadata(),
         SavedPlane(z=5e-6, field=simulation._field0),
@@ -1188,7 +1188,7 @@ def test_a_resume_without_an_outcome_loads_the_field_without_restoring_ledgers(
                 backend,
                 problem,
                 run_request,
-                resume_module._start(simulation, backend, problem, state),
+                resume_module._start(simulation, problem, state),
             )
             == 0
         )
@@ -1247,7 +1247,7 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
         noise=None,
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     backend = select(
         "numpy_ref", problem, run_request, grid=grid, modes=simulation.modes
     )
@@ -1270,7 +1270,7 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
                 backend,
                 problem,
                 run_request,
-                resume_module._start(simulation, backend, problem, state),
+                resume_module._start(simulation, problem, state),
             )
             == 0
         )

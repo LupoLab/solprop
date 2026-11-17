@@ -723,12 +723,12 @@ class TransverseQuadrature:
         ModeError
             As described in the class docstring.
         """
-        legacy = self.w_r is not None and self.w_r_coarse is not None
+        xi = self.w_r is not None and self.w_r_coarse is not None
         area = self.area_r is not None and self.area_r_coarse is not None
         partial = (self.w_r is None) != (self.w_r_coarse is None) or (
             self.area_r is None
         ) != (self.area_r_coarse is None)
-        if partial or legacy == area:
+        if partial or xi == area:
             msg = (
                 "a transverse rule carries either d-xi weights (w_r and w_r_coarse) "
                 "or radial area weights (area_r and area_r_coarse), exactly one pair"

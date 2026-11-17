@@ -99,7 +99,7 @@ def one_evaluation(route: str) -> Built:
     launch hard-masked to the active band, as the native state loads it.
     """
     simulation, problem, lab = source_case(ROUTES[route], 0.01)
-    return _launched(simulation, problem, lab, simulation._run_request())
+    return _launched(simulation, problem, lab, simulation.run_request())
 
 
 def matched_run(route: str) -> Built:
@@ -113,4 +113,4 @@ def matched_run(route: str) -> Built:
         SOURCE_LENGTH,
         schedule=FixedSchedule.uniform(0.0, SOURCE_LENGTH, 5e-6),
     )
-    return _launched(simulation, problem, lab, fixed_order(simulation._run_request()))
+    return _launched(simulation, problem, lab, fixed_order(simulation.run_request()))

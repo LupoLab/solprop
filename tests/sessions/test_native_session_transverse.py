@@ -43,7 +43,7 @@ from sessions.executors import (
 )
 from sessions.test_native_session_monitor import IDENTITY, Served, _serve
 from solprop.backends.events import ObservationReady, Outcome, ServiceRequired
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.driver import Simulation
@@ -62,7 +62,7 @@ MARCHES = {"rk": RungeKutta, "adams": Multistep}
 
 def _prepared(simulation: Simulation) -> tuple[Any, Any]:
     """Return a simulation's problem, without statistics, and its monitored request."""
-    return simulation.translate(), simulation._run_request().for_run(
+    return simulation.translate(), simulation.run_request().for_run(
         stats=StatsSpec(), monitor=simulation._boundary_monitor()
     )
 
@@ -288,7 +288,6 @@ def test_an_edged_native_session_returns_to_python_only_at_its_events():
     accepted = sum(int(event.history.accepted.sum()) for event in observations)
     assert accepted > len(observations)
     found = counters.record()
-    assert found["transverse_reads"] == 0
     assert found["native_returns"] == {
         "session_observation": len(observations),
         "session_terminal": 1,

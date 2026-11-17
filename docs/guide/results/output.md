@@ -428,14 +428,16 @@ it with `open_tdse_archive` ([the TDSE response](../media/tdse.md#the-raw-respon
 ## The schema version
 
 Every file records its `schema_version`; this release writes and reads output
-schema **3** (`solprop.output.SCHEMA_VERSION`). Schema 1 was the first released layout,
+schema **4** (`solprop.output.SCHEMA_VERSION`). Schema 1 was the first released layout,
 that of 0.1.0; schema 2, that of 0.2.0, adds `spectral_phase` to the record of a
 {py:class}`~solprop.pulses.DataPulse`; schema 3 stores a march snapshot's `state` and
-its engine `rows` without the leading axis of one they kept before, and a snapshot
-written in that earlier layout is refused by name. A file of any other schema is refused
-by name wherever it is opened, read or resumed: files written by an earlier release or
-by development versions of solprop, which declared output schemas up to 28, are not
-read, and nor is a file from a later release. Read such a file with the solprop version
+its engine `rows` without the leading axis of one they kept before; schema 4 records no
+basis identity in the plane-reference record, whose `basis` entry is gone: a plane's
+basis is derived when it is read ([coupling simulations](../workflows/coupling.md)). A
+file of any other schema is refused by name wherever it is opened, read or resumed: files
+written by an earlier release or by development versions of solprop, which declared
+output schemas up to 28, are not read, and nor is a file from a later release. Read such
+a file with the solprop version
 that wrote it. A scan file is refused the same way, by the output schema each point's run
 record declares, whether it is read or resumed; its own `scan_schema_version` versions
 the scan container, not the records in it, and is still 1. A resume needs the file's
@@ -495,9 +497,7 @@ resume decides by the configuration hash (ADR-066).
 release bumps the schema; every later one before the next release folds into that
 version, which the next release is the first to write. Development builds between two
 releases are therefore not compatible with one another: a file written by an earlier
-build of the same schema may be refused, by name where the difference is known (a
-Multistep run's predictor orders, which are now recorded as `[order, count]` pairs,
-were one integer per step before), and is read with the build that wrote it.
+build of the same schema may be refused, and is read with the build that wrote it.
 
 **Five columns of `absorbed_power`.** The fifth column, `custom`, folded into schema 2 the
 same way, and the first column became the collar alone. A file from a development build

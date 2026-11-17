@@ -168,7 +168,7 @@ def test_a_moving_guide_runs_ten_steps_end_to_end_and_records_its_path(
     """
     simulation = moving_simulation(kinked, grin_grid(), integrator=RungeKutta())
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
-    problem, run_request = simulation.translate(), simulation._run_request()
+    problem, run_request = simulation.translate(), simulation.run_request()
     run = cast("MemoryOutput", simulation.run(progress="none"))
     energy = [float(np.sum(plane.stats["physical_energy"])) for plane in run.planes()]
     assert len(energy) == 2
@@ -208,7 +208,7 @@ def test_both_backends_admit_moving_maps(kinked_problem):
     simulation, problem = kinked_problem
     check_general_route(problem)
     pytest.importorskip("solprop_native")
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     select("native", problem, run_request, grid=simulation.grid).close()
 
 
@@ -286,7 +286,7 @@ def _single_bin(guide, grid, length, steps, index, **overrides):
     simulation = moving_simulation(guide, grid, steps=steps, length=length, **overrides)
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     state = np.zeros_like(problem.initial.field0)
     state[0, 0, index] = 1e-9
     problem = dataclasses.replace(
@@ -524,7 +524,7 @@ def _step_run(guide, steps, index, launch=None):
     )
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     state = np.zeros_like(problem.initial.field0)
     if launch is None:
         state[0, 0, index] = 1e-9

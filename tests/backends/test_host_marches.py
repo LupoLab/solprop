@@ -5,11 +5,11 @@
 """The reference's marches own their state and ask their session narrowly (SEP 52).
 
 Each march keeps its position, proposal, cursor and accepted norms in its own
-:class:`~solprop.backends.host.marches.MarchState`, hands state-sized work to its
-engine and asks the session only through
-:class:`~solprop.backends.host.marches.MarchHost`. Here the engine and the session are
-recorders: what a march calls, in which order, and what it hands on, without any field
-arithmetic. The decisions themselves are the trace corpora's
+:class:`~solprop.backends.numpy_ref.marches.host.MarchState`, hands state-sized work to
+its engine and asks the session only through
+:class:`~solprop.backends.numpy_ref.marches.host.MarchHost`. Here the engine and the
+session are recorders: what a march calls, in which order, and what it hands on, without
+any field arithmetic. The decisions themselves are the trace corpora's
 (``test_rk_traces.py``, ``test_adams_traces.py``).
 """
 
@@ -19,9 +19,9 @@ from typing import Any, cast
 import pytest
 
 from solprop.backends.engines import AcceptRecord
-from solprop.backends.host.low_storage import HostLowStorageMarch
-from solprop.backends.host.marches import MarchState, in_flight_refusal
-from solprop.backends.host.runge_kutta import RungeKuttaMarch
+from solprop.backends.numpy_ref.marches.host import MarchState, in_flight_refusal
+from solprop.backends.numpy_ref.marches.low_storage import HostLowStorageMarch
+from solprop.backends.numpy_ref.marches.runge_kutta import RungeKuttaMarch
 from solprop.backends.records import RungeKuttaPolicy
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, PIController
@@ -202,7 +202,10 @@ def test_a_low_storage_replay_that_runs_out_says_so():
 
 
 def test_an_adams_floor_after_a_rejection_keeps_a_failed_release_as_a_note():
-    from solprop.backends.host.adams import HostAdamsMarch, _Attempt  # noqa: PLC0415
+    from solprop.backends.numpy_ref.marches.adams import (  # noqa: PLC0415
+        HostAdamsMarch,
+        _Attempt,
+    )
 
     ended = []
 

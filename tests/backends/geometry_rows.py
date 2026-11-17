@@ -674,7 +674,7 @@ def collar_run(route: str, march: str) -> Built:
     )
     return Built(
         simulation.translate(),
-        simulation._run_request(),
+        simulation.run_request(),
         simulation.grid,
         options=simulation.settings.execution_options(),
         modes=simulation.modes,

@@ -16,9 +16,10 @@ tree in both directions.
   :class:`~solprop.translate.modal.Transform` (4),
   :class:`~solprop.translate.responses.CompiledResponses` (5) and :class:`Initial` (6),
   beside the route variant of :mod:`solprop.translate.routes`.
-- Run policy is not a field of the problem: :class:`StepperSettings`, defined here, is
-  the stepper section (7) a :class:`~solprop.translate.run_request.RunRequest`
-  carries beside the statistics request (8).
+- Run policy is not a field of the problem: the stepper section (7),
+  :class:`~solprop.stepper.settings.StepperSettings` of the run-specification layer, is
+  what a :class:`~solprop.translate.run_request.RunRequest` carries beside the
+  statistics request (8).
 - :class:`Translation` is what :func:`solprop.translate.assembly.assemble` returns,
   ``(problem, request)``; :func:`validate_run` checks the pair before anything is
   allocated; :class:`TranslationReuse` carries prequalified data into a material-path
@@ -32,7 +33,7 @@ import hashlib
 import json
 import math
 import warnings
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass
 from decimal import ROUND_FLOOR, Decimal
 from typing import TYPE_CHECKING, Literal, NamedTuple, cast
@@ -53,6 +54,7 @@ from solprop.exceptions import (
 )
 from solprop.fourier import GridKind, n_omega_for
 from solprop.grid import Collar
+from solprop.nonlinear.responses import MAX_N_POL
 from solprop.spatial_absorber import (
     CROSSING_ADAPTIVE,
     CROSSING_FIXED,
@@ -60,11 +62,9 @@ from solprop.spatial_absorber import (
     SpatialAbsorberDesign,
 )
 from solprop.stats import StatsSpec
-from solprop.stepper.controller import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
-from solprop.stepper.schedule import FixedSchedule
-from solprop.stepper.tableau import Tableau, continuous_extension
+from solprop.stepper.settings import StepperSettings
 from solprop.translate.admission import check_general_route, check_leaf_types
 from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.coupled import flow_edge_slack
@@ -105,13 +105,10 @@ __all__ = [
     "EXPONENT_BUDGET",
     "LOG_DBL_MAX",
     "MAX_N_COMPONENTS",
-    "MAX_N_POL",
     "Flags",
     "Initial",
     "NoiseModel",
     "PropagationProblem",
-    "PropagatorMode",
-    "StepperSettings",
     "Translation",
     "TranslationReuse",
     "debug_summary",
@@ -127,30 +124,14 @@ The component an HE_1m Marcatili mode points along at ``phi = 0`` (see
 """
 
 
-MAX_N_POL = 2
-"""Most entries the state's polarisation axis may have.
-
-The transverse components are carried either by the transform's rows or by the
-state's polarisation axis, never by both: a row of ``synthesis`` is one Cartesian
-component at one node, and so is one entry of the state's polarisation axis, so a
-problem that set both would count them twice.
-
-It stays 2 at kernel schema 14. A general modal guide's three Cartesian components
-are *not* three state polarisations: one vector eigenmode has E_x, E_y and E_z and
-stores one amplitude, so the guide carries ``n_pol = 1`` and
-:data:`MAX_N_COMPONENTS` local field components. Setting this to
-3 would instead admit three independent amplitudes per eigenmode, which is a
-different and unphysical problem.
-"""
-
-
 MAX_N_COMPONENTS = 3
 """Cartesian components of the local physical field a general modal guide resolves.
 
 The count of :class:`solprop.translate.modal_tables.ModalTransformTables`' component
 axis -- E_x, E_y and E_z, and the matching H -- which is a property of the provider's
 fields and not of the state's polarisation axis. The distinct check
-:data:`MAX_N_POL` performs for the legacy routes is kept beside it, unchanged.
+:data:`solprop.nonlinear.responses.MAX_N_POL` performs for the channel routes is kept
+beside it, unchanged.
 """
 
 
@@ -203,8 +184,8 @@ of memory again."""
 _STRIDED_LEAVES = frozenset({"initial.field0"})
 """The leaves that need not be C-contiguous, by dotted name.
 
-The initial state is never indexed by a kernel: a backend takes it through
-``set_initial``, which accepts any strides and copies it into its own state. So it may
+The initial state is never indexed by a kernel: a backend's session loads it from the
+run's start, accepting any strides and copying it into its own state. So it may
 be a zero-stride broadcast view, which the problem keeps instead of a full copy
 (:class:`Initial`; kernel schema 42).
 """
@@ -220,19 +201,6 @@ multiply an order-five defect by 32 (SEP 14 section 4.2).
 
 NoiseModel = Literal["none", "input", "modified"]
 """Which shot-noise model the run carries (see ``docs/dev/decisions.md``)."""
-
-
-PropagatorMode = Literal["auto", "tabulate", "recompute"]
-"""Whether the backend tabulates the stage propagators or recomputes them.
-
-``"auto"``, the default, is the backend's own choice, resolved at construction and
-recorded in the run's metadata: ``tabulate`` for ``numpy_ref``, whose two complex
-exponentials per stage the table is worth memoising, and ``recompute`` for
-``native``, where both signs come from one real ``exp`` and a ``sincos`` in the
-stage that formed them, so the table buys residency and nothing else
-(``docs/dev/backends.md`` section 3.6). Either can still be asked for by name; the two
-agree bitwise, so the choice is memory and not numbers.
-"""
 
 
 @dataclass(frozen=True)
@@ -441,212 +409,6 @@ class Initial:
                 f"{'absent' if self.noise0 is None else 'present'}"
             )
             raise TranslationError(msg)
-
-
-_ADAMS_CONTROL = frozenset({"rtol", "atol", "weights", "region"})
-"""The controller fields the Adams march reads. It chooses its steps by its own
-``safety``, ``min_factor`` and ``max_growth``
-(:class:`~solprop.stepper.multistep.Multistep`)."""
-
-
-def _refuse_unread_control(controller: PIController) -> None:
-    """Refuse a controller setting the Adams march would ignore, by name."""
-    default = PIController(rtol=controller.rtol, atol=controller.atol)
-    unread = [
-        one.name
-        for one in fields(PIController)
-        if one.name not in _ADAMS_CONTROL
-        and getattr(controller, one.name) != getattr(default, one.name)
-    ]
-    if unread:
-        msg = (
-            "Multistep() reads only the controller's rtol, atol, weights and region, "
-            "and chooses its steps by its own safety, min_factor and max_growth: "
-            f"PIController's {', '.join(unread)} would be ignored. Set them on "
-            "Multistep, or leave them at their defaults"
-        )
-        raise TranslationError(msg)
-
-
-@dataclass(frozen=True, eq=False)
-class StepperSettings:
-    """The tableau, the controller and the schedule of a run.
-
-    Section 7 of the kernel contract. The tolerances and the norm choice live in the
-    controller and nowhere else.
-
-    Attributes
-    ----------
-    tableau : solprop.stepper.tableau.Tableau
-        Nodes, matrix, solution weights, error weights ``b - b_hat``, orders and the
-        first-same-as-last flag.
-    controller : solprop.stepper.controller.PIController
-        Tolerances, safety, growth caps, the PI exponents, the lag, the reject-free
-        switch, the estimator order and the norm weights.
-    dz_min : float
-        Floor on the controller's *proposal*, m. A proposal below it raises rather than
-        being clamped silently; it never applies to a landing step.
-    dz_max : float
-        Cap on the proposal, m.
-    dz_init : float
-        First step, m.
-    stretch : float
-        Landing stretch factor: a target within this multiple of the capped proposal is
-        landed on directly. 1 switches it off.
-    schedule : solprop.stepper.schedule.FixedSchedule or None
-        A fixed schedule to replay, whose edges must contain every save plane and hard
-        kink. ``None`` for an adaptive run.
-    save_planes : numpy.ndarray
-        Positions in z the driver will ask for, m, shape ``(n_z,)``, increasing. Steps
-        land on them exactly; there is no dense output.
-    propagator_mode : {'auto', 'tabulate', 'recompute'}
-        Whether the backend tabulates the stage propagator factors or recomputes them.
-        ``"auto"`` leaves the choice to the backend, which records what it resolved.
-    integrator : solprop.stepper.multistep.Multistep or LowStorageRungeKutta or None
-        A low-call Adams method to step with instead of the tableau (SEP 13), the
-        low-storage RK4 march (SEP 24), or ``None`` for the Runge-Kutta march. With a
-        `schedule` an Adams method replays the schedule's steps (SEP 16 section 5);
-        the low-storage march replays one and nothing else.
-    interval_cap : bool
-        Whether a step is capped at the width of the operator-table interval it starts
-        in. The cumulative table makes the flow exact across intervals, so the cap is
-        off on the diagonal-flow routes and on for a coupled flow, whose flow error the
-        embedded estimate does not see (SEP 14 section 4.1).
-    auto_init : bool
-        Whether the start-up rule takes the step after the first from the first step's
-        own error estimate (``PIController.start_factor``); ``False`` grows from
-        `dz_init` at the growth cap.
-    interpolate_planes : bool
-        Step across the save planes and observe each inside its accepted step, through
-        the tableau's continuous extension or the Adams march's own polynomial (SEP 14
-        phase 3); ``False`` lands on them. The end of the run and every hard kink are
-        landed on either way.
-    step_planes : int
-        A positive ``k`` also saves the end of every ``k``-th accepted step: the
-        march returns to its session there, short of its target, and marches on
-        (SEP 14 phase 3). ``0`` saves the requested planes only.
-
-    Raises
-    ------
-    TranslationError
-        If the step caps are not ordered, the stretch is below one, the save
-        planes are not increasing and positive, or the low-storage march is asked for
-        without a schedule, with interpolated planes or with a schedule step longer
-        than `dz_max`.
-
-    Examples
-    --------
-    >>> from solprop.stepper import DOPRI5, PIController
-    >>> from solprop.translate.problem import StepperSettings
-    >>> settings = StepperSettings(DOPRI5, PIController(rtol=1e-8, atol=1e-14),
-    ...                            1e-9, 0.1, 1e-3, 1.1, None, [0.5, 1.0], "tabulate")
-    >>> settings.save_planes.tolist()
-    [0.5, 1.0]
-    """
-
-    tableau: Tableau
-    controller: PIController
-    dz_min: float
-    dz_max: float
-    dz_init: float
-    stretch: float
-    schedule: FixedSchedule | None
-    save_planes: Float[np.ndarray, " n_z"] | Sequence[float]
-    propagator_mode: PropagatorMode
-    integrator: Multistep | LowStorageRungeKutta | None = None
-    interval_cap: bool = True
-    auto_init: bool = False
-    interpolate_planes: bool = False
-    step_planes: int = 0
-
-    def __post_init__(self) -> None:
-        """Adopt a read-only plane array and check the caps.
-
-        Raises
-        ------
-        TranslationError
-            Naming the offending field.
-        """
-        planes = frozen_copy(np.reshape(self.save_planes, -1), np.float64)
-        object.__setattr__(self, "save_planes", planes)
-        if planes.size == 0 or not np.all(np.diff(planes) > 0.0):
-            msg = f"save_planes must be non-empty and increasing, got {planes}"
-            raise TranslationError(msg)
-        if planes[0] <= 0.0:
-            msg = f"save_planes must be positive, got {planes[0]!r} first"
-            raise TranslationError(msg)
-        if not 0.0 < self.dz_min <= self.dz_init <= self.dz_max:
-            msg = (
-                f"the step caps must satisfy 0 < dz_min <= dz_init <= dz_max, got "
-                f"{self.dz_min!r}, {self.dz_init!r}, {self.dz_max!r}"
-            )
-            raise TranslationError(msg)
-        if not self.stretch >= 1.0:
-            msg = f"stretch must be at least 1, got {self.stretch!r}"
-            raise TranslationError(msg)
-        if self.step_planes < 0:
-            msg = f"step_planes must be 0 (off) or a positive count: {self.step_planes}"
-            raise TranslationError(msg)
-        if isinstance(self.integrator, LowStorageRungeKutta):
-            self._check_low_storage(self.integrator)
-        if isinstance(self.integrator, Multistep):
-            _refuse_unread_control(self.controller)
-        if self.interpolate_planes and self.schedule is not None:
-            msg = "interpolated planes lie inside adaptive steps; a schedule lands"
-            raise TranslationError(msg)
-        if (
-            self.interpolate_planes
-            and self.integrator is None
-            and continuous_extension(self.tableau) is None
-        ):
-            msg = f"{self.tableau.name} has no continuous extension; use DOPRI5"
-            raise TranslationError(msg)
-
-    def _check_low_storage(self, method: LowStorageRungeKutta) -> None:
-        """Refuse what the low-storage march cannot replay, before any allocation.
-
-        The march accepts every step in place and has no estimate, so it replays a
-        prescribed schedule and nothing else (SEP 24 section 5); `dz_max` stays a true
-        statement about the run it records, so a longer schedule step is refused.
-        """
-        if self.schedule is None:
-            msg = (
-                f"the {method.name} march replays a prescribed schedule; pass "
-                "schedule=FixedSchedule.uniform(...), or step adaptively with "
-                "RungeKutta()"
-            )
-            raise TranslationError(msg)
-        if self.interpolate_planes:
-            msg = (
-                f"the {method.name} march lands on its schedule's edges and has no "
-                "dense output; drop interpolate_planes"
-            )
-            raise TranslationError(msg)
-        # A schedule's steps are differences of rounded positions, so one may exceed
-        # the step it was cut to by a few ulps of those positions.
-        span = max(abs(self.schedule.z_start), abs(self.schedule.z_end), self.dz_max)
-        longest = self.schedule.max_step
-        if longest > self.dz_max + 4.0 * float(np.spacing(span)):
-            msg = (
-                f"the schedule's longest step is {longest:.6g} m and dz_max is "
-                f"{self.dz_max:.6g} m; the {method.name} march records dz_max as a "
-                "limit of the run, so raise dz_max to the schedule's longest step"
-            )
-            raise TranslationError(msg)
-
-    @property
-    def z_end(self) -> float:  # numpydoc ignore=RT01
-        """Last save plane, where the run stops, m.
-
-        Examples
-        --------
-        >>> from solprop.stepper import DOPRI5, PIController
-        >>> from solprop.translate.problem import StepperSettings
-        >>> StepperSettings(DOPRI5, PIController(rtol=1e-8, atol=1e-14), 1e-9, 0.1,
-        ...                 1e-3, 1.1, None, [0.5, 1.0], "tabulate").z_end
-        1.0
-        """
-        return float(np.max(self.save_planes))
 
 
 class _RunPolicy(NamedTuple):
@@ -917,7 +679,7 @@ class PropagationProblem:
         ...     width=100e-15, peak_power=9.8, shape="sech",
         ... )
         >>> problem = simulation.translate()
-        >>> problem.validate_launch(simulation._run_request()) is None
+        >>> problem.validate_launch(simulation.run_request()) is None
         True
         """
         stepper = request.stepper
@@ -947,7 +709,7 @@ class PropagationProblem:
                 )
                 if unavailable:
                     msg = (
-                        "TDSE does not define legacy statistics "
+                        "TDSE does not define the rate-model statistics "
                         f"{sorted(unavailable)}; request explicitly labelled atomic "
                         "diagnostics"
                     )
@@ -1116,6 +878,17 @@ class PropagationProblem:
     def _check_shapes(self) -> None:
         """Check every array agrees with the canonical state shape."""
         n_modes, n_pol, n_omega = self.shape
+        # First: a state that carries the components the transform resolves too fails
+        # every shape below, and this names why.
+        if self.transform.n_pol * n_pol > MAX_N_POL:
+            msg = (
+                f"transform resolves {self.transform.n_pol} transverse components and "
+                f"the state carries {n_pol}; the components belong to one of the two "
+                "and not to both (solprop.modes.collection.ModeCollection."
+                "with_polarisations builds the polarisation-resolved mode set a "
+                "component-resolving transform expects)"
+            )
+            raise TranslationError(msg)
         if self.initial.field0.shape != self.shape:
             msg = (
                 f"initial.field0 has shape {self.initial.field0.shape}, expected "
@@ -1143,15 +916,6 @@ class PropagationProblem:
         if self.transform.n_modes != n_modes:
             msg = (
                 f"transform carries {self.transform.n_modes} modes, expected {n_modes}"
-            )
-            raise TranslationError(msg)
-        if self.transform.n_pol * n_pol > MAX_N_POL:
-            msg = (
-                f"transform resolves {self.transform.n_pol} transverse components and "
-                f"the state carries {n_pol}; the components belong to one of the two "
-                "and not to both (solprop.modes.collection.ModeCollection."
-                "with_polarisations builds the polarisation-resolved mode set a "
-                "component-resolving transform expects)"
             )
             raise TranslationError(msg)
         for name, expected in (
@@ -2027,7 +1791,7 @@ def validate_run(problem: PropagationProblem, request: "RunRequest") -> None:
     ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
     ...     width=100e-15, peak_power=9.8, shape="sech",
     ... )
-    >>> validate_run(simulation.translate(), simulation._run_request()) is None
+    >>> validate_run(simulation.translate(), simulation.run_request()) is None
     True
     """
     problem._validate(_RunPolicy(request.stepper, request.observation.stats))
@@ -2331,7 +2095,7 @@ class TranslationReuse:
     transform : Transform
         Unchanged transverse geometry, quadrature and grid transform.
     initial : Initial
-        Unchanged initial field, noise and batch parameters.
+        Unchanged initial field and noise parameters.
     phi_expansion : ParameterExpansion or None
         Cumulative-operator coefficients, only if its sampled function is unchanged.
     prefactor_expansion : ParameterExpansion or None

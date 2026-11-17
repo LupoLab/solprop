@@ -11,9 +11,9 @@ basis of an Adams formula on its actual nodes
 (:func:`solprop.stepper.multistep.integrated_weights`). Which implementation evaluates
 them belongs to the backend that runs the stage (SEP 29 section 6.6, R16), never to a
 process-wide switch. :class:`Helpers` is that record, typed by :data:`PointsFunction`
-and :data:`BasisFunction`; a backend names one in its ``helpers`` attribute.
-:data:`PLAIN` holds the uncompiled Python forms, which ``numpy_ref`` and translation
-use; the native backend defines its own. The design is ``docs/dev/backends.md``, "Who
+and :data:`BasisFunction`. :data:`PLAIN` holds the uncompiled Python forms, which
+``numpy_ref`` and translation use; the native backend names its own in its ``helpers``
+attribute. The design is ``docs/dev/backends.md``, "Who
 evaluates the stage scalars and the Adams basis".
 
 This module imports nothing from the rest of the package at import time, so any layer

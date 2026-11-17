@@ -702,7 +702,7 @@ def general_modal_transform(
     :class:`Transform` describes and every other field of the group is absent. The
     one real entry is ``aeff``, which is a **diagnostic**
     here as it is for any multimode transform: the scalar surrogate area of the
-    first channel, which is what the legacy mode-averaged interfaces mean by an
+    first channel, which is what the mode-averaged interfaces mean by an
     area and not the nonlinear coefficient of a vector channel.
 
     Parameters

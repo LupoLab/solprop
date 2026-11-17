@@ -74,7 +74,7 @@ TDSE_UNAVAILABLE_STATISTICS = frozenset(
         "on_axis_species_peak_ionisation_rate",
     }
 )
-"""Legacy rate/dipole-only statistics that do not identify a TDSE observable.
+"""The rate-model statistics, which identify no TDSE observable.
 
 The complete-source quadrature diagnostic is recorded with its actual stage
 identity; a PEC predictor is not the accepted field named by a saved-plane row.

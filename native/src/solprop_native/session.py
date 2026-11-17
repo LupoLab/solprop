@@ -114,9 +114,9 @@ from solprop.backends.session import (
     SessionState,
     SessionStatus,
     SnapshotReceipt,
+    check_preparation,
     statistics_unavailable,
 )
-from solprop.backends.session_core import check_preparation
 from solprop.backends.spatial import FarFieldTables
 from solprop.exceptions import (
     BackendError,
@@ -182,7 +182,8 @@ if TYPE_CHECKING:
     from solprop.spatial import ApertureTables
     from solprop.stats import StatsSpec
     from solprop.stepper.multistep import MarchPolicy
-    from solprop.translate.problem import PropagationProblem, StepperSettings
+    from solprop.stepper.settings import StepperSettings
+    from solprop.translate.problem import PropagationProblem
     from solprop.translate.run_request import RunRequest
 
 __all__ = [
@@ -1108,10 +1109,10 @@ class NativeSession:
         """Return the Adams method history at a pending ticket's committed state.
 
         The native session copies the march's state, the accepted field as the state
-        holds it and every persistent history row once, losslessly, as
-        solprop's host history lays them out
-        (:meth:`solprop.backends.host.adams.HostAdamsMarch.snapshot`; SEP 47 section
-        5.4).
+        holds it and every persistent history row once, losslessly, as solprop's host
+        history lays them out
+        (:meth:`solprop.backends.numpy_ref.marches.adams.HostAdamsMarch.snapshot_fields`;
+        SEP 47 section 5.4).
 
         Parameters
         ----------
@@ -1161,9 +1162,9 @@ class NativeSession:
             order=int(state["order"]),
             rejections=int(state["rejections"]),
             last_rejected=bool(state["last_rejected"]),
-            positions=np.array([entry[0] for entry in history], dtype=np.float64),
-            identities=tuple(str(entry[1]) for entry in history),
-            slots=np.array([entry[2] for entry in history], dtype=np.int64),
+            positions=np.array([entry["z"] for entry in history], dtype=np.float64),
+            identities=tuple(str(entry["identity"]) for entry in history),
+            slots=np.array([entry["row"] for entry in history], dtype=np.int64),
             rows={name: row.reshape(len(row), *shape) for name, row in rows.items()},
             collar_was_quiet=bool(state["collar_was_quiet"]),
             history_key=method.history_key,
@@ -1188,17 +1189,6 @@ class NativeSession:
             # A dense plane's: the march stands ahead of it (`march_snapshot`).
             return None
         return math.prod(self._problem.shape) * 16 + self._rows_nbytes
-
-    def march_export_refusal(self) -> str | None:
-        """Return ``None``: the session exports the history of every march it admits.
-
-        Returns
-        -------
-        None
-            The resident Adams engine exports and installs its rows; a Runge-Kutta
-            march keeps no history to refuse.
-        """
-        return None
 
     @property
     def march_refusal(self) -> str | None:  # numpydoc ignore=RT01
@@ -1250,7 +1240,8 @@ class NativeSession:
         record["native_session"] = native
         monitor = self.monitor_record()
         if monitor is not None:
-            # Where the driver's record carries its monitor's (`HostSession.metadata`).
+            # Where the reference's record carries its monitor's
+            # (`HostSession.execution_record`).
             record["boundary_monitor"] = monitor
         return record
 
@@ -1411,7 +1402,7 @@ class NativeSession:
         when none is, after an acknowledgment, the native session issues a failed
         terminal batch at its committed state, so that the state can be exported for a
         terminal checkpoint and nothing advances again, as the reference's
-        :meth:`solprop.backends.host.session.HostSession.pending_ticket` does. The
+        :meth:`solprop.backends.numpy_ref.session.HostSession.pending_ticket` does. The
         service loop's fallback for a failure between batches (a service failure, a
         signal); a session that never issued a batch has nothing to bind it to.
 
@@ -1440,11 +1431,6 @@ class NativeSession:
         to its latest running checkpoint (SEP 47 section 5.5), naming this step.
         """
         return self._abandoned
-
-    @property
-    def reads_transverse_edge(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the backend reads a transverse edge (SEP 40): always, natively."""
-        return NativeBackend.reads_transverse_edge
 
     def close(self) -> None:
         """Release the native session and its backend; idempotent."""
@@ -1739,8 +1725,8 @@ class NativeSession:
         """Return a host source's kept exception as the reference raises it.
 
         A reservation the atomic budget refused names the last accepted step and
-        carries its field, as `NumpyRefBackend._reserve_source_calls` does; any other
-        exception is returned unchanged.
+        carries its field, as the reference's Adams march raises it
+        (`HostAdamsMarch._afford`); any other exception is returned unchanged.
         """
         if not isinstance(kept, ResponseBudgetError):
             return kept
@@ -1972,7 +1958,7 @@ class NativePrepared:
         ------
         solprop.backends.session.SessionError
             If the request is not one run of the backend's own
-            (:func:`~solprop.backends.session_core.foreign_request`).
+            (:func:`~solprop.backends.session.foreign_request`).
         solprop.exceptions.BackendError
             If the request asks for statistics the problem does not carry
             (:func:`~solprop.backends.session.statistics_unavailable`), or naming a

@@ -4,11 +4,11 @@
 
 """Rounding budgets and comparisons for this backend's tests (solprop SEP 25).
 
-Independent floating-point computations are compared by numerical error, not bits:
-two thread counts, a batch member and its solo run, a repeated run or a staged and a
-direct path differ by rounding alone, and each comparison holds them to a bound fixed
-from operation and reduction counts, transform lengths and a stated margin *before*
-it runs, never fitted to the discrepancy it then accepts. Exact comparison remains
+Independent floating-point computations are compared by numerical error, not bits: two
+thread counts, a repeated run or a staged and a direct path differ by rounding alone,
+and each comparison holds them to a bound fixed from operation and reduction counts,
+transform lengths and a stated margin *before* it runs, never fitted to the discrepancy
+it then accepts. Exact comparison remains
 right for structural contracts: lossless copies, integer accounting, identity
 metadata, hard masks and explicitly exact no-ops.
 

@@ -382,10 +382,6 @@ void require_plasma(const Problem& problem) {
   if (!problem.plasma.band &&
       (problem.plasma.taps.size() != 1 || problem.plasma.taps[0] != 1.0))
     throw std::invalid_argument("the trapezoid rule is the one identity tap");
-  if (problem.plasma.gated &&
-      (!problem.plasma.enabled || problem.plasma.envelope || problem.general.enabled))
-    throw std::invalid_argument(
-        "the gated plasma benchmark needs a field plasma column off the general route");
   if (problem.plasma.band) {
     if (!problem.plasma.enabled || problem.plasma.envelope ||
         problem.dims.family == FieldFamily::envelope)

@@ -568,7 +568,7 @@ class _AdiabaticAmplitude:
         """Join the term to a z table or an expansion of ``Phi``.
 
         - Returns: the operator with the endpoint term; unchanged when no column
-          propagates or an expansion already carries it (batch reuse).
+          propagates or an expansion already carries it (one a material update reuses).
         """
         if not self._mask.any():
             return linear

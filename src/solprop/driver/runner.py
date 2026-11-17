@@ -168,7 +168,7 @@ class SimulationRunner(Displayed):
             )
             raise DriverError(msg)
         settings = simulation.settings
-        request = simulation._run_request()
+        request = simulation.run_request()
         self._simulation = simulation
         self._problem = problem
         self._request = request
@@ -381,7 +381,7 @@ class SimulationRunner(Displayed):
                 self._problem,
                 simulation.translate(),
                 self._request,
-                simulation._run_request(),
+                simulation.run_request(),
             )
         except DriverError as error:
             logger.debug("a new backend for this run: %s", error)
@@ -429,7 +429,7 @@ class SimulationRunner(Displayed):
             input_identity=input_identity,
         )
         problem = derived.translate()
-        request = derived._run_request()
+        request = derived.run_request()
         check_derived_problem(self._problem, problem, self._request, request)
         settings = self._simulation.settings
         with _optmat.material_context(derived._material_log):
@@ -545,8 +545,8 @@ def check_derived_problem(
     >>> problem = simulation.translate()
     >>> derived = simulation.with_input(problem.initial.field0)
     >>> check_derived_problem(
-    ...     problem, derived.translate(), simulation._run_request(),
-    ...     derived._run_request(),
+    ...     problem, derived.translate(), simulation.run_request(),
+    ...     derived.run_request(),
     ... ) is None
     True
     """

@@ -422,8 +422,8 @@ struct Row {
  * z1)`). */
 inline Row row(const Tables& tables, Anchor& anchor, const double z0, const double z1) {
   Row out;
-  // A z table's positions, loaded together as `_weight_rows` loads them: the anchor
-  // for `Phi`, then the stage.
+  // A z table's positions, loaded together in one call: the anchor for `Phi`, then
+  // the stage.
   std::size_t from_slot = 0;
   std::size_t at_slot = 0;
   if (tables.phi == Terms::table || tables.prefactor == Terms::table) {
@@ -516,10 +516,9 @@ inline void repeat(std::vector<double>& into, const std::vector<double>& values,
 }
 
 /**
- * Return a trial's arrays with every stage row at one position: the native backend's
- * `_repeated_arrays` of the bundle, value for value. The increment has one row more
- * than the stages, the step's own; the sole plasma channel's fraction is the
- * one-channel path's, zero otherwise.
+ * Return a trial's arrays with every stage row at one position, each row `stage`'s
+ * values. The increment has one row more than the stages, the step's own; the sole
+ * plasma channel's fraction is the one-channel path's, zero otherwise.
  */
 inline TrialScalars trial(const Tables& tables, const Row& stage) {
   const std::size_t stages = tables.n_stages;
@@ -548,10 +547,11 @@ inline TrialScalars trial(const Tables& tables, const Row& stage) {
  * Return a Runge-Kutta trial's arrays from its stages' positions (solprop SEP 45 phase
  * 2): `positions` holds each stage's `z + c_i dz`, then the step's end. Each stage's
  * row is `row(tables, anchor, z0, position)`, the increment's last row the whole
- * step's, as the native backend's `_trial_arrays` packs the bundles of
- * `_stage_bundles`. Beside a coupled flow (SEP 45 phase 4) the trial's section is the
- * anchor's, as the whole step's bundle reads it, and a frozen residual's weights are
- * each stage's, as `_flow_trial` stacks them.
+ * step's, the bundles solprop's reference takes together for a step
+ * (`NumpyWorkspace.stage_bundles`, `solprop.translate.stage.scalars_at`). Beside a
+ * coupled flow (SEP 45 phase 4) the trial's section is the anchor's, as the whole
+ * step's bundle reads it, and a frozen residual's weights are each stage's bundle's
+ * (`StageScalars.flow_weights`).
  */
 inline TrialScalars rows(const Tables& tables, Anchor& anchor, const double z0,
                          const std::vector<double>& positions) {
@@ -599,8 +599,8 @@ inline TrialScalars rows(const Tables& tables, Anchor& anchor, const double z0,
 
 /**
  * Return a trial's lab-frame sample's arrays: the step's with the increment of `Phi`
- * zeroed (`_resident_sample`), or, beside a coupled flow, whose section follows the
- * anchor, a stage anchored at the step's end.
+ * zeroed, or, beside a coupled flow, whose section follows the anchor, a stage anchored
+ * at the step's end.
  */
 inline TrialScalars sample(const Tables& tables, Anchor& anchor,
                            const TrialScalars& step, const double end) {
@@ -759,7 +759,7 @@ inline ExponentialWeights weights(const double* nodes, const std::size_t n,
 
 /**
  * Return an interaction-formulation (fused) trial's tables formed from its nodes:
- * solprop's `backends.numpy_ref.multistep.fused_tables` over `lagrange::basis_rows`,
+ * solprop's `fused_tables` (`numpy_ref/adams_tables.py`) over `lagrange::basis_rows`,
  * the operations in their order. The predictor's integrated weights on the `order`
  * newest nodes; the step's own corrector's on `(1, nodes[:order])`, zero past them; and
  * per scored order `k` its corrector's weights on `(1, nodes[:k])` less, from the

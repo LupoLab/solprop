@@ -203,11 +203,12 @@ The public constructor has one authoritative input route:
 RamanResponse(models=None, fraction=None, thg=True, species=None, *, tensor_terms=None)
 ```
 
-Supply exactly one nonempty tuple. `models=(...)` gives scalar behaviour and records
-each term as `scalar_only`. `tensor_terms=(RamanTensorTerm(model, contraction), ...)`
-accepts the labels `scalar_only`, `isotropic` and `rank2`. The frozen response
-normalises either route into one immutable term tuple, and `.models` is a view derived
-from it. When using `dataclasses.replace`, replace `tensor_terms` to change a model or
+Supply exactly one nonempty tuple. `models=(...)` is the shorthand for scalar-only
+terms, `tensor_terms=(RamanTensorTerm(model, "scalar_only"), ...)`, and records each
+term so. `tensor_terms=(RamanTensorTerm(model, contraction), ...)` accepts the labels
+`scalar_only`, `isotropic` and `rank2`. The frozen response normalises either into one
+immutable term tuple, and `.models` reads the terms' models from it in declaration
+order. When using `dataclasses.replace`, replace `tensor_terms` to change a model or
 its assignment.
 
 The material routes attach labels without inferring them from the oscillator class. A

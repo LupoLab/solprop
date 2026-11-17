@@ -61,7 +61,7 @@ public:
     throw std::logic_error("this state takes no boundary readings");
   }
   /** Leave the in-stage temporal collar out of the stages, or put it back, dropping
-      what was evaluated under the other setting (`_collar_changed`). */
+      what was evaluated under the other setting (`HostSession._set_collar_quiet`). */
   virtual void set_collar_quiet(bool /*quiet*/) {
     throw std::logic_error("this state cannot rest its collar");
   }

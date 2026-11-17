@@ -571,10 +571,25 @@ def _same_basis(
     """
     incident = plane.spectral_energy()
     recovery: tuple[AdmissionItem, ...] = ()
+    if plane.kind == "modal" and plane.basis.identity is None:
+        # A file records no basis identity: a plane read from one takes it from its
+        # mode set, rebuilt from source= or the file's recipe (field_plane).
+        msg = (
+            "this modal plane's basis is not known: it was read without the "
+            "simulation that wrote it, and its output records no recipe to rebuild "
+            "the mode set from, so neither an exact copy nor a declared BasisChange "
+            "can be checked against the port's basis. Read it with "
+            "field_plane(run, source=simulation)"
+        )
+        raise CouplingError(msg)
     if model.basis_change is not None:
         samples = _declared_change(plane, port, model)
         note = "declared basis change"
-    elif plane.kind == port.route and plane.basis.identity == port.basis.identity:
+    elif (
+        plane.kind == port.route
+        and plane.basis.identity is not None
+        and plane.basis.identity == port.basis.identity
+    ):
         if plane.samples.shape != port.shape:
             msg = (
                 f"the plane's shape {plane.samples.shape} is not the port's "
@@ -589,10 +604,10 @@ def _same_basis(
         note = "F^-1 B recovery at common nodes"
     else:
         msg = (
-            f"a {plane.kind} plane of basis {plane.basis.identity[:12]} is not the "
-            f"{port.route} port's basis {port.basis.identity[:12]}: a different basis "
-            "is a coupling, not a relaunch; declare a BasisChange or choose an "
-            "approximate model"
+            f"a {plane.kind} plane of basis {str(plane.basis.identity)[:12]} is not "
+            f"the {port.route} port's basis {str(port.basis.identity)[:12]}: a "
+            "different basis is a coupling, not a relaunch; declare a BasisChange or "
+            "choose an approximate model"
         )
         raise CouplingError(msg)
     launched = port.metric.spectral_energy(samples, port.grid)

@@ -17,11 +17,11 @@ import pytest
 from builders import load_reference
 from sessions.executors import entrance, low_storage, soliton, window
 from solprop.backends.events import Outcome, Terminal
-from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.dense import AdamsDense, RungeKuttaDense
 from solprop.backends.numpy_ref.engines import NumpyRungeKutta
+from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
+from solprop.backends.numpy_ref.marches.low_storage import HostLowStorageMarch
 from solprop.backends.session import Start
 from solprop.exceptions import BackendError
 from solprop.monitor import BoundaryCheck, BoundaryMonitor

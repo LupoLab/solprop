@@ -582,7 +582,7 @@ and carry their own citations.
 
 - The gas law is linear density scaling, with the error above declared and measured,
   not removed.
-- solprop requires optmat 0.9.1 or later, the floor its dependencies declare. A
+- solprop requires optmat 0.10.0 or later, the floor its dependencies declare. A
   temperature at an equation's lowest temperature, its triple point, is refused.
 - One grade and temperature per solid; N-BK7 is lossless; no OH, dopant or
   temperature absorption model.

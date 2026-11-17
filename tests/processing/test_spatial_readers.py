@@ -5,10 +5,10 @@
 """The readers that take a column for a mode refuse a spatial file by name.
 
 A radial, Cartesian, line or planar file stores fields in V m or V/m, or slab
-amplitudes, in its columns. The legacy energy, power and density readers and the plots
-drawn from them would read those columns as modal amplitudes in sqrt(W): a launch of
-3 nJ read back as 4.8e-15 J. Each refuses instead, names the spatial functional to use,
-and leaves the run's statistics and every modal file as they were.
+amplitudes, in its columns. The per-channel energy, power and density readers and the
+plots drawn from them would read those columns as modal amplitudes in sqrt(W): a launch
+of 3 nJ read back as 4.8e-15 J. Each refuses instead, names the spatial functional to
+use, and leaves the run's statistics and every modal file as they were.
 """
 
 import numpy as np
@@ -301,7 +301,7 @@ def test_a_modal_file_keeps_its_column_readers(build):
     output = build()
     metadata = output.metadata
     assert metadata is not None
-    # The general modal basis keeps refusing its two legacy metrics and the plot of
+    # The general modal basis keeps refusing its two per-channel metrics and the plot of
     # the energy, as before, and admits every other reader; the orthogonal basis
     # admits all of them.
     refused = {

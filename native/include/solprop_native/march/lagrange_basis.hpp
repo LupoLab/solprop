@@ -87,7 +87,7 @@ KOKKOS_INLINE_FUNCTION void basis_rows(const double* points, const std::size_t n
 /**
  * Write an exponential Adams trial's coefficient tables in one call.
  *
- * solprop's `solprop.backends.numpy_ref.multistep.trial_tables` over `basis_rows`,
+ * solprop's `trial_tables` (`numpy_ref/adams_tables.py`) over `basis_rows`,
  * every value formed by the same operations in the same order, so the tables are those
  * of its composition over this backend's basis, bit for bit. On the history's
  * normalised nodes `nodes`, newest first, for a step of order `order` scoring the

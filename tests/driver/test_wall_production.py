@@ -85,7 +85,7 @@ def pinned_final():
         noise=None,
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     launch = np.array(REFERENCE["launch"])
     state = np.zeros_like(problem.initial.field0)
     state[:, 0, index] = AMPLITUDE * launch

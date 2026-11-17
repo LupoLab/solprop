@@ -63,7 +63,6 @@ from solprop.translate.general import (
     node_kerr_form,
     node_kerr_tensor,
 )
-from solprop.translate.plasma_source import _BENCHMARK_GATED
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import tdse_of
 from solprop.translate.spatial import separable_values
@@ -120,7 +119,6 @@ class StageSource:
         self._prefactor = prefactor
         self._tdse_binding = tdse_binding
         self.collar_quiet = False
-        self._gated_plasma = _BENCHMARK_GATED.get()
         self._kind: GridKind = problem.grid_kind
         self._tables = SourceTables.of(problem)
         self._carrier = _harmonic_carrier(problem)
@@ -185,11 +183,6 @@ class StageSource:
     def spatial_absorber_bytes(self) -> int:  # numpydoc ignore=RT01
         """The radial collar's matrix size, which the memory ledger names."""
         return self._spatial_absorber.nbytes
-
-    @property
-    def gated_plasma(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the private gated plasma benchmark replaces the held current."""
-        return self._gated_plasma
 
     @property
     def tdse_last_evaluation(self) -> dict[str, object]:  # numpydoc ignore=RT01
@@ -277,7 +270,6 @@ class StageSource:
             geometry is not None
             and geometry.kind == "radial"
             and bool(responses.plasma_channels)
-            and not self._gated_plasma
         ):
             spectrum = self._radial_plasma_spectrum(modal_t, bundle)
         else:
@@ -363,16 +355,17 @@ class StageSource:
         not an extension of it. The synthesis is a complex
         frequency-dependent map of three Cartesian components, so it happens in the
         frequency domain and the field a response sees is the analytic signal. What
-        is shared with the legacy path is everything after the projection -- the
-        prefactor, which is the crop scale alone here, the spectral collar, the
-        in-stage absorber and the return to the interaction picture.
+        is shared with the channel node pipeline is everything after the projection
+        -- the prefactor, which is the crop scale alone here, the spectral collar,
+        the in-stage absorber and the return to the interaction picture.
 
         The quadrature alarm is not scored on this route: the general node rule has
         no embedded coarse pair, and a difference that is identically zero read as
         convergence would be wrong, as for any unpaired rule.
 
-        A guide with no responding region is short-circuited, as the legacy path
-        short-circuits a problem whose `response_order` is the accumulation alone.
+        A guide with no responding region is short-circuited, as the channel node
+        pipeline short-circuits a problem whose `response_order` is the accumulation
+        alone.
         """
         assert self._general is not None
         grids = self._problem.grids
@@ -538,7 +531,7 @@ class StageSource:
             assert rows_t is not None
             raman = self._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
             envelope = responses.envelope_plasma is not None
-            plasma = bool(responses.plasma_channels) and not self._gated_plasma
+            plasma = bool(responses.plasma_channels)
             projected = np.zeros_like(rows_t)
             # The envelope plasma's Drude drive and loss current, projected as the
             # polarisation is; empty unless the response is present.
@@ -655,7 +648,7 @@ class StageSource:
                 None if coarse is None else np.zeros_like(coarse),
                 None if coarse is None else np.zeros_like(coarse),
             )
-            if bool(responses.plasma_channels) and not self._gated_plasma
+            if bool(responses.plasma_channels)
             else None
         )
         for first in range(0, transform.n_nodes, self._node_chunk):
@@ -745,17 +738,17 @@ class StageSource:
         bundle: StageScalars,
         raman: np.ndarray | None,
     ) -> NonlinearSources:
-        """Evaluate one column; the historical integral is benchmark-only.
+        """Evaluate one column's collared polarisation and ungated current.
 
         - ``field_t``: physical node fields in V/m, with time last.
         - ``raman``: damped Raman convolution spectrum, when required by the response.
         - Returns: the collared local polarisation in C/m² and the ungated current in
           A/m².
         """
-        responses, grids = self._problem.responses, self._problem.grids
-        sources = nonlinear_sources(
+        grids = self._problem.grids
+        return nonlinear_sources(
             field_t,
-            responses,
+            self._problem.responses,
             self._tables.t_window,
             kind=self._kind,
             density=bundle.density,
@@ -764,14 +757,6 @@ class StageSource:
             carrier=self._carrier,
             raman_spectrum=raman,
             scalars=bundle,
-        )
-        if not self._gated_plasma or sources.current is None:
-            return sources
-        return NonlinearSources(
-            sources.polarisation
-            + self._tables.t_window
-            * responses.plasma_integral.integrate(sources.current, grids.dt_fine),
-            None,
         )
 
     def _held_streams(self, gated: np.ndarray, edge: np.ndarray) -> np.ndarray:

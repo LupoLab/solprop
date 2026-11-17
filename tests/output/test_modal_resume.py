@@ -143,7 +143,7 @@ def written(guide, grid, tmp_path_factory):
 def test_the_record_carries_every_modal_identity(written, guide):
     """Labels, tables, metric, responses, guide, frame, band, noise and accessors."""
     stored = resume(written).metadata
-    assert stored.schema_version == SCHEMA_VERSION == 3
+    assert stored.schema_version == SCHEMA_VERSION == 4
     modal = stored.modal
     assert modal is not None
     assert set(modal) == {
@@ -278,7 +278,7 @@ def test_the_printed_block_prints_every_modal_identity_field_with_its_value(writ
         assert value in block, (line, value)
     # The long `model_id` itself is on the record, and not in the printed row.
     assert str(at(modal, "tables", "model_id")) not in block
-    assert "schema 3" in block
+    assert "schema 4" in block
     # Twelve rows for thirteen fields: the basis row carries `n_components` too.
     printed = {key for key, _ in stored._describe()[1]}
     assert len(printed & MODAL_ROWS) == len(MODAL_ROWS)
@@ -319,7 +319,7 @@ def test_the_printed_block_survives_a_record_it_cannot_read(
     assert expected in str(dataclasses.replace(stored, modal=modal))
 
 
-# --------------------------------------------- the accessor list is not in the key
+# ------------------------------------------------- the accessor list is in the key
 
 
 def _written_with(path, metadata):
@@ -344,15 +344,12 @@ def _with_accessors(metadata, names):
     )
 
 
-def test_the_published_accessor_list_is_recorded_but_not_hashed(written):
-    """What this build can compute is not what this run computed.
+def test_the_published_accessor_list_is_recorded_and_hashed(written):
+    """The accessors a basis admits are part of the record the resume key covers.
 
-    `modal.accessors` is the one entry of the record that describes the
-    **package version** rather than the run: every other entry answers "what was
-    propagated". Leaving it in the resume key would mean that every accessor
-    solprop ever gains invalidates every general modal file ever written -- for a
-    capability those files gain, not one they lose. It is therefore kept in the
-    record, where a reader wants it, and taken out of the key.
+    The whole general modal identity is hashed, its accessor list included: a record
+    whose list differs, shorter or longer, has another configuration hash, and the
+    difference is named by the list.
     """
     stored = resume(written).metadata
     assert stored.modal is not None
@@ -362,61 +359,37 @@ def test_the_published_accessor_list_is_recorded_but_not_hashed(written):
     assert "spectral_flux" in published
     assert "plane_nodes" in published
     assert "reconstructed_flux" in published
-    assert "accessors" not in at(stored.hashed(), "modal")
-    assert set(at(stored.hashed(), "modal")) == set(stored.modal) - {"accessors"}
-    # And a record carrying the eleven-name list of before `spectral_flux`,
-    # `plane_nodes` and `reconstructed_flux` (the reconstructed trace's own name,
-    # beside the `analytic_flux` statistic) existed hashes identically, so such a
-    # file resumes into this build.
-    before = _with_accessors(
-        stored,
-        [
-            one
-            for one in published
-            if one not in {"spectral_flux", "plane_nodes", "reconstructed_flux"}
-        ],
-    )
-    assert len(at(before.modal, "accessors")) == 11
-    assert before.configuration_hash() == stored.configuration_hash()
-    assert not before.differences(stored)
+    assert at(stored.hashed(), "modal", "accessors") == published
+    assert set(at(stored.hashed(), "modal")) == set(stored.modal)
+    shorter = _with_accessors(stored, published[:-1])
+    assert shorter.configuration_hash() != stored.configuration_hash()
+    assert shorter.differences(stored) == ("modal.accessors[length]",)
 
 
-def test_an_older_accessor_list_resumes_and_a_lost_accessor_is_refused(
-    written, tmp_path
-):
-    """The subset rule, both ways.
+def test_a_file_with_another_accessor_list_is_refused(written, tmp_path):
+    """A file whose accessor list differs from the run's is refused as a mismatch.
 
-    A file whose list is **shorter** than this build's names only capabilities
-    this build still has, so it resumes. A file naming one this build does
-    **not** have is a genuine capability regression -- the run it describes could
-    ask for a statistic nothing here can compute -- and is refused by the missing
-    name, which the generic hash difference could never say, because the list is
-    not in the key at all.
+    Shorter, longer or absent, the list is compared as every other hashed entry is,
+    and the refusal names it.
     """
     metadata = resume(written).metadata
-    published = at(metadata.modal, "accessors")
-    shorter = _written_with(
-        tmp_path / "shorter.h5",
-        _with_accessors(metadata, [one for one in published if one != "spectral_flux"]),
-    )
-    assert check_cache(shorter, metadata) is True
-    longer = _written_with(
-        tmp_path / "longer.h5",
-        _with_accessors(metadata, [*published, "an_accessor_this_build_lost"]),
-    )
-    with pytest.raises(OutputError, match="an_accessor_this_build_lost"):
-        check_cache(longer, metadata)
-    # And a record with **no** accessor entry at all resumes: there is nothing to
-    # compare, and the key never held it, so its digest is unchanged.
     assert metadata.modal is not None
+    published = at(metadata.modal, "accessors")
+    assert check_cache(_written_with(tmp_path / "same.h5", metadata), metadata) is True
     bare = dataclasses.replace(
         metadata,
         modal={
             key: value for key, value in metadata.modal.items() if key != "accessors"
         },
     )
-    assert bare.configuration_hash() == metadata.configuration_hash()
-    assert check_cache(_written_with(tmp_path / "none.h5", bare), metadata) is True
+    for name, record in (
+        ("shorter", _with_accessors(metadata, published[:-1])),
+        ("longer", _with_accessors(metadata, [*published, "another_accessor"])),
+        ("none", bare),
+    ):
+        path = _written_with(tmp_path / f"{name}.h5", record)
+        with pytest.raises(OutputError, match=r"cannot be resumed.*modal\.accessors"):
+            check_cache(path, metadata)
 
 
 def test_the_resume_key_carries_each_mode_record_s_channel_label():
@@ -645,7 +618,7 @@ def test_a_scan_point_writes_its_spool_and_reads_the_identity_back(
     results = capture.results()
     assert float(results["reduced/spooled_flux"]) > 0.0
     stored = resume(capture.custom_path).metadata
-    assert stored.schema_version == SCHEMA_VERSION == 3
+    assert stored.schema_version == SCHEMA_VERSION == 4
     assert stored.modal is not None
     assert at(stored.modal, "basis") == "general_modal"
     assert [one.label for one in stored.modes] != [None]

@@ -444,7 +444,7 @@ def test_the_planar_route_evaluates_the_reference_at_a_node(
     response = DispersiveKerrResponse(ARGON, evaluator, thg=thg)
     simulation = planar_simulation(response)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     calls = caught(monkeypatch, source, "nonlinear_sources")
     stage_derivative(problem, run_request, simulation.grid)
     args, kwargs, result = calls[0]
@@ -477,7 +477,7 @@ def test_without_dispersion_the_planar_derivative_is_the_constant_one(thg):
         simulation = planar_simulation(response)
         launch = simulation._field0 * sub_octave(simulation.grid)
         problem = simulation.with_input(launch).translate()
-        run_request = simulation.with_input(launch)._run_request()
+        run_request = simulation.with_input(launch).run_request()
         derivatives.append(stage_derivative(problem, run_request, simulation.grid))
     assert_same_derivative(*derivatives)
 

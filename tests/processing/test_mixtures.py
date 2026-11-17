@@ -201,7 +201,7 @@ def test_saved_record_contains_ordered_species_and_complete_optics(case, outputs
     simulation, _ = case
     memory, reloaded = outputs
     for output in (memory, reloaded):
-        assert output.metadata.schema_version == 3
+        assert output.metadata.schema_version == 4
         material = output.metadata.configuration["medium"]
         assert material["labels"] == ["population-0", "population-1"]
         assert (
@@ -226,7 +226,7 @@ def test_missing_statistics_and_unknown_labels_are_explicit(outputs):
         processing.absorbed_spectral_energy(output, species="misspelled")
 
 
-def test_legacy_record_remains_readable_without_mixture_accessors():
+def test_a_single_gas_record_stays_readable_without_mixture_accessors():
     output = example_output()
     for function in (
         processing.absorbed_spectral_energy,
@@ -483,7 +483,7 @@ def test_the_recorded_power_weight_is_factored_and_survives_the_file(tmp_path):
             noise=None,
         )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     record = simulation.metadata().configuration["mixture_processing"]
     assert isinstance(record, dict)
     terms, basis = record["power_weight_terms"], record["power_weight_basis"]

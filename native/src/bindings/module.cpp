@@ -185,7 +185,7 @@ nb::object snapshot_to(std::optional<native::Run::Snapshot> snapshot) {
   }
   const std::size_t n = snapshot->field.size();
   return nb::make_tuple(
-      march_state_to(snapshot->state),
+      native::records::write_record(snapshot->state),
       owned_complex(std::make_unique<ComplexStorage>(std::move(snapshot->field)), {n}),
       held);
 }
@@ -335,7 +335,7 @@ public:
     }
     if (!state)
       return nb::none();
-    nb::dict out = march_state_to(state->first);
+    nb::dict out = native::records::write_record(state->first);
     out["orders"] = state->second;
     return out;
   }

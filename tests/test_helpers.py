@@ -20,7 +20,6 @@ import pytest
 from bounds import EPS, assert_within, gamma
 from native_lagrange import native_basis, native_tables
 from solprop._helpers import PLAIN, Helpers
-from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.adams_tables import trial_tables
 from solprop.exceptions import BackendError
 from solprop.stepper.multistep import integrated_weights, lagrange_coefficients
@@ -136,10 +135,11 @@ def records() -> list[Helpers]:
 # ------------------------------------------------------------------ ownership
 
 
-def test_each_backend_names_its_own_record():
-    assert NumpyRefBackend.helpers is PLAIN
-    if NativeBackend is not None:
-        assert NativeBackend.helpers is NATIVE
+def test_native_names_its_own_record():
+    # The reference passes PLAIN where it evaluates; native carries its own record.
+    if NativeBackend is None:
+        pytest.skip("solprop-native is not installed")
+    assert NativeBackend.helpers is NATIVE
 
 
 def test_a_caller_outside_a_backend_compiles_nothing(monkeypatch):
@@ -150,7 +150,6 @@ def test_a_caller_outside_a_backend_compiles_nothing(monkeypatch):
 
     for record in records():
         monkeypatch.setitem(record.__dict__, "points", refuse)
-    assert NumpyRefBackend.helpers is PLAIN
     assert integrated_weights([1.0, 0.0]).tolist() == [0.5, 0.5]
     assert lagrange_coefficients([1.0, 0.0]).shape == (2, 2)
     table = build(np.sin, 0.0, 1.0, tol=1e-8)

@@ -209,7 +209,7 @@ class StepStats:
         The history counts rejected attempts too, so this is not ``row * period``.
     values : collections.abc.Mapping
         The statistics, keyed by catalogue name, each with a leading row axis and then
-        the statistic's own shape, with no batch axis: ``(n_rows, *shape)``.
+        the statistic's own shape: ``(n_rows, *shape)``.
 
     Raises
     ------
@@ -341,8 +341,8 @@ class Observation:
         Position of the plane, m.
     field : numpy.ndarray or None
         The state, complex128, shape ``(n_modes, n_pol, n_omega)``, in the square root
-        of watts; ``None`` for an observation that asked for no field
-        (``observe(field=False)``, SEP 22 section 5.1).
+        of watts; ``None`` for a field-free observation, one that drained the step
+        attempts without reading the state (SEP 22 section 5.1).
     noise_phase : numpy.ndarray or None
         ``Im Phi(omega, z)`` in radians, same shape, when a noise model is active and
         the field is observed, so that processing can restore the shot-noise
@@ -434,7 +434,7 @@ class Observation:
         Raises
         ------
         BackendError
-            If the observation carries no field (``observe(field=False)``).
+            If the observation is field-free.
 
         Examples
         --------
@@ -448,8 +448,8 @@ class Observation:
         """
         if self.field is None:
             msg = (
-                f"the observation at z = {self.z!r} m carries no field: it was made "
-                "with observe(field=False)"
+                f"the observation at z = {self.z!r} m carries no field: it drained the "
+                "step attempts alone, without reading the state"
             )
             raise BackendError(msg)
         return self.field
@@ -611,9 +611,6 @@ class Backend(Protocol):
     ----------
     name : str
         The registry name, for example ``"numpy_ref"``.
-    reads_transverse_edge : bool
-        Whether it reads a free-space run's transverse edge (SEP 40 section 5.3), which
-        a run with a requested real-space collar needs.
 
     Examples
     --------
@@ -621,14 +618,11 @@ class Backend(Protocol):
     >>> names = [name for name in sorted(dir(Backend)) if not name.startswith("_")]
     >>> names[:4]
     ['available_device_memory', 'close', 'closed', 'edge_memory']
-    >>> names[4:8]
-    ['march_export_refusal', 'memory_ledger', 'metadata', 'prepare']
-    >>> names[8:]
-    ['request', 'timing_probe']
+    >>> names[4:]
+    ['memory_ledger', 'metadata', 'prepare', 'request', 'timing_probe']
     """
 
     name: str
-    reads_transverse_edge: bool
 
     @property
     def request(self) -> "RunRequest":  # numpydoc ignore=RT01
@@ -677,16 +671,6 @@ class Backend(Protocol):
             JSON-serialisable scalars keyed by name. ``backend`` and
             ``propagator_mode`` are always present; pools, plan flags and wisdom
             digests are a backend's own.
-        """
-        ...
-
-    def march_export_refusal(self) -> str | None:
-        """Return why this backend's Adams march cannot carry its history, or ``None``.
-
-        Returns
-        -------
-        str or None
-            The reason, or ``None`` when it can or when the march keeps none.
         """
         ...
 

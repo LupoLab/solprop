@@ -197,22 +197,3 @@ def test_a_requested_collar_runs_as_on_numpy_ref(
     assert math.isclose(
         second["current"], first["current"], rel_tol=1e-8, abs_tol=FLOOR
     )
-
-
-def test_a_backend_that_does_not_read_the_edge_runs_unwatched(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Section 6: a backend that does not read the edge (none of solprop's own);
-    # numpy_ref with its reading switched off stands in for one. The run warns
-    # before its first step, is not stopped by the packet on the wrap, and records
-    # that it was unwatched.
-    from solprop.backends.numpy_ref import NumpyRefBackend  # noqa: PLC0415
-
-    monkeypatch.setattr(NumpyRefBackend, "reads_transverse_edge", False)
-    simulation = on(packet_run(REREVIEW, integrator=Multistep()), "numpy_ref")
-    with pytest.warns(BoundaryWarning, match="does not read the transverse edge"):
-        output = simulation.run(progress="none")
-    assert isinstance(output, PlaneStore)
-    record = edge_record(output)
-    assert record["transverse_status"] == "unwatched"
-    assert record["reads"] == 0

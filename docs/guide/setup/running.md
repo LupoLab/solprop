@@ -473,6 +473,14 @@ memory = simulation.run()             # into memory
 simulation.run("run.h5")              # and again, into a file, without translating twice
 ```
 
+Translation builds a run request beside the problem: the method, the error control, the
+planes and the statistics a fresh run takes.
+{py:meth}`~solprop.driver.simulation.Simulation.run_request` returns it, translating
+once just as `translate()` does. Those two are what the run-layer functions take when you
+drive the loop over save planes yourself, for example
+`solprop.backends.registry.select(name, problem, request)` to construct a backend for
+{py:func}`~solprop.driver.run.run_problem`.
+
 {py:class}`~solprop.driver.settings.SimulationSettings` holds everything numerical:
 the controller and its tolerances, the save planes, the step limits, a fixed schedule,
 the tableau, the absorber and how it is applied, the transverse quadrature, the
@@ -562,8 +570,8 @@ Each run derives its input with
 configuration hash and handler: `output=` takes a handler or a path, and `None` gives a
 new {py:class}`~solprop.output.memory.MemoryOutput`. Loading an input restores everything
 a march reads — the state, the controller, a dense observation's look-ahead, the
-quadrature alarm, an Adams march's history and call ledger
-(`StepDriver.set_initial`) — so a run on the reused
+quadrature alarm, an Adams march's history and call ledger, as the run's session loads
+its start — so a run on the reused
 backend repeats a fresh backend's run, to the rounding that separates any two runs.
 
 The runner checks that each input's problem is the one its backend was built for, but

@@ -13,7 +13,7 @@ RunSession` with whatever probes the implementation can offer. Every executor an
 the same tests.
 
 - ``reference`` is the NumPy reference, in its own session
-  (:class:`~solprop.backends.host.session.HostSession`, SEP 47 phase 2).
+  (:class:`~solprop.backends.numpy_ref.session.HostSession`, SEP 47 phase 2).
 - ``native-session`` is the native execution session
   (:class:`solprop_native.session.NativeSession`), the only native executor since SEP
   47 phase 5: the native backend owns the run, its boundary monitor included, whose
@@ -58,7 +58,7 @@ from solprop.backends.events import (
     join_attempts,
 )
 from solprop.backends.export import ExportRecipe
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.registry import select
 from solprop.backends.session import (
@@ -654,7 +654,7 @@ def coupled_flow(
                 "solprop.translate.coupled.eigenbasis_limit", lambda n_modes: 0.0
             ):
                 backend._HOST_FLOWS[problem] = backend._decomposed_flow(problem)
-    request = simulation._run_request().for_run(stats=StatsSpec())
+    request = simulation.run_request().for_run(stats=StatsSpec())
     context = {
         "grid": simulation.grid,
         "modes": simulation.modes,
@@ -696,7 +696,7 @@ def edged(
         noise=noise,
     )
     problem = simulation.translate()
-    request = simulation._run_request().for_run(
+    request = simulation.run_request().for_run(
         stats=StatsSpec(), monitor=simulation._boundary_monitor()
     )
     return problem, request, {"grid": simulation.grid, "modes": simulation.modes}
@@ -1043,7 +1043,7 @@ class Run:
         Returns
         -------
         tuple
-            The attempts and the rows, without a batch axis.
+            The attempts and the rows.
         """
         return join_attempts(self.chunks)
 

@@ -37,9 +37,9 @@ NativeBackend = native.NativeBackend
 def clenshaw_bound(table, z):
     """Return a value's rounding budget per element: ``8 n^2 eps sum_i |c_i|``.
 
-    The budget ``tests/backends/test_host_tables.py`` derives for one evaluation of
-    the recursion (at most eight real operations per complex coefficient and step,
-    each step's error carried by the remaining ones), here per element of the interval
+    The budget of one evaluation of the recursion (at most eight real operations per
+    complex coefficient and step, each step's error carried by the remaining ones),
+    here per element of the interval
     `z` lies in, for each of the two evaluations compared.
     """
     index = table.interval_containing(z)

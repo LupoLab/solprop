@@ -59,8 +59,6 @@ constexpr std::uint64_t temporal_intensity = statistics_peak_intensity;
 constexpr std::uint64_t temporal_quadrature = statistics_quadrature_error;
 constexpr std::uint64_t temporal_populations = statistics_populations;
 constexpr std::uint64_t temporal_integration = statistics_plasma_integration;
-/** The parts of the plasma integration diagnostics, packed last. */
-constexpr std::size_t integration_parts = 6;
 
 // `GeneralState::aperture_statistics`' flags (far_field.hpp), packed in this order.
 constexpr std::uint64_t far_beam = 1ULL << 5U;
@@ -282,9 +280,9 @@ void axis(GeneralState& state, const Plan& plan, const double z, const double ta
       peaks[c] = rows[2 * (node * n_channels + c) + 1];
     }
   } else {
-    // `axis_row_matrix(problem, NumpyWorkspace._on_axis_synthesis(modes))`: the matrix
-    // at the reference position times the taper at z, then the pad scale; a state with
-    // two polarisations takes the profile's magnitude.
+    // `axis_row_matrix(problem, ReferenceStatistics._on_axis_synthesis(modes, z))`: the
+    // matrix at the reference position times the taper at z, then the pad scale; a
+    // state with two polarisations takes the profile's magnitude.
     std::vector<double> scaled = plan.on_axis;
     for (double& value : scaled) {
       if (plan.taper.present())
@@ -384,15 +382,14 @@ void temporal(GeneralState& state, const Plan& plan, const double z, const doubl
     if (wanted(Stat::peak_ionisation_rate))
       flags |= temporal_rate;
   }
-  const bool rows_wanted = wanted(Stat::node_populations);
-  const bool populations = (reduce || rows_wanted) && plan.n_channels > 0;
+  const bool populations = reduce && plan.n_channels > 0;
   const bool axis_wanted =
       wanted.any({Stat::on_axis_electron_density, Stat::on_axis_peak_ionisation_rate,
                   Stat::on_axis_species_electron_density,
                   Stat::on_axis_species_peak_ionisation_rate});
   if (populations)
     flags |= temporal_populations;
-  if (flags == 0 && !reduce && !rows_wanted && !axis_wanted)
+  if (flags == 0 && !reduce && !axis_wanted)
     return;
   std::vector<double> packed;
   if (flags != 0) {
@@ -403,8 +400,8 @@ void temporal(GeneralState& state, const Plan& plan, const double z, const doubl
         (flags & weighted) != 0U ? power_weight(plan, z) : std::vector<double>{};
     std::vector<double> on_axis;
     if ((flags & temporal_intensity) != 0U) {
-      // `NumpyWorkspace._on_axis_synthesis`: the matrix at the reference position times
-      // the taper at z.
+      // `ReferenceStatistics._on_axis_synthesis`: the matrix at the reference position
+      // times the taper at z.
       on_axis = plan.on_axis;
       if (plan.taper.present())
         for (double& value : on_axis)
@@ -457,7 +454,7 @@ void temporal(GeneralState& state, const Plan& plan, const double z, const doubl
     rows = cursor.take(2 * plan.n_nodes * plan.n_channels);
   if ((flags & temporal_integration) != 0U) {
     // `plasma_integration_statistics`: each ratio zero where its denominator is.
-    const auto parts = cursor.take(integration_parts);
+    const auto parts = cursor.take(plasma_diagnostic_parts);
     const auto ratio = [](const double top, const double bottom) {
       return bottom > 0.0 ? top / bottom : 0.0;
     };
@@ -466,8 +463,6 @@ void temporal(GeneralState& state, const Plan& plan, const double z, const doubl
     put(results, Stat::plasma_boundary_level, {ratio(parts[4], parts[5])});
   }
   cursor.finish();
-  if (rows_wanted)
-    put(results, Stat::node_populations, rows);
   if (reduce)
     species(plan, z, taper, rows, wanted, results);
   if (axis_wanted)
@@ -549,7 +544,7 @@ void spatial(GeneralState& state, const Plan& plan, const double z,
 }
 
 /** A general modal basis's statistics: the temporal ones of the whitened columns
-    `c = W^(1/2) a` (`solprop.stats._whitened`). */
+    `c = W^(1/2) a` (`solprop.stats.definitions._whitened`). */
 void general(GeneralState& state, const Plan& plan, const double z,
              const Wanted& wanted, Results& results) {
   std::uint64_t flags = 0;
@@ -808,8 +803,6 @@ std::size_t Plan::width(const Stat stat) const {
   case Stat::aperture_spectrum:
   case Stat::aperture_on_axis_spectrum:
     return n_apertures * n_omega;
-  case Stat::node_populations:
-    return 2 * n_nodes * n_channels;
   case Stat::beam_radius:
     return 2;
   default:

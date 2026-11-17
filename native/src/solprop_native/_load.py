@@ -20,9 +20,7 @@ the problem and the request alone:
   quiet-collar rule is solprop's (:func:`solprop.backends.records.collar_rests`).
 
 Each is the reference's arithmetic
-(``solprop.backends.numpy_ref.workspace.NumpyWorkspace``), operation for operation,
-as the step driver the native backend inherited until SEP 47 phase 5 had it; its runs
-are bitwise those of that driver.
+(``solprop.backends.numpy_ref.workspace.NumpyWorkspace``), operation for operation.
 """
 
 from __future__ import annotations
@@ -38,12 +36,9 @@ from solprop.exceptions import BackendError
 from solprop.noise import NoiseRealisation
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import replay_tolerance
+from solprop.stepper.settings import PropagatorMode, StepperSettings
 from solprop.translate.masks import noise_spectrum
-from solprop.translate.problem import (
-    PropagationProblem,
-    PropagatorMode,
-    StepperSettings,
-)
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import transverse_of
 from solprop.translate.stage import (
     StageScalars,

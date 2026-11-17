@@ -29,6 +29,11 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 from session_runs import run as run_session
+from solprop.backends.exponential import (
+    FLOW_MAX_SQUARINGS,
+    FLOW_TAYLOR_ORDER,
+    FLOW_TAYLOR_SCALE,
+)
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.coupled_flow import flow_action, held_flow
 from solprop.backends.session import Start
@@ -49,6 +54,7 @@ from solprop_native._lowering import (
     _lower_flow,  # pyright: ignore[reportPrivateUsage]
 )
 from solprop_native.backend import (
+    _flow_guard,  # pyright: ignore[reportPrivateUsage]
     _host_flow,  # pyright: ignore[reportPrivateUsage]
 )
 
@@ -266,7 +272,7 @@ def _parity_bound(
 def test_ten_steps_of_the_flow_are_the_reference_within_the_bound(name: str) -> None:
     case = CASES[name]()
     problem = case.translate()
-    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
+    run_request = case.run_request()
     grid = cast(FieldGrid, case.grid)
     expected = run(NumpyRefBackend, problem, run_request, grid)
     actual = run(NativeBackend, problem, run_request, grid)
@@ -283,7 +289,7 @@ def test_a_step_beyond_the_certificate_is_refused_by_name() -> None:
     # default exponential formulation acts forward only and does not measure it.
     case = CASES["scalar_wall"]()
     problem = case.translate()
-    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
+    run_request = case.run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     shrunk = dataclasses.replace(
@@ -304,7 +310,7 @@ def test_a_step_beyond_the_certificate_is_refused_by_name() -> None:
 def test_the_flow_ledger_counts_its_views() -> None:
     case = CASES["taper_gradient"]()
     problem = case.translate()
-    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
+    run_request = case.run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert flow.generator is not None
@@ -332,7 +338,7 @@ def test_the_engine_forms_the_reference_s_actions_within_the_formation_bound() -
     """
     case = CASES["taper_gradient"]()
     problem = case.translate()
-    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
+    run_request = case.run_request()
     reference = held_flow(problem)
     assert reference is not None
     dz = LENGTH / STEPS
@@ -366,6 +372,29 @@ def test_the_engine_forms_the_reference_s_actions_within_the_formation_bound() -
             )
     finally:
         backend.close()
+
+
+def test_the_flow_s_series_constants_are_solprop_s() -> None:
+    """The guard carries solprop's scale and cap; the kernels compile solprop's in.
+
+    The workspace's guard reads the Taylor scale and the squaring cap from the record
+    the adapter fills; the kernels no guard reaches (the action's series and the Adams
+    march's augmented exponentials) compile them in, with the series degree. All three
+    are solprop's, exactly: a structural contract.
+    """
+    flow = _host_flow(CASES["scalar_wall"]().translate())
+    guard = _flow_guard(flow)
+    assert guard is not None
+    assert (guard["taylor_scale"], guard["max_squarings"]) == (
+        FLOW_TAYLOR_SCALE,
+        FLOW_MAX_SQUARINGS,
+    )
+    compiled = (
+        _testing.flow_taylor_order,
+        _testing.flow_taylor_scale,
+        _testing.flow_max_squarings,
+    )
+    assert compiled == (FLOW_TAYLOR_ORDER, FLOW_TAYLOR_SCALE, FLOW_MAX_SQUARINGS)
 
 
 def test_the_residual_s_data_are_zero_exactly_outside_the_requested_band() -> None:

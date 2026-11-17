@@ -185,7 +185,7 @@ def test_m2_problem_keeps_every_recorded_array(ndarrays_regression):
     with warnings.catch_warnings(record=True) as diagnostics:
         warnings.simplefilter("always", MaterialRangeWarning)
         problem = simulation.translate()
-        request = simulation._run_request()
+        request = simulation.run_request()
     # This witness intentionally uses Luna's broad helium band. Preserve and assert
     # that existing diagnostic instead of changing its source model or spectral span.
     assert diagnostics

@@ -15,8 +15,8 @@
 // live window), `team_trapezoid_prefix` and `team_trapezoid_window` (a row's prefix),
 // and the tile pieces (`team_band_tile`, `team_trapezoid_total`, `team_tile_offset`).
 //
-// Launchers: `portable_team_trapezoid_scan`, `portable_team_band_scan`, and the tiled
-// device column, `portable_tiled_band_scan` and `portable_tiled_trapezoid_scan`.
+// Launchers: `portable_team_trapezoid_scan`, and the tiled device column,
+// `portable_tiled_band_scan` and `portable_tiled_trapezoid_scan`.
 
 #include "solprop_native/problem/problem.hpp"
 #include "solprop_native/runtime/dispatch.hpp"
@@ -859,70 +859,6 @@ void portable_tiled_trapezoid_scan(const ExecutionSpace& execution_space,
             [&](const int sample, const double prefix) {
               prefixes(row, static_cast<std::size_t>(sample)) = prefix;
             });
-      });
-}
-
-/**
- * Band-filter each row of `values` into `filtered` and scan it into `prefixes`.
- *
- * One team per pair of rows, as the device column treats a node's two components: each
- * row `team_band_filter`, then `team_trapezoid_prefix`, in turn, through one tile. The
- * native tests run it on the host to hold the device building blocks to a serial
- * reference, staged and direct, over team sizes. `team_size` 0 is the build's: the
- * device team width, or Kokkos' choice.
- */
-template <bool Staged = band_staging, class ExecutionSpace, class InputView,
-          class FilteredView, class OutputView, class TapsView>
-void portable_team_band_scan(const ExecutionSpace& execution_space,
-                             const InputView& values, const FilteredView& filtered,
-                             const OutputView& prefixes, const TapsView& taps,
-                             const double spacing, const int team_size = 0) {
-  const auto rows = values.extent(0);
-  const auto samples = values.extent(1);
-  if (filtered.extent(0) != rows || filtered.extent(1) != samples ||
-      prefixes.extent(0) != rows || prefixes.extent(1) != samples)
-    throw std::invalid_argument("plasma band-scan view extents are inconsistent");
-  if (taps.extent(0) == 0 || taps.extent(0) > plasma_max_taps)
-    throw std::invalid_argument("plasma band-scan taps must number one to nine");
-  if (!(spacing > 0.0))
-    throw std::invalid_argument("plasma band-scan spacing must be positive");
-  const auto half = static_cast<int>(taps.extent(0) - 1);
-  if (rows > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
-      samples > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
-      samples <= static_cast<std::size_t>(half))
-    throw std::length_error("plasma band-scan rows need more than K samples");
-  using TeamPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
-  using TeamMember = TeamPolicy::member_type;
-  const auto team_samples = static_cast<int>(samples);
-  const auto pairs = static_cast<int>((rows + 1) / 2);
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  TeamPolicy policy(execution_space, pairs,
-                    team_size > 0 ? team_size : SOLPROP_NATIVE_DEVICE_TEAM_SIZE);
-#else
-  TeamPolicy policy = team_size > 0
-                          ? TeamPolicy(execution_space, pairs, team_size)
-                          : TeamPolicy(execution_space, pairs, Kokkos::AUTO());
-#endif
-  if constexpr (Staged)
-    policy.set_scratch_size(
-        0, Kokkos::PerTeam(band_staging_bytes<Staged, ExecutionSpace>()));
-  launch::parallel_for(
-      "solprop_native.plasma.portable_team_band_scan", policy,
-      KOKKOS_LAMBDA(const TeamMember& team) {
-        const auto first_row = 2 * static_cast<std::size_t>(team.league_rank());
-        double local[plasma_max_taps] = {};
-        for (int k = 0; k <= half; ++k)
-          local[k] = taps(static_cast<std::size_t>(k));
-        const auto tile = band_tile<Staged>(team);
-        for (auto row = first_row; row < first_row + 2 && row < rows; ++row) {
-          team_band_filter<Staged>(team, tile, values, row, filtered, row, team_samples,
-                                   local, half);
-          team_trapezoid_prefix(team, filtered, row, team_samples, spacing,
-                                [&](const int sample, const double prefix) {
-                                  prefixes(row, static_cast<std::size_t>(sample)) =
-                                      prefix;
-                                });
-        }
       });
 }
 

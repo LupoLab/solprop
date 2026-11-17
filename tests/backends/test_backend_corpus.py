@@ -132,7 +132,7 @@ def _budget(case: Case, simulation: Simulation, steps: int | None = None) -> flo
     entry = _corpus()[1]["cases"][case.name]
     return CROSS_BUILD * march_bound(
         simulation.translate(),
-        simulation._run_request(),
+        simulation.run_request(),
         steps,
         phi=max(float(entry["phi"]), 0.1),
         kappa=float(entry["kappa"]),

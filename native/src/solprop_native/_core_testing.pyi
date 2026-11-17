@@ -232,9 +232,6 @@ def aperture_statistics(
     regions: npt.NDArray[np.float64],
     intensity_factor: float,
 ) -> npt.NDArray[np.float64]: ...
-def axis_spectrum(
-    workspace: Workspace, matrix: npt.NDArray[np.float64]
-) -> npt.NDArray[np.complex128]: ...
 def basis_rows(
     points: npt.NDArray[np.float64],
     upper: float,
@@ -269,6 +266,13 @@ def finish(workspace: Workspace, dz: float) -> None: ...
 def flow_actions_to_host(
     workspace: Workspace, inverse: bool
 ) -> npt.NDArray[np.complex128]: ...
+
+flow_max_squarings: int = 30
+
+flow_taylor_order: int = 16
+
+flow_taylor_scale: float = 0.5
+
 def fluence_block_widths(
     plan: StatisticsPlan, block: npt.NDArray[np.float64]
 ) -> tuple[Any, ...]: ...

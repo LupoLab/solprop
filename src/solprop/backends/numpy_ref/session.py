@@ -13,8 +13,8 @@ crossed (through the backend's :class:`Dense`), the periodic statistics rows, th
 boundary monitor's and the transverse edge's checks with the split collar's sums, the
 quadrature alarm's report, the load of the start with its noise, the events and the
 exports. It drives the run's march directly (:class:`HostMethod`), as the march's
-:class:`~solprop.backends.host.marches.MarchHost`; the state and every state-sized
-operation are the backend's workspace's
+:class:`~solprop.backends.numpy_ref.marches.host.MarchHost`; the state and every
+state-sized operation are the backend's workspace's
 (:class:`~solprop.backends.numpy_ref.workspace.NumpyWorkspace`).
 
 **Boundary warnings are barriers.** The monitor's and the edge's warnings go into a
@@ -27,9 +27,11 @@ once, as native's session does.
 
 :class:`HostPrepared` is the prepared execution (SEP 47 section 5.2) a reference backend
 returns from ``prepare``; each of its starts opens one session. The session composes the
-parts every Python session shares (:mod:`solprop.backends.session_core`) with the
-lifecycle ledger (:class:`~solprop.backends.session.SessionLedger`). It imports nothing
-of the native backend's.
+parts of :mod:`~solprop.backends.numpy_ref.session_parts`, the lifecycle ledger
+(:class:`~solprop.backends.numpy_ref.session_parts.SessionLedger`) among them, and
+makes the preparation refusals both backends make
+(:func:`~solprop.backends.session.check_preparation`). It imports nothing of the native
+backend's.
 """
 
 from __future__ import annotations
@@ -64,10 +66,20 @@ from solprop.backends.events import (
     join_attempts,
 )
 from solprop.backends.export import ExportRecipe
-from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.host.low_storage import HostLowStorageMarch
-from solprop.backends.host.marches import MarchState, in_flight_refusal
-from solprop.backends.host.runge_kutta import RungeKuttaMarch
+from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
+from solprop.backends.numpy_ref.marches.host import MarchState, in_flight_refusal
+from solprop.backends.numpy_ref.marches.low_storage import HostLowStorageMarch
+from solprop.backends.numpy_ref.marches.runge_kutta import RungeKuttaMarch
+from solprop.backends.numpy_ref.session_parts import (
+    EMPTY_SUMMARY,
+    AttemptCounter,
+    ObservedField,
+    SessionLedger,
+    SnapshotLatch,
+    YieldDue,
+    bind,
+    merge_summaries,
+)
 from solprop.backends.protocol import (
     BackendHistory,
     Observation,
@@ -78,24 +90,14 @@ from solprop.backends.records import collar_rests, plane_plan
 from solprop.backends.session import (
     DEFAULT_DEADLINE,
     DEFAULT_WORK_LIMIT,
+    AttemptListener,
     RunSession,
     SessionError,
-    SessionLedger,
     SessionState,
     SessionStatus,
     SnapshotReceipt,
     Start,
-)
-from solprop.backends.session_core import (
-    EMPTY_SUMMARY,
-    AttemptCounter,
-    AttemptListener,
-    ObservedField,
-    SnapshotLatch,
-    YieldDue,
-    bind,
     check_preparation,
-    merge_summaries,
 )
 from solprop.exceptions import BackendError, BoundaryError, StopRequested
 from solprop.log import NOT_ESTIMATED, StopFlag
@@ -105,8 +107,9 @@ from solprop.stats import StatsSpec
 from solprop.stepper.controller import ControlRecord
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import reached, replay_tolerance
+from solprop.stepper.settings import StepperSettings
 from solprop.translate.modal import QUADRATURE_ALARM, warn_quadrature
-from solprop.translate.problem import PropagationProblem, StepperSettings
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import transverse_of
 from solprop.translate.run_request import RunRequest
 
@@ -115,14 +118,12 @@ if TYPE_CHECKING:
     # check a refused export destination's shape before the session refuses it.
     from jaxtyping import Complex
 
-    from solprop.backends.numpy_ref.workspace import NumpyWorkspace
     from solprop.backends.protocol import Backend
 
 __all__ = [
     "INITIAL_STEP_STATS_CAPACITY",
     "Dense",
     "HistoryRows",
-    "HostBackend",
     "HostMethod",
     "HostPrepared",
     "HostSession",
@@ -221,10 +222,11 @@ class HostMethod:
     Attributes
     ----------
     march : object
-        The march: a :class:`~solprop.backends.host.runge_kutta.RungeKuttaMarch`,
-        :class:`~solprop.backends.host.adams.HostAdamsMarch` or
-        :class:`~solprop.backends.host.low_storage.HostLowStorageMarch`, its session
-        the march's host.
+        The march: a
+        :class:`~solprop.backends.numpy_ref.marches.runge_kutta.RungeKuttaMarch`,
+        :class:`~solprop.backends.numpy_ref.marches.adams.HostAdamsMarch` or
+        :class:`~solprop.backends.numpy_ref.marches.low_storage.HostLowStorageMarch`,
+        its session the march's host.
     dense : Dense or None
         Its dense output when the run interpolates its planes; ``None`` otherwise.
     rows : HistoryRows or None
@@ -236,77 +238,6 @@ class HostMethod:
     rows: HistoryRows | None = None
 
 
-@runtime_checkable
-class HostBackend(Protocol):
-    """What the reference's session reads of its backend.
-
-    Attributes
-    ----------
-    name : str
-        The registry name.
-    reads_transverse_edge : bool
-        Whether a free-space run's transverse edge is read (SEP 40 section 5.3).
-    """
-
-    name: str
-    reads_transverse_edge: bool
-
-    @property
-    def request(self) -> RunRequest:  # numpydoc ignore=RT01
-        """Request the backend was built for."""
-        ...
-
-    @property
-    def workspace(self) -> NumpyWorkspace:  # numpydoc ignore=RT01
-        """Workspace that holds the state."""
-        ...
-
-    @property
-    def closed(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the backend has released its buffers."""
-        ...
-
-    def method(self, host: object) -> HostMethod:
-        """Return a fresh march, and its dense output and rows, reporting to `host`.
-
-        Parameters
-        ----------
-        host : object
-            The session, as the march's
-            :class:`~solprop.backends.host.marches.MarchHost`.
-
-        Returns
-        -------
-        HostMethod
-            The method.
-        """
-        ...
-
-    def metadata(self) -> dict[str, object]:
-        """Return the execution's facts.
-
-        Returns
-        -------
-        dict
-            The record.
-        """
-        ...
-
-    def memory_ledger(self) -> dict[str, int]:
-        """Return every retained buffer by name, bytes.
-
-        Returns
-        -------
-        dict
-            The ledger.
-        """
-        ...
-
-    def close(self) -> None:
-        """Release the buffers."""
-        ...
-
-
 def start_position(
     problem: PropagationProblem, stepper: StepperSettings, z: float
 ) -> tuple[float, int]:
@@ -316,7 +247,7 @@ def start_position(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem, whose operator table bounds the position.
-    stepper : solprop.translate.problem.StepperSettings
+    stepper : solprop.stepper.settings.StepperSettings
         The run's stepper settings, whose schedule a replay follows.
     z : float
         The requested position, m.
@@ -514,10 +445,12 @@ class HostSession:
     Parameters
     ----------
     backend : solprop.backends.protocol.Backend
-        The reference backend (a :class:`HostBackend`), constructed for `problem`. A
-        backend reused from an earlier run is loaded again from `start`; the session
-        builds its own march (:meth:`HostBackend.method`), and closes the backend with
-        itself when `owns` is set.
+        The reference backend
+        (:class:`~solprop.backends.numpy_ref.backend.NumpyRefBackend`), constructed for
+        `problem`. A backend reused from an earlier run is loaded again from `start`;
+        the session builds its own march
+        (:meth:`~solprop.backends.numpy_ref.backend.NumpyRefBackend.method`), and closes
+        the backend with itself when `owns` is set.
     problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     request : solprop.translate.run_request.RunRequest
@@ -535,11 +468,6 @@ class HostSession:
     owns : bool, optional
         Whether closing the session closes the backend. A caller that reuses its
         backend for later runs (a runner, a scan) keeps it open.
-
-    Attributes
-    ----------
-    reads_transverse_edge : bool
-        The backend's (SEP 40 section 5.3), which the service loop reads.
 
     Raises
     ------
@@ -562,7 +490,10 @@ class HostSession:
         owns: bool = True,
     ) -> None:
         """Refuse a backend that is not the reference's, and load the starting state."""
-        if not isinstance(backend, HostBackend):
+        # Here, not at module scope: the backend's module imports this one.
+        from solprop.backends.numpy_ref.backend import NumpyRefBackend  # noqa: PLC0415
+
+        if not isinstance(backend, NumpyRefBackend):
             msg = (
                 f"the reference session serves a reference backend, not "
                 f"{type(backend).__name__}"
@@ -576,7 +507,6 @@ class HostSession:
         self._request = request
         self._stepper = request.stepper
         self._name = backend.name
-        self.reads_transverse_edge = bool(backend.reads_transverse_edge)
         self._ledger = SessionLedger()
         # The run's plane plan (SEP 52 section 5.1): its planes, the first beyond the
         # start, whether the start's own plane is owed, and the step planes.
@@ -809,6 +739,18 @@ class HostSession:
         assert receipt is not None
         return ExportTicket(receipt, self._generation, self._here())
 
+    def failure_ticket(self) -> ExportTicket | None:
+        """Return a ticket for the committed state after a failure outside the session.
+
+        The reference's pending ticket already is one (:meth:`pending_ticket`).
+
+        Returns
+        -------
+        solprop.backends.events.ExportTicket or None
+            The ticket, or ``None`` when the session is closed or its state poisoned.
+        """
+        return self.pending_ticket()
+
     def request_snapshot(self) -> SnapshotReceipt:
         """Latch a snapshot for the next eligible accepted endpoint.
 
@@ -865,8 +807,7 @@ class HostSession:
         Returns
         -------
         tuple
-            The attempts and the rows (without a batch axis); empty when every attempt
-            was delivered.
+            The attempts and the rows; empty when every attempt was delivered.
         """
         self._ledger.check_ticket(ticket)
         return self._chunk()
@@ -934,16 +875,6 @@ class HostSession:
             return None
         state = math.prod(self._problem.shape) * np.dtype(np.complex128).itemsize
         return state + rows.nbytes()
-
-    def march_export_refusal(self) -> str | None:
-        """Return ``None``: every march the reference admits carries its history.
-
-        Returns
-        -------
-        None
-            The Adams history exports its rows; the other marches keep none.
-        """
-        return None
 
     @property
     def march_refusal(self) -> str | None:  # numpydoc ignore=RT01
@@ -1276,8 +1207,8 @@ class HostSession:
         z = self._march.state.z
         dense = self._method.dense
         if not self._stopped_short and dense is not None and dense.crosses(z, target):
-            # `_observe_inside` and the Adams march's observation: the state becomes
-            # the crossing step's interpolated field at the plane, the committed state
+            # The method's dense observation (`Dense.observe`): the state becomes the
+            # crossing step's interpolated field at the plane, the committed state
             # held aside, and the plane is observed there (SEP 47 section 5.3).
             dense.observe(target)
             self._observed = True
@@ -1460,7 +1391,6 @@ class HostSession:
                 noise=None if floor is None else np.asarray(floor),
                 clean_columns=workspace.clean_columns(edge),
                 steps=None if schedule is None else np.asarray(schedule.steps),
-                reads=self.reads_transverse_edge,
                 declared=_declared_discard(self._problem),
             )
             yield from self._drained()
@@ -1818,8 +1748,8 @@ class HostSession:
     def _chunk(self) -> tuple[BackendHistory, StepStats]:
         """Drain the attempts and rows since the previous event, for the next one.
 
-        - Returns: the attempts and the rows (without a batch axis), delivered by
-          exactly one event (:mod:`solprop.backends.events`).
+        - Returns: the attempts and the rows, delivered by exactly one event
+          (:mod:`solprop.backends.events`).
         """
         drained = (
             self._counted(self._drain_attempts())
@@ -1997,7 +1927,7 @@ class HostPrepared:
     ------
     solprop.backends.session.SessionError
         If the request is not one run of the backend's own
-        (:func:`~solprop.backends.session_core.foreign_request`).
+        (:func:`~solprop.backends.session.foreign_request`).
     solprop.exceptions.BackendError
         If the request asks for statistics the problem does not carry
         (:func:`~solprop.backends.session.statistics_unavailable`).

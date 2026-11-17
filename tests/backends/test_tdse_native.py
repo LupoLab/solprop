@@ -144,7 +144,7 @@ def _case(
         profiles=parent.profiles,
         frame=parent.frame,
     )
-    return simulation.translate(), simulation._run_request(), simulation.grid
+    return simulation.translate(), simulation.run_request(), simulation.grid
 
 
 class Unbudgeted(ManufacturedBinding):

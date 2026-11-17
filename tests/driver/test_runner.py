@@ -123,7 +123,7 @@ def bound(simulation: Simulation) -> float:
     problem = simulation.translate()
     return (
         STEPS
-        * step_evaluations(simulation._run_request())
+        * step_evaluations(simulation.run_request())
         * (fft_bound(problem.grids.n_to) + fft_bound(problem.transform.n_nodes))
     )
 
@@ -251,7 +251,7 @@ def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(dense):
     backend = "numpy_ref"
     simulation = _failed_runner_case(backend, dense)
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     with simulation.runner() as runner:
         with pytest.raises(RuntimeError, match="on purpose"):
             runner.run(inputs(simulation)[0], progress=_Stop())
@@ -416,10 +416,10 @@ def test_a_tdse_run_has_no_runner(monkeypatch):
 def test_a_derived_problem_is_the_constructed_one_but_for_its_input():
     simulation = capillary("numpy_ref")
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     derived = simulation.with_input(inputs(simulation)[1])
     check_derived_problem(
-        problem, derived.translate(), run_request, derived._run_request()
+        problem, derived.translate(), run_request, derived.run_request()
     )
     replaced = dataclasses.replace(problem, grids=dataclasses.replace(problem.grids))
     with pytest.raises(DriverError, match="share the runner's grids"):
@@ -454,7 +454,7 @@ def test_a_derived_problem_on_another_route_is_refused():
     # The transform is the same object, so only the route's variant, TDSE source or
     # plane measure can differ: each is the constructed problem's or refused.
     simulation = capillary("numpy_ref")
-    problem, run_request = simulation.translate(), simulation._run_request()
+    problem, run_request = simulation.translate(), simulation.run_request()
     check_derived_problem(
         problem,
         dataclasses.replace(
@@ -477,7 +477,7 @@ def test_a_derived_problem_on_another_route_is_refused():
     with pytest.raises(DriverError, match="does not share the runner's route"):
         check_derived_problem(problem, attached, run_request, run_request)
     planar = cartesian("numpy_ref")
-    spatial, spatial_request = planar.translate(), planar._run_request()
+    spatial, spatial_request = planar.translate(), planar.run_request()
     assert isinstance(spatial.route, SpatialRoute)
     remeasured = dataclasses.replace(
         spatial,
@@ -512,8 +512,8 @@ def test_with_input_validates_the_replaced_input_alone():
     check_derived_problem(
         simulation.translate(),
         derived.translate(),
-        simulation._run_request(),
-        derived._run_request(),
+        simulation.run_request(),
+        derived.run_request(),
     )
 
 
@@ -753,7 +753,7 @@ def test_with_input_refuses_a_non_finite_realisation_and_keeps_a_pulse_recipe():
     assert derived.metadata().configuration["pulse"] is pulse
     # A new launch keeps the stepper's checks: the launch precedes every plane.
     problem = single.translate()
-    run_request = single._run_request()
+    run_request = single.run_request()
     late = dataclasses.replace(
         problem,
         initial=dataclasses.replace(
@@ -763,4 +763,4 @@ def test_with_input_refuses_a_non_finite_realisation_and_keeps_a_pulse_recipe():
     with pytest.raises(TranslationError, match="follow the initial position"):
         late.validate_launch(run_request)
     replayed = cartesian("numpy_ref")
-    replayed.translate().validate_launch(replayed._run_request())  # a schedule
+    replayed.translate().validate_launch(replayed.run_request())  # a schedule

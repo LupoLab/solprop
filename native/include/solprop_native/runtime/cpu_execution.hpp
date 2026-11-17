@@ -143,7 +143,7 @@ void require_cpu_execution(const CpuExecution& execution);
 
 /** How a workspace plans its host FFTW transforms (solprop SEP 46 phase 3).
 
-    - `legacy`: the plan policy of `fftw_seed_effort`, with the process's wisdom.
+    - `policy`: the plan policy of `fftw_seed_effort`, with the process's wisdom.
     - `profile`: a machine calibration's. The workspace forgets every wisdom before it
       plans and after; a transform whose exact plan the profile holds imports that
       plan's wisdom and is seeded with `FFTW_WISDOM_ONLY` (a plan it no longer builds
@@ -157,7 +157,7 @@ void require_cpu_execution(const CpuExecution& execution);
     names its kind, sizes, strides, placement, alignment and threads
     (`fft_plan_key`). Efforts are "estimate", "measure" or "patient".
 
-    Plans runs measured before (solprop ADR-076), in the legacy and profile modes:
+    Plans runs measured before (solprop ADR-076), in the policy and profile modes:
     `stored` holds each transform's own wisdom by key, below the profile's `wisdom`,
     which is consulted first. A transform seeded above estimate that `stored` holds, or
     any when `keep` is set, is planned alone: the workspace's wisdom is set aside, the
@@ -168,8 +168,8 @@ void require_cpu_execution(const CpuExecution& execution);
     `reused`, as is one left at estimate whose stored wisdom was imported for its
     estimate plan; one that measured is kept in `measured` when `keep` is set. */
 struct FftPlanning {
-  enum class Mode { legacy, profile, capture };
-  Mode mode{Mode::legacy};
+  enum class Mode { policy, profile, capture };
+  Mode mode{Mode::policy};
   std::string rows{"measure"}, threaded_rows{"estimate"}, planes{"measure"};
   std::map<std::string, std::string> wisdom;
   std::string capture_effort{"measure"};

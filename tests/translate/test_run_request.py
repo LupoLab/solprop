@@ -21,7 +21,7 @@ from solprop.exceptions import TranslationError
 from solprop.output.store import FieldRetention
 from solprop.stats import StatsSpec
 from solprop.stepper import Multistep
-from solprop.translate.problem import StepperSettings
+from solprop.stepper.settings import StepperSettings
 from solprop.translate.run_request import HistoryPolicy, MethodKind, describe_run
 
 
@@ -96,10 +96,47 @@ def test_a_run_s_request_keeps_the_policy_it_was_prepared_with():
 
 
 def test_another_stepper_section_keeps_the_run_s_choices():
-    run_request = soliton().request.for_run(start_plane=1, snapshots=True)
+    spec = StatsSpec(names=("energy",))
+    history = HistoryPolicy.from_choice(choice=False)
+    run_request = soliton().request.for_run(stats=spec, history=history, snapshots=True)
     shorter = dataclasses.replace(run_request.stepper, dz_max=1e-3)
     changed = run_request.with_stepper(shorter)
     assert changed.error_control.dz_max == 1e-3
-    assert changed.observation.start_plane == 1
-    assert changed.observation.stats is run_request.observation.stats
+    assert changed.observation.start_plane == 0
+    assert changed.observation.stats is spec
+    assert changed.history is history
     assert changed.snapshots
+
+
+def test_another_stepper_section_brings_its_own_planes():
+    # The edge with_input meets: an interior launch leaves only the last plane.
+    run_request = soliton().request.for_run(retention=FieldRetention("all"))
+    last = float(run_request.observation.save_planes[-1])
+    changed = run_request.with_stepper(
+        dataclasses.replace(run_request.stepper, save_planes=[last])
+    )
+    assert changed.observation.save_planes.tolist() == [last]
+    assert changed.observation.retention == FieldRetention()
+
+
+@pytest.mark.parametrize(
+    ("retention", "start_plane"),
+    [
+        (FieldRetention("planes", (0, -1)).resolved(5), 0),
+        (FieldRetention("none"), 0),
+        (FieldRetention(), 1),
+    ],
+    ids=["named-planes", "no-fields", "start-plane"],
+)
+def test_another_stepper_section_refuses_a_policy_resolved_against_the_planes(
+    retention, start_plane
+):
+    """A retention or start plane names planes the new section may not have (#619)."""
+    run_request = soliton().request.for_run(
+        retention=retention, start_plane=start_plane
+    )
+    shorter = dataclasses.replace(
+        run_request.stepper, save_planes=run_request.observation.save_planes[-1:]
+    )
+    with pytest.raises(TranslationError, match="with_stepper takes a fresh request"):
+        run_request.with_stepper(shorter)

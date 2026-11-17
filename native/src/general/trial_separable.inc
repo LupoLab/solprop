@@ -304,12 +304,12 @@ void GeneralWorkspace::separable_finish_transform(const std::size_t stage,
                                    problem_.dims.n_omega, element);
 }
 
-// Free space (solprop `NumpyRefBackend._nonlinear_free`) and the hybrid planar kind
-// (`_nonlinear_slab`): the stage input to the transverse spectrum, the inverse
-// transverse transform, then chunk by chunk the temporal rows to time, the material
-// response at the physical nodes (for the planar kind, synthesised from and projected
-// back onto the rows in time) or the in-stage absorber on the rows, and back; the
-// forward transverse transform and each column's prefactor and propagator.
+// Free space (solprop's `StageSource._nonlinear_free`, numpy_ref/source.py) and the
+// hybrid planar kind (`_nonlinear_slab`): the stage input to the transverse spectrum,
+// the inverse transverse transform, then chunk by chunk the temporal rows to time, the
+// material response at the physical nodes (for the planar kind, synthesised from and
+// projected back onto the rows in time) or the in-stage absorber on the rows, and back;
+// the forward transverse transform and each column's prefactor and propagator.
 void GeneralWorkspace::evaluate_separable_stage(const std::size_t stage,
                                                 const double dz,
                                                 const bool accumulate) {
@@ -546,8 +546,6 @@ void GeneralWorkspace::separable_core(const std::size_t stage, const bool materi
         dispersive->respond(chunk.nodes);
       if (held_plasma())
         held_response(stage, chunk.first_node, chunk.nodes, &chunk);
-      if (gated_plasma())
-        gated_response(chunk.nodes);
       Kokkos::Profiling::popRegion();
       // Alone with products of its own, nothing of the stage's is projected.
       const bool stage_projects = !alone || dispersive->borrowed();

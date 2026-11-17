@@ -46,20 +46,18 @@ from coupled_flow_cases import (
     varying,
     vector_modes,
 )
-from legacy_entry_cases import (
-    legacy_capillary,
-    legacy_gnlse,
-    legacy_simulation,
+from entry_point_cases import (
+    capillary_run,
+    entry_simulation,
+    gnlse_run,
 )
 from march_bounds import FIXED_ORDER
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from sessions.runs import bare, final_field
 from solprop.backends import available
+from solprop.backends.exponential import FLOW_MAX_SQUARINGS
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.coupled_flow import (
-    _MAX_FLOW_SQUARINGS,
-    _triangular_exponential,
-)
+from solprop.backends.numpy_ref.coupled_flow import _triangular_exponential
 from solprop.boundaries import absorber
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation, prop_capillary
@@ -202,7 +200,7 @@ def propagated(problem, run_request, grid, backend=NumpyRefBackend):
 
 def translated(simulation):
     """Return a simulation's problem and its run's request."""
-    return simulation.translate(), simulation._run_request()
+    return simulation.translate(), simulation.run_request()
 
 
 def with_flow(problem, run_request, generator, *, dz_max=None, edges=None):
@@ -426,7 +424,7 @@ def test_the_route_records_its_flow_on_the_modal_identity():
     assert record["residual_norm_bound"] == 0.0
     assert record["radius"] == RADIUS
     assert 0.0 < float(cast("float", record["quasi_static"])) < 0.25
-    assert metadata.schema_version == 3
+    assert metadata.schema_version == 4
     assert capability_of(metadata) == "modal"
     assert "mean impedance coherent wall" in str(metadata)
     # Nothing that is not a scalar reaches the resume key.
@@ -802,7 +800,7 @@ def test_the_reference_refuses_every_coupled_flow_it_does_not_execute():
     """Each method, representation, degree, connection and residual by its own name."""
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     grid = simulation.grid
@@ -854,7 +852,7 @@ def test_the_reference_refuses_a_problem_the_flow_cannot_sit_beside():
     """A mode-dependent Phi, a metric or a noise draw beside a flow is named."""
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     grid = simulation.grid
     constant = problem.linear.phi_constant
     assert constant is not None
@@ -908,7 +906,7 @@ def test_the_reference_refuses_a_step_longer_than_the_certificate_was_declared_o
     """
     simulation = capillary(wall=CoherentWall(), integrator=RungeKutta())
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert flow.generator is not None
@@ -919,7 +917,7 @@ def test_the_reference_refuses_a_step_longer_than_the_certificate_was_declared_o
         dz_max=run_request.stepper.dz_max / 100.0,
     )
     with pytest.raises(BackendError, match="measured a coupled flow conditioning"):
-        propagated(understated, simulation._run_request(), simulation.grid)
+        propagated(understated, simulation.run_request(), simulation.grid)
 
 
 def test_the_reference_refuses_a_flow_beside_a_varying_phi():
@@ -931,7 +929,7 @@ def test_the_reference_refuses_a_flow_beside_a_varying_phi():
     """
     simulation = capillary(pressure=(1.0, 0.9))
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     assert problem.linear.phi_representation != "constant"
     edges = problem.linear.phi_breakpoints[[0, -1]]
     spoiled = with_flow(
@@ -949,7 +947,7 @@ def test_the_reference_refuses_a_noise_draw_beside_a_flow():
     """A draw the route cannot even build is named at the backend all the same."""
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     grid = simulation.grid
     noisy = replace(
         problem,
@@ -987,7 +985,7 @@ def test_a_flow_action_that_needs_squaring_is_the_exponential_all_the_same():
 
 def test_an_exponent_too_large_to_square_is_refused():
     """A flow action needing more squarings than are admitted is named, not tried."""
-    huge = np.full((1, 2, 2), 2.0 ** (_MAX_FLOW_SQUARINGS + 2), dtype=complex)
+    huge = np.full((1, 2, 2), 2.0 ** (FLOW_MAX_SQUARINGS + 2), dtype=complex)
     with pytest.raises(BackendError, match="squarings"):
         _triangular_exponential(huge)
 
@@ -1026,15 +1024,15 @@ def test_a_zero_generator_propagates_bitwise_like_no_flow_at_all():
     """
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert flow.generator is not None
     zeroed = with_flow(problem, run_request, np.zeros_like(flow.generator[0, 0]))
     without = replace(problem, linear=replace(problem.linear, coupled_flow=None))
     assert np.array_equal(
-        propagated(zeroed, simulation._run_request(), simulation.grid),
-        propagated(without, simulation._run_request(), simulation.grid),
+        propagated(zeroed, simulation.run_request(), simulation.grid),
+        propagated(without, simulation.run_request(), simulation.grid),
     )
 
 
@@ -1053,7 +1051,7 @@ def test_a_diagonal_generator_matches_the_same_diagonal_inside_phi():
     """
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation.run_request()
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert flow.generator is not None
@@ -1071,13 +1069,13 @@ def test_a_diagonal_generator_matches_the_same_diagonal_inside_phi():
     )
     coupled = propagated(
         with_flow(problem, run_request, diagonal),
-        simulation._run_request(),
+        simulation.run_request(),
         simulation.grid,
     )
     scale = float(np.max(abs(coupled)))
     assert_allclose(
         coupled,
-        propagated(inside, simulation._run_request(), simulation.grid),
+        propagated(inside, simulation.run_request(), simulation.grid),
         atol=1e-12 * scale,
     )
 
@@ -1114,7 +1112,7 @@ def test_ten_steps_apply_the_block_the_translation_layer_declared():
     flow = problem.linear.coupled_flow
     assert flow is not None
     index, launched = linear_launch(problem, simulation.grid)
-    final = propagated(launched, simulation._run_request(), simulation.grid)
+    final = propagated(launched, simulation.run_request(), simulation.grid)
     carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, index])
     assert flow.generator is not None
     rate = complex(flow.generator[0, 0, 0, 0, index])
@@ -1142,8 +1140,8 @@ def test_the_propagated_single_channel_loss_is_marcatili_to_its_derived_bound():
     index, walled = linear_launch(with_wall.translate(), with_wall.grid)
     _, plain = linear_launch(without.translate(), without.grid)
     ratio = abs(
-        propagated(walled, with_wall._run_request(), with_wall.grid)[0, 0, index]
-    ) / abs(propagated(plain, without._run_request(), without.grid)[0, 0, index])
+        propagated(walled, with_wall.run_request(), with_wall.grid)[0, 0, index]
+    ) / abs(propagated(plain, without.run_request(), without.grid)[0, 0, index])
 
     mode = MarcatiliMode(RADIUS, "He", 1.0, m=1)
     omega = np.array([float(with_wall.grid.omega[index])])
@@ -1172,7 +1170,7 @@ def test_each_channel_keeps_its_own_rate_in_the_weakly_coupled_limit():
     flow = problem.linear.coupled_flow
     assert flow is not None
     index, launched = linear_launch(problem, simulation.grid)
-    final = propagated(launched, simulation._run_request(), simulation.grid)
+    final = propagated(launched, simulation.run_request(), simulation.grid)
     carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, index])
     assert flow.generator is not None
     rate = complex(flow.generator[0, 0, 0, 0, index])
@@ -1194,10 +1192,10 @@ def test_the_wall_moves_power_between_channels_and_a_diagonal_loss_cannot():
     simulation = capillary(wall=CoherentWall())
     problem = simulation.translate()
     index, launched = linear_launch(problem, simulation.grid)
-    walled = propagated(launched, simulation._run_request(), simulation.grid)
+    walled = propagated(launched, simulation.run_request(), simulation.grid)
     plain = propagated(
         replace(launched, linear=replace(launched.linear, coupled_flow=None)),
-        simulation._run_request(),
+        simulation.run_request(),
         simulation.grid,
     )
     # Not exactly zero: the capillary's Kerr response couples the channels through
@@ -1254,7 +1252,7 @@ def test_the_transmission_of_one_physical_launch_converges_with_the_channel_coun
         launched = replace(
             problem, initial=replace(problem.initial, field0=state, noise0=None)
         )
-        final = propagated(launched, simulation._run_request(), simulation.grid)
+        final = propagated(launched, simulation.run_request(), simulation.grid)
         carrier = float(np.real(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, index]))
         transmissions[count] = float(np.sum(abs(final[:, 0, index]) ** 2)) / (
             1e-18 * total * math.exp(2.0 * carrier)
@@ -1320,9 +1318,9 @@ def test_the_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path):
         ).run(path, resume=True)
 
 
-# ------------------------------------------------------- the legacy entry points
+# ------------------------------------------------------- the prop_* entry points
 
-# The legacy runs' final planes were byte digests, recorded on one platform and
+# The entry points' final planes were byte digests, recorded on one platform and
 # re-recorded at each deliberate change (the Multistep default, SEP 3's optmat helium
 # and silica wall, the rationalised refractivity root, the 293.15 K default
 # temperature); the git history keeps them. They are now stored final planes of the
@@ -1335,10 +1333,8 @@ def test_the_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path):
 @pytest.mark.medium
 @pytest.mark.parametrize("entry", ["prop_capillary", "prop_gnlse"])
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])
-def test_the_legacy_entry_points_are_what_they_were(
-    entry, backend, ndarrays_regression
-):
-    """Ten steps of each legacy route are the run they were, on every backend here.
+def test_the_prop_entry_points_are_what_they_were(entry, backend, ndarrays_regression):
+    """Ten steps of each entry point are the run they were, on every backend here.
 
     A wall is an **opt-in** leaf, so a run that declares none must be the run it was
     before the leaf existed. The final plane matches its record within the matched
@@ -1353,15 +1349,15 @@ def test_the_legacy_entry_points_are_what_they_were(
     Kokkos, whose local and distribution builds (vendor BLAS, CPU target) move last
     bits, has no record of its own. Its two runs agreeing is a repeatability check only,
     a build against itself, which a wrong operator passes; what holds its answer is the
-    reference's field within ``legacy_entry_cases.legacy_parity_bound``, looser than the
-    record's: the catalogue's rows ``legacy entry ...`` (``backends/driver_rows.py``).
+    reference's field within ``entry_point_cases.entry_parity_bound``, looser than the
+    record's: the catalogue's rows ``entry point ...`` (``backends/driver_rows.py``).
     """
     if backend not in available():
         pytest.skip(f"the {backend} backend is not installed")
-    build = legacy_capillary if entry == "prop_capillary" else legacy_gnlse
+    build = capillary_run if entry == "prop_capillary" else gnlse_run
     handler = cast("MemoryOutput", build(backend))
     field = kept(handler.planes()[-1].field)
-    bound = record_bound(legacy_simulation(entry), field)
+    bound = record_bound(entry_simulation(entry), field)
     if backend != "native":
         check_state(ndarrays_regression, field, bound)
         return
@@ -2621,7 +2617,7 @@ def test_ten_steps_of_mixed_family_propagation_match_an_independent_solve():
     flow = problem.linear.coupled_flow
     assert flow is not None and flow.generator is not None
     index, launched = linear_launch(problem, simulation.grid)
-    final = propagated(launched, simulation._run_request(), simulation.grid)
+    final = propagated(launched, simulation.run_request(), simulation.grid)
     carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, index])
     block = np.asarray(flow.generator[0, 0, :, :, index], dtype=complex)
     start = np.zeros(4, dtype=complex)

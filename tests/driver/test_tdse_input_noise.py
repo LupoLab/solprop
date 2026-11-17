@@ -112,7 +112,7 @@ def _first_drive(simulation: Simulation, *, pulse: bool = True) -> np.ndarray:
     """Return the real field the atom is driven by at its first evaluation."""
     problem = simulation.translate()
     # One plane at the first step's end: the first evaluation is the session's startup.
-    run_request = to_planes(bare(simulation._run_request()), [_STEP])
+    run_request = to_planes(bare(simulation.run_request()), [_STEP])
     assert tdse_descriptor(problem.route) is not None
     binding = _Binding(tdse_descriptor(problem.route), 20)
     backend = NumpyRefBackend(
