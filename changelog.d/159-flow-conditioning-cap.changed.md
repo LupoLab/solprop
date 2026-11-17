@@ -1,0 +1,1 @@
+A coupled flow refused by its conditioning guard (the taper coupling of a lossy multimode capillary at the default `dz_max`, for one) now names the largest `dz_max` it admits, read exactly from its `exp(dz_max spread)` bound, instead of leaving the step to be found by trial (#159).

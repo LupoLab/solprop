@@ -2261,15 +2261,21 @@ def frozen_residual_flow(
         conditioning[index] = np.maximum(bound, 1.0)
         residual[index] = _residual_enclosure(coefficients[index], block, link, index)
     worst = int(np.argmax(np.max(conditioning, axis=0)))
-    if conditioning[:, worst].max() > float(condition_limit):
+    reached = float(conditioning[:, worst].max())
+    if reached > float(condition_limit):
+        # The bound is exp(dz_max spread), so the step it admits follows exactly;
+        # printed rounded down, so that the printed value is admitted too.
+        cap = float(dz_max) * math.log(float(condition_limit)) / math.log(reached)
+        unit = 10.0 ** (math.floor(math.log10(cap)) - 2)
         msg = (
             f"a frozen-residual flow's inverse conditioning reaches "
-            f"{float(conditioning[:, worst].max()):.4g} over a step of "
+            f"{reached:.4g} over a step of "
             f"{float(dz_max):.4g} m at {float(np.asarray(omega)[worst]):.6g} rad/s, "
             f"above the {float(condition_limit):.4g} this flow admits: the "
             "interaction picture's inverse action would amplify the nonlinear source "
-            "by that factor. Cap dz_max, divide the sections, retain fewer channels, "
-            "or raise the limit deliberately"
+            "by that factor. Cap dz_max (a dz_max of at most "
+            f"{math.floor(cap / unit) * unit:.3g} m is admitted), divide the sections, "
+            "retain fewer channels, or raise the limit deliberately"
         )
         raise TranslationError(msg)
     return CoupledFlowTables(

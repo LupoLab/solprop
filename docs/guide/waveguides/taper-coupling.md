@@ -67,7 +67,14 @@ These comparisons illustrate the model's accuracy and the need to converge the r
 - **The backends.** The native backend runs it within the flow-parity bounds, and a
   lossless multimode taper runs on `backend="auto"`.
 
-**A strongly lossy taper at the default step bound.** The coupling carries each
-channel's loss inside its block, and with the default `dz_max` of half the length the
-flow's conditioning guard can refuse a strongly lossy multimode taper. The refusal says
-to cap `dz_max`, or to pass `taper_coupling=False` for the adiabatic route.
+**A lossy taper at the default step bound.** The coupling carries each channel's loss
+inside its block, so over one step the channels spread by the difference of their
+attenuations, and the flow's conditioning guard refuses a spread above $10^4$ over
+`dz_max`. With the default loss and the default `dz_max` of half the length this refuses
+a narrow-bore multimode taper: four helium-filled channels on a 125 to 62.5 µm taper are
+refused, a 250 to 125 µm one is not. The rate depends on the bore, not on the length,
+and the guard reads every frequency of the grid, so the worst is usually in the
+long-wavelength collar, where the highest channel's wall loss is largest. The refusal
+names the largest `dz_max` it admits (the bound is $\exp(\mathrm{d}z_{\max}\,\Delta\mu)$,
+so that value is exact); pass it, or pass `taper_coupling=False` for the adiabatic
+route.
