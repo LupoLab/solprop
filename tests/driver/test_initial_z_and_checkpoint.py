@@ -15,6 +15,7 @@ from tests.driver.test_resume import run_until
 from tests.driver.test_run import NullBackend
 
 from builders import load_reference
+from march_bounds import assert_matched, march_bound
 from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.numpy_ref.workspace import NumpyWorkspace
@@ -53,7 +54,7 @@ from solprop.output import (
     StepHistory,
     resume,
 )
-from solprop.output.hdf5 import ResumeState
+from solprop.output.hdf5 import ResumeState, open_file
 from solprop.output.metadata import RunMetadata
 from solprop.output.records import Convention, TerminalCheckpoint
 from solprop.output.serialisation import serialise
@@ -61,9 +62,10 @@ from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
-from solprop.stepper import PIController
+from solprop.stepper import FixedSchedule, PIController, RungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate import problem as problem_module
+from solprop.translate.linop import power_weight_at
 from solprop.translate.routes import tdse_descriptor
 from solprop.translate.tdse import AtomicCallLedger
 
@@ -445,6 +447,78 @@ def test_interior_input_uses_actual_z_modal_weight():
         rtol=1e-12,
         atol=0,
     )
+
+
+@pytest.mark.medium
+def test_a_resume_divides_the_stored_field_by_the_modal_weight_at_its_position(
+    tmp_path,
+):
+    """A resumed run on a pressure gradient continues the uninterrupted one.
+
+    The file stores the interface amplitude ``sqrt(Re n_eff(z)) a``, and a resume that
+    restores no march history (any Runge-Kutta method) starts from the stored field
+    divided by the weight at the plane's position. On a fixed schedule both runs then
+    take the same steps from the same state, so they agree to the matched march's
+    rounding budget (SEP 25). Argon rising to 10 bar moves the weight by about 2e-3
+    over the fibre, eight decades above that budget, so a weight taken anywhere else
+    starts the continuation visibly mis-scaled. Medium: three short runs of a
+    single-mode capillary, about 4 s on the reference.
+    """
+    length = 0.002
+    planes = list(np.linspace(0.0, length, 5)[1:])
+
+    def built():
+        return Simulation.from_capillary(
+            100e-6,
+            length,
+            "Ar",
+            PressureGradient.two_point(length, 0.0, 10.0),
+            wavelength=800e-9,
+            wavelength_limits=(400e-9, 1.6e-6),
+            trange=60e-15,
+            fwhm=10e-15,
+            energy=1e-9,
+            plasma=False,
+            noise=None,
+            backend="numpy_ref",
+            integrator=RungeKutta(),
+            # A sixteen-step replay is far longer than the default collar's explicit
+            # stability limit; the split step integrates its rate exactly.
+            absorber_scheme="split_step",
+            schedule=FixedSchedule.uniform(
+                0.0, length, length / 16, save_planes=planes
+            ),
+            n_save=5,
+        )
+
+    whole, interrupted = tmp_path / "whole.h5", tmp_path / "part.h5"
+    simulation = built()
+    simulation.run(whole, progress="none")
+    run_until(built(), interrupted, after=3)
+    position = resume(interrupted).plane.z
+    assert 0.0 < position < length
+    problem = simulation.translate()
+    mask = problem.grids.active_mask
+    shift = np.max(
+        np.abs(
+            power_weight_at(problem, position)[..., mask]
+            / power_weight_at(problem, 0.0)[..., mask]
+            - 1.0
+        )
+    )
+    bound = march_bound(problem, simulation.run_request())
+    # The weight at the resume's position must differ from the entrance's by far more
+    # than the budget, or a resume at the wrong position could pass.
+    assert shift > 1e6 * bound
+    built().run(interrupted, resume=True, progress="none")
+    with open_file(interrupted) as resumed, open_file(whole) as reference:
+        assert resumed["z"].tolist() == reference["z"].tolist()
+        assert_matched(
+            np.asarray(resumed["field"]),
+            np.asarray(reference["field"]),
+            bound,
+            what="field",
+        )
 
 
 @pytest.mark.parametrize("z", [-1.0, np.nan, np.inf, 1e-5, 2e-5])
