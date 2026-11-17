@@ -49,9 +49,8 @@ away beforehand.
 ## What crosses
 
 {class}`solprop.translate.problem.PropagationProblem` is built by
-{func}`solprop.translate.assembly.assemble`. It describes one trajectory: a group of them,
-as a batched scan runs, is a sequence of problems. It carries the groups every route
-shares, one per section of the contract, and a `route`:
+{func}`solprop.translate.assembly.assemble`. It describes one trajectory. It carries the
+groups every route shares, one per section of the contract, and a `route`:
 
 | group | holds |
 |---|---|
@@ -60,7 +59,7 @@ shares, one per section of the contract, and a `route`:
 | `linear` | the cumulative operator $\Phi(\omega, z)$ as a Chebyshev expansion in the mode set's scalar paths, or as a table along z where that is not available, plus its hard kinks and the frame quantities |
 | `responses` | the compiled nonlinear term: the Kerr coefficients, the ionisation table, the plasma and Raman leaves, the density path, the prefactor, the temporal absorber |
 | `initial` | the initial state and the noise realisation of the one trajectory the problem describes |
-| `route` | what differs between routes, as exactly one variant of a closed union ({mod}`solprop.translate.routes`): a {class}`~solprop.translate.routes.ModalRoute` (mode-averaged or resolved modes, with the TDSE response as its reference-only extension), a {class}`~solprop.translate.routes.GeneralRoute` (a general modal guide) or a {class}`~solprop.translate.routes.SpatialRoute` (radial, Cartesian, planar or line free space, with its plane measure and transverse boundary). Each carries the transform — synthesis and projection between modal amplitudes and the field at quadrature nodes, and their rescaling along z — which `problem.transform` reads |
+| `route` | what differs between routes, as exactly one variant of a closed union ({mod}`solprop.translate.routes`): a {class}`~solprop.translate.routes.ModalRoute` (mode-averaged or resolved modes, with the TDSE response as its extension, which the native CPU build and the reference execute and native device builds refuse), a {class}`~solprop.translate.routes.GeneralRoute` (a general modal guide) or a {class}`~solprop.translate.routes.SpatialRoute` (radial, Cartesian, planar or line free space, with its plane measure and transverse boundary). Each carries the transform — synthesis and projection between modal amplitudes and the field at quadrature nodes, and their rescaling along z — which `problem.transform` reads |
 
 How the problem is *run* is not part of it. The tableau, the controller, the step caps,
 the save planes, any fixed schedule and the statistics to collect are the run's policy,
@@ -79,8 +78,9 @@ before it allocates anything: extending a route changes this typed contract and 
 tests, never a bag of optional fields
 ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.2; the contract's extension procedure,
 [kernel contract](kernel-contract.md) §10).
-Every array is `float64`, `complex128`, `bool` or `intp` (and `int32` at three named index
-leaves of the general modal route); C-contiguous; read-only; and in
+Every array is `float64`, `complex128`, `bool` or `intp` (and `int32` at four named index
+leaves, three of the general modal route and the dispersive Kerr regions, and `uint8` at the
+split collar's buckets); C-contiguous; read-only; and in
 the **FFT convention** with the phase origin at the first time sample
 ([the conventions](conventions.md), §2). The user's optics-convention inputs were
 converted by the pulse builders and the observations are converted back by the output
@@ -158,7 +158,7 @@ the operator.
 
 ## The flags are derived, never declared
 
-The nine booleans of section 1 — `single_mode`, `has_raman`, `constant_linop` and the rest —
+The eight booleans of section 1 — `single_mode`, `has_raman`, `constant_linop` and the rest —
 are computed by {meth}`solprop.translate.problem.Flags.from_content` from the arrays that
 were actually built. A caller cannot set them, so a flag cannot disagree with what it
 describes, which is the failure mode a kernel specialising on them would find hardest to
@@ -279,10 +279,10 @@ kernel has to do: the operator does not propagate what is not there, and the pre
 not create it. Between the two, the assembled problem reports
 
 ```
-shape          (1, 1, 4096)
+shape          (1, 1, 3072)
 grid_kind      'envelope'
 flags          single_mode, scalar_pol, constant_linop, mode_averaged
-Phi table      1 interval of degree 1, 128 kB
+Phi table      1 interval of degree 1, 96 kB
 save planes    [0.5, 1.0]
 ```
 
