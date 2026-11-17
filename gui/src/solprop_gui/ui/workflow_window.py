@@ -848,19 +848,13 @@ class WorkflowWindow(QMainWindow):
             self.open_setup(chosen)
 
     def open_setup(self, path: str) -> None:
-        """Open a setup file; a route that is no class's goes to the step window.
+        """Open a setup file; a route that is no class's opens on the generic form.
 
         Parameters
         ----------
         path : str
             The file.
         """
-        try:
-            model = RecipeModel.load(path)
-        except (OSError, ValueError) as error:
-            self._say(f"Cannot open {path}: {error}")
-            return
-        del model
         self.document.open_recipe(path)
 
     def choose_results(self) -> None:

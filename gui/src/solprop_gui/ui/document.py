@@ -308,21 +308,20 @@ class SetupDocument(QObject):
                 self._adapt[request] = adapt
 
     def open_recipe(self, path: str | Path) -> None:
-        """Open a recipe file.
+        """Open a recipe file; one that cannot be read is said, and nothing is lost.
 
         Parameters
         ----------
         path : str or pathlib.Path
             The file.
         """
-        if not self.may_discard():
-            return
         try:
             model = RecipeModel.load(path)
         except (OSError, ValueError) as error:
             self.message.emit(f"Cannot open {path}: {error}")
             return
-        self.set_model(model, base=str(Path(path).parent))
+        if self.may_discard():
+            self.set_model(model, base=str(Path(path).parent))
 
     def open_text(self, text: str, base: str | None) -> None:
         """Open a recipe's text as a new, unsaved setup.
