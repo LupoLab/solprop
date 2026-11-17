@@ -140,6 +140,36 @@ def test_prop_2d_puts_the_peak_at_zero_decibels(single):
     assert mesh.get_clim() == (-60.0, 0.0)
 
 
+CARRIER = 800e-9
+"""The example run's carrier wavelength, m."""
+
+
+@pytest.mark.parametrize(
+    ("axis", "carrier"),
+    [
+        ("wavelength", CARRIER * 1e9),
+        ("f", C / CARRIER * 1e-15),
+        ("omega", 2.0 * np.pi * C / CARRIER * 1e-15),
+    ],
+)
+def test_prop_2d_draws_the_light_where_its_spectrum_is(single, axis, carrier):
+    ax = propagation.prop_2d(single, axis)[0].axes[0]
+    mesh = ax.collections[0]
+    edges = np.asarray(mesh.get_coordinates())[0, :, 0]
+    centres = 0.5 * (edges[:-1] + edges[1:])
+    decibels = np.asarray(mesh.get_array()).reshape(-1, centres.size)
+    spacing = float(np.max(np.abs(np.diff(centres))))
+    low, high = ax.get_xlim()
+    # The carrier sits far from the middle of the drawn band, so a map drawn
+    # mirrored would put the light at low + high - carrier, tens of bins away.
+    assert low < carrier < high
+    assert abs(low + high - 2.0 * carrier) > 10.0 * spacing
+    # Pure dispersion leaves the spectrum as launched: on every plane the brightest
+    # bin is the carrier's, to within the coarsest bin of the axis.
+    brightest = centres[np.argmax(decibels, axis=1)]
+    assert np.all(np.abs(brightest - carrier) <= spacing)
+
+
 def test_prop_2d_honours_the_decibel_floor(single):
     figures = propagation.prop_2d(single, db_min=-30.0)
     assert figures[0].axes[0].collections[0].get_clim() == (-30.0, 0.0)
@@ -297,6 +327,19 @@ def test_energy_draws_a_conversion_efficiency_axis(single):
     # The example run conserves energy, so the efficiency ends where it started.
     values = np.asarray(left.lines[0].get_ydata(), dtype=float)
     assert values[-1] == pytest.approx(values[0], rel=1e-9)
+
+
+def test_energy_draws_the_run_s_energy_in_microjoules(single):
+    figure = propagation.plot_energy(single)
+    left, right = figure.axes
+    z, values = (np.asarray(data, dtype=float) for data in left.lines[0].get_data())
+    assert left.get_ylabel() == "Energy (uJ)"
+    assert np.array_equal(z, single["z"] * 100.0)  # cm, a plain scaling
+    # The example launches 1 uJ and only disperses it, so every plane holds 1 uJ: a
+    # sum over a few hundred bins, read back to a few eps (2e-16 measured).
+    np.testing.assert_allclose(values, 1.0, rtol=1e-12, atol=0.0)
+    # And 1 uJ on the left is 100 % on the right.
+    assert right.get_ylim()[1] / left.get_ylim()[1] == pytest.approx(100.0, rel=1e-9)
 
 
 def test_energy_scales_the_efficiency_by_the_input(single):
