@@ -352,9 +352,8 @@ aarch64, macOS arm64, Windows x64 and Arm) on pull requests that change the whee
 tags and by hand, and tests each installed wheel. It also builds solprop's sdist and
 wheel and checks a fresh install of each, builds solprop-gui's and checks that
 `solprop[gui]` installs from the files and answers at the version, and on a release
-tag, once enabled, publishes solprop-native, then solprop, then (once `PUBLISH_GUI` is
-set) solprop-gui ([Releasing and the native wheels](releasing.md), whose
-pre-flight checklist sets publishing up).
+tag publishes solprop-native, then solprop, then solprop-gui
+([Releasing and the native wheels](releasing.md)).
 
 `native` runs in the coverage lane's driver tests; the parity tests check it against
 `numpy_ref` in every job. GPU tests run by hand on a node with a device
