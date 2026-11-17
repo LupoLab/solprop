@@ -315,6 +315,13 @@ if(SOLPROP_NATIVE_ENABLE_OPENMP AND
   message(FATAL_ERROR
     "Accelerator variants use a Serial host execution space; disable OpenMP.")
 endif()
+if(NOT SOLPROP_NATIVE_ENABLE_OPENMP AND
+   NOT (SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP))
+  message(FATAL_ERROR
+    "A CPU build runs the OpenMP host execution space, and the backend refuses a "
+    "CPU build without it; enable SOLPROP_NATIVE_ENABLE_OPENMP, or enable "
+    "SOLPROP_NATIVE_ENABLE_CUDA or SOLPROP_NATIVE_ENABLE_HIP for a device build.")
+endif()
 
 if(SOLPROP_NATIVE_ENABLE_SANITIZERS AND
    (SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP))

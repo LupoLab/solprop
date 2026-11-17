@@ -352,7 +352,7 @@ The options are read by `native/CMakeLists.txt` and the modules it includes from
 
 | option | default | values and effect |
 |---|---|---|
-| `SOLPROP_NATIVE_ENABLE_OPENMP` | `ON` | the OpenMP host execution space and threaded FFTW. `OFF` in GPU builds, whose host space is Serial |
+| `SOLPROP_NATIVE_ENABLE_OPENMP` | `ON` | the OpenMP host execution space and threaded FFTW: `ON` in every CPU build, `OFF` in GPU builds, whose host space is Serial; configuration refuses any other pairing |
 | `SOLPROP_NATIVE_ENABLE_CUDA` | `OFF` | the CUDA execution space with cuFFT (Linux, GNU host compiler) |
 | `SOLPROP_NATIVE_ENABLE_HIP` | `OFF` | the HIP execution space with rocFFT (Linux, ROCm Clang); exclusive with CUDA |
 | `SOLPROP_NATIVE_CUDA_ARCH` | `HOPPER90` | the Kokkos architecture suffix, `Kokkos_ARCH_<value>` ([CUDA](#cuda)) |
