@@ -772,18 +772,7 @@ MODULES = {
                 "session",
                 "events",
                 "export",
-                "session_core",
                 "sessions",
-            ),
-        ),
-        Module(
-            "backends/host/",
-            (
-                "session",
-                "marches",
-                "runge_kutta",
-                "adams",
-                "low_storage",
             ),
         ),
         Module(
@@ -800,7 +789,13 @@ MODULES = {
                 "adams_kernels",
                 "adams_tables",
                 "general_modal",
+                "session",
+                "session_parts",
             ),
+        ),
+        Module(
+            "backends/numpy_ref/marches/",
+            ("runge_kutta", "adams", "low_storage"),
         ),
         Module(
             "backends/numpy_ref/passes/",
@@ -1273,7 +1268,6 @@ TABLEAU = (
 SEAM_METHODS = (
     ("prepare", "bind a problem and its run request; each start opens a session"),
     ("edge_memory", "what reading a grid's edge will hold, for an estimate"),
-    ("march_export_refusal", "why the march cannot carry its history, or None"),
     ("timing_probe", "single trials from a start, committing nothing, for timing"),
     ("metadata", "what the execution was: pools, plans, digests, propagator mode"),
     ("memory_ledger", "every named buffer and its size"),
@@ -1294,7 +1288,8 @@ DRIVER_PARTS = (
     ("the march, driven", ("_propagate", "stepped")),
     ("the quadrature alarm", ("record", "_propagate")),
 )
-"""What `backends/host/session.py` owns, and the `HostSession` members of each part."""
+"""What `backends/numpy_ref/session.py` owns, and the `HostSession` members of each
+part."""
 
 CONTROLLER_PARTS = ("propose", "accepts", "rejection_factor", "equivalent_norm")
 """The methods of `stepper.controller.PIController` the marches call."""

@@ -242,22 +242,6 @@ def test_the_record_holds_the_specification_and_the_design() -> None:
     assert default.transverse["collar"] is False
 
 
-def test_a_backend_that_does_not_read_the_edge_refuses_a_collar(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # SEP 40 section 6: a requested collar is refused by name where its return
-    # monitor is not carried. Every solprop backend carries it; numpy_ref with its
-    # reading switched off stands in for one that does not.
-    from solprop.backends.numpy_ref import NumpyRefBackend  # noqa: PLC0415
-    from solprop.exceptions import BackendError  # noqa: PLC0415
-
-    monkeypatch.setattr(NumpyRefBackend, "reads_transverse_edge", False)
-    simulation = suite(2.6, SpatialAbsorber())
-    simulation.settings = dataclasses.replace(simulation.settings, backend="numpy_ref")
-    with pytest.raises(BackendError, match="numpy_ref backend does not carry"):
-        simulation.run(progress="none")
-
-
 def test_a_requested_band_without_an_active_bin_is_refused() -> None:
     # 0.1 pm about 810 nm holds no bin of a 400 fs envelope grid about 800 nm.
     grid = EnvelopeGrid.from_limits(LENGTH, 800e-9, (810e-9, 810.0001e-9), 400e-15)

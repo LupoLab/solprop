@@ -6,8 +6,8 @@
 
 The real march is driven over a scripted engine whose trial returns, for each attempt,
 the norm a scenario prescribes, and a stub session that hosts it with the session's
-own rules (:func:`~solprop.backends.host.session.step_cap`,
-:func:`~solprop.backends.host.session.natural_stop`), so every decision the march
+own rules (:func:`~solprop.backends.numpy_ref.session.step_cap`,
+:func:`~solprop.backends.numpy_ref.session.natural_stop`), so every decision the march
 makes -- acceptance, the next proposal, the landing, the start-up rule, the caps, the
 floor, a natural stop -- is a function of the scenario's data alone, with no field
 arithmetic.
@@ -38,9 +38,9 @@ import numpy as np
 
 from solprop.backends import rk_core
 from solprop.backends.engines import AcceptRecord
-from solprop.backends.host.marches import MarchState
-from solprop.backends.host.runge_kutta import RungeKuttaMarch
-from solprop.backends.host.session import natural_stop, step_cap
+from solprop.backends.numpy_ref.marches import MarchState
+from solprop.backends.numpy_ref.marches.runge_kutta import RungeKuttaMarch
+from solprop.backends.numpy_ref.session import natural_stop, step_cap
 from solprop.backends.records import runge_kutta_policy
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper.controller import PIController
@@ -186,7 +186,7 @@ class _Scripted:
     """A stub session: what the Runge-Kutta marches ask of it, recording it.
 
     The reference's march asks through
-    :class:`~solprop.backends.host.marches.MarchHost` (:class:`_HostHarness`); the
+    :class:`~solprop.backends.numpy_ref.marches.MarchHost` (:class:`_HostHarness`); the
     native march's call-by-call adapter (``native_trace_marches.TraceRungeKuttaMarch``)
     reads the members set here, in the names the reference's step driver had, so that
     both marches decide on the same scripted readings.

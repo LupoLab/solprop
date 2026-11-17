@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 
 from solprop.backends.ledger import CallLedger
-from solprop.backends.protocol import Backend
 from solprop.backends.session import Start
 from solprop.driver.inputs import _realisation
 from solprop.driver.run import retention_at
@@ -86,7 +85,6 @@ def _adopt_recorded_seed(
 
 def _start(
     simulation: "Simulation",
-    backend: Backend,
     problem: PropagationProblem,
     state: ResumeState | None,
     *,
@@ -98,8 +96,6 @@ def _start(
     The run's session loads it (SEP 47): the field, the noise, a resume's call
     ledgers and the method history this run continues.
 
-    - ``backend``: the backend about to step, asked only whether its march can carry
-      a method history.
     - ``state``: what a file the run is continuing holds, or ``None`` to start at
       the entrance.
     - ``kept``: the backend was built for another input, so this one's noise has to
@@ -127,7 +123,6 @@ def _start(
     integrator = request.integration.method
     record, march = _continue_march(
         simulation,
-        backend,
         state,
         adams=isinstance(integrator, Multistep),
         low_storage=isinstance(integrator, LowStorageRungeKutta),
@@ -151,7 +146,6 @@ def _start(
 
 def _continue_march(
     simulation: "Simulation",
-    backend: Backend,
     state: ResumeState,
     *,
     adams: bool = True,
@@ -161,11 +155,10 @@ def _continue_march(
 
     Says what is restored, for the resumed execution record (SEP 47 section 5.5),
     and warns once when an Adams history the run expected is not restored:
-    omitted by the automatic size limit, or kept where this backend's march
-    cannot carry it. A history set aside on request (``resume_history=False``) is
-    recorded without a warning. A history handed on is installed by the run's
-    session, which warns and records a reset if it cannot
-    (:func:`solprop.driver.run.run_problem`).
+    omitted by the automatic size limit, or lost from the file. A history set aside
+    on request (``resume_history=False``) is recorded without a warning. A history
+    handed on is installed by the run's session, which warns and records a reset if
+    it cannot (:func:`solprop.driver.run.run_problem`).
 
     - Returns ``record``: ``"state"`` (``"restored"``, ``"reset"`` or
       ``"not_applicable"``), ``"reason"`` and ``"z"``, m; for an Adams method also
@@ -201,16 +194,6 @@ def _continue_march(
         if state.march is not None:
             logger.info("the Adams history starts afresh: resume_history=False")
         return reset("explicit_policy"), None
-    # A march that cannot carry its history restarts it without having been asked
-    # to: say so once, as a warning (SEP 29 section 6.6).
-    refusal = backend.march_export_refusal()
-    if refusal is not None:
-        warnings.warn(
-            f"the Adams history starts afresh: {refusal}",
-            SolpropWarning,
-            stacklevel=2,
-        )
-        return reset("incompatible_representation"), None
     if state.march is None:
         return _missing_history(retention, reset), None
     restored: dict[str, object] = {
@@ -247,11 +230,6 @@ def _missing_history(
         lost = ("kept it here, but it cannot be read back", "unavailable_history")
     elif kept == "omitted" and why == "write_failed":
         lost = ("was keeping it here when the write failed", "unavailable_history")
-    elif kept == "omitted" and why == "incompatible_representation":
-        lost = (
-            "could not keep it: the run's engine does not export it",
-            "incompatible_representation",
-        )
     if lost is not None:
         warnings.warn(
             f"the Adams history starts afresh: the file {lost[0]}",

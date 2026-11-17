@@ -13,7 +13,6 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from builders import load_reference
 from sessions.executors import IDENTITY, Started, drive
 from sessions.runs import run as session_run
 from solprop.backends import registry
@@ -354,21 +353,6 @@ def test_a_binding_cannot_be_attached_to_an_ordinary_problem(
     with pytest.raises(BackendError, match="explicit host response binding"):
         NumpyRefBackend(problem, run_request, grid=narrow_grid, tdse_binding=binding)
     assert binding.ledger.attempted == 0
-
-
-@pytest.mark.parametrize("name", ["electron_density", "peak_ionisation_rate"])
-def test_tdse_runtime_statistics_refuse_the_rate_model_statistics(march_problem, name):
-    """A dynamic request for rate-model statistics cannot trigger another solve."""
-    backend, binding = opened_backend(march_problem, 4)
-    try:
-        load_reference(backend)
-        with pytest.raises(
-            BackendError, match="does not define the rate-model statistics"
-        ):
-            backend.workspace.stats(StatsSpec(names=(name,)), 0.0)
-        assert binding.ledger.attempted == 0
-    finally:
-        backend.close()
 
 
 @pytest.mark.parametrize("kind", ["logical", "atomic"])

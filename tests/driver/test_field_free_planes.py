@@ -26,8 +26,8 @@ from legacy_geometry import LEGACY_GRID, bare_absorber
 from sessions.runs import bare
 from solprop.backends.events import ObservationReady, Terminal
 from solprop.backends.export import ExportRecipe
-from solprop.backends.host.session import HostSession
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.protocol import BackendHistory, Observation
 from solprop.backends.registry import available, select

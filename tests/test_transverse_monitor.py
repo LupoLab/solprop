@@ -381,8 +381,9 @@ def test_the_start_of_run_summary_says_what_the_edge_can_report() -> None:
         )
         return str(dict(summary.rows)["transverse edge"])
 
-    assert "watched" in row("numpy_ref", BoundaryCheck())
-    assert "unwatched on other" in row("other", BoundaryCheck())
+    # Every backend reads the edge (issue #599): the row does not depend on its name.
+    assert "; watched (budget" in row("numpy_ref", BoundaryCheck())
+    assert row("native", BoundaryCheck()) == row("numpy_ref", BoundaryCheck())
     assert row("numpy_ref", None).endswith("off (boundary_check=None)")
 
 

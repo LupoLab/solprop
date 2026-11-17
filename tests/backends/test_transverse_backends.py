@@ -29,6 +29,7 @@ from solprop.output.store import PlaneStore
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
+from solprop.transverse_monitor import TransverseEdge
 from test_transverse_reads import (
     MISS,
     REREVIEW,
@@ -199,16 +200,19 @@ def test_a_requested_collar_runs_as_on_numpy_ref(
     )
 
 
-def test_a_backend_that_does_not_read_the_edge_runs_unwatched(
+def test_an_edge_launched_unread_runs_unwatched(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Section 6: a backend that does not read the edge (none of solprop's own);
-    # numpy_ref with its reading switched off stands in for one. The run warns
-    # before its first step, is not stopped by the packet on the wrap, and records
-    # that it was unwatched.
-    from solprop.backends.numpy_ref import NumpyRefBackend  # noqa: PLC0415
+    # Section 6: an edge a backend does not read. Every backend reads it, so the
+    # monitor's own launch is told it is unread on numpy_ref. The run warns before its
+    # first step, is not stopped by the packet on the wrap, and records that it was
+    # unwatched.
+    launch = TransverseEdge.launch
 
-    monkeypatch.setattr(NumpyRefBackend, "reads_transverse_edge", False)
+    def unread(edge: TransverseEdge, *args: Any, **kwargs: Any) -> None:
+        launch(edge, *args, **{**kwargs, "reads": False})
+
+    monkeypatch.setattr(TransverseEdge, "launch", unread)
     simulation = on(packet_run(REREVIEW, integrator=Multistep()), "numpy_ref")
     with pytest.warns(BoundaryWarning, match="does not read the transverse edge"):
         output = simulation.run(progress="none")

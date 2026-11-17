@@ -13,10 +13,10 @@ from contextlib import closing
 
 import pytest
 
-from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.host.low_storage import HostLowStorageMarch
-from solprop.backends.host.session import HostSession
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
+from solprop.backends.numpy_ref.marches.low_storage import HostLowStorageMarch
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.records import adams_policy
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session

@@ -5,9 +5,9 @@
 """A reference backend with no atomic service refuses atomic call ledgers.
 
 A resumed start's ledgers are restored by the reference's session
-(:class:`solprop.backends.host.session.HostSession`): the logical Adams counts every
-Adams march keeps, and atomic counts only into a TDSE binding. A run without one is
-refused them by name rather than silently dropping a budget a resume must honour.
+(:class:`solprop.backends.numpy_ref.session.HostSession`): the logical Adams counts
+every Adams march keeps, and atomic counts only into a TDSE binding. A run without one
+is refused them by name rather than silently dropping a budget a resume must honour.
 """
 
 import pytest

@@ -13,9 +13,9 @@ from numpy.testing import assert_allclose, assert_array_equal
 
 from sessions.runs import IDENTITY, bare
 from solprop.backends.events import ObservationReady, Terminal
-from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
 from solprop.backends.numpy_ref.multistep import InteractionHistory
 from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.session import Start

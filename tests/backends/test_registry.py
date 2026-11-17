@@ -182,6 +182,7 @@ def test_optional_constructor_receives_the_original_contract_without_fallback(
         "grid": narrow_grid,
         "modes": None,
         "profiles": None,
+        "tdse_binding": None,
         "options": None,
     }
 
@@ -287,7 +288,13 @@ def test_optional_backend_constructor_forwards_the_context(
             (
                 problem,
                 run_request,
-                {"grid": narrow_grid, "modes": None, "profiles": None, "options": None},
+                {
+                    "grid": narrow_grid,
+                    "modes": None,
+                    "profiles": None,
+                    "tdse_binding": None,
+                    "options": None,
+                },
             )
         ]
         assert isinstance(backend, Backend)

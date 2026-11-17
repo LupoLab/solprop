@@ -27,9 +27,6 @@ from legacy_geometry import LEGACY_GRID
 from sessions.runs import bare
 from sessions.runs import run as session_run
 from solprop._helpers import PLAIN
-from solprop.backends.exponential import refuse_formulation
-from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.host.marches import MarchState
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.adams_tables import (
     compensation_tables,
@@ -37,6 +34,8 @@ from solprop.backends.numpy_ref.adams_tables import (
     fused_tables,
     trial_tables,
 )
+from solprop.backends.numpy_ref.marches import MarchState
+from solprop.backends.numpy_ref.marches.adams import HostAdamsMarch
 from solprop.exceptions import (
     BackendError,
     ConvergenceError,
@@ -51,7 +50,6 @@ from solprop.stepper.multistep import (
     Multistep,
     march_policy,
 )
-from solprop.translate.coupled import constant_schur_flow
 from solprop.translate.linop import delta_phi
 
 # The soliton fixture's period (tests/backends/conftest.py).
@@ -555,38 +553,6 @@ def test_a_replayed_step_with_a_non_finite_norm_is_refused(
     with pytest.raises(ConvergenceError, match="non-finite error norm"):
         session_run(backend, problem, bare(run_request))
     backend.close()
-
-
-def test_the_formulation_refuses_a_section_it_does_not_step(
-    narrow_grid, soliton_problem
-):
-    # SEP 16 Q3: the exponential formulation steps constant-Schur and frozen-residual
-    # sections (phase 5); any other section method is refused by name.
-    problem, run_request = soliton_problem(
-        narrow_grid, 1, save_planes=[0.1], integrator=EXPONENTIAL
-    )
-    flow = constant_schur_flow(
-        np.sort(problem.grids.omega),
-        problem.linear.phi_breakpoints[[0, -1]],
-        np.zeros((1, 1, problem.grids.omega.size), dtype=complex),
-        dz_max=run_request.stepper.dz_max,
-        condition_limit=1e6,
-        gauge_id="test",
-        certificate_id="constant-schur",
-    )
-    coupled = dataclasses.replace(
-        problem, linear=dataclasses.replace(problem.linear, coupled_flow=flow)
-    )
-    refuse_formulation(
-        coupled, run_request.stepper, "probe"
-    )  # a constant-Schur section is stepped
-    flow = object.__new__(type(flow))
-    object.__setattr__(flow, "section_methods", ("diagonal",))
-    coupled = dataclasses.replace(
-        problem, linear=dataclasses.replace(problem.linear, coupled_flow=flow)
-    )
-    with pytest.raises(BackendError, match="'diagonal' sections"):
-        refuse_formulation(coupled, run_request.stepper, "probe")
 
 
 @pytest.fixture(params=[HostAdamsMarch], ids=["host"])

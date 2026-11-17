@@ -62,8 +62,6 @@ from solprop.translate.linop import LinearOperator
 from solprop.translate.problem import PropagationProblem, StepperSettings
 
 __all__ = [
-    "COUPLED_SECTIONS",
-    "EXPONENTIAL_REPRESENTATIONS",
     "MAX_PHI_ORDER",
     "PHI_JOIN",
     "CarrierChord",
@@ -72,8 +70,8 @@ __all__ = [
     "carrier_reference",
     "exponential_weights",
     "phi_functions",
+    "refuse_adams",
     "refuse_carrier_frame",
-    "refuse_formulation",
 ]
 
 MAX_PHI_ORDER = MAX_ADAMS_ORDER + 2
@@ -89,18 +87,6 @@ augmented exponentials. Above it the scaled series would need more than three
 doublings. Three keeps both sides within the witnesses' 256 ulp with a margin and
 bounds the doublings, the most expensive part of the near branch (SEP 16 phase 3;
 eight, the SEP 15 study's join, cost up to four)."""
-
-COUPLED_SECTIONS = frozenset({"constant_schur", "frozen_residual"})
-"""The coupled flow's section methods the exponential formulation steps (SEP 16 Q3)."""
-
-EXPONENTIAL_REPRESENTATIONS = ("constant", "separable", "expansion", "table")
-"""The linear-operator representations the exponential formulation steps (SEP 16).
-
-A constant operator's reference flow over a step is its exact flow and its residual
-is the source alone, ``R_n = F``. A varying one (``expansion``, ``table``) takes the
-compensated reference of SEP 16 section 4.2 (phase 4): the chord over the step and the
-transported compensation ``(D(z_j) - B_n) u_j``, with ``D`` the derivative of the
-representation itself."""
 
 _SERIES_TERMS = 24
 """Taylor terms of the highest phi function at ``|y| <= 1/2``.
@@ -268,47 +254,6 @@ def exponential_weights(
     )
     moments = phi[1 : count + 1] * scaled.reshape((count, *([1] * arguments.ndim)))
     return np.tensordot(coefficients, moments, axes=(1, 0))
-
-
-def refuse_formulation(
-    problem: PropagationProblem, stepper: StepperSettings, backend: str
-) -> None:
-    """Refuse the exponential formulation where it is not yet delivered (SEP 16).
-
-    The exponential formulation steps constant, separable and varying diagonal
-    operators (phases 2--4) and the constant-Schur and frozen-residual sections of a
-    coupled flow (phase 5).
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem.
-    stepper : solprop.translate.problem.StepperSettings
-        The run's stepper section, whose method is checked.
-    backend : str
-        The backend's name, for the message.
-
-    Raises
-    ------
-    BackendError
-        Naming what is unsupported.
-    """
-    method = stepper.integrator
-    if not isinstance(method, Multistep) or method.formulation != "exponential":
-        return
-    # Every representation (EXPONENTIAL_REPRESENTATIONS) is stepped since phase 4.
-    flow = problem.linear.coupled_flow
-    if flow is None:
-        return
-    methods = set(flow.section_methods)
-    if not methods <= COUPLED_SECTIONS:
-        unsupported = ", ".join(sorted(repr(one) for one in methods - COUPLED_SECTIONS))
-        msg = (
-            f"{backend}: the {method.name} integrator does not step a coupled flow's "
-            f"{unsupported} sections; pass integrator=RungeKutta(), the Runge-Kutta "
-            "march"
-        )
-        raise BackendError(msg)
 
 
 @dataclass(frozen=True)
@@ -636,3 +581,73 @@ def refuse_carrier_frame(
     )
     if refusal is not None:
         raise BackendError(refusal)
+
+
+def refuse_adams(
+    problem: PropagationProblem,
+    stepper: StepperSettings,
+    backend: str,
+    *,
+    delivered: frozenset[str] = frozenset(),
+) -> None:
+    """Refuse what an Adams march does not execute (SEP 13 sections 2 and 6.2).
+
+    The interaction formulation's history is of source samples transported along a
+    diagonal flow, so it refuses a coupled flow by name rather than transport the
+    history through inverse actions (SEP 16 Q3); the exponential formulation steps every
+    coupled flow the problem admits
+    (:func:`solprop.translate.admission.check_general_route`). Either refuses the
+    carrier frames the backend does not deliver (:func:`refuse_carrier_frame`). The
+    ``modified`` noise is admitted for both formulations (SEP 16 section 4.4): its draw
+    is fixed for the run and added to each sample's field at that sample's own
+    position, never to the propagating state, so conditional on the draw the source is
+    a deterministic, nonautonomous function of position that the history interpolates.
+    The split-step temporal collar is admitted: it changes the state only inside the
+    collar, where its first-order splitting error already lies (``docs/dev/stepper.md``
+    section 6), and it removes the collar's stability limit, which binds the Adams
+    methods long before Runge-Kutta's (SEP 13 phase 2).
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The problem.
+    stepper : solprop.translate.problem.StepperSettings
+        The run's stepper section; any method but
+        :class:`~solprop.stepper.multistep.Multistep` passes untouched.
+    backend : str
+        The backend's name, for the message.
+    delivered : frozenset of str, optional
+        The carrier-frame policies this backend steps; none by default.
+
+    Raises
+    ------
+    BackendError
+        Naming what the Adams march does not step here.
+
+    Examples
+    --------
+    >>> from solprop.backends.exponential import refuse_adams
+    >>> from solprop.driver import Simulation
+    >>> simulation = Simulation.from_gnlse(
+    ...     0.11, 0.01, [0.0, 0.0, -1.183e-26], wavelength=835e-9,
+    ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
+    ...     width=100e-15, peak_power=9.8, shape="sech",
+    ... )
+    >>> request = simulation._run_request()
+    >>> refuse_adams(simulation.translate(), request.stepper, "numpy_ref") is None
+    True
+    """
+    integrator = stepper.integrator
+    if not isinstance(integrator, Multistep):
+        return
+    if (
+        problem.linear.coupled_flow is not None
+        and integrator.formulation != "exponential"
+    ):
+        msg = (
+            f"{backend}: the {integrator.name} integrator does not step a problem "
+            "with a coupled linear flow; use Multistep(formulation='exponential') or "
+            "the Runge-Kutta march"
+        )
+        raise BackendError(msg)
+    refuse_carrier_frame(problem, stepper, backend, delivered=delivered)

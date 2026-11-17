@@ -36,13 +36,13 @@ pass  evaluation      finish
 ====  ==============  ======================================================
 
 **The march** (the reference's
-:class:`solprop.backends.host.low_storage.HostLowStorageMarch`; the native session's
-replay) replays a prescribed schedule and never rejects, so it accepts each step in
-place: from the start of the step's trial to its accept the engine is *in flight*
-and every entry that reads or advances the state refuses it, until a load replaces the
-state (SEP 24 section 6.2, ADR-050). It records no error estimate: the step history's
-norm is 0.0, "not estimated" (section 6.3). Divergence is detected on the accepted
-state's norm instead.
+:class:`solprop.backends.numpy_ref.marches.low_storage.HostLowStorageMarch`; the native
+session's replay) replays a prescribed schedule and never rejects, so it accepts each
+step in place: from the start of the step's trial to its accept the engine is *in
+flight* and every entry that reads or advances the state refuses it, until a load
+replaces the state (SEP 24 section 6.2, ADR-050). It records no error estimate: the step
+history's norm is 0.0, "not estimated" (section 6.3). Divergence is detected on the
+accepted state's norm instead.
 
 **The engine** holds the registers and makes the passes: it is a
 :class:`~solprop.backends.engines.RungeKuttaEngine` with the documented destructive

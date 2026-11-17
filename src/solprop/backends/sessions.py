@@ -8,7 +8,7 @@
 47 section 5.2), ``backend.prepare(problem, request).start(start, ...)``, so a backend
 chooses its session and nothing here names one. The NumPy reference's prepared
 execution opens its own session
-(:class:`solprop.backends.host.session.HostSession`); a native backend's
+(:class:`solprop.backends.numpy_ref.session.HostSession`); a native backend's
 (``solprop_native.session.NativePrepared``) opens the native execution session
 (``solprop_native.session.NativeSession``), on a CPU or a device build alike, which
 refuses by name, before the start is loaded, what it does not run.
@@ -19,8 +19,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from solprop.backends.session import RunSession, Start
-from solprop.backends.session_core import AttemptListener
+from solprop.backends.session import AttemptListener, RunSession, Start
 from solprop.log import StopFlag
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
@@ -70,7 +69,7 @@ def start_session(
     solprop.backends.session.RunSession
         The session the backend's prepared execution opens: the native session
         (``solprop_native.session.NativeSession``) for a native backend, and a
-        :class:`~solprop.backends.host.session.HostSession` for a reference
+        :class:`~solprop.backends.numpy_ref.session.HostSession` for a reference
         backend.
     """
     prepared = backend.prepare(problem, request)

@@ -48,7 +48,7 @@ from sessions.test_native_session import (
 )
 from solprop._interrupts import handled
 from solprop.backends.events import ObservationReady, Outcome
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import SessionError, Start
 from solprop.backends.sessions import start_session

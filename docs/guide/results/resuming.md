@@ -275,8 +275,7 @@ Each execution record states what a resume can rely on, under
   `automatic_size_limit` (over the 256 MiB kept by default, with the size),
   `unavailable_history` (the march held nothing to continue there),
   `output_cannot_store` (a handler without `save_march`, such as `MemoryOutput`),
-  `write_failed` (the write was cut short), `incompatible_representation` (the engine
-  does not export its history), `unsupported_method` (the
+  `write_failed` (the write was cut short), `unsupported_method` (the
   Runge–Kutta proposal and norm memory are not persisted) or `no_method_history`
   (the low-storage march has none).
 - `restoration`, in a resumed execution: `restored` (the Adams history continued),

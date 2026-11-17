@@ -53,6 +53,7 @@ from solprop.exceptions import (
 )
 from solprop.fourier import GridKind, n_omega_for
 from solprop.grid import Collar
+from solprop.nonlinear.responses import MAX_N_POL
 from solprop.spatial_absorber import (
     CROSSING_ADAPTIVE,
     CROSSING_FIXED,
@@ -105,7 +106,6 @@ __all__ = [
     "EXPONENT_BUDGET",
     "LOG_DBL_MAX",
     "MAX_N_COMPONENTS",
-    "MAX_N_POL",
     "Flags",
     "Initial",
     "NoiseModel",
@@ -127,30 +127,14 @@ The component an HE_1m Marcatili mode points along at ``phi = 0`` (see
 """
 
 
-MAX_N_POL = 2
-"""Most entries the state's polarisation axis may have.
-
-The transverse components are carried either by the transform's rows or by the
-state's polarisation axis, never by both: a row of ``synthesis`` is one Cartesian
-component at one node, and so is one entry of the state's polarisation axis, so a
-problem that set both would count them twice.
-
-It stays 2 at kernel schema 14. A general modal guide's three Cartesian components
-are *not* three state polarisations: one vector eigenmode has E_x, E_y and E_z and
-stores one amplitude, so the guide carries ``n_pol = 1`` and
-:data:`MAX_N_COMPONENTS` local field components. Setting this to
-3 would instead admit three independent amplitudes per eigenmode, which is a
-different and unphysical problem.
-"""
-
-
 MAX_N_COMPONENTS = 3
 """Cartesian components of the local physical field a general modal guide resolves.
 
 The count of :class:`solprop.translate.modal_tables.ModalTransformTables`' component
 axis -- E_x, E_y and E_z, and the matching H -- which is a property of the provider's
 fields and not of the state's polarisation axis. The distinct check
-:data:`MAX_N_POL` performs for the channel routes is kept beside it, unchanged.
+:data:`solprop.nonlinear.responses.MAX_N_POL` performs for the channel routes is kept
+beside it, unchanged.
 """
 
 
@@ -1116,6 +1100,17 @@ class PropagationProblem:
     def _check_shapes(self) -> None:
         """Check every array agrees with the canonical state shape."""
         n_modes, n_pol, n_omega = self.shape
+        # First: a state that carries the components the transform resolves too fails
+        # every shape below, and this names why.
+        if self.transform.n_pol * n_pol > MAX_N_POL:
+            msg = (
+                f"transform resolves {self.transform.n_pol} transverse components and "
+                f"the state carries {n_pol}; the components belong to one of the two "
+                "and not to both (solprop.modes.collection.ModeCollection."
+                "with_polarisations builds the polarisation-resolved mode set a "
+                "component-resolving transform expects)"
+            )
+            raise TranslationError(msg)
         if self.initial.field0.shape != self.shape:
             msg = (
                 f"initial.field0 has shape {self.initial.field0.shape}, expected "
@@ -1143,15 +1138,6 @@ class PropagationProblem:
         if self.transform.n_modes != n_modes:
             msg = (
                 f"transform carries {self.transform.n_modes} modes, expected {n_modes}"
-            )
-            raise TranslationError(msg)
-        if self.transform.n_pol * n_pol > MAX_N_POL:
-            msg = (
-                f"transform resolves {self.transform.n_pol} transverse components and "
-                f"the state carries {n_pol}; the components belong to one of the two "
-                "and not to both (solprop.modes.collection.ModeCollection."
-                "with_polarisations builds the polarisation-resolved mode set a "
-                "component-resolving transform expects)"
             )
             raise TranslationError(msg)
         for name, expected in (

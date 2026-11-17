@@ -8,7 +8,7 @@ SEP 47 phase 5 retired the native backend's step-driver calls, and SEP 52 the
 reference's: every run starts through
 :func:`solprop.backends.sessions.start_session`, which opens the native session for a
 native backend and the reference's own
-:class:`~solprop.backends.host.session.HostSession` for ``numpy_ref``, so one call
+:class:`~solprop.backends.numpy_ref.session.HostSession` for ``numpy_ref``, so one call
 serves both sides of a parity check. These helpers start that session on a backend the
 test built, drive it with the conformance suite's driver
 (:func:`sessions.executors.drive`) and hand back its

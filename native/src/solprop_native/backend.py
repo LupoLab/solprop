@@ -18,11 +18,7 @@ import numpy as np
 import numpy.typing as npt
 from solprop._process import acquire_host_blas, thread_budget
 from solprop.backends import tdse_source
-from solprop.backends.exponential import (
-    carrier_reference,
-    refuse_carrier_frame,
-    refuse_formulation,
-)
+from solprop.backends.exponential import carrier_reference, refuse_adams
 from solprop.backends.ledger import source_absent
 from solprop.backends.node_chunk import (
     NodeChunkPlan,
@@ -85,7 +81,6 @@ from solprop.translate.stage import (
     terms,
 )
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding
-from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
 from solprop.transverse_monitor import (
     TransverseEdge,
     _transverse_edge_bytes,  # pyright: ignore[reportPrivateUsage] - released together
@@ -188,9 +183,6 @@ class NativeBackend:
     solprop's registry admits them on this backend by this attribute and refuses
     them, by name, on a build without it.
     """
-    reads_transverse_edge = True
-    """The transverse edge is read from the native state where it lives (solprop SEP 40
-    section 5.3, SEP 44), by the native session at each read."""
 
     def __init__(
         self,
@@ -209,7 +201,7 @@ class NativeBackend:
         check_build()
         stepper = request.stepper
         _refuse_unsupported(problem, stepper)
-        _refuse_tdse(problem, request, tdse_binding)
+        _refuse_tdse(problem, tdse_binding)
         validate_run(problem, request)
         stats = request.observation.stats
         refused = metric_refusal(problem, (*stats.names, *stats.periodic))
@@ -557,7 +549,7 @@ class NativeBackend:
 
         Either formulation keeps its history, its step arithmetic and its norms in the
         workspace (solprop ADR-043), beside a coupled flow too (SEP 16 phase 6), whose
-        interaction formulation the admission refuses (`_refuse_adams`). A varying
+        interaction formulation the admission refuses (`refuse_adams`). A varying
         operator's exponential formulation carries the transported compensation
         natively, as does a frozen-residual flow's residual, whatever the diagonal's
         representation; the untransported test witness is the reference's alone.
@@ -845,17 +837,6 @@ class NativeBackend:
             )
         self._probe = probe
         return NativeProbe(self, probe, loaded)
-
-    def march_export_refusal(self) -> str | None:
-        """Return ``None``: every march the backend admits carries its history.
-
-        Returns
-        -------
-        None
-            The resident Adams engine exports and installs its rows; a Runge-Kutta
-            or low-storage march keeps none.
-        """
-        return None
 
     def metadata(self) -> dict[str, object]:
         """Return the shared execution metadata plus the native build record.
@@ -1171,26 +1152,10 @@ def host_rows_refusal(problem: PropagationProblem) -> str | None:
     )
 
 
-def _refuse_tdse(
-    problem: PropagationProblem, request: RunRequest, binding: TDSEBinding | None
-) -> None:
-    """Refuse a TDSE problem without its binding, or a binding without one.
-
-    And the rate-model statistics the TDSE response does not define, by name,
-    as the reference refuses them, before anything is allocated.
-    """
+def _refuse_tdse(problem: PropagationProblem, binding: TDSEBinding | None) -> None:
+    """Refuse a TDSE problem without its binding, or a binding without one."""
     if (tdse_descriptor(problem.route) is None) != (binding is None):
         raise BackendError("TDSE problems require an explicit host response binding")
-    if binding is None:
-        return
-    stats = request.observation.stats
-    unavailable = TDSE_UNAVAILABLE_STATISTICS.intersection(
-        (*stats.names, *stats.periodic)
-    )
-    if unavailable:
-        raise BackendError(
-            f"TDSE does not define the rate-model statistics {sorted(unavailable)}"
-        )
 
 
 def _refuse_unknown_method(stepper: StepperSettings) -> None:
@@ -1205,34 +1170,6 @@ def _refuse_unknown_method(stepper: StepperSettings) -> None:
         )
 
 
-def _refuse_adams(problem: PropagationProblem, stepper: StepperSettings) -> None:
-    integrator = stepper.integrator
-    # The low-storage march (solprop SEP 24 phase 3) runs on every route the
-    # translation admits it on: no coupled flow and no TDSE response.
-    if integrator is None or isinstance(integrator, LowStorageRungeKutta):
-        return
-    # solprop SEP 16 phase 3: every route's stage source serves both formulations,
-    # with the modified noise. A coupled flow is stepped by the exponential
-    # formulation only (phase 5), as solprop's reference does.
-    if (
-        problem.linear.coupled_flow is not None
-        and integrator.formulation != "exponential"
-    ):
-        raise BackendError(
-            "solprop-native does not step a problem with a coupled linear flow with "
-            f"the {integrator.name} integrator; use Multistep(formulation="
-            "'exponential') or the Runge-Kutta march"
-        )
-    refuse_formulation(problem, stepper, "native")
-    # SEP 35 phase 3: the scalar shift on CPU builds; device builds wait for their
-    # qualification.
-    device = _on_device()
-    refuse_carrier_frame(
-        problem,
-        stepper,
-        "native (device build)" if device else "native",
-        delivered=frozenset() if device else frozenset({"scalar"}),
-    )
 
 
 def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -> None:
@@ -1259,30 +1196,15 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
             raise BackendError(
                 f"solprop-native does not execute the {type(route).__name__} route"
             )
-    # Schema 16's low-call Adams integrator (solprop SEP 13) runs here on the modal
-    # fibre route (SEP 14 phase 2), its source evaluated by the general engine's stage
-    # pipeline; elsewhere it is refused by name rather than stepped by this backend's
-    # Runge-Kutta march, which would silently be a different method.
-    _refuse_adams(problem, stepper)
-    flags = problem.flags
-    if problem.transform.n_pol * problem.shape[1] > 2:
-        raise BackendError(
-            "the polarisation components must belong to one of the two supported "
-            "representations; Kokkos supports at most two effective node "
-            "components, but the transform and state request "
-            f"{problem.transform.n_pol * problem.shape[1]}"
-        )
-    if (
-        flags.has_raman
-        and problem.transform.n_pol * problem.shape[1] != 1
-        and (
-            not problem.responses.raman_terms
-            or not all(term.tensor_capable for term in problem.responses.raman_terms)
-        )
-    ):
-        raise BackendError(
-            "vector Raman requires tensor-capable terms; found scalar_only"
-        )
+    # solprop SEP 35 phase 3: the scalar carrier shift on CPU builds; device builds
+    # wait for their qualification.
+    device = _on_device()
+    refuse_adams(
+        problem,
+        stepper,
+        "native (device build)" if device else "native",
+        delivered=frozenset() if device else frozenset({"scalar"}),
+    )
 
 
 @dataclasses.dataclass(frozen=True)

@@ -59,10 +59,10 @@ from solprop.backends.events import Eligibility, ObservationKind, ObservationRea
 from solprop.backends.low_storage import schedule_key, table_steps
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.engines import NumpyLowStorage
+from solprop.backends.numpy_ref.session_parts import YieldDue
 from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.registry import resolve_name
 from solprop.backends.session import Start
-from solprop.backends.session_core import YieldDue
 from solprop.boundaries import absorber
 from solprop.constants import C
 from solprop.driver.scaffold import gnlse_source
@@ -1583,7 +1583,9 @@ def test_the_march_warns_once_when_a_step_passes_the_interval(
     # replay into two march calls, each of which warns once.
     monkeypatch.setattr(NumpyLowStorage, "trial", stiff)
     monkeypatch.setattr(YieldDue, "__call__", lambda self: False)
-    with caplog.at_level(logging.WARNING, logger="solprop.backends.host.low_storage"):
+    with caplog.at_level(
+        logging.WARNING, logger="solprop.backends.numpy_ref.marches.low_storage"
+    ):
         result = session_run(
             backend, problem, bare(run_request), export=None, observations=2
         )

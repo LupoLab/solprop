@@ -14,7 +14,7 @@ from sessions.executors import (  # pyright: ignore[reportPrivateUsage]
     entrance,
     soliton,
 )
-from solprop.backends.host.session import HostSession
+from solprop.backends.numpy_ref.session import HostSession
 from solprop.backends.registry import available, select
 from solprop.exceptions import BackendError
 
