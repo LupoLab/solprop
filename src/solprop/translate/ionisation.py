@@ -329,7 +329,7 @@ def rate_table_key(
 
     Every setting that changes the table appears once, in name order, so the key cannot
     depend on the order in which the rate's keyword arguments were written: the same
-    settings in a different order give the same cache file.
+    settings in a different order give the same entry in the in-memory cache.
 
     Parameters
     ----------
@@ -586,20 +586,7 @@ def build_rate_table(
 
 def _finalise(table: RateTable, error: float) -> RateTable:
     """Return a copy of the table with the measured error recorded."""
-    return RateTable(
-        log_rate=table.log_rate,
-        coefficients=table.coefficients,
-        log_field_min=table.log_field_min,
-        d_log_field=table.d_log_field,
-        field_min=table.field_min,
-        field_max=table.field_max,
-        rate_max=table.rate_max,
-        error=error,
-        key=table.key,
-        convention=table.convention,
-        species_identity=table.species_identity,
-        ionisation_potential=table.ionisation_potential,
-    )
+    return replace(table, error=error)
 
 
 def frozen_table(table: RateTable) -> RateTable:

@@ -338,16 +338,17 @@ class SeparableOperator:
         ``beta_p = omega n_eff,p / c`` is the mode's own complex propagation
         constant (the wall term under the mode's loss policy). Column ``c`` belongs
         to channel ``c % n_channels`` (the channel index fastest). Zero at inactive
-        frequencies. ``None`` (the default) for every other kind, which leaves the
-        operator exactly as before.
+        frequencies. ``None`` (the default) for every other kind, which adds no wall
+        term to the operator.
     kperp_rate : numpy.ndarray or None
         Kernel schema 31: the transverse-wavevector power absorption rate
         ``alpha_perp`` of a run's safety ramp (SEP 40), in
         m^-1, one per column, shape ``(n_modes,)``, finite and nonnegative. It enters
         the operator on the active band only, beside the spectral rate,
         ``D -= alpha_perp / 2`` (SEP 22 section 5.3), and never the unitary phase.
-        ``None`` (the default) is stored as zeros, whose operator is today's to the
-        last bit. On the hybrid planar kind it acts per ``(p, k_y)`` column (SEP 40).
+        ``None`` (the default) is stored as zeros, which leave every element of the
+        operator bitwise unchanged. On the hybrid planar kind it acts per ``(p, k_y)``
+        column (SEP 40).
     user_rate : numpy.ndarray or None
         The user's share of `spectral_rate`, in m^-1, shape ``(n_omega,)``; only
         ``absorbed_power`` reads it, since the operator takes the total. ``None`` (the
@@ -672,8 +673,8 @@ def separable_values(
     root, propagating, attenuation = longitudinal_root(coefficients, columns)
     transverse_rate = _kperp_rate(coefficients, columns)[:, None]
     # The transverse rate joins the field attenuation inside the active factor (SEP
-    # 22, Q6), so an inactive bin's operator is today's whatever the collar; a zero
-    # rate leaves every element as it was, signed zeros included: -a - 0 = -a.
+    # 22, Q6), so an inactive bin's operator does not depend on the collar; a zero
+    # rate leaves every element bitwise unchanged, signed zeros included: -a - 0 = -a.
     operator = (
         (-attenuation - 0.5 * transverse_rate)
         - 1j * (np.real(root) - coefficients.frame)

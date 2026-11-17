@@ -275,8 +275,8 @@ class KerrCoefficients:
         Whether the polarisation is the real part of the result. True on a field grid.
     density : PiecewiseChebyshev or None
         The scale multiplying coefficient at each z. A composite uses sum(rho*gamma3)
-        with coefficient=eps0; a single response retains its original coefficient and
-        density operation order. None is used only by the standalone leaf builder.
+        with coefficient=eps0; a single response keeps its own coefficient, scaled by
+        its density. None is used only by the standalone leaf builder.
 
     Examples
     --------
@@ -1035,11 +1035,11 @@ class RamanCoefficients:
     """The delayed response of a Raman-active medium, as a fused pass needs it.
 
     A leaf of section 5 of the kernel contract, like :class:`PlasmaCoefficients`, so
-    its fields are not rows of that document. It replaces the three separate rows of
-    contract version 2 and carries the drive form, which they had nowhere to put:
-    which real quadratic form drives the coherence on a *field* grid -- ``E^2``, or the
-    cycle-averaged ``|E_a|^2/2`` -- is a property of the problem, and the translation
-    layer checks that the declared Kerr and Raman responses agree about it.
+    its fields are not rows of that document. It carries the kernels, the decay rates
+    and the drive form together: which real quadratic form drives the coherence on a
+    *field* grid -- ``E^2``, or the cycle-averaged ``|E_a|^2/2`` -- is a property of
+    the problem, and the translation layer checks that the declared Kerr and Raman
+    responses agree about it.
 
     Attributes
     ----------
@@ -1980,7 +1980,7 @@ class CompiledResponses:
 
     @property
     def plasma_coefficients(self) -> PlasmaChannel | None:  # numpydoc ignore=RT01
-        """One-channel leaf for the original specialised execution path.
+        """One-channel leaf, for the reference's one-channel plasma pass.
 
         The sole channel, or ``None`` when there are zero or multiple channels.
         """
@@ -1988,7 +1988,7 @@ class CompiledResponses:
 
     @property
     def raman_coefficients(self) -> RamanCoefficients | None:  # numpydoc ignore=RT01
-        """One-component Raman leaf for its original arithmetic.
+        """One-component Raman leaf, for the reference's one-component Raman pass.
 
         The sole component, or ``None`` when there are zero or multiple terms.
         """
@@ -2309,7 +2309,7 @@ def _log_prefactor(compiled: "CompiledResponses", z_max: float) -> None:
 
     The swing is measured from the representation rather than from the physics, so the
     report is free: it is the largest departure from the entrance value over the run,
-    which is exactly what freezing the prefactor at ``z = 0`` used to discard.
+    which is what freezing the prefactor at ``z = 0`` would discard.
 
     - ``z_max``: length the run covers, m.
     """
@@ -2410,7 +2410,7 @@ class _ResponseBuild:
 def _material_profiles(
     modes: tuple[Mode, ...], mixture: Mixture | None, profile: ZProfile
 ) -> _MaterialProfiles:
-    """Resolve component profiles while preserving the original single path.
+    """Resolve component profiles, keeping one material on its single path.
 
     - ``mixture``: ordered component populations; None keeps the single-material path.
     - ``profile``: total density path in m^-3, or the single material's nonlinear
