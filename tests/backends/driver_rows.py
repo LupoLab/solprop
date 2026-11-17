@@ -12,11 +12,11 @@ the output layer, read back as a test reads them:
   (``tests/slab_cases.py``); the last saved plane (``last_plane``), from
   ``tests/driver/test_prop_slab.py``, which keeps each backend's launched energy and
   the warnings the route gives;
-- ``legacy entry ...`` rows: the legacy entry points ``prop_capillary`` and
+- ``entry point ...`` rows: the entry points ``prop_capillary`` and
   ``prop_gnlse``, ten fixed steps at the Adams method's fixed top order
-  (``tests/legacy_entry_cases.py``); the last saved plane (``last_plane``), from the
+  (``tests/entry_point_cases.py``); the last saved plane (``last_plane``), from the
   native instance of ``tests/driver/test_coherent_capillary.py``'s
-  ``test_the_legacy_entry_points_are_what_they_were``, which keeps each run's record and
+  ``test_the_prop_entry_points_are_what_they_were``, which keeps each run's record and
   native's repeat of its own run;
 - ``rk replay ...`` rows: the GNLSE and coherent-wall capillary routes of
   ``capability_routes.ROUTES`` replaying 400 uniform steps on the Runge-Kutta march
@@ -27,15 +27,16 @@ the output layer, read back as a test reads them:
 **The bounds are the old tests', fixed before native runs.** A slab row is bounded by
 ``slab_cases.parity_bound``: the ten steps' seven DOPRI5 stages, each one transform
 round trip each way and the modal synthesis and projection over the rule's nodes, the
-errors adding. A legacy row is bounded by ``legacy_entry_cases.legacy_parity_bound``,
-the same count over the march's evaluations a step (DOPRI5's seven, or the Adams
-march's weights' absolute sum) and the plane's samples. Both are relative to the
+errors adding. An entry point's row is bounded by
+``entry_point_cases.entry_parity_bound``, the same count over the march's evaluations
+a step (DOPRI5's seven, or the Adams march's weights' absolute sum) and the plane's
+samples. Both are relative to the
 plane's peak, as the old tests compared them. A replay row holds every saved plane to a
 hundred times the controller's relative tolerance of their common peak, the old test's
 gate for the adaptive runs it shares its helper with, which no derivation backs for a
 replay (#807).
 
-**The guard.** A slab or legacy row's term is the Kerr response
+**The guard.** A slab or entry point row's term is the Kerr response
 (``optmat_rows.without_kerr``): the reference's last plane must move by more than
 ``parity_ladder.DETECTION`` (a thousand) of the row's bound without it.
 
@@ -66,7 +67,7 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any
 
-import legacy_entry_cases
+import entry_point_cases
 import rk_route_cases
 import slab_cases
 from backends.flow_rows import driver_case
@@ -83,14 +84,14 @@ SLAB_QUIET = (
 )
 """The slab module's warning filters, and the two warnings its parity test caught."""
 
-LEGACY_QUIET = (
+ENTRY_QUIET = (
     # The band reaches past helium's and silica's fitted ranges, and the bore is a
     # marginal case by design: test_coherent_capillary's module filters.
     "ignore::solprop.exceptions.MaterialRangeWarning",
     "ignore::solprop.exceptions.GrazingIncidenceWarning",
     "ignore:the temporal absorber attenuates",
 )
-"""The legacy entry points' module's warning filters."""
+"""The entry points' module's warning filters."""
 
 # --- the cases ------------------------------------------------------------------------
 
@@ -100,13 +101,13 @@ def slab(taper: bool) -> Built:
     return driver_case(slab_cases.launched(*slab_cases.projected_multimode(taper)))
 
 
-def legacy_entry(entry: str) -> Built:
-    """Return a legacy entry point's ten-step run on the reference.
+def entry_point(entry: str) -> Built:
+    """Return an entry point's ten-step run on the reference.
 
     The simulation ``prop_capillary`` or ``prop_gnlse`` builds and runs
-    (``legacy_entry_cases.legacy_simulation``).
+    (``entry_point_cases.entry_simulation``).
     """
-    return driver_case(legacy_entry_cases.legacy_simulation(entry))
+    return driver_case(entry_point_cases.entry_simulation(entry))
 
 
 def replay(route: str) -> Built:
@@ -125,15 +126,15 @@ def slab_bound(built: Built) -> float:
     return slab_cases.parity_bound(rule.n_nodes)
 
 
-def legacy_bound(built: Built) -> float:
-    """Return ``legacy_entry_cases.legacy_parity_bound`` over the plane's samples.
+def entry_bound(built: Built) -> float:
+    """Return ``entry_point_cases.entry_parity_bound`` over the plane's samples.
 
     The samples are the reference's last plane's, as the old test read them off the
     native plane of the same shape.
     """
     assert built.simulation is not None
     samples = reference(built, "last_plane").field.shape[-1]
-    return legacy_entry_cases.legacy_parity_bound(samples, built.simulation)
+    return entry_point_cases.entry_parity_bound(samples, built.simulation)
 
 
 def a_hundred_tolerances(built: Built) -> float:
@@ -204,37 +205,37 @@ def _slab_rows() -> tuple[Row, ...]:
     )
 
 
-LEGACY_VACUOUS = {
+ENTRY_VACUOUS = {
     "prop_capillary": "The Kerr term moves the reference's last plane by 12.1 bounds "
     "(measured), under the least guard of 100: 10 nJ in helium over 0.2 mm is nearly "
     "linear, so the bound, which counts the nonlinear term's re-evaluations, is far "
     "above what the term contributes (#806). Kept as the old test's comparison.",
     "prop_gnlse": "",
 }
-"""Each legacy entry point's reason its row is vacuous (none: guarded)."""
+"""Each entry point's reason its row is vacuous (none: guarded)."""
 
 
-def _legacy_rows() -> tuple[Row, ...]:
-    """Return the legacy entry points' ten-step runs."""
+def _entry_rows() -> tuple[Row, ...]:
+    """Return the entry points' ten-step runs."""
     return tuple(
         driver_row(
-            name=f"legacy entry {entry}",
+            name=f"entry point {entry}",
             route=route,
             stepper="adams",
             response="kerr",
             features=f"{entry}, ten fixed steps at the Adams method's fixed top order, "
             "no wall",
-            why=f"Ten fixed steps of the legacy {entry} run leave the reference's last "
+            why=f"Ten fixed steps of the {entry} run leave the reference's last "
             "plane on native.",
-            bound_note="legacy_entry_cases.legacy_parity_bound over the plane's "
+            bound_note="entry_point_cases.entry_parity_bound over the plane's "
             "samples, relative to the plane's peak, derived before the comparison was "
             "first run.",
-            build=partial(legacy_entry, entry),
+            build=partial(entry_point, entry),
             switch_off=without_kerr,
-            rungs={"last_plane": legacy_bound},
+            rungs={"last_plane": entry_bound},
             metric="peak",
-            vacuous=LEGACY_VACUOUS[entry],
-            quiet=LEGACY_QUIET,
+            vacuous=ENTRY_VACUOUS[entry],
+            quiet=ENTRY_QUIET,
         )
         for entry, route in (
             ("prop_capillary", "capillary (multimode)"),
@@ -297,4 +298,4 @@ def _replay_rows() -> tuple[Row, ...]:
 @functools.cache
 def rows() -> tuple[Row, ...]:
     """Return every row of the driver's runs on a fixed schedule."""
-    return (*_slab_rows(), *_legacy_rows(), *_replay_rows())
+    return (*_slab_rows(), *_entry_rows(), *_replay_rows())

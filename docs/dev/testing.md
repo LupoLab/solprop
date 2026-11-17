@@ -376,7 +376,7 @@ configuration identity, cache validation, artifact integrity or provenance are e
 these records.
 
 - **Recorded final states.** A route that must not move when nothing in it changed (an
-  opt-in feature left off, a section with nothing to score, the legacy entry points) is
+  opt-in feature left off, a section with nothing to score, the `prop_*` entry points) is
   checked against its recorded final state with `ndarrays_regression`
   (`tests/state_records.py`, stored beside the test), at a bound derived as class R for
   a fixed-schedule case and as a class T envelope otherwise. That bound is above what a
