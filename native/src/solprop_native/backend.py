@@ -866,8 +866,8 @@ class NativeBackend:
             work["source_evaluations"] = self._low_storage_evaluations
         else:
             work["source_evaluations"] = native["rk_source_evaluations"]
-        # Which march steps the run (solprop SEP 39 and 45 section 5): the native one,
-        # the only one since SEP 47 phase 5.
+        # Which march steps the run (solprop SEP 39 and 45 section 5): the key present
+        # names the march, and its value is always "native", the only march there is.
         if self._adams is not None:
             work["adams_march"] = "native"
         elif not self._low_storage:
@@ -916,6 +916,8 @@ class NativeBackend:
             "plasma_channels": len(self._problem.responses.population_channels),
             "envelope_plasma_enabled": self._problem.responses.envelope_plasma
             is not None,
+            # A constant: a planned scalar status readback refuses an unresolved
+            # angular quadrature before the envelope current's transforms.
             "envelope_refinement_boundary": "scalar status read before transforms",
             "raman_components": len(self._problem.responses.raman_terms),
             "raman_drive": (

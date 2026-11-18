@@ -210,7 +210,7 @@ the gate.
   Never call Python from a Kokkos or OpenMP worker, or during teardown.
 - Public Python has complete annotations, NumPy-style docstrings, `__all__`, `py.typed`
   and a complete stub for the private extension, generated whole with its `_testing`
-  stub by nanobind's stubgen (`scripts/problem_stub.py`, checked in the lint stage):
+  stub by nanobind's stubgen (`scripts/stubs.py`, checked in the lint stage):
   a binding that takes or returns a record names its Python type with `nb::sig`, and a
   stub is regenerated, never edited. An entry point only solprop's tests reach goes in
   the extension's private `_testing` submodule (solprop SEP 52), which ships in the

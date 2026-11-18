@@ -183,7 +183,7 @@ The private extension `_core` is a thin seam (solprop SEP 52 section 5.3):
   the workspace's Runge-Kutta (or low-storage) and Adams engines, which solprop's
   tests run through the same engine protocols as the reference's.
 - **Generated stubs.** `_core.pyi` and `_core_testing.pyi` are generated whole by
-  nanobind's stubgen (`scripts/problem_stub.py`; `--check` in the lint stage). A binding
+  nanobind's stubgen (`scripts/stubs.py`; `--check` in the lint stage). A binding
   that takes or returns a record names its Python type with `nb::sig`, so the stubs
   stay typed: edit the binding and regenerate, never the stub.
 

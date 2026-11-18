@@ -13,7 +13,7 @@ placed with ``numactl`` or ``taskset``. Unbound threads are also what both GNU's
 LLVM's runtimes give when nothing is set.
 
 So, before the core starts Kokkos, the import sets ``OMP_PROC_BIND=false``: the threads
-stay where the scheduler puts them, as before, and the notice is not printed. The
+stay where the scheduler puts them and the notice is not printed. The
 setting stays in the environment, so that a runtime that reads it later and a solprop
 worker process run alike. Any of ``OMP_PROC_BIND``, ``OMP_PLACES``,
 ``GOMP_CPU_AFFINITY`` and ``KMP_AFFINITY`` already set is the user's choice of
