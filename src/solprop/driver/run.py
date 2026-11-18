@@ -17,9 +17,8 @@ backend owns the step loop and the output handler the sign convention on disk
 :class:`solprop.output.records.SavedPlane` in the internal FFT convention, with modal
 amplitudes in true-power units. :func:`field_retention`, :func:`retention_at` and
 :func:`check_snapshot_request` resolve what a run keeps. Progress goes to a
-:class:`solprop.log.ProgressReporter`, re-exported here with
-:class:`solprop.log.LogReporter` because this is where a run reaches them; the
-protocol is ``docs/dev/architecture.md`` section 14. The manual page is
+:class:`solprop.log.ProgressReporter`; the protocol is ``docs/dev/architecture.md``
+section 14. The manual page is
 ``docs/guide/setup/running.md``.
 """
 
@@ -42,7 +41,6 @@ from solprop.exceptions import (
 )
 from solprop.log import (
     DEFAULT_PROGRESS_PERIOD,
-    LogReporter,
     ProgressChoice,
     ProgressReporter,
     StopFlag,
@@ -85,8 +83,6 @@ from solprop.translate.tdse import TDSEBinding
 
 __all__ = [
     "RESTART_RECORD",
-    "LogReporter",
-    "ProgressReporter",
     "SessionFacts",
     "check_snapshot_request",
     "field_retention",
