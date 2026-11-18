@@ -544,7 +544,9 @@ def test_a_fill_is_monotone_bounded_and_finite(
     """
     highest = max(start_pressure, end_pressure)
     if highest < MIN_STAGE_PRESSURE:
-        with pytest.raises(TranslationError):
+        # Both refusals, an all-zero fill and one too small to square, name the stage
+        # pressure.
+        with pytest.raises(TranslationError, match="stage pressure"):
             PressureGradient.two_point(length, start_pressure, end_pressure)
         return
     fill = PressureGradient.two_point(length, start_pressure, end_pressure)

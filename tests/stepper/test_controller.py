@@ -117,6 +117,18 @@ def test_the_integral_term_actually_changes_the_factor():
     assert control.propose([0.5, 0.5]) != pytest.approx(control.propose([0.1, 0.5]))
 
 
+def test_the_factor_is_the_pi_law_of_the_current_and_previous_norms():
+    control = make_controller(lag=0)
+    # safety * current**-beta1 * previous**-beta2 with the shipped gains for an
+    # order-four estimator (safety 0.8, beta1 0.12, beta2 -0.04), current 0.5 and
+    # previous 0.25: inside the clamps, so the law itself. Two powers and two products,
+    # each within one rounding, so 4u = 4.4e-16 of the value; a flipped exponent moves
+    # it by 12 %.
+    assert (control.safety, control.beta1, control.beta2) == (0.8, 0.12, -0.04)
+    expected = 0.8 * 2.0**0.12 * 4.0**-0.04
+    assert control.propose([0.25, 0.5]) == pytest.approx(expected, rel=1e-15)
+
+
 def test_a_non_usable_previous_norm_falls_back_to_the_set_point():
     control = make_controller(lag=0)
     at_set_point = control.propose([1.0, 0.5])

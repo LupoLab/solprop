@@ -21,14 +21,20 @@ from solprop.output.serialisation import RECORD_ARRAY_LIMIT
 
 
 @pytest.mark.parametrize(
-    "payload",
-    [PointResult(0, "running"), PointResult(0, "failed", arrays={"z": np.zeros(1)})],
+    ("payload", "message"),
+    [
+        (PointResult(0, "running"), "only completed or failed results"),
+        (
+            PointResult(0, "failed", arrays={"z": np.zeros(1)}),
+            "failed artifacts must not retain numerical arrays",
+        ),
+    ],
 )
 def test_artifact_write_refuses_incomplete_or_failed_numerical_payload(
-    tmp_path, payload
+    tmp_path, payload, message
 ):
     path = tmp_path / "point.h5"
-    with pytest.raises(OutputError):
+    with pytest.raises(OutputError, match=message):
         write_artifact(path, payload, {"scan": "identity"})
     assert not path.exists()
 

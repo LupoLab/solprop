@@ -11,6 +11,7 @@ from solprop.exceptions import ProcessingError
 from solprop.grid import EnvelopeGrid
 from solprop.processing import spectra
 from solprop.processing._examples import example_output
+from solprop.processing.axes import grid_of
 from solprop.processing.time import energy
 
 
@@ -178,6 +179,33 @@ def test_an_accessor_takes_a_passband():
     red = float(energy(output, plane=0, bandpass=band))
     total = float(energy(output, plane=0))
     assert 0.0 < red < total
+
+
+def test_a_passband_keeps_the_energy_of_its_own_side():
+    # A band on the red side of the example's 800 nm spectrum, off its centre, with
+    # the default edges. Its window is zero beyond an edge's width outside the band, so
+    # a window on the wrong side fails; and the band's share of the energy is the
+    # window-squared share of |E|^2 (Parseval, on an envelope grid), summed here
+    # directly, so a window applied twice fails in the tapers. The two sides differ by
+    # the round-off of the reductions.
+    output = example_output()
+    grid = grid_of(output)
+    limits = (C / 850e-9, C / 810e-9)
+    low, high = 2.0 * np.pi * limits[0], 2.0 * np.pi * limits[1]
+    edge = min(spectra.DEFAULT_BANDPASS_BINS * grid.d_omega, 0.25 * (high - low))
+    window = spectra.bandpass(grid, limits, axis="f")
+    outside = (grid.omega < low - edge) | (grid.omega > high + edge)
+    assert np.all(window[outside] == 0.0)
+    assert float(window.max()) == 1.0
+    spectrum = np.abs(output.fields("fft")[0, 0, 0]) ** 2
+    share = float(np.sum(window**2 * spectrum) / np.sum(spectrum))
+    band = spectra.Passband(limits, "f")
+    inside = float(energy(output, plane=0, bandpass=band))
+    total = float(energy(output, plane=0))
+    assert inside / total == pytest.approx(share, rel=1e-13)
+    tapered = (window > 0.0) & (window < 1.0)
+    in_tapers = float(np.sum(window[tapered] ** 2 * spectrum[tapered]))
+    assert in_tapers > 0.1 * share * float(np.sum(spectrum))
 
 
 def test_specres_preserves_the_integral():

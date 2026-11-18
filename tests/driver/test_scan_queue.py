@@ -78,16 +78,16 @@ def publish(queue, claimed, work=None):
 
 
 @pytest.mark.parametrize(
-    "options",
+    ("options", "message"),
     [
-        {"stale_age": 0.0},
-        {"stale_age": float("nan")},
-        {"chunk": (1, 1)},
-        {"chunk": (0, 0)},
+        ({"stale_age": 0.0}, "stale_age must be positive and finite"),
+        ({"stale_age": float("nan")}, "stale_age must be positive and finite"),
+        ({"chunk": (1, 1)}, "chunk must satisfy"),
+        ({"chunk": (0, 0)}, "chunk must satisfy"),
     ],
 )
-def test_queue_refuses_invalid_lease_and_chunk(options):
-    with pytest.raises(DriverError):
+def test_queue_refuses_invalid_lease_and_chunk(options, message):
+    with pytest.raises(DriverError, match=message):
         Queue(None, **options)
 
 

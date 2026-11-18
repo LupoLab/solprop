@@ -168,6 +168,17 @@ def test_the_prefactor_is_the_mode_averaged_one_times_the_crop_scale(
     assert compiled.prefactor_value_shape == (1, 1, envelope_grid.n_omega)
 
 
+def test_an_oversampled_grid_crops_the_prefactor_by_its_crop_scale(field_grid, mode):
+    # The field grid pads its spectrum twice over, so its crop scale is 1/2, not 1: a
+    # prefactor that dropped it would be twice the expected one.
+    assert field_grid.crop_scale == 0.5
+    compiled = compile_for(field_grid, mode, [KerrResponse(chi3=1e-52, thg=True)])
+    expected = mode_average_prefactor(mode, field_grid) * 0.5
+    assert compiled.prefactor_constant is not None
+    # A product with an exact power of two, so exact.
+    assert np.array_equal(compiled.prefactor_constant[0, 0], expected)
+
+
 def test_the_multimode_prefactor_leaves_the_area_to_the_transform(envelope_grid, mode):
     compiled = compile_for(envelope_grid, mode, mode_averaged=False)
     expected = uppe_prefactor(mode, envelope_grid) * envelope_grid.crop_scale

@@ -6,6 +6,7 @@
 
 import json
 import math
+import re
 import warnings
 from dataclasses import replace
 from pathlib import Path
@@ -244,24 +245,45 @@ def test_the_critical_power_is_the_package_townes_power_times_the_index():
 
 
 @pytest.mark.parametrize(
-    "call",
+    ("call", "message"),
     [
-        lambda: choice("lorentz", "shape", get_args(tools.PulseShape), ToolsError),
-        lambda: tools.pulse_width(0.0),
-        lambda: tools.pulse_peak_power(-1.0, 10e-15),
-        lambda: tools.dispersion_length(10e-15, 0.0),
-        lambda: tools.dispersion_length(10e-15, math.nan),
-        lambda: tools.nonlinear_length(1.0, 0.0),
-        lambda: tools.nonlinear_coefficient(helium(), -1.0, PUMP),
-        lambda: tools.intensity_to_field(-1.0),
-        lambda: tools.self_focusing_power(PUMP, 1.0, 0.0),
-        lambda: tools.capillary_params(
-            -1e-6, "He", 1.0, energy=1e-6, fwhm=1e-14, wavelength=PUMP
+        (
+            lambda: choice("lorentz", "shape", get_args(tools.PulseShape), ToolsError),
+            "shape must be 'sech' or 'gauss'",
+        ),
+        (lambda: tools.pulse_width(0.0), "fwhm must be finite and positive"),
+        (
+            lambda: tools.pulse_peak_power(-1.0, 10e-15),
+            "energy must be finite and positive",
+        ),
+        (
+            lambda: tools.dispersion_length(10e-15, 0.0),
+            "beta2 must be finite and non-zero",
+        ),
+        (
+            lambda: tools.dispersion_length(10e-15, math.nan),
+            "beta2 must be finite and non-zero",
+        ),
+        (lambda: tools.nonlinear_length(1.0, 0.0), "gamma must be finite and positive"),
+        (
+            lambda: tools.nonlinear_coefficient(helium(), -1.0, PUMP),
+            "n2 must be finite and not negative",
+        ),
+        (lambda: tools.intensity_to_field(-1.0), "intensity must not be negative"),
+        (
+            lambda: tools.self_focusing_power(PUMP, 1.0, 0.0),
+            "n2 must be finite and positive",
+        ),
+        (
+            lambda: tools.capillary_params(
+                -1e-6, "He", 1.0, energy=1e-6, fwhm=1e-14, wavelength=PUMP
+            ),
+            "radius must be finite and positive",
         ),
     ],
 )
-def test_unusable_numbers_are_refused_by_name(call):
-    with pytest.raises(ToolsError):
+def test_unusable_numbers_are_refused_by_name(call, message):
+    with pytest.raises(ToolsError, match=re.escape(message)):
         call()
 
 

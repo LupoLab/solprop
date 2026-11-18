@@ -335,23 +335,46 @@ def test_a_glass_name_is_resolved_and_a_range_is_still_warned_about():
 
 
 @pytest.mark.parametrize(
-    "build",
+    ("build", "message"),
     [
-        lambda: Material(WINDOW, math.inf),
-        lambda: Material(WINDOW, 1e-3, -800e-9),
-        lambda: Material("Ar", 1.0),
-        lambda: Material(WINDOW, 1e-3, pressure=1.0),
-        lambda: Material(WINDOW, 1e-3, temperature=500.0),
-        lambda: Material("SiO2", 1e-3, temperature=500.0),
-        lambda: Material(
-            Mixture.fill({"Ar": 1.0}, 1.0, temperature=350.0), 1.0, temperature=500.0
+        (lambda: Material(WINDOW, math.inf), "thickness must be finite"),
+        (
+            lambda: Material(WINDOW, 1e-3, -800e-9),
+            "reference wavelength must be positive",
         ),
-        lambda: TaylorPhase((0.0, math.nan), WAVELENGTH),
-        lambda: TaylorPhase((0.0,), 0.0),
+        (lambda: Material("Ar", 1.0), "needs its pressure in bar"),
+        (
+            lambda: Material(WINDOW, 1e-3, pressure=1.0),
+            "pressure is for a built-in gas only",
+        ),
+        (
+            lambda: Material(WINDOW, 1e-3, temperature=500.0),
+            "temperature is for a built-in gas only",
+        ),
+        (
+            lambda: Material("SiO2", 1e-3, temperature=500.0),
+            "temperature is for a built-in gas only",
+        ),
+        (
+            lambda: Material(
+                Mixture.fill({"Ar": 1.0}, 1.0, temperature=350.0),
+                1.0,
+                temperature=500.0,
+            ),
+            "temperature is for a built-in gas only",
+        ),
+        (
+            lambda: TaylorPhase((0.0, math.nan), WAVELENGTH),
+            "Taylor coefficients must be finite",
+        ),
+        (
+            lambda: TaylorPhase((0.0,), 0.0),
+            "reference wavelength must be positive",
+        ),
     ],
 )
-def test_unusable_elements_are_refused(build):
-    with pytest.raises(MaterialError):
+def test_unusable_elements_are_refused(build, message):
+    with pytest.raises(MaterialError, match=message):
         build()
 
 
@@ -518,49 +541,70 @@ def test_a_shipped_set_has_a_band_a_name_and_a_physical_reflectivity(name):
 
 
 @pytest.mark.parametrize(
-    "build",
+    ("build", "message"),
     [
-        lambda: ChirpedMirror.lookup("HD60"),
-        lambda: ChirpedMirror(
-            np.array([4.0, 3.0, 2.0, 1.0]) * 1e15,
-            np.zeros(4),
-            np.empty(0),
-            np.empty(0),
-            (600e-9, 650e-9, 950e-9, 1000e-9),
+        (lambda: ChirpedMirror.lookup("HD60"), "unknown chirped mirror 'HD60'"),
+        (
+            lambda: ChirpedMirror(
+                np.array([4.0, 3.0, 2.0, 1.0]) * 1e15,
+                np.zeros(4),
+                np.empty(0),
+                np.empty(0),
+                (600e-9, 650e-9, 950e-9, 1000e-9),
+            ),
+            "at least four phase samples on an ascending frequency axis",
         ),
-        lambda: synthetic(group_delay=np.zeros(801)),
-        lambda: ChirpedMirror.from_data(
-            np.linspace(600e-9, 1000e-9, 11),
-            None,
-            reference_wavelength=WAVELENGTH,
-            band=(650e-9, 950e-9),
+        (
+            lambda: synthetic(group_delay=np.zeros(801)),
+            "exactly one of gdd and group_delay",
         ),
-        lambda: synthetic(reflectivity=np.full(801, 1.2)),
-        lambda: ChirpedMirror.from_data(
-            np.array([700e-9, 800e-9, 750e-9, 900e-9, 950e-9]),
-            None,
-            gdd=np.zeros(5),
-            reference_wavelength=WAVELENGTH,
-            band=(720e-9, 900e-9),
+        (
+            lambda: ChirpedMirror.from_data(
+                np.linspace(600e-9, 1000e-9, 11),
+                None,
+                reference_wavelength=WAVELENGTH,
+                band=(650e-9, 950e-9),
+            ),
+            "exactly one of gdd and group_delay",
         ),
-        lambda: ChirpedMirror.from_data(
-            np.linspace(700e-9, 900e-9, 3),
-            None,
-            gdd=np.zeros(3),
-            reference_wavelength=WAVELENGTH,
-            band=(720e-9, 880e-9),
+        (
+            lambda: synthetic(reflectivity=np.full(801, 1.2)),
+            r"power reflectivity lies outside \[0, 1\]",
         ),
-        lambda: ChirpedMirror.from_data(
-            np.linspace(700e-9, 900e-9, 9),
-            np.full(8, 0.9),
-            gdd=np.zeros(9),
-            reference_wavelength=WAVELENGTH,
-            band=(720e-9, 880e-9),
+        (
+            lambda: ChirpedMirror.from_data(
+                np.array([700e-9, 800e-9, 750e-9, 900e-9, 950e-9]),
+                None,
+                gdd=np.zeros(5),
+                reference_wavelength=WAVELENGTH,
+                band=(720e-9, 900e-9),
+            ),
+            "wavelength axis must be positive and monotonic",
+        ),
+        (
+            lambda: ChirpedMirror.from_data(
+                np.linspace(700e-9, 900e-9, 3),
+                None,
+                gdd=np.zeros(3),
+                reference_wavelength=WAVELENGTH,
+                band=(720e-9, 880e-9),
+            ),
+            "3 dispersion samples cannot carry a fit of order 5",
+        ),
+        (
+            lambda: ChirpedMirror.from_data(
+                np.linspace(700e-9, 900e-9, 9),
+                np.full(8, 0.9),
+                gdd=np.zeros(9),
+                reference_wavelength=WAVELENGTH,
+                band=(720e-9, 880e-9),
+            ),
+            "data column and its wavelength axis differ in length",
         ),
     ],
 )
-def test_unusable_mirror_data_are_refused(build):
-    with pytest.raises(MaterialError):
+def test_unusable_mirror_data_are_refused(build, message):
+    with pytest.raises(MaterialError, match=message):
         build()
 
 

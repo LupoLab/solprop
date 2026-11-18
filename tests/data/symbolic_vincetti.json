@@ -1,6 +1,7 @@
 {
   "provenance": {
     "generated": "2026-11-17T23:34:01.017033+00:00",
+    "generated_by": "tests/data/generate_symbolic_vincetti.py",
     "generator_sha256": "b1d20fa1b3470a8714721cf3d59354269f46a38264642165a4facae81a91fd6b",
     "sympy_version": "1.14.0",
     "light_speed": 299792458,
