@@ -456,7 +456,7 @@ def test_a_record_built_without_labels_says_so():
 
 
 def test_an_ordinary_run_is_refused_every_general_accessor(tables, guide):
-    """The reviewer's trap: an old file asked for a reconstruction."""
+    """A file of a run on no general guide is refused every reconstruction."""
     ordinary = example_output()
     for accessor in (
         electric_field,

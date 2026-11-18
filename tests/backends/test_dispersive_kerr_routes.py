@@ -4,10 +4,9 @@
 
 """SEP 6's dispersive response on numpy_ref's free-space, planar and general routes.
 
-Slice 1b of the SEP's phase 1: the Cartesian free-space pipeline (and the line grid
-that shares it) and the hybrid planar pipeline evaluate ``responses.dispersive_kerr``
-node by node, and the general modal route evaluates a gas region's channels at the
-nodes of that region. Per route:
+The Cartesian free-space pipeline (and the line grid that shares it) and the hybrid
+planar pipeline evaluate ``responses.dispersive_kerr`` node by node, and the general
+modal route evaluates a gas region's channels at the nodes of that region. Per route:
 
 - one nonlinear evaluation, caught where the route calls it, equals the reference
   :meth:`~solprop.nonlinear.responses.DispersiveKerrResponse.evaluate` at a node, bit
