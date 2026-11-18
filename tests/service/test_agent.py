@@ -477,19 +477,115 @@ def test_a_direct_run_is_cancelled_by_its_signal(tmp_path: Path):
         sleeper.wait()
 
 
+def _recording_scancel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Put a ``scancel`` first on the path that records its arguments; return where."""
+    if sys.platform == "win32":
+        pytest.skip("Slurm is faked with POSIX shell scripts")
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    calls = tmp_path / "scancel-calls"
+    (bin_ / "scancel").write_text(
+        f'#!/bin/sh\necho "$*" >> "{calls}"\n', encoding="utf-8"
+    )
+    (bin_ / "scancel").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_}{os.pathsep}{os.environ['PATH']}")
+    return calls
+
+
+@pytest.mark.medium
+def test_a_direct_run_inside_an_allocation_is_cancelled_by_its_signal_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A run started directly is no Slurm job, though the helper sits in one."""
+    calls = _recording_scancel(tmp_path, monkeypatch)
+    monkeypatch.setenv("SLURM_JOB_ID", "4242")  # the allocation, not the run's
+    from solprop.service.record import read_events  # noqa: PLC0415 - only here
+
+    # Long enough (several seconds) to be cancelled well before its end.
+    slow = TINY.replace('length = "5 cm"', 'length = "200 cm"').replace(
+        "n_save = 6", "n_save = 200"
+    )
+    workspace = tmp_path / "runs"
+    folder = workspace / "r1"
+    helper = Agent(io.BytesIO())
+    spec = spec_value(RunSpec("r1", str(folder), recipe=slow))
+    helper.start({"spec": spec, "launcher": "direct"})
+
+    def summary() -> dict[str, Any]:
+        return helper.list_runs({"workspace": str(workspace)})[0]
+
+    def marching() -> bool:  # a row recorded: SIGTERM now leaves it stopped
+        events = read_events(folder)[0] if (folder / "events.bin").exists() else []
+        return any(event.kind == "row" for event in events)
+
+    deadline = time.monotonic() + WAIT
+    while not marching():
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    assert summary()["state"] == "running" and summary()["slurm_job"] is None
+    helper.cancel({"folder": str(folder)})
+    deadline = time.monotonic() + WAIT
+    while summary()["state"] in {"running", "starting"}:
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    assert summary()["state"] == "stopped"  # its process had SIGTERM
+    assert not calls.exists()
+    helper.close()
+
+
+@pytest.mark.parametrize("submitted", [True, False])
+def test_a_direct_run_s_record_naming_an_allocation_is_cancelled_by_its_signal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, submitted: bool
+):
+    """Only the job solprop submitted a run as is cancelled, whatever ``job.json`` says.
+
+    A run started directly inside an allocation could record that allocation as its
+    job, with or without the starter's ``submitted.json``.
+    """
+    import subprocess  # noqa: PLC0415 - only here
+
+    from solprop.service.launch import SUBMITTED  # noqa: PLC0415 - only here
+    from solprop.service.record import (  # noqa: PLC0415 - only here
+        Job,
+        process_stamp,
+        write_job,
+        write_json,
+    )
+
+    calls = _recording_scancel(tmp_path, monkeypatch)
+    here = socket.gethostname()
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        stamp = process_stamp(sleeper.pid)
+        if submitted:
+            write_json(
+                tmp_path / SUBMITTED,
+                {"launcher": "direct", "host": here, "pid": sleeper.pid},
+            )
+        write_job(tmp_path, Job("r1", "slurm", here, sleeper.pid, stamp, "4242", 0.0))
+        Agent(io.BytesIO()).cancel({"folder": str(tmp_path)})
+        assert sleeper.wait(timeout=WAIT) != 0
+        assert not calls.exists()
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+
+
 def test_slurm_runs_through_the_helper(tmp_path: Path, monkeypatch):
     if sys.platform == "win32":
         pytest.skip("Slurm is faked with POSIX shell scripts")
     bin_ = tmp_path / "bin"
     bin_.mkdir()
+    cancelled = tmp_path / "cancelled"
     for name, script in (
         ("sbatch", 'echo "77"\n'),
         ("squeue", 'echo "77|PENDING|Resources"\n'),
-        ("scancel", "exit 0\n"),
+        ("scancel", f'echo "$*" >> "{cancelled}"\n'),
     ):
         (bin_ / name).write_text("#!/bin/sh\n" + script, encoding="utf-8")
         (bin_ / name).chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("SLURM_JOB_ID", "4242")  # the helper sits in an allocation
     helper = Agent(io.BytesIO())
     folder = tmp_path / "runs" / "s1"
     spec = spec_value(RunSpec("s1", str(folder), recipe=TINY))
@@ -500,6 +596,7 @@ def test_slurm_runs_through_the_helper(tmp_path: Path, monkeypatch):
     listed = helper.list_runs({"workspace": str(tmp_path / "runs")})
     assert listed[0]["detail"] == "Resources"
     helper.cancel({"folder": str(folder)})
+    assert cancelled.read_text(encoding="utf-8").splitlines() == ["77"]
     with pytest.raises(ServiceError, match="is queued"):
         helper.remove({"folder": str(folder)})
     with pytest.raises(ServiceError, match="no launcher"):

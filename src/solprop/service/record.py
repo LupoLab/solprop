@@ -165,7 +165,8 @@ class Job:
     stamp : str or None
         When that process started (:func:`process_stamp`).
     slurm_job : str or None
-        Its Slurm job, when it runs in one.
+        The Slurm job solprop submitted it as (launcher ``"slurm"``); ``None`` for a
+        run started any other way, even one inside a Slurm allocation.
     started : float
         When it started, s since the epoch.
     ended : float or None
@@ -201,7 +202,8 @@ class Job:
         run_id : str
             The run.
         launcher : str
-            How it was started.
+            How it was started; ``"slurm"`` records this process's Slurm job as the
+            run's own.
         threads : int or None, optional
             Its thread budget.
 
@@ -218,7 +220,7 @@ class Job:
             host=socket.gethostname(),
             pid=os.getpid(),
             stamp=process_stamp(os.getpid()),
-            slurm_job=os.environ.get("SLURM_JOB_ID"),
+            slurm_job=os.environ.get("SLURM_JOB_ID") if launcher == "slurm" else None,
             started=time.time(),
             solprop=__version__,
             threads=threads,
