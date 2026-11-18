@@ -669,13 +669,25 @@ def test_the_wall_block_refuses_a_mode_set_it_is_not_derived_for(modes, expected
 
 
 def test_the_default_glass_asked_for_by_name_is_the_same_guide():
-    wall_operator(
-        [
-            MarcatiliMode(RADIUS, "He", 1.0, m=1),
-            MarcatiliMode(RADIUS, "He", 1.0, m=2, cladding=fused_silica()),
-        ],
-        np.array([2.356e15, 2.4e15, 2.5e15]),
-    )
+    """Naming the default cladding builds the default guide, alone or beside it."""
+    omega = np.array([2.356e15, 2.4e15, 2.5e15])
+
+    def block(*claddings):
+        modes = [
+            MarcatiliMode(RADIUS, "He", 1.0, m=m, cladding=cladding)
+            for m, cladding in enumerate(claddings, start=1)
+        ]
+        return wall_operator(modes, omega)
+
+    default = block(None, None)
+    # The block reads its guide from the lowest channel, so the glass is named there
+    # too; beside the default it must not be refused as another cladding.
+    for claddings in ((fused_silica(), fused_silica()), (None, fused_silica())):
+        operator = block(*claddings)
+        # Exact: the same glass sampled by the same code is the same guide, not one
+        # that agrees to rounding.
+        for name in ("generator", "coupling", "wavenumber", "impedance"):
+            assert np.array_equal(getattr(operator, name), getattr(default, name)), name
 
 
 def test_a_varying_section_takes_the_frozen_residual_route():
