@@ -343,7 +343,11 @@ so that its flow `exp(x)` is the propagator the interaction formulation would ap
 forms the moments `k! φ_{k+1}(x)` once (`backends/exponential.py`), and applies the
 predictor, the corrector and the neighbouring orders' defects in the monomial basis of
 their interpolants (`ExponentialKernels`): the defects are already at the step's end,
-so no propagator multiplies them. The defect, the norm's scale and the lifecycle are
+so no propagator multiplies them. The moments `φ_0 … φ_{q+2}` are formed for every element by a
+scaled Taylor series and doubling for `|x| ≤ 3` and an upward recurrence beyond, so no
+per-node weight array is formed; checked against augmented matrix exponentials and
+quadrature, each is within a few hundred ulp of its scale, so no term for them enters the
+error norm. The defect, the norm's scale and the lifecycle are
 the transported formulation's; so is the order choice, but for the in-stage collar's
 stability, which it weighs (`adams_core.order_weight`): each order's
 step factor is capped at `COLLAR_STABILITY` times PEC's negative-real interval over

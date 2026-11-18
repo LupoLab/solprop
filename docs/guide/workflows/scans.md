@@ -413,6 +413,10 @@ The queue is tested on local disks (APFS and ext4); network and parallel filesys
 (NFS, Lustre, GPFS) differ in their locking guarantees, so check yours with a small
 scan before relying on it.
 
+`Queue` and `Slurm` need a POSIX system and refuse to start on Windows, where `Local` and
+`Pool` run. On Windows a scan's readers take its lock one at a time, where POSIX lets them
+read together, so concurrent reads of one scan file wait for each other.
+
 ```bash
 uv run python -m solprop.scan pressure_energy.py --queue pressure_energy.queue --workers 4
 uv run python -m solprop.scan pressure_energy.py --queue pressure_energy.queue --chunk 1/3

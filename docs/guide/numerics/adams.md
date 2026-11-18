@@ -141,21 +141,6 @@ and the full canonical and RDW runs 8 and 4 per cent fewer calls. The interactio
 unchanged: its history is carried through the propagators, whose stiffness the collar
 alone does not describe, and the cap cost it calls.
 
-### What was compared
-
-SEP 13 also ran these variants. They were removed once the selection was settled:
-
-- **PECE**, which spends a second call at the corrected field;
-- **plain Adams–Bashforth**, with an a-posteriori recheck;
-- **matched predictor–corrector pairs**, controlled by Milne's estimate.
-
-None of them used fewer calls at the same accuracy on any case:
-
-- PECE does not repay its second call.
-- The matched pairs underestimate their error at loose tolerances, and their small
-  stability regions meet the temporal collar first.
-- Plain Adams–Bashforth takes about as many steps as PEC, but is less accurate.
-
 ## The exponential formulation
 
 `Multistep(formulation="exponential")` keeps the predict–evaluate–correct recurrence,
@@ -199,12 +184,10 @@ history is the one a polynomial follows:
   in the laboratory frame, thousands of radians per metre in a dense gas. Neither
   formulation makes it smooth; [the carrier frame](#the-carrier-frame) does.
 
-On the scalar witnesses of `tests/stepper/test_exponential_scalar_march.py` the first
-case gives the exponential formulation errors of $10^{-11}$ where the interaction
+On scalar witnesses the first case gives the exponential formulation errors of $10^{-11}$ where the interaction
 picture's are of order one, at $|\operatorname{Im}D|h$ up to ten; the second gives the
 opposite. Real problems mix both, which is why the choice is measured per regime
-rather than assumed. On a second-order soliton (`tests/backends/test_exponential_march.py`)
-the populated bins converge at order $q+1$ in both formulations, the exponential one
+rather than assumed. On a second-order soliton the populated bins converge at order $q+1$ in both formulations, the exponential one
 30 to 200 times more accurately; but the weak wings, more than $10^8$ below the peak
 power, hold free radiation under the soliton's cross-phase modulation, a source linear
 in each bin's own field, and there the exponential formulation converges only at about
@@ -212,25 +195,11 @@ order 0.6 once $|\operatorname{Im}D|h$ exceeds one, where the interaction pictur
 converges at order three to four. The step-size norm does not see bins that weak; a
 weak-band observable is scored separately for that reason.
 
-**The moments.** $\varphi_0\ldots\varphi_{q+2}$ are formed once per trial for every
-element, by a scaled Taylor series and doubling for $|x| \le 3$ and an upward
-recurrence beyond, and every formula of the trial — predictor, corrector, the
-neighbouring orders' estimates, an interpolated plane — is applied in the monomial
-basis of its interpolant, so no per-node weight array is formed. Checked against
-augmented matrix exponentials and quadrature, each moment is within a few hundred ulp
-of its scale, so the coefficients add nothing measurable to a step's error and no term
-for them enters the error norm.
-
 **What it measured** (short windows, one thread, at common worst-plane field and
 weak-band errors from 1e-3 to 1e-5). On the six-mode hydrogen comb-to-continuum launch, a
-Raman-active source that is costly to evaluate, it took 2.0 to 3.3 times less time
-than IP-DOPRI5 and 1.5 to 2.5 times less than the interaction formulation on
-the since-retired `numba_cpu` backend, and won on native CPU too. On developed GNLSE
-supercontinuum windows it
-took two to five times fewer calls than both and, from 3e-4 to 1e-5, 3 to 36 % less
-time than IP-DOPRI5 and 8 to 31 % less than the interaction formulation, again on
-`numba_cpu`; at 1e-3 the interaction formulation was as fast.
-Where the source is cheap and the state small — a radial beam with Kerr alone — its
+Raman-active source that is costly to evaluate, it took less time than IP-DOPRI5 and the
+interaction formulation on native CPU. On developed GNLSE supercontinuum windows it took
+two to five times fewer calls than both. Where the source is cheap and the state small — a radial beam with Kerr alone — its
 per-step arithmetic outweighs the calls it saves and the interaction formulation is
 faster. [Choosing a stepper](choosing-a-stepper.md#measured) ranks the methods on full
 runs, on the native backend's CPU build and on devices. Beside the

@@ -87,24 +87,12 @@ a general waiver: a new feature still lands on both `numpy_ref` and `native`
 ([SEP 0](../../dev/seps/sep-0000-process.md)), and joins the list only as an accepted
 exception.
 
-## Retired backends
-
-solprop has exactly two backends, `native` and `numpy_ref`, and will have no other. It once
-had two more: `numba_cpu`, a third double-precision backend whose last release is 0.1.0,
-and `mlx`, an experimental single-precision backend for Apple GPUs. Naming either now
-raises {py:class}`~solprop.exceptions.BackendError`, naming `native` and `numpy_ref`, as
-any name that is neither does, so a script or recipe that selects one needs
-`backend="native"`, or no `backend=` at all. A run started on a release that had the
-backend finishes on that release.
-
-The settings of `numba_cpu` are gone too: `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`,
-`SOLPROP_FFTW_THREADS`, `SOLPROP_TRANSVERSE_FFTW_THREADS`, `SOLPROP_PASS_TIMERS`,
-`NUMBA_DISABLE_JIT` and `NUMBA_NUM_THREADS` no longer do anything.
-
 ## Which backend to use
 
-Use the native backend. `numpy_ref` is unthreaded and roughly 6 to 40 times slower than
-threaded native, so it is for checking a result and for a problem a GPU build refuses; the
+solprop has exactly two backends, `native` and `numpy_ref`; any other name raises
+{py:class}`~solprop.exceptions.BackendError`, naming the two. Use the native backend.
+`numpy_ref` is unthreaded and roughly 6 to 40 times slower than threaded native, so it is
+for checking a result and for a problem a GPU build refuses; the
 [performance history](../../dev/benchmarking.md) records the native backend's own timings.
 The measurements behind the advice below are in the
 [current results](../../dev/benchmarks.md#current-performance); time your own problem for

@@ -58,41 +58,25 @@ on this page about each method's tolerance was measured at the levels it names, 
 `rtol=` beside `integrator=` when you change the method; for instance, the capillary's
 Runge–Kutta comparison below is at `1e-5`.
 
-On the GNLSE, the Runge–Kutta march is 2.5 to 4.8 times faster than the exponential
-Adams method at matched accuracy, more with noise. On the waveguide route it is 4 times
-faster; the interaction-formulation Adams method is faster still there but refuses the
-coupled flows some waveguide routes carry. On the capillary the Adams method is the
-default for every representation, by the maintainer's decision against the rule
-([ADR-055](../../dev/decisions.md)): it wins the runs the capillary is mostly used for,
-and loses the single-mode runs with plasma or Raman. With several resolved modes the
-source beats at the modes' phase mismatches: the interaction-picture march has to
-resolve that beat within its steps (going from one resolved mode to four multiplies its
-steps by 3.6 on the RDW capillary), while the exponential Adams method carries it in its
-propagator and is 2.1 to 2.2 times faster there at its 1e-6 than the Runge–Kutta march at
-its 1e-5. With one mode, or a mode-averaged one, the Adams method at 1e-6 was 1.35 to 3
-times faster than the Runge–Kutta march at 1e-5 on the Kerr-only worked examples, and
-more accurate (on self-phase modulation in argon, a field error of 4e-5 against 3e-4).
-It spends one response evaluation per step where the Runge–Kutta march spends six, so
-an expensive response widens the gap. The dispersive Kerr policies
-(`MaterialSelection(electronic="symmetric-kerr")` or `"gas-polynomial"`) cost more per
-evaluation than the carrier Kerr default: on a single-mode argon four-wave-mixing scan
-with them, the Adams method was 3.6 times faster. On one mode or a mode-averaged one
-with Raman or plasma, `RungeKutta()` is the faster choice: about twice as fast at 1e-5 on
-the ionisation blueshift example, and 1.1 to 2.9 times on the benchmark suite's
-single-mode and mode-averaged capillary cases, at a field error still far inside the
-spectral budget below. There the Adams method needs about as many source calls as the
-Runge–Kutta march, and on a cheap source each of its steps costs up to about twice a
-Runge–Kutta stage. The TDSE response runs only on `Multistep()`. The radial and
-planar defaults hold their methods, which are faster there than the Runge–Kutta march
-(by 1.4 to 2.4 times on the radial filament), and set a tolerance where the caller gave
-no controller. A free-space run takes the Runge–Kutta march: the Adams history's
-memory rules the multistep method out for a large transverse state. Its tolerance is
-looser because the spectrum never set it: on a Cartesian Kerr beam near self-focusing,
-every level from 1e-3 to 1e-6 kept the spectrum within 0.002 dB of a tight reference,
-and 1e-4 was taken for a field error 2.5 times smaller than at 1e-3. The adaptive march
-needs no step calibration, and on that beam it was 26 to 53 times faster than a
-0.5 µm fixed RK4IP schedule. A fixed `LowStorageRungeKutta()` step calibrated to the
-same error is cheaper still, by about 1.6 times, and uses about half the memory.
+Each default is the faster method on its interface's usual runs ([measured](#measured)
+below, and the [gallery](#the-gallery)). On the capillary the Adams method is the default
+for every representation, by the maintainer's decision against the rule
+([ADR-055](../../dev/decisions.md)): it wins the runs the capillary is mostly used for and
+loses the single-mode runs with plasma or Raman. With several resolved modes the source
+beats at the modes' phase mismatches, which the interaction-picture march has to resolve
+within its steps and the exponential Adams method carries in its propagator (2.1 to 2.2
+times faster on the RDW capillary at its 1e-6 than the Runge–Kutta march at its 1e-5); it
+spends one response evaluation per step where the Runge–Kutta march spends six, so an
+expensive response widens the gap. On one mode or a mode-averaged one with Raman or
+plasma, `RungeKutta()` is the faster choice: there the Adams method needs about as many
+source calls, and on a cheap source each of its steps costs up to about twice a
+Runge–Kutta stage. The TDSE response runs only on `Multistep()`. The radial and planar
+defaults hold their methods, which are faster there than the Runge–Kutta march, and set a
+tolerance where the caller gave no controller. A free-space run takes the Runge–Kutta
+march: the Adams history's memory rules the multistep method out for a large transverse
+state. Its tolerance is looser because the spectrum never set it: on a Cartesian Kerr
+beam near self-focusing, every level from 1e-3 to 1e-6 kept the spectrum within 0.002 dB
+of a tight reference.
 
 The tolerances were set by a convergence test: the loosest of three levels a decade
 apart at which a seeded ensemble's mean spectrum stays within 0.5 dB, above −40 dB of

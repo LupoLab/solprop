@@ -223,17 +223,3 @@ run uses it ([Calibrating solprop to your machine](../guide/performance/calibrat
 native run calibrates quickly by itself, with a notice saying so, and the run above may
 have done just that. On a cluster, calibrate inside a job on each kind of compute node,
 not on a login node.
-
-## Platforms
-
-solprop is developed and tested on macOS (Apple silicon), Linux (x86-64) and Windows
-(x86-64 and Arm). The native backend has wheels for the five platforms above, builds from
-source on Linux and macOS, and builds for GPUs on Linux. The `Queue` and `Slurm` scan executors need a POSIX system and refuse to start
-on Windows; `Local` and `Pool` run there. On Windows a scan's readers take its lock one
-at a time, where POSIX lets them read together, so concurrent reads of one scan file
-wait for each other.
-
-The precompiled native wheels were proposed and qualified by
-[SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md), and
-[SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) made the native backend a required
-dependency.

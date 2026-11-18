@@ -431,9 +431,7 @@ before, and it records no basis identity in the plane-reference record, whose
 `basis` entry is gone: a plane's basis is derived when it is read
 ([coupling simulations](../workflows/coupling.md)). A file of any other schema is
 refused by name wherever it is opened, read or resumed, and the refusal names the file:
-files written by an earlier release or by development versions of solprop, which
-declared output schemas up to 28, are not read, and nor is a file from a later release.
-Read such a file with the solprop version that wrote it: a 0.1.0 file (schema 1) with
+a file of an earlier or a later release is not read. Read such a file with the solprop version that wrote it: a 0.1.0 file (schema 1) with
 solprop 0.1.x, a 0.2.0 file (schema 2) with solprop 0.2.x. A scan file is refused the
 same way, by the output schema each point's run record declares, whether it is read or
 resumed; its own `scan_schema_version` versions the scan container, not the records in
@@ -443,9 +441,7 @@ before it compares the records
 
 Every run records its plane-reference record (`RunMetadata.reference`,
 [provenance](provenance.md#the-metadata-schema)), from which a saved plane is read back
-as a coherent field plane ([coupling simulations](../workflows/coupling.md)). The
-configuration no longer records a precision: solprop computes in binary64 only. A run
-started on an earlier release, whose configuration did, finishes on that release.
+as a coherent field plane ([coupling simulations](../workflows/coupling.md)).
 
 How a run resumes from its last plane depends on what that plane is:
 
@@ -496,10 +492,6 @@ version, which the next release is the first to write. Development builds betwee
 releases are therefore not compatible with one another: a file written by an earlier
 build of the same schema may be refused, and is read with the build that wrote it.
 
-**Five columns of `absorbed_power`.** The fifth column, `custom`, folded into schema 2 the
-same way, and the first column became the collar alone. A file from a development build
-before it, with four columns, is not supported: read it with the build that wrote it.
-
 ## A worked example
 
 ```{code-block} python
@@ -538,8 +530,8 @@ function. The default, `None`, leaves the run unchanged. This is an execution po
 outside the scientific configuration hash; `SimulationRunner`'s restriction on
 reusing TDSE across inputs still applies.
 
-A snapshot requires an HDF5 run with `fields="all"`; it no longer needs
-`step_planes`, and it is taken with interpolated planes too
+A snapshot requires an HDF5 run with `fields="all"`, and it is taken with interpolated
+planes too
 ([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md)). With `interpolate_planes=True` a
 request is taken at the end of the step that crossed the plane being saved, once every
 plane that step crossed has been saved, so the snapshot holds a state the march passed

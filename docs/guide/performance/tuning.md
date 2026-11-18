@@ -171,75 +171,16 @@ value raises `ValueError` at import. An explicit pool setting forces its clamped
 and bypasses automatic sizing, including for short FFTs. Setting only the global cap
 retains automatic sizing. GPU builds ignore these CPU pool settings.
 
-On OpenMP CPU builds, operation dimensions select serial, intermediate or full-width
-execution. Stage and reduction work, packing and temporal copies, nonlinear responses,
-native dense transforms, coupled matrix functions and FFT plans have separate size rules. Response sizing accounts for both the total
-work, active columns and fine samples per column. The choices and plans are cached when the
-backend is constructed; no runtime tuning occurs during propagation. Partial chunks
-use their own work sizes. Vendor BLAS pools retain their
-process-start settings. Non-OpenMP host builds preserve their execution-space policy;
-`build_info().cpu_size_policy_enabled` reports whether operation widths are supported.
-
-The thresholds below are shared across CPU hosts, except that macOS keeps higher stage
-and FFT starts (8,192 and 32,768), where a short serial loop is still the faster one;
-`C` is the clamped capacity of the
-relevant pool, and sizes count work in the operation itself, not bytes. Between the two
-thresholds an operation uses `min(4, C)` threads; equal thresholds give only serial or
-full-width execution. A kernel operation (any row but the two FFT rows) of a backend that
-already runs a full-width kernel takes the full pool instead of four threads: GNU OpenMP
-ends the surplus threads of its team whenever a narrower parallel region follows a wider
-one and starts them again for the next wide one, which cost a four-thread kernel between
-full-width ones about half a millisecond each time. FFT plans keep their four threads,
-since FFTW's threaded loops run on the runtime's whole team.
-
-On Apple silicon, while the team spins within native calls (the default; see
-[OpenMP placement and waiting](#openmp-placement-and-waiting)) and is at most eight
-threads wide, as on a chip's top tier, every threading start and full-pool start in the
-table below is divided by sixteen, and so are the FFT samples per thread and the
-long-row length: a parallel region there costs about a microsecond, not the 100–200 µs
-the thresholds were measured with.
-
-Modal and spatial FFT plans thread by their shape instead: from the start below, a
-thread per 4,096 samples (32,768 on macOS, a sixteenth of that on a spinning top tier)
-and at most one per row, since FFTW divides a batch's rows among its threads; rows of at
-least 16,384 samples (65,536 on macOS) are split, up to `min(4, C)` threads. A batch of
-a few long rows therefore takes about one thread a row, many short rows the full pool.
-The calibration moves the samples per thread.
-
-| operation | work used for sizing | threading starts | full pool starts |
-|---|---|---:|---:|
-| stage, update and reduction | elements in the field | 4,096 (8,192 on macOS) | as threading |
-| packing and temporal copies | entries actually copied | 65,536 | 65,536 |
-| nonlinear response | active columns × components × fine samples | 32,768 | 196,608, or 65,536 fine samples per column, or 40 component columns |
-| native/custom GEMM | output rows × inner dimension × samples | 1,048,576 | 1,048,576 |
-| general modal synthesis/projection | active nodes × components × spectral samples × modes | 65,536 | 65,536 |
-| coupled matrix functions | active spectral bins × modes³ | 32,768 | 32,768 |
-| exponential Adams trial | elements in the field × history rows | 8,192 | 65,536 |
-| modal/spatial FFT | real-side samples in the actual batch, by rows and row length (above) | 8,192, 32,768 on macOS (`SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES`) | 4,194,304 |
-| Raman FFT | real-side samples in the actual batch | 65,536 | 262,144 |
-
-A response column is one active node and one component; its column-length and
-column-count rules apply only past its threading start. General modal map updates use
-the two maps' combined element count times the polynomial degree. Native GEMM sizing
-never changes a vendor BLAS's width or selects a different provider.
-
-The [CPU threading measurements](../../dev/benchmarks.md#kokkos-cpu-operation-size-threading)
-explain the thresholds. For example, an 8,192-sample copy remains serial even when a
-similarly sized arithmetic stage benefits from threading. Short response columns can
-use four threads while long columns or wider batches use the full pool. The backend applies these
-choices automatically; start by setting only the process cap when sharing a machine.
-
-`python -m solprop_native` records the policy constants and explicit override mask.
-Its existing thread counts remain process capacities. The backend's metadata records
-`execution_sizing`, with the chosen `threads` and sizing `elements` for each operation.
-Response entries also report
-`fine_samples` and `columns`, because equal total work can have different column
-lengths. `build_info()` reports the resolved process values as `requested_threads`,
-`runtime_threads`, `thread_count` (kernels), `fftw_threads`, `raman_fft_threads`,
-`raman_tail_fft_threads`, `threaded_fft_min_samples`, `blas_threads` and
-`blas_threading`; `cpu_size_policy_enabled` and `explicit_thread_pools` (a bit mask:
-kernel 1, FFT 2, Raman 4, Raman tail 8) distinguish automatic sizing from explicit
-requests.
+On OpenMP CPU builds the backend sizes each operation from its dimensions when it is
+constructed: stages, copies, responses, dense products, matrix functions and FFT plans
+each run serially below a size of their own, on a few threads above it and on the whole
+pool beyond, and transforms thread by their rows and row length. Nothing is tuned during
+propagation, and a [machine calibration](calibration.md) may replace the built-in sizes.
+Start by setting only the process cap when sharing a machine; the thresholds and the
+measurements behind them are in the
+[CPU threading measurements](../../dev/benchmarks.md#kokkos-cpu-operation-size-threading).
+The backend's metadata records `execution_sizing`, the threads and work it chose for each
+operation, and `python -m solprop_native` the policy constants.
 
 Free-space transforms are planned at `SOLPROP_FFTW_PLAN`'s effort
 (`measure` by default); `estimate` skips the measured planning for
@@ -286,13 +227,8 @@ read or written, is reported in the log and costs only the measurement. Wisdom c
 among FFTW's exact algorithms, so it changes no result beyond the rounding a fresh
 measurement can change; the run's metadata records `wisdom_loaded` (whether the file
 held plans) and the `wisdom_digest` of the plans the workspace built from wisdom or
-measured. For a scan of one-thread jobs it removes most of each job's construction:
-on a Xeon Gold 6240, constructing the averaged helium capillary took 1.40 s cold and
-0.03 s with the plans in place, beside a 0.27 s window (1.78 s and 0.05 s on an AMD
-EPYC 7763), and the comb-to-continuum capillary 5.0 s and 0.06 s
-([measurements](../../dev/benchmarks.md#persistent-fftw-wisdom)). Under
-`SOLPROP_FFTW_PLAN=measure` on 16 cores of an AMD EPYC 7763, the comb-to-continuum
-capillary's construction fell from 13.7 s to 0.18 s, its window unchanged.
+measured. For a scan of one-thread jobs it removes most of each job's construction
+([measurements](../../dev/benchmarks.md#persistent-fftw-wisdom)).
 
 `OMP_NUM_THREADS` and `KOKKOS_NUM_THREADS` do **not** size the Kokkos pool — the backend
 initialises Kokkos with an explicit thread count, which takes precedence; set
