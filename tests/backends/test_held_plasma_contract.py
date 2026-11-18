@@ -8,8 +8,8 @@ import dataclasses
 
 import numpy as np
 import pytest
-from tests.backends import test_numpy_ref_plasma as plasma_fixtures
 
+from backends import test_numpy_ref_plasma as plasma_fixtures
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver.metadata import metadata_for
 from solprop.exceptions import TranslationError

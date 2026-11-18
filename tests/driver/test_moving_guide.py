@@ -229,7 +229,7 @@ def test_a_fixed_schedule_straddling_the_kink_is_refused(kinked):
 
 def test_a_run_longer_than_the_declared_path_is_refused(kinked):
     """The geometry is declared over the provider's z domain and not past it."""
-    with pytest.raises((DriverError, TranslationError, Exception), match="path"):
+    with pytest.raises(ModeError, match=r"path covers \[0, 0\.001\] m"):
         moving_simulation(
             kinked, grin_grid(z_end=2 * LENGTH), length=2 * LENGTH
         ).translate()

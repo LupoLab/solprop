@@ -1170,9 +1170,9 @@ def test_a_compiled_backend_interpolates_planes_as_the_reference_does(backend_na
     expected = march(simulation)
     found = march(simulation, backend_class=COMPILED[backend_name])
     assert found.ledger is not None and found.ledger.dense_observations > 0
-    assert np.array_equal(found.steps, expected.steps) or len(found.steps) == len(
-        expected.steps
-    )
+    # The same number of accepted steps, which the planes' rounding budget below
+    # counts; the positions may differ by rounding, so they are not compared (SEP 25).
+    assert len(found.steps) == len(expected.steps)
     for one, other in zip(found.fields, expected.fields, strict=True):
         assert_within(
             one, other, len(expected.steps) * 512 * EPS, what=f"{backend_name} plane"

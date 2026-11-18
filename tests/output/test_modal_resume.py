@@ -513,7 +513,7 @@ def test_a_changed_guide_table_or_material_refuses_by_the_field_that_moved(
 
 
 def test_a_reordered_mode_axis_is_a_different_run(grid):
-    """The reviewer's trap: the same two channels, declared the other way round."""
+    """The same two channels declared the other way round are a different run."""
     one = general_guide(
         descriptors=(("HE", 1, 1, "even"), ("HE", 1, 1, "odd")),
         blocks=((0, 1),),

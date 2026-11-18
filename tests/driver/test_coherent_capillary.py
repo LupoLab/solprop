@@ -669,13 +669,25 @@ def test_the_wall_block_refuses_a_mode_set_it_is_not_derived_for(modes, expected
 
 
 def test_the_default_glass_asked_for_by_name_is_the_same_guide():
-    wall_operator(
-        [
-            MarcatiliMode(RADIUS, "He", 1.0, m=1),
-            MarcatiliMode(RADIUS, "He", 1.0, m=2, cladding=fused_silica()),
-        ],
-        np.array([2.356e15, 2.4e15, 2.5e15]),
-    )
+    """Naming the default cladding builds the default guide, alone or beside it."""
+    omega = np.array([2.356e15, 2.4e15, 2.5e15])
+
+    def block(*claddings):
+        modes = [
+            MarcatiliMode(RADIUS, "He", 1.0, m=m, cladding=cladding)
+            for m, cladding in enumerate(claddings, start=1)
+        ]
+        return wall_operator(modes, omega)
+
+    default = block(None, None)
+    # The block reads its guide from the lowest channel, so the glass is named there
+    # too; beside the default it must not be refused as another cladding.
+    for claddings in ((fused_silica(), fused_silica()), (None, fused_silica())):
+        operator = block(*claddings)
+        # Exact: the same glass sampled by the same code is the same guide, not one
+        # that agrees to rounding.
+        for name in ("generator", "coupling", "wavenumber", "impedance"):
+            assert np.array_equal(getattr(operator, name), getattr(default, name)), name
 
 
 def test_a_varying_section_takes_the_frozen_residual_route():
@@ -1335,11 +1347,13 @@ def test_the_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path):
 @pytest.mark.medium
 @pytest.mark.parametrize("entry", ["prop_capillary", "prop_gnlse"])
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])
-def test_the_prop_entry_points_are_what_they_were(entry, backend, ndarrays_regression):
-    """Ten steps of each entry point are the run they were, on every backend here.
+def test_the_prop_entry_points_match_their_recorded_final_states(
+    entry, backend, ndarrays_regression
+):
+    """Ten steps of each entry point match their recorded final state, on each backend.
 
-    A wall is an **opt-in** leaf, so a run that declares none must be the run it was
-    before the leaf existed. The final plane matches its record within the matched
+    A wall is an **opt-in** leaf, so a run that declares none is the run without the
+    leaf. The final plane matches its record within the matched
     march's rounding budget (``tests/state_records.py``), which a change to the
     route's operator above rounding exceeds.
 

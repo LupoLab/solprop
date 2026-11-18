@@ -10,8 +10,11 @@ lists it: in its open or archived table, an archived SEP by its file on GitHub, 
 the archive is not built into the manual (SEP 0, ``docs/dev/seps/sep-0000-process.md``,
 section 4). These tests check that the three agree, that every header is complete, that
 the review status agrees with the recorded reviewers and that nothing is accepted
-without a human and an AI review (SEP 0 section 6, *Review*), and that no SEP refers to
-local files or to the private development archive: a SEP stands alone (SEP 0 section 7).
+without a human and an AI review (SEP 0 section 6, *Review*), that the numbers leave
+no unrecorded gap, that a decided SEP records its resolution and a final one its manual
+pages, that a supersession is named from both ends, and that no SEP, nor the decision
+log, the benchmark record or a changelog fragment, refers to local files, to the
+private development archive or to its identifiers: a SEP stands alone (SEP 0 section 7).
 What a SEP says is for review; only its structure is checked here.
 """
 
@@ -69,6 +72,28 @@ INDEX_ROW = re.compile(
 LOCAL_REFERENCE = re.compile(
     r"/Users/|/home/|file://|~/|[A-Za-z]:\\|(?<![\w/])dev/(?:briefs|reports)/|(?:\.\./){3}dev/"
 )
+
+# Development-register identifiers, the private development archive's name and the
+# project's own names for its machines, none of which a reader of the public tree can
+# look up (AGENTS.md, "The public tree stands alone").
+PRIVATE_IDENTIFIER = re.compile(
+    r"\b(?:TC|LB|SF)-\d+|solprop-dev|\bDMOG\b|\bdmog\b|\bhwlx\b|\bHWLX\b|\bjt52\b"
+)
+# The records beside the SEPs where such identifiers have occurred.
+RECORDS = [
+    DOCS / "dev" / "decisions.md",
+    DOCS / "dev" / "benchmarks.md",
+    *sorted((DOCS.parent / "changelog.d").glob("*.md")),
+]
+# A number left out of the sequence is recorded in the index as reserved.
+RESERVED = re.compile(r"SEP (\d+) is reserved")
+# Statuses that follow a decision, which **Resolution** records (SEP 0 section 6).
+DECIDED_STATUSES = frozenset(
+    {"Accepted", "In progress", "Final", "Withdrawn", "Rejected"}
+)
+# A link to a SEP, or to a decision record, in a Supersedes or Superseded-by field.
+SEP_LINK = re.compile(r"\[SEP (\d+)\]\(([^)]+)\)")
+ADR_LINK = re.compile(r"\[(ADR-\d{3})\]\(([^)]+)\)")
 
 
 def header(page: Path) -> dict[str, str]:
@@ -233,3 +258,100 @@ def test_the_template_carries_every_header_field_and_part():
     assert [part for part in PARTS if part not in text] == []
     assert header(template)["Status"] == "Draft"
     assert header(template)["Review status"] == "Not reviewed"
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="SEP 50 is in no file and the index records no reservation for it; "
+    "recording what became of it is the maintainers' decision",
+)
+def test_sep_numbers_leave_no_unrecorded_gap():
+    numbers = {int(header(page)["SEP"]) for page in SEP_FILES}
+    reserved = {int(n) for n in RESERVED.findall((SEPS / "index.md").read_text())}
+    missing = set(range(max(numbers) + 1)) - numbers - reserved
+    assert not missing, f"numbers neither used nor recorded as reserved: {missing}"
+
+
+# Defects these checks found in the proposals, each a strict expected failure until the
+# maintainers decide its fix.
+KNOWN = {
+    (
+        "manual pages",
+        "sep-0025-rounding-level-reproducibility.md",
+    ): "SEP 25 is Final with no Manual pages; whether a testing-policy change names "
+    "any is the maintainers' decision",
+    (
+        "supersession",
+        "sep-0033-single-precision-mlx.md",
+    ): "SEP 33 is superseded by ADR-077, whose entry does not name SEP 33",
+}
+
+
+def _cases(check: str) -> list:
+    """Return every SEP as a parameter, a strict expected failure where `KNOWN` says."""
+    return [
+        pytest.param(
+            page,
+            id=relative(page),
+            marks=[pytest.mark.xfail(strict=True, reason=KNOWN[check, page.name])]
+            if (check, page.name) in KNOWN
+            else [],
+        )
+        for page in SEP_FILES
+    ]
+
+
+@pytest.mark.parametrize("page", _cases("manual pages"))
+def test_a_decided_sep_records_its_resolution_and_a_final_one_its_pages(page):
+    fields = header(page)
+    if fields["Status"] in DECIDED_STATUSES:
+        assert fields["Resolution"] not in ("", "—"), "the decision is not recorded"
+    if fields["Status"] == "Final":
+        assert fields["Manual pages"] not in ("", "—"), "no manual pages are named"
+
+
+@pytest.mark.parametrize("page", _cases("supersession"))
+def test_a_supersession_names_a_sep_that_names_it_back(page):
+    fields = header(page)
+    by_number = {int(header(other)["SEP"]): other for other in SEP_FILES}
+    for field, reverse in (
+        ("Supersedes", "Superseded-by"),
+        ("Superseded-by", "Supersedes"),
+    ):
+        for number, link in SEP_LINK.findall(fields[field]):
+            target = (page.parent / link).resolve()
+            assert target == by_number[int(number)].resolve(), (field, link)
+            assert f"[SEP {fields['SEP']}]" in header(target)[reverse], (
+                f"SEP {number} does not name SEP {fields['SEP']} in its {reverse}"
+            )
+        # A decision record that replaces a SEP names it in its own entry.
+        for record, link in ADR_LINK.findall(fields[field]):
+            text = (page.parent / link).resolve().read_text(encoding="utf-8")
+            entry = text.split(f"\n## {record} — ", 1)
+            assert len(entry) == 2, f"{link} holds no {record}"
+            assert f"SEP {fields['SEP']}" in entry[1].split("\n## ", 1)[0], (
+                f"{record} does not name SEP {fields['SEP']}"
+            )
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        *SEP_FILES,
+        SEPS / "index.md",
+        SEPS / "template.md",
+        ARCHIVE / "index.md",
+        *RECORDS,
+    ],
+    ids=[
+        *IDS,
+        "index.md",
+        "template.md",
+        "archive/index.md",
+        *[str(record.relative_to(DOCS.parent)) for record in RECORDS],
+    ],
+)
+def test_no_page_names_a_private_identifier(page):
+    text = page.read_text(encoding="utf-8")
+    assert PRIVATE_IDENTIFIER.findall(text) == []
+    assert LOCAL_REFERENCE.findall(text) == []

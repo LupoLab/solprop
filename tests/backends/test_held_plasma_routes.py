@@ -8,10 +8,10 @@ import dataclasses
 
 import numpy as np
 import pytest
-from tests.backends.plasma_column_cases import CASES, case, options_for
-from tests.backends.test_radial_nonlinear import derivative
-from tests.bounds import gamma
 
+from backends.plasma_column_cases import CASES, case, options_for
+from backends.test_radial_nonlinear import derivative
+from bounds import gamma
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.passes.plasma import plasma_channels_current
 from solprop.backends.numpy_ref.passes.responses import nonlinear_polarisation

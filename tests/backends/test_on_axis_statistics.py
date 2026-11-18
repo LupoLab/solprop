@@ -619,12 +619,14 @@ def envelope_run(radial_rule, n_r):
     return {name: np.asarray(output[f"stats/{name}"]) for name in names}
 
 
-def test_an_envelope_mixture_in_a_taper_reads_the_same_axis_on_every_rule():
-    """Cycle-averaged rates, an Ar/He mixture, preionisation and a taper.
+def test_an_envelope_mixture_reads_the_same_axis_on_every_rule_at_the_entrance():
+    """Cycle-averaged rates, an Ar/He mixture and preionisation, in a tapered bore.
 
     At the entrance every rule sees the same field, so the axis statistics agree; the
     non-ionising helium stays at zero; the Radau rule's node maximum is its axis node;
-    the five-node Gauss rule's is below the axis.
+    the five-node Gauss rule's is below the axis. The taper's factor is one at the
+    entrance, so this does not test the taper: ``test_numpy_ref_plasma.py``'s
+    ``test_the_on_axis_matrix_follows_a_taper`` does.
     """
     runs = {
         rule: envelope_run(rule, n_r)

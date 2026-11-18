@@ -275,8 +275,9 @@ to it.
 `SOLPROP_FFTW_PLAN=estimate`. Its first job, **changes**, compares the commit with its
 base: when only `docs/` and Markdown files changed, static, docs and **docs-tests** run
 (the test modules that open a documentation file: the SEP structure, the guide's
-snippets, the accuracy page, the catalogues, the kernel contract and the figures), and
-the test lanes below are skipped. A push to `main` that merges a pull request runs no
+snippets, the accuracy page, the catalogues, the kernel contract and the figures, with
+the slow-tier test that executes every snippet of the guide), and the test lanes below
+are skipped. A push to `main` that merges a pull request runs no
 further jobs when its tree is the pull request head's tree and CI passed on that head:
 the pull request was up to date with `main`, so its run tested exactly what was merged.
 A pull request that was behind `main` merges to a new tree, which runs in full. A change
@@ -319,8 +320,9 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
   run `poe cov-part`.
   **coverage-report** combines their data (`poe cov-report`), requires 100 % of
   statements and branches, and uploads the report to Codecov for the badge.
-- **slow** (Linux and macOS): `poe test-slow` with the wheel installed. On Linux,
-  `SOLPROP_TEST_BACKEND=native` selects the ladders' backend. Each job's budget is
+- **slow** (Linux and macOS): `poe test-slow` with the wheel installed, failing on a
+  skip whose reason `native/ci/check_skips.py` does not expect, as the test and coverage
+  lanes do. On Linux, `SOLPROP_TEST_BACKEND=native` selects the ladders' backend. Each job's budget is
   about 50 min of pytest wall time ([testing.md](testing.md), "Budgets and timing
   assertions"); sharding the lane is #803.
 - **oldest** (Linux, three shards): the package installed with `uv pip install

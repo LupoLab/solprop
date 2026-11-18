@@ -315,21 +315,25 @@ def test_reopen_requires_a_suspended_writer(working):
         working[0].reopen()
 
 
+# Each change with the refusal of the check it breaks: read_snapshot turns every
+# failure into an OutputError, so a case refused by another check would pass unmatched.
 @pytest.mark.parametrize(
-    "change",
+    ("change", "message"),
     [
-        "missing",
-        "schema",
-        "checksum",
-        "identity",
-        "escape",
-        "roles",
-        "duplicate",
-        "object",
-        "files",
+        ("missing", r"cannot verify snapshot .*manifest\.json"),
+        ("schema", "unsupported snapshot manifest schema"),
+        ("checksum", "snapshot checksum mismatch"),
+        ("identity", "manifest and checkpoint identities disagree"),
+        ("escape", "invalid snapshot file record"),
+        ("roles", "roles must be optical, then optional archive"),
+        ("duplicate", "files must have distinct paths"),
+        ("object", "manifest requires an object"),
+        ("files", "must contain an optical file and optional archive"),
     ],
 )
-def test_read_refuses_incomplete_corrupt_and_mismatched_generations(generation, change):
+def test_read_refuses_incomplete_corrupt_and_mismatched_generations(
+    generation, change, message
+):
     path = generation / "manifest.json"
     manifest = json.loads(path.read_text(encoding="utf-8"))
     path.chmod(0o600)
@@ -353,7 +357,7 @@ def test_read_refuses_incomplete_corrupt_and_mismatched_generations(generation, 
         else:
             manifest["files"] = []
         path.write_text(json.dumps(manifest), encoding="utf-8")
-    with pytest.raises(OutputError):
+    with pytest.raises(OutputError, match=message):
         read_snapshot(generation)
 
 
@@ -376,6 +380,32 @@ def test_manifest_with_a_symlink_is_refused(generation, tmp_path):
         # Windows creates symlinks only with Developer Mode or elevation.
         pytest.skip(f"this account cannot create symlinks: {error}")
     with pytest.raises(OutputError, match="escapes"):
+        read_snapshot(generation)
+
+
+def test_a_manifest_path_through_a_linked_directory_is_refused(generation, tmp_path):
+    """A path with no ``..`` that resolves outside its generation escapes it.
+
+    The copy outside has the recorded size and checksum, so only the check that the
+    resolved path stays inside the generation refuses it.
+    """
+    info = read_snapshot(generation)
+    name = info.files.output.name
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    shutil.copyfile(info.files.output, outside / name)
+    generation.chmod(0o700)  # published read-only
+    try:
+        (generation / "linked").symlink_to(outside, target_is_directory=True)
+    except OSError as error:
+        # Windows creates symlinks only with Developer Mode or elevation.
+        pytest.skip(f"this account cannot create symlinks: {error}")
+    path = generation / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest["files"][0]["path"] = f"linked/{name}"
+    path.chmod(0o600)
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(OutputError, match="snapshot file escapes its generation"):
         read_snapshot(generation)
 
 

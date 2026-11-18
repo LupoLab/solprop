@@ -42,6 +42,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FIGURES = ROOT / "docs" / "dev" / "figures"
 PACKAGE = ROOT / "src" / "solprop"
 PAGE = ROOT / "docs" / "dev" / "structure.md"
+CONTRACT = ROOT / "docs" / "dev" / "kernel-contract.md"
 
 spec = importlib.util.spec_from_file_location("structure_figures", FIGURES / "build.py")
 assert spec is not None and spec.loader is not None
@@ -107,9 +108,42 @@ def test_every_contract_section_names_fields_of_the_problem(section):
 
 
 def test_the_contract_figure_covers_every_field():
-    """Between them the eight sections account for all ten fields."""
+    """Between them the eight sections account for every field."""
     drawn = {name for section in build.CONTRACT_SECTIONS for name in section.fields}
     assert drawn == {field.name for field in dataclasses.fields(PropagationProblem)}
+
+
+def _section_case(section):
+    """Return a section as a parameter, a strict expected failure where one is known."""
+    marks = (
+        [
+            pytest.mark.xfail(
+                strict=True,
+                reason="figure 3 titles section 5 'responses and the prefactor'; the "
+                "contract's heading is 'Responses (the compiled nonlinear term)'",
+            )
+        ]
+        if section.number == 5
+        else []
+    )
+    return pytest.param(section, id=str(section.number), marks=marks)
+
+
+@pytest.mark.parametrize(
+    "section", [_section_case(section) for section in build.CONTRACT_SECTIONS]
+)
+def test_every_contract_section_is_titled_as_the_contract_heads_it(section):
+    """Figure 3's section number and title are a ``## N.`` heading of the contract."""
+    headings = dict(
+        re.findall(r"^## (\d+)\. (.+)$", CONTRACT.read_text(), flags=re.MULTILINE)
+    )
+    assert section.title.casefold() == headings[str(section.number)].casefold()
+
+
+def test_the_figure_script_names_no_retired_part():
+    """The removed step driver and the retired backends appear nowhere in the script."""
+    text = (FIGURES / "build.py").read_text(encoding="utf-8")
+    assert re.findall(r"StepDriver|numba|mlx", text, flags=re.IGNORECASE) == []
 
 
 @pytest.mark.parametrize("section", build.CONTRACT_SECTIONS)
