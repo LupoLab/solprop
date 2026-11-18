@@ -785,11 +785,10 @@ class ScalarModeBasis:
                     "holds a step-index fibre's HE1m (LP0m) modes only"
                 )
                 raise CouplingError(msg)
+            # Not dimlimits: each channel bounds its cladding at its own radius.
             if (
                 mode.profile_wavelength != first.profile_wavelength
-                or mode._core != first._core
-                or mode._cladding != first._cladding
-                or mode.dimlimits(z)[2] != first.dimlimits(z)[2]
+                or not first.same_guide(mode)
             ):
                 msg = "step-index modes of one scalar basis share one fibre and profile"
                 raise CouplingError(msg)
