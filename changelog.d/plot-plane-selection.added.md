@@ -1,1 +1,0 @@
-`plotting.spectrogram`, `time_1d` and `spec_1d` take `plane=`, a saved plane's index (negative from the end; a sequence of them for the slices), as the processing readers do; giving both `plane` and `z` raises `ProcessingError`.

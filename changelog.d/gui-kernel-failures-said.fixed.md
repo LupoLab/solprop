@@ -1,1 +1,0 @@
-The desktop front end now says at the foot of its window when solprop's kernel fails to give the examples, the list of gases, the run options, a class's example or a sheet's curve, where Home or the sheet was left empty without a word.

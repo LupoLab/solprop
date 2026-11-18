@@ -1,1 +1,0 @@
-`MemoryOutput.to_file` now writes the recipe a run was built from, so a recipe run kept in memory and written to a file can be resumed (`solprop resume`), read back with `Recipe.from_output`, and give its saved planes their basis identity, as the file an `HDF5Output` writes does.

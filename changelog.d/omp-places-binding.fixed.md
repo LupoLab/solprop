@@ -1,1 +1,0 @@
-Setting `OMP_PLACES` without `OMP_PROC_BIND` no longer caps every solprop thread pool and scan at the one core GNU OpenMP binds the main thread to: the thread budget now treats `OMP_PLACES` alone as binding on, as libgomp does, and still believes a narrowing when `OMP_PROC_BIND=false` (#172).

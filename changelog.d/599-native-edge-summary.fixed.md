@@ -1,1 +1,0 @@
-The run summary of a native free-space run no longer says its transverse edge is unwatched: every backend reads the edge, so the summary no longer decides by the backend's name ([#599](https://github.com/LupoLab/solprop/issues/599)).

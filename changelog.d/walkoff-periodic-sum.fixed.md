@@ -1,1 +1,0 @@
-The temporal collar's walk-off integral, read by `warn_walkoff` and by `absorber(grid, walkoff=...)`, is now the rectangle sum over the periodic time axis, which is exact for the taper, rather than a trapezoid that left out one sample; a collar sized for a drift now removes exactly the stated `exp(-2Γ)` of its power, and the warning fires at the exact threshold (#490).

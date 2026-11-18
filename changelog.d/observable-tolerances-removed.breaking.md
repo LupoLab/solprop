@@ -1,1 +1,0 @@
-`Simulation.from_waveguide` and `prop_waveguide` no longer take `observable_rtol` and `observable_atol`, which accepted only `None` and refused every number. Drop them from calls: a general modal run's observables are bounded by the solver's own `rtol` and `atol`.

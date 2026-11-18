@@ -1,1 +1,0 @@
-The hollow modes (`MarcatiliMode`, `VincettiMode`, the tabulated, rectangular and slab modes) now refuse an `alpha` callable that returns a non-finite or negative attenuation, or one of the wrong shape, with `ModeError`, as `StepIndexMode` does, instead of carrying NaN into `neff` or reading a negative value as gain; every family evaluates `alpha` through one helper.

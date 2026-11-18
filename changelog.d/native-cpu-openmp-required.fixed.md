@@ -1,1 +1,0 @@
-A CPU build of solprop-native with `SOLPROP_NATIVE_ENABLE_OPENMP=OFF` is now refused when CMake configures it, with a message naming the options to set; it used to build and then be refused at every backend construction.

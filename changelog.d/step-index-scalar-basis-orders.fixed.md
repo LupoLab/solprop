@@ -1,1 +1,0 @@
-`coupling.ScalarModeBasis.from_modes` admits several radial orders of one step-index fibre (HE11 with HE12, as LP01 and LP02), which it refused as modes of different fibres because each channel bounds its cladding at its own radius.

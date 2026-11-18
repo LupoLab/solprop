@@ -1,1 +1,0 @@
-The `processing.scans.field_at_plane` reduction reads its own plane with `Output.plane_field`, so it evaluates on a run saved with `fields="planes"` whose chosen plane kept its field, rather than raising `OutputError`.

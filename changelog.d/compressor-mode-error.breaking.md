@@ -1,1 +1,0 @@
-The compressors and `apply_transfer` refuse a `modes=` selection the run does not have, or an empty one, with `ModeError`, as every other processing reader does, instead of `ProcessingError`: catch `ModeError` (or `ValueError`, which both subclass) around them.
