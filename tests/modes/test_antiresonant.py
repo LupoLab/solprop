@@ -33,6 +33,7 @@ from solprop.modes.antiresonant import (
 )
 from solprop.modes.base import alpha, beta2, db_per_m, loss_length, transmission
 from solprop.modes.protocol import ParameterisedMode
+from solprop.physdata import Mixture
 from solprop.profiles import Linear
 
 GEOMETRIES = [
@@ -645,6 +646,8 @@ def test_invalid_samples_and_geometry():
         "N=6, Ar 1 bar, loss=model)"
     )
     assert "Ar 2 bar" in repr(make_mode(gas="Ar", pressure=Linear(2.0, 3.0, 1.0)))
+    mixed = make_mode(mixture=Mixture.fill({"He": 0.25, "Ar": 0.75}, 2.0))
+    assert repr(mixed).endswith("N=6, He+Ar 2 bar, loss=model)")
 
 
 def test_tube_count_warning_is_per_construction(caplog):
