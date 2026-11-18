@@ -838,7 +838,7 @@ class OptmatRate:
         Raises
         ------
         MaterialError
-            If the field is not finite.
+            If the field is not finite, or optmat's rate for it is NaN.
         """
         values = np.asarray(np.abs(np.asarray(field_amplitude, dtype=np.float64)))
         if not np.all(np.isfinite(values)):
@@ -867,8 +867,17 @@ class OptmatRate:
                         "rate is held at its value there",
                     ),
                 )
+        # The ceiling clips an infinite rate; a NaN (or a negative infinity) within
+        # the fitted range is a defect in the model, never a full-strength rate.
         np.minimum(rate, self.maximum, out=rate)
-        rate[~np.isfinite(rate)] = self.maximum
+        broken = ~np.isfinite(rate)
+        if bool(np.any(broken)):
+            field = float(np.minimum(flat[broken][0], self.maximum_field))
+            msg = (
+                f"{self.species_identity}: optmat's rate {rate[broken][0]} at "
+                f"{field:.4g} V/m is not finite"
+            )
+            raise MaterialError(msg)
         return rate.reshape(values.shape)
 
 
