@@ -123,7 +123,8 @@ class RateTable:
         The largest relative deviation from direct evaluation measured during the build.
     key : str
         A digest of the rate's parameters and the build settings, stable across
-        processes. Names a cache entry; two tables with the same key are the same table.
+        processes; two tables with the same key are the same table. A plasma channel's
+        identity records it, so a run's record names the table it used.
     convention : str
         Optical-cycle convention retained from the source rate. A table constructed
         by hand defaults to ``'unspecified'``.
@@ -616,10 +617,11 @@ def frozen_table(table: RateTable) -> RateTable:
 
 
 def _digest(key: tuple[object, ...]) -> str:
-    """Return a stable hexadecimal digest of a cache key.
+    """Return a stable hexadecimal digest of a table's settings.
 
     Through :mod:`hashlib` rather than :func:`hash`, whose value for a string is salted
-    per process: the digest names a cache entry that may outlive this process.
+    per process: the digest is recorded in a run's identity
+    (``rate_table_identity``), which must name the same table in every process.
     """
     return hashlib.blake2b(repr(key).encode("utf-8"), digest_size=8).hexdigest()
 
