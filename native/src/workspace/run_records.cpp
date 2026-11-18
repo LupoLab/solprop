@@ -30,7 +30,11 @@ namespace {
 template <class Slots>
 void numbers_into(const std::map<std::string, double>& numbers, const Slots& known,
                   const char* record) {
-  for (const auto& [name, value] : numbers) {
+  for (const auto& entry : numbers) {
+    // Named references, not a structured binding: Clang 18 does not capture one in a
+    // lambda of a unit built with OpenMP.
+    const std::string& name = entry.first;
+    const double value = entry.second;
     const auto found = std::ranges::find_if(
         known, [&name](const auto& slot) { return name == slot.first; });
     if (found == known.end())
