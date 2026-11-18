@@ -269,7 +269,6 @@ class NumpyRefBackend:
                     host,
                     schedule=schedule,
                     proposal=stepper.dz_init,
-                    lag=stepper.controller.lag,
                     name=self.name,
                 )
             )
@@ -346,7 +345,6 @@ class NumpyRefBackend:
             interpolate=interpolate,
             shape=self._problem.shape,
             proposal=stepper.dz_init,
-            lag=stepper.controller.lag,
             name=self.name,
         )
         dense = AdamsDense(self._workspace, engine, march) if interpolate else None

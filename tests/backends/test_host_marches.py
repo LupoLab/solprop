@@ -168,7 +168,7 @@ def test_the_low_storage_march_reports_a_step_left_in_flight():
     assert march.in_flight == (0.25, 0.25)
     assert march.refusal() == in_flight_refusal("numpy_ref", 0.25, 0.25)
     with pytest.raises(BackendError, match="abandoned in flight"):
-        march.replay_step(0.25, 0.5, 0.0)
+        march.replay_step(0.25, 0.5)
     # A load clears it, and the count is the loaded run's.
     march.load(0.0, 0.25, 0)
     assert march.in_flight is None

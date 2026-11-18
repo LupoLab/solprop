@@ -8,7 +8,7 @@ The controller, history, ledger and lifecycle of :class:`HostAdamsMarch`, over t
 engine protocol (:class:`solprop.backends.engines.AdamsEngine`) that native's
 ``march::Engine`` mirrors: the reference's engine is
 :class:`solprop.backends.numpy_ref.multistep.HostHistory`. The march holds its own state
--- position, proposal, replay cursor and accepted norms
+-- position, proposal and replay cursor
 (:class:`~solprop.backends.numpy_ref.marches.host.MarchState`), the history's entries,
 the order, the rejections and the call ledger -- and asks its session only through
 :class:`~solprop.backends.numpy_ref.marches.host.MarchHost`. The decisions are
@@ -19,7 +19,6 @@ The method, its lifecycle and its numbers are those of
 """
 
 import math
-from collections import deque
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -97,15 +96,13 @@ class HostAdamsMarch:
         The state's shape, which a snapshot's is checked against.
     proposal : float, optional
         The first proposal, m.
-    lag : int, optional
-        The lag of the controller whose norms a replay keeps.
     name : str, optional
         The backend's name, for messages.
 
     Attributes
     ----------
     state : solprop.backends.numpy_ref.marches.host.MarchState
-        The march's position, proposal, cursor and accepted norms.
+        The march's position, proposal and cursor.
     ledger : solprop.backends.ledger.CallLedger
         The run's call counts.
     last_step : AcceptedStep or None
@@ -130,7 +127,6 @@ class HostAdamsMarch:
         interpolate: bool = False,
         shape: tuple[int, ...] = (),
         proposal: float = 0.0,
-        lag: int = 1,
         name: str = "numpy_ref",
     ) -> None:
         """Hold the engine and start with no history."""
@@ -144,7 +140,7 @@ class HostAdamsMarch:
         self._interpolate = interpolate
         self._shape = shape
         self._name = name
-        self.state = MarchState(z=0.0, proposal=proposal, norms=deque(maxlen=lag + 2))
+        self.state = MarchState(z=0.0, proposal=proposal)
         self._history: list[HistoryEntry] = []
         self._rejections = 0
         self._last_rejected = False
@@ -389,7 +385,6 @@ class HostAdamsMarch:
                 state.cursor += 1
                 host.record(end, dz, norm, accepted=True)
                 attempt.end(AttemptOutcome.ACCEPTED)
-            state.norms.append(norm)
             self._raise_floor()
             host.stepped()
             if host.natural_stop(target):

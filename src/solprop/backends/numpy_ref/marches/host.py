@@ -38,8 +38,8 @@ class MarchState:
     cursor : int
         A replay's next step: how many steps of the schedule are consumed.
     norms : collections.deque
-        The accepted steps' norms the controller reads, oldest first, at most its
-        lag and two more.
+        The accepted steps' norms the adaptive Runge-Kutta controller reads, oldest
+        first, at most its lag and two more; the other marches leave it empty.
     """
 
     z: float
