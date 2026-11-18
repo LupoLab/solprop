@@ -61,7 +61,7 @@ warning.
 
  .. code-block:: none
 
-    solprop 0.2.1.dev2056+g0c1094980
+    solprop 0.2.1.dev2062+g9b317f7af
     installed backends ('numpy_ref', 'native'); auto resolves to native
 
 
@@ -115,7 +115,7 @@ range at the short end of the window, which it reports; that notice is silenced.
                        plasma_work_defect, pressure, quadrature_error, species_density, ...
       between planes:  none
       run:             RunMetadata(multimode, field grid of 864, 1 modes, native,
-                       2026-11-18T08:49:28.710858+00:00)
+                       2026-11-18T12:16:21.678301+00:00)
 
 
 
@@ -177,7 +177,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.715 seconds)
+   **Total running time of the script:** (0 minutes 0.244 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_basics_plot_01_package_overview.py:

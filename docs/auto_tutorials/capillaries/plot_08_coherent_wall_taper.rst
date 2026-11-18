@@ -289,7 +289,7 @@ For a paced introduction to propagation, start with the
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 6.208 seconds)
+   **Total running time of the script:** (0 minutes 1.804 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_capillaries_plot_08_coherent_wall_taper.py:

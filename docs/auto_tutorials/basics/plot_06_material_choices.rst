@@ -364,7 +364,7 @@ The figure compares the exit spectra.
 
  .. code-block:: none
 
-    run time 3.7 s
+    run time 0.5 s
 
 
 
@@ -382,7 +382,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 3.731 seconds)
+   **Total running time of the script:** (0 minutes 0.567 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_basics_plot_06_material_choices.py:
