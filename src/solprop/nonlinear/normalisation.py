@@ -134,7 +134,8 @@ def uppe_prefactor(
     Returns
     -------
     numpy.ndarray
-        The prefactor in m/(V s) per unit polarisation, purely imaginary, shape
+        The prefactor in V/C, the unit of ``omega / (eps0 c)``: times a polarisation
+        in C/m^2 it gives a field's rate in V/m per m. Purely imaginary, shape
         ``(n_omega,)``.
 
     Raises

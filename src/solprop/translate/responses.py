@@ -1781,9 +1781,13 @@ class CompiledResponses:
         (:attr:`solprop.translate.problem.PropagationProblem.device_ready`).
     prefactor : solprop.translate.chebyshev.PiecewiseChebyshev or None
         The UPPE or envelope prefactor times the crop scale, as a table along z with
-        value shape ``(n_modes, n_pol, n_omega)``, complex128, in m/(V s) per unit
-        polarisation. Purely imaginary and exactly zero outside the active band at every
-        position. The table spans the same z range as ``Phi``. Present when
+        value shape ``(n_modes, n_pol, n_omega)``, complex128. In V/C, the unit of
+        ``omega / (eps0 c)``, where the transform's projection carries the effective
+        area; a mode-averaged problem folds the area conversion in
+        (:func:`~solprop.nonlinear.normalisation.sqrtw_to_vm`, V/(m sqrt(W))), so there
+        it is in m sqrt(W)/C and turns a polarisation in C/m^2 into the amplitude's
+        rate in sqrt(W)/m. Purely imaginary and exactly zero outside the active band at
+        every position. The table spans the same z range as ``Phi``. Present when
         `prefactor_representation` is ``"table"`` and also for ``"constant"``, whose one
         interval of degree 0 is exact; absent for ``"expansion"``.
     prefactor_expansion : solprop.translate.expansion.ParameterExpansion or None
