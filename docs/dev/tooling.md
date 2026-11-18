@@ -266,7 +266,7 @@ to it.
   `SOLPROP_NATIVE_WAIT_REQUEST` (the OpenMP wait a scan worker or calibration child asks
   for), `SOLPROP_NATIVE_WAIT` (the wait the native import chose, beside the variables it
   set), `SOLPROP_SLURM_WORKER` and `SOLPROP_SCAN_INSTANCE` (a Slurm array task and its
-  controller instance, written by the generated script), and `SOLPROP_GUI_RUN_THREADS`
+  controller instance, written by the generated script), and `SOLPROP_SERVICE_RUN_THREADS`
   (the thread budget the front end's kernel keeps for the runs it starts).
 
 ## CI
