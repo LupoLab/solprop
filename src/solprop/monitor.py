@@ -983,7 +983,7 @@ class BoundaryMonitor:
         """
         if self._busy or self._since_check + 1 >= CADENCE:
             return True
-        return self._last is None or z - self._last[0] >= self.interval
+        return self._last is None or bool(z - self._last[0] >= self.interval)
 
     def skip(self, z: float) -> None:
         """Count a committed step that is not checked.

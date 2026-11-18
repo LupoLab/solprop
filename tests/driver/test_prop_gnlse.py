@@ -411,14 +411,6 @@ def test_a_gaussian_disperses_as_the_closed_form_says():
     assert np.max(np.abs(departure)) < 1e-7
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BoundaryMonitor.due returns numpy.bool_ when the run's positions are "
-        "numpy.float64, against its bool annotation, which the suite's runtime type "
-        "check refuses"
-    ),
-)
 def test_a_numpy_float_length_runs():
     # numpy.float64 is a float, so a length computed with numpy is a valid request. A
     # run long enough for the reference backend's host boundary monitor to check a
