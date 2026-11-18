@@ -165,7 +165,7 @@ HDF5 file at all exposes the HDF5 library to it.
 A file resumes on its own only if it holds every data file its recipe refers to. A run
 embeds its data files up to 16 MiB in all (`solprop.recipe.provenance.EMBED_LIMIT`) and
 records any beyond that by name and digest only; the file alone then cannot rebuild the
-run, and resuming it is refused with a {py:class}`~solprop.exceptions.RecipeError`.
+run, and resuming it is refused with a {py:class}`~solprop.recipe.errors.RecipeError`.
 
 ### What a file allows
 
