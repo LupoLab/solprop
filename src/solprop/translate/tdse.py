@@ -82,6 +82,9 @@ HACC_NORM_GROWTH_LIMIT = 2.0
 TDSEPurpose = Literal["startup", "predictor", "corrected", "diagnostic"]
 """The relation of an evaluated field to the optical integration or diagnostics."""
 _PURPOSES = ("startup", "predictor", "corrected", "diagnostic")
+_MEMO_SIZE = 16
+"""Configurations each per-configuration memo keeps: a run reads one, and a long scan
+or a front-end session must not keep a gate array for every configuration it met."""
 
 
 def refine_response_grid(grid: TimeGrid, sampling: TDSESampling) -> FieldGrid:
@@ -408,7 +411,7 @@ def _hacc_setup() -> dict[str, object]:
     }
 
 
-@functools.cache
+@functools.lru_cache(maxsize=_MEMO_SIZE)
 def _window_from_json(encoded: str) -> AtomicWindowRecord | None:
     """Parse a descriptor's resolved atomic window once per configuration.
 
@@ -791,7 +794,7 @@ def _setup_fields(model: TDSEModel, setup: Mapping[str, object]) -> _SetupScalar
     return _SetupScalars(0, 0, str(setup["growing"]), 1e-3, None, False)
 
 
-@functools.cache
+@functools.lru_cache(maxsize=_MEMO_SIZE)
 def _cached_response(encoded: str) -> TDSEGasResponse:
     """Rebuild a descriptor's response once per configuration."""
     return _response_from_json(encoded)
@@ -809,7 +812,7 @@ def _breakpoints_from_json(encoded: str) -> tuple[float, float, float, float]:
     return (collar.zero_low, collar.one_low, collar.one_high, collar.zero_high)
 
 
-@functools.cache
+@functools.lru_cache(maxsize=_MEMO_SIZE)
 def _gate_derivative_from_json(
     encoded: str, *, error: bool = False
 ) -> Float[np.ndarray, " n_to"]:
@@ -825,7 +828,7 @@ def _gate_derivative_from_json(
     return hold(derivative)
 
 
-@functools.cache
+@functools.lru_cache(maxsize=_MEMO_SIZE)
 def _gate_from_json(encoded: str) -> Float[np.ndarray, " n_to"] | None:
     """Evaluate a descriptor's window gate once per configuration.
 
