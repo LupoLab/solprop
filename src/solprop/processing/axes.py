@@ -548,15 +548,15 @@ def _refuse_by_basis(output: Output, name: str) -> None:
 
     The whitelist's fourth door (:mod:`solprop.output.capability`). The readers of
     :mod:`solprop.processing.time`, :mod:`solprop.processing.fields` and the plots
-    drawn from them were written when every run's mode axis was an orthogonal one- or
-    two-component basis whose coordinate powers add up to the physical power. A
-    general modal file is not that, and ``peak_power(modes='sum')`` is
-    :func:`solprop.stats.peak_power_total`, which the run loop, both CPU backends and
-    :mod:`solprop.processing.modal` all refuse on that basis. A spatial file is not
-    that either: its columns are fields in V m or V/m or slab amplitudes, and the
-    readers of :data:`~solprop.output.capability.COLUMN_READINGS` would read them as
-    modes in sqrt(W). Without this check the same numbers came back through a
-    different import, silently wrong in joules and watts.
+    drawn from them read the mode axis as an orthogonal one- or two-component basis
+    whose coordinate powers add up to the physical power. A general modal file is not
+    that, and ``peak_power(modes='sum')`` is :func:`solprop.stats.peak_power_total`,
+    which the run loop, both CPU backends and :mod:`solprop.processing.modal` all
+    refuse on that basis. A spatial file is not that either: its columns are fields in
+    V m or V/m or slab amplitudes, and the readers of
+    :data:`~solprop.output.capability.COLUMN_READINGS` would read them as modes in
+    sqrt(W). Read through these readers, either would give numbers silently wrong in
+    joules and watts.
 
     Nothing changes for a run on an ordinary modal basis, which is every gas-filled
     guided run. Each public reader calls this once, under its own name; what it reads
