@@ -102,6 +102,7 @@ def _start(
     *,
     kept: bool = False,
     restoration: dict[str, object] | None = None,
+    next_plane: int | None = None,
 ) -> Start:
     """Return where the run starts: the entrance, or the state a file resumes.
 
@@ -112,13 +113,16 @@ def _start(
       the entrance.
     - ``kept``: the backend was built for another input, so this one's noise has to
       be handed to it.
+    - ``next_plane``: what :func:`_validate_resume` returned for `state`, which a
+      caller that has validated it passes; ``None`` validates it here.
     """
     if state is None:
         return Start.entrance(problem, noise=_realisation(problem) if kept else None)
     request = simulation.run_request()
-    next_plane = _validate_resume(
-        problem, request, state, simulation.settings.tdse_execution
-    )
+    if next_plane is None:
+        next_plane = _validate_resume(
+            problem, request, state, simulation.settings.tdse_execution
+        )
     logger.info(
         "resuming at z = %.6e m, plane %d of %d",
         state.plane.z,
@@ -315,15 +319,6 @@ def _validate_resume(
     return next_plane
 
 
-def _interpolated(state: ResumeState) -> bool:
-    """Return whether the plane a file resumes from was interpolated inside a step.
-
-    A landed plane is the end of an accepted step of the run; an interpolated one lies
-    inside a step. The entrance is the initial field.
-    """
-    return state.interpolated
-
-
 def _open_output(
     output: Output | Path | str | None,
     metadata: RunMetadata,
@@ -380,7 +375,7 @@ def _refuse_interpolated(path: Path, state: ResumeState, resume: _ResumeChoice) 
     there is not the run it continues (SEP 14 section 5); ``resume="interpolated"``
     accepts that.
     """
-    if resume == "interpolated" or not _interpolated(state):
+    if resume == "interpolated" or not state.interpolated:
         return
     msg = (
         f"{path} ends on a plane interpolated inside a step at z = "

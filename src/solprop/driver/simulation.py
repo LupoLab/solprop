@@ -83,7 +83,6 @@ from solprop.driver.mixtures import (
 from solprop.driver.resume import (
     _check_resume_choice,
     _continues,
-    _interpolated,
     _open_output,
     _ResumeChoice,
     _resumed_simulation,
@@ -1963,6 +1962,7 @@ class Simulation(Displayed):
             _refuse_pending_check(problem)
             metadata = self.metadata()
             handler, state = _open_output(output, metadata, resume=resume)
+            next_plane: int | None = None
             if state is not None:
                 next_plane = _validate_resume(
                     problem, request, state, self.settings.tdse_execution
@@ -2034,6 +2034,7 @@ class Simulation(Displayed):
                     state,
                     kept=kept is not None,
                     restoration=restoration,
+                    next_plane=next_plane,
                 )
                 _restore_atomic(binding, start)
                 _consistency_gate(self, binding, problem, handler, metadata, backend)
@@ -2057,7 +2058,7 @@ class Simulation(Displayed):
                     recipe=None if self._recipe is None else self._recipe.record(self),
                     restoration=restoration or None,
                     # Allowed only by resume="interpolated"; the record says where.
-                    interpolated_resume=state is not None and _interpolated(state),
+                    interpolated_resume=state is not None and state.interpolated,
                 )
             except StopRequested as error:
                 # A stop raised by another run's flag is that run's to catch. The run's

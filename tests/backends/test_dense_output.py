@@ -22,7 +22,6 @@ from sessions.runs import run as session_run
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import select
-from solprop.driver.resume import _interpolated
 from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError, OutputError, TranslationError
 from solprop.grid import EnvelopeGrid
@@ -352,13 +351,13 @@ def test_a_stopped_interpolated_resume_records_its_position(tmp_path):
     with pytest.raises(StopError):
         capillary(interpolate_planes=True, **dense).run(path, progress=Stop())
     first = read_resume_state(path)
-    assert _interpolated(first)
+    assert first.interpolated
     with pytest.raises(StopError):
         capillary(interpolate_planes=True, **dense).run(
             path, resume="interpolated", progress=Stop()
         )
     second = read_resume_state(path)
-    assert _interpolated(second)
+    assert second.interpolated
     assert second.n_saved > first.n_saved
     with open_file(path) as stored:
         assert stored.annotations[INTERPOLATED_RESUMES_ANNOTATION] == [first.plane.z]
@@ -397,7 +396,7 @@ def test_an_interpolated_plane_is_resumed_only_on_request(tmp_path, dense):
     with pytest.raises(StopError):
         capillary(backend="numpy_ref", **dense).run(path, progress=Stop())
     state = read_resume_state(path)
-    assert _interpolated(state)
+    assert state.interpolated
     with pytest.raises(DriverError, match="resume='interpolated'"):
         capillary(backend="numpy_ref", **dense).run(path, resume=True)
     # A run asking for no interpolation is another run, which the hash refuses.
@@ -412,7 +411,7 @@ def test_an_interpolated_plane_is_resumed_only_on_request(tmp_path, dense):
     # The run is complete and ends landed, so it resumes without the request.
     finished = read_resume_state(path)
     assert finished.n_saved == 4
-    assert not _interpolated(finished)
+    assert not finished.interpolated
     capillary(backend="numpy_ref", **dense).run(path, resume=True, progress="none")
 
 
