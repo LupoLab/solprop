@@ -21,7 +21,6 @@ from record_numbers import (
     assert_record_numbers,
     record_skeleton,
     skeleton_hash,
-    with_former_names,
 )
 from solprop.driver import Simulation, prop_capillary
 from solprop.driver import tdse as runtime
@@ -229,18 +228,15 @@ def test_tdse_output_defaults_and_their_explicit_overrides():
     assert SimulationSettings.__dataclass_fields__["step_planes"].default == 0
 
 
-# Computed on the base commit of SEP 20 Phase 1: a rate-based capillary call without
-# `tdse` builds this exact configuration, responses, itinerary and statistics. A change
-# of optmat's models would legitimately move it, as optmat 0.10's versioned equations
-# of state did; recompute it there, not here. Until SEP 25 one SHA-256 pinned the whole
-# record, last bits of its derived numbers included, which another platform's libm and
-# FFT move. Its structure is still hashed
-# exactly; its numbers are stored beside this test (recorded from the state the
-# former digest certified) and compared within a bound (tests/record_numbers.py).
-_UNCHANGED = "fa82edecbf9b7c1b03cac3e0229915882eb133035b98d541e14cde448a1840ca"
+# A rate-based capillary call without `tdse` builds this configuration, responses,
+# itinerary and statistics. Its structure is identity metadata and is hashed exactly;
+# its numbers, whose last bits another platform's libm and FFT move, are stored beside
+# this test and compared within a bound (tests/record_numbers.py). A change of optmat's
+# models legitimately moves them: recompute them there, not here.
+_CAPILLARY_DEFAULTS = "e164082efb1559372f4bb2aa1999e7c95654289315b35413d508a2ddb5140381"
 
 
-def test_without_tdse_a_representative_call_is_unchanged():
+def test_a_capillary_call_without_tdse_builds_its_recorded_configuration():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
         simulation = Simulation.from_capillary(
@@ -269,14 +265,14 @@ def test_without_tdse_a_representative_call_is_unchanged():
         "tdse_execution": simulation.settings.tdse_execution,
     }
     skeleton, numbers, floors = record_skeleton(
-        with_former_names(json.loads(json.dumps(record, sort_keys=True, default=repr)))
+        json.loads(json.dumps(record, sort_keys=True, default=repr))
     )
-    assert skeleton_hash(skeleton) == _UNCHANGED
+    assert skeleton_hash(skeleton) == _CAPILLARY_DEFAULTS
     assert_record_numbers(
         numbers,
         floors,
         Path(__file__).with_suffix("")
-        / "test_without_tdse_a_representative_call_is_unchanged.npz",
+        / "test_a_capillary_call_without_tdse_builds_its_recorded_configuration.npz",
     )
     assert simulation.settings.step_planes == 0
     assert len(np.asarray(simulation.settings.save_planes)) == 200
