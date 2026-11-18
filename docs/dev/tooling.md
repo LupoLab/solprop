@@ -261,6 +261,13 @@ to it.
   end of the session).
 - In the docs build: `SOLPROP_RUN_EXAMPLES` (`stale` or a script name, set by
   `poe docs-examples`; `tutorials` in CI's docs job).
+- Set by solprop for its own child processes; do not set them: `SOLPROP_CALIBRATION_ROLE`
+  (`worker` in a `Pool` scan's workers, which never calibrate on first use),
+  `SOLPROP_NATIVE_WAIT_REQUEST` (the OpenMP wait a scan worker or calibration child asks
+  for), `SOLPROP_NATIVE_WAIT` (the wait the native import chose, beside the variables it
+  set), `SOLPROP_SLURM_WORKER` and `SOLPROP_SCAN_INSTANCE` (a Slurm array task and its
+  controller instance, written by the generated script), and `SOLPROP_SERVICE_RUN_THREADS`
+  (the thread budget the front end's kernel keeps for the runs it starts).
 
 ## CI
 

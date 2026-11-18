@@ -279,7 +279,7 @@ a whole column. A propagation evaluates the rate once per sample of the fine tim
 on every column, at every stage, so it uses a precomputed table:
 {py:class}`solprop.translate.ionisation.RateTable`, built by
 {py:func}`solprop.translate.ionisation.build_rate_table`, which brings that to about 10 ns
-in NumPy; the compiled backends evaluate the same table inside their kernels. The table
+in NumPy; the native backend evaluates the same table inside its kernels. The table
 controls interpolation accuracy and behaviour outside its sampled interval. Its tolerance is separate
 from the optical stepper tolerance and the rate model's physical uncertainty.
 

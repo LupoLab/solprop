@@ -6,8 +6,8 @@
 
 - :class:`HDF5Output` streams a run to one file, kept open between optional snapshot
   transactions; it preallocates the planes the run reserved, writes the saved-plane
-  count ``n_saved`` last so a hard stop leaves a readable file, follows the run's field
-  retention, and with ``append=True`` continues a file it wrote earlier.
+  count ``n_saved`` last so that it never covers a partly written plane, follows the
+  run's field retention, and with ``append=True`` continues a file it wrote earlier.
 - :func:`check_cache` is the resume gate: the file's configuration hash must equal the
   requested one (ADR-066); :func:`read_resume_state` returns a :class:`ResumeState`: the
   record, the terminal checkpoint or else the last plane, back in the internal
@@ -858,12 +858,15 @@ class HDF5Output(PlaneStore):
     def save(self, plane: SavedPlane) -> None:
         """Store one saved plane and flush it to disk; refused on a read-only handler.
 
-        The flush is what makes a hard stop -- a SIGKILL, an out-of-memory kill, a lost
-        node -- lose at most the plane being written: the plane's data is flushed before
-        the file's ``n_saved`` count is raised, so a plane cut off half-way is not
-        counted, and readers do not see it. An ordinary interruption
-        (``KeyboardInterrupt``, an error) never needed it: the run loop closes the
-        handler in a ``finally`` and closing writes everything. One flush per plane
+        The flush keeps the file's ``n_saved`` count consistent through a hard stop --
+        a SIGKILL, an out-of-memory kill, a lost node: the plane's data is flushed
+        before the count is raised, so a plane cut off half-way is not counted, and
+        readers do not see it. The flush does not sync to disk and the file is not
+        opened in SWMR mode, so HDF5 does not promise that a file stopped mid-write
+        can be opened at all; ``snapshots=`` on a run publishes synced, checksummed
+        copies that a hard stop cannot damage. An ordinary interruption
+        (``KeyboardInterrupt``, an error) never needed the flush: the run loop closes
+        the handler in a ``finally`` and closing writes everything. One flush per plane
         costs nothing against the steps between planes.
 
         Parameters

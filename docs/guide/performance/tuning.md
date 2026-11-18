@@ -162,7 +162,7 @@ imported:
 | `SOLPROP_NATIVE_FFT_THREADS` | FFTW threads for the modal and spatial transforms | sized per plan, up to the cap |
 | `SOLPROP_NATIVE_RAMAN_FFT_THREADS` | threads for the Raman convolution transforms of complete node chunks | sized per plan, up to the cap |
 | `SOLPROP_NATIVE_RAMAN_TAIL_FFT_THREADS` | threads for the Raman transforms of the last, partial node chunk | sized from active rows, up to the cap |
-| `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` | the real-side samples per execution from which a modal or spatial FFT plan is threaded | 8,192 (32,768 on macOS) |
+| `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` | the real-side samples per execution from which a modal or spatial FFT plan is threaded | 8,192 (32,768 on macOS, divided by 16 there on a team of at most eight threads while the runtime spins within native calls, as it does by default; a value set here is never divided) |
 | `SOLPROP_NATIVE_FORWARD_PACK` | `0` transforms a modal stage's forward rows (projection, absorber, plasma currents) one transform at a time instead of in one batch | unset (one batch, except for one-column problems) |
 | `SOLPROP_NATIVE_BAND_TILES` | the field plasma column's band form: unset for the build's own (tiled on a GPU, a team per node on a CPU), `0` for the team column, a positive `N` for the tiled column with host teams of `N` threads | unset |
 

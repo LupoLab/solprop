@@ -50,7 +50,7 @@ Four executors, all in `solprop.driver.executors`, run the points:
 | `Slurm(script, ...)` | prepares a queue and submits a Slurm array job that drains it |
 
 A builder's omitted `backend` resolves to the native backend, as described in
-[running a simulation](../performance/resources.md#backend-choice-and-scan-workers), and
+[backend choice and scan workers](../performance/resources.md#backend-choice-and-scan-workers), and
 every executor keeps that concrete choice.
 
 ## Reuse a translated simulation

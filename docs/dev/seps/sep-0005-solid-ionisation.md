@@ -1191,3 +1191,8 @@ No implementation phases have started.
 - 2026-11-02: [SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
   proposal names Numba or `numba_cpu`, it was written before that: such a phase or check falls
   away, and the feature goes on `numpy_ref` and the native backend (SEP 0).
+- 2026-11-18: Written before the current architecture. Where this proposal names
+  solprop-kokkos or its files, read the native package in this repository (`native/`,
+  [SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md)); the backends have since been
+  cut to two, binary64 only, with one shape and a native seam that only marshals
+  ([SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md), ADR-077, ADR-079).

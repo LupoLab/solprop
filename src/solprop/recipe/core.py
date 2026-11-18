@@ -1328,7 +1328,9 @@ def resume_file(
 
     Resuming a file runs the setup it holds. A file received from someone else does
     not choose its own limit: the recipe's ``node_budget`` is ignored, and the caller's
-    applies.
+    applies. A data file the run recorded by name only, beyond the 16 MiB it embeds
+    (:data:`~solprop.recipe.provenance.EMBED_LIMIT`), is not in the file, so such a
+    file does not resume on its own.
 
     Parameters
     ----------
@@ -1352,7 +1354,8 @@ def resume_file(
     Raises
     ------
     RecipeError
-        If the file records no recipe, or one of a newer format.
+        If the file records no recipe, or one of a newer format, or its recipe refers
+        to a data file the file does not hold.
     """
     rebuilt = Recipe.from_output(path, resolved=True)._copy(())
     rebuilt._document["build"].pop("node_budget", None)

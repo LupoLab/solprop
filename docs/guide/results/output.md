@@ -285,15 +285,31 @@ lists their saved-plane indices; a `"none"` run has neither dataset.
 step-history and between-planes columns grow by doubling; a run that saves more planes
 than planned grows the plane-indexed ones by doubling too. The root attribute `n_saved`
 is the number of planes actually written. Each plane's data is written and flushed
-first and the count raised last, so a hard stop — a SIGKILL, an out-of-memory kill, a
-lost node — leaves the count at the last complete plane, even part-way through the next.
-The attempts and rows belonging to the counted planes are the sums of
+first and the count raised last, so the count never includes a plane that a stop cut off
+part-way. The attempts and rows belonging to the counted planes are the sums of
 `step_history/counts` and `step_stats/counts` over them, so the one count fixes every
 column. Every reader, {py:func}`~solprop.output.hdf5.read_resume_state` and a handler continuing
 the file use only what is counted, and a clean close trims every dataset to it, so a
 finished file holds no unused rows and its datasets' extents are exactly the counts.
 Read a file through {py:func}`~solprop.output.hdf5.open_file`, not
 `h5py` directly, if it may be one a hard stop left behind.
+
+**What a hard stop can do.** The count is kept consistent, but the file is not made
+crash-proof. A flush hands HDF5's buffers to the operating system without syncing them
+to disk, and the file is not opened in HDF5's single-writer/multiple-reader (SWMR) mode.
+HDF5 therefore does not promise that a file stopped hard — by a SIGKILL, an
+out-of-memory kill or a lost node — while it was writing, part-way through a plane or
+while a dataset grew, can be opened at all; a lost node or a power cut can also lose
+writes the operating system had not yet made. For a copy that a hard stop cannot damage,
+request [periodic snapshots](#periodic-snapshots-while-computing) with `snapshots=` (an
+HDF5 run with `fields="all"`): each copies the closed files, syncs the copies to disk
+and records their checksums, and
+{py:func}`~solprop.output.snapshots.restore_snapshot` turns a verified one into working
+files to resume. A scan's collected file has the same exposure on the `Local` and `Pool`
+executors, which hold each completed point only in that file and take no snapshots; a
+`Queue` or `Slurm` scan also keeps each point's artifact in the queue, synced to disk
+before it is published, and `python -m solprop.scan collect` can write a collected
+file from them again ([durable queues](../workflows/scans.md#durable-queues-and-slurm)).
 
 The march snapshot is the Adams march's state at the last saved plane or terminal
 checkpoint, rewritten in place at each one (`SimulationSettings.resume_history`). It is

@@ -438,8 +438,8 @@ the product $E_jE_kE_l$ is symmetric in $(j, k, l)$, so the sum is evaluated as
 $\sum_m C_{im}\,(E_jE_k)E_l$ over the ten monomials $j \le k \le l$, with $C_{im}$ the
 sum of $A_{ijkl}$ over the orderings of monomial $m$ — an identity for any tensor —
 formed once per node and evaluation: 3 + 10 products a component a sample in place of
-the dense 81 + 3, 2.5 times faster in the kernel of the since-retired `numba_cpu`
-([benchmarks.md](benchmarks.md#general-route-symmetric-contraction)). The
+the dense 81 + 3, which ran a two-channel step-index window 1.35 times faster at one
+thread ([benchmarks.md](benchmarks.md#general-route-symmetric-contraction)). The
 order is fixed: the orderings in lexicographic order, the monomials likewise, every sum
 from zero; `numpy_ref` defines it and the native backend runs it. Its rounding is
 within $\gamma_{17}$ of $\sum_{jkl}|A_{ijkl}||E_j||E_k||E_l|$, against $\gamma_{14}$ for

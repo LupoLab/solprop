@@ -226,9 +226,9 @@ serves.
   pins, so it follows new defaults. The *resolved* recipe that solprop stores beside it in
   every results file freezes what rebuilds the run: what the user set, every solved pin, the
   noise seed, the data files and the defaults solprop can write back and still get the same
-  run. "Open setup from this run" shows the resolved values; adopting the current defaults or
-  re-solving the pins is a separate, explicit action ("Update to current solprop"), which lists
-  what would change. A frozen setup can still be refused at resume if the materials data or the
+  run. Opening a results file restores its setup from the resolved values. Adopting the
+  current defaults or re-solving the pins is to be a separate, explicit action that lists what
+  would change ("Update to current solprop"); it is not built yet. A frozen setup can still be refused at resume if the materials data or the
   physics differ; solprop names the fields that changed (ADR-066).
 - **Run.** One execution of a recipe revision: a results file (solprop HDF5) with both
   recipes embedded, a log, and two separate states. The *execution state* is the GUI's:
@@ -248,8 +248,8 @@ serves.
   (`solprop_gui.model.workspace`), and the folder is the truth, so copying a run folder
   elsewhere loses nothing. Each machine (13.4) has a workspace of its own.
 - **Project file.** Just a recipe saved by the user wherever they like ("Save setup
-  as…"). Opening a results file offers "Open setup from this run", which loads its
-  embedded recipe as a new, unsaved project.
+  as…"). Opening a results file loads its resolved recipe into the sheet, when the open
+  setup may be discarded.
 
 ## 5. The window and the route through it
 
@@ -264,7 +264,7 @@ Home ─┬─ New simulation ──► Setup ──► Run ──► Analyse
       │    (a class)          ◄── edit and rerun ──┘
       ├─ Design a waveguide ──► "Simulate this" ──► Setup
       ├─ Open results ──► Analyse
-      └─ Scans (later, a mode of its own, started from a sheet)
+      └─ Scans (a mode of its own, started from a sheet)
 ```
 
 ```
@@ -281,8 +281,8 @@ Capillary, helium                  Setup   Run   Analyse         [▶ Run]   ⋯
   by itself, and editing a finished run's setup goes back to Setup without losing the results.
 - **One primary action.** The button at the top right is what comes next: Run, Stop or Rerun.
   Run, Stop and Resume appear nowhere else.
-- **One overflow menu** (⋯) holds Save, Save as, Export recipe, Export Python and Open setup
-  from this run. The platform's menu bar repeats these, with the keyboard shortcuts.
+- **One overflow menu** (⋯) holds Save, Save as, Show the recipe and Show as Python. The
+  platform's menu bar repeats the first two, with the keyboard shortcuts.
 - **No permanent console.** The log moves to the Run health page (11.3). A warning appears
   beside what it concerns and only when something is wrong. The recipe and its Python
   equivalent open in a drawer on request.
@@ -301,7 +301,7 @@ Shown when nothing is open. It asks what you want to do:
 - **Design a waveguide** (7.4), for questions that need no pulse or run.
 - **Open results**: a file, or one of the recent runs listed here with its state.
 - **Open a setup**, and the recent setups.
-- **Scans**, later (12.7).
+- **Scans** are not here: a scan starts from a sheet (12.7).
 
 A class's examples (`Recipe.examples()`) are a short list on its sheet, not a dialog.
 
@@ -313,8 +313,8 @@ projector (S5).
 
 - A sheet is one column of sections beside its plot. On a narrow window the plot moves below.
 - An analysis page shows one large view at a time, and the rail can shrink to icons.
-- Fonts and plot line widths follow the system scale; a "Presentation" toggle enlarges
-  everything for S5.
+- Fonts and plot line widths follow the system scale. A "Presentation" toggle to enlarge
+  everything for S5 is not built yet.
 
 ## 6. Setup: one sheet per problem class
 
@@ -754,8 +754,8 @@ Capillary, helium              Setup  Run  Analyse              [■ Stop]  ⋯
 ### 10.3 Several runs
 
 The usual work is one run at a time, so the window shows one. Home lists the workspace's runs with
-their state, and opening one shows it. Starting a second while one runs is allowed, with a warning
-before oversubscribing the machine's thread budget. Campaigns are scans (12.7).
+their state, and opening one shows it. Starting a second while one runs is allowed; a warning
+before it oversubscribes the machine's thread budget is not built yet. Campaigns are scans (12.7).
 
 ## 11. Analyse
 
@@ -989,25 +989,26 @@ shows unsaved changes; autosave keeps a recovery copy. Window layout, last works
 units and recent files persist with `QSettings`. The first look is light (D18); a dark theme can
 follow the system later.
 
-### 12.7 Scans (designed now, built later)
+### 12.7 Scans
 
-Scans are a mode of their own (D16), started from a sheet, not a section of the Run stage.
+Scans are a stage of their own (D16), started from a sheet, not a section of the Run stage
+(`ui/scan_stage.py`, `ui/scan_editor.py`).
 
-- **Setup**: any numeric field, nested ones included (a second pulse's energy, a
-  profile knot), gets a "scan" toggle in its context menu that turns it into a list or
-  range (linear, log, explicit) over its parameter path. Pins re-solve at every point. The scan's setup shows
-  the variables, the grid shape and the total cost, the retention choice (`fields`:
-  none, chosen planes, all) and reductions (energy in a band, spectrum in a band, peak
-  power, …, from `processing.scans`).
-- **Run**: `Recipe.scan()` gives the `Scan`, a picklable builder (passing each point's seed)
-  and the keywords for `run_scan(..., executor=Local() | Pool(workers))`, the retention choice
-  among them. Live progress
-  needs solprop change S4 (today the scan reports finished points only).
-- **Results**: a scan browser shows any reduction as a map over two scan variables (or
-  lines over one), with the others as sliders; clicking a point opens that point's run
-  in Analyse (when its fields were retained).
-- **Data model**: a scan is a recipe plus a `[scan]` table of variables, so the recipe
-  format must allow it from format 1.
+- **Setup**: a numeric field's context menu offers "Scan this…", which adds its parameter
+  path, nested ones included (`pulses[0].energy`), to the recipe's `[scan]` table. The Scan
+  stage edits that table: each variable a list of values or a range
+  (`{start, stop, num, spacing}`) in the keyword's unit, and a `name` that names the scan's
+  files and seeds its points. Pins are solved again at every point. Beyond its statistics a
+  scan can record the energy and peak power within a band, each point's spectrum and each
+  point's pulse.
+- **Run**: the run helper runs `Recipe.scan()` through `run_scan(..., executor=Pool())`
+  into the scan's folder (`solprop.service.run`); a run from the sheet leaves the table
+  out and runs the setup once. The stage shows a bar for each variable and one for the
+  whole scan, advanced as points finish.
+- **Results**: one recorded quantity at a time, over the first variable with a line for
+  each value of the second, or, for a recorded spectrum or pulse, as a map over the first
+  variable; failed points are marked, and a point's context menu opens it as a setup.
+- **Data model**: a scan is a recipe plus a `[scan]` table of variables (recipe format 1).
 
 ### 12.8 View specifications
 

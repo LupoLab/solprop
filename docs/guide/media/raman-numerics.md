@@ -23,8 +23,9 @@ implements
 The factor of one half is the cycle average of $\cos^2$: $E^2$ and
 $\tfrac12\lvert E_a\rvert^2$ agree in their slowly varying part and differ only by the
 $2\omega_0$ beat. When that beat lies well above the Raman lines, the response suppresses it
-strongly. For a 1030 nm pulse in nitrogen the two
-field-grid forms give polarisations differing by 2.4 × 10⁻⁴. The `thg` switch therefore
+strongly. For a 120 fs, 1030 nm pulse in nitrogen at about one bar (the built-in
+response) the two field-grid forms give polarisations differing by 4 × 10⁻⁴ of the
+peak. The `thg` switch therefore
 matters far less for Raman than for Kerr, for that narrowband optical example. At longer wavelengths or with broad mixing
 bands, compare the beat frequency with the actual Raman spectrum instead.
 

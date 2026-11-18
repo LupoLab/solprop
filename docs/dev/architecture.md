@@ -182,6 +182,14 @@ native backend's own BLAS and does not import a backend; an already loaded nativ
 package supplies its library identity through `build_info`. See the
 [BLAS guide](../guide/performance/tuning.md#blas-and-vendor-libraries).
 
+**Threaded passes over large arrays.** One performance measure is allowed in P: a NumPy
+pass over an array of 64 MiB or more (`_process.PARALLEL_BYTES`) may split its rows over
+threads within the thread budget through `_process.parallel_rows`, the pass's rows being
+independent and NumPy's ufuncs releasing the GIL. `SpatialPulse.build` uses it for a large
+beam launch (with its first touch per thread and its column norms reused), and so do the
+host reduction of a state's energy into the boundary's split-rate buckets (`boundaries.py`) and the plane measure's admittance
+(`spatial.py`). Smaller arrays run in one call, and nothing in P threads per step.
+
 **Deliberate upward edges.** A handful of imports climb a layer, each for a reason
 recorded here and in the allowlist of `tests/test_layers.py`, which checks every import
 of the package -- at module level, inside a function or for typing -- and fails on any
@@ -839,7 +847,7 @@ its execution space.
   its load. A caller that identifies its input states that instead (`StatedInput`), and
   nothing digests it.
 - Φ tables are shared where possible; the constant-D fast path stores one array.
-- Fine-grid buffers use the smallest `ffac` the declared responses need.
+- Fine-grid buffers are sized by the grid's `ffac` (§6.1), not by the declared responses.
 
 ## 14. Logging and progress
 

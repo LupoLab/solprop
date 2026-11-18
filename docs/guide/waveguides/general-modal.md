@@ -356,7 +356,7 @@ it.
 | the cubic's form | `kerr_form="real"` (the default, third harmonic included) or `"analytic"` | [the response at a node](modal-projection.md#the-response-at-a-node) |
 | the launch | `channel=` (an index or a label) or `incident=` (a `SpatialPulse` coupled under `coupling=`, of which the captured share enters) | [running one](#running-one) |
 | a unitary change of basis — of an exactly degenerate block, which stays diagonal, or of a split one, which becomes a coupled flow | `basis=` and `degenerate_blocks=` on `from_provider` | [declaring a circular basis](modal-bases.md#declaring-a-circular-basis), [a split block](modal-bases.md#a-declared-basis-of-a-block-that-is-only-nearly-degenerate) |
-| the statistics | `physical_energy` and `analytic_flux` (the defaults), `spectral_flux` by name | [noise, statistics and what comes back](#noise-statistics-and-what-comes-back) |
+| the statistics | `omega0`, `physical_energy`, `analytic_flux`, `fwhm_t` and `fwhm_t_outer` (the defaults), `spectral_flux` by name | [noise, statistics and what comes back](#noise-statistics-and-what-comes-back) |
 
 **What is refused, and why.** Every refusal names itself, at the entry point and again
 at the translation layer and in the backend.

@@ -1112,3 +1112,8 @@ is an algebraic consistency check, not experimental evidence.
 - 2026-11-17: The kernel-contract references follow the current seam: `PropagationProblem`
   for `KernelProblem`, and the frozen seam tables for the retired schema version and
   `StepDriver` surface (ADR-068, SEP 52).
+- 2026-11-18: Written before the current architecture. Where this proposal names
+  solprop-kokkos or its files, read the native package in this repository (`native/`,
+  [SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md)); the backends have since been
+  cut to two, binary64 only, with one shape and a native seam that only marshals
+  ([SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md), ADR-077, ADR-079).

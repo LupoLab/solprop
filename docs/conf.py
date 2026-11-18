@@ -189,13 +189,13 @@ nitpick_ignore_regex = [
 # Three galleries, each with committed output: the introductory lessons
 # (`introduction/tutorials/` → `introduction/lessons/`), which run developed physical
 # problems; the focused tutorials (`tutorials/` → `auto_tutorials/`); and the worked
-# examples (`examples/` → `auto_examples/`), full-size runs of minutes to half an hour
-# each. A normal build executes none of them: their generated pages, figures and
-# sphinx-gallery checksums are committed, and sphinx-gallery reuses a script's stored
-# output unchanged whenever the source's checksum matches the stored one. The build
-# that publishes the manual therefore runs no gallery (Read the Docs' builders stalled
-# on the lessons and tutorials from 2026-10-29); its only propagations are three short
-# `.. plot::` blocks on `numpy_ref` in `guide/waveguides/` (`vector-wall.md`, and
+# examples (`examples/` → `auto_examples/`), full-size runs of a few seconds to about
+# ten minutes each. A normal build executes none of them: their generated pages, figures
+# and sphinx-gallery checksums are committed, and sphinx-gallery reuses a script's
+# stored output unchanged whenever the source's checksum matches the stored one. The
+# build that publishes the manual therefore runs no gallery (Read the Docs' builders
+# stalled on the lessons and tutorials from 2026-10-29); its only propagations are three
+# short `.. plot::` blocks on `numpy_ref` in `guide/waveguides/` (`vector-wall.md`, and
 # `coherent-wall.md` twice).
 #
 # `SOLPROP_RUN_EXAMPLES` executes them. "stale" (`poe docs-examples`) runs every

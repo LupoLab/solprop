@@ -986,7 +986,7 @@ def test_the_response_cannot_follow_the_third_harmonic_beat():
     # The two field-grid drives differ by the 2 omega0 beat, which for a 1030 nm
     # carrier is at 3.7e15 rad/s -- ten times the highest Raman line. The response is
     # a resonant low pass, so it filters the beat out almost entirely and the two
-    # forms give nearly the same polarisation. Measured: 2.4e-4 of the peak. This is
+    # forms give nearly the same polarisation. Measured: 4.5e-4 of the peak. This is
     # why the thg switch matters much less for Raman than for Kerr, and why the
     # difference must nevertheless not be exactly zero.
     _, _, field, _ = parity_signals()
