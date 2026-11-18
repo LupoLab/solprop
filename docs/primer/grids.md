@@ -68,7 +68,8 @@ the carrier, for $\omega_{\max}$):
   $\tfrac34|E_a|^2E$, whose spectrum stays near the fundamental. A short calculation shows that it would
   not suffice for the full cubic: the third harmonic of the collar, at $3.3\omega_{\max}$, would fold back
   to $0.7\omega_{\max}$, inside the band.
-- **`ffac=2`** is the minimum. On a field grid it truncates the upper collar. On an envelope grid `ffac`
+- **`ffac=2.2`** is the field-grid minimum: it puts the fine Nyquist frequency at the collar's upper edge,
+  $1.1\omega_{\max}$, so the coarse Nyquist bin carries no field. **`ffac=2`** is the envelope-grid minimum. On an envelope grid `ffac`
   multiplies the relative half-span $\Omega=\max(|1.1\omega_{\max}-\omega_0|,|\omega_0-\omega_{\min}/2|)$ instead of
   $\omega_{\max}$, so the envelope default, `ffac=2` without a harmonic term, puts the Nyquist offset at exactly
   $\Omega$: the active band and its collars are represented, and the coarse and fine grids coincide.

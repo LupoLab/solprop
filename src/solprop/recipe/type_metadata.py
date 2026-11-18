@@ -658,7 +658,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
     "FieldGrid.from_limits": _grid(
         _keyword(
             "ffac",
-            _number(minimum=2.0),
+            _number(minimum=2.2),
             "advanced",
             "Fine-grid oversampling factor; 6 resolves a cubic response.",
         ),

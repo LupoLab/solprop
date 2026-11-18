@@ -1709,8 +1709,11 @@ def on_axis_spectrum(
     -------
     numpy.ndarray
         Real spectral fluence in J s/m^2 per angular frequency bin, shape
-        ``(n_omega,)``. Its sum times ``grid.d_omega`` is the on-axis fluence.
-        It is a density, so changing Fourier convention leaves it unchanged.
+        ``(n_omega,)``. Each bin carries its weight in
+        :func:`solprop.fourier.energy_weights` per ``grid.d_omega``, so a field grid's
+        end bins count a quarter of an interior bin, as in the analytic signal, and the
+        sum times ``grid.d_omega`` is exactly the on-axis fluence. It is a density, so
+        changing Fourier convention leaves it unchanged.
 
     Raises
     ------
@@ -1719,8 +1722,10 @@ def on_axis_spectrum(
     """
     field, closure = _on_axis_pair(spectrum, flux)
     grid = flux.grid
-    factor = fourier.spectral_density(
-        np.ones(grid.n_omega, complex), grid.dt, kind=grid.kind
+    # The energy weight of each bin per unit frequency: on a field grid the end bins
+    # take the analytic signal's weight, a quarter of an interior bin's.
+    factor = (
+        fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind) / grid.d_omega
     )
     return 0.5 * EPS0 * C * factor * np.sum(np.real(field * np.conj(closure)), axis=0)
 
@@ -1746,8 +1751,9 @@ def node_spectrum(
     -------
     numpy.ndarray
         Real spectral fluence in J s/m^2 per angular frequency bin, shape
-        ``(n_nodes, n_omega)``. Its sum over frequency times ``grid.d_omega`` is the
-        node's :func:`spatial_fluence`.
+        ``(n_nodes, n_omega)``, weighted per bin as :func:`on_axis_spectrum` is. Its
+        sum over frequency times ``grid.d_omega`` is the node's
+        :func:`spatial_fluence`.
 
     Raises
     ------
@@ -1757,8 +1763,10 @@ def node_spectrum(
     _check_flux(spectrum, flux, planar=False)
     field, closure = _local_pair(spectrum, flux)
     grid = flux.grid
-    factor = fourier.spectral_density(
-        np.ones(grid.n_omega, complex), grid.dt, kind=grid.kind
+    # The energy weight of each bin per unit frequency: on a field grid the end bins
+    # take the analytic signal's weight, a quarter of an interior bin's.
+    factor = (
+        fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind) / grid.d_omega
     )
     return 0.5 * EPS0 * C * factor * np.sum(np.real(field * np.conj(closure)), axis=1)
 
@@ -2984,8 +2992,9 @@ class _FarFieldSums:
         """Return the requested statistics from the accumulated partials."""
         conversion = 0.5 * EPS0 * C
         grid = self._grid
-        factor = fourier.spectral_density(
-            np.ones(grid.n_omega, complex), grid.dt, kind=grid.kind
+        # Per unit frequency, with the analytic signal's end-bin weights.
+        factor = (
+            fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind) / grid.d_omega
         )
         on_axis = factor * np.sum(
             np.real(self._amplitude * np.conj(self._closure)), axis=1

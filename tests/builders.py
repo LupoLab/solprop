@@ -26,7 +26,7 @@ from solprop.boundaries import DEFAULT_BOUNDARY_N, Absorber, absorber
 from solprop.driver import Simulation
 from solprop.driver.scan import ScanPoint
 from solprop.exceptions import GridError
-from solprop.grid import EnvelopeGrid, TimeGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, TimeGrid
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
 from solprop.translate.problem import PropagationProblem
@@ -38,6 +38,7 @@ __all__ = [
     "grid_at",
     "held_collar",
     "launch_derivative",
+    "live_nyquist",
     "load_reference",
     "numpy_ref_launch_derivative",
     "reference_trial",
@@ -97,6 +98,17 @@ def grid_at[G: TimeGrid](grid: G, length: float) -> G:
     reference length; :func:`held_collar` keeps the rates the old length gave.
     """
     return dataclasses.replace(grid, length=length)
+
+
+def live_nyquist(grid: FieldGrid) -> FieldGrid:
+    """Return `grid` with its spectral collar widened past its Nyquist bin.
+
+    No field grid that validates has one; :func:`dataclasses.replace` does not
+    validate, so a test can reach the end-bin weights of a spectral statistic where they
+    differ from the interior ones. The Nyquist bin becomes active, its window non-zero.
+    """
+    collar = dataclasses.replace(grid.omega_collar, zero_high=1.1 * grid.omega[-1])
+    return dataclasses.replace(grid, omega_collar=collar)
 
 
 def held_collar(grid: TimeGrid, length: float) -> Absorber:
