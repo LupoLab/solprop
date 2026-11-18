@@ -449,7 +449,8 @@ class OptmatGas:
         pressure : float
             Pressure in bar, > 0.
         temperature : float
-            Temperature in K, within :attr:`temperature_range`.
+            Temperature in K, within the equation of state's range (the transport
+            range, :attr:`temperature_range`, does not apply).
 
         Returns
         -------
@@ -459,14 +460,19 @@ class OptmatGas:
         Raises
         ------
         MaterialError
-            If the pressure is not positive, or the state is outside the domain.
+            If the pressure is not positive, the temperature not positive and finite,
+            or the state is outside the equation of state's domain.
         """
         from optmat.conditions import State  # noqa: PLC0415 - optmat is lazy
         from optmat.exceptions import StateError  # noqa: PLC0415 - as above
 
-        kelvin = self._checked(temperature)
         if not (math.isfinite(pressure) and pressure > 0.0):
             raise MaterialError(f"pressure must be positive, got {pressure} bar")
+        kelvin = float(temperature)
+        if not (math.isfinite(kelvin) and kelvin > 0.0):
+            raise MaterialError(f"temperature must be positive, got {temperature} K")
+        # The equation of state alone: its own range and status, as density's.
+        _optmat.check_status(self._equation, self.key.value)
         try:
             return float(
                 self._equation.speed_of_sound(

@@ -178,6 +178,18 @@ def test_a_real_gas_sound_speed_of_a_mixture_is_refused():
         sound_speed({"N2": 0.5, "O2": 0.5}, 1.0, 294.0)
 
 
+def test_a_real_gas_sound_speed_checks_only_the_equation_of_state():
+    # Methane's transport model is provisional and declared for 95 K to 600 K; its
+    # equation of state is declared for 90.69 K to 625 K, and is all this value uses.
+    # Warnings are errors in the suite, so the first call also says that none is raised.
+    assert sound_speed("CH4", 1.0, ROOM_TEMPERATURE) > 0.0
+    assert sound_speed("CH4", 1.0, 610.0) > sound_speed("CH4", 1.0, 590.0)
+    with pytest.raises(MaterialError, match="equation of state"):
+        sound_speed("CH4", 1.0, 700.0)
+    with pytest.raises(MaterialError, match="temperature"):
+        sound_speed("CH4", 1.0, math.nan)
+
+
 def test_every_transport_function_defaults_to_room_temperature():
     # One argument order with the rest of physdata: (gas, pressure, temperature), the
     # temperature defaulting to 293.15 K. Identical calls, so exact equality.

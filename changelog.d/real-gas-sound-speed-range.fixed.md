@@ -1,0 +1,1 @@
+A real-gas speed of sound (`physdata.transport.sound_speed` with a pressure) checks only the equation of state it comes from: it no longer warns that a gas's transport model is provisional (methane's), nor refuses a temperature inside the equation of state's range but outside the transport properties' range.

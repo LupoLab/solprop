@@ -272,8 +272,9 @@ def sound_speed(
         :func:`molar_mass`. A pressure in **bar**, > 0, gives the real-gas value
         from the equation of state, for a pure gas only.
     temperature : float, optional
-        Temperature in K, inside :func:`temperature_range` of every gas. Defaults to
-        293.15 K.
+        Temperature in K, inside :func:`temperature_range` of every gas for the dilute
+        value, and inside the equation of state's range for the real-gas value.
+        Defaults to 293.15 K.
 
     Returns
     -------
