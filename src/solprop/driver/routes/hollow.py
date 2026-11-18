@@ -167,7 +167,7 @@ class _HollowRequest:
     - ``length``: capillary length, m.
     - ``gas``: Built-in gas, mole fractions keyed by species name, or ordered
       populations carrying their own density paths. A mapping uses total pressure.
-    - ``pressure``: None uses one bar for a gas or fractions. Omit pressure beside a
+    - ``pressure``: required beside a built-in gas or fractions. Omit it beside a
       Mixture; every explicit pressure is refused because it already carries its
       paths. Fill pressure in **bar**: a number for a constant fill, a pair ``(p_in,
       p_out)`` for the steady-flow gradient of

@@ -931,7 +931,7 @@ class VincettiMode(MarcatiliMode):
         if self.gas is None:
             fill = "evacuated" if self.mixture is None else "mixture"
         else:
-            pressure = float(as_profile(self.pressure)(np.array([0.0]))[0])
+            pressure = float(self._pressure_profile(np.array([0.0]))[0])
             fill = f"{self.gas} {pressure:g} bar"
         return (
             f"VincettiMode({self.kind}{self.n}{self.m}, a={radius * 1e6:g} um, "

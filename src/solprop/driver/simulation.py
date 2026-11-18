@@ -2892,7 +2892,7 @@ class Simulation(Displayed):
             populations carrying their own density paths. A mapping uses
             total pressure.
         pressure : float, sequence, ZProfile or None, optional
-            None uses one bar for a gas or fractions. Omit pressure beside a Mixture;
+            Required beside a built-in gas or fractions. Omit it beside a Mixture;
             every explicit pressure is refused because it already carries its paths.
             Fill pressure in **bar**: a number for a constant fill, a pair
             ``(p_in, p_out)`` for the steady-flow gradient of
@@ -3348,7 +3348,7 @@ class Simulation(Displayed):
             carrying their own density paths. A mapping uses total pressure. Required
             without `provider` and refused beside one.
         pressure : float, sequence, ZProfile or None, optional
-            None uses one bar for a gas or fractions. Omit pressure beside a Mixture;
+            Required beside a built-in gas or fractions. Omit it beside a Mixture;
             every explicit pressure is refused because it already carries its paths.
             Fill pressure in **bar**: a number for a constant fill, a pair
             ``(p_in, p_out)`` for the steady-flow gradient of

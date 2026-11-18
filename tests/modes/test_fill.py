@@ -9,7 +9,14 @@ import pytest
 from witness_materials import ermolov_helium, kingston_argon
 
 from solprop.exceptions import ModeError
-from solprop.modes import MarcatiliMode, TubeLattice, VincettiMode
+from solprop.modes import (
+    MarcatiliMode,
+    ModeCollection,
+    RectMode,
+    SlabMode,
+    TubeLattice,
+    VincettiMode,
+)
 from solprop.modes.fill import GasFillMixin
 from solprop.physdata import Mixture
 from solprop.profiles import Linear, PressureGradient
@@ -65,3 +72,35 @@ def test_fill_rejects_invalid_loss_and_freezes_single_species_density():
     frozen = filled.at_parameters({"density": 1e25})
     assert frozen.mixture is not None
     assert float(frozen.mixture.components[0].density(np.asarray([0.0]))[0]) == 1e25
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: MarcatiliMode(125e-6, "He"),
+        lambda: VincettiMode(15e-6, "Ar", lattice=TubeLattice(180e-9, 10.38e-6, 6)),
+        lambda: RectMode(125e-6, 50e-6, "Ar"),
+        lambda: SlabMode(63.5e-6, "Ar"),
+        lambda: ModeCollection.he1m(125e-6, "He", count=2),
+        lambda: ModeCollection.slab(63.5e-6, "Ar", orders=(1, 3)),
+    ],
+    ids=["marcatili", "vincetti", "rect", "slab", "he1m", "slab-set"],
+)
+def test_a_gas_fill_without_its_pressure_is_refused(build):
+    with pytest.raises(ModeError, match="a gas fill needs its pressure") as caught:
+        build()
+    assert caught.value.parameter == "pressure"
+
+
+def test_a_guide_without_a_gas_is_evacuated_and_takes_no_pressure():
+    for mode in (
+        MarcatiliMode(125e-6),
+        RectMode(125e-6, 50e-6),
+        SlabMode(63.5e-6),
+        MarcatiliMode(125e-6, mixture=Mixture.fill({"He": 1.0}, 2.0)),
+    ):
+        assert mode.gas is None and mode.pressure == 0.0
+    assert float(MarcatiliMode(125e-6).density(np.asarray([0.0]))[0]) == 0.0
+    # A mixture still refuses a pressure of its own beside it.
+    with pytest.raises(ModeError, match="mixture carries its gas, pressure"):
+        MarcatiliMode(125e-6, pressure=2.0, mixture=Mixture.fill({"He": 1.0}, 2.0))

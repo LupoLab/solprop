@@ -333,6 +333,20 @@ REFUSALS = [
         id="capillary-pressure",
     ),
     pytest.param(
+        lambda: _hollow(100e-6, 0.01, "He"),
+        DriverError,
+        "pressure",
+        "a gas fill needs its pressure",
+        id="capillary-gas-without-pressure",
+    ),
+    pytest.param(
+        lambda: _hollow(100e-6, 0.01, "air"),
+        DriverError,
+        "pressure",
+        "a gas fill needs its pressure",
+        id="capillary-air-without-pressure",
+    ),
+    pytest.param(
         lambda: _hollow(
             100e-6, 0.01, Mixture.fill({"He": 1.0}, 1.0), 1.0, pressure_floor=1e-3
         ),

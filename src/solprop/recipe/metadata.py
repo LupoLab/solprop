@@ -409,15 +409,6 @@ def _raman(values: Mapping[str, object]) -> Resolution:
     )
 
 
-def _pressure(values: Mapping[str, object]) -> Resolution:
-    """Return the capillary's default pressure.
-
-    - Returns: one bar.
-    """
-    del values
-    return Resolution(1.0, "one bar when no pressure is given")
-
-
 # ------------------------------------------------------------------- the forms
 
 
@@ -906,11 +897,10 @@ def _capillary() -> tuple[Parameter, ...]:
             ),
             "medium",
             "basic",
-            "Fill pressure: a number, an end-to-end gradient, (z, p) pairs or a "
-            "profile.",
+            "Fill pressure, required beside a gas: a number, an end-to-end "
+            "gradient, (z, p) pairs or a profile.",
             "guide/media/mixtures.md",
             display="bar",
-            resolver=_pressure,
         ),
         Parameter(
             "pressure_floor",
