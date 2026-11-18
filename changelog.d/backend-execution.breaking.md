@@ -23,6 +23,9 @@ nothing and whose `field()` reads that trial's end state. Removed with the loop:
 `solprop.backends.low_storage.LowStorageMarch` (the NumPy reference's own marches are in
 `solprop.backends.numpy_ref.marches`), `solprop.backends.numpy_ref.admission` and
 `solprop.backends.exponential.refuse_formulation` (its one Adams refusal is
-`refuse_adams`). `reached` and `replay_tolerance` are now in `solprop.stepper.schedule`,
+`refuse_adams`), with `COUPLED_SECTIONS` and `EXPONENTIAL_REPRESENTATIONS` of that
+module, the reference backend's `helpers` attribute,
+`solprop.backends.registry.statistics_refusal`, `NativeBackend.far_field_statistics`
+and `solprop_native`'s `*_FIELDS` tuples. `reached` and `replay_tolerance` are now in `solprop.stepper.schedule`,
 and the general route's node chunk in `solprop.backends.node_chunk`
 (`general_node_chunk`).
