@@ -723,8 +723,8 @@ class LogReporter:
     def eta_error_whole_run(self) -> float:  # numpydoc ignore=RT01
         """How far off the whole-run estimator would have been.
 
-        Formed on the same lines as :attr:`eta_error` but never reported, so that the
-        two can be compared on every run.
+        For tests: formed on the same lines as :attr:`eta_error` but never reported,
+        so that the two can be compared on every run.
 
         Median absolute relative error of the whole-run estimate; NaN as for
         :attr:`eta_error`.

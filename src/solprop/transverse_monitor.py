@@ -1302,8 +1302,8 @@ class TransverseEdge:
     def next_read(self) -> float:  # numpydoc ignore=RT01
         """Where the edge is next read, m; infinite when nothing is read.
 
-        A backend that marches without the host, as the native Adams march does,
-        holds its steps to it as :meth:`ceiling` does and hands the state back there.
+        No solprop code reads it: the native session holds its steps to its own edge's
+        value, and this is the reference that value is tested against.
         """
         return self._next
 
