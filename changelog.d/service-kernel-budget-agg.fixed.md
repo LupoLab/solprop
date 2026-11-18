@@ -1,0 +1,1 @@
+The front end's analysis kernel keeps its own two-thread budget when the window is started with `SOLPROP_THREADS` set (the window's value still goes to its runs), and draws the figures it exports with matplotlib's file-only Agg backend rather than the platform's interactive one.

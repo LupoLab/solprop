@@ -9,8 +9,10 @@ a remote one is reached short of ``ssh`` itself; solprop's service tests drive t
 helper and the connection in depth.
 """
 
+import contextlib
 import json
 import shutil
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +45,29 @@ def test_machines_are_remembered_with_this_computer_first():
     assert store.get("cluster") == SLURM and store.get("nowhere") is None
     app_settings().setValue("machines", "not json")
     assert [m.name for m in store.machines()] == [LOCAL]
+
+
+def test_closing_closes_every_machine_s_connection_together(qtbot: QtBot):
+    del qtbot  # the application
+    hub = MachineHub()
+    together = threading.Barrier(3)
+    met: list[str] = []
+
+    class Stuck:
+        """A connection whose close waits until every other close has begun."""
+
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def close(self) -> None:
+            with contextlib.suppress(threading.BrokenBarrierError):
+                together.wait(timeout=2.0)
+                met.append(self.name)
+
+    for name in ("a", "b", "c"):
+        hub.connections[name] = Stuck(name)  # pyright: ignore[reportArgumentType]
+    hub.close()
+    assert sorted(met) == ["a", "b", "c"] and hub.connections == {}
 
 
 def test_the_runs_on_line_offers_the_machines(qtbot: QtBot, tmp_path: Path):

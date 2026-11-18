@@ -13,6 +13,7 @@ import contextlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 
+from pyqtgraph.util.garbage_collector import GarbageCollector
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
@@ -66,7 +67,7 @@ from solprop_gui.ui.scan_stage import ScanStage
 from solprop_gui.ui.sheet import SheetStage
 from solprop_gui.ui.theme import STYLE, app_settings, load_font, named_label, repolish
 
-__all__ = ["WorkflowWindow"]
+__all__ = ["WorkflowWindow", "collect_between_events"]
 
 _RECENT_SETUPS = "recent-setups"
 """The setting that lists recent setups."""
@@ -608,7 +609,7 @@ class WorkflowWindow(QMainWindow):
         """
         self._pending[self.bridge.request(kind, payload, key=purpose)] = purpose
 
-    def _on_reply(self, reply: Reply) -> None:
+    def _on_reply(self, reply: Reply) -> None:  # noqa: PLR0912 - one per purpose
         """Take a kernel reply to one of the window's requests.
 
         Parameters
@@ -617,7 +618,11 @@ class WorkflowWindow(QMainWindow):
             The reply; replies to other requests are ignored.
         """
         purpose = self._pending.pop(reply.request_id, None)
-        if purpose == "examples" and reply.ok:
+        asked = _asked_for(purpose)
+        if asked is not None and reply.error is not None:
+            # A superseded reply has no error: a newer request answers instead.
+            self.notify(f"solprop could not give {asked}: {reply.error}")
+        elif purpose == "examples" and reply.ok:
             self._examples_arrived(reply.value)  # pyright: ignore[reportArgumentType]
         elif purpose is not None and purpose.startswith("warm-") and reply.ok:
             self._ask_kernel("check", {"text": str(reply.value)}, f"warmed-{purpose}")
@@ -1551,6 +1556,22 @@ class WorkflowWindow(QMainWindow):
         event.accept()
 
 
+def collect_between_events() -> GarbageCollector:
+    """Have Python's garbage collected on a timer, between Qt's events.
+
+    Whatever hosts a :class:`WorkflowWindow` calls this before making it, and keeps
+    the collector while the window lives. Automatic collection is turned off: a plot
+    dropped while its scene still had an event queued could otherwise be freed inside
+    that event's handler, deleting the scene under Qt's feet.
+
+    Returns
+    -------
+    pyqtgraph.util.garbage_collector.GarbageCollector
+        The collector; stop its ``timer`` once the window has closed.
+    """
+    return GarbageCollector(interval=1.0)
+
+
 _WARM_EXAMPLES = ("rdw", "filament")
 """Examples checked once as the window opens: a route's first check costs the most
 (about 0.9 s on the capillary and 0.5 s on the radial route), and is then the
@@ -1561,6 +1582,23 @@ _CLOSING = "Closing with a run going"
 
 _NOTICE_MS = 20_000
 """How long a passing notice stays, in milliseconds."""
+
+_ASKED = {
+    "examples": "the examples",
+    "gases": "the list of gases",
+    "run options": "the run options",
+    "curve": "the curve",
+    "template": "the class's example",
+}
+"""What the window's own requests ask for, by purpose, as the foot of the window names
+it when one fails."""
+
+
+def _asked_for(purpose: str | None) -> str | None:
+    """Return what a request asked for, as its failure names it, or ``None``."""
+    if purpose is not None and purpose.startswith("warm-"):
+        return f"the example {purpose.removeprefix('warm-')}"
+    return _ASKED.get(purpose or "")
 
 
 def _class_of(model: RecipeModel) -> ProblemClass:

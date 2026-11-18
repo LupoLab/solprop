@@ -32,7 +32,7 @@ from PySide6.QtCore import QPoint, QPointF, QRect, QSettings, QStandardPaths
 from PySide6.QtWidgets import QApplication, QWidget
 from solprop_gui.classes.workflow import Stage
 from solprop_gui.model.workspace import DEFAULT_WORKSPACE
-from solprop_gui.ui.workflow_window import WorkflowWindow
+from solprop_gui.ui.workflow_window import WorkflowWindow, collect_between_events
 from solprop_gui.views.page_plots import LinePlot
 
 IMAGES = Path(__file__).resolve().parent / "images"
@@ -118,6 +118,7 @@ def main() -> None:  # noqa: PLR0915 - one walk through the window
         QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(scratch / "settings")
     )
     app = QApplication(sys.argv[:1])
+    collector = collect_between_events()
     window = WorkflowWindow(workspace=scratch / "runs")
     window.resize(*SIZE)
     window.show()
@@ -241,6 +242,7 @@ def main() -> None:  # noqa: PLR0915 - one walk through the window
     if model is not None:
         model._saved = model.revision
     window.close()
+    collector.timer.stop()
     app.quit()
 
 

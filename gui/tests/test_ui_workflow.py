@@ -4,6 +4,7 @@
 
 """The workflow window, offscreen: Home, Setup, Run and Analyse, for every class."""
 
+import gc
 import warnings
 from collections.abc import Iterator
 from pathlib import Path
@@ -18,7 +19,7 @@ from pytestqt.qtbot import QtBot
 from shiboken6 import isValid
 from solprop.constants import C
 from solprop.output import open_file
-from solprop.service.messages import Event
+from solprop.service.messages import Event, Reply
 from solprop.service.states import ExecutionState
 
 from conftest import TINY
@@ -53,7 +54,7 @@ from solprop_gui.ui.fields import ParameterRow
 from solprop_gui.ui.home import HomePage
 from solprop_gui.ui.quantity import QuantityField, _readable
 from solprop_gui.ui.theme import FONT
-from solprop_gui.ui.workflow_window import WorkflowWindow
+from solprop_gui.ui.workflow_window import WorkflowWindow, collect_between_events
 from solprop_gui.views.cross_section import CrossSection
 
 WAIT_MS = 120_000
@@ -322,6 +323,36 @@ def test_a_lost_run_explains_itself(window: WorkflowWindow, qtbot: QtBot) -> Non
     assert not window.analyse.advice.isHidden()
     assert "(out of memory)" in window.analyse.advice_text.text()
     assert "LowStorageRungeKutta" in window.analyse.advice_text.text()
+
+
+def test_a_host_collects_garbage_on_a_timer_not_automatically(qtbot: QtBot) -> None:
+    del qtbot  # the application, for the collector's timer
+    gc.enable()
+    try:
+        collector = collect_between_events()
+        assert not gc.isenabled() and collector.timer.isActive()
+        collector.timer.stop()
+    finally:
+        gc.disable()  # as the suite keeps it (conftest.py)
+
+
+def test_a_failed_reply_to_the_windows_own_request_is_said(
+    window: WorkflowWindow,
+) -> None:
+    bar = window.statusBar()
+    window._pending[-7] = "gases"
+    window._on_reply(Reply("gases", -7, 0, error="no gas data"))
+    assert (
+        bar.currentMessage() == "solprop could not give the list of gases: no gas data"
+    )
+    window._pending[-6] = "warm-rdw"
+    window._on_reply(Reply("example", -6, 0, error="gone"))
+    assert bar.currentMessage() == "solprop could not give the example rdw: gone"
+    # A superseded reply is no failure: a newer request answers instead.
+    bar.clearMessage()
+    window._pending[-5] = "curve"
+    window._on_reply(Reply("curve", -5, 0, superseded=True))
+    assert bar.currentMessage() == ""
 
 
 def test_the_sheet_helps_finds_and_folds(window: WorkflowWindow, qtbot: QtBot) -> None:

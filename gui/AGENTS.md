@@ -34,6 +34,10 @@ them is corrected.
   both rules, statically and by what a fresh interpreter loads.
 - **Never block the window.** Anything that can take more than about 50 ms happens in
   another process.
+- **Garbage is collected between events.** Whatever hosts `WorkflowWindow` (the
+  command, the guide's screenshot script) calls `collect_between_events()` before
+  making it: a plot freed by Python's automatic collection inside its own scene's
+  event deletes the scene under Qt's feet. The tests collect between tests instead.
 - **One way to run** (design 13.4, D21). The window's kernel is a child of the window's;
   every run, on this computer or another, is a job of its own that keeps its record in
   its folder, started through a machine's helper (this computer has one too) and

@@ -32,7 +32,7 @@ from typing import Final
 from solprop._process import batch_script, child_environment
 from solprop.service.messages import ServiceError
 from solprop.service.record import clear_stop, process_stamp, set_aside, write_json
-from solprop.service.worker import SPEC, RunSpec, spec_value
+from solprop.service.worker import OUTPUT, SCAN_OUTPUT, SPEC, RunSpec, spec_value
 
 __all__ = [
     "JOB_OUTPUT",
@@ -82,7 +82,8 @@ def prepare(spec: RunSpec) -> Path:
     Raises
     ------
     solprop.service.messages.ServiceError
-        If the folder already holds a run that has not been continued.
+        If the folder already holds a run's or a scan's results and the run is not
+        a continuation.
 
     Notes
     -----
@@ -93,7 +94,9 @@ def prepare(spec: RunSpec) -> Path:
     """
     folder = Path(spec.folder).expanduser()
     folder.mkdir(parents=True, exist_ok=True)
-    if spec.resume is None and (folder / "run.h5").exists():
+    if spec.resume is None and any(
+        (folder / name).exists() for name in (OUTPUT, SCAN_OUTPUT)
+    ):
         msg = f"{folder} already holds a run; a new run needs a folder of its own"
         raise ServiceError(msg)
     if spec.resume is not None:
