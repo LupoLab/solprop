@@ -231,7 +231,7 @@ def test_a_continued_run_sets_its_earlier_records_aside(tmp_path):
         request_stop(tmp_path)
         set_aside(tmp_path)
     names = sorted(path.name for path in tmp_path.iterdir())
-    assert names == ["events-1.bin", "events-2.bin"]
+    assert names == ["events-1.bin", "events-2.bin", "status-1.json", "status-2.json"]
 
 
 def test_a_run_tied_to_a_window_stops_when_the_window_goes(tmp_path, monkeypatch):

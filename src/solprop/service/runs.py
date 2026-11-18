@@ -149,9 +149,13 @@ def summarise(
     status = read_status(folder) or {}
     job = read_job(folder)
     submitted = _read(folder / SUBMITTED) or {}
-    scan = (folder / SCAN_OUTPUT).exists() or "points" in status
-    output = folder / (SCAN_OUTPUT if scan else OUTPUT)
     ending = status.get("ending")
+    scan = (
+        (folder / SCAN_OUTPUT).exists()
+        or "points" in status
+        or (isinstance(ending, Mapping) and bool(ending.get("data", {}).get("scan")))  # pyright: ignore[reportUnknownMemberType]
+    )
+    output = folder / (SCAN_OUTPUT if scan else OUTPUT)
     summary: dict[str, Any] = {
         "run_id": folder.name,
         "folder": str(folder),

@@ -493,7 +493,8 @@ def test_a_direct_run_is_cancelled_by_its_signal(tmp_path: Path):
 
     sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     try:
-        job = Job("r1", "direct", socket.gethostname(), sleeper.pid, None, None, 0.0)
+        stamp = process_stamp(sleeper.pid)
+        job = Job("r1", "direct", socket.gethostname(), sleeper.pid, stamp, None, 0.0)
         write_job(tmp_path, job)
         Agent(io.BytesIO()).cancel({"folder": str(tmp_path)})
         assert sleeper.wait(timeout=WAIT) != 0
@@ -508,6 +509,35 @@ def test_a_direct_run_is_cancelled_by_its_signal(tmp_path: Path):
         )
         write_job(tmp_path, stamped)  # its process has gone: nothing to send
         Agent(io.BytesIO()).cancel({"folder": str(tmp_path)})
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+
+
+@pytest.mark.parametrize("recorded", ["job", "submitted"])
+def test_a_process_whose_start_was_not_recorded_is_not_signalled(
+    tmp_path: Path, recorded: str
+):
+    """Its number may belong to another process by now: Kill refuses, saying why."""
+    import subprocess  # noqa: PLC0415 - only here
+
+    from solprop.service.launch import SUBMITTED  # noqa: PLC0415 - only here
+    from solprop.service.record import Job, write_job, write_json  # noqa: PLC0415
+
+    here = socket.gethostname()
+    # This stands in for a later process that has the run's number.
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        if recorded == "job":
+            write_job(tmp_path, Job("r1", "direct", here, sleeper.pid, None, None, 0))
+        else:
+            write_json(
+                tmp_path / SUBMITTED,
+                {"launcher": "direct", "host": here, "pid": sleeper.pid, "stamp": None},
+            )
+        with pytest.raises(ServiceError, match="its start was not recorded"):
+            Agent(io.BytesIO()).cancel({"folder": str(tmp_path), "force": True})
+        assert sleeper.poll() is None  # not signalled
     finally:
         sleeper.kill()
         sleeper.wait()
@@ -637,6 +667,136 @@ def test_slurm_runs_through_the_helper(tmp_path: Path, monkeypatch):
         helper.remove({"folder": str(folder)})
     with pytest.raises(ServiceError, match="no launcher"):
         helper.start({"spec": spec, "launcher": "nowhere"})
+
+
+def _queued_long_ago(folder: Path) -> None:
+    """Make a folder whose Slurm job was submitted well beyond the staleness window."""
+    from solprop.service.launch import SUBMITTED  # noqa: PLC0415 - only here
+    from solprop.service.record import write_json  # noqa: PLC0415 - only here
+    from solprop.service.runs import STALE  # noqa: PLC0415 - only here
+
+    folder.mkdir(parents=True)
+    (folder / "run.h5").write_bytes(b"earlier part")
+    (folder / "spec.json").write_text("{}", encoding="utf-8")
+    submitted = time.time() - 10 * STALE
+    write_json(
+        folder / SUBMITTED,
+        {"launcher": "slurm", "slurm_job": "77", "submitted": submitted},
+    )
+
+
+def _slurm_bin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **scripts: str) -> Path:
+    """Put fake Slurm commands first on the path; return where ``sbatch`` records."""
+    if sys.platform == "win32":
+        pytest.skip("Slurm is faked with POSIX shell scripts")
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    submitted = tmp_path / "sbatch-calls"
+    scripts.setdefault("sbatch", f'echo "$*" >> "{submitted}"\necho 78\n')
+    for name, script in scripts.items():
+        (bin_ / name).write_text("#!/bin/sh\n" + script, encoding="utf-8")
+        (bin_ / name).chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_}{os.pathsep}{os.environ['PATH']}")
+    return submitted
+
+
+def test_a_slurm_run_queued_long_is_neither_continued_nor_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    submitted = _slurm_bin(tmp_path, monkeypatch, squeue='echo "77|PENDING|Priority"\n')
+    folder = tmp_path / "runs" / "s1"
+    _queued_long_ago(folder)
+    helper = Agent(io.BytesIO())
+    spec = spec_value(RunSpec("s1", str(folder), resume=True))
+    with pytest.raises(ServiceError, match="s1 is queued: continue it once it ends"):
+        helper.start({"spec": spec, "launcher": "slurm"})
+    assert (folder / "spec.json").read_text(encoding="utf-8") == "{}"
+    assert not submitted.exists()  # no second job on the folder
+    with pytest.raises(ServiceError, match="s1 is queued: stop or cancel it first"):
+        helper.remove({"folder": str(folder)})
+    assert folder.exists()
+
+
+def test_a_slurm_run_the_scheduler_cannot_be_asked_about_is_left_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    down = 'echo "slurm_load_jobs error: Unable to contact slurm controller" >&2\n'
+    submitted = _slurm_bin(
+        tmp_path, monkeypatch, squeue=down + "exit 1\n", sacct=down + "exit 1\n"
+    )
+    folder = tmp_path / "runs" / "s1"
+    _queued_long_ago(folder)
+    helper = Agent(io.BytesIO())
+    spec = spec_value(RunSpec("s1", str(folder), resume=True))
+    with pytest.raises(ServiceError, match=r"s1 is not continued: .*slurm controller"):
+        helper.start({"spec": spec, "launcher": "slurm"})
+    assert not submitted.exists()
+    with pytest.raises(ServiceError, match=r"s1 is not removed: .*slurm controller"):
+        helper.remove({"folder": str(folder)})
+    assert folder.exists()
+
+
+def test_a_slurm_run_whose_job_has_gone_is_continued_and_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    submitted = _slurm_bin(
+        tmp_path,
+        monkeypatch,
+        squeue='echo "slurm_load_jobs error: Invalid job id specified" >&2\nexit 1\n',
+        sacct='echo "77|TIMEOUT"\necho "78|CANCELLED by 1234"\n',
+    )
+    folder = tmp_path / "runs" / "s1"
+    _queued_long_ago(folder)
+    helper = Agent(io.BytesIO())
+    spec = spec_value(RunSpec("s1", str(folder), resume=True))
+    summary = helper.start({"spec": spec, "launcher": "slurm"})
+    assert summary["slurm_job"] == "78" and submitted.exists()
+    # The continuation's job, cancelled in the queue, has gone too.
+    helper.remove({"folder": str(folder)})
+    assert not folder.exists()
+
+
+@pytest.mark.parametrize("launcher", ["direct", "slurm"])
+def test_a_continuation_that_cannot_be_launched_leaves_the_run_as_it_was(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, launcher: str
+):
+    from solprop.service.launch import SUBMITTED  # noqa: PLC0415 - only here
+    from solprop.service.messages import Event  # noqa: PLC0415 - only here
+    from solprop.service.record import (  # noqa: PLC0415 - only here
+        EventLog,
+        Job,
+        read_events,
+        write_json,
+    )
+    from solprop.service.runs import summarise  # noqa: PLC0415 - only here
+
+    _slurm_bin(
+        tmp_path,
+        monkeypatch,
+        sbatch='echo "sbatch: error: invalid partition specified: x" >&2\nexit 1\n',
+    )
+    folder = tmp_path / "runs" / "r1"
+    folder.mkdir(parents=True)
+    # A run that was stopped cleanly, its process gone.
+    here = socket.gethostname()
+    write_json(folder / SUBMITTED, {"launcher": "direct", "host": here, "pid": 0})
+    log = EventLog(folder, "r1", job=lambda: Job.here("r1", "direct"))
+    log.put(Event("r1", "stopped", {"path": "run.h5", "message": "by its stop flag"}))
+    log.close()
+    (folder / "run.h5").write_bytes(b"earlier part")
+    before = summarise(folder)
+    assert (before["state"], before["detail"]) == ("stopped", "by its stop flag")
+    helper = Agent(io.BytesIO())
+    spec = spec_value(RunSpec("r1", str(folder), resume=True))
+    refused = "Slurm refused the job" if launcher == "slurm" else "could not be started"
+    with pytest.raises(ServiceError, match=refused):
+        helper.start(
+            {"spec": spec, "launcher": launcher, "python": str(tmp_path / "none")}
+        )
+    after = summarise(folder)
+    assert (after["state"], after["detail"]) == ("stopped", "by its stop flag")
+    assert (after["started"], after["ended"]) == (before["started"], before["ended"])
+    assert [e.kind for e in read_events(folder)[0]] == ["stopped"]
 
 
 def test_a_run_that_has_not_ended_is_not_continued(tmp_path: Path):
@@ -889,6 +1049,7 @@ def test_a_followed_run_that_goes_without_an_ending_is_said_lost(
     (event,) = frames[-1]["events"]
     assert event["kind"] == "lost" and event["run_id"] == "gone"
     assert "before it started" in event["data"]["message"]
+    assert event["data"]["output"] is None  # no results file to open
     helper.close()
 
 
@@ -1081,4 +1242,31 @@ def test_a_followed_run_gone_before_recording_its_ending_has_it_sent(
         time.sleep(0.02)
     (sent,) = [f for f in answers(output) if f.get("kind") == "events"]
     assert [e["kind"] for e in sent["events"]] == ["stopped"]
+    helper.close()
+
+
+def test_a_followed_run_whose_ending_reached_only_its_summary_is_ended(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from solprop.service.record import EVENTS, STATUS, write_json  # noqa: PLC0415
+
+    monkeypatch.setattr(agent, "LIVENESS_PERIOD", 0.0)
+    folder = tmp_path / "r1"
+    folder.mkdir()
+    # The record could not take the terminal event (a full disk), the summary could.
+    frame = {"run_id": "r1", "kind": "row", "data": {"index": 0}}
+    (folder / EVENTS).write_bytes(encode(frame))
+    ending = {"kind": "stopped", "data": {"path": "run.h5", "message": "stop flag"}}
+    write_json(folder / STATUS, {"run_id": "r1", "ending": ending})
+    output = io.BytesIO()
+    helper = Agent(output)
+    helper.follow({"folder": str(folder), "offset": 0, "period": 0.02})
+    deadline = time.monotonic() + 10
+    while b"stopped" not in output.getvalue():
+        assert time.monotonic() < deadline
+        time.sleep(0.02)
+    sent = [f for f in answers(output) if f.get("kind") == "events"]
+    events = [event for frame in sent for event in frame["events"]]
+    assert [e["kind"] for e in events] == ["row", "stopped"]
+    assert events[-1] == {"run_id": "r1", **ending}
     helper.close()

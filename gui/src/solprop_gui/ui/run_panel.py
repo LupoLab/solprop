@@ -33,9 +33,10 @@ from PySide6.QtWidgets import (
 )
 from solprop.service.machines import LOCAL, Machine
 from solprop.service.messages import Event, Reply
+from solprop.service.recipes import is_scan
 from solprop.service.reduce import Display
 from solprop.service.states import ACTIVE, ExecutionState, advance, failure_advice
-from solprop.service.worker import OUTPUT, RunSpec
+from solprop.service.worker import OUTPUT, SCAN_OUTPUT, RunSpec
 
 from solprop_gui.model.plot_options import PlotOptions
 from solprop_gui.model.workspace import new_run_folder, remote_run_folder
@@ -96,7 +97,8 @@ class RunPanel(QWidget):
     point_seen : Signal
         Emitted with a scan's ``point`` and ``scan_started`` events' data.
     ended : Signal
-        Emitted with the results file when a run ends, however it ends.
+        Emitted with the results file when a run ends, however it ends; with an
+        empty string when the run left none.
     state_changed : Signal
         Emitted with the new execution state's value.
     workspace_changed : Signal
@@ -124,6 +126,8 @@ class RunPanel(QWidget):
         self.state = ExecutionState.QUEUED
         self.run_id: str | None = None
         self.folder: PurePath | None = None
+        # Whether the run is a scan, from what was started or taken over.
+        self.scan = False
         self.client: MachineRun | None = None
         # Where new runs go: another machine, or None for this computer.
         self.machine: Machine | None = None
@@ -494,6 +498,7 @@ class RunPanel(QWidget):
         """
         self.run_id = spec.run_id
         self.folder = self._place(spec.folder)
+        self.scan = is_scan(spec.recipe)
         self._z_end = 0.0
         self.lamp.setText("boundary: ok")
         self.lamp.setStyleSheet("")
@@ -555,6 +560,7 @@ class RunPanel(QWidget):
         self.client = self.bridge.attach_on(machine, run_id, folder)
         self.run_id = run_id
         self.folder = self._place(folder)
+        self.scan = bool(run.get("scan"))
         self.view.clear()
         self.log.clear()
         self.state = ExecutionState.RUNNING
@@ -584,6 +590,7 @@ class RunPanel(QWidget):
         self.run_machine = None if machine.local else machine
         self.run_id = str(run["run_id"])
         self.folder = self._place(str(run["folder"]))
+        self.scan = False  # a scan is never continued
         self.state = ExecutionState.STOPPED  # an ended run, the panel's now
         if not machine.local:
             self.bridge.know_folder(machine.name, str(run["folder"]))
@@ -775,9 +782,9 @@ class RunPanel(QWidget):
         self.state_label.setText(text)
         if event.kind == "finished":
             self._progress(1000)
-        if self.folder is not None and event.data.get("scan"):
+        if self.folder is not None and (self.scan or event.data.get("scan")):
             # A scan is never continued: its file opens as it ended, unchecked.
-            self.ended.emit(str(event.data["path"]))
+            self.ended.emit(self._results(SCAN_OUTPUT, event.data))
         elif self.folder is not None:
             path = (
                 (self.folder / OUTPUT).as_posix()
@@ -788,9 +795,22 @@ class RunPanel(QWidget):
                 "check_resume", {"path": path}, key="panel-resume"
             )
             self._pending[request] = "check_resume"
-            self.ended.emit(path)
+            self.ended.emit(self._results(OUTPUT, event.data))
             self.reread()  # a band changed while it ran
         self._update_buttons()
+
+    def _results(self, name: str, data: Mapping[str, object]) -> str:
+        """Return the ended run's results file, or an empty string where it wrote none.
+
+        A file of this computer's is looked for; a run on another machine says in its
+        ending whether it wrote one (``output``).
+        """
+        folder = self.folder
+        if folder is None:
+            return ""
+        if self.run_machine is None:
+            return str(folder / name) if Path(folder, name).exists() else ""
+        return (folder / name).as_posix() if data.get("output") else ""
 
     def on_reply(self, reply: Reply) -> None:
         """Take a kernel reply to one of the panel's requests.

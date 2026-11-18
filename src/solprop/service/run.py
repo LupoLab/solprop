@@ -37,6 +37,7 @@ from solprop.output import open_file
 from solprop.recipe import Recipe, resume_file
 from solprop.service.beam import beam_reading, profile_row
 from solprop.service.messages import Event
+from solprop.service.recipes import is_scan
 from solprop.service.record import (
     EVENTS,
     JOB,
@@ -457,6 +458,10 @@ def execute(spec: RunSpec) -> None:
     so it ends the run as stopped. A run tied to a window (``spec.owner``) stops, in
     the same way as Stop, when that window's process has gone.
 
+    However it ends, its terminal event names its results file (``path``: a scan's,
+    with ``scan`` true, for a recipe with a ``[scan]`` table) and gives ``output``,
+    that file where it exists and ``None`` where the run wrote none.
+
     Parameters
     ----------
     spec : solprop.service.worker.RunSpec
@@ -464,7 +469,13 @@ def execute(spec: RunSpec) -> None:
     """
     folder = Path(spec.folder)
     folder.mkdir(parents=True, exist_ok=True)
-    output = folder / OUTPUT
+    # Every ending of a scan names the scan's file and says it was a scan, however it
+    # comes: a window decides what to open from it.
+    scanning = spec.resume is None and is_scan(spec.recipe)
+    output = folder / (SCAN_OUTPUT if scanning else OUTPUT)
+    ending: dict[str, object] = {"path": str(output)}
+    if scanning:
+        ending["scan"] = True
     stop = StopToken()
     done = threading.Event()
     if spec.resume is not None and any(
@@ -486,25 +497,28 @@ def execute(spec: RunSpec) -> None:
     detach = _attach_log(folder, spec.run_id, record.put)
 
     kind = "failed"
-    data: dict[str, object] = {"path": str(output)}
+    data: dict[str, object] = dict(ending)
     try:
         if stopped_early:
             # Nothing built and nothing written: a continued run's file is as it was.
             kind = "stopped"
-            data = {"path": str(output), "message": "stopped before it started"}
+            data = {**ending, "message": "stopped before it started"}
         else:
             kind, data = _march(spec, folder, record.put, observer, stop)
     except RunTerminated as error:
         # solprop wrote the state a resume needs before raising.
-        kind, data = "stopped", {"path": str(output), "terminated": True}
+        kind, data = "stopped", {**ending, "terminated": True}
         data["message"] = str(error) or "ended by a signal"
     except BaseException as error:
         data = {
-            "path": str(output),
+            **ending,
             "message": str(error) or type(error).__name__,
             "detail": traceback.format_exc(),
         }
     finally:
+        # The results file, where there is one to open: a run can end before it
+        # writes any.
+        data["output"] = str(output) if output.exists() else None
         record.put(Event(spec.run_id, kind, data))
         done.set()
         record.close()  # records the job's end too

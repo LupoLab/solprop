@@ -110,7 +110,7 @@ def test_a_route_without_modes_or_a_pump_says_so():
     assert ask("modes", {"text": unsolvable})["pump"] is None
 
 
-def test_pins_are_described_and_their_roots_found():
+def test_pins_are_described_and_solved():
     assert set(ask("pin_targets", {"route": "capillary"})["pressure"][0]) == {
         "target",
         "stage",
@@ -120,14 +120,11 @@ def test_pins_are_described_and_their_roots_found():
     by_name = {entry["name"]: entry for entry in description["parameters"]}
     assert [pin["target"] for pin in by_name["energy"]["pins"]] == ["soliton_order"]
     assert by_name["gas"]["pins"] == []
-    found = ask("pin_roots", {"text": PINNED, "path": "pressure"})
-    assert len(found["roots"]) >= 1 and found["attainable"] is None
-    none = ask(
-        "pin_roots", {"text": PINNED.replace('"500 nm"', '"50 nm"'), "path": "pressure"}
-    )
-    assert none["roots"] == [] and "wavelength" in none["quantity"]
+    assert "pin_roots" not in handlers.HANDLERS  # roots are not offered
+    found = Recipe.loads(PINNED).pin_roots("pressure")
     summary = ask("summarise", {"text": PINNED})
-    assert summary["pinned"]["pressure"] == pytest.approx(found["roots"][0])
+    # The chosen root of the same target, each solved to the root finder's tolerance.
+    assert summary["pinned"]["pressure"] == pytest.approx(found.roots[0], rel=1e-6)
 
 
 def test_a_multimode_run_with_a_launch_streams_rows(tmp_path: Path):

@@ -1203,18 +1203,27 @@ class WorkflowWindow(QMainWindow):
         Parameters
         ----------
         path : str
-            Its results file.
+            Its results file; empty where it wrote none.
         """
+        # Every ending of a scan leaves scan mode, so the next Run runs the setup once.
+        scanning, self._scanning = self._scanning, False
         if self._leaving_run:
             # A run stopped to open something else: it is listed, and not shown.
             self._leaving_run = False
-            self._scanning = False
             self.refresh_home()
             self._refresh()
             return
-        if Path(path).name == SCAN_OUTPUT:
-            self._scanning = False
-            self.open_scan(path)
+        if scanning or Path(path).name == SCAN_OUTPUT:
+            if path:
+                self.open_scan(path)
+            else:
+                self.scans.progress.setText("The scan ended before it wrote anything.")
+            self.refresh_home()
+            self._refresh()
+            return
+        if not path:
+            # Nothing to open: the run ended before it wrote its file.
+            self.overview.end_of_run()
             self.refresh_home()
             self._refresh()
             return

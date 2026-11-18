@@ -422,18 +422,28 @@ class SlurmState:
     reason: str = ""
 
 
-def slurm_states(jobs: Sequence[str]) -> dict[str, SlurmState]:
+def slurm_states(jobs: Sequence[str], *, strict: bool = False) -> dict[str, SlurmState]:
     """Return the states of Slurm jobs: from the queue, else from the accounts.
 
     Parameters
     ----------
     jobs : Sequence of str
         The jobs.
+    strict : bool, optional
+        Whether a job the scheduler could not be asked about is an error: ``squeue``
+        failed for another reason than not knowing it, and ``sacct`` gave no state.
 
     Returns
     -------
     dict
         Each job's state, by job; a job neither command knows is left out.
+
+    Raises
+    ------
+    solprop.service.messages.ServiceError
+        If a command is not on this machine or does not answer in time, and with
+        `strict` for a job the scheduler could not be asked about, with what
+        ``squeue`` said.
     """
     if not jobs:
         return {}
@@ -464,6 +474,17 @@ def slurm_states(jobs: Sequence[str]) -> dict[str, SlurmState]:
                 if len(parts) == 2 and parts[0] in missing:
                     # "CANCELLED by 1234" names who cancelled it.
                     found[parts[0]] = SlurmState(parts[1].split()[0])
+    said = (queue.stderr or queue.stdout).strip() or f"status {queue.returncode}"
+    unasked = [job for job in jobs if job not in found]
+    # squeue refuses a job it no longer holds with "Invalid job id": an answer.
+    if (
+        strict
+        and unasked
+        and queue.returncode != 0
+        and "invalid job id" not in said.lower()
+    ):
+        msg = f"Slurm could not be asked about job {', '.join(unasked)}: {said}"
+        raise ServiceError(msg)
     return found
 
 
