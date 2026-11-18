@@ -18,7 +18,7 @@ from pytestqt.qtbot import QtBot
 from shiboken6 import isValid
 from solprop.constants import C
 from solprop.output import open_file
-from solprop.service.messages import Event
+from solprop.service.messages import Event, Reply
 from solprop.service.states import ExecutionState
 
 from conftest import TINY
@@ -322,6 +322,25 @@ def test_a_lost_run_explains_itself(window: WorkflowWindow, qtbot: QtBot) -> Non
     assert not window.analyse.advice.isHidden()
     assert "(out of memory)" in window.analyse.advice_text.text()
     assert "LowStorageRungeKutta" in window.analyse.advice_text.text()
+
+
+def test_a_failed_reply_to_the_windows_own_request_is_said(
+    window: WorkflowWindow,
+) -> None:
+    bar = window.statusBar()
+    window._pending[-7] = "gases"
+    window._on_reply(Reply("gases", -7, 0, error="no gas data"))
+    assert (
+        bar.currentMessage() == "solprop could not give the list of gases: no gas data"
+    )
+    window._pending[-6] = "warm-rdw"
+    window._on_reply(Reply("example", -6, 0, error="gone"))
+    assert bar.currentMessage() == "solprop could not give the example rdw: gone"
+    # A superseded reply is no failure: a newer request answers instead.
+    bar.clearMessage()
+    window._pending[-5] = "curve"
+    window._on_reply(Reply("curve", -5, 0, superseded=True))
+    assert bar.currentMessage() == ""
 
 
 def test_the_sheet_helps_finds_and_folds(window: WorkflowWindow, qtbot: QtBot) -> None:

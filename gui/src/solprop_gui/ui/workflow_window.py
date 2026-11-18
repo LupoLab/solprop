@@ -608,7 +608,7 @@ class WorkflowWindow(QMainWindow):
         """
         self._pending[self.bridge.request(kind, payload, key=purpose)] = purpose
 
-    def _on_reply(self, reply: Reply) -> None:
+    def _on_reply(self, reply: Reply) -> None:  # noqa: PLR0912 - one per purpose
         """Take a kernel reply to one of the window's requests.
 
         Parameters
@@ -617,7 +617,11 @@ class WorkflowWindow(QMainWindow):
             The reply; replies to other requests are ignored.
         """
         purpose = self._pending.pop(reply.request_id, None)
-        if purpose == "examples" and reply.ok:
+        asked = _asked_for(purpose)
+        if asked is not None and reply.error is not None:
+            # A superseded reply has no error: a newer request answers instead.
+            self.notify(f"solprop could not give {asked}: {reply.error}")
+        elif purpose == "examples" and reply.ok:
             self._examples_arrived(reply.value)  # pyright: ignore[reportArgumentType]
         elif purpose is not None and purpose.startswith("warm-") and reply.ok:
             self._ask_kernel("check", {"text": str(reply.value)}, f"warmed-{purpose}")
@@ -1561,6 +1565,23 @@ _CLOSING = "Closing with a run going"
 
 _NOTICE_MS = 20_000
 """How long a passing notice stays, in milliseconds."""
+
+_ASKED = {
+    "examples": "the examples",
+    "gases": "the list of gases",
+    "run options": "the run options",
+    "curve": "the curve",
+    "template": "the class's example",
+}
+"""What the window's own requests ask for, by purpose, as the foot of the window names
+it when one fails."""
+
+
+def _asked_for(purpose: str | None) -> str | None:
+    """Return what a request asked for, as its failure names it, or ``None``."""
+    if purpose is not None and purpose.startswith("warm-"):
+        return f"the example {purpose.removeprefix('warm-')}"
+    return _ASKED.get(purpose or "")
 
 
 def _class_of(model: RecipeModel) -> ProblemClass:
