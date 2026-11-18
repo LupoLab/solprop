@@ -847,7 +847,7 @@ its execution space.
   its load. A caller that identifies its input states that instead (`StatedInput`), and
   nothing digests it.
 - Φ tables are shared where possible; the constant-D fast path stores one array.
-- Fine-grid buffers use the smallest `ffac` the declared responses need.
+- Fine-grid buffers are sized by the grid's `ffac` (§6.1), not by the declared responses.
 
 ## 14. Logging and progress
 
