@@ -5,6 +5,7 @@
 """`prop_gnlse`: milestone M1, and the keyword surface that reaches it."""
 
 import logging
+import math
 import os
 import subprocess
 import sys
@@ -40,6 +41,7 @@ from solprop.nonlinear.gnlse import (
 from solprop.output import HDF5Output, MemoryOutput
 from solprop.output.serialisation import serialise
 from solprop.physdata import Mixture
+from solprop.processing.axes import grid_of
 from solprop.profiles import Linear
 from solprop.stepper import FixedSchedule
 
@@ -356,6 +358,86 @@ def test_the_shock_term_can_be_switched_on():
         rtol=0.0,
         atol=1e-9 * np.max(np.abs(without["field"][-1])),
     )
+
+
+# ------------------------------------------------------------ linear dispersion
+
+
+def test_a_gaussian_disperses_as_the_closed_form_says():
+    """With no nonlinearity a Gaussian keeps its shape, broadens and chirps in closed
+    form: power ``P0 tau0/T exp(-t^2/T^2)`` with ``T = tau0 sqrt(1 + (z/L_D)^2)``,
+    ``L_D = tau0^2/|beta2|``, and the spectral phase grows by ``beta2 domega^2 z/2``
+    (the optics convention, ``exp(+i beta z)``). Both are written here, independently
+    of the operator the run builds from ``betas``; the fibre is sqrt(3) L_D long, so
+    the pulse doubles in duration and a beta2 off by a factor misses by order one."""
+    beta2 = -11.83e-27
+    fwhm = 100e-15
+    tau0 = fwhm / (2.0 * math.sqrt(math.log(2.0)))
+    dispersion_length = tau0**2 / abs(beta2)
+    length = math.sqrt(3.0) * dispersion_length
+    handler = prop_gnlse(
+        0.0,
+        length,
+        [0.0, 0.0, beta2],
+        wavelength=835e-9,
+        wavelength_limits=(500e-9, 2e-6),
+        trange=2e-12,
+        fwhm=fwhm,
+        peak_power=1.0,
+        shape="gauss",
+        shock=False,
+        raman=False,
+        noise=None,
+        n_save=2,
+        backend=selected_backend(),
+    )
+    grid = cast("EnvelopeGrid", grid_of(handler))
+    width = tau0 * math.sqrt(1.0 + (length / dispersion_length) ** 2)
+    envelope = fourier.inverse(handler.fields("fft")[-1, 0, 0], kind="envelope")
+    expected = tau0 / width * np.exp(-(grid.t**2) / width**2)
+    # A linear run is the operator's flow, exact to rounding through the transforms:
+    # measured 2.3e-14 of the 1 W launch peak on numpy_ref.
+    assert np.max(np.abs(np.abs(envelope) ** 2 - expected)) < 1e-12
+    launch, exit_ = handler["field"][0, 0, 0], handler["field"][-1, 0, 0]
+    detuning = grid.omega - grid.omega0
+    # Over the bins within a hundredth of the spectral peak, where the phase reaches
+    # 7.5 rad: measured 2.2e-9 rad off on numpy_ref, so a bound of 1e-7 rad; a beta2
+    # off by 1 % misses by 0.075 rad.
+    held = np.abs(launch) > 1e-2 * np.max(np.abs(launch))
+    growth = np.angle(exit_[held] * np.conj(launch[held]))
+    departure = np.angle(
+        np.exp(1j * (growth - beta2 / 2 * detuning[held] ** 2 * length))
+    )
+    assert np.max(np.abs(departure)) < 1e-7
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "BoundaryMonitor.due returns numpy.bool_ when the run's positions are "
+        "numpy.float64, against its bool annotation, which the suite's runtime type "
+        "check refuses"
+    ),
+)
+def test_a_numpy_float_length_runs():
+    # numpy.float64 is a float, so a length computed with numpy is a valid request. A
+    # run long enough for the reference backend's host boundary monitor to check a
+    # step by distance (the same run passes on the native backend).
+    handler = prop_gnlse(
+        0.0,
+        np.float64(0.5),
+        [0.0, 0.0, -11.83e-27],
+        wavelength=835e-9,
+        wavelength_limits=(500e-9, 2e-6),
+        trange=2e-12,
+        fwhm=100e-15,
+        peak_power=1.0,
+        shape="gauss",
+        noise=None,
+        n_save=2,
+        backend="numpy_ref",
+    )
+    assert handler.n_saved == 2
 
 
 # --------------------------------------------------------------- the pulse keywords
@@ -808,6 +890,7 @@ def test_index_table_gnlse_metadata_hash_across_processes(use_mode):
 import numpy as np
 from solprop.modes import IndexTable, MarcatiliMode
 from solprop.physdata import Mixture
+from solprop.processing.axes import grid_of
 from solprop.driver import Simulation
 omega = np.linspace(.3e15, 4.5e15, 200)
 table = IndexTable(omega, np.full(200, 1.45 + 1e-9j), area=np.full(200, 1e-10))
