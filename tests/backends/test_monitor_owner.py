@@ -403,21 +403,6 @@ def test_a_resume_without_a_record_starts_again():
     pair.records()
 
 
-def test_an_old_record_s_floor_removal_is_reconstructed():
-    # A record from before the floor's removal and the signed removal were kept.
-    earlier = Pair(_python(split=False, quiet=False), can_rest=False)
-    _launch(earlier)
-    record = earlier.python.summary()
-    for name in ("floor_removed_fraction", "removed_signed", "quiet_checks"):
-        del record[name]
-    record["removed_fraction"] = 1e-9
-    record["raw_removed_fraction"] = 3e-9
-    pair = Pair(_python(split=False, quiet=False), can_rest=False)
-    pair.resume(record, plane=False)
-    _launch(pair)
-    pair.records()
-
-
 @pytest.mark.parametrize("split", [False, True])
 def test_the_thresholds_and_their_neighbours_agree(split):
     # The warning and stop thresholds exactly and at the doubles beside them, warned

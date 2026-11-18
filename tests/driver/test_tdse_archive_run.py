@@ -271,10 +271,15 @@ def test_an_existing_unrelated_file_is_refused_before_any_atomic_work(
     assert not optical.exists()
 
 
-def test_archive_requests_the_run_cannot_honour_are_refused(fake, tmp_path):
+def test_archive_requests_the_run_cannot_honour_are_refused(
+    fake, tmp_path, monkeypatch
+):
     optical = tmp_path / "run.h5"
     with pytest.raises(DriverError, match="must differ from the optical"):
         _run(natural_simulation(), optical, tdse_archive=TDSEArchive(optical))
+    # The refusal is the run's own, so the suite's runtime type check is set aside on
+    # the two methods the argument passes through.
+    monkeypatch.setattr(Simulation, "_execute", inspect.unwrap(Simulation._execute))
     with pytest.raises(DriverError, match="TDSEArchive"):
         inspect.unwrap(Simulation._run)(
             natural_simulation(), progress="none", tdse_archive="x.h5"

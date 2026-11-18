@@ -36,6 +36,7 @@ EXPECTED: tuple[str, ...] = (
     r"a read-only directory mode is not enforced on Windows",
     r"Slurm is faked with POSIX shell scripts",
     r"a machine's setup script runs in a POSIX shell",
+    r"the remote shell is POSIX; the check runs it here",
     r"a machine's helper hosts its kernel on Linux and macOS, not Windows",
     r"the CI change filter runs in Linux Bash",
     # A platform's own branch, on the other platforms.
