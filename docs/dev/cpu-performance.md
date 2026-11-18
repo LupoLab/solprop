@@ -4,7 +4,7 @@ This page records the CPU performance work on the compiled backend. It lists wha
 adopted, what was measured and rejected, and what remains open. The aim is that nobody
 repeats an experiment without knowing its result. Each entry gives the result in one or
 two lines and, where they are summarised, links to its measurements in
-[benchmarks](benchmarks.md#indicative-results) or to
+[benchmarks](benchmarks.md#current-performance) or to
 [SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md). The open items are in the
 [issues](https://github.com/LupoLab/solprop/issues?q=is%3Aopen+label%3Aperformance+label%3A%22area%3A+native%22).
 
@@ -62,7 +62,7 @@ measured while it existed.
   ([#334](https://github.com/LupoLab/solprop/issues/334)). The same tree built both ways,
   with the same FFTW, OpenBLAS and SLEEF's AVX2 route in each; `benchmarks ab`, the
   tracking set at a quarter length, three rounds; the same steps and fields to rounding
-  ([ledger](benchmarks.md)).
+  ([measurements](benchmarks.md#builds-and-libraries)).
   - On an Intel Xeon Gold 6240 (18 cores of one socket, exclusive), `-march=cascadelake`
     (v4 with VNNI): geometric mean 0.984. The largest gains are at one thread
     (`argon_blueshift` 0.909, `ctc` 0.924, `grin_nonlinear` 0.943); at 16 threads none

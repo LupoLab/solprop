@@ -99,7 +99,7 @@ validity range is cited to its primary source; say what you verified and what yo
 - **Report failure honestly:** a failed check, an untested path, an invented assumption.
 - **The public tree stands alone.** No local paths, host names, private notes or links to
   them, and no development-register identifiers, in code, tests, docs or the changelog.
-  The hardware a benchmark ran on is part of its ledger entry.
+  The hardware a benchmark ran on is part of its record.
 
 ## Code
 
@@ -215,7 +215,7 @@ The long form is [`backends.md`](docs/dev/backends.md).
 - **The seam has no version number** (ADR-068). A change to the `PropagationProblem` or
   `RunRequest` fields or the stage bundles of `translate/stage.py` rewrites the frozen
   tables in `tests/backends/test_driver.py` in the same commit, with a release-note fragment.
-- A hot-path change comes with a benchmark ledger entry ([`benchmarks.md`](docs/dev/benchmarks.md))
+- A hot-path change comes with a benchmark measurement ([`benchmarks.md`](docs/dev/benchmarks.md))
   from `python -m benchmarks ab` on about ten steps or a short `--length` window; report the
   window, never extrapolate it.
 

@@ -4,7 +4,7 @@
 release adds a few lines per case to a history file kept per hardware set, so that
 regressions and improvements show from one release to the next. The design is
 [SEP 38](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0038-performance-tracking.md), which replaced SEP 30's standard
-suite. The rules for a performance claim and the indicative results are in
+suite. The rules for a performance claim and the current results are in
 [Benchmarks](benchmarks.md); this page is the manual.
 
 ```sh
@@ -101,7 +101,7 @@ spin before sleeping), `active` (idle threads spin), `bound` (threads pinned to
 neighbouring cores) or `bound-active`. The policy is recorded with each row, and rows
 compare only within one policy. Binding also confines SciPy's transforms on the host to the
 main thread's core, so a free-space row's edge reads cost more under a bound policy than
-under `passive` ([the edge against 0.1.0](benchmarks.md#the-transverse-edge-against-010)).
+under `passive` ([the edge against 0.1.0](benchmarks.md#the-transverse-edge)).
 
 ## On a GPU
 

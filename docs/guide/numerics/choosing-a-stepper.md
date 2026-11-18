@@ -211,7 +211,7 @@ its steps.
 
 Indicative ratios at matched error against a converged reference, one thread on a shared
 Darwin/arm64 workstation (the [gallery](#the-gallery) below has every point, and the
-devices; [the benchmark notes](../../dev/benchmarks.md#indicative-results) say how to read
+devices; [the benchmark rules](../../dev/benchmarks.md#rules) say how to read
 such ratios). Ratios are the Runge–Kutta march's time over the default's: above one, the
 default is faster.
 

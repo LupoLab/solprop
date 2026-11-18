@@ -1950,7 +1950,7 @@ solprop's frozen tables (`tests/backends/test_driver.py`), which move with the s
 backend for Apple GPUs was retired, unused, by
 [SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) §6.6, before the driver hierarchy it inherited
 was restructured. `backend="mlx"` raises `BackendError`, as any name that is neither
-backend does. Single precision went with it (ADR-077): every backend computes in binary64. SEP 33 and the benchmark ledger keep what it measured.
+backend does. Single precision went with it (ADR-077): every backend computes in binary64. SEP 33 keeps what it measured.
 
 ## 5. JAX: evaluated, not adopted
 

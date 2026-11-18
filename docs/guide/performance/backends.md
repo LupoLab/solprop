@@ -107,7 +107,7 @@ Use the native backend. `numpy_ref` is unthreaded and roughly 6 to 40 times slow
 threaded native, so it is for checking a result and for a problem a GPU build refuses; the
 [performance history](../../dev/benchmarking.md) records the native backend's own timings.
 The measurements behind the advice below are in the
-[indicative results](../../dev/benchmarks.md#indicative-results); time your own problem for
+[current results](../../dev/benchmarks.md#current-performance); time your own problem for
 ten steps before committing a long campaign to one backend.
 
 - **Which native build.** Build the native backend on the machine that runs it, or install a

@@ -165,7 +165,7 @@ def _low_storage_flows(
     The flows solprop's estimate counts (solprop kernel schema 32) -- except that a
     device build recomputes under ``"auto"``, where the estimate's CPU count
     over-states it by the table. A device's input crosses the state's layout through
-    tiles (``docs/dev/benchmarks.md``); a CPU's has its own.
+    tiles; a CPU's has its own.
     """
     if not isinstance(stepper.integrator, LowStorageRungeKutta):
         return None

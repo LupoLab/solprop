@@ -406,7 +406,7 @@ reference element, one number a step, so nothing is read back from the engine, a
 accepted step's $\sigma$ is held for its interpolated planes. It follows `numpy_ref`
 to rounding on matched steps. On ten replayed steps of a dense-gas capillary each step
 cost 4–6 % more than the unshifted method's with a cheap Kerr source and under 1 % more
-with Raman ([benchmarks](../../dev/benchmarks.md)); the policy pays for itself only
+with Raman ([benchmarks](../../dev/benchmarks.md#adams-carrier-frame-per-step)); the policy pays for itself only
 through the steps it saves.
 
 **What it measured.** On short windows of the benchmark suite's cases

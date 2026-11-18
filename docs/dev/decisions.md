@@ -625,7 +625,7 @@ Withdrawn (development-process record, not a design decision).
 - **Context:** A portable `solprop-native` build — no vendor BLAS, generic x86-64 — lost
   to `numba_cpu` on every measured case at one thread: Numba compiles for the processor it
   runs on and uses NumPy's OpenBLAS, which selects its kernels at run time. Builds compared
-  on an 18-core-per-socket AVX-512 server ([benchmarks.md](benchmarks.md#backends-and-builds))
+  on an 18-core-per-socket AVX-512 server ([benchmarks.md](benchmarks.md#builds-and-libraries))
   separated the local build's gain: the vendor BLAS is all of it on capillary problems
   (2.6–3.8× on straight capillaries), and the instruction set most of it on the general
   route. Against `x86-64-v3`, an `x86-64-v2` build's median cost on the benchmark core is
