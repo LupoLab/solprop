@@ -96,6 +96,9 @@ def test_fixed_step_cases_run_their_schedule_and_refuse_overrides():
     assert len(schedule.steps) == 4
     np.testing.assert_allclose(schedule.edges[-1], case.length, rtol=1e-12)
     assert simulation.settings.fields == "planes"
+    # Four steps are timed, not the route's default statistics at the observed plane.
+    assert simulation.settings.stats is not None
+    assert simulation.settings.stats.names == ()
 
 
 @pytest.mark.parametrize(
