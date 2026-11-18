@@ -3,5 +3,5 @@
 `"peak-weighted"`, was validated and recorded but never read, since each optmat rate
 applies its own convention, which its `ionisation` entry in the material manifest still
 records. Drop `energy_loss=` from `MaterialSelection(...)` and from a recipe's
-`MaterialSelection` table; the run is unchanged. A run's material manifest no longer carries a
-`policies.energy_loss` entry, so its hashed record moves.
+`MaterialSelection` table; the run is unchanged. A run's material manifest no longer
+carries a `policies.energy_loss` entry.

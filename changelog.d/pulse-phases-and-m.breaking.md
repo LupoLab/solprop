@@ -3,6 +3,5 @@ phase of `GaussianPulse`, `SechPulse`, `CustomPulse`, `DataPulse` and `TimeDataP
 (and of `DataPulse.from_spectral_density`) is `phases=`, the name `prop_gnlse`,
 `prop_capillary` and `prop_waveguide` use, rather than `phase=`; and the super-Gaussian
 order of `SpatialPulse` and `PlanarPulse` is `m=`, as on `GaussianPulse`, rather than
-`order=`. The meaning is unchanged. A recipe's pulse tables take `phases` and `m`, and
-a run's record holds the new names, so a file written before cannot be resumed.
+`order=`. The meaning is unchanged. A recipe's pulse tables take `phases` and `m`.
 Migration: rename `phase=` to `phases=` on the pulses and `order=` to `m=` on the beams.
