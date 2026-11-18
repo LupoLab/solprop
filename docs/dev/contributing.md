@@ -114,9 +114,11 @@ its committed output. There are three galleries:
   rendered into `docs/auto_tutorials/`. Both are deterministic and large enough to show the
   physics, and may run their real problem at full length when that is what they
   demonstrate. CI's docs job runs every one again on each change
-  (`SOLPROP_RUN_EXAMPLES=tutorials`).
-- **Worked examples**, `docs/examples/**/plot_*.py`: full-size problems of minutes to half
-  an hour, rendered into `docs/auto_examples/` and run only by hand.
+  (`SOLPROP_RUN_EXAMPLES=tutorials`) and keeps none of what they write; the published
+  pages are the committed output.
+- **Worked examples**, `docs/examples/**/plot_*.py`: full-size problems that take from a
+  few seconds to about ten minutes each, rendered into `docs/auto_examples/` and run only
+  by hand; each page shows the stored result of its last run.
 
 After changing a gallery script, including its prose, regenerate its output with
 `uv run poe docs-examples <name>` (or with no name, every stale script) on an idle machine
