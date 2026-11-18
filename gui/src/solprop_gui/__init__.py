@@ -10,8 +10,9 @@ can be opened in it. solprop does the physics and the window none: every number 
 comes from a public solprop call, made in a separate process. The design is
 ``docs/dev/gui/design.md`` in the solprop repository.
 
-The package's layers are ``model``, ``registry`` and ``service``, which import no
-Qt, and ``ui``, ``views`` and ``help``, which build the window.
+The package's layers are ``model``, ``registry``, ``classes`` and ``help``, which
+import no Qt, and ``ui`` and ``views``, which build the window. The service the window
+reaches its kernel and its runs through is ``solprop.service``, in solprop.
 """
 
 from importlib.metadata import PackageNotFoundError, version

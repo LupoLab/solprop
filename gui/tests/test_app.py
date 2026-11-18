@@ -15,3 +15,10 @@ def test_version_answers_and_exits(capsys: pytest.CaptureFixture[str]):
         main(["--version"])
     assert exit_info.value.code == 0
     assert capsys.readouterr().out.strip() == __version__
+
+
+def test_an_unknown_option_is_refused(capsys: pytest.CaptureFixture[str]):
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--workflow"])
+    assert exit_info.value.code == 2
+    assert "unrecognized arguments: --workflow" in capsys.readouterr().err

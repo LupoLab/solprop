@@ -12,7 +12,7 @@ name = "solprop-gui"
 description = "A desktop front end for solprop: set up, run and read ultrafast propagation simulations"
 readme = "README.md"
 # The code is GPL; the window's font, IBM Plex Sans, is under the Open Font License; the
-# user guide's pages carried for Help, the help figures and the icon are CC-BY (REUSE.toml).
+# user guide's pages carried for Help, the drawings and the icon are CC-BY (REUSE.toml).
 license = "GPL-3.0-or-later AND OFL-1.1 AND CC-BY-4.0"
 # The wheel carries the licences: copies of the root LICENSE and LICENSES/CC-BY-4.0.txt,
 # since license-files cannot reach outside the project directory (tests/test_licences.py).

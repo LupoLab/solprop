@@ -5,12 +5,13 @@
 """The run: pre-flight, run, stop, resume, and what the live view is fed.
 
 The panel runs the recipe revision current when Run is pressed, in a new folder of the
-workspace, in a worker of its own (design 10). The panel's controls sit on the
-Propagate step, its actions also on the window's toolbar; its live view, log and
-progress are shown by the window, among its views, in its bottom panel and in its
-status bar. Its execution state is the window's
-(:mod:`solprop.service.states`); whether the file can be continued is asked of
-solprop after every ending, and Resume follows that answer alone.
+workspace, as a job of its own that a machine's helper starts and the panel follows
+from the run's record (design 13.4). The window shows the panel's state, progress,
+steps and boundary lamp on the Run stage's strip and its live view on the Overview
+page, and its primary button runs, stops and resumes through the panel. Its execution
+state is the window's (:mod:`solprop.service.states`); whether the file can be
+continued is asked of solprop after every ending, and Resume follows that answer
+alone.
 """
 
 import os
@@ -136,7 +137,6 @@ class RunPanel(QWidget):
         self.resume_mode: object = None
         self.can_run = False
         self._pending: dict[int, str] = {}
-        self._last_index = -1
         self._z_end = 0.0
         self.options = PlotOptions()
         self.report: Callable[[str, str, str], None] = self._report
@@ -182,8 +182,8 @@ class RunPanel(QWidget):
         self.workspace_button.clicked.connect(self.choose_workspace)
         self._show_workspace()
 
-        # Shown by the window: the progress in its status bar, the live view among
-        # its views, the log in its bottom panel.
+        # Shown by the window: the state, bar, steps, sparkline and lamp on the Run
+        # stage's strip, the live view on the Overview page.
         self.lamp = QLabel("boundary: ok")
         self.lamp.setToolTip("The time window's edges, as solprop's monitor reports.")
         self.progress = QProgressBar()
@@ -276,7 +276,7 @@ class RunPanel(QWidget):
     def _action(
         self, text: str, drawing: str, slot: Callable[[], object], colour: QColor
     ) -> QAction:
-        """Make one of the panel's actions, shared with the window's toolbar.
+        """Make one of the panel's actions.
 
         Parameters
         ----------
@@ -401,8 +401,7 @@ class RunPanel(QWidget):
                 threads=self.threads,
                 reductions=tuple(self.reductions),
                 owner=self._owner(),
-            ),
-            fresh=True,
+            )
         )
 
     def resume(self) -> None:
@@ -423,8 +422,7 @@ class RunPanel(QWidget):
                 resume=mode,  # pyright: ignore[reportArgumentType]
                 display=self.display(),
                 owner=self._owner(),
-            ),
-            fresh=False,
+            )
         )
 
     def display(self) -> Display:
@@ -486,20 +484,16 @@ class RunPanel(QWidget):
         for bar in (self.progress, self.bar):
             bar.setValue(min(max(value, 0), 1000))
 
-    def _launch(self, spec: RunSpec, *, fresh: bool) -> None:
-        """Start a worker.
+    def _launch(self, spec: RunSpec) -> None:
+        """Start a run, new or continued, through its machine's helper.
 
         Parameters
         ----------
         spec : solprop.service.worker.RunSpec
             What it runs.
-        fresh : bool
-            Whether it is a new run, rather than a continued one.
         """
         self.run_id = spec.run_id
         self.folder = self._place(spec.folder)
-        if fresh:
-            self._last_index = -1
         self._z_end = 0.0
         self.lamp.setText("boundary: ok")
         self.lamp.setStyleSheet("")
@@ -561,7 +555,6 @@ class RunPanel(QWidget):
         self.client = self.bridge.attach_on(machine, run_id, folder)
         self.run_id = run_id
         self.folder = self._place(folder)
-        self._last_index = -1
         self.view.clear()
         self.log.clear()
         self.state = ExecutionState.RUNNING
@@ -642,11 +635,6 @@ class RunPanel(QWidget):
         if event.kind == "axes":
             self.view.set_axes(data)
         elif event.kind == "row":
-            index = int(data["index"])  # pyright: ignore[reportArgumentType]
-            if index > self._last_index + 1 and self.client is not None:
-                # Rows were dropped on the way: the worker replays them.
-                self.client.subscribe(self._last_index + 1)
-            self._last_index = max(self._last_index, index)
             self.view.add_row(data)
             z = float(data["z"])  # pyright: ignore[reportArgumentType]
             self.steps.setText(
@@ -709,7 +697,7 @@ class RunPanel(QWidget):
         """
         box = QMessageBox(QMessageBox.Icon.Warning, title, message, parent=self)
         box.setObjectName("run-failed")
-        box.setInformativeText("The run's log, in the bottom panel, has it too.")
+        box.setInformativeText("The run's log, on the Run health page, has it too.")
         if detail:
             box.setDetailedText(detail)
         box.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)

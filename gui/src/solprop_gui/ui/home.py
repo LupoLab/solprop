@@ -4,7 +4,7 @@
 
 """Home: shown when nothing is open, it asks what you want to do (design 5.2)."""
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
 )
 
 from solprop_gui.classes.catalog import CLASSES
-from solprop_gui.model.workspace import RunEntry
 from solprop_gui.ui.theme import clear_layout, named_label
 from solprop_gui.ui.tile_art import tile_pixmap
 
@@ -251,22 +250,28 @@ class HomePage(QWidget):
         self.workspace.setText(f"In {shown}")
         self.workspace.setToolTip(str(folder))
 
-    def show_runs(self, runs: Sequence[RunEntry]) -> None:
-        """List the workspace's latest runs.
+    def show_runs(self, runs: Sequence[Mapping[str, object]]) -> None:
+        """List the workspace's latest runs that have a results file.
 
         Parameters
         ----------
-        runs : Sequence of RunEntry
-            The runs, newest first.
+        runs : Sequence of Mapping
+            The runs' summaries, newest first, as
+            :func:`solprop.service.runs.list_runs` gives them.
         """
         entries = []
-        for run in [run for run in runs if run.output is not None][:_RECENT]:
-            when = datetime.fromtimestamp(run.modified, tz=UTC).astimezone()
-            output = str(run.output)
+        for run in [run for run in runs if run.get("output")][:_RECENT]:
+            # When it ended, or started; a run that kept no record says neither.
+            stamp = run.get("ended") or run.get("started") or run.get("submitted")
+            detail = ""
+            if isinstance(stamp, int | float):
+                when = datetime.fromtimestamp(stamp, tz=UTC).astimezone()
+                detail = when.strftime("%d %b %Y, %H:%M")
+            output = str(run["output"])
             entries.append(
                 (
-                    run.name,
-                    when.strftime("%d %b %Y, %H:%M"),
+                    str(run["run_id"]),
+                    detail,
                     lambda path=output: self.results_chosen.emit(path),
                 )
             )

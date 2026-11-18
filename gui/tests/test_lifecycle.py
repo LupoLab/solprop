@@ -20,11 +20,12 @@ from solprop.service.client import KernelClient
 from solprop.service.launch import prepare, start_direct
 from solprop.service.messages import Event, Reply
 from solprop.service.record import read_events, read_status, request_stop
+from solprop.service.runs import list_runs
 from solprop.service.worker import OUTPUT, RunSpec
 
 from conftest import TINY
 from solprop_gui.model.recipe import RecipeModel
-from solprop_gui.model.workspace import list_runs, new_run_folder
+from solprop_gui.model.workspace import new_run_folder
 
 TIMEOUT = 120.0
 
@@ -124,7 +125,7 @@ def test_the_whole_lifecycle(kernel: Kernel, tmp_path: Path):
     assert resumed[-1].kind == "finished"
     described = kernel.ask("describe_output", {"path": output})
     assert described["outcome"]["status"] == "complete"  # pyright: ignore[reportIndexIssue]
-    assert [run.folder for run in list_runs(workspace)] == [folder]
+    assert [run["folder"] for run in list_runs(workspace, None)] == [str(folder)]
 
     # Compare: the run and the exported script's run end on the same spectrum.
     window = {"wavelength_range": [200e-9, 2e-6]}  # the script's file has no recipe

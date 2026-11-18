@@ -135,7 +135,7 @@ class MachineStore:
 
 
 class MachineRun:
-    """A run on a machine, as a run panel holds a worker's handle.
+    """A run on a machine, as a run panel follows it.
 
     Stop writes the run's stop file; Kill ends its job (``scancel``, or ``SIGTERM``),
     which still leaves a resumable file.
@@ -160,16 +160,6 @@ class MachineRun:
     def stop(self) -> None:
         """Ask the run to stop at its next step."""
         self.hub.call(self.machine, "stop", {"folder": self.folder})
-
-    def subscribe(self, from_plane: int = 0) -> None:
-        """Do nothing: a run's record drops no rows, so none need replaying.
-
-        Parameters
-        ----------
-        from_plane : int, optional
-            The first plane wanted.
-        """
-        del from_plane
 
     def cancel(self) -> None:
         """End the run's job (``SIGTERM``, ``scancel``); solprop saves where it was."""

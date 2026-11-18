@@ -4,7 +4,7 @@
 
 """A compressor: a chain of linear optical elements after the run, some searched.
 
-The Post-process step builds a :class:`Stage` list: a Taylor spectral phase, a
+The Compress page builds a :class:`Stage` list: a Taylor spectral phase, a
 material (a glass, or a gas such as an air path), chirped mirrors (optionally with
 wedges), a prism pair or a grating pair, each of :mod:`solprop.optics`. A stage is
 either **fixed**, its values as given, or **auto**: solprop's compressor of that kind

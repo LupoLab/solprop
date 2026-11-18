@@ -16,7 +16,6 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QPen
-from PySide6.QtWidgets import QFileDialog, QWidget
 
 __all__ = [
     "BLUE",
@@ -24,14 +23,10 @@ __all__ = [
     "HoverLayout",
     "Lookup",
     "Readout",
-    "choose_figure",
     "colormap",
     "curve_lookup",
     "figure_spec",
 ]
-
-FIGURE_FILTER = "PNG image (*.png);;SVG drawing (*.svg);;PDF document (*.pdf)"
-"""The figure formats offered, for a file dialog."""
 
 pg.setConfigOptions(antialias=True, background="w", foreground="k")
 
@@ -358,24 +353,3 @@ def figure_spec(plot: pg.PlotItem) -> dict[str, object]:
         "lines": lines,
         "points": points,
     }
-
-
-def choose_figure(parent: QWidget, name: str) -> str | None:  # pragma: no cover - modal
-    """Ask where to write a figure.
-
-    Parameters
-    ----------
-    parent : PySide6.QtWidgets.QWidget
-        The dialog's owner.
-    name : str
-        The file name offered.
-
-    Returns
-    -------
-    str or None
-        The file chosen, or ``None`` when the dialog is cancelled.
-    """
-    chosen, _ = QFileDialog.getSaveFileName(
-        parent, "Export figure", name, FIGURE_FILTER
-    )
-    return chosen or None

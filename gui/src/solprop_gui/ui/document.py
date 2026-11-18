@@ -4,7 +4,7 @@
 
 """The open setup: its recipe, undo, checks and files, apart from any window.
 
-Both windows hold one of these. It owns the recipe model, the undo stack, the kernel's
+The window holds one of these. It owns the recipe model, the undo stack, the kernel's
 check and summary of each revision, the route's description, saving and the recovery
 copy, and says what happened through signals, so a window only shows the result.
 """
@@ -308,21 +308,20 @@ class SetupDocument(QObject):
                 self._adapt[request] = adapt
 
     def open_recipe(self, path: str | Path) -> None:
-        """Open a recipe file.
+        """Open a recipe file; one that cannot be read is said, and nothing is lost.
 
         Parameters
         ----------
         path : str or pathlib.Path
             The file.
         """
-        if not self.may_discard():
-            return
         try:
             model = RecipeModel.load(path)
         except (OSError, ValueError) as error:
             self.message.emit(f"Cannot open {path}: {error}")
             return
-        self.set_model(model, base=str(Path(path).parent))
+        if self.may_discard():
+            self.set_model(model, base=str(Path(path).parent))
 
     def open_text(self, text: str, base: str | None) -> None:
         """Open a recipe's text as a new, unsaved setup.

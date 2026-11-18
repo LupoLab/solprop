@@ -91,6 +91,19 @@ def shot(widget: QWidget, folder: Path, name: str) -> None:
     assert image.save(str(folder / f"{name}.png"))
 
 
+def listed_runs(home: HomePage) -> list[str]:
+    """Return the first line of each item Home lists under its runs."""
+    texts = []
+    for index in range(home.runs.count()):
+        entry: Any = home.runs.itemAt(index)
+        item = entry.widget()
+        if not isinstance(item, QLabel):  # an item: its title line
+            item = item.findChild(QLabel, "itemTitle")
+        assert isinstance(item, QLabel)
+        texts.append(item.text())
+    return texts
+
+
 def open_tiny(window: WorkflowWindow, qtbot: QtBot) -> None:
     """Open the quick capillary, and wait until solprop has accepted it."""
     window.document.set_model(RecipeModel(TINY), base=None)
@@ -124,10 +137,11 @@ def test_home_offers_each_class_and_asks_for_nothing_open(
     assert window.home.workspace.text().startswith("In ")
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    window.run_panel.set_workspace(elsewhere)
+    with qtbot.waitSignal(window.runs_listed, timeout=WAIT_MS):
+        window.run_panel.set_workspace(elsewhere)
     assert window.home.workspace.toolTip() == str(elsewhere)
     assert window.settings.value("workspace") == str(elsewhere)
-    assert window.home.runs.count() == 1  # "No runs yet." in the new folder
+    assert listed_runs(window.home) == ["No runs yet."]  # none in the new folder
     window.home.show_workspace(Path.home() / "runs")
     assert window.home.workspace.text() == "In ~/runs"
 
@@ -415,9 +429,10 @@ def test_a_run_goes_from_setup_to_analyse_with_one_scrubber(
     assert not window.analyse.rail.isVisible()
     window.show_stage(Stage.SETUP)
     assert window.top.isVisible()
-    window.show_stage(Stage.HOME)
+    with qtbot.waitSignal(window.runs_listed, timeout=WAIT_MS):
+        window.show_stage(Stage.HOME)
     assert window.top.isVisible()  # the stages lead back to what is open
-    assert window.home.runs.count() == 1
+    assert listed_runs(window.home) == [Path(session.path or "").parent.name]
 
 
 def test_results_from_home_find_their_class_and_restore_the_setup(
@@ -1043,7 +1058,7 @@ def test_a_solid_core_fibre_runs_and_every_page_reads_it(  # noqa: PLR0915 - one
     low, high = overview.spectrum_map.box.viewRange()[0]
     assert low > 500.0
     assert high < 2000.0
-    assert not analyse.buttons["noise"].isEnabled()
+    assert "noise" not in analyse.buttons  # no run is a seeded ensemble yet
     # A plane that has arrived but is not drawn yet is read as the last drawn one.
     top = float(overview.rows[-1]["z"]) * overview._unit[1]
     overview.rows.append({**overview.rows[-1], "z": 2 * float(overview.rows[-1]["z"])})
