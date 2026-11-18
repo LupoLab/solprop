@@ -26,6 +26,7 @@ from solprop import fourier
 from solprop.backends.registry import select
 from solprop.constants import C
 from solprop.driver import Simulation, prop_gnlse
+from solprop.driver.defaults import default_rtol
 from solprop.driver.inputs import _shot_noise
 from solprop.driver.routes.gnlse import _dispersion_table, _gnlse_mode
 from solprop.exceptions import DriverError, ModeError
@@ -395,20 +396,34 @@ def test_a_gaussian_disperses_as_the_closed_form_says():
     width = tau0 * math.sqrt(1.0 + (length / dispersion_length) ** 2)
     envelope = fourier.inverse(handler.fields("fft")[-1, 0, 0], kind="envelope")
     expected = tau0 / width * np.exp(-(grid.t**2) / width**2)
-    # A linear run is the operator's flow, exact to rounding through the transforms:
-    # measured 2.3e-14 of the 1 W launch peak on numpy_ref.
+    # Where the pulse is, the run is the operator's flow, exact to rounding through the
+    # transforms; the absorber's residual (below) lies in the collar, where it enters
+    # the power only squared: measured 1.6e-14 to 2.3e-14 of the 1 W launch peak.
     assert np.max(np.abs(np.abs(envelope) ** 2 - expected)) < 1e-12
     launch, exit_ = handler["field"][0, 0, 0], handler["field"][-1, 0, 0]
     detuning = grid.omega - grid.omega0
     # Over the bins within a hundredth of the spectral peak, where the phase reaches
-    # 7.5 rad: measured 2.2e-9 rad off on numpy_ref, so a bound of 1e-7 rad; a beta2
-    # off by 1 % misses by 0.075 rad.
+    # 7.5 rad. The temporal absorber's in-stage term is the run's only source, which
+    # the embedded pair integrates under the controller: each accepted step's error
+    # estimate is held to rtol max(|y|, |y_new|) + atol in the whole-field Euclidean
+    # norm (docs/dev/stepper.md section 3; atol is 1e-14 against rtol |y| = 3e-5 here).
+    # The flow is unitary and the absorber only removes energy, so after n accepted
+    # steps a bin's error is at most n rtol |y| and its phase that over |y_k|: 1.5e-5
+    # rad at the peak, 1.2e-3 rad at the outermost bin. Within it the residual follows
+    # the step sequence, which rounding moves: launches a few ulps apart measured 5e-12
+    # to 4e-7 rad on both backends, the Linux aarch64 wheel 2.2e-6 rad, and a run
+    # without the absorber 1.5e-15 rad. A beta2 off by 1 % misses by 0.075 rad.
     held = np.abs(launch) > 1e-2 * np.max(np.abs(launch))
     growth = np.angle(exit_[held] * np.conj(launch[held]))
     departure = np.angle(
         np.exp(1j * (growth - beta2 / 2 * detuning[held] ** 2 * length))
     )
-    assert np.max(np.abs(departure)) < 1e-7
+    steps = np.count_nonzero(handler["step_history/accepted"])
+    bound = (
+        steps * default_rtol("gnlse") * np.linalg.norm(launch) / np.abs(launch[held])
+    )
+    assert np.max(bound) < 7.5e-3
+    assert np.all(np.abs(departure) < bound)
 
 
 def test_a_numpy_float_length_runs():
