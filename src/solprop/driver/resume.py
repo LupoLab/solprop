@@ -57,17 +57,21 @@ type _ResumeChoice = bool | Literal["interpolated"]
 """What ``resume`` takes: no, yes, or from a plane interpolated inside a step."""
 
 
-def _adopt_recorded_seed(
+def _resumed_simulation(
     simulation: "Simulation", output: Output | Path | str | None
-) -> None:
-    """Take the noise seed of the file a resume continues, where the call gave none.
+) -> "Simulation":
+    """Return the run a resume continues, drawn from the file's seed if unseeded.
 
     The maintainers' ruling on resuming a default call (``seed=None``): the
     realisation is drawn again from the seed the file recorded, so the re-run
-    call describes the run it continues. Nothing happens when there is no file,
-    the file recorded no seed or another noise model, or the realisation was
-    seeded or supplied by the caller; :func:`~solprop.output.hdf5.check_cache`
-    then compares the call's realisation as it was built.
+    call describes the run it continues. It is drawn on a copy
+    (:meth:`~solprop.driver.simulation.Simulation._reseeded`), so the caller's
+    simulation keeps its own realisation and a later fresh run of it does not carry
+    the file's; the copy shares the caller's material log, as the caller's own run
+    would. `simulation` itself is returned when there is no file, the file recorded
+    no seed or another noise model, or the realisation was seeded or supplied by the
+    caller; :func:`~solprop.output.hdf5.check_cache` then compares the call's
+    realisation as it was built.
     """
     if (
         simulation._noise_redraw is None
@@ -75,17 +79,20 @@ def _adopt_recorded_seed(
         or not isinstance(output, Path | str)
         or not Path(output).exists()
     ):
-        return
+        return simulation
     stored = _stored_metadata(output)[0].noise
     if stored is None or stored.seed is None or stored.model != simulation.noise.model:
-        return
-    if simulation._reseed(stored.seed):
+        return simulation
+    resumed = simulation._reseeded(stored.seed)
+    if resumed is not simulation:
+        resumed._material_log = simulation._material_log
         logger.info(
             "resuming %s: the noise was drawn without a seed, so it is drawn again "
             "from the seed the file recorded, %d",
             output,
             stored.seed,
         )
+    return resumed
 
 
 def _start(

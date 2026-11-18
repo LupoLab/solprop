@@ -81,12 +81,12 @@ from solprop.driver.mixtures import (
     mixture_profiles,
 )
 from solprop.driver.resume import (
-    _adopt_recorded_seed,
     _check_resume_choice,
     _continues,
     _interpolated,
     _open_output,
     _ResumeChoice,
+    _resumed_simulation,
     _start,
     _validate_resume,
 )
@@ -1821,8 +1821,10 @@ class Simulation(Displayed):
             file is returned. Only a path can be resumed: the driver has to open the
             file in append mode itself. Noise a constructor drew without a seed is drawn
             again from the seed the file recorded, so re-running the same call continues
-            its file. A file whose last plane was interpolated inside a step is refused
-            unless this is ``"interpolated"``: it then continues afresh from the
+            its file; the redraw is the resume's own, and this simulation keeps its
+            realisation for a later fresh run. A file whose last plane was interpolated
+            inside a step is refused unless this is ``"interpolated"``: it then
+            continues afresh from the
             interpolated field, and the position is recorded in the annotation
             :data:`~solprop.output.metadata.INTERPOLATED_RESUMES_ANNOTATION` before
             the first step, so a session that stops later still records it.
@@ -1909,15 +1911,47 @@ class Simulation(Displayed):
     ) -> Output:
         """Execute the run, on a new backend or on one a caller keeps between runs.
 
+        A resume runs the copy :func:`~solprop.driver.resume._resumed_simulation`
+        returns, so this simulation keeps its own noise realisation; what the run
+        learns about its peak fields is kept here as for any run.
+
         - ``progress_period``: as for :meth:`run`, s.
         - ``kept``: a backend built for this problem but for its input, which is loaded
           and left open for the caller; ``None`` constructs one and closes it. It serves
           a fresh run only, with no TDSE response.
         """
         _check_resume_choice(resume)
+        simulation = self
+        if resume:
+            with _optmat.material_context(self._material_log):
+                simulation = _resumed_simulation(self, output)
+        handler = simulation._execute(
+            output,
+            progress=progress,
+            progress_period=progress_period,
+            resume=resume,
+            tdse_archive=tdse_archive,
+            snapshots=snapshots,
+            stop=stop,
+            kept=kept,
+        )
+        self._peak_fields = simulation._peak_fields
+        return handler
+
+    def _execute(
+        self,
+        output: Output | Path | str | None,
+        *,
+        progress: ProgressReporter | ProgressChoice | None,
+        progress_period: float,
+        resume: _ResumeChoice,
+        tdse_archive: TDSEArchive | None,
+        snapshots: SnapshotController | None,
+        stop: StopFlag | None,
+        kept: Backend | None,
+    ) -> Output:
+        """Execute the run on this simulation as it is (:meth:`_run`)."""
         with _optmat.material_context(self._material_log):
-            if resume:
-                _adopt_recorded_seed(self, output)
             problem = self.translate()
             request = self.run_request()
             _refuse_pending_check(problem)

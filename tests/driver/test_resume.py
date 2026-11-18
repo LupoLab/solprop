@@ -436,9 +436,15 @@ def test_a_default_noise_run_without_a_seed_resumes_from_the_seed_it_recorded(
     assert stored is not None and stored.seed is not None
     again = scheduled(build_simulation, noise="default", backend="numpy_ref")
     assert again.noise is not None and again.noise.seed != stored.seed
+    drawn = again.noise
     again.run(path, resume=True)
-    assert again.noise.seed == stored.seed
     assert read_resume_state(path).n_saved == N_SAVE
+    # The resume ran on a copy: the caller's own realisation is untouched, and a fresh
+    # run of it afterwards records that realisation, not the resumed file's.
+    assert again.noise is drawn
+    again.run(tmp_path / "fresh.h5")
+    fresh = read_resume_state(tmp_path / "fresh.h5").metadata.noise
+    assert fresh is not None and fresh.seed == drawn.seed
     whole = scheduled(
         build_simulation, noise="default", seed=stored.seed, backend="numpy_ref"
     )
