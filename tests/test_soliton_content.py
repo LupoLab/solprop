@@ -223,18 +223,18 @@ def test_the_inner_diameter_ratio_uses_the_inner_resonator_diameter():
 
 
 @pytest.mark.parametrize(
-    "radius, wall, ratio, count",
+    "radius, wall, ratio, count, message",
     [
-        (-1, 1e-7, 0.6, 6),
-        (20e-6, -1e-7, 0.6, 6),
-        (20e-6, 1e-7, 0, 6),
-        (20e-6, 1e-7, 1.2, 6),
-        (20e-6, 1e-7, 0.6, 2),
-        (20e-6, 1e-7, math.nan, 6),
+        (-1, 1e-7, 0.6, 6, "core_radius must be finite and positive"),
+        (20e-6, -1e-7, 0.6, 6, "wall_thickness must be finite and positive"),
+        (20e-6, 1e-7, 0, 6, "inner_diameter_ratio must be finite and positive"),
+        (20e-6, 1e-7, 1.2, 6, "tube gap must be nonnegative and finite"),
+        (20e-6, 1e-7, 0.6, 2, "n_tubes must be an integer >= 3"),
+        (20e-6, 1e-7, math.nan, 6, "inner_diameter_ratio must be finite and positive"),
     ],
 )
-def test_invalid_diameter_geometry_is_rejected(radius, wall, ratio, count):
-    with pytest.raises(ModeError):
+def test_invalid_diameter_geometry_is_rejected(radius, wall, ratio, count, message):
+    with pytest.raises(ModeError, match=message):
         TubeLattice.from_inner_diameter_ratio(
             radius, wall_thickness=wall, inner_diameter_ratio=ratio, n_tubes=count
         )

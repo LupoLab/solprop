@@ -39,20 +39,23 @@ def case():
 
 
 @pytest.mark.parametrize(
-    "changes",
+    ("changes", "message"),
     [
-        {"waist": 0.0},
-        {"m": 0},
-        {"m": True},
-        {"propz": np.inf},
-        {"jones": ()},
-        {"jones": (0j,)},
-        {"jones": (complex(np.nan),)},
-        {"jones": (1j, 1j, 1j)},
+        ({"waist": 0.0}, "waist must be finite and positive"),
+        ({"m": 0}, "m must be a super-Gaussian order of at least 1"),
+        ({"m": True}, "m must be a super-Gaussian order of at least 1"),
+        ({"propz": np.inf}, "propz must be finite"),
+        ({"jones": ()}, "jones must contain one or two finite components"),
+        ({"jones": (0j,)}, "jones must contain one or two finite components"),
+        (
+            {"jones": (complex(np.nan),)},
+            "jones must contain one or two finite components",
+        ),
+        ({"jones": (1j, 1j, 1j)}, "jones must contain one or two finite components"),
     ],
 )
-def test_spatial_pulse_rejects_invalid_specification(case, changes):
-    with pytest.raises(PulseError):
+def test_spatial_pulse_rejects_invalid_specification(case, changes, message):
+    with pytest.raises(PulseError, match=message):
         dataclasses.replace(case[2], **changes)
 
 
@@ -94,8 +97,18 @@ def test_spatial_pulse_checks_the_temporal_pulse_result(case, shape, match):
         )
 
 
-@pytest.mark.parametrize("which", ["space_only", "medium_only", "modes", "pulse_only"])
-def test_simulation_constructor_rejects_incomplete_spatial_context(case, which):
+@pytest.mark.parametrize(
+    ("which", "message"),
+    [
+        ("space_only", "spatial_grid and medium must be supplied together"),
+        ("medium_only", "spatial_grid and medium must be supplied together"),
+        ("modes", "spatial propagation requires an empty mode sequence"),
+        ("pulse_only", "a SpatialPulse requires spatial_grid and medium"),
+    ],
+)
+def test_simulation_constructor_rejects_incomplete_spatial_context(
+    case, which, message
+):
     grid, space, pulse, settings = case
     options = {"spatial_grid": space, "medium": SpatialMedium()}
     modes = ()
@@ -107,7 +120,7 @@ def test_simulation_constructor_rejects_incomplete_spatial_context(case, which):
         options = {}
     else:
         modes = (object(),)
-    with pytest.raises(DriverError):
+    with pytest.raises(DriverError, match=message):
         inspect.unwrap(Simulation.__init__)(
             object.__new__(Simulation),
             grid,
