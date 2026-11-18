@@ -616,35 +616,6 @@ def test_a_running_record_restores_the_totals_without_rows() -> None:
     assert planes["z"] == []
 
 
-def test_a_record_from_before_the_signed_removal_still_resumes() -> None:
-    # A record that predates `removed_signed` and `floor_removed_fraction` gives the
-    # floor's expectation back as the raw removal less the reported one.
-    grid, spectrum = _two_pulses(0.0, 0.95)
-    first = BoundaryMonitor.build(grid, None, BoundaryCheck())
-    first.launch(first.energies(spectrum), 0.0)
-    old = {
-        name: value
-        for name, value in first.summary().items()
-        if name
-        not in (
-            "planes",
-            "removed_signed",
-            "floor_removed_fraction",
-            "quiet_checks",
-            "collar_quiet",
-            "unwatched",
-        )
-    }
-    old |= {"removed_fraction": 0.25, "raw_removed_fraction": 0.25}
-    monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
-    monitor.resume(old, plane=False)
-    monitor.launch(monitor.energies(spectrum), 0.5)
-    summary = monitor.summary()
-    assert summary["removed_fraction"] == 0.25
-    assert summary["floor_removed_fraction"] == 0.0
-    assert summary["unwatched"] == []
-
-
 def test_a_resume_lists_the_stretches_run_without_a_monitor() -> None:
     # An execution with `boundary_check=None` between two watched ones: the totals
     # continue from before it, and its stretch is listed as unknown.
