@@ -86,7 +86,6 @@ from solprop.driver.resume import (
     _continues,
     _interpolated,
     _open_output,
-    _ResumeChoice,
     _start,
     _validate_resume,
 )
@@ -164,6 +163,7 @@ from solprop.log import (
     DEFAULT_PROGRESS_PERIOD,
     ProgressChoice,
     ProgressReporter,
+    ResumeChoice,
     StopFlag,
 )
 from solprop.modes.antiresonant import TubeLattice
@@ -1789,7 +1789,7 @@ class Simulation(Displayed):
         *,
         progress: ProgressReporter | ProgressChoice | None = None,
         progress_period: float = DEFAULT_PROGRESS_PERIOD,
-        resume: _ResumeChoice = False,
+        resume: ResumeChoice = False,
         tdse_archive: TDSEArchive | None = None,
         snapshots: SnapshotController | None = None,
         stop: StopFlag | None = None,
@@ -1901,7 +1901,7 @@ class Simulation(Displayed):
         *,
         progress: ProgressReporter | ProgressChoice | None = None,
         progress_period: float = DEFAULT_PROGRESS_PERIOD,
-        resume: _ResumeChoice = False,
+        resume: ResumeChoice = False,
         tdse_archive: TDSEArchive | None = None,
         snapshots: SnapshotController | None = None,
         stop: StopFlag | None = None,

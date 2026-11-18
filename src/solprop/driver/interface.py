@@ -29,13 +29,17 @@ from solprop.boundaries import Absorber, SpatialAbsorber
 from solprop.coupling.models import CouplingModel
 from solprop.driver.defaults import DEFAULT_ATOL, WAVEGUIDE_ATOL
 from solprop.driver.inputs import ModalLaunch
-from solprop.driver.resume import _ResumeChoice
 from solprop.driver.settings import NoiseSetting, SimulationSettings
 from solprop.driver.simulation import Simulation
 from solprop.gasflow import VacuumEnd
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
-from solprop.log import DEFAULT_PROGRESS_PERIOD, ProgressChoice, ProgressReporter
+from solprop.log import (
+    DEFAULT_PROGRESS_PERIOD,
+    ProgressChoice,
+    ProgressReporter,
+    ResumeChoice,
+)
 from solprop.modes.antiresonant import TubeLattice
 from solprop.modes.capillary import GlassIndex, MarcatiliModel
 from solprop.modes.fill import LossFunction
@@ -205,7 +209,7 @@ def prop_free(  # numpydoc ignore=PR01
     spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
-    resume: _ResumeChoice = False,
+    resume: ResumeChoice = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
 ) -> Output:
@@ -244,7 +248,7 @@ def prop_planar(  # numpydoc ignore=PR01
     spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
-    resume: _ResumeChoice = False,
+    resume: ResumeChoice = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
 ) -> Output:
@@ -314,7 +318,7 @@ def prop_gnlse(  # numpydoc ignore=PR01
     materials: MaterialSelection | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
-    resume: _ResumeChoice = False,
+    resume: ResumeChoice = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
 ) -> Output:
@@ -447,7 +451,7 @@ def prop_capillary(  # numpydoc ignore=PR01
     tdse_execution: TDSEExecution | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
-    resume: _ResumeChoice = False,
+    resume: ResumeChoice = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
     tdse_archive: TDSEArchive | None = None,
@@ -587,7 +591,7 @@ def prop_waveguide(  # numpydoc ignore=PR01
     materials: MaterialSelection | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
-    resume: _ResumeChoice = False,
+    resume: ResumeChoice = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
 ) -> Output:
