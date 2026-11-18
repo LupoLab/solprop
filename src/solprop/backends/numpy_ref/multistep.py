@@ -893,8 +893,6 @@ class ExponentialHistory(HostHistory):
         width = 1 + max(orders)
         # The exponent is the backend's own increment of Phi over the step, so the
         # flow below is exactly the propagator the interaction formulation applies.
-        # Copied: a z table's host evaluator returns its own reused buffer, which the
-        # source evaluation writes again.
         exponent = np.array(workspace.delta_phi(workspace.stage_scalars(z, z + dz)))
         # A coupled section's step (SEP 16 phase 5): its flow and moments are matrix
         # functions of the frozen block on the bins that carry one, applied by the
