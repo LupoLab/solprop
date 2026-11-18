@@ -639,6 +639,23 @@ def test_slurm_runs_through_the_helper(tmp_path: Path, monkeypatch):
         helper.start({"spec": spec, "launcher": "nowhere"})
 
 
+def test_a_run_that_has_not_ended_is_not_continued(tmp_path: Path):
+    from solprop.service.record import Job, process_stamp, write_job  # noqa: PLC0415
+
+    folder = tmp_path / "r1"
+    folder.mkdir()
+    # This process stands in for the run's own, alive and recorded, with no ending.
+    pid = os.getpid()
+    here = socket.gethostname()
+    write_job(folder, Job("r1", "direct", here, pid, process_stamp(pid), None, 0.0))
+    (folder / "run.h5").write_bytes(b"")
+    helper = Agent(io.BytesIO())
+    spec = spec_value(RunSpec("r1", str(folder), resume=True))
+    with pytest.raises(ServiceError, match="r1 is running: continue it once it ends"):
+        helper.start({"spec": spec, "launcher": "direct"})
+    assert (folder / "job.json").exists()  # its record is not set aside
+
+
 def test_the_hosted_kernel_in_this_process(monkeypatch):
     output = io.BytesIO()
     helper = Agent(output)

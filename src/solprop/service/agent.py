@@ -195,7 +195,8 @@ class Agent:
         Raises
         ------
         solprop.service.messages.ServiceError
-            For a launcher that is not known.
+            For a launcher that is not known, or a continuation of a run that has
+            not ended.
         """
         from dataclasses import replace  # noqa: PLC0415 - light
 
@@ -209,6 +210,11 @@ class Agent:
 
         spec = spec_from_value(body["spec"])
         spec = replace(spec, folder=str(Path(spec.folder).expanduser()))
+        if spec.resume is not None:
+            state = summarise(Path(spec.folder))["state"]
+            if state in {"queued", "starting", "running"}:
+                msg = f"{Path(spec.folder).name} is {state}: continue it once it ends"
+                raise ServiceError(msg)
         folder = prepare(spec)
         python = str(Path(str(body.get("python") or sys.executable)).expanduser())
         launcher = body.get("launcher", "direct")
