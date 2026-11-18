@@ -130,6 +130,25 @@ def test_a_bandpass_reduces_the_energy(output, grid):
     assert 0.1 * total < inside < 0.9 * total
 
 
+def test_a_bandpass_weights_each_bin_s_energy_by_the_window_squared(output, grid):
+    # An off-centre band on the 800 nm pulse's red side, with the default edges, so a
+    # good part of the band's energy sits in the tapers. The window multiplies the
+    # field and the energy is a fixed multiple of the summed |E|^2 (Parseval; the
+    # zero-frequency and Nyquist bins it weights apart on a field grid hold nothing of
+    # this pulse), so the band's share of the energy is the window-squared share of
+    # |E|^2, summed here directly. A window applied twice, or on the wrong side,
+    # misses by far more than the round-off of the two reductions.
+    window = spectra.bandpass(grid, (810e-9, 850e-9))
+    spectrum = np.abs(output.fields("fft")[0, 0, 0]) ** 2
+    share = float(np.sum(window**2 * spectrum) / np.sum(spectrum))
+    total = float(time.energy(output, plane=0))
+    inside = float(time.energy(output, plane=0, bandpass=window))
+    assert inside / total == pytest.approx(share, rel=1e-13)
+    tapered = (window > 0.0) & (window < 1.0)
+    in_tapers = float(np.sum(window[tapered] ** 2 * spectrum[tapered]))
+    assert in_tapers > 0.1 * share * float(np.sum(spectrum))
+
+
 def test_a_bandpass_window_must_fit_the_grid(output, grid):
     with pytest.raises(ProcessingError, match="one value per stored bin"):
         time.energy(output, plane=0, bandpass=np.ones(3))
