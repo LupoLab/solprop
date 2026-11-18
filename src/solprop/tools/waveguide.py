@@ -47,7 +47,9 @@ Fill = Gas | str | Mapping[str, float] | Mixture
 
 
 _ZDW_RANGE = (100e-9, 3e-6)
-"""Window of the zero-dispersion search in m: :func:`modes.base.zdw`'s."""
+"""Window of the zero-dispersion search in m: from below the default of
+:func:`modes.base.zdw`, so a deep-ultraviolet zero of a thin fill is found; the pump,
+as the search's reference, keeps the gas lines below it out of reach."""
 
 
 @contextmanager

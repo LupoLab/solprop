@@ -140,8 +140,9 @@ def species_statistics(
     }
 
 
-DEFAULT_ZDW_RANGE = (100e-9, 3e-6)
-"""Search window of :func:`zdw` when no narrower one is given, m."""
+DEFAULT_ZDW_RANGE = (150e-9, 3e-6)
+"""Search window of :func:`zdw` when no narrower one is given, m: the default of
+:func:`solprop.modes.base.zdw`."""
 
 
 def analytic_field(
@@ -1057,8 +1058,9 @@ def zdw(
     z : float
         Position along the waveguide, m.
     wavelength_limits : tuple of float, optional
-        Shortest and longest wavelength in m to bracket the root in. Defaults to a 100
-        nm to 3 um window; :func:`~solprop.stats.collect` narrows it to the grid's own
+        Shortest and longest wavelength in m to search. Defaults to
+        :data:`DEFAULT_ZDW_RANGE`, 150 nm to 3 um; :func:`~solprop.stats.collect`
+        narrows it to the grid's own
         band with :func:`inband_wavelengths`, which is where the answer means anything
         and where the material models are not extrapolating.
     near : float, optional

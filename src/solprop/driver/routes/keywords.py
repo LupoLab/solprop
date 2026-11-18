@@ -86,7 +86,9 @@ def _warnings_about(
     caught: list[warnings.WarningMessage] = []
     # `catch_warnings` swaps the process's filters, so two threads' blocks that overlap
     # would each restore the other's: they take turns. Another thread's warning issued
-    # during a block is still recorded by it.
+    # during a block is still recorded by it. The lock is held across the `yield`, and
+    # is re-entrant for this thread only: code inside the block must never wait on
+    # another thread that itself enters a block here, or both wait for ever.
     with _CATCHING:
         try:
             with warnings.catch_warnings(record=True) as caught:

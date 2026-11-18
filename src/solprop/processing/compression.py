@@ -493,6 +493,8 @@ def apply_transfer(
     ------
     solprop.exceptions.ProcessingError
         If the plane is named both by index and by position.
+    solprop.exceptions.ModeError
+        If `modes` selects no mode, or a mode the output does not hold.
 
     Examples
     --------
@@ -556,6 +558,11 @@ def transform_limit(
         Full width at half maximum of the transform-limited power, s.
     peak_power : float
         Its peak power, W.
+
+    Raises
+    ------
+    solprop.exceptions.ModeError
+        If `modes` selects no mode, or a mode the output does not hold.
 
     Examples
     --------
@@ -696,6 +703,8 @@ def compress_taylor(
     solprop.exceptions.ProcessingError
         If `order` is below two, `bound_factor` is not positive, or the input forms
         are mixed.
+    solprop.exceptions.ModeError
+        If `modes` selects no mode, or a mode the output does not hold.
 
     Examples
     --------
@@ -832,6 +841,8 @@ def compress_material(
     ------
     solprop.exceptions.ProcessingError
         If the thickness range is not ordered, or the input forms are mixed.
+    solprop.exceptions.ModeError
+        If `modes` selects no mode, or a mode the output does not hold.
 
     Examples
     --------
@@ -957,6 +968,8 @@ def compress_mirrors(
     solprop.exceptions.ProcessingError
         If `max_reflections` is below one, a medium is given without a range or a
         range without a medium, or the input forms are mixed.
+    solprop.exceptions.ModeError
+        If `modes` selects no mode, or a mode the output does not hold.
 
     Examples
     --------
@@ -1400,6 +1413,8 @@ def compress_gratings(
     ProcessingError
         If bounds, inputs or selection are invalid, the output is spatial or general
         modal, or no feasible setting is found by the scan.
+    ModeError
+        If `modes` selects no mode, or a mode the output does not hold.
     MaterialError
         If the optical or material inputs are invalid.
     """
@@ -1490,6 +1505,8 @@ def compress_prisms(
     ProcessingError
         If no range is supplied, bounds or inputs are invalid, the output is spatial
         or general modal, selection is empty, or no feasible setting is found.
+    ModeError
+        If `modes` selects no mode, or a mode the output does not hold.
     MaterialError
         If an optical input or material model is invalid; material errors propagate.
     """

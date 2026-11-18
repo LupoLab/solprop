@@ -1365,6 +1365,24 @@ def test_a_gaussian_pulse_refuses_an_order_that_is_not_an_integer(m):
     assert caught.value.parameter == "m"
 
 
+@pytest.mark.parametrize("kind", ["temporal", "spatial"])
+def test_a_numpy_integer_is_a_super_gaussian_order(kind):
+    """An order from ``np.arange`` is taken, and kept as a Python int."""
+    from solprop.pulses import SpatialPulse  # noqa: PLC0415
+
+    # The test session's annotation check refuses a NumPy integer for `int`; a user's
+    # session has none, so the constructor is called past it.
+    pulse = object.__new__(GaussianPulse)
+    unchecked(GaussianPulse.__init__)(
+        pulse, wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, m=np.int64(2)
+    )
+    if kind == "spatial":
+        temporal, pulse = pulse, object.__new__(SpatialPulse)
+        unchecked(SpatialPulse.__init__)(pulse, temporal, 1e-3, m=np.int64(2))
+    assert type(pulse.m) is int
+    assert pulse.m == 2
+
+
 def test_a_pulse_sum_refuses_a_beam_as_a_temporal_member():
     from solprop.pulses import PulseSum, SpatialPulse, SpatialPulseSum  # noqa: PLC0415
 

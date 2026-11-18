@@ -16,7 +16,7 @@ from solprop import fourier, stats
 from solprop.constants import C
 from solprop.exceptions import ModeError, OutputError, ProcessingError, SolpropWarning
 from solprop.grid import EnvelopeGrid, FieldGrid
-from solprop.modes import MarcatiliMode
+from solprop.modes import MarcatiliMode, StepIndexMode
 from solprop.output.records import SavedPlane
 from solprop.profiles import Constant, PressureGradient
 from solprop.pulses import GaussianPulse
@@ -370,6 +370,21 @@ def test_collect_records_a_zero_past_the_sign_changes_of_a_gas_resonance():
     # The zero nearest the grid's 800 nm reference, the capillary's only one above the
     # lines; the noise of the differenced beta_2 (5e-9) sets the tolerance.
     assert_allclose(values["zdw"], [770.5167e-9], rtol=1e-6)
+
+
+@pytest.mark.medium
+def test_collect_records_a_telecom_fibres_zero_past_the_oh_band():
+    """Silica's OH band at 1.38 um flips beta_2's sign between a 1550 nm reference
+    and the fibre's 1.3 um zero, and does not block the search."""
+    grid = EnvelopeGrid.from_limits(1.0, 1550e-9, (1e-6, 2e-6), 1e-12)
+    field = gaussian(grid, energy_j=ENERGY)
+    fibre = StepIndexMode.from_numerical_aperture(
+        4.1e-6, 0.12, profile_wavelength=1.3e-6
+    )
+    values = collect(StatsSpec(names=("zdw",)), grid, plane_of(field), modes=[fibre])
+    # The fibre's zero on any window that holds it (tests/modes/test_base.py), to
+    # the noise of the differenced beta_2 (5e-9).
+    assert_allclose(values["zdw"], [1295.8347e-9], rtol=1e-6)
 
 
 def test_collect_records_each_modes_zero_on_its_own(capillary):

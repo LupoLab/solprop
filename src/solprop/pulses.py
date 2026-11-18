@@ -30,6 +30,7 @@ both, realised exactly on the grid after the phase is applied. The manual page i
 import io
 import logging
 import math
+import operator
 import os
 import warnings
 from collections.abc import Callable, Sequence
@@ -216,7 +217,7 @@ class SpatialPulse(Displayed):
             )
             raise PulseError(msg, parameter="temporal")
         positive(self.waist, "waist", PulseError, parameter="waist")
-        _check_order(self.m)
+        object.__setattr__(self, "m", _order(self.m))
         if not math.isfinite(self.propz):
             msg = "spatial propz must be finite"
             raise PulseError(msg)
@@ -1401,11 +1402,20 @@ def _frozen_phase(phases: Sequence[float] | np.ndarray) -> Float[np.ndarray, " n
     return coefficients
 
 
-def _check_order(m: object) -> None:
-    """Refuse a super-Gaussian order that is not an integer of at least 1."""
-    if isinstance(m, bool) or not isinstance(m, int) or m < 1:
+def _order(m: object) -> int:
+    """Return a super-Gaussian order as an int, refusing one below 1 or not integral.
+
+    A NumPy integer, as an ``np.arange`` of orders gives, is an integer here; a bool
+    is not.
+    """
+    try:
+        order = operator.index(m)  # pyright: ignore[reportArgumentType] - checked here
+    except TypeError:
+        order = 0
+    if isinstance(m, bool) or order < 1:
         msg = f"m must be a super-Gaussian order of at least 1, got {m!r}"
         raise PulseError(msg, parameter="m")
+    return order
 
 
 def _check_delay(grid: TimeGrid, t0: float) -> None:
@@ -1876,7 +1886,7 @@ class GaussianPulse(ShapedPulse):
         """
         super().__post_init__()
         positive(self.fwhm, "fwhm", PulseError, parameter="fwhm")
-        _check_order(self.m)
+        object.__setattr__(self, "m", _order(self.m))
 
     def _shape_fields(self) -> list[tuple[str, object]]:
         """Return the duration, and the order when it is not the plain Gaussian's.

@@ -25,6 +25,7 @@ from march_bounds import (
     simulation_bound,
 )
 from solprop import _process
+from solprop.driver import _scan_run
 from solprop.driver._scan_context import _EXECUTOR
 from solprop.driver._scan_model import name_seed
 from solprop.driver.executors import Local, pool
@@ -36,6 +37,7 @@ from solprop.grid import EnvelopeGrid
 from solprop.noise import input_noise
 from solprop.output._scan_lock import lock_path
 from solprop.output.hdf5 import _dataset, _group
+from solprop.output.scan import ScanWriter
 from solprop.processing import scans
 from solprop.pulses import SechPulse
 from solprop.scan import main
@@ -425,6 +427,38 @@ def test_a_failed_executor_gives_its_claimed_points_back(tmp_path):
     assert output.status.tolist() == ["todo", "todo"]
     run_scan(scan, build_point, output=path, progress="none")
     assert output.status.tolist() == ["done", "done"]
+
+
+def test_a_failing_release_still_closes_the_writer(tmp_path, monkeypatch, caplog):
+    """Giving the claims back writes to the file; when that fails too, the writer is
+    still closed, so its lock is released, and the scan's own error is reported."""
+    closed = []
+    close = ScanWriter.close
+
+    def recording_close(self, **keywords):
+        closed.append(self.path)
+        close(self, **keywords)
+
+    def failing_release(writer, index, claim):
+        raise OSError("deliberate write failure")
+
+    monkeypatch.setattr(ScanWriter, "close", recording_close)
+    monkeypatch.setattr(_scan_run, "_release", failing_release)
+    path = tmp_path / "scan.h5"
+    with (
+        caplog.at_level(logging.ERROR, logger="solprop.driver._scan_run"),
+        pytest.raises(RuntimeError, match="deliberate executor failure"),
+    ):
+        run_scan(
+            Scan("scan", power=[1.0, 2.0]),
+            build_point,
+            output=path,
+            executor=ClaimThenFail(),
+            progress="none",
+        )
+    assert closed == [path]
+    # The release's own error is logged, not lost.
+    assert "deliberate write failure" in caplog.text
 
 
 def test_resume_builder_failure_keeps_the_completed_point_and_its_arrays(

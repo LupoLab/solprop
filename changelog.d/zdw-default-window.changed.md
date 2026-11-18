@@ -1,0 +1,1 @@
+The default search window of `modes.base.zdw` and `stats.zdw` (`stats.DEFAULT_ZDW_RANGE`) now starts at 150 nm instead of 100 nm, above the noble gases' vacuum-ultraviolet lines and fused silica's absorption edge, where a lossless solve takes silica as transparent and finds zeros with no meaning; pass `wavelength_limits` to search below it.
