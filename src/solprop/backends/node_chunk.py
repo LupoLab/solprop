@@ -30,11 +30,10 @@ default and every explicit budget chooses the chunk it chose then:
   cannot hold one node (or one planar row), and the last step spreads the nodes evenly
   over the passes the admitted chunk needs.
 
-The counts are conservative inventories, not the live buffers of each route: SEP 28's
-phase 0 found the twenty Cartesian column-equivalents about three times the live group
-buffers (solprop issue #349). They stay, so that a user's budget keeps buying the chunk
-it bought before; counting a route's live buffers changes the chunk of every explicit
-budget, which is the maintainer's decision under #349 and #89, not this move's.
+The counts are conservative inventories, not the live buffers of each route: the twenty
+Cartesian column-equivalents are about three times the live group buffers (solprop
+issue #349). An inventory fixed per route makes the chunk an explicit budget buys
+predictable, and the same from one release to the next.
 
 A device backend may choose differently when no budget is given (solprop issue #361);
 the native backend's rule is ``solprop_native._device.device_node_chunk``, and an
