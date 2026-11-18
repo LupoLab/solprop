@@ -312,6 +312,26 @@ def test_stepindex_taper_freezing_and_na_constructor():
     assert_allclose(na.neff(omega), direct.neff(omega), rtol=0, atol=0)
 
 
+def test_aperture_channels_are_one_guide_by_cladding_and_aperture():
+    # Each from_numerical_aperture call builds its own core index; channels of one
+    # fibre compare equal, and hash alike, by cladding law and aperture, not identity.
+    one, two = (
+        StepIndexMode.from_numerical_aperture(10e-6, 0.12, m=m, profile_wavelength=1e-6)
+        for m in (1, 2)
+    )
+    wider = StepIndexMode.from_numerical_aperture(10e-6, 0.13, profile_wavelength=1e-6)
+    assert one._core is not two._core
+    assert one.same_guide(two)
+    assert not one.same_guide(wider)
+    assert len({one._core, two._core, wider._core}) == 2
+    # A core given as a glass law is another guide, whatever its index there.
+    glass = StepIndexMode(
+        10e-6, core=fused_silica(), cladding=1.40, profile_wavelength=1e-6
+    )
+    assert not one.same_guide(glass)
+    assert not glass.same_guide(one)
+
+
 def test_stepindex_mpmath_witness():
     rows = json.loads(
         (Path(__file__).parents[1] / "data/symbolic_stepindex.json").read_text()

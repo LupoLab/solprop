@@ -458,6 +458,37 @@ def test_a_default_noise_run_without_a_seed_resumes_from_the_seed_it_recorded(
         )
 
 
+def test_an_unseeded_run_resumed_by_its_own_simulation_continues_its_draw(
+    build_simulation, tmp_path
+):
+    """The interrupted object holds the recorded realisation, so nothing is redrawn.
+
+    It continues its file, which then matches the uninterrupted run seeded with the
+    recorded seed to the matched march's rounding budget, as a new object's resume does.
+    """
+    path = tmp_path / "part.h5"
+    simulation = scheduled(build_simulation, noise="default", backend="numpy_ref")
+    drawn = simulation.noise
+    assert drawn is not None
+    run_until(simulation, path, after=2)
+    stored = read_resume_state(path).metadata.noise
+    assert stored is not None and stored.seed == drawn.seed
+    simulation.run(path, resume=True)
+    assert simulation.noise is drawn
+    assert read_resume_state(path).n_saved == N_SAVE
+    whole = scheduled(
+        build_simulation, noise="default", seed=stored.seed, backend="numpy_ref"
+    )
+    whole.run(tmp_path / "whole.h5")
+    for key in ("field", "noise_phase"):
+        assert_matched(
+            read_file(path, key),
+            read_file(tmp_path / "whole.h5", key),
+            budget(whole),
+            what=key,
+        )
+
+
 def test_a_recorded_seed_is_taken_only_for_the_model_the_file_drew(
     build_simulation, tmp_path
 ):

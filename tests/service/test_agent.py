@@ -756,9 +756,22 @@ def test_a_slurm_run_whose_job_has_gone_is_continued_and_removed(
     assert not folder.exists()
 
 
-@pytest.mark.parametrize("launcher", ["direct", "slurm"])
-def test_a_continuation_that_cannot_be_launched_leaves_the_run_as_it_was(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, launcher: str
+@pytest.mark.parametrize(
+    ("launcher", "resume", "refused"),
+    [
+        ("direct", True, "could not be started"),
+        ("slurm", True, "Slurm refused the job"),
+        # A new run is refused the folder before anything is set aside.
+        ("direct", False, "already holds a run"),
+    ],
+    ids=["continued-direct", "continued-slurm", "new"],
+)
+def test_a_start_that_cannot_be_launched_leaves_the_run_as_it_was(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    launcher: str,
+    resume: bool,
+    refused: str,
 ):
     from solprop.service.launch import SUBMITTED  # noqa: PLC0415 - only here
     from solprop.service.messages import Event  # noqa: PLC0415 - only here
@@ -787,8 +800,12 @@ def test_a_continuation_that_cannot_be_launched_leaves_the_run_as_it_was(
     before = summarise(folder)
     assert (before["state"], before["detail"]) == ("stopped", "by its stop flag")
     helper = Agent(io.BytesIO())
-    spec = spec_value(RunSpec("r1", str(folder), resume=True))
-    refused = "Slurm refused the job" if launcher == "slurm" else "could not be started"
+    run = (
+        RunSpec("r1", str(folder), resume=True)
+        if resume
+        else RunSpec("r1", str(folder), recipe=TINY)
+    )
+    spec = spec_value(run)
     with pytest.raises(ServiceError, match=refused):
         helper.start(
             {"spec": spec, "launcher": launcher, "python": str(tmp_path / "none")}

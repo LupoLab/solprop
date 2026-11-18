@@ -308,6 +308,31 @@ def test_an_outcome_dataset_of_another_type_is_replaced_and_reads_back(
         assert handler.outcome.message == "replaced"
 
 
+@pytest.mark.parametrize(
+    ("text", "reason"),
+    [("[1, 2]", "it is not a JSON object"), ("{not json", "Expecting property name")],
+    ids=["array", "malformed"],
+)
+def test_an_unreadable_outcome_is_refused_naming_the_file(
+    metadata, tmp_path, text, reason
+):
+    # A file whose execution status is valid JSON of another kind, or not JSON at all,
+    # cannot say how its run ended: reading it to resume is refused, not guessed.
+    path = tmp_path / "broken.h5"
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(plane(metadata, 0.0))
+        handler.record_outcome(RunOutcome("running", 0.0))
+    with h5py.File(path, "r+") as file:
+        del file["meta/outcome"]
+        file.create_dataset("meta/outcome", data=text, dtype=h5py.string_dtype())
+    with pytest.raises(OutputError) as refusal:
+        read_resume_state(path)
+    message = str(refusal.value)
+    assert message.startswith(f"{path}: cannot read the execution status it records: ")
+    assert reason in message
+
+
 @pytest.mark.parametrize("z", [-1.0, np.nan, np.inf])
 def test_outcome_and_metadata_refuse_invalid_launch_positions(metadata, z):
     with pytest.raises(OutputError, match="finite and nonnegative"):

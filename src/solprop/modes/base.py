@@ -516,7 +516,8 @@ def _zero_frequencies(
         for i in changes:
             low, high = float(grid[i]), float(grid[i + 1])
             if near is not None:
-                if zeros and max(low - near, near - high) >= abs(zeros[0] - near):
+                best = min((abs(zero - near) for zero in zeros), default=math.inf)
+                if max(low - near, near - high) >= best:
                     break
                 if high <= below or low >= above:
                     continue
@@ -529,12 +530,11 @@ def _zero_frequencies(
                     elif high <= near:
                         below = high
                 continue
-            if not _is_isolated(mode, root, z):
-                continue
-            if near is None:
+            if _is_isolated(mode, root, z):
                 zeros.append(root)
-            elif not zeros or abs(root - near) < abs(zeros[0] - near):
-                zeros = [root]
+    if near is not None:
+        # The nearest; of two as near, the one found first.
+        zeros = sorted(zeros, key=lambda zero: abs(zero - near))[:1]
     return sorted(zeros), int(changes.size)
 
 

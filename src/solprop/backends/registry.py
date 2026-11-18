@@ -30,7 +30,7 @@ from typing import Final, cast
 
 from solprop.backends.protocol import Backend
 from solprop.backends.session import ExecutionOptions
-from solprop.exceptions import BackendError, SolpropError
+from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
@@ -388,8 +388,6 @@ def _construct(
             from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
                 NativeBackend,
             )
-        except SolpropError:
-            raise
         except (ValueError, RuntimeError) as error:
             raise BackendError(f"solprop-native did not load: {error}") from error
 

@@ -279,6 +279,23 @@ def test_zdw_does_not_cross_a_gas_line_to_a_nearer_zero():
 
 
 @pytest.mark.parametrize(
+    ("near", "expected"),
+    [(123.47e-9, 119.8786e-9), (124e-9, 770.5167e-9)],
+    ids=["on", "beside"],
+)
+def test_zdw_from_a_reference_on_a_gas_line_is_blocked_on_neither_side(near, expected):
+    # Krypton's 123.6 nm line changes sign between the samples at 123.33 and 123.62 nm
+    # (512 over GAS_WINDOW). A reference between them is on neither side of the line,
+    # so it blocks neither: the zero at 119.9 nm, between the 116.5 and 123.6 nm lines,
+    # is the nearest. From 124 nm the line lies between, and the answer is 770.5 nm.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MaterialRangeWarning)
+        found = zdw(krypton(), wavelength_limits=GAS_WINDOW, near=near)
+    # The noise of the differenced beta2, as above.
+    assert found == pytest.approx(expected, rel=1e-6)
+
+
+@pytest.mark.parametrize(
     ("radius", "pressure", "near", "expected"),
     [
         # The zero at 105.9 nm lies past argon's 106.7 nm line from 120 nm.
