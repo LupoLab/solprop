@@ -195,8 +195,10 @@ class Agent:
         Raises
         ------
         solprop.service.messages.ServiceError
-            For a launcher that is not known, or a continuation of a run that has
-            not ended or whose Slurm job the scheduler cannot be asked about.
+            For a launcher that is not known, a continuation of a run that has not
+            ended or whose Slurm job the scheduler cannot be asked about, or a run
+            that could not be launched (a continued run's folder is then left as it
+            was).
         """
         from dataclasses import replace  # noqa: PLC0415 - light
 
@@ -206,26 +208,36 @@ class Agent:
             start_direct,
             submit_slurm,
         )
+        from solprop.service.record import _aside_number, put_back  # noqa: PLC0415
         from solprop.service.runs import summarise  # noqa: PLC0415 - light
 
         spec = spec_from_value(body["spec"])
         spec = replace(spec, folder=str(Path(spec.folder).expanduser()))
+        launcher = body.get("launcher", "direct")
+        if launcher not in {"direct", "slurm"}:
+            msg = f"no launcher {launcher!r}: 'direct' or 'slurm'"
+            raise ServiceError(msg)
+        aside = None
         if spec.resume is not None:
             state = _scheduled(Path(spec.folder), "continued")["state"]
             if state in _GOING:
                 msg = f"{Path(spec.folder).name} is {state}: continue it once it ends"
                 raise ServiceError(msg)
-        folder = prepare(spec)
+            aside = _aside_number(Path(spec.folder))  # where prepare sets it aside
         python = str(Path(str(body.get("python") or sys.executable)).expanduser())
-        launcher = body.get("launcher", "direct")
-        if launcher == "direct":
-            start_direct(folder, python)
-        elif launcher == "slurm":
-            resources = SlurmResources.from_value(body.get("resources") or {})
-            submit_slurm(folder, python, resources, threads=spec.threads)
-        else:
-            msg = f"no launcher {launcher!r}: 'direct' or 'slurm'"
-            raise ServiceError(msg)
+        try:
+            folder = prepare(spec)
+            if launcher == "direct":
+                start_direct(folder, python)
+            else:
+                resources = SlurmResources.from_value(body.get("resources") or {})
+                submit_slurm(folder, python, resources, threads=spec.threads)
+        except Exception:
+            if aside is not None:
+                # Not launched: the earlier part's record, its ending included, is
+                # the run's again, and the failure goes to the window.
+                put_back(Path(spec.folder), aside)
+            raise
         return summarise(folder)
 
     def follow(self, body: Mapping[str, Any]) -> int:

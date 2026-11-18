@@ -12,8 +12,9 @@ watches a ``stop`` file (:func:`request_stop`, :func:`stop_requested`,
 :func:`watch_stop`, :func:`clear_stop`). So a run needs no connection: whoever can read
 its folder can follow it, whoever can write there can stop it, and its state is read
 from these files, never kept by a daemon. :func:`set_aside` keeps a continued run's
-earlier record apart, :func:`write_json` replaces a file whole, and :func:`alive` says
-whether a run's process still lives.
+earlier record apart (and :func:`put_back` returns it when the continuation cannot be
+launched), :func:`write_json` replaces a file whole, and :func:`alive` says whether a
+run's process still lives.
 
 **The ending is recorded last**: the terminal event, then ``job.json``'s end, and only
 then ``status.json``, after which the run writes nothing more, so a reader acting on a
@@ -57,6 +58,7 @@ __all__ = [
     "alive",
     "clear_stop",
     "process_stamp",
+    "put_back",
     "read_events",
     "read_job",
     "read_status",
@@ -307,19 +309,42 @@ def stop_requested(folder: Path) -> bool:
     return (folder / STOP).exists()
 
 
-def set_aside(folder: Path) -> None:
+def _aside(count: int) -> tuple[tuple[str, str], ...]:
+    """Return each record file and its name when set aside as the ``count``-th part."""
+    return (
+        (EVENTS, f"events-{count}.bin"),
+        (JOB, f"job-{count}.json"),
+        (STATUS, f"status-{count}.json"),
+    )
+
+
+def _aside_number(folder: Path) -> int:
+    """Return the number :func:`set_aside` keeps a folder's record under next."""
+    count = 1
+    while any((folder / kept).exists() for _, kept in _aside(count)):
+        count += 1
+    return count
+
+
+def set_aside(folder: Path) -> int:
     """Keep a continued run's earlier record apart, so its new one starts empty.
 
     A window following the continued run reads its new events from the start, not the
     ending of the part before (``events.bin`` becomes ``events-1.bin``, then
-    ``events-2.bin``, ...), and the earlier part's ``job.json`` goes beside them
-    (``job-1.json``, ...), so its process is never taken for the new part's; its
-    summary and stop file start afresh too. A folder with no record is left as it is.
+    ``events-2.bin``, ...), and the earlier part's ``job.json`` and ``status.json``
+    go beside them (``job-1.json``, ``status-1.json``, ...), so its process is never
+    taken for the new part's and its summary starts afresh; the stop file is
+    removed. A folder with no record is left as it is.
 
     Parameters
     ----------
     folder : pathlib.Path
         The run's folder.
+
+    Returns
+    -------
+    int
+        The number the record is kept under, as :func:`put_back` takes it.
 
     Examples
     --------
@@ -328,19 +353,43 @@ def set_aside(folder: Path) -> None:
     >>> _ = (folder / EVENTS).write_bytes(b"")
     >>> _ = (folder / JOB).write_text("{}", encoding="utf-8")
     >>> set_aside(folder)
+    1
     >>> sorted(path.name for path in folder.iterdir())
     ['events-1.bin', 'job-1.json']
     """
-    count = 1
-    while (folder / f"events-{count}.bin").exists() or (
-        folder / f"job-{count}.json"
-    ).exists():
-        count += 1
-    for name, kept in ((EVENTS, f"events-{count}.bin"), (JOB, f"job-{count}.json")):
+    count = _aside_number(folder)
+    for name, kept in _aside(count):
         if (folder / name).exists():
             (folder / name).replace(folder / kept)
-    (folder / STATUS).unlink(missing_ok=True)
     clear_stop(folder)
+    return count
+
+
+def put_back(folder: Path, count: int) -> None:
+    """Return a record :func:`set_aside` kept apart to its place, as before.
+
+    For a continuation that could not be launched: the folder then reads as the
+    earlier part left it, its ending included.
+
+    Parameters
+    ----------
+    folder : pathlib.Path
+        The run's folder.
+    count : int
+        The number the record was kept under.
+
+    Examples
+    --------
+    >>> import tempfile
+    >>> folder = Path(tempfile.mkdtemp())
+    >>> _ = (folder / EVENTS).write_bytes(b"")
+    >>> put_back(folder, set_aside(folder))
+    >>> sorted(path.name for path in folder.iterdir())
+    ['events.bin']
+    """
+    for name, kept in _aside(count):
+        if (folder / kept).exists():
+            (folder / kept).replace(folder / name)
 
 
 def clear_stop(folder: Path) -> None:

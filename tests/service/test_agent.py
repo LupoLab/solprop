@@ -726,6 +726,49 @@ def test_a_slurm_run_whose_job_has_gone_is_continued_and_removed(
     assert not folder.exists()
 
 
+@pytest.mark.parametrize("launcher", ["direct", "slurm"])
+def test_a_continuation_that_cannot_be_launched_leaves_the_run_as_it_was(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, launcher: str
+):
+    from solprop.service.launch import SUBMITTED  # noqa: PLC0415 - only here
+    from solprop.service.messages import Event  # noqa: PLC0415 - only here
+    from solprop.service.record import (  # noqa: PLC0415 - only here
+        EventLog,
+        Job,
+        read_events,
+        write_json,
+    )
+    from solprop.service.runs import summarise  # noqa: PLC0415 - only here
+
+    _slurm_bin(
+        tmp_path,
+        monkeypatch,
+        sbatch='echo "sbatch: error: invalid partition specified: x" >&2\nexit 1\n',
+    )
+    folder = tmp_path / "runs" / "r1"
+    folder.mkdir(parents=True)
+    # A run that was stopped cleanly, its process gone.
+    here = socket.gethostname()
+    write_json(folder / SUBMITTED, {"launcher": "direct", "host": here, "pid": 0})
+    log = EventLog(folder, "r1", job=lambda: Job.here("r1", "direct"))
+    log.put(Event("r1", "stopped", {"path": "run.h5", "message": "by its stop flag"}))
+    log.close()
+    (folder / "run.h5").write_bytes(b"earlier part")
+    before = summarise(folder)
+    assert (before["state"], before["detail"]) == ("stopped", "by its stop flag")
+    helper = Agent(io.BytesIO())
+    spec = spec_value(RunSpec("r1", str(folder), resume=True))
+    refused = "Slurm refused the job" if launcher == "slurm" else "could not be started"
+    with pytest.raises(ServiceError, match=refused):
+        helper.start(
+            {"spec": spec, "launcher": launcher, "python": str(tmp_path / "none")}
+        )
+    after = summarise(folder)
+    assert (after["state"], after["detail"]) == ("stopped", "by its stop flag")
+    assert (after["started"], after["ended"]) == (before["started"], before["ended"])
+    assert [e.kind for e in read_events(folder)[0]] == ["stopped"]
+
+
 def test_a_run_that_has_not_ended_is_not_continued(tmp_path: Path):
     from solprop.service.record import Job, process_stamp, write_job  # noqa: PLC0415
 
