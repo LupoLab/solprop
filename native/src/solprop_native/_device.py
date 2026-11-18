@@ -94,7 +94,7 @@ def device_node_chunk(
     otherwise the largest that does, and never fewer nodes than the host plan's chunk
     at the route's default budget. It is consulted only for an automatic plan: an
     explicit budget or chunk always wins. It runs at backend construction, after the
-    translation, so no device runtime starts before a scan forks.
+    translation, so no device runtime starts before a scan spawns its workers.
 
     Parameters
     ----------

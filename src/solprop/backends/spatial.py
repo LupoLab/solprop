@@ -98,7 +98,7 @@ def collar_field_fraction(
     of frequency** (:func:`collar_block`), never as the whole volume: each node's
     fluence is a sum over frequency, so blocks accumulate it exactly, up to the order
     of the sum (SEP 22 section 6.3), and the transient is one block, bounded by the
-    node chunk. The radial kind synthesises by node chunk, as before.
+    node chunk. The radial kind synthesises by node chunk.
     """
     transform = problem.transform
     chunk = plan_node_chunk(problem).chunk if node_chunk is None else node_chunk

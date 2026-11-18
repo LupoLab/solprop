@@ -114,7 +114,8 @@ if(SOLPROP_NATIVE_PROFILE STREQUAL "DISTRIBUTION" AND _tpl_request STREQUAL "OFF
     "combined with ENABLE_TPL_BLAS=OFF.")
 endif()
 if(_native_request STREQUAL "AUTO")
-  # Device builds keep their host code generic, as their qualified presets did.
+  # Device builds keep their host code generic, as the qualified cuda and hip presets
+  # set it (CMakePresets.json).
   if(SOLPROP_NATIVE_PROFILE STREQUAL "LOCAL" AND NOT _device_build)
     set(SOLPROP_NATIVE_HOST_ARCH ON)
   else()
@@ -207,7 +208,7 @@ if(SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP)
     message(FATAL_ERROR "Host BLAS/FFT selections cannot be used in device builds.")
   endif()
   # The device's vendor BLAS (cuBLAS, rocBLAS) is the local default; KokkosKernels
-  # finds it with the toolkit and a missing one fails there, as before.
+  # finds it with the toolkit and a missing one fails there.
   if(_tpl_request STREQUAL "AUTO")
     if(SOLPROP_NATIVE_PROFILE STREQUAL "REFERENCE")
       set(SOLPROP_NATIVE_ENABLE_TPL_BLAS OFF)
