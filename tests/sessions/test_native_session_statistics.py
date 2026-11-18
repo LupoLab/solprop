@@ -645,7 +645,7 @@ def test_a_general_modal_basis_s_flux_statistics_are_native():
     """The metric's root, lowered once, whitens the columns natively."""
     from modal_provider_cases import GENERAL_Z_END, general_case  # noqa: PLC0415
     from solprop.pulses import GaussianPulse  # noqa: PLC0415
-    from solprop.stats import _whitened  # noqa: PLC0415
+    from solprop.stats.definitions import _whitened  # noqa: PLC0415
     from solprop.translate.coupled import metric_at  # noqa: PLC0415
 
     case = general_case(
