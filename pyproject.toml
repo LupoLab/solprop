@@ -168,11 +168,6 @@ exclude = [
 # from native/ (editable), since anyone in a checkout is developing (SEP 43), and
 # `--extra gui` adds the front end from gui/. The lightweight setup,
 # tools/setup_light.py, is for contributors with no compiler.
-[tool.uv]
-# An older uv may write uv.lock differently; the pre-commit uv-lock hook's revision
-# stays at or above this.
-required-version = ">=0.13"
-
 [tool.uv.workspace]
 members = ["native", "gui"]
 
