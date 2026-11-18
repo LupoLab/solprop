@@ -1,8 +1,10 @@
 # Testing
 
-All code is tested, to 100 % of statements and branches (the coverage lane fails below
-it), in lanes, with several kinds of test
-per feature (ADR-022). This page fixes the taxonomy, the lanes, the reference problems, the
+solprop's package is tested to 100 % of statements and branches (the coverage lane fails
+below it), and so are the front end's modules outside its Qt layer (`gui/pyproject.toml`
+omits `ui/`, `views/`, `app.py`, `__main__.py` and `askpass.py`); the native package has
+no coverage gate, only a weekly report of its C++ source coverage (`native-deep.yml`).
+Tests run in lanes, with several kinds of test per feature (ADR-022). This page fixes the taxonomy, the lanes, the reference problems, the
 tolerance policy and the layout. `AGENTS.md` carries the short rules; this is the long form.
 
 ## Documentation-only changes
@@ -87,7 +89,7 @@ instead of a tier marker:
 
 Hypothesis properties use the `solprop` profile loaded by `tests/conftest.py`.
 Their example count bounds the work; the per-example wall-clock deadline is disabled
-because imports, JIT compilation and contention on shared machines can exceed it
+because imports and contention on shared machines can exceed it
 without indicating a correctness failure.
 
 Parallel lanes use `--dist loadgroup`. The collection hook groups a test with its
@@ -246,9 +248,7 @@ tier's total, the sum of its tests' times over the lane's shards, is held to a r
 `max_total` in `tests/tier_budget.toml`, which may only go down. Lower it when medium
 tests are trimmed or moved to slow; never raise it to let a change through. It was reset
 once, when the first baseline turned out to be one low run (#792). Time a new medium test
-(`uv run pytest <file> --durations=0`) before adding it. Most of the default lane's time is the compiled-kernel tests, which
-compile one kernel per parametrisation, so parametrise a compiled test only over what the
-kernel actually branches on.
+(`uv run pytest <file> --durations=0`) before adding it.
 
 The budgets are read from the lanes' JUnit reports. The collection hook in
 `tests/conftest.py` writes each test's tier into its report as the property `tier`
@@ -521,5 +521,5 @@ Tests, records and benchmarks refer to these by name.
 | **P0–P3** | the solver's verification ladder: linear only (P0), N-soliton recurrence with phase (P1), analytic z-varying loss and dispersion (P2), full UPPE against a Richardson reference (P3); see [stepper.md](stepper.md) §11 |
 | **M1** | N = 6 soliton recurrence through `prop_gnlse`: GNLSE, envelope grid, mode-averaged, checked against the analytic solution with its phase |
 | **M2**, **RDW** | resonant dispersive-wave emission into the VUV in a hollow capillary: 125 µm core radius, 1.5 m, helium from 0.8 bar to vacuum, four HE₁ₘ modes, a 7.5 fs 275 µJ pulse, field grid, Kerr and plasma; full and reduced sizes, against solprop's own converged reference, with its inputs against a stored Luna witness ([accuracy.md](accuracy.md) §5) |
-| **M3** | the M2 case on a compiled backend (`numba_cpu` when it was recorded): against `numpy_ref` at equal achieved error; the whole-run benchmark rows |
+| **M3** | the M2 case on native: against `numpy_ref` at equal achieved error; the whole-run benchmark rows |
 | **M4**, **CtC** | the comb-to-continuum supercontinuum: 16 µm core radius, 0.2 m of hydrogen at 40 bar, six HE₁ₘ modes, a 400 fs pulse at 515 nm on a 4 ps field grid, Raman and plasma; full and reduced sizes, with the reduced case's inputs and plasma against a stored Luna witness ([accuracy.md](accuracy.md) §6) |
