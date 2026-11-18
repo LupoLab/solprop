@@ -116,7 +116,10 @@ agree where they coincide, is folded into `transform.synthesis` — not into a r
 coefficient. A coefficient can absorb a field scale only when the response is homogeneous in
 the field. The Kerr term is; an ionisation rate, which is a table looked up at the physical
 field amplitude in volts per metre, emphatically is not. Folding the pad into the synthesis
-means every response sees the physical field, whatever its degree.
+means every response sees the physical field, whatever its degree. Two transforms carry no
+synthesis to fold it into: on the Cartesian and line grids the backends multiply by
+`grids.pad_scale` after their inverse transverse DFT, and the general modal route's source
+takes it as a factor of its own (`backends/numpy_ref/source.py`, `general_modal.py`).
 
 The **crop scale** on the way back has no such condition, so it is folded into
 `responses.prefactor`, which is applied in the same pass as the crop. The prefactor is the
