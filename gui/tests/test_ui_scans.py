@@ -130,6 +130,44 @@ def test_a_scan_set_up_on_its_stage_runs_and_shows_its_results(  # noqa: PLR0915
     window.close()
 
 
+def test_a_scan_stopped_before_it_starts_leaves_scan_mode(
+    qtbot: QtBot, tmp_path: Path
+) -> None:
+    window = WorkflowWindow(workspace=tmp_path / "workspace")
+    qtbot.addWidget(window)
+    window.show()
+    window.document.confirm = lambda _title, _text: "discard"
+    window.document.set_model(RecipeModel(SCAN), base=None)
+    qtbot.waitUntil(lambda: window.stage is Stage.SETUP, timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: "pressure" in window.scans.editor.paths, timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: window.progress().can_run, timeout=WAIT_MS)
+    window.show_stage(Stage.SCAN)
+    assert window.primary.isEnabled()
+    ended: list[str] = []
+    window.run_panel.ended.connect(ended.append)
+    window.primary.click()
+
+    def submitted() -> bool:
+        return any((tmp_path / "workspace").rglob("submitted.json"))
+
+    # Started, and its job still importing solprop (about a second): Stop now is
+    # found by the job when it starts.
+    qtbot.waitUntil(submitted, timeout=WAIT_MS)
+    window.run_panel.stop()
+    qtbot.waitUntil(lambda: bool(ended), timeout=WAIT_MS)
+    (folder,) = (tmp_path / "workspace").iterdir()
+    assert window.run_panel.state_label.text().endswith("stopped")
+    # Nothing written, so nothing opened, and the window has left scan mode: the
+    # next Run from the sheet runs the setup once, not the scan.
+    written = folder / SCAN_OUTPUT
+    assert not written.exists()  # stopped before it started
+    assert ended == [""]
+    assert window.session.path is None and window.stage is Stage.SCAN
+    assert not window._scanning
+    assert "[scan]" not in window._run_recipe()[0]
+    window.close()
+
+
 def test_a_number_s_menu_on_the_sheet_scans_it(qtbot: QtBot, tmp_path: Path) -> None:
     window = WorkflowWindow(workspace=tmp_path / "workspace")
     qtbot.addWidget(window)

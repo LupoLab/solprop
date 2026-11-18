@@ -444,7 +444,25 @@ def test_a_stop_pressed_before_a_new_run_starts_is_obeyed(tmp_path):
     assert ending.kind == "stopped"
     assert ending.data["message"] == "stopped before it started"
     assert not (folder / "run.h5").exists()
+    assert ending.data["output"] is None  # nothing written to open
     assert summarise(folder)["state"] == "stopped"
+
+
+def test_a_scan_stopped_before_it_starts_ends_as_a_scan(tmp_path):
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    scan = TINY + '\n[scan]\nname = "pressure"\npressure = ["0.5 bar", "1 bar"]\n'
+    folder = tmp_path / "s1"
+    spec = RunSpec("s1", str(folder), recipe=scan)
+    prepare(spec)
+    request_stop(folder)  # Stop pressed while the scan waits in the queue
+    run_module.execute(spec)
+    (ending,) = [e for e in read_events(folder)[0] if e.terminal]
+    assert ending.kind == "stopped" and ending.data["scan"] is True
+    assert ending.data["path"] == str(folder / "scan.h5")
+    assert ending.data["output"] is None
+    summary = summarise(folder)
+    assert (summary["state"], summary["scan"]) == ("stopped", True)
 
 
 def test_a_stop_pressed_before_a_continued_run_starts_is_obeyed(tmp_path):

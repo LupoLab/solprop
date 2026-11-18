@@ -4,10 +4,10 @@
 
 """Read and trim a recipe's text, for the service and the window alike.
 
-:func:`split`, :func:`without_table` and :func:`data_files` work on a recipe's TOML,
-and :data:`BEAM_ROUTES` names the free-space routes. They import only the light parts
-of :mod:`solprop.recipe` (its document and nothing that builds), so the window's process
-may use them as freely as the kernel.
+:func:`split`, :func:`without_table`, :func:`is_scan` and :func:`data_files` work on a
+recipe's TOML, and :data:`BEAM_ROUTES` names the free-space routes. They import only
+the light parts of :mod:`solprop.recipe` (its document and nothing that builds), so
+the window's process may use them as freely as the kernel.
 """
 
 import re
@@ -16,7 +16,7 @@ from typing import Final
 
 from solprop.recipe.document import dump_text, parse_text
 
-__all__ = ["BEAM_ROUTES", "data_files", "split", "without_table"]
+__all__ = ["BEAM_ROUTES", "data_files", "is_scan", "split", "without_table"]
 
 BEAM_ROUTES: Final = frozenset({"radial", "free", "planar"})
 """The routes of a beam in free space, whose files solprop reads by its spatial readers
@@ -79,6 +79,36 @@ def without_table(text: str, table: str) -> str:
         return text
     tables = {name: values for name, values in document.items() if name != table}
     return dump_text(tables)
+
+
+def is_scan(text: str | None) -> bool:
+    r"""Return whether a recipe's text runs as a scan: it has a ``[scan]`` table.
+
+    Parameters
+    ----------
+    text : str or None
+        The recipe; ``None`` for a continued run, which is never a scan.
+
+    Returns
+    -------
+    bool
+        True for a recipe with a ``[scan]`` table; False for any other text,
+        including text that is not TOML.
+
+    Examples
+    --------
+    >>> text = '[recipe]\nformat = 1\nroute = "capillary"\n'
+    >>> is_scan(text), is_scan(text + '[scan]\nname = "s"\n'), is_scan(None)
+    (False, True, False)
+    """
+    import tomllib  # noqa: PLC0415 - only here
+
+    if text is None:
+        return False
+    try:
+        return "scan" in tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return False
 
 
 def data_files(text: str) -> list[str]:
