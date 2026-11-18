@@ -162,6 +162,11 @@ their hashes, and it does not choose its own limit: its `node_budget` is ignored
 yours applies. Opening an
 HDF5 file at all exposes the HDF5 library to it.
 
+A file resumes on its own only if it holds every data file its recipe refers to. A run
+embeds its data files up to 16 MiB in all (`solprop.recipe.provenance.EMBED_LIMIT`) and
+records any beyond that by name and digest only; the file alone then cannot rebuild the
+run, and resuming it is refused with a {py:class}`~solprop.exceptions.RecipeError`.
+
 ### What a file allows
 
 {py:func}`solprop.output.resumable.resumability` answers three questions about a file without
