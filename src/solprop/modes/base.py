@@ -476,7 +476,8 @@ def _zero_frequencies(
     """Return the zeros of `beta2` in a frequency window, and its sign changes there.
 
     ``beta2`` is sampled at :data:`_ZDW_SAMPLES` frequencies evenly spaced across the
-    window and each sign change is refined (:func:`_refine_zero`). A change is a zero
+    window and each sign change is refined (:func:`_refine_zero`); a sample that is
+    exactly zero between samples of opposite signs is a change too. A change is a zero
     if ``beta1`` has a resolved extremum there (:func:`_is_zero`) and no other change
     lies within the resolution scale (:func:`_is_isolated`). A change that is not a
     zero is a line if ``beta1`` is not finite or not continuous across it
@@ -506,7 +507,13 @@ def _zero_frequencies(
         warnings.simplefilter("ignore", MaterialRangeWarning)
         warnings.simplefilter("ignore", DiluteScalingWarning)
         sampled = beta2(mode, grid, z)
-        changes = np.flatnonzero(np.sign(sampled[:-1]) * np.sign(sampled[1:]) < 0.0)
+        # A sample that is exactly zero takes the sign of the last nonzero sample below
+        # it, so a zero that falls on a sample is a change in the interval above it and
+        # not two products of zero. One that only touches zero changes nothing.
+        signs = np.sign(sampled)
+        last = np.maximum.accumulate(np.where(signs != 0.0, np.arange(signs.size), 0))
+        signs = signs[last]
+        changes = np.flatnonzero(signs[:-1] * signs[1:] < 0.0)
         if near is not None:
             # How near each bracket can bring a zero: 0 for one holding the reference.
             reach = np.maximum.reduce(

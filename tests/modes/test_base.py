@@ -229,6 +229,40 @@ def two_zero_mode():
 TWO_ZERO_WINDOW = (2.0 * math.pi * C / 2.2e15, 2.0 * math.pi * C / 1.8e15)
 
 
+@pytest.mark.parametrize("knot", [100, 255, 256, 300])
+def test_zdw_finds_a_zero_that_falls_exactly_on_a_sample(knot):
+    """``beta2 = 1e-41 (omega - 2^51)`` s^2/m, with its zero on a sample of the search.
+
+    Powers of two make the sample and the differenced ``beta2`` there exact, so the
+    products of neighbouring signs are zero on both sides and not negative.
+    """
+    omega0, spacing, samples = 2.0**51, 2.0**40, 512
+    mode = SpecifiedMode.from_taylor(
+        [omega0 / C, 1.0 / C, 0.0, 1e-41], omega0, aeff=1e-10
+    )
+    lower = omega0 - knot * spacing
+    upper = omega0 + (samples - 1 - knot) * spacing
+    limits = (2.0 * math.pi * C / upper, 2.0 * math.pi * C / lower)
+    # The search's own grid, from the limits as it converts them.
+    grid = np.linspace(
+        2.0 * math.pi * C / limits[1], 2.0 * math.pi * C / limits[0], samples
+    )
+    assert grid[knot] == omega0
+    assert beta2(mode, grid)[knot] == 0.0
+    found = zdw(mode, wavelength_limits=limits)
+    assert found == pytest.approx(2.0 * math.pi * C / omega0, rel=1e-12)
+
+
+def test_zdw_does_not_take_a_touch_of_zero_for_a_sign_change():
+    """``beta2 = 1e-54 (omega - 2e15)^2`` touches zero and keeps its sign."""
+    omega0 = 2e15
+    mode = SpecifiedMode.from_taylor(
+        [omega0 / C, 1.0 / C, 0.0, 0.0, 2e-54], omega0, aeff=1e-10
+    )
+    with pytest.raises(NoZeroDispersionError, match="does not change sign"):
+        zdw(mode, wavelength_limits=TWO_ZERO_WINDOW)
+
+
 def test_zdw_names_every_zero_when_the_window_holds_several():
     # The ends of the window have one sign, and both zeros are real.
     with pytest.raises(ModeError, match=r"2 zeros .* 897\.0, 991\.4 nm"):
