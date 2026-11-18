@@ -84,7 +84,6 @@ from solprop.driver.resume import (
     _check_resume_choice,
     _continues,
     _open_output,
-    _ResumeChoice,
     _resumed_simulation,
     _start,
     _validate_resume,
@@ -168,6 +167,7 @@ from solprop.log import (
     DEFAULT_PROGRESS_PERIOD,
     ProgressChoice,
     ProgressReporter,
+    ResumeChoice,
     StopFlag,
 )
 from solprop.modes.antiresonant import TubeLattice
@@ -280,8 +280,10 @@ class Simulation(Displayed):
     """A run that can be translated once and executed many times.
 
     Construct it from the physics objects and a
-    :class:`~solprop.driver.settings.SimulationSettings`, or through
-    :meth:`from_gnlse` for a GNLSE fibre. :meth:`translate` assembles the kernel problem
+    :class:`~solprop.driver.settings.SimulationSettings`, or through one of the
+    ``from_*`` constructors: :meth:`from_free`, :meth:`from_planar`,
+    :meth:`from_gnlse`, :meth:`from_capillary` and :meth:`from_waveguide`.
+    :meth:`translate` assembles the kernel problem
     and caches it, so a second :meth:`run` -- into another handler, or resuming a
     file -- reuses it. :attr:`settings` may be replaced until that first translation;
     after it only the execution settings :attr:`settings` lists may change. What the
@@ -1794,7 +1796,7 @@ class Simulation(Displayed):
         *,
         progress: ProgressReporter | ProgressChoice | None = None,
         progress_period: float = DEFAULT_PROGRESS_PERIOD,
-        resume: _ResumeChoice = False,
+        resume: ResumeChoice = False,
         tdse_archive: TDSEArchive | None = None,
         snapshots: SnapshotController | None = None,
         stop: StopFlag | None = None,
@@ -1846,7 +1848,7 @@ class Simulation(Displayed):
             interpolated plane its step crossed. Requires HDF5 and ``fields='all'``.
             Adams history cannot be explicitly disabled. A configured archive is
             copied together with the optical file.
-        stop : object or None, optional
+        stop : solprop.log.StopFlag or None, optional
             This run's own stop flag: any object with an ``is_set()`` method, such as
             a :class:`threading.Event` (SEP 41, S17). It is polled before the first
             step and before every trial step, so the run answers within one step or
@@ -1908,7 +1910,7 @@ class Simulation(Displayed):
         *,
         progress: ProgressReporter | ProgressChoice | None = None,
         progress_period: float = DEFAULT_PROGRESS_PERIOD,
-        resume: _ResumeChoice = False,
+        resume: ResumeChoice = False,
         tdse_archive: TDSEArchive | None = None,
         snapshots: SnapshotController | None = None,
         stop: StopFlag | None = None,
@@ -1949,7 +1951,7 @@ class Simulation(Displayed):
         *,
         progress: ProgressReporter | ProgressChoice | None,
         progress_period: float,
-        resume: _ResumeChoice,
+        resume: ResumeChoice,
         tdse_archive: TDSEArchive | None,
         snapshots: SnapshotController | None,
         stop: StopFlag | None,
@@ -3284,8 +3286,6 @@ class Simulation(Displayed):
         incident: SpatialPulse | None = None,
         coupling: CouplingModel | None = None,
         kerr_form: KerrForm = "real",
-        observable_rtol: float | None = None,
-        observable_atol: float | None = None,
         pressure_floor: float | None = None,
         vacuum_end: VacuumEnd | None = None,
         wavelength: float,
@@ -3358,9 +3358,10 @@ class Simulation(Displayed):
         three-component
         E and H at quadrature nodes, whose material regions own their responses and
         whose channels are Poynting-normalised, so that a channel amplitude is a
-        true-power amplitude by construction. It is qualified on ``numpy_ref`` and the
-        native CPU backend, a declared split block's coupled
-        flow included, and propagates constant geometry on a **field** grid.
+        true-power amplitude by construction. It runs on ``numpy_ref`` and the
+        native backend, its CPU build and its CUDA and HIP device builds alike, a
+        declared split block's coupled flow included, on a **field** grid, for a
+        guide of constant geometry or a solid guide whose geometry moves along z.
         Every gas keyword is refused by name beside a provider, because a guide's
         materials are its regions' and not a fill.
 
@@ -3447,14 +3448,6 @@ class Simulation(Displayed):
             dispersive electronic policies a region's gas fill takes the dispersive
             cubic in the matching sector: ``"real"`` its full cubic, ``"analytic"``
             its number-conserving sector. Requires `provider`.
-        observable_rtol, observable_atol : float or None, optional
-            Requested accuracy of the named physical observables of a general modal run.
-            ``None``, the only value accepted, means **the solver's own** `rtol` and
-            `atol`: the route's basis is orthonormal in true power, so the controller's
-            weighted norm on the amplitudes already is a norm on the physical channel
-            powers. A different number is refused by name, because the separate error
-            allocation it would ask for -- over the table's interpolation, the
-            transverse rule and the step -- is not implemented. Require `provider`.
         pressure_floor : float or None, optional
             Lowest pressure the fill is allowed to reach, bar; ``None`` takes
             :data:`solprop.profiles.DEFAULT_PRESSURE_FLOOR_FRACTION` of the highest
@@ -3730,8 +3723,6 @@ class Simulation(Displayed):
             ("incident", incident),
             ("coupling", coupling),
             ("kerr_form", None if kerr_form == "real" else kerr_form),
-            ("observable_rtol", observable_rtol),
-            ("observable_atol", observable_atol),
         ):
             if value is not None:
                 msg = (

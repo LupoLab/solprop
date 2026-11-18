@@ -17,9 +17,8 @@ backend owns the step loop and the output handler the sign convention on disk
 :class:`solprop.output.records.SavedPlane` in the internal FFT convention, with modal
 amplitudes in true-power units. :func:`field_retention`, :func:`retention_at` and
 :func:`check_snapshot_request` resolve what a run keeps. Progress goes to a
-:class:`solprop.log.ProgressReporter`, re-exported here with
-:class:`solprop.log.LogReporter` because this is where a run reaches them; the
-protocol is ``docs/dev/architecture.md`` section 14. The manual page is
+:class:`solprop.log.ProgressReporter`; the protocol is ``docs/dev/architecture.md``
+section 14. The manual page is
 ``docs/guide/setup/running.md``.
 """
 
@@ -43,7 +42,6 @@ from solprop.exceptions import (
 )
 from solprop.log import (
     DEFAULT_PROGRESS_PERIOD,
-    LogReporter,
     ProgressChoice,
     ProgressReporter,
     StopFlag,
@@ -86,8 +84,6 @@ from solprop.translate.tdse import TDSEBinding
 
 __all__ = [
     "RESTART_RECORD",
-    "LogReporter",
-    "ProgressReporter",
     "SessionFacts",
     "check_snapshot_request",
     "field_retention",
@@ -294,10 +290,11 @@ def run_problem(
     then each save plane in turn: propagate, observe, collect statistics, save. Steps
     land on the planes exactly, so a saved field is an exact step endpoint and there
     is no interpolation (``docs/dev/stepper.md`` section 3), unless the request asks
-    for dense output. With ``stepper.step_planes`` the march also stops at the end of
-    every ``step_planes``-th accepted step, which is saved too before the same plane
-    is asked for again. A plane whose propagation did not meet its tolerance is logged
-    as a warning naming that plane (``docs/dev/stepper.md`` section 8).
+    for dense output. With ``backend.request.observation.step_planes`` the march also
+    stops at the end of every ``step_planes``-th accepted step, which is saved too
+    before the same plane is asked for again. A plane whose propagation did not meet
+    its tolerance is logged as a warning naming that plane (``docs/dev/stepper.md``
+    section 8).
 
     Parameters
     ----------

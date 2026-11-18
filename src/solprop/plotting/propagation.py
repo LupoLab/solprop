@@ -320,6 +320,7 @@ def time_1d(
     output: Output,
     z: float | Sequence[float] | None = None,
     *,
+    plane: int | Sequence[int] | None = None,
     quantity: SliceQuantity = "power",
     modes: ModeSelection = None,
     oversampling: int = 4,
@@ -338,6 +339,8 @@ def time_1d(
         An opened output handler.
     z : float, sequence of float or None
         Positions to draw, m; the end of the run by default.
+    plane : int, sequence of int or None
+        Saved planes to draw, by index, negative from the end; refused beside `z`.
     quantity : {'power', 'field', 'field_squared'}
         What to draw: the instantaneous power, the real field, or its square.
     modes : int, sequence of int, 'sum' or None
@@ -369,6 +372,8 @@ def time_1d(
     ------
     solprop.exceptions.OutputError
         If the stored run is a spatial one, whose columns are not modal amplitudes.
+    solprop.exceptions.ProcessingError
+        If both `z` and `plane` are given.
 
     Examples
     --------
@@ -383,7 +388,7 @@ def time_1d(
     _refuse_by_basis(output, "time_1d")
     choice(quantity, "quantity", SLICE_QUANTITIES, ProcessingError)
     ax = _axis(ax, (8.5, 5.0))
-    planes = _plane_indices(output, z)
+    planes = _plane_indices(output, z, plane)
     traces = []
     for index in planes:
         if quantity == "power":
@@ -445,6 +450,7 @@ def spec_1d(
     z: float | Sequence[float] | None = None,
     axis: SpectralAxis = "wavelength",
     *,
+    plane: int | Sequence[int] | None = None,
     modes: ModeSelection = None,
     spec_range: tuple[float, float] | None = None,
     log: bool = True,
@@ -463,6 +469,8 @@ def spec_1d(
         Positions to draw, m; the end of the run by default.
     axis : {'wavelength', 'f', 'omega'}
         Spectral abscissa.
+    plane : int, sequence of int or None
+        Saved planes to draw, by index, negative from the end; refused beside `z`.
     modes : int, sequence of int, 'sum' or None
         Which modes to draw.
     spec_range : tuple of float or None
@@ -492,6 +500,8 @@ def spec_1d(
     ------
     solprop.exceptions.OutputError
         If the stored run is a spatial one, whose columns are not modal amplitudes.
+    solprop.exceptions.ProcessingError
+        If both `z` and `plane` are given.
 
     Examples
     --------
@@ -505,7 +515,7 @@ def spec_1d(
     """
     _refuse_by_basis(output, "spec_1d")
     ax = _axis(ax, (8.5, 5.0))
-    planes = _plane_indices(output, z)
+    planes = _plane_indices(output, z, plane)
     limits = _limits(output, axis, spec_range)
     factor, label = spectral_display(axis)
     traces = [
@@ -690,11 +700,21 @@ def _limits(
     return float(min(spec_range)), float(max(spec_range))
 
 
-def _plane_indices(output: Output, z: float | Sequence[float] | None) -> list[int]:
+def _plane_indices(
+    output: Output,
+    z: float | Sequence[float] | None,
+    plane: int | Sequence[int] | None = None,
+) -> list[int]:
     """Return the plane indices a slice plot draws.
 
-    - ``z``: positions, m; ``None`` means the last saved plane.
+    - ``z``: positions, m; ``plane``: indices, negative from the end. Neither means the
+      last saved plane; both are refused, as by the processing readers.
     """
+    if plane is not None and z is not None:
+        msg = f"give plane indices or positions, not both: plane={plane}, z={z}"
+        raise ProcessingError(msg)
+    if plane is not None:
+        return [plane] if isinstance(plane, int) else list(plane)
     if z is None:
         return [output.n_saved - 1]
     positions = [z] if isinstance(z, float | int) else list(z)

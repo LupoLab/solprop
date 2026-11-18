@@ -359,8 +359,8 @@ def _check_spec_range(
 ) -> None:
     """Refuse a ``spec_range`` that selects no sample of the abscissa.
 
-    Without it the density came back empty, and a plot failed later inside NumPy with
-    a message that named neither the range nor its units.
+    An empty selection would give an empty density, and a plot would fail later inside
+    NumPy with a message that named neither the range nor its units.
 
     - ``x``: the abscissa, ascending, in the units of ``axis``.
     """

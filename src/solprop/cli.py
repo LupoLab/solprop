@@ -7,7 +7,7 @@
 Six commands, parsed by ``_parser`` and dispatched by :func:`main`:
 ``solprop run recipe.toml -o out.h5`` builds and runs a recipe, ``solprop resume
 out.h5`` continues it from the file and the recipe it records, ``solprop check``
-reports what stops it building, ``solprop export --python`` prints the equivalent
+reports what stops it building, ``solprop export`` prints the equivalent
 script, ``solprop scan`` is ``python -m solprop.scan``, and ``solprop calibrate``
 measures, shows, exports, imports or forgets the native backend's machine profile
 (:mod:`solprop.calibration.command`, SEP 46). A run maps SIGINT and SIGTERM onto its
@@ -76,7 +76,10 @@ def _parser() -> argparse.ArgumentParser:
     export = commands.add_parser("export", help="print a recipe as another form")
     export.add_argument("recipe", type=Path, help="the recipe file")
     export.add_argument(
-        "--python", action="store_true", required=True, help="print a Python script"
+        "--form",
+        choices=("python",),
+        default="python",
+        help="the form to print: a Python script (default: python)",
     )
     export.add_argument(
         "-o", "--output", default=None, help="the file the script's run writes"

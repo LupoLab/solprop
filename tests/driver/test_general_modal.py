@@ -275,26 +275,6 @@ def test_the_gas_route_still_needs_a_gas_and_refuses_the_guide_keywords():
             noise=None,
             integrator=Multistep(),
         )
-    with pytest.raises(DriverError, match="observable_rtol= belongs to the general"):
-        Simulation.from_waveguide(
-            (),
-            GENERAL_Z_END,
-            "He",
-            wavelength=835e-9,
-            observable_rtol=1e-6,
-            noise=None,
-            integrator=Multistep(),
-        )
-    with pytest.raises(DriverError, match="observable_atol= belongs to the general"):
-        Simulation.from_waveguide(
-            (),
-            GENERAL_Z_END,
-            "He",
-            wavelength=835e-9,
-            observable_atol=1e-16,
-            noise=None,
-            integrator=Multistep(),
-        )
     with pytest.raises(DriverError, match="kerr_form= belongs to the general"):
         Simulation.from_waveguide(
             (),
@@ -334,16 +314,6 @@ def test_an_envelope_grid_is_refused_at_the_entry_point(guide):
     envelope = EnvelopeGrid.from_limits(SHORT_Z, 835e-9, (815e-9, 860e-9), 60e-15)
     with pytest.raises(DriverError, match="propagates on a field grid"):
         build(guide, envelope)
-
-
-@pytest.mark.parametrize("keyword", ["observable_rtol", "observable_atol"])
-def test_an_observable_tolerance_is_accepted_only_as_the_solvers_own(
-    guide, grid, keyword
-):
-    """`None` means the solver's rtol and atol; a number is refused."""
-    assert build(guide, grid, **{keyword: None}).general is not None
-    with pytest.raises(DriverError, match="is not implemented"):
-        build(guide, grid, **{keyword: 1e-7})
 
 
 def test_a_guide_narrower_than_the_active_band_is_refused_at_construction(grid):

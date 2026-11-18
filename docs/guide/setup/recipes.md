@@ -437,7 +437,7 @@ A test reads the source for every refusal marked with a rule and holds it to
 ```text
 solprop run rdw.toml -o rdw.h5 [--progress log] [--resume]
 solprop check rdw.toml              # print the issues; exit 1 on an error
-solprop export rdw.toml --python    # print the equivalent script
+solprop export rdw.toml             # print the equivalent script (--form python)
 solprop resume rdw.h5               # continue a run from its file alone
 solprop scan ...                    # python -m solprop.scan, unchanged
 solprop calibrate --show            # the native backend's machine profile, if any

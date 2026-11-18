@@ -199,10 +199,9 @@ Every gas keyword is **refused by name** beside a provider — `gas`, `pressure`
 `temperature`, `kerr`, `thg`, `plasma`, `raman`, `n_r`, `n_theta` and the rest — because
 a guide owns its materials, its responses and its transverse rule, and a keyword
 silently ignored would let you believe a fill or a resolution had been applied.
-`observable_rtol` and `observable_atol` are accepted as `None`, which means the
-solver's own `rtol` and `atol`: the route's basis is orthonormal in true power, so the
-controller's weighted norm on the amplitudes already is a norm on the physical channel
-powers.
+The accuracy of the run's observables is the solver's own `rtol` and `atol`: the
+route's basis is orthonormal in true power, so the controller's weighted norm on the
+amplitudes already is a norm on the physical channel powers.
 
 For a worked example that runs and plots, see
 {doc}`../../auto_tutorials/waveguides/plot_05_general_modal`; for a **graded-index** guide, its
@@ -379,7 +378,6 @@ at the translation layer and in the backend.
 * The scalar-route power names, `quadrature_error` and — beside a split block — `zdw`: a
   statistic the basis does not define is refused with its replacement where it has one,
   rather than redefined.
-* `observable_rtol` and `observable_atol` as numbers, which nothing would enforce.
 
 **How to read the record.** `output.metadata.modal` is the run's modal
 identity, and every entry of it is in the key a resume is checked against. `basis` says
@@ -467,12 +465,10 @@ Not implemented, and refused rather than approximated:
   rebuilding the tables from the guide — tens of milliseconds for the route, about 0.7 s
   if the guide itself must still be solved — and every accessor checks them against the
   identity the file carries, path by path, with the guide, which they require;
-* **`observable_rtol` and `observable_atol` as numbers.** `None` is accepted and means
-  the solver's own `rtol` and `atol`, which on this route is a true statement; a
-  different number is refused by name, because the separate error allocation it asks
-  for — over the table's frequency interpolation, the transverse rule and the step — is
-  not implemented, and accepting a number nothing enforces would be a silent claim about
-  accuracy;
+* **a separate accuracy for the observables.** The solver's own `rtol` and `atol` bound
+  them, which on this route is a true statement; an accuracy of their own would need an
+  error allocation over the table's frequency interpolation, the transverse rule and the
+  step, which is not implemented, so the route takes no keyword for one;
 * a **backward or evanescent** declared launch. `incident=` (above) recovers the
   incident field through the flux pairing with the forward-field closure, and nothing in the
   arithmetic can see that a declared field was not forward-propagating; such a launch is

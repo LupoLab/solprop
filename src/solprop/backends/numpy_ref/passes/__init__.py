@@ -50,3 +50,5 @@ writes ``eps0`` *outside* the convolution integral, so folding it into a row wou
 change the stated units of ``raman_kernel_undamped`` and cost the bitwise agreement with
 :meth:`solprop.nonlinear.raman.RamanResponse.evaluate` that pins that pass.
 """
+
+__all__: list[str] = []

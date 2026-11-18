@@ -15,7 +15,7 @@ import pytest
 
 from solprop import fourier
 from solprop.constants import C
-from solprop.exceptions import ProcessingError
+from solprop.exceptions import ModeError, ProcessingError
 from solprop.optics import ChirpedMirror, Material, TaylorPhase, stored_factor
 from solprop.output import MemoryOutput
 from solprop.physdata import calcium_fluoride
@@ -193,9 +193,12 @@ def test_a_multimode_output_is_compressed_on_its_summed_power():
     # the chirp found is the same and the summed power grows with every mode added.
     assert together.coefficients[2] == pytest.approx(alone.coefficients[2], rel=1e-6)
     assert alone.peak_power_limit < pair.peak_power_limit < together.peak_power_limit
-    with pytest.raises(ProcessingError, match="does not select"):
+    # As every processing reader refuses a mode the run does not have.
+    with pytest.raises(ModeError, match="mode 5 is out of range for a run of 3"):
         compression.compress_taylor(run, modes=5)
-    with pytest.raises(ProcessingError, match="does not select"):
+    with pytest.raises(ModeError, match="mode -4 is out of range for a run of 3"):
+        compression.compress_taylor(run, modes=[0, -4])
+    with pytest.raises(ModeError, match="selects no mode"):
         compression.compress_taylor(run, modes=[])
 
 

@@ -376,6 +376,27 @@ def test_a_scalar_position_and_a_sequence_agree(single):
     assert propagation._plane_indices(single, None) == [single.n_saved - 1]
 
 
+@pytest.mark.parametrize("plot", ["time_1d", "spec_1d"])
+def test_a_slice_selects_planes_by_index_as_by_position(single, plot):
+    draw = getattr(propagation, plot)
+    by_index = draw(single, plane=[0, -1]).axes[0].lines
+    by_position = draw(single, [0.0, 0.1]).axes[0].lines
+    assert [line.get_label() for line in by_index] == [
+        line.get_label() for line in by_position
+    ]
+    for one, other in zip(by_index, by_position, strict=True):
+        # The same plane read twice; a logarithmic slice masks its zeros as NaN.
+        drawn = np.asarray(one.get_ydata())
+        assert np.array_equal(drawn, np.asarray(other.get_ydata()), equal_nan=True)
+    assert len(draw(single, plane=2).axes[0].lines) == 1
+
+
+@pytest.mark.parametrize("plot", ["time_1d", "spec_1d"])
+def test_a_slice_refuses_a_plane_and_a_position_together(single, plot):
+    with pytest.raises(ProcessingError, match="not both"):
+        getattr(propagation, plot)(single, 0.05, plane=2)
+
+
 def test_a_two_mode_run_labels_its_sum():
     output = example_output(n_modes=2)
     assert propagation._drawn_labels(output, 2, None) == ["mode 1", "mode 2"]

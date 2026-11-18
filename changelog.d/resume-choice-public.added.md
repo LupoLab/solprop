@@ -1,0 +1,1 @@
+Added `solprop.log.ResumeChoice`, the type `resume=` takes on `Simulation.run` and the `prop_*` routes, so their signatures and `help()` show `resume: bool | Literal['interpolated']` under a public name.

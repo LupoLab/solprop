@@ -16,7 +16,7 @@ import logging
 import warnings
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -26,6 +26,7 @@ from solprop.driver.inputs import _realisation
 from solprop.driver.run import retention_at
 from solprop.exceptions import DriverError, SolpropWarning
 from solprop.fourier import power_amplitude
+from solprop.log import ResumeChoice
 from solprop.nonlinear.tdse import TDSEExecution
 from solprop.output.hdf5 import (
     HDF5Output,
@@ -52,9 +53,6 @@ if TYPE_CHECKING:
 __all__ = []
 
 logger = logging.getLogger(__name__)
-
-type _ResumeChoice = bool | Literal["interpolated"]
-"""What ``resume`` takes: no, yes, or from a plane interpolated inside a step."""
 
 
 def _resumed_simulation(
@@ -323,7 +321,7 @@ def _open_output(
     output: Output | Path | str | None,
     metadata: RunMetadata,
     *,
-    resume: _ResumeChoice,
+    resume: ResumeChoice,
 ) -> tuple[Output, ResumeState | None]:
     """Choose the handler a run writes to, and read what a resumed file holds.
 
@@ -368,7 +366,7 @@ def _work_left(request: RunRequest, state: ResumeState, next_plane: int) -> bool
     )
 
 
-def _refuse_interpolated(path: Path, state: ResumeState, resume: _ResumeChoice) -> None:
+def _refuse_interpolated(path: Path, state: ResumeState, resume: ResumeChoice) -> None:
     """Refuse to continue from a plane interpolated inside a step, unless accepted.
 
     An interpolated plane is not a state the march passed through, so a run restarted
@@ -390,7 +388,7 @@ def _continues(
     request: RunRequest,
     state: ResumeState,
     next_plane: int,
-    resume: _ResumeChoice,
+    resume: ResumeChoice,
 ) -> bool:
     """Say whether a resume of a file computes anything, once its hash has passed.
 

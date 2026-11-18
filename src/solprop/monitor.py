@@ -767,14 +767,7 @@ class BoundaryMonitor:
         ]
         self._collar_max = _number(record, "collar_max", 0.0)
         self._raw_removed = _number(record, "raw_removed_fraction", 0.0)
-        # The floor's expected removal, uncapped; a record from before it was kept
-        # gives it back from the signed or the reported removal.
-        judged = _number(record, "removed_signed", math.nan)
-        if not math.isfinite(judged):
-            judged = _number(record, "removed_fraction", 0.0)
-        self._floor_removed = _number(
-            record, "floor_removed_fraction", self._raw_removed - judged
-        )
+        self._floor_removed = _number(record, "floor_removed_fraction", 0.0)
         quiet_checks = _number(record, "quiet_checks", math.nan)
         if math.isfinite(quiet_checks):
             self._restored_quiet = (

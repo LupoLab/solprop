@@ -918,7 +918,8 @@ class PlanarPulse(SpatialPulse):
     Raises
     ------
     PulseError
-        If a waist, `m`, `offset_x`, `propz` or `jones` is invalid.
+        If a waist, `m`, `offset_x`, `propz` or `jones` is invalid, or
+        `displacement` or `tilt` is set: they apply on a FreeGrid only.
 
     Examples
     --------

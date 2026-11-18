@@ -1,0 +1,1 @@
+`solprop export` no longer takes the required `--python` flag: `solprop export recipe.toml` prints the Python script, and `--form python` names that form explicitly. Drop `--python` from scripts that call it.

@@ -56,6 +56,7 @@ __all__ = [
     "ProgressChoice",
     "ProgressReporter",
     "ProgressStatus",
+    "ResumeChoice",
     "ScanReporter",
     "StopFlag",
     "configure_logging",
@@ -90,6 +91,9 @@ ProgressChoice = Literal["auto", "bar", "log", "none"]
 logs lines otherwise; ``"bar"`` and ``"log"`` force one or the other; ``"none"``
 reports nothing.
 """
+
+ResumeChoice = bool | Literal["interpolated"]
+"""What ``resume=`` takes: no, yes, or from a plane interpolated inside a step."""
 
 _PROGRESS_CHOICES: tuple[str, ...] = ("auto", "bar", "log", "none")
 _DEFAULTS: dict[str, ProgressChoice] = {"progress": "auto"}

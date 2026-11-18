@@ -29,13 +29,17 @@ from solprop.boundaries import Absorber, SpatialAbsorber
 from solprop.coupling.models import CouplingModel
 from solprop.driver.defaults import DEFAULT_ATOL, WAVEGUIDE_ATOL
 from solprop.driver.inputs import ModalLaunch
-from solprop.driver.resume import _ResumeChoice
 from solprop.driver.settings import NoiseSetting, SimulationSettings
 from solprop.driver.simulation import Simulation
 from solprop.gasflow import VacuumEnd
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
-from solprop.log import DEFAULT_PROGRESS_PERIOD, ProgressChoice, ProgressReporter
+from solprop.log import (
+    DEFAULT_PROGRESS_PERIOD,
+    ProgressChoice,
+    ProgressReporter,
+    ResumeChoice,
+)
 from solprop.modes.antiresonant import TubeLattice
 from solprop.modes.capillary import GlassIndex, MarcatiliModel
 from solprop.modes.fill import LossFunction
@@ -88,32 +92,6 @@ _RUN_CONTROLS: Final = (
 )
 """The keywords of a ``prop_*`` function that are :meth:`Simulation.run`'s."""
 
-_RUN_CONTROLS_DOC: Final = """\
-output : solprop.output.store.Output or pathlib.Path or str or None, optional
-    Where the run goes: a handler, a path to stream an HDF5 file to, or ``None`` for
-    a :class:`solprop.output.memory.MemoryOutput`.
-snapshots : solprop.output.SnapshotController or None, optional
-    Immutable local checkpoints at committed accepted steps, each after every
-    interpolated plane its step crossed; requires HDF5 and ``fields='all'``
-    (:meth:`~solprop.driver.simulation.Simulation.run`).
-resume : bool or {'interpolated'}, optional
-    Continue the file at `output` when its record and this run's have one
-    configuration hash; otherwise it is refused, naming what changed. Only a
-    path can be resumed. ``"interpolated"`` also continues from a plane
-    interpolated inside a step
-    (:meth:`solprop.driver.simulation.Simulation.run`).
-progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None, optional
-    Where progress goes; ``None`` takes the process default: a bar on a terminal
-    or in a notebook, log lines otherwise (:func:`solprop.driver.run.run_problem`).
-progress_period : float, optional
-    Seconds between the default reporter's periodic lines, s; ``0`` leaves only the
-    plane and closing lines. Ignored when `progress` is given.
-tdse_archive : solprop.output.TDSEArchive or None, optional
-    Archive every raw provider evaluation of `tdse` in a separate HDF5 file
-    (:meth:`~solprop.driver.simulation.Simulation.run`); refused without `tdse`.
-"""
-"""The run controls' parameter entries, in :data:`_RUN_CONTROLS` order."""
-
 _SECTION = re.compile(r"^(\w[\w ]*)\n-{3,}\n", re.MULTILINE)
 """A numpydoc section header: its title, then its underline."""
 
@@ -130,8 +108,12 @@ def _parameters(doc: str) -> str:
 
 
 def _run_controls(names: Sequence[str]) -> str:
-    """Return the entries of the run controls among `names`, in their order."""
-    entries = re.split(r"\n(?=\S)", _RUN_CONTROLS_DOC.strip("\n"))
+    """Return :meth:`Simulation.run`'s entries for the run controls among `names`.
+
+    In the order of `names`; each control is documented once, on the method.
+    """
+    run_doc = inspect.getdoc(Simulation.run) or ""
+    entries = re.split(r"\n(?=\S)", _parameters(run_doc).strip("\n"))
     by_name = {entry.split(" :", 1)[0]: entry for entry in entries}
     return "".join(by_name[name] + "\n" for name in names if name in by_name)
 
@@ -205,7 +187,7 @@ def prop_free(  # numpydoc ignore=PR01
     spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
-    resume: _ResumeChoice = False,
+    resume: ResumeChoice = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
 ) -> Output:
@@ -244,7 +226,7 @@ def prop_planar(  # numpydoc ignore=PR01
     spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
-    resume: _ResumeChoice = False,
+    resume: ResumeChoice = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
 ) -> Output:
@@ -314,7 +296,7 @@ def prop_gnlse(  # numpydoc ignore=PR01
     materials: MaterialSelection | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
-    resume: _ResumeChoice = False,
+    resume: ResumeChoice = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
 ) -> Output:
@@ -447,7 +429,7 @@ def prop_capillary(  # numpydoc ignore=PR01
     tdse_execution: TDSEExecution | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
-    resume: _ResumeChoice = False,
+    resume: ResumeChoice = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
     tdse_archive: TDSEArchive | None = None,
@@ -534,8 +516,6 @@ def prop_waveguide(  # numpydoc ignore=PR01
     incident: SpatialPulse | None = None,
     coupling: CouplingModel | None = None,
     kerr_form: KerrForm = "real",
-    observable_rtol: float | None = None,
-    observable_atol: float | None = None,
     pressure_floor: float | None = None,
     vacuum_end: VacuumEnd | None = None,
     wavelength: float,
@@ -587,7 +567,7 @@ def prop_waveguide(  # numpydoc ignore=PR01
     materials: MaterialSelection | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
-    resume: _ResumeChoice = False,
+    resume: ResumeChoice = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
 ) -> Output:

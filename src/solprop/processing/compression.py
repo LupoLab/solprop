@@ -36,7 +36,7 @@ from scipy.optimize import differential_evolution, minimize_scalar
 from solprop import fourier
 from solprop._display import Displayed, engineering, line, phase_text
 from solprop.constants import C
-from solprop.exceptions import OpticsGeometryError, ProcessingError
+from solprop.exceptions import ModeError, OpticsGeometryError, ProcessingError
 from solprop.grid import TimeGrid
 from solprop.optics import (
     Chain,
@@ -51,7 +51,13 @@ from solprop.optics import (
 from solprop.output.capability import capability_of, compression_refusal
 from solprop.output.store import Output
 from solprop.processing import spectra, time
-from solprop.processing.axes import _keep_index, _plane_field, _plane_index, grid_of
+from solprop.processing.axes import (
+    _check_mode_index,
+    _keep_index,
+    _plane_field,
+    _plane_index,
+    grid_of,
+)
 from solprop.processing.fields import _fft_norm, _to_time
 
 __all__ = [
@@ -388,12 +394,10 @@ def _select_modes(
     if modes is None:
         return stored
     chosen = [modes] if isinstance(modes, int) else list(modes)
-    if not chosen or any(
-        not -stored.shape[0] <= index < stored.shape[0] for index in chosen
-    ):
-        raise ProcessingError(
-            f"modes={modes!r} does not select from the {stored.shape[0]} modes saved"
-        )
+    if not chosen:
+        raise ModeError(f"modes={modes!r} selects no mode")
+    for index in chosen:
+        _check_mode_index(index, stored.shape[0])
     return stored[chosen]
 
 
