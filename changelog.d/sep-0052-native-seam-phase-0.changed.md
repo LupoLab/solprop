@@ -1,1 +1,0 @@
-solprop-native's source build pins nanobind 3.1.0 (it took any release from 2.9 on), and the private extension's test-only entry points moved to its `_testing` submodule, which the wheel ships for solprop's own tests (SEP 52).

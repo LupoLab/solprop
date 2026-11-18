@@ -1,1 +1,0 @@
-Single-mode problems on the native backend now run their synthesis and projection on the response team with Apple's Accelerate too, as they already did with OpenBLAS: on an Apple M5 Max at six threads the argon blueshift window ran 0.96 of its time.
