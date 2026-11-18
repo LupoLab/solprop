@@ -210,8 +210,8 @@ class Flags:
     Section 1 of the kernel contract. They are *derived* from the content of the problem
     by :meth:`from_content`, which every solprop path that builds or changes a problem
     calls, so that a flag agrees with the arrays it describes. The problem's
-    constructor and :func:`validate` do not re-derive them: a problem built by hand
-    keeps them consistent itself.
+    constructor and :meth:`PropagationProblem.validate` do not re-derive them: a problem
+    built by hand keeps them consistent itself.
 
     Attributes
     ----------

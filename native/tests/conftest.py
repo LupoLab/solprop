@@ -37,7 +37,12 @@ _PYTEST_REL = 1e-6
 """pytest's default relative tolerance, which a bare ``approx`` of a number keeps."""
 
 
-def _approx(expected, rel=None, abs=None, nan_ok=False):
+def _approx(
+    expected: object,
+    rel: float | None = None,
+    abs: float | None = None,
+    nan_ok: bool = False,
+):
     """Return ``pytest.approx`` with no absolute tolerance unless the test gives one.
 
     The rule of solprop's ``tests/conftest.py``: pytest keeps an absolute tolerance of
@@ -58,8 +63,8 @@ def _approx(expected, rel=None, abs=None, nan_ok=False):
 def _nonzero_number(value: object) -> bool:
     """Return whether `value` is a real or complex number, not a bool, other than 0."""
     return (
-        isinstance(value, numbers.Complex)
-        and not isinstance(value, bool)
+        not isinstance(value, bool)
+        and isinstance(value, numbers.Complex)
         and value != 0
     )
 

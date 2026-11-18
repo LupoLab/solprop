@@ -134,7 +134,7 @@ def test_a_spectrogram_reports_the_gate_solprop_used(run: str):
             handler, "wavelength", plane=2, modes=0, gate_fwhm=found["gate_fwhm"]
         )
         _, _, by_default = get_spectrogram(
-            handler, "wavelength", plane=2, modes=0, time_range=tuple(wide)
+            handler, "wavelength", plane=2, modes=0, time_range=(wide[0], wide[1])
         )
     window = float(times[-1] - times[0])
     assert found["gate_fwhm"] == pytest.approx(window / 20.0, rel=1e-12)  # rounding
