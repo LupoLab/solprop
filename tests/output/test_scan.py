@@ -189,11 +189,18 @@ def test_scan_bad_payload_never_publishes_done(tmp_path, changes):
     writer.close()
 
 
-@pytest.mark.parametrize("status,index", [("unknown", 0), ("done", -1), ("done", 1)])
-def test_scan_writer_refuses_invalid_publication(tmp_path, status, index):
+@pytest.mark.parametrize(
+    "status,index,message",
+    [
+        ("unknown", 0, "invalid point status 'unknown'"),
+        ("done", -1, "result index is outside the scan"),
+        ("done", 1, "result index is outside the scan"),
+    ],
+)
+def test_scan_writer_refuses_invalid_publication(tmp_path, status, index, message):
     writer = ScanWriter(tmp_path / "scan.h5", Scan("scan", x=[1]), {})
     try:
-        with pytest.raises(OutputError):
+        with pytest.raises(OutputError, match=message):
             writer.commit(dataclasses.replace(result(index), status=status))
         assert writer.state(0)[0] == "todo"
     finally:
