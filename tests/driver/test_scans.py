@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import os
+import re
 import time
 from collections.abc import Mapping
 from typing import cast
@@ -145,22 +146,28 @@ def test_a_printed_scan_describes_each_axis_whatever_its_kind(values, row):
 
 
 @pytest.mark.parametrize(
-    "call",
+    ("call", "message"),
     [
-        lambda: Scan("bad/name"),
-        lambda: Scan("scan", power=[[1, 2]]),
-        lambda: Scan("scan", seed=[-1]),
-        lambda: Scan("scan", base_seed=-1),
-        lambda: Scan("scan", power=[1]).point(1),
-        lambda: Scan("scan", power=[1]).chunk(1, 1),
-        lambda: Scan("scan", power=[1]).subset([0, 0]),
-        lambda: Scan("scan", power=[1]).subset([0]).add("extra", [1]),
-        lambda: Scan("scan", power=[1]).add("power", [2]),
-        lambda: Scan("scan").add("", [1]),
+        (lambda: Scan("bad/name"), "no path separators"),
+        (lambda: Scan("scan", power=[[1, 2]]), "must be one-dimensional"),
+        (lambda: Scan("scan", seed=[-1]), "seed values must be non-negative"),
+        (lambda: Scan("scan", base_seed=-1), "base_seed must be a non-negative"),
+        (lambda: Scan("scan", power=[1]).point(1), "outside scan size 1"),
+        (lambda: Scan("scan", power=[1]).chunk(1, 1), "chunk requires n > 0"),
+        (lambda: Scan("scan", power=[1]).subset([0, 0]), "must be unique members"),
+        (
+            lambda: Scan("scan", power=[1]).subset([0]).add("extra", [1]),
+            "cannot add variables to a selected scan",
+        ),
+        (
+            lambda: Scan("scan", power=[1]).add("power", [2]),
+            "repeated scan variable 'power'",
+        ),
+        (lambda: Scan("scan").add("", [1]), "repeated scan variable ''"),
     ],
 )
-def test_scan_invalid_declarations(call):
-    with pytest.raises(DriverError):
+def test_scan_invalid_declarations(call, message):
+    with pytest.raises(DriverError, match=re.escape(message)):
         call()
 
 
@@ -461,16 +468,22 @@ def test_pool_rejects_unpickleable_builder_before_output(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "controls",
+    ("controls", "message"),
     [
-        {"fields": "planes"},
-        {"fields": "none", "field_planes": [0]},
-        {"stats": "energy"},
-        {"reductions": [scans.peak_power(), scans.peak_power()]},
+        ({"fields": "planes"}, "field_planes is required exactly when"),
+        (
+            {"fields": "none", "field_planes": [0]},
+            "field_planes is required exactly when",
+        ),
+        ({"stats": "energy"}, "stats must be all, none or a sequence of names"),
+        (
+            {"reductions": [scans.peak_power(), scans.peak_power()]},
+            "reduction names must be unique",
+        ),
     ],
 )
-def test_scan_rejects_invalid_retention(tmp_path, controls):
-    with pytest.raises(DriverError):
+def test_scan_rejects_invalid_retention(tmp_path, controls, message):
+    with pytest.raises(DriverError, match=message):
         run_scan(
             Scan("scan", power=[1.0]),
             build_point,

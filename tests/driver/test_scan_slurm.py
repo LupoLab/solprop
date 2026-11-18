@@ -144,17 +144,17 @@ def test_slurm_submission_uses_argument_vector(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "options",
+    ("options", "message"),
     [
-        {"ntasks": 0},
-        {"mem": "0"},
-        {"instances": 2},
-        {"partition": "bad\n#SBATCH --exclusive"},
-        {"stale_age": 0.0},
+        ({"ntasks": 0}, "task, CPU and thread counts must be positive"),
+        ({"mem": "0"}, "mem must be a positive integer"),
+        ({"instances": 2}, "cannot fit the requested instances"),
+        ({"partition": "bad\n#SBATCH --exclusive"}, "must not contain line breaks"),
+        ({"stale_age": 0.0}, "stale_age must be positive and finite"),
     ],
 )
-def test_slurm_refuses_invalid_resources(options):
-    with pytest.raises(DriverError):
+def test_slurm_refuses_invalid_resources(options, message):
+    with pytest.raises(DriverError, match=message):
         Slurm("script.py", **options)
 
 
