@@ -29,7 +29,7 @@ from typing import Final
 
 from solprop.constants import BAR, K_B, N_A, ROOM_TEMPERATURE
 from solprop.exceptions import MaterialError
-from solprop.physdata.gases import Gas, as_gas
+from solprop.physdata.gases import Gas, _fractions, as_gas
 from solprop.physdata.species import OptmatGas, Species
 
 __all__ = [
@@ -113,16 +113,9 @@ def _composition(
     if not isinstance(gas, Mapping):
         return ((_member(gas, quantity), 1.0),)
     merged: dict[OptmatGas, float] = {}
-    for key, fraction in gas.items():
-        value = float(fraction)
-        if not math.isfinite(value) or value < 0.0:
-            raise MaterialError("mole fractions must be finite and not negative")
+    for key, value in zip(gas, _fractions(tuple(gas.values())), strict=True):
         member = _member(key, quantity)
         merged[member] = merged.get(member, 0.0) + value
-    total = math.fsum(merged.values())
-    # A distribution normalised in floating point is one to a few ulps per entry.
-    if not merged or abs(total - 1.0) > 1e-12:
-        raise MaterialError(f"mole fractions must sum to one, got {total:.17g}")
     return tuple((member, value) for member, value in merged.items() if value > 0.0)
 
 

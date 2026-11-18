@@ -1,0 +1,1 @@
+The gas-flow functions (`physdata.transport.viscosity`, `molar_mass`, `sound_speed` and the `gasflow` calculations) validate a composition by the rule `Mixture.fill` applies: its fractions must sum to one within the rounding of its entries (two ulps per entry) rather than within 1e-12, so a flow and a fill accept the same compositions. The refusal messages are the fill's.

@@ -17,7 +17,7 @@ import pytest
 
 from solprop.constants import BAR, K_B, N_A, ROOM_TEMPERATURE
 from solprop.exceptions import MaterialError
-from solprop.physdata import Gas, IdealGas, Species, gamma, species
+from solprop.physdata import Gas, IdealGas, Mixture, Species, gamma, species
 from solprop.physdata.transport import (
     heat_capacity_ratio,
     mean_free_path,
@@ -151,13 +151,18 @@ def test_a_custom_species_is_refused_by_name():
     ("fractions", "message"),
     [
         ({"N2": 0.5, "O2": 0.4}, "sum to one"),
-        ({"N2": 1.2, "O2": -0.2}, "not negative"),
-        ({}, "sum to one"),
+        # Off by more than the rounding of two entries and their sum (4 eps): the
+        # rule a mixture's fill applies, so a flow and a fill accept the same sets.
+        ({"N2": 0.5, "O2": 0.5 + 1e-13}, "sum to one"),
+        ({"N2": 1.2, "O2": -0.2}, "non-negative"),
+        ({}, "non-empty"),
     ],
 )
 def test_invalid_fractions_are_refused(fractions, message):
     with pytest.raises(MaterialError, match=message):
         viscosity(fractions, 294.0)
+    with pytest.raises(MaterialError, match=message):
+        Mixture.fill(fractions, 1.0)
 
 
 def test_an_unknown_gas_is_refused():
