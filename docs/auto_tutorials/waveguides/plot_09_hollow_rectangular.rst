@@ -145,7 +145,7 @@ has no Raman response. The transverse quadrature of the nonlinear overlap uses 1
  .. code-block:: none
 
     Transmitted energy: 17.4235 uJ
-    Complete hollow rectangular example: 0.628 s
+    Complete hollow rectangular example: 0.168 s
 
 
 
@@ -160,7 +160,7 @@ Related reading
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.778 seconds)
+   **Total running time of the script:** (0 minutes 0.213 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_09_hollow_rectangular.py:

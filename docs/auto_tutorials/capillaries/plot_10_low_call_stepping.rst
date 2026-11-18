@@ -186,7 +186,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 9.279 seconds)
+   **Total running time of the script:** (0 minutes 3.278 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_capillaries_plot_10_low_call_stepping.py:

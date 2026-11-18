@@ -696,7 +696,7 @@ Both are far below anything that could affect the shares.
 
  .. code-block:: none
 
-    linear: outer-domain fluence 2.7e-27, spectral-edge content 2.4e-36
+    linear: outer-domain fluence 2.7e-27, spectral-edge content 2.7e-36
       Kerr: outer-domain fluence 6.1e-27, spectral-edge content 8.9e-28
 
 
@@ -783,7 +783,7 @@ through a :class:`~solprop.coupling.elements.PlanarInterface`, before giving it
 
  .. code-block:: none
 
-    run time 5.1 s
+    run time 1.7 s
 
 
 
@@ -801,7 +801,7 @@ The design is
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 5.106 seconds)
+   **Total running time of the script:** (0 minutes 1.664 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_08_radial_capillary_coupling.py:

@@ -256,7 +256,7 @@ channel.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 14.211 seconds)
+   **Total running time of the script:** (0 minutes 8.035 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_10_graded_index_fibre.py:

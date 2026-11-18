@@ -599,7 +599,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    97 s on native
+    4 s on native
 
 
 
@@ -616,7 +616,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (1 minutes 37.158 seconds)
+   **Total running time of the script:** (0 minutes 4.485 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_capillaries_plot_11_dispersive_kerr.py:

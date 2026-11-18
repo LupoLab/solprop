@@ -258,7 +258,7 @@ Rectangular x/y partners have separate propagation constants and losses.
 
     GrazingIncidenceWarning: RectMode(x11, 100 um x 20 um, Ar 5 bar, loss=model): the first-order wall-pair model reaches lambda |q| / (2 pi a) = 0.179 at 2332 nm, above the 0.1 it is valid to; its neglected terms are second order in that ratio. Narrow the band towards shorter wavelengths, widen the guide, or keep lower orders
     Rectangular transmitted energy: 9.954503e-09 J
-    Complete step-index/rectangular example: 7.102 s
+    Complete step-index/rectangular example: 1.968 s
 
 
 
@@ -275,7 +275,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 7.188 seconds)
+   **Total running time of the script:** (0 minutes 1.994 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_03_stepindex_rectangular.py:

@@ -225,7 +225,7 @@ per wavelength includes the omega-to-wavelength Jacobian before normalisation.
  .. code-block:: none
 
     BoundaryWarning: the temporal collar removed 1.88e-05 of the launch energy, whose square root is above the 1e-03 budget: what left the window may have mattered; widen trange to keep it
-    Complete Vincetti example: 11.917 s
+    Complete Vincetti example: 2.424 s
 
 
 
@@ -242,7 +242,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 12.070 seconds)
+   **Total running time of the script:** (0 minutes 2.468 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_01_antiresonant_fibre.py:
