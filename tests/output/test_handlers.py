@@ -1143,9 +1143,9 @@ def test_the_backend_group_survives_both_handlers(tmp_path, grid, schedule):
     """
     record = BackendRecord.from_metadata(
         {
-            "backend": "numba_cpu",
+            "backend": "native",
             "propagator_mode": "recompute",
-            "numba_threads": 4,
+            "thread_count": 4,
             "plan_flag": "measure",
             "wisdom_digest": "0" * 16,
         }
@@ -1162,30 +1162,30 @@ def test_the_backend_group_survives_both_handlers(tmp_path, grid, schedule):
         assert record is not None
         stored = record.backend
         assert stored is not None
-        assert stored.name == "numba_cpu"
+        assert stored.name == "native"
         assert stored.propagator_mode == "recompute"
-        assert stored.settings["numba_threads"] == 4
+        assert stored.settings["thread_count"] == 4
         assert stored.settings["wisdom_digest"] == "0" * 16
     with h5py.File(path, "r") as file:
-        assert file.attrs["backend"] == "numba_cpu"
+        assert file.attrs["backend"] == "native"
 
 
-def test_a_file_recording_a_removed_backend_still_opens_and_resumes(
+def test_a_backend_name_this_build_does_not_know_is_read_not_refused(
     tmp_path, grid, schedule
 ):
-    """A recorded name is not a request: old output keeps the name it was written with.
+    """A recorded name is not a request: a file keeps the name it was written with.
 
-    Hand-built, as 0.2.0 wrote a file with ``mlx`` before SEP 47 retired it; the name
-    is refused where a run asks for it (``tests/backends/test_registry.py``), never
-    where a file is read.
+    An unknown name is refused where a run asks for it
+    (``tests/backends/test_registry.py``), never where a file is read, so a file written
+    by a build with another backend opens and resumes here.
     """
-    name, settings = "mlx", {"device": "gpu", "fused": True}
+    name, settings = "elsewhere", {"device": "gpu", "fused": True}
     assert name not in BACKEND_NAMES
     record = BackendRecord.from_metadata(
         {"backend": name, "propagator_mode": "recompute", **settings}
     )
     metadata = dataclasses.replace(make_metadata(grid, schedule), backend=record)
-    path = tmp_path / "old.h5"
+    path = tmp_path / "elsewhere.h5"
     with HDF5Output(path) as handler:
         handler.open(metadata)
         handler.save(make_plane(grid, 0))
@@ -1200,7 +1200,7 @@ def test_a_file_recording_a_removed_backend_still_opens_and_resumes(
         assert written.name == name
         assert dict(written.settings) == settings
         assert name in repr(stored)
-    # The resume key holds the problem and the state: the old file is the same run.
+    # The resume key holds the problem and the state: the file is the same run.
     assert check_cache(path, metadata)
     assert check_cache(path, make_metadata(grid, schedule))
     assert read_resume_state(path).plane.z == make_plane(grid, 0).z
