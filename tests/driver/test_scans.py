@@ -416,6 +416,16 @@ class ClaimThenFail:
         yield  # a generator, as an executor's run is
 
 
+class ClaimThenReturn:
+    """An executor that claims every point and then ends without running any."""
+
+    def run(self, points, work):
+        claimed = list(points)
+        assert claimed
+        return
+        yield  # a generator, as an executor's run is
+
+
 def test_a_failed_executor_gives_its_claimed_points_back(tmp_path):
     scan = Scan("scan", power=[1.0, 2.0])
     path = tmp_path / "scan.h5"
@@ -429,9 +439,20 @@ def test_a_failed_executor_gives_its_claimed_points_back(tmp_path):
     assert output.status.tolist() == ["done", "done"]
 
 
-def test_a_failing_release_still_closes_the_writer(tmp_path, monkeypatch, caplog):
+@pytest.mark.parametrize(
+    ("executor", "raised"),
+    [
+        (ClaimThenFail(), (RuntimeError, "deliberate executor failure")),
+        (ClaimThenReturn(), (OSError, "deliberate write failure")),
+    ],
+    ids=["failing", "ending"],
+)
+def test_a_failing_release_still_closes_the_writer(
+    tmp_path, monkeypatch, caplog, executor, raised
+):
     """Giving the claims back writes to the file; when that fails too, the writer is
-    still closed, so its lock is released, and the scan's own error is reported."""
+    still closed, so its lock is released. A failing scan reports its own error and
+    logs the release's; a scan that ended reports the release's."""
     closed = []
     close = ScanWriter.close
 
@@ -447,18 +468,19 @@ def test_a_failing_release_still_closes_the_writer(tmp_path, monkeypatch, caplog
     path = tmp_path / "scan.h5"
     with (
         caplog.at_level(logging.ERROR, logger="solprop.driver._scan_run"),
-        pytest.raises(RuntimeError, match="deliberate executor failure"),
+        pytest.raises(raised[0], match=raised[1]),
     ):
         run_scan(
             Scan("scan", power=[1.0, 2.0]),
             build_point,
             output=path,
-            executor=ClaimThenFail(),
+            executor=executor,
             progress="none",
         )
     assert closed == [path]
-    # The release's own error is logged, not lost.
-    assert "deliberate write failure" in caplog.text
+    # The release's own error is logged when the scan's replaces it, not lost.
+    logged = "deliberate write failure" in caplog.text
+    assert logged == isinstance(executor, ClaimThenFail)
 
 
 def test_resume_builder_failure_keeps_the_completed_point_and_its_arrays(

@@ -156,6 +156,27 @@ def test_a_write_cut_short_leaves_no_part_of_a_frame_in_the_record(tmp_path):
     ]
 
 
+def test_a_record_that_cannot_be_cut_back_keeps_no_more_events(tmp_path, monkeypatch):
+    def refused(path, length):
+        raise OSError(30, "Read-only file system")
+
+    log = EventLog(tmp_path, "r1")
+    log._stream = ShortWriteOnce(log._stream)  # pyright: ignore[reportAttributeAccessIssue]
+    monkeypatch.setattr(record.os, "truncate", refused)
+    for index in range(3):
+        log.put(Event("r1", "row", {"index": index}))
+    log.put(Event("r1", "finished", {}))
+    log.close()
+    events, offset = read_events(tmp_path)
+    # Nothing follows the part of a frame: the reader stops before it. The summary
+    # counts only the rows kept, and still records the run's ending.
+    assert [(e.kind, e.data.get("index")) for e in events] == [("row", 0)]
+    assert offset < (tmp_path / EVENTS).stat().st_size
+    status = read_status(tmp_path)
+    assert status is not None and status["rows"] == 1
+    assert status["ending"]["kind"] == "finished"
+
+
 def test_the_job_record_round_trips_and_a_torn_one_reads_as_none(tmp_path):
     assert read_job(tmp_path) is None
     job = Job.here("r1", "direct", threads=4)

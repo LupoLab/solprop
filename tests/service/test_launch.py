@@ -465,6 +465,21 @@ def test_a_scan_stopped_before_it_starts_ends_as_a_scan(tmp_path):
     assert (summary["state"], summary["scan"]) == ("stopped", True)
 
 
+def test_a_recipe_that_is_not_toml_fails_as_a_plain_run(tmp_path):
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    folder = tmp_path / "r1"
+    spec = RunSpec("r1", str(folder), recipe='[scan\nname = "pressure"\n')
+    prepare(spec)
+    run_module.execute(spec)
+    (ending,) = [e for e in read_events(folder)[0] if e.terminal]
+    # Not a scan, since it cannot be read as one: its ending names the run's file.
+    assert ending.kind == "failed" and "scan" not in ending.data
+    assert ending.data["path"] == str(folder / "run.h5")
+    assert ending.data["output"] is None
+    assert summarise(folder)["state"] == "failed"
+
+
 def test_a_stop_pressed_before_a_continued_run_starts_is_obeyed(tmp_path):
     from solprop.service import run as run_module  # noqa: PLC0415 - only here
 
