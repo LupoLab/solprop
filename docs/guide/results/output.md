@@ -294,15 +294,16 @@ finished file holds no unused rows and its datasets' extents are exactly the cou
 Read a file through {py:func}`~solprop.output.hdf5.open_file`, not
 `h5py` directly, if it may be one a hard stop left behind.
 
-**What a hard stop can do.** The count is kept consistent; the file itself is not made
+**What a hard stop can do.** The count is kept consistent, but the file is not made
 crash-proof. A flush hands HDF5's buffers to the operating system without syncing them
-to disk, and the file is not opened in HDF5's single-writer/multiple-reader (SWMR) mode,
-so after a hard stop — a SIGKILL, an out-of-memory kill, a lost node — HDF5 does not
-promise that a file stopped while it was writing, part-way through a plane or while a
-dataset grew, can be opened at all, and a lost node or a power cut can also lose writes
-the operating system had not yet made. For a copy that a hard stop cannot damage,
-request [periodic snapshots](#periodic-snapshots-while-computing) with `snapshots=`:
-each copies the closed files, syncs the copies to disk and records their checksums, and
+to disk, and the file is not opened in HDF5's single-writer/multiple-reader (SWMR) mode.
+HDF5 therefore does not promise that a file stopped hard — by a SIGKILL, an
+out-of-memory kill or a lost node — while it was writing, part-way through a plane or
+while a dataset grew, can be opened at all; a lost node or a power cut can also lose
+writes the operating system had not yet made. For a copy that a hard stop cannot damage,
+request [periodic snapshots](#periodic-snapshots-while-computing) with `snapshots=` (an
+HDF5 run with `fields="all"`): each copies the closed files, syncs the copies to disk
+and records their checksums, and
 {py:func}`~solprop.output.snapshots.restore_snapshot` turns a verified one into working
 files to resume. A scan's collected file has the same exposure on the `Local` and `Pool`
 executors, which hold each completed point only in that file and take no snapshots; a
