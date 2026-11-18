@@ -454,6 +454,11 @@ that commits points rebuilds `layouts`, a copy of every completed point's arrays
 HDF5 does not reclaim the space of the copy it replaces, so the file grows by about the
 size of all the completed points' arrays as well as the new points' own: with 32 points
 of 256 kB of fields each, a rerun that committed one point grew the file by 8.7 MB.
+A `Local` or `Pool` scan updates its one HDF5 file in place, flushing after each write,
+and HDF5 does not guarantee a consistent file after a crash: a power loss or a kill while
+a write is in flight can leave the file unreadable, every committed point with it. A
+queue keeps each point as its own artifact, fsynced and renamed into place, from which
+`collect` builds the collected file again, so run long or precious scans with `Queue`.
 ```
 
 Inspect a generated Slurm script before submission:
