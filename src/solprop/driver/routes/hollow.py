@@ -147,9 +147,8 @@ ORTHONORMALITY_TOLERANCE = 1e-6
 
 The transform is one synthesis matrix and its dual, which represent an orthonormal
 basis and nothing else, so a set that is not one is propagating a different problem
-from the one it describes. The bound is loose because the overlaps are integrated
-adaptively by :func:`scipy.integrate.dblquad`, whose own accuracy on a set of Bessel
-profiles is around 1e-9.
+from the one it describes. This is the tolerance on the supplied mode set's
+overlaps, separate from the quadrature tolerance used to compute them.
 """
 
 _MINIMUM_RADIAL_ORDER = 32
