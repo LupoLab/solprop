@@ -163,21 +163,15 @@ The `gpu` lane checks build coherence, one complete device step and same-card
 repeats within a rounding bound on an accelerator build; host thread-count tests skip on a
 device build by design, and fixed-geometry same-card repeats stand in for them. The slow equivalence and
 M2/CtC witnesses are selected by node id so one marker remains one tier. With the build
-installed, the lanes run as:
+installed, the lanes' poe tasks hold every thread pool, the native one included, at one
+thread per worker, since eighteen xdist workers each initialising an eighteen-thread
+Kokkos pool would oversubscribe the machine. The full gate, slow and coverage lanes run in
+CI on the pull request, not locally (`AGENTS.md`, "Definition of done"). On an
+accelerator build (the task sets `SOLPROP_TEST_BACKEND=native`):
 
 ```console
-SOLPROP_NATIVE_THREADS=1 OMP_PROC_BIND=false uv run poe check
-SOLPROP_NATIVE_THREADS=1 OMP_PROC_BIND=false uv run poe test-slow
-SOLPROP_NATIVE_THREADS=1 OMP_PROC_BIND=false uv run poe cov
-SOLPROP_TEST_BACKEND=native SOLPROP_NATIVE_THREADS=1 uv run poe test-slow
-
-# On an accelerator build (the task sets SOLPROP_TEST_BACKEND=native):
 uv run poe test-gpu
 ```
-
-The two thread settings matter: eighteen xdist workers each initialising an
-eighteen-thread Kokkos pool oversubscribe the machine, and OpenMP binding pins each
-worker's threads to the same first cores.
 
 ### Shared code and out-of-process providers
 
