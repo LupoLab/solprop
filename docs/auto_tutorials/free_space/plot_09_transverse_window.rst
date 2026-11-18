@@ -258,10 +258,10 @@ requested radius, against a wall at eight times the radius.
  .. code-block:: none
 
       wall    status    edge share   field error   wall time (s)
-        1 R  off               nan      1.0e-01       0.11
-        2 R  warned        2.4e-05      4.0e-05       0.11
-        3 R  clear         3.6e-09      8.9e-09       0.15
-        8 R  reference                                  0.42
+        1 R  off               nan      1.0e-01       0.25
+        2 R  warned        2.4e-05      4.0e-05       0.29
+        3 R  clear         3.6e-09      8.9e-09       0.46
+        8 R  reference                                  1.95
 
 
 
@@ -302,7 +302,7 @@ by name. Here it needs 2.6 radii of room:
 
  .. code-block:: none
 
-    collar in 2.6 R of room: clear, field error 1.7e-06, removed 8.2e-05 of the energy, 1.94 s
+    collar in 2.6 R of room: clear, field error 1.7e-06, removed 8.2e-05 of the energy, 6.02 s
 
 
 
@@ -335,7 +335,7 @@ wider run. ``spatial_absorber=False`` removes the safety ramp, and
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 3.279 seconds)
+   **Total running time of the script:** (0 minutes 11.415 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_09_transverse_window.py:

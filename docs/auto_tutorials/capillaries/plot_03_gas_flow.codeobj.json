@@ -29,6 +29,34 @@
    "name": "Displayed"
   },
   {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.profiles",
+   "module_short": "solprop.profiles",
+   "name": "ZProfile"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ZProfile"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "typing",
+   "module_short": "typing",
+   "name": "Protocol"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "typing",
+   "module_short": "typing",
+   "name": "Generic"
+  },
+  {
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.profiles",
@@ -64,6 +92,34 @@
    "module": "solprop",
    "module_short": "solprop",
    "name": "Displayed.from_stages"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.profiles",
+   "module_short": "solprop.profiles",
+   "name": "ZProfile.from_stages"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ZProfile.from_stages"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "typing",
+   "module_short": "typing",
+   "name": "Protocol.from_stages"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "typing",
+   "module_short": "typing",
+   "name": "Generic.from_stages"
   },
   {
    "is_class": false,

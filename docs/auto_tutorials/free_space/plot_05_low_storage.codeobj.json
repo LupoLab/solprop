@@ -292,7 +292,7 @@
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "solprop.driver.simulation",
+   "module": "solprop.driver.settings",
    "module_short": "solprop.driver",
    "name": "SimulationSettings"
   },

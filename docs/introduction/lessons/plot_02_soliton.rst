@@ -317,7 +317,7 @@ beam that focuses and ionises in free space.
 
  .. code-block:: none
 
-    1.3 s; backend native
+    2.4 s; backend native
 
 
 
@@ -325,7 +325,7 @@ beam that focuses and ionises in free space.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.307 seconds)
+   **Total running time of the script:** (0 minutes 2.362 seconds)
 
 
 .. _sphx_glr_download_introduction_lessons_plot_02_soliton.py:

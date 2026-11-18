@@ -302,7 +302,7 @@ value.
     largest recorded quadrature diagnostic: 9.84e-10
     peak on-axis intensity 9.251e+14 W/cm²
     peak sampled electron density 1.619e+16 cm⁻³
-    15.8 s; backend native
+    13.3 s; backend native
 
 
 
@@ -320,7 +320,7 @@ illustrative calculation, not a fit to one measurement in that paper.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 15.794 seconds)
+   **Total running time of the script:** (0 minutes 13.287 seconds)
 
 
 .. _sphx_glr_download_introduction_lessons_plot_01_rdw.py:

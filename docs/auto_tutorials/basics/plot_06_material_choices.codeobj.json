@@ -239,7 +239,7 @@
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.nonlinear.optmat_rates",
-   "module_short": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear",
    "name": "OptmatRate"
   },
   {
@@ -260,7 +260,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.nonlinear.optmat_rates",
-   "module_short": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear",
    "name": "OptmatRate"
   }
  ],
@@ -1368,7 +1368,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.output.store",
-   "module_short": "solprop.output",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.metadata"
   },
   {
@@ -1575,7 +1575,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.nonlinear.optmat_rates",
-   "module_short": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear",
    "name": "OptmatRate"
   },
   {
@@ -1598,7 +1598,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.nonlinear.optmat_rates",
-   "module_short": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear",
    "name": "OptmatRate.maximum_field"
   },
   {
@@ -1621,7 +1621,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.nonlinear.optmat_rates",
-   "module_short": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear",
    "name": "OptmatRate.optmat_model"
   },
   {
@@ -1644,7 +1644,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.nonlinear.optmat_rates",
-   "module_short": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear",
    "name": "OptmatRate.status"
   },
   {
@@ -1667,7 +1667,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.nonlinear.optmat_rates",
-   "module_short": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear",
    "name": "OptmatRate.threshold"
   },
   {
@@ -1690,7 +1690,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.nonlinear.optmat_rates",
-   "module_short": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear",
    "name": "OptmatRate.uncertainty_factor"
   },
   {

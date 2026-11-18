@@ -334,7 +334,7 @@ This table samples an analytic Taylor model, rather than a FEM solution.
 
  .. code-block:: none
 
-    Tabulated examples completed in 1.61 s
+    Tabulated examples completed in 2.67 s
 
 
 
@@ -352,7 +352,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.607 seconds)
+   **Total running time of the script:** (0 minutes 2.672 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_02_tabulated_modes.py:

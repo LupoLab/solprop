@@ -19,7 +19,7 @@
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "solprop.modes.capillary",
+   "module": "solprop.modes.wall",
    "module_short": "solprop.modes",
    "name": "CoherentWall"
   },
@@ -231,7 +231,7 @@
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.modes.fill",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.fill",
    "name": "GasFillMixin"
   },
   {
@@ -730,8 +730,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.modes.capillary",
-   "module_short": "solprop.modes",
+   "module": "solprop.modes.wall",
+   "module_short": "solprop.modes.wall",
    "name": "VectorWallOperator"
   },
   {
@@ -1792,7 +1792,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.output.store",
-   "module_short": "solprop.output",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.metadata"
   },
   {

@@ -207,7 +207,7 @@ quadrature diagnostic visible when it has only one recorded value.
 
  .. code-block:: none
 
-    ran in 2.4 s
+    ran in 2.3 s
 
 
 
@@ -224,7 +224,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 2.387 seconds)
+   **Total running time of the script:** (0 minutes 2.309 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_08_planar.py:

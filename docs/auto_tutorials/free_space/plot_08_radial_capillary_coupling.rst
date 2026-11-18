@@ -468,7 +468,7 @@ whole entrance plane in the coupling's common measure.
       launched:       12.11 uJ
       launched share: 0.9997 of the incident energy
       uncaptured:     3.36 nJ
-      budget:         1.951e-02 of model_error 0.05
+      budget:         1.818e-02 of model_error 0.05
       angular:        6.250e-03 (field) incident field: cone-rule allocation (1 - cos
                       theta*) = model_error/8 of the cone, not a measured defect, plus the
                       tail
@@ -481,12 +481,13 @@ whole entrance plane in the coupling's common measure.
       source metric:  1.249e-05 (field) common measure M0 against the plane's native metric
       contrast:       n/a (model) not applied: a capillary wall is not a weakly guiding
                       dielectric
-      envelope:       1.503e-03 (model) capillary-he1m-scalar-vs-leaky-marcatili-2026-10
+      envelope:       1.676e-04 (field)
+                      capillary-he1m-scalar-vs-leaky-marcatili-field-2026-11
       passivity:      1.295e-08 (map) apparent gain within the model's defects, reported as
                       a model defect
       exterior:       zero
-    linear: s11 = 0.90618, s12 = 0.09229, s13 = 9.36e-04; launched 0.99953 of 12.114 uJ; budget 0.018
-      Kerr: s11 = 0.88235, s12 = 0.11562, s13 = 1.68e-03; launched 0.99971 of 12.114 uJ; budget 0.020
+    linear: s11 = 0.90618, s12 = 0.09229, s13 = 9.36e-04; launched 0.99953 of 12.114 uJ; budget 0.016
+      Kerr: s11 = 0.88235, s12 = 0.11562, s13 = 1.68e-03; launched 0.99971 of 12.114 uJ; budget 0.018
     change: ds11 = -2.383e-02, ds12 = +2.333e-02, ds13 = +7.40e-04
 
 
@@ -782,7 +783,7 @@ through a :class:`~solprop.coupling.elements.PlanarInterface`, before giving it
 
  .. code-block:: none
 
-    run time 9.6 s
+    run time 5.1 s
 
 
 
@@ -800,7 +801,7 @@ The design is
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 9.602 seconds)
+   **Total running time of the script:** (0 minutes 5.106 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_08_radial_capillary_coupling.py:

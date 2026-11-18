@@ -146,7 +146,7 @@ Fractions are evaluated at the end of each local pulse at every saved plane.
  .. code-block:: none
 
     Final population discrepancy: 0.004%
-    Complete example: 4.651 s
+    Complete example: 4.574 s
 
 
 
@@ -163,7 +163,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 4.774 seconds)
+   **Total running time of the script:** (0 minutes 4.690 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_capillaries_plot_05_envelope_plasma.py:

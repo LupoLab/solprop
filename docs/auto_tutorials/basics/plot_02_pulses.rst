@@ -242,7 +242,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.083 seconds)
+   **Total running time of the script:** (0 minutes 0.266 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_basics_plot_02_pulses.py:

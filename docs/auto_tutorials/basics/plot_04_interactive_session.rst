@@ -200,8 +200,8 @@ wall resonances can produce several roots; phase matching does not ensure low lo
 
  .. code-block:: none
 
-    2026-11-16 16:17:38,476 WARNING solprop.modes.antiresonant: Vincetti geometry outside published validation ranges: wall_thickness/tube_radius=0.0243902 outside [0.05, 0.2]
-    Vincetti RDW roots (nm): [636.0, 688.2]
+    2026-11-18 08:49:36,148 WARNING solprop.modes.antiresonant: Vincetti geometry outside published validation ranges: wall_thickness/tube_radius=0.0243902 outside [0.05, 0.2]
+    Vincetti RDW roots (nm): [635.9, 688.5]
 
 
 
@@ -251,7 +251,7 @@ One call. The pulse is a Gaussian, the default; the run takes a second or two.
                        plasma_work_defect, pressure, quadrature_error, species_density, ...
       between planes:  none
       run:             RunMetadata(multimode, field grid of 1728, 1 modes, native,
-                       2026-11-16T16:17:39.316305+00:00)
+                       2026-11-18T08:49:37.045685+00:00)
 
 
 
@@ -528,7 +528,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 12.055 seconds)
+   **Total running time of the script:** (0 minutes 12.448 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_basics_plot_04_interactive_session.py:
