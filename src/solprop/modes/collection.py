@@ -22,7 +22,7 @@ e_2\,\mathrm{d}A / \sqrt{N_1N_2}`, so a mode overlaps itself by one. The manual 
 """
 
 import logging
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import cast
 
@@ -46,7 +46,7 @@ from solprop.modes.protocol import (
     Mode,
     TransverseMeasure,
 )
-from solprop.modes.quadrature import _shared_limits
+from solprop.modes.quadrature import _normalisation, _shared_limits
 from solprop.modes.slab import SlabMode, SlabPolarisation
 from solprop.physdata.gases import Gas
 from solprop.physdata.glasses import GlassIndex
@@ -76,21 +76,6 @@ starts above its products' highest harmonic (:func:`_first_nodes`)."""
 _MAX_NODES = 1024
 """Most nodes of the second coordinate's rule, or four times the first rule if that is
 more: a set that needs more is refused."""
-
-
-def _normalisation(mode: Mode, z: float) -> float:
-    """Return a mode's closed-form normalisation.
-
-    - ``z``: position along the waveguide, m.
-    - Returns: ``N`` in W.
-    """
-    closed_form: Callable[[float], float] | None = getattr(mode, "normalisation", None)
-    if not callable(closed_form):
-        raise ModeError(
-            f"{type(mode).__name__} provides no normalisation(z), so its overlaps "
-            "cannot be normalised"
-        )
-    return float(closed_form(z))
 
 
 def overlap(first: Mode, second: Mode, z: float = 0.0) -> float:
