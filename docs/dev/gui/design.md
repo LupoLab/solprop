@@ -264,7 +264,7 @@ Home ─┬─ New simulation ──► Setup ──► Run ──► Analyse
       │    (a class)          ◄── edit and rerun ──┘
       ├─ Design a waveguide ──► "Simulate this" ──► Setup
       ├─ Open results ──► Analyse
-      └─ Scans (later, a mode of its own, started from a sheet)
+      └─ Scans (a mode of its own, started from a sheet)
 ```
 
 ```
@@ -301,7 +301,7 @@ Shown when nothing is open. It asks what you want to do:
 - **Design a waveguide** (7.4), for questions that need no pulse or run.
 - **Open results**: a file, or one of the recent runs listed here with its state.
 - **Open a setup**, and the recent setups.
-- **Scans**, later (12.7).
+- **Scans** are not here: a scan starts from a sheet (12.7).
 
 A class's examples (`Recipe.examples()`) are a short list on its sheet, not a dialog.
 
@@ -989,25 +989,26 @@ shows unsaved changes; autosave keeps a recovery copy. Window layout, last works
 units and recent files persist with `QSettings`. The first look is light (D18); a dark theme can
 follow the system later.
 
-### 12.7 Scans (designed now, built later)
+### 12.7 Scans
 
-Scans are a mode of their own (D16), started from a sheet, not a section of the Run stage.
+Scans are a stage of their own (D16), started from a sheet, not a section of the Run stage
+(`ui/scan_stage.py`, `ui/scan_editor.py`).
 
-- **Setup**: any numeric field, nested ones included (a second pulse's energy, a
-  profile knot), gets a "scan" toggle in its context menu that turns it into a list or
-  range (linear, log, explicit) over its parameter path. Pins re-solve at every point. The scan's setup shows
-  the variables, the grid shape and the total cost, the retention choice (`fields`:
-  none, chosen planes, all) and reductions (energy in a band, spectrum in a band, peak
-  power, …, from `processing.scans`).
-- **Run**: `Recipe.scan()` gives the `Scan`, a picklable builder (passing each point's seed)
-  and the keywords for `run_scan(..., executor=Local() | Pool(workers))`, the retention choice
-  among them. Live progress
-  needs solprop change S4 (today the scan reports finished points only).
-- **Results**: a scan browser shows any reduction as a map over two scan variables (or
-  lines over one), with the others as sliders; clicking a point opens that point's run
-  in Analyse (when its fields were retained).
-- **Data model**: a scan is a recipe plus a `[scan]` table of variables, so the recipe
-  format must allow it from format 1.
+- **Setup**: a numeric field's context menu offers "Scan this…", which adds its parameter
+  path, nested ones included (`pulses[0].energy`), to the recipe's `[scan]` table. The Scan
+  stage edits that table: each variable a list of values or a range
+  (`{start, stop, num, spacing}`) in the keyword's unit, and a `name` that names the scan's
+  files and seeds its points. Pins are solved again at every point. Beyond its statistics a
+  scan can record the energy and peak power within a band, each point's spectrum and each
+  point's pulse.
+- **Run**: the run helper runs `Recipe.scan()` through `run_scan(..., executor=Pool())`
+  into the scan's folder (`solprop.service.run`); a run from the sheet leaves the table
+  out and runs the setup once. The stage shows a bar for each variable and one for the
+  whole scan, advanced as points finish.
+- **Results**: one recorded quantity at a time, over the first variable with a line for
+  each value of the second, or, for a recorded spectrum or pulse, as a map over the first
+  variable; failed points are marked, and a point's context menu opens it as a setup.
+- **Data model**: a scan is a recipe plus a `[scan]` table of variables (recipe format 1).
 
 ### 12.8 View specifications
 
