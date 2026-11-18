@@ -85,9 +85,9 @@ The steady-flow profile is linear in ``p^2`` and its slope divides by ``p``, so 
 pressure the fill evaluates -- the default floor of
 :data:`DEFAULT_PRESSURE_FLOOR_FRACTION` times the highest stage included -- must square
 to a normal float. ``(1e-4 * 1e-150)^2 = 1e-308`` is the smallest normal double; below
-this the floored end squares to zero and the slope there is infinite. Found by
-hypothesis: a fill from 0 to 6.5e-159 bar passed the old exact-zero guard and returned
-an infinite derivative at the entrance.
+this the floored end squares to zero and the slope there is infinite, as for a fill from
+0 to 6.5e-159 bar (found by hypothesis), which an exact-zero guard alone admits with an
+infinite derivative at the entrance.
 """
 
 _DENSITY_SAMPLES: Final = 1024

@@ -6,8 +6,9 @@ evenly spaced observations over that interval, both ends included, and
 `save_planes` becomes optional (given neither, a run records 201), and a recipe's
 object-route `[build.settings]` takes `n_save` too. Migration:
 `save_planes=80` is refused with "pass `n_save=80`" in Python and "write `n_save = 80`"
-in a recipe; `save_planes=0.25` must be `[0.25]`; `n_save` and `save_planes` together,
-`n_save` below 2, and positions before the entrance or beyond the end are refused; a
+in a recipe, where 0.2.0 read a recipe's `save_planes = 80` as one plane at 80 m (#533);
+`save_planes=0.25` must be `[0.25]`; `n_save` and `save_planes` together, `n_save` below
+2, and positions before the entrance or beyond the end are refused; a
 position within eight ulps of an endpoint is that endpoint. Positions short of the length
 no longer end the run: it continues to the length and records it, so indices counted
 from the end (`field_planes=[-1, …]`) may name other planes, and a short window of a

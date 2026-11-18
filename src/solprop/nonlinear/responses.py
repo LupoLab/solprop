@@ -1103,7 +1103,10 @@ class PlasmaResponse:
         """
         # The annotation refuses another rule first wherever the annotations are
         # checked at run time, as in the test suite.
-        if self.integration not in {"band", "trapezoid"}:  # pragma: no cover
+        if self.integration not in {
+            "band",
+            "trapezoid",
+        }:  # pragma: no cover - its annotation refuses it first
             msg = f"integration must be 'band' or 'trapezoid', got {self.integration!r}"
             raise MaterialError(msg)
         if not isinstance(self.gas, Species):

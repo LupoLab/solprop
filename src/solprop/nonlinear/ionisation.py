@@ -503,7 +503,7 @@ class RunningIntegral:
             return
         # The annotation refuses another rule first wherever the annotations are
         # checked at run time, as in the test suite.
-        if self.policy != "band":  # pragma: no cover
+        if self.policy != "band":  # pragma: no cover - its annotation refuses it first
             msg = f"integration must be 'band' or 'trapezoid', got {self.policy!r}"
             raise GridError(msg)
         for name in ("dt", "band_edge"):

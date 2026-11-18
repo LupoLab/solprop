@@ -150,7 +150,7 @@ def design_running_integral(
         return RunningIntegral.trapezoid()
     # The annotation refuses another rule first wherever the annotations are checked
     # at run time, as in the test suite.
-    if policy != "band":  # pragma: no cover
+    if policy != "band":  # pragma: no cover - its annotation refuses it first
         msg = f"integration must be 'band' or 'trapezoid', got {policy!r}"
         raise TranslationError(msg)
     return _design(float(grid.dt_fine), float(grid.omega_max_window))

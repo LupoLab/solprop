@@ -1,0 +1,1 @@
+solprop requires optmat 0.10.0 or later. Its first real-gas density loads CoolProp in about 0.07 s instead of 0.46 s; no density, index or other recommended value changes, but every equation of state's identity does (optmat's `EVALUATION_VERSION` 2), so the configuration hash of a run with a gas fill changes and a run started on an earlier release finishes on that release.

@@ -8,9 +8,7 @@ SEP 47 section 7.3's structural evidence for the native session
 (:class:`solprop_native.session.NativeSession`): a ``sep47`` case is built as the
 worker builds it (``benchmarks.builders.build``) and run to its end through a minimal
 service loop -- advance, keep each observation's statistics and rows, export a kept
-plane's field once, acknowledge -- so that what is measured is the session's own. The
-transitional driver session it was first compared with was deleted in SEP 47's phase 5;
-the paired timings of Part II are the record of that comparison.
+plane's field once, acknowledge -- so that what is measured is the session's own.
 
 Each run reports its wall time, the time inside the native session's ``advance`` and
 ``export`` and the Python time outside them, its returns to Python by cause, the field

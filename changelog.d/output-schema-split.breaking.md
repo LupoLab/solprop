@@ -7,5 +7,5 @@ record types), `solprop.output.metadata` (`RunMetadata`, `SCHEMA_VERSION`,
 `FieldRetention` and the other save protocols). Import these names from
 `solprop.output`, which still exports the public ones, or from their new module. A run
 record names its record types by module (`solprop.output.records.GridRecord`), so every
-configuration hash differs from the one an earlier version wrote: a file or a scan
+configuration hash differs from the one 0.2.0 wrote: a file or a scan
 written before cannot be resumed or continued.

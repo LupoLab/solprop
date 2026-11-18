@@ -259,7 +259,7 @@ class _Session:
                 options=simulation.settings.execution_options(),
             )
             try:
-                found = backend._diagnostics()["fft_planning"]  # pyright: ignore[reportPrivateUsage]
+                found = backend._diagnostics()["fft_planning"]
             finally:
                 backend.close()
             wisdom |= cast(dict[str, str], found["captured"])

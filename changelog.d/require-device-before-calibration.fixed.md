@@ -1,1 +1,0 @@
-Fixed `SOLPROP_REQUIRE_DEVICE` refusing a run only after the first-use calibration: a native run that the setting refuses (a CPU build where a device build is required) now stops before the quick calibration is measured or published.

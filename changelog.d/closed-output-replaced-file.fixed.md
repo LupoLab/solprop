@@ -1,1 +1,0 @@
-A finished `HDF5Output` no longer reads a file that another run has since written or continued at its path, which it used to slice with its own plane count and label with its own record: the read is refused, naming the file, and `open_file` reads what the file now holds.

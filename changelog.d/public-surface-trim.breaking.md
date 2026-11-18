@@ -3,7 +3,7 @@ collections, materials and the mode protocol, and now also exports the derived
 quantities of `solprop.modes.base` (`beta`, `beta1`, `beta2`, `beta3`, `alpha`, `zdw`,
 `aeff`, `loss_length`, `db_per_m`, `transmission`); its numerical machinery (the wall
 families and limits, connections, quadrature rules, `GasFillMixin`, tolerances) is
-imported from its submodule, for example `from solprop.modes.capillary import
+imported from its submodule, for example `from solprop.modes.wall import
 worst_wall_limits`. `solprop.output` no longer re-exports `PlaneStore`, `PlaneLayout`,
 `CheckpointOutput`, `RetainingOutput`, `TerminalCheckpoint`, `StatedInput`,
 `serialise`, `resolve_metadata_write`, `package_versions` or the layout and convention
