@@ -188,7 +188,7 @@ python -c "import solprop_native as sn; sn.check_build(); print(sn.build_info().
 ```
 
 `python -m solprop_native` prints the build record, `build_info()`, as one sorted JSON
-object suitable for a run log:
+object suitable for a run log. Its fields include:
 
 - **provenance:** `package_version`, `git_commit` (with `+dirty` for a modified tree),
   `source_digest` (the SHA-256 of the C++ sources, `CMakeLists.txt` and the CMake modules
@@ -196,7 +196,7 @@ object suitable for a run log:
   `solprop_version_built_against`;
 - **dependencies:** `kokkos_version`, `kokkos_kernels_version`, `kokkos_fft_version`,
   `nanobind_version`;
-- **profile and BLAS:** `build_profile`, `cpu_baseline`, `gemm_provider`,
+- **profile and BLAS:** `build_profile`, `cpu_baseline`, `vector_math`, `gemm_provider`,
   `tpl_blas_enabled`, `blas_backend`, `blas_selection`, `blas_thread_policy`,
   `blas_threads`, `blas_threading`, `blas_library`;
 - **execution:** `execution_space`, `host_execution_space`, `device_backend`,
@@ -208,7 +208,7 @@ object suitable for a run log:
   ([Performance tuning](tuning.md#the-native-backends-pools));
 - **compilation:** `compiler`, `compiler_family`, `compiler_flags`, `cxx_standard`,
   `build_type`, `native_arch_enabled`, `aggressive_vectorization_enabled`,
-  `ipo_enabled`, `fast_math_enabled`, `optimization_policy`, `precision`, `layout`;
+  `ipo_enabled`, `fast_math_enabled`, `optimization_policy`, `layout`;
 - **host:** `python_version`, `numpy_version`, `platform_machine`.
 
 The library paths (`fft_library`, `blas_library`, `openmp_library`) are the files
