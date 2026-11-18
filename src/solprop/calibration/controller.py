@@ -162,8 +162,16 @@ _CLEARED = (
     "SOLPROP_NATIVE_WAIT",
     "SOLPROP_NATIVE_WAIT_REQUEST",
     "OMP_NUM_THREADS",
+    "SOLPROP_BLAS_THREADS",
+    "SOLPROP_OVERSUBSCRIBE",
+    "SOLPROP_NATIVE_BAND_TILES",
+    "SOLPROP_NATIVE_FORWARD_PACK",
 )
-"""The user's thread, wait and wisdom settings, which a child never inherits."""
+"""The user's thread, wait, wisdom and kernel-form settings: a child inherits none.
+
+A stored row records only the settings it chose (``fitted_under``), so a child timed
+under an override of the user's would choose for a process that later runs without it.
+"""
 
 
 @dataclass(frozen=True)
@@ -194,11 +202,12 @@ class Candidate:
     def environment(self, base: Mapping[str, str]) -> dict[str, str]:
         """Return a child's environment, which never calibrates.
 
-        `base` without the user's thread, wait and wisdom settings, with this
-        candidate's, and with FFT plans at estimate, so that no stage outside the
-        FFT stage spends its time planning (SEP 46 section 6.3). NumPy's and SciPy's
-        BLAS threads go idle at once (``solprop._process.child_environment``),
-        so that they do not spin on the CPUs being timed.
+        `base` without the user's thread, wait, wisdom and kernel-form settings,
+        with this candidate's, and with FFT plans at estimate, so that no stage
+        outside the FFT stage spends its time planning (SEP 46 section 6.3). NumPy's
+        and SciPy's BLAS threads go idle at once
+        (``solprop._process.child_environment``), so that they do not spin on the
+        CPUs being timed.
 
         Parameters
         ----------

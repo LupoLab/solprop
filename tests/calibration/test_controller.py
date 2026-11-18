@@ -208,6 +208,11 @@ def test_a_childs_environment_drops_the_users_settings() -> None:
         "SOLPROP_THREADS": "4",
         "OMP_WAIT_POLICY": "active",
         "SOLPROP_FFTW_WISDOM": "/w",
+        # Kernel-form and pool overrides change what is timed, and no row records them.
+        "SOLPROP_NATIVE_BAND_TILES": "0",
+        "SOLPROP_NATIVE_FORWARD_PACK": "0",
+        "SOLPROP_BLAS_THREADS": "2",
+        "SOLPROP_OVERSUBSCRIBE": "1",
         "HOME": "/h",
     }
     built = Candidate().environment(base)
