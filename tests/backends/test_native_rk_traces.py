@@ -25,9 +25,9 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
-from tests.backends.native_trace_marches import TraceRungeKuttaMarch
-from tests.backends.rk_traces import Scenario, _HostHarness, same_trace
 
+from backends.native_trace_marches import TraceRungeKuttaMarch
+from backends.rk_traces import Scenario, _HostHarness, same_trace
 from solprop.backends import available
 from solprop.backends.records import RungeKuttaPolicy
 from solprop.exceptions import BackendError, ConvergenceError

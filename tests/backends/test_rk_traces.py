@@ -20,7 +20,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from tests.backends.rk_traces import Scenario, run_scenario, same_trace
+
+from backends.rk_traces import Scenario, run_scenario, same_trace
 
 CORPUS = Path(__file__).parents[1] / "data" / "rk_traces.json.gz"
 
