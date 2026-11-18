@@ -54,9 +54,6 @@ pytestmark = [
     pytest.mark.filterwarnings("ignore:the temporal absorber attenuates"),
     # Windows kept tight for speed: the window's edge isn't what this module tests.
     pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
-    # A bin off the eigenbasis route takes the host march, which is the route these
-    # tests form actions for and never step.
-    pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning"),
 ]
 
 solprop_native = pytest.importorskip("solprop_native")
