@@ -113,8 +113,12 @@ takes a `plot_` prefix. {py:func}`solprop.processing.time.energy` is `sol.energy
 {py:func}`solprop.plotting.propagation.plot_energy` is `sol.plot_energy`, the figure; likewise
 `sol.plot_stats`. `numpy` and `matplotlib.pyplot` are deliberately **not** re-exported, so
 `from solprop.sol import *` never shadows your own `np` and `plt`. A test compares
-`sol.__all__` with the public names of the home modules, so the namespace cannot fall
-behind them. `SpecifiedMode` is here, but the dispersion data it is built from is not:
+`sol.__all__` with the public names of nine home modules (`solprop.plotting`,
+`solprop.processing`, `solprop.processing.compression`, `solprop.tools`,
+`solprop.optics`, `solprop.driver.interface`, `solprop.nonlinear`,
+`solprop.nonlinear.ionisation` and `solprop.profiles`), so the namespace cannot fall
+behind those; what it takes from other modules, such as the grids, pulses, modes and
+output, is a selection that no test checks for completeness. `SpecifiedMode` is here, but the dispersion data it is built from is not:
 `TaylorDispersion`, `TabulatedDispersion`, `DispersionPath`, `ConstantDispersion`,
 `InterpolatedDispersion` and `as_dispersion_path` are imported from
 {py:mod}`solprop.nonlinear.gnlse`, where they live beside the mapping that uses them.
