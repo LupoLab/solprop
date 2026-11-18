@@ -864,6 +864,31 @@ def _release_uncommitted(
             _release(writer, index, claim)
 
 
+def _end_execution(
+    executor: Executor,
+    build: Callable[[ScanPoint], Simulation],
+    writer: ScanWriter | None,
+    output: Path | str,
+    claims: Mapping[int, tuple[str, float]],
+    *,
+    failing: bool,
+) -> None:
+    """Give back the uncommitted claims, then record provenance and close the writer.
+
+    The writer, and the lock it holds, are closed whatever the release did. A scan
+    already failing, most likely on the same file, reports its own error rather than
+    the release's, which follows from it and is logged.
+    """
+    try:
+        _release_uncommitted(writer, claims)
+    except Exception:
+        if not failing:
+            raise
+        logger.exception("the failing scan could not give back its claimed points")
+    finally:
+        _finish_execution(executor, build, writer, output)
+
+
 def execute_scan(
     scan: Scan,
     build: Callable[[ScanPoint], Simulation],
@@ -938,6 +963,7 @@ def execute_scan(
         writer.record_recipe(recipe)
         jobs = _jobs(scan, writer, retry_failed, stop, claims)
     counts = dict.fromkeys(("finished", "stopped"), 0)
+    completed = False
     try:
         events.reporter.scan_started(len(scan))
         for result in executor.run(jobs, work):
@@ -956,12 +982,12 @@ def execute_scan(
                 counts["stopped"],
             )
         events.reporter.scan_finished()
+        completed = True
     finally:
         work.close()
         if display is not None:
             display.close()
-        _release_uncommitted(writer, claims)
-        _finish_execution(executor, build, writer, output)
+        _end_execution(executor, build, writer, output, claims, failing=not completed)
     return ScanOutput(output)
 
 
@@ -1024,8 +1050,10 @@ def _finish_execution(
         policy["script_hash"] = hashlib.sha256(Path(source).read_bytes()).hexdigest()
         policy["script"] = source
     if writer is not None:
-        writer.record_execution(type(executor).__qualname__, policy)
-        writer.close()
+        try:
+            writer.record_execution(type(executor).__qualname__, policy)
+        finally:
+            writer.close()
     elif isinstance(executor, Queue) and executor.path is not None:
         collect(executor.path, output)
     elif isinstance(executor, Slurm) and executor.queue_path is not None:
