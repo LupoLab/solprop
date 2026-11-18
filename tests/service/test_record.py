@@ -119,6 +119,43 @@ def test_an_event_that_cannot_be_written_costs_the_record_not_the_run(tmp_path):
     assert [event.kind for event in read_events(tmp_path)[0]] == ["finished"]
 
 
+class ShortWriteOnce:
+    """A record's stream whose second write stops halfway, as a disk filling up."""
+
+    def __init__(self, stream) -> None:
+        self.stream = stream
+        self.writes = 0
+
+    def write(self, data: bytes) -> int:
+        self.writes += 1
+        if self.writes == 2:
+            self.stream.write(data[: len(data) // 2])
+            self.stream.flush()
+            raise OSError(28, "No space left on device")
+        return self.stream.write(data)
+
+    def flush(self) -> None:
+        self.stream.flush()
+
+    def close(self) -> None:
+        self.stream.close()
+
+
+def test_a_write_cut_short_leaves_no_part_of_a_frame_in_the_record(tmp_path):
+    log = EventLog(tmp_path, "r1")
+    log._stream = ShortWriteOnce(log._stream)  # pyright: ignore[reportAttributeAccessIssue]
+    for index in range(3):
+        log.put(Event("r1", "row", {"index": index}))
+    log.put(Event("r1", "finished", {}))
+    log.close()
+    events = read_events(tmp_path)[0]
+    assert [(e.kind, e.data.get("index")) for e in events] == [
+        ("row", 0),
+        ("row", 2),
+        ("finished", None),
+    ]
+
+
 def test_the_job_record_round_trips_and_a_torn_one_reads_as_none(tmp_path):
     assert read_job(tmp_path) is None
     job = Job.here("r1", "direct", threads=4)

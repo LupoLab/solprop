@@ -503,6 +503,8 @@ class EventLog:
         self._status: dict[str, Any] = {"run_id": run_id, "updated": time.time()}
         self._written = -float("inf")
         self._stream = (folder / EVENTS).open("ab")
+        self._length = self._stream.tell()  # appending starts at the end
+        self._intact = True
         self._thread = threading.Thread(
             target=self._write, name="solprop-record", daemon=True
         )
@@ -582,11 +584,34 @@ class EventLog:
 
     def _append(self, event: Event) -> bool:
         """Append one event to ``events.bin``; return whether it was written."""
+        if not self._intact:
+            return False
         try:
-            self._stream.write(encode(_value(event)))
+            frame = encode(_value(event))
+            self._stream.write(frame)
             self._stream.flush()
-        except OSError, ServiceError:
-            # A full disk or an unwritable value costs the record, not the run.
+        except ServiceError:
+            return False  # an unwritable value costs that event, not the run
+        except OSError:
+            # A full disk costs the event, not the run. Part of the frame may have
+            # been written, and a reader would take the frames after it for its rest.
+            self._intact = self._cut_back()
+            return False
+        self._length += len(frame)
+        return True
+
+    def _cut_back(self) -> bool:
+        """Cut ``events.bin`` back to its whole frames and reopen it; return success.
+
+        Closing drops what the failed write left buffered; a record that cannot be cut
+        back keeps no more events, so none follows a part of a frame.
+        """
+        with contextlib.suppress(OSError):
+            self._stream.close()
+        try:
+            os.truncate(self.folder / EVENTS, self._length)
+            self._stream = (self.folder / EVENTS).open("ab")
+        except OSError:
             return False
         return True
 
