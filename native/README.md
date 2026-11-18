@@ -41,6 +41,11 @@ The documentation covers both:
 - [Performance tuning](https://solprop.readthedocs.io/en/stable/guide/performance/tuning.html):
   threads, BLAS settings and profiling with Kokkos Tools
 
+Importing the package starts its OpenMP runtime: start child processes after it with the
+`spawn` start method. A `fork` child inherits the runtime without its threads and usually
+hangs at its first parallel region; so can a `forkserver` child when the main module
+imports the package.
+
 ## Development
 
 The package is a member of the repository's uv workspace and shares its environment and
@@ -121,7 +126,7 @@ and `tests/test_band_stress.py` with `SOLPROP_NATIVE_BAND_TILES=4`; on a GPU,
 
 ```sh
 uv run poe check-native   # at the repository root; runs native/scripts/check.sh
-uv run poe check-all      # solprop's gate, then this one
+uv run poe check-all      # solprop's, this and the front end's gates (gui extra)
 uv run poe fmt-native     # format every tracked C++ file in place
 uv run poe tidy-native    # clang-tidy on the C++ files changed from main, or on those named
 ```
@@ -139,7 +144,7 @@ weekly in `.github/workflows/native-deep.yml` and report without gating: source
 coverage, the extension under ASan and UBSan, and an include-cleaner report.
 `SOLPROP_NATIVE_QUALIFICATION_PYTHON=/path/to/python` installs the wheel into that
 environment and runs the Python tests there instead. A change to the backend also passes
-solprop's own suite with this package installed (`poe check-all`, or `uv run poe test`
+solprop's own suite with this package installed (`poe check`, or `uv run poe test`
 with `SOLPROP_TEST_BACKEND=native`).
 
 ### The kernel contract
@@ -183,7 +188,7 @@ The private extension `_core` is a thin seam (solprop SEP 52 section 5.3):
   the workspace's Runge-Kutta (or low-storage) and Adams engines, which solprop's
   tests run through the same engine protocols as the reference's.
 - **Generated stubs.** `_core.pyi` and `_core_testing.pyi` are generated whole by
-  nanobind's stubgen (`scripts/problem_stub.py`; `--check` in the lint stage). A binding
+  nanobind's stubgen (`scripts/stubs.py`; `--check` in the lint stage). A binding
   that takes or returns a record names its Python type with `nb::sig`, so the stubs
   stay typed: edit the binding and regenerate, never the stub.
 

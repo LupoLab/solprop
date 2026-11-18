@@ -58,7 +58,7 @@ from solprop.backends import available
 from solprop.backends.exponential import FLOW_MAX_SQUARINGS
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.coupled_flow import _triangular_exponential
-from solprop.boundaries import absorber
+from solprop.boundaries import absorber, no_absorber
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation, prop_capillary
 from solprop.exceptions import (
@@ -345,6 +345,26 @@ def test_the_constructor_refuses_a_conditioning_bound_it_cannot_meet():
         )
 
 
+def test_a_condition_limit_of_one_is_refused_by_name_not_by_a_domain_error():
+    """One is the least limit a flow takes, and it admits no step against a spread."""
+    block = np.zeros((2, 1, 2, 2, 3), dtype=complex)
+    block[:, 0, 0, 0], block[:, 0, 1, 1], block[:, 0, 0, 1] = -1.0, -3.0, 50.0
+    with pytest.raises(
+        TranslationError, match="a limit of one admits no positive step"
+    ):
+        frozen_residual_flow(
+            np.linspace(1e15, 2e15, 3),
+            np.array([0.0, 5e-4, 1e-3]),
+            block,
+            None,
+            dz_max=1e-1,
+            condition_limit=1.0,
+            representation_error=0.0,
+            gauge_id="lab",
+            certificate_id="frozen-residual",
+        )
+
+
 def test_the_constructor_checks_its_own_arguments():
     """A bad generator shape, dz_max or limit is named before anything is decomposed."""
     omega = np.array([2.3e15, 2.4e15])
@@ -424,7 +444,7 @@ def test_the_route_records_its_flow_on_the_modal_identity():
     assert record["residual_norm_bound"] == 0.0
     assert record["radius"] == RADIUS
     assert 0.0 < float(cast("float", record["quasi_static"])) < 0.25
-    assert metadata.schema_version == 4
+    assert metadata.schema_version == 3
     assert capability_of(metadata) == "modal"
     assert "mean impedance coherent wall" in str(metadata)
     # Nothing that is not a scalar reaches the resume key.
@@ -669,13 +689,25 @@ def test_the_wall_block_refuses_a_mode_set_it_is_not_derived_for(modes, expected
 
 
 def test_the_default_glass_asked_for_by_name_is_the_same_guide():
-    wall_operator(
-        [
-            MarcatiliMode(RADIUS, "He", 1.0, m=1),
-            MarcatiliMode(RADIUS, "He", 1.0, m=2, cladding=fused_silica()),
-        ],
-        np.array([2.356e15, 2.4e15, 2.5e15]),
-    )
+    """Naming the default cladding builds the default guide, alone or beside it."""
+    omega = np.array([2.356e15, 2.4e15, 2.5e15])
+
+    def block(*claddings):
+        modes = [
+            MarcatiliMode(RADIUS, "He", 1.0, m=m, cladding=cladding)
+            for m, cladding in enumerate(claddings, start=1)
+        ]
+        return wall_operator(modes, omega)
+
+    default = block(None, None)
+    # The block reads its guide from the lowest channel, so the glass is named there
+    # too; beside the default it must not be refused as another cladding.
+    for claddings in ((fused_silica(), fused_silica()), (None, fused_silica())):
+        operator = block(*claddings)
+        # Exact: the same glass sampled by the same code is the same guide, not one
+        # that agrees to rounding.
+        for name in ("generator", "coupling", "wavenumber", "impedance"):
+            assert np.array_equal(getattr(operator, name), getattr(default, name)), name
 
 
 def test_a_varying_section_takes_the_frozen_residual_route():
@@ -1105,9 +1137,11 @@ def test_ten_steps_apply_the_block_the_translation_layer_declared():
     pure exponential, so the only departure is the rounding of ten products of a
     Schur action by a scalar propagator. What this adds to the operator tests is
     that the step loop applies the operator it was given, in the right convention,
-    with the carrier and the block multiplied rather than added.
+    with the carrier and the block multiplied rather than added. The case's weak
+    collar is left out: a single bin fills the whole window, collar included, and the
+    collar would take 2.2e-7 of its amplitude over this length.
     """
-    simulation = capillary(wall=CoherentWall(), modes=1)
+    simulation = capillary(wall=CoherentWall(), modes=1, absorber=no_absorber(GRID))
     problem = simulation.translate()
     flow = problem.linear.coupled_flow
     assert flow is not None
@@ -1333,11 +1367,13 @@ def test_the_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path):
 @pytest.mark.medium
 @pytest.mark.parametrize("entry", ["prop_capillary", "prop_gnlse"])
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])
-def test_the_prop_entry_points_are_what_they_were(entry, backend, ndarrays_regression):
-    """Ten steps of each entry point are the run they were, on every backend here.
+def test_the_prop_entry_points_match_their_recorded_final_states(
+    entry, backend, ndarrays_regression
+):
+    """Ten steps of each entry point match their recorded final state, on each backend.
 
-    A wall is an **opt-in** leaf, so a run that declares none must be the run it was
-    before the leaf existed. The final plane matches its record within the matched
+    A wall is an **opt-in** leaf, so a run that declares none is the run without the
+    leaf. The final plane matches its record within the matched
     march's rounding budget (``tests/state_records.py``), which a change to the
     route's operator above rounding exceeds.
 

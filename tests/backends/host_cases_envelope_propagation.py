@@ -9,7 +9,6 @@ import warnings
 import numpy as np
 
 from backends.host_cases_envelope_qualification import InstantaneousPolynomial
-from envelope_oracle_angular import order_record
 from sessions.runs import run as session_run
 from sessions.runs import summary as run_summary
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -117,65 +116,6 @@ def propagate_pair(
             results["field"]["final_energy"] - results["envelope"]["final_energy"]
         )
         / results["field"]["final_energy"],
-    }
-
-
-def refinement_record(rows, reference, expected_order):
-    """Keep an independent numerical floor beside every propagation order study."""
-    floor = (
-        128
-        * max(one["n_to"] for one in reference["models"].values())
-        * np.finfo(float).eps
-    )
-    return {
-        "levels": rows,
-        "reference": reference,
-        "fraction_orders": {
-            kind: order_record(
-                [
-                    abs(
-                        one["models"][kind]["final_fraction"]
-                        - reference["models"][kind]["final_fraction"]
-                    )
-                    / reference["models"][kind]["final_fraction"]
-                    for one in rows
-                ],
-                expected_order,
-                floor,
-            )
-            for kind in ("field", "envelope")
-        },
-    }
-
-
-def propagation_studies():
-    return {
-        "mixture_temporal_levels": [mixture_propagation(value) for value in (4, 8, 16)],
-        "model_comparisons": [
-            propagate_pair(cycles, depletion, ratio)
-            for cycles in (2, 8)
-            for depletion in (1e-3, 0.05, 0.5)
-            for ratio in (0.0, 0.35, 1.0)
-        ],
-        "temporal_refinement": [
-            refinement_record(
-                [
-                    propagate_pair(2, 0.05, ratio, oversampling=value)
-                    for value in (4, 8, 16)
-                ],
-                propagate_pair(2, 0.05, ratio, oversampling=32),
-                2,
-            )
-            for ratio in (0.0, 0.35, 1.0)
-        ],
-        "step_refinement": [
-            refinement_record(
-                [propagate_pair(2, 0.05, ratio, steps=value) for value in (2, 4, 8)],
-                propagate_pair(2, 0.05, ratio, steps=16),
-                5,
-            )
-            for ratio in (0.0, 0.35, 1.0)
-        ],
     }
 
 

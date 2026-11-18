@@ -1077,8 +1077,8 @@ index entry and tracking issue change then.
   benchmark tests. A first native run in a fresh script on the Xeon's socket printed the
   notice once, calibrated and ran in 19 s; the second run did not calibrate.
 - **Limitations:** §7 items 1–3, 13 and 16 need the A/B campaign on the machines of §7
-  item 1 (the Xeon quiet, DMOG's EPYC 7763, Google C4D under Linux and Windows and C4A,
-  and the maintainer's M5 Max), which is still to run, as is phase 6.
+  item 1 (the Intel Xeon Gold 6240 quiet, the AMD EPYC 7763 node, Google C4D under Linux
+  and Windows and C4A, and the maintainer's M5 Max), which is still to run, as is phase 6.
 
 ### Verification report — section 7 items 1–4, and the revisions it forced
 

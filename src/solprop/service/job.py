@@ -4,11 +4,16 @@
 
 """A run with no window: ``python -m solprop.service.job FOLDER`` (design 13.4).
 
-What a window's worker does over pipes, this does from a folder alone. It reads the
-run's spec from ``spec.json`` (:data:`~solprop.service.worker.SPEC`), runs it with its
-record (:mod:`solprop.service.record`), and exits. It is how a run starts directly on a
+Every run is this process, and needs nothing but its folder. It reads the run's spec
+from ``spec.json`` (:data:`~solprop.service.worker.SPEC`), runs it with its record
+(:mod:`solprop.service.record`), and exits. It is how a run starts directly on a
 machine, as a detached process, and inside a Slurm job; it outlives whoever started it,
 and anyone who can read the folder can follow it.
+
+``--slurm`` says the process is the Slurm job solprop submitted for the run (its batch
+script, :func:`~solprop.service.launch.slurm_script`, passes it), so the run records
+that job as its own. Without it the run is a direct one, even inside a Slurm
+allocation: the allocation is not the run's to cancel.
 """
 
 import json
@@ -30,7 +35,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     Parameters
     ----------
     argv : Sequence of str or None, optional
-        The folder, alone; ``None`` reads the command line.
+        The folder, after ``--slurm`` for the Slurm job solprop submitted for the run;
+        ``None`` reads the command line.
 
     Returns
     -------
@@ -39,8 +45,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         record says), 2 when the folder holds no spec.
     """
     arguments = list(sys.argv[1:] if argv is None else argv)
+    slurm = arguments[:1] == ["--slurm"]
+    if slurm:
+        del arguments[0]
     if len(arguments) != 1:
-        print("usage: python -m solprop.service.job FOLDER", file=sys.stderr)  # noqa: T201
+        usage = "usage: python -m solprop.service.job [--slurm] FOLDER"
+        print(usage, file=sys.stderr)  # noqa: T201
         return 2
     folder = Path(arguments[0]).resolve()
     try:
@@ -49,8 +59,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (OSError, ValueError, ServiceError) as error:
         print(f"no run to start in {folder}: {error}", file=sys.stderr)  # noqa: T201
         return 2
-    launcher = "slurm" if os.environ.get("SLURM_JOB_ID") else "direct"
-    spec = replace(spec, folder=str(folder), launcher=launcher)
+    spec = replace(spec, folder=str(folder), launcher="slurm" if slurm else "direct")
     if spec.threads is not None:
         os.environ["SOLPROP_THREADS"] = str(spec.threads)
     from solprop.service.run import execute  # noqa: PLC0415 - after the threads

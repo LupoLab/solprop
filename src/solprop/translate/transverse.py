@@ -205,7 +205,7 @@ def _intermediate_return(  # noqa: PLR0917 - the design and its weights
     SEP 40 section 4.4: content between the protected band and the ramp is absorbed
     at the edge only to ``Gamma(kappa)``; its return is ``exp(-2 Gamma)`` with the
     exact symbol per frequency, weighted by the launch's spectrum. The band is taken in
-    sixteen contiguous groups of bins, each at its power-weighted wavenumber.
+    at most 128 contiguous groups of bins, each at its power-weighted wavenumber.
 
     - ``axes``: the grid's axes.
     - ``kappa_p``: the protected band's edge per axis.

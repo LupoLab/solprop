@@ -165,7 +165,7 @@ this way.
 A free-space grid has a hard edge: the radial transform holds the field at zero at its
 outer radius, and the Cartesian, line and planar grids are periodic, so light that
 reaches the edge is reflected or wraps round into the aperture, and the answer is wrong.
-solprop's answer, from [SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md),
+solprop's answer, from [SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md),
 is **room first, detection always, and absorption only for declared fast light**.
 
 **Room first.** The grids take `collar_fraction`, the room outside the requested size,
@@ -190,10 +190,10 @@ ceiling on the step: a low-source run, which would otherwise take long steps, ta
 more. The backstop `B` covers a spectrum that broadens after a read: it starts at `L/16`
 and doubles at each read whose spread has not grown by a tenth since it started, up to
 `L/4`, and starts again when it has. A beam whose spectrum holds, far from the edge, then
-reads at `4g/v` and its steps are left alone; on the suite's `line` case the reads no
-longer add a step. A fixed schedule cannot be held to it, and reports itself as `coarse`. A read covers
+reads at `4g/v` and its steps are left alone; on the suite's `line` case the reads add
+no step. A fixed schedule cannot be held to it, and reports itself as `coarse`. A read covers
 every frequency, and `native` takes it where the state lives, with only numbers crossing
-([SEP 44](../../dev/seps/archive/sep-0044-native-edge-read.md)).
+([SEP 44](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0044-native-edge-read.md)).
 
 Every run reports a `transverse_status` in its monitor record and says at the start what
 it will be able to report: `clear` (read at the spacing, below the warning), `warned`,
@@ -252,7 +252,7 @@ For one frequency, with $k_z(\kappa) = \sqrt{k^2 - \kappa^2}$ and a collar of po
 $\alpha(x) = \alpha_0 P(x/w)$ over a width $w$, a component of transverse wavenumber
 $\kappa$ crossing the collar and coming back is attenuated in field by the local WKB
 integral with the exact symbol
-([SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md), section 4.2),
+([SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md), section 4.2),
 
 $$
 \Gamma(\kappa; \alpha_0) = 2 w \int_0^1 \left|\operatorname{Im} q\right| ds,
@@ -384,9 +384,11 @@ output = simulation.run()
 The empty response sequence gives exact linear diffraction in the selected temporal
 frame; add response objects — a `KerrResponse`, a plasma response — to the sequence for
 nonlinear propagation ([nonlinear responses](../media/nonlinear.md)). The absolute tolerance is
-in the stored Hankel spectrum's units, V m. The settings carry no absorber, so the collar
-here absorbs nothing ([above](#spatial-collar-and-statistics)). Translation is cached, so
-a second `run()` reuses it.
+in the stored Hankel spectrum's units, V m. The settings declare no absorber, so the run
+takes the grid's default temporal and spectral collar, applied once per accepted step
+(`absorber=False` switches it off); with no `spatial_absorber=` the transverse boundary
+is the safety ramp alone ([above](#spatial-collar-and-statistics)). Translation is
+cached, so a second `run()` reuses it.
 
 A spatial run's output metadata stores the spatial axes, frequency ordering,
 integration weights, collar, units and transform scalings. The state-layout names are

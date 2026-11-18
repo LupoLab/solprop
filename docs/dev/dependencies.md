@@ -18,23 +18,23 @@ need no exception for them.
 
 | package | purpose | notes |
 |---|---|---|
-| solprop-native, at solprop's own version | the backend solprop runs on ([SEP 43](seps/archive/sep-0043-retire-numba-cpu.md)) | [below](#the-native-backend-package); no environment markers, so solprop's supported platforms are the ones it installs on |
+| solprop-native, at solprop's own version | the backend solprop runs on ([SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md)) | [below](#the-native-backend-package); no environment markers, so solprop's supported platforms are the ones it installs on |
 | numpy ≥ 2.5 | arrays | the array type at every layer; the APIs used are NumPy 2.0's (`concat`, `trapezoid`, `copy=`) and 2.3.2 is the first release with 3.14 wheels on all three platforms, but under 2.3 and 2.4 the free-space reference runs produce NaN and about 200 free-space and dispersive tests fail; the cause is not yet identified, so the floor stays at 2.5 until it is |
 | scipy ≥ 1.18 | `scipy.fft` (reference backend), `special`, `optimize`, `interpolate`, `integrate.quad_vec`, `signal`, `constants` | root finding, special functions, interpolation and adaptive quadrature throughout; the newest API used is `signal.ShortTimeFFT` (1.12), but optmat requires 1.18, the release its stored fits reproduce from |
 | matplotlib ≥ 3.10.7 | plotting | earlier 3.10 releases call pyparsing APIs that current pyparsing deprecates, which the test suite's warnings-as-errors refuses |
 | h5py ≥ 3.15 | HDF5 output | first release with 3.14 wheels on all three platforms |
-| optmat[gas] ≥ 0.10.0 | built-in material models: gas dispersion, Kerr, equation of state and transport; solids; gas and silica Raman responses; gas ionisation rates ([SEP 3](seps/archive/sep-0003-optmat-materials.md)) | the same maintainers' curated-data package; never imported at `import solprop`, since its registries take about a second to import; 0.9 reads only the data a model needs and says which gases each rate model covers; 0.10 loads CoolProp without its superancillaries, so the first real-gas density takes 0.07 s rather than 0.46 s, and versions its equations of state (`EVALUATION_VERSION` 2) |
+| optmat[gas] ≥ 0.10.0 | built-in material models: gas dispersion, Kerr, equation of state and transport; solids; gas and silica Raman responses; gas ionisation rates ([SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md)) | the same maintainers' curated-data package; never imported at `import solprop`, since its registries take about a second to import; 0.9 reads only the data a model needs and says which gases each rate model covers; 0.10 loads CoolProp without its superancillaries, so the first real-gas density takes 0.07 s rather than 0.46 s, and versions its equations of state (`EVALUATION_VERSION` 2) |
 | threadpoolctl ≥ 3.1 | inspect and control the backend-owned BLAS pool | pool provenance and limits are recorded per run |
 | jaxtyping ≥ 0.3.11 | array annotations, evaluated at import time in every module | pure Python; the checker (beartype) is dev-only; the floor dates from the removed `numba_cpu` backend, whose compiled kernels earlier releases' import hook wrapped; it has not been re-tested lower since |
 | tqdm ≥ 4.67 | the progress bar (`solprop.log.BarReporter`) | pure Python; imported when the first bar is drawn, never at `import solprop`; `ipywidgets` is optional for the notebook widget and is not a dependency |
-| tomli-w ≥ 1.0 | writes recipes as TOML (`solprop.recipe`; [SEP 41](seps/archive/sep-0041-recipes-and-front-ends.md), Q6) | pure Python, MIT-licensed, no dependencies of its own; `tomllib` (standard library) reads them; it writes no comments, so an edited recipe loses its own; 1.0 already writes every form a recipe uses |
+| tomli-w ≥ 1.0 | writes recipes as TOML (`solprop.recipe`; [SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md), Q6) | pure Python, MIT-licensed, no dependencies of its own; `tomllib` (standard library) reads them; it writes no comments, so an edited recipe loses its own; 1.0 already writes every form a recipe uses |
 
 ## Optional atomic-response engine
 
 Pyroraptor (`pyroraptor`) provides the helium atomic responses of the
 [TDSE response](../guide/media/tdse.md): the single-active-electron model of
-[SEP 12](seps/archive/sep-0012-tdse-nonlinear-response.md) and the haCC models of
-[SEP 20](seps/archive/sep-0020-hacc-helium-tdse.md). It is not yet publicly available, so
+[SEP 12](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0012-tdse-nonlinear-response.md) and the haCC models of
+[SEP 20](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0020-hacc-helium-tdse.md). It is not yet publicly available, so
 solprop declares no dependency or extra for it, and imports it only when a TDSE response
 is prepared; ordinary imports and non-TDSE runs never initialise its runtime. A missing
 provider, an unsupported interpreter (the provider supports Python 3.14 only) or a
@@ -42,7 +42,7 @@ missing capability is refused with a `BackendError`.
 
 solprop pins no provider revision: until Pyroraptor has a release, it uses whatever
 provider is installed, by default the latest `main`
-([SEP 49](seps/archive/sep-0049-tdse-on-native.md), ADR-078). The provider runs in a worker
+([SEP 49](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0049-tdse-on-native.md), ADR-078). The provider runs in a worker
 process, whose handshake refuses another protocol version; the revision, build and
 execution space it reports are recorded with every run, and a preset's source names
 that revision. A device build (CUDA or HIP) is selected explicitly through
@@ -73,15 +73,15 @@ device libraries. Both distributions resolve in the root workspace's one `uv.loc
 solprop-native has no runtime dependency on solprop.
 
 **SLEEF 3.9.0** ([sleef.org](https://sleef.org), Boost Software License 1.0) is the
-native CPU build's host vector maths on x86-64 (ADR-059): vector `exp`, `log` and
+native CPU build's host vector maths on x86-64 and macOS arm64 (ADR-059, ADR-072): vector `exp`, `log` and
 `sincos`, its u10 functions (1.0 ulp over each function's domain), called over blocks
 by `native/include/solprop_native/runtime/vmath.hpp`. It is fetched at its release tag like
 Kokkos (`FETCHCONTENT_SOURCE_DIR_SLEEF` names a local copy for an offline build), built
 static as its own CMake project with only `libsleef` and the variants the layer calls
 (SSE2, AVX2, AVX-512F on request; AdvSIMD on aarch64), and compiled into the extension, whose wheel
-carries its licence as `LICENSE-sleef.txt`. Arm builds (Apple silicon, Linux aarch64)
-and GPU builds use the system libm and do not fetch it; `SOLPROP_NATIVE_VECTOR_MATH`
-overrides the choice. Its floor is the pinned release: it is never resolved from a
+carries its licence as `LICENSE-sleef.txt`. Linux aarch64 builds and GPU builds use the
+system libm and do not fetch it (`native/cmake/VectorMath.cmake`);
+`SOLPROP_NATIVE_VECTOR_MATH` overrides the choice. Its floor is the pinned release: it is never resolved from a
 package index. Evaluated against glibc's `libmvec` (2 ulp, and reachable from GCC only
 through fast-math or hand-written vector declarations) and Intel's MKL (faster on Intel
 only, by at most 1.5 times, and a large dependency); see ADR-059.
@@ -132,7 +132,6 @@ Windows on Arm, where a sync would build LLVM from source.
 
 | package | for | status |
 |---|---|---|
-| rocket-fft | transforms callable inside `@njit`, if a measured need for a compiled march emerges | not needed; the shared march is Python ([backends.md §3.5](backends.md)) |
 | mkl_fft | Intel FFT on Linux nodes | no evaluation planned |
 | jax | array-compiler backend | evaluated; not selected (ADR-002, [backends.md §5](backends.md)) |
 | sphinx-design, sphinx-copybutton | docs presentation | no evaluation planned |

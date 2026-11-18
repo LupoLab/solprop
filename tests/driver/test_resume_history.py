@@ -42,7 +42,7 @@ from solprop.backends.session import Start
 from solprop.exceptions import OutputError, SolpropWarning
 from solprop.log import NullReporter
 from solprop.output import HDF5Output
-from solprop.output.hdf5 import open_file, resume
+from solprop.output.hdf5 import open_file, read_resume_state
 from solprop.output.metadata import _example_metadata
 from solprop.output.records import MarchSnapshot, SavedPlane
 from solprop.stepper import Multistep, RungeKutta
@@ -172,7 +172,7 @@ def test_a_resumed_run_is_the_uninterrupted_one(
         CASES[case](build_simulation, rtol=RTOL / TIGHTER), tmp_path / "tight.h5"
     )
     run_until(build(), part, after=2)
-    state = resume(part)
+    state = read_resume_state(part)
     assert state.march is not None
     assert state.march.z == state.plane.z
     with caplog.at_level(logging.INFO, logger="solprop.driver"):
@@ -204,7 +204,9 @@ def test_a_run_stopped_between_planes_continues_from_its_checkpoint(
         # The first call after a step accepted strictly between two planes past the
         # first: the run stops there, with no plane to resume from.
         last = positions[-1] if positions else 0.0
-        if last > planes[1] and not any(np.isclose(last, one) for one in planes):
+        if last > planes[1] and not any(
+            np.isclose(last, one, atol=0.0) for one in planes
+        ):
             raise CrashError("the source failed")
         positions.append(position)
         return original(self, field, position, *args, **keywords)
@@ -213,7 +215,7 @@ def test_a_run_stopped_between_planes_continues_from_its_checkpoint(
         patch.setattr(NumpyWorkspace, "lab_source", failing)
         with pytest.raises(CrashError):
             build().run(part, progress="none")
-    state = resume(part)
+    state = read_resume_state(part)
     assert state.checkpoint is not None
     assert state.march is not None and state.march.z == state.checkpoint.plane.z
     with open_file(whole) as first:
@@ -236,7 +238,7 @@ def test_without_the_history_a_resume_starts_afresh(build_simulation, tmp_path):
         tmp_path / "tight.h5",
     )
     run_until(build(), part, after=2)
-    assert resume(part).march is None
+    assert read_resume_state(part).march is None
     build().run(part, resume=True, progress="none")
     found, truth = fields(part)[1], fields(whole)[1]
     # A fresh history at order one is a different trajectory, as accurate as the first.
@@ -252,13 +254,13 @@ def test_a_snapshot_over_the_default_size_is_kept_only_on_request(
     path = tmp_path / "run.h5"
     with caplog.at_level(logging.INFO, logger="solprop.driver.run"):
         soliton(build_simulation, "numpy_ref")().run(path, progress="none")
-    assert resume(path).march is None
+    assert read_resume_state(path).march is None
     assert "resume_history=True keeps it" in caplog.text
     asked = tmp_path / "asked.h5"
     soliton(build_simulation, "numpy_ref", resume_history=True)().run(
         asked, progress="none"
     )
-    assert resume(asked).march is not None
+    assert read_resume_state(asked).march is not None
 
 
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])
@@ -281,7 +283,7 @@ def test_a_snapshot_over_the_default_size_is_never_copied(
         )
     path = tmp_path / "run.h5"
     soliton(build_simulation, backend)().run(path, progress="none")
-    assert resume(path).march is None
+    assert read_resume_state(path).march is None
 
 
 @pytest.mark.parametrize(
@@ -425,7 +427,7 @@ def test_native_keeps_its_history_resident_and_continues_it(
     build = soliton(build_simulation, "native")
     path = tmp_path / "run.h5"
     run_until(build(), path, after=2)
-    march = resume(path).march
+    march = read_resume_state(path).march
     assert march is not None and set(march.rows) == {"store"}
     with caplog.at_level(logging.INFO, logger="solprop.driver"):
         build().run(path, resume=True, progress="none")
@@ -497,7 +499,7 @@ def test_a_rewritten_snapshot_holds_only_its_own_rows(tmp_path):
     store = np.zeros((4, 1, 1, 1, 4), complex)
     compensated = {"store": store, "states": store + 1, "rates": store + 2}
     saved_with(path, march(rows=compensated), march(rows={"store": store + 3}))
-    snapshot = resume(path).march
+    snapshot = read_resume_state(path).march
     assert snapshot is not None
     assert set(snapshot.rows) == {"store"}
     assert np.array_equal(snapshot.rows["store"], store + 3)
@@ -506,10 +508,10 @@ def test_a_rewritten_snapshot_holds_only_its_own_rows(tmp_path):
 def test_the_history_key_crosses_the_file_and_a_rewrite_replaces_it(tmp_path):
     path = tmp_path / "run.h5"
     saved_with(path, march(history_key="adams-pec2/3"))
-    snapshot = resume(path).march
+    snapshot = read_resume_state(path).march
     assert snapshot is not None and snapshot.history_key == "adams-pec2/3"
     saved_with(path, march(history_key="adams-pec2/3"), march())
-    snapshot = resume(path).march
+    snapshot = read_resume_state(path).march
     assert snapshot is not None and snapshot.history_key == "adams"
 
 
@@ -519,7 +521,7 @@ def test_the_collar_flag_crosses_the_file(tmp_path, quiet):
     # returns to its stable step (SEP 39 R9), so a resume carries it exactly.
     path = tmp_path / "run.h5"
     saved_with(path, march(collar_was_quiet=quiet))
-    snapshot = resume(path).march
+    snapshot = read_resume_state(path).march
     assert snapshot is not None
     assert snapshot.collar_was_quiet is quiet
 
@@ -529,7 +531,7 @@ def test_a_snapshot_taken_elsewhere_is_not_returned(tmp_path):
     # snapshot's own rewrite was not -- describes another state.
     path = tmp_path / "run.h5"
     saved_with(path, march(z=0.2, positions=np.array([0.15, 0.2])))
-    assert resume(path).march is None
+    assert read_resume_state(path).march is None
 
 
 @pytest.mark.parametrize(
@@ -552,7 +554,7 @@ def test_an_unreadable_snapshot_is_ignored_with_a_warning(
     with h5py.File(path, "a") as file:
         damage(file["march_snapshot"])
     with caplog.at_level(logging.WARNING, logger="solprop.output.hdf5"):
-        state = resume(path)
+        state = read_resume_state(path)
     assert state.march is None
     assert state.plane.z == 0.25
     assert "ignoring the unreadable march snapshot" in caplog.text
@@ -565,7 +567,7 @@ def test_a_kept_history_is_set_aside_on_request(build_simulation, tmp_path, capl
     whole, part = tmp_path / "whole.h5", tmp_path / "part.h5"
     soliton(build_simulation, "numpy_ref")().run(whole, progress="none")
     run_until(soliton(build_simulation, "numpy_ref")(), part, after=2)
-    assert resume(part).march is not None
+    assert read_resume_state(part).march is not None
     afresh = soliton(build_simulation, "numpy_ref", resume_history=False)()
     with caplog.at_level(logging.INFO, logger="solprop.driver"):
         afresh.run(part, resume=True, progress="none")
@@ -595,7 +597,7 @@ def test_rows_that_do_not_fit_the_store_start_the_history_afresh(
         store = np.asarray(rows["store"])
         del rows["store"]
         rows["store"] = store[:-1]
-    assert resume(part).march is not None
+    assert read_resume_state(part).march is not None
     with pytest.warns(
         SolpropWarning, match="the Adams history starts afresh: the snapshot's 'store'"
     ):

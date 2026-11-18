@@ -29,8 +29,9 @@ KOKKOS_INLINE_FUNCTION double trapezoid(const double current, const double previ
 }
 
 // The fraction ionised from an exposure's decay `exp(-X)`, `1 - (1 - p) exp(-X)`, as
-// `bodies.fraction_at` rounds it. A small response: strict arithmetic (solprop SEP 25
-// section 4.2, `fp.hpp`), so the product and the difference round separately.
+// solprop's `numpy_ref.passes.plasma.plasma_scan` rounds it. A small response: strict
+// arithmetic (solprop SEP 25 section 4.2, `fp.hpp`), so the product and the difference
+// round separately.
 SOLPROP_NATIVE_STRICT_FUNCTION
 KOKKOS_INLINE_FUNCTION double decayed_fraction(const double decay,
                                                const double preionisation) {
@@ -88,7 +89,8 @@ KOKKOS_INLINE_FUNCTION Complex compensation_residual(const Complex rate,
   return strict_mul(strict_sub(rate, strict_scale(inverse_dz, exponent)), state);
 }
 
-// `bodies.loss_scale`: the loss current's coefficient of the field, or zero.
+// The loss current's coefficient of the field, or zero, as solprop's
+// `numpy_ref.passes.plasma.plasma_total_current` forms it.
 KOKKOS_INLINE_FUNCTION double band_loss_scale(const double rate, const double fraction,
                                               const double squared,
                                               const double ionisation_potential) {

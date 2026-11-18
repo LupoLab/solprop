@@ -175,6 +175,42 @@ def test_the_synthesis_carries_the_conversion_and_the_pad_scale(
     assert soliton_problem.transform.projection_coarse.tolist() == [[1.0]]
 
 
+def test_a_grid_that_pads_carries_both_scales_into_the_compiled_term():
+    """On the soliton's grid resolving the third harmonic the field is padded twice
+    over, so the pad and crop scales are 2 and 1/2 rather than 1, and dropping either
+    from the synthesis or the prefactor moves the compiled term off the scaffold."""
+    grid = EnvelopeGrid.from_limits(1.0, WAVELENGTH, (500e-9, 2e-6), 4e-12, thg=True)
+    assert (grid.pad_scale, grid.crop_scale) == (2.0, 0.5)
+    gnlse = problem_from(
+        [0.0, 0.0, BETA2], omega_ref=grid.omega0, gamma=GAMMA, shock=False
+    )
+    peak = abs(BETA2) / (GAMMA * TAU0**2)
+    soliton = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=peak).build(grid)
+    problem = assemble(
+        grid,
+        gnlse.mode,
+        [gnlse.kerr],
+        soliton,
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[1.0],
+        dz_max=0.05,
+        dz_init=1e-4,
+        density=1.0,
+        shock=False,
+        prefactor_index=1.0,
+    ).problem
+    # One exact doubling of the conversion.
+    assert float(problem.transform.synthesis[0, 0]) == sqrtw_to_vm(gnlse.aeff) * 2.0
+    state = soliton[0, 0] * grid.active_mask
+    reference = scaffold_nonlinear(gnlse, grid, state)
+    compiled = compiled_nonlinear(problem, state, window=False)[0]
+    scale = float(np.max(np.abs(reference)))
+    # As for the unpadded grid: the round-off of one extra multiplication over a
+    # reduction of length n_to, Higham's n*eps = 9216 * 2.2e-16 = 2.0e-12 of the
+    # largest term. A dropped scale is an error of order one.
+    assert float(np.max(np.abs(compiled - reference))) < 2e-12 * scale
+
+
 def test_a_constant_effective_area_needs_no_taper_table(soliton_problem, gnlse):
     assert soliton_problem.transform.taper_scale is None
     assert float(soliton_problem.transform.aeff(0.5)) == pytest.approx(gnlse.aeff)

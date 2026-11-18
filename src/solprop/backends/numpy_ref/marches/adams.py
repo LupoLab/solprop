@@ -8,7 +8,7 @@ The controller, history, ledger and lifecycle of :class:`HostAdamsMarch`, over t
 engine protocol (:class:`solprop.backends.engines.AdamsEngine`) that native's
 ``march::Engine`` mirrors: the reference's engine is
 :class:`solprop.backends.numpy_ref.multistep.HostHistory`. The march holds its own state
--- position, proposal, replay cursor and accepted norms
+-- position, proposal and replay cursor
 (:class:`~solprop.backends.numpy_ref.marches.host.MarchState`), the history's entries,
 the order, the rejections and the call ledger -- and asks its session only through
 :class:`~solprop.backends.numpy_ref.marches.host.MarchHost`. The decisions are
@@ -19,11 +19,10 @@ The method, its lifecycle and its numbers are those of
 """
 
 import math
-from collections import deque
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, cast, get_protocol_members
 
 import numpy as np
 
@@ -31,7 +30,12 @@ from solprop._interrupts import committing
 from solprop.backends import adams_core
 from solprop.backends.engines import AdamsEngine, AttemptOutcome, HistoryEntry
 from solprop.backends.ledger import CallLedger
-from solprop.backends.numpy_ref.marches.host import MarchHost, MarchState
+from solprop.backends.numpy_ref.marches.host import (
+    MarchHost,
+    MarchState,
+    replay_divergence,
+    replay_shortfall,
+)
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.output.records import MarchSnapshot
 from solprop.stepper.controller import limit_step
@@ -97,15 +101,13 @@ class HostAdamsMarch:
         The state's shape, which a snapshot's is checked against.
     proposal : float, optional
         The first proposal, m.
-    lag : int, optional
-        The lag of the controller whose norms a replay keeps.
     name : str, optional
         The backend's name, for messages.
 
     Attributes
     ----------
     state : solprop.backends.numpy_ref.marches.host.MarchState
-        The march's position, proposal, cursor and accepted norms.
+        The march's position, proposal and cursor.
     ledger : solprop.backends.ledger.CallLedger
         The run's call counts.
     last_step : AcceptedStep or None
@@ -130,7 +132,6 @@ class HostAdamsMarch:
         interpolate: bool = False,
         shape: tuple[int, ...] = (),
         proposal: float = 0.0,
-        lag: int = 1,
         name: str = "numpy_ref",
     ) -> None:
         """Hold the engine and start with no history."""
@@ -144,7 +145,7 @@ class HostAdamsMarch:
         self._interpolate = interpolate
         self._shape = shape
         self._name = name
-        self.state = MarchState(z=0.0, proposal=proposal, norms=deque(maxlen=lag + 2))
+        self.state = MarchState(z=0.0, proposal=proposal)
         self._history: list[HistoryEntry] = []
         self._rejections = 0
         self._last_rejected = False
@@ -389,17 +390,12 @@ class HostAdamsMarch:
                 state.cursor += 1
                 host.record(end, dz, norm, accepted=True)
                 attempt.end(AttemptOutcome.ACCEPTED)
-            state.norms.append(norm)
             self._raise_floor()
             host.stepped()
             if host.natural_stop(target):
                 return
         if state.z < target - slack:
-            msg = (
-                f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
-                f"cannot reach z = {target:.6g} m"
-            )
-            raise BackendError(msg)
+            raise BackendError(replay_shortfall(float(schedule.z_end), target))
 
     def replay_step(self, dz: float, end: float, slack: float) -> float:
         """Take one prescribed step from the march's position and accept it.
@@ -433,18 +429,11 @@ class HostAdamsMarch:
         kink = adams_core.replay_kink(self._policy, end, slack)
         _, norm = self._attempt(dz, fixed=True, landing=(end, kink))
         if not math.isfinite(norm):
-            msg = (
+            step = (
                 f"{self._name}: a replayed {self._method.name} step of "
-                f"{dz:.4g} m ending at z = {end:.6g} m has a non-finite error norm "
-                f"({norm!r}): the field has diverged. A replayed schedule takes "
-                "its steps as given and cannot reject one, so a step beyond an "
-                "explicit stability limit -- the in-stage temporal collar's or a "
-                "coupled flow's advisory step -- grows until it overflows; the "
-                "translation refuses a declared step past the collar's limit and "
-                "warns on one past the flow's. Take shorter steps, or let the "
-                "controller choose them"
+                f"{dz:.4g} m ending at z = {end:.6g} m"
             )
-            raise ConvergenceError(msg)
+            raise ConvergenceError(replay_divergence(step, norm))
         return norm
 
     def _end(self, attempt: "_Attempt", *, accepted: bool) -> None:
@@ -754,17 +743,8 @@ class _Attempt:
         self._engine.end_attempt(outcome)
 
 
-_ENGINE_MEMBERS = (
-    "start",
-    "trial",
-    "accept",
-    "chord_phase",
-    "step_carrier",
-    "begin_attempt",
-    "end_attempt",
-    "reading",
-)
-"""What the march asks of an engine: the protocol."""
+_ENGINE_MEMBERS = tuple(sorted(get_protocol_members(AdamsEngine)))
+"""What the march asks of an engine: the protocol's members, sorted."""
 
 
 def _check_engine(engine: object) -> None:

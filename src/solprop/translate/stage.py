@@ -95,7 +95,7 @@ class StageTerms:
     def device_ready(self) -> bool:  # numpydoc ignore=RT01
         """Whether both quantities are a weighted sum of fixed arrays.
 
-        True when neither member is ``None``.
+        True when `separable` is set, or when neither `phi` nor `prefactor` is ``None``.
         """
         return self.separable is not None or (
             self.phi is not None and self.prefactor is not None
@@ -785,12 +785,6 @@ def require_device_ready(problem: PropagationProblem, name: str) -> None:
     solprop.exceptions.BackendError
         If either quantity is a z table, naming which, its size and the backends that
         run it.
-
-    Examples
-    --------
-    >>> from solprop.translate.stage import require_device_ready
-    >>> require_device_ready.__name__
-    'require_device_ready'
     """
     if problem.device_ready:
         return

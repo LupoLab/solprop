@@ -13,7 +13,6 @@ adaptive run is compared with a tighter-tolerance reference within an accuracy e
 """
 
 import dataclasses
-import logging
 import math
 from typing import cast
 
@@ -522,17 +521,6 @@ def test_the_run_asks_the_backend_for_exactly_the_kept_fields(monkeypatch):
     assert asked.count(True) == 2
     assert asked[:2] == [False, True]
     assert asked.index(True, 2) > asked.index(False, 2)
-
-
-def test_no_saved_plane_logs_the_retired_collar_diagnostic(caplog):
-    # SEP 40 section 5.3 retires the end-of-plane collar diagnostic: the boundary
-    # monitor's transverse edge judges the boundary instead.
-    simulation = keeping(cartesian("numpy_ref"), "all")
-    with caplog.at_level(logging.INFO, logger="solprop.backends.numpy_ref.backend"):
-        output = stored(simulation.run(progress="none"))
-    assert not [r for r in caplog.records if "collar" in r.message]
-    assert output.outcome is not None
-    assert "collar_diagnostic_skipped" not in output.outcome.execution
 
 
 def test_a_field_free_observation_relies_on_the_step_loop_for_finiteness():

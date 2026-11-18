@@ -80,7 +80,7 @@ from solprop.modes.tables import (
 from solprop.noise import photons_per_bin
 from solprop.nonlinear.normalisation import modal_kerr_coefficient
 from solprop.nonlinear.raman import SilicaTensorResponse
-from solprop.output.hdf5 import resume
+from solprop.output.hdf5 import read_resume_state
 from solprop.output.memory import MemoryOutput
 from solprop.physdata import n2_from_chi3
 from solprop.physdata.sellmeier import gamma as gas_susceptibility
@@ -275,26 +275,6 @@ def test_the_gas_route_still_needs_a_gas_and_refuses_the_guide_keywords():
             noise=None,
             integrator=Multistep(),
         )
-    with pytest.raises(DriverError, match="observable_rtol= belongs to the general"):
-        Simulation.from_waveguide(
-            (),
-            GENERAL_Z_END,
-            "He",
-            wavelength=835e-9,
-            observable_rtol=1e-6,
-            noise=None,
-            integrator=Multistep(),
-        )
-    with pytest.raises(DriverError, match="observable_atol= belongs to the general"):
-        Simulation.from_waveguide(
-            (),
-            GENERAL_Z_END,
-            "He",
-            wavelength=835e-9,
-            observable_atol=1e-16,
-            noise=None,
-            integrator=Multistep(),
-        )
     with pytest.raises(DriverError, match="kerr_form= belongs to the general"):
         Simulation.from_waveguide(
             (),
@@ -334,16 +314,6 @@ def test_an_envelope_grid_is_refused_at_the_entry_point(guide):
     envelope = EnvelopeGrid.from_limits(SHORT_Z, 835e-9, (815e-9, 860e-9), 60e-15)
     with pytest.raises(DriverError, match="propagates on a field grid"):
         build(guide, envelope)
-
-
-@pytest.mark.parametrize("keyword", ["observable_rtol", "observable_atol"])
-def test_an_observable_tolerance_is_accepted_only_as_the_solvers_own(
-    guide, grid, keyword
-):
-    """`None` means the solver's rtol and atol; a number is refused."""
-    assert build(guide, grid, **{keyword: None}).general is not None
-    with pytest.raises(DriverError, match="is not implemented"):
-        build(guide, grid, **{keyword: 1e-7})
 
 
 def test_a_guide_narrower_than_the_active_band_is_refused_at_construction(grid):
@@ -1197,8 +1167,8 @@ def test_an_hdf5_file_carries_the_labels_and_the_identities(guide, grid, tmp_pat
     path = tmp_path / "general.h5"
     simulation = build(guide, grid)
     simulation.run(path, progress="none")
-    stored = resume(path).metadata
-    assert stored.schema_version == 4
+    stored = read_resume_state(path).metadata
+    assert stored.schema_version == 3
     assert stored.modal is not None
     assert dict(stored.modal)["basis"] == "general_modal"
     labels = [dict(one.label) for one in stored.modes if one.label is not None]

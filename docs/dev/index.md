@@ -54,10 +54,8 @@ gui/design
 
 ```{toctree}
 :maxdepth: 1
-:caption: Decisions, proposals, and ongoing work
+:caption: Decisions and proposals
 
 decisions
 seps/index
-roadmap
-open-questions
 ```

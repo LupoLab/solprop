@@ -4,8 +4,8 @@
 
 """A session's fresh start, :meth:`~solprop.backends.session.Start.entrance`.
 
-A session starts one trajectory (SEP 47 section 5.1); the entrance of a problem whose
-initial state carries several members is refused rather than silently truncated.
+A session starts one trajectory (SEP 47 section 5.1) from the problem's launch state,
+with its launch plane still owed.
 """
 
 import numpy as np

@@ -22,6 +22,7 @@ from solprop.exceptions import (
     DiluteScalingWarning,
     MaterialError,
     MaterialRangeWarning,
+    NoZeroDispersionError,
     ToolsError,
 )
 from solprop.modes import base
@@ -46,30 +47,9 @@ Fill = Gas | str | Mapping[str, float] | Mixture
 
 
 _ZDW_RANGE = (100e-9, 3e-6)
-"""Window of the zero-dispersion search in m: :func:`modes.base.zdw`'s."""
-
-
-_ZDW_SAMPLES = 512
-"""Samples, evenly spaced in frequency, on which the dispersion's sign is read."""
-
-
-_ZDW_REFINE_ROUNDS = 4
-"""Rounds of array samples that refine a sign change of the dispersion. Four take a
-bracket of 3.6e13 rad/s to 3.4e7 rad/s, where interpolating linearly reaches the noise
-of the differenced ``beta2``."""
-
-
-_ZDW_REFINE_SAMPLES = 33
-"""Samples of each refinement round: 32 intervals, so each round narrows 32-fold."""
-
-
-_POLE_FACTOR = 2.0
-"""How far the group delay at a refined sign change of ``beta2`` may sit from its value
-at the bracket's ends, in units of the change a bounded ``beta2`` could produce across
-the bracket, before the sign change is read as a pole rather than a zero. At a zero
-``beta1`` is extremal and moves by at most half that unit; at a gas resonance it
-diverges. The differenced ``beta2`` itself cannot tell them apart: ``beta1`` is even
-about a pole, so its central difference vanishes there too."""
+"""Window of the zero-dispersion search in m: from below the default of
+:func:`modes.base.zdw`, so a deep-ultraviolet zero of a thin fill is found; the pump,
+as the search's reference, keeps the gas lines below it out of reach."""
 
 
 @contextmanager
@@ -201,85 +181,19 @@ def _fill_n2(
     return n2_from_chi3(chi3, index), index
 
 
-def _refine_zero(mode: Mode, low: float, high: float, z: float) -> float:
-    """Return a sign change of the dispersion inside a bracket, by array samples.
-
-    A mode's index models evaluate an array at about the cost of one point, so each
-    round narrows the bracket 32-fold for the cost of one Brent step, where a scalar
-    search costs a glass model evaluation per iterate. The rounds stop short of a pole
-    of the differenced ``beta2``, which a scalar search converges onto until the model
-    returns NaN.
-
-    - ``low``, ``high``: the bracket, rad/s, whose ends have ``beta2`` of opposite
-      signs.
-    - ``z``: position along the waveguide, m.
-    - Returns: the first sign change upwards in frequency, rad/s, linearly interpolated
-      in the last bracket; or NaN when samples that are not finite separate the signs.
-    """
-    first = last = math.nan
-    for _ in range(_ZDW_REFINE_ROUNDS):
-        grid = np.linspace(low, high, _ZDW_REFINE_SAMPLES)
-        sampled = base.beta2(mode, grid, z)
-        crossing = np.flatnonzero(np.sign(sampled[:-1]) * np.sign(sampled[1:]) <= 0.0)
-        if crossing.size == 0:
-            return math.nan
-        i = int(crossing[0])
-        low, high = float(grid[i]), float(grid[i + 1])
-        # The first change has a nonzero sample below it, so the two cannot be equal.
-        first, last = float(sampled[i]), float(sampled[i + 1])
-    return low - first * (high - low) / (last - first)
-
-
 def _zdw_near(mode: Mode, omega: float, z: float) -> float:
-    """Return the zero-dispersion wavelength nearest a pump frequency.
+    """Return the zero-dispersion wavelength nearest a pump frequency, or NaN.
 
-    :func:`solprop.modes.base.zdw` brackets one sign change across its whole window,
-    which a gas resonance in the vacuum ultraviolet defeats: krypton flips the sign of
-    the dispersion twice near 120 nm, the ends then agree, and the zero at 769 nm of a
-    14 um capillary at 15 bar is refused. Here the sign is sampled, the changes are
-    refined outwards from the pump, the changes through a pole are dropped, and the zero
-    nearest the pump is the one reported; a change further than the best so far cannot
-    beat it, which spares the dozens of changes an antiresonant fibre's resonances
-    give. Two limits of a sampled search remain: a zero and a pole inside one sample
-    interval (3.6e13 rad/s) restore the sign and are both missed, and a sample that is
-    not finite cannot bracket anything.
+    :func:`solprop.modes.base.zdw` over :data:`_ZDW_RANGE` with the pump as its
+    reference: the nearest zero that no resonance separates from the pump.
 
     - ``omega``: pump angular frequency in rad/s.
     - ``z``: position along the waveguide, m.
-    - Returns: wavelength in m, or NaN when the dispersion has no zero in 100 nm to 3
-      um.
+    - Returns: wavelength in m, or NaN when the search finds no zero.
     """
-    grid = np.linspace(
-        2.0 * math.pi * C / _ZDW_RANGE[1],
-        2.0 * math.pi * C / _ZDW_RANGE[0],
-        _ZDW_SAMPLES,
-    )
-    nearest = math.nan
-    # The refinement converges onto a pole as readily as onto a zero, and a model may
-    # divide by zero exactly there; the group-delay test below tells the two apart.
-    with _probing(), np.errstate(divide="ignore", invalid="ignore"):
-        sampled = base.beta2(mode, grid, z)
-        changes = np.flatnonzero(np.sign(sampled[:-1]) * np.sign(sampled[1:]) < 0.0)
-        # How near each bracket can bring a zero: 0 for one holding the pump.
-        reach = np.maximum.reduce(
-            [grid[changes] - omega, omega - grid[changes + 1], np.zeros(changes.size)]
+    try:
+        return base.zdw(
+            mode, z, wavelength_limits=_ZDW_RANGE, near=2.0 * math.pi * C / omega
         )
-        for i in changes[np.argsort(reach, kind="stable")]:
-            low, high = float(grid[i]), float(grid[i + 1])
-            if not math.isnan(nearest) and max(low - omega, omega - high) >= abs(
-                nearest - omega
-            ):
-                break
-            root = _refine_zero(mode, low, high, z)
-            if math.isnan(root):
-                continue
-            delay = base.beta1(mode, np.array([low, root, high]), z)
-            bounded = max(abs(sampled[i]), abs(sampled[i + 1])) * (high - low)
-            closer = math.isnan(nearest) or abs(root - omega) < abs(nearest - omega)
-            if closer and abs(delay[1] - delay[0]) <= _POLE_FACTOR * bounded:
-                nearest = root
-    if math.isnan(nearest):
+    except NoZeroDispersionError:
         return math.nan
-    # Outside the probing context, so a zero beyond the index model's range warns.
-    base.beta(mode, np.array([nearest]), z)
-    return 2.0 * math.pi * C / nearest

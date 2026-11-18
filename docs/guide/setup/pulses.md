@@ -73,8 +73,10 @@ $m$ is; a $\operatorname{sech}^2$ pulse uses $\tau_w = \tau/[2\ln(1+\sqrt2)]$.
 ## Energy or peak power, never both
 
 A pulse is scaled by its `energy` or by its `peak_power`. Giving both, or neither, is an
-error rather than a precedence rule. Both are realised *exactly* on the grid: the
-spectrum is built, the
+error rather than a precedence rule. That choice belongs to the three shaped pulses,
+`GaussianPulse`, `SechPulse` and `CustomPulse`: the measured `DataPulse` and
+`TimeDataPulse` are scaled by `energy` alone, and `CWPulse` by its `average_power`.
+Whichever is given is realised *exactly* on the grid: the spectrum is built, the
 phase is applied, the realised quantity is measured with the grid's own functional, and
 one multiplication by a square root fixes it. Nothing is left to a quadrature error, and
 the round trip closes to a part in $10^{12}$ or better.
@@ -110,12 +112,12 @@ The group delay is $T_g(\omega) = \mathrm{d}\phi/\mathrm{d}\omega$, so
 - a positive `t0` makes the pulse **arrive later** (it must lie strictly inside the
   window: a delay is a spectral phase, and one past the half-window would wrap the pulse
   round to the other end, so it is refused);
-- `phase[1]`, the first-order coefficient, is a group delay and does exactly what `t0`
+- `phases[1]`, the first-order coefficient, is a group delay and does exactly what `t0`
   does;
-- a positive `phase[2]` (GDD) gives $T_g = \phi_2(\omega-\omega_p)$, so the blue arrives
+- a positive `phases[2]` (GDD) gives $T_g = \phi_2(\omega-\omega_p)$, so the blue arrives
   after the red: an **upchirp**, the sign of propagation through normally dispersive
   glass;
-- `phase[0]` is the carrier-envelope phase at the pulse's own peak, on either grid and
+- `phases[0]` is the carrier-envelope phase at the pulse's own peak, on either grid and
   independent of the window length.
 
 **The stored array is the FFT convention.** The conversion happens once per build, where
@@ -371,7 +373,7 @@ use this.
 A pulse given by keywords enters the first mode of a multimode run, and the others fill
 through the nonlinearity. `launch=` puts it into chosen modes instead, on
 `prop_capillary`, `prop_waveguide` and their `Simulation` constructors
-([SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md)): a mapping from a mode to
+([SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md)): a mapping from a mode to
 its share, or to a share and a phase in radians.
 
 ```python
@@ -475,4 +477,4 @@ Where solprop's choices differ from Luna.jl's, the differences are listed in
 For a complete launch and analysis, follow the [RDW lesson](../../introduction/lessons/plot_01_rdw.rst) or [soliton lesson](../../introduction/lessons/plot_02_soliton.rst). [Polarisation](polarisation.md) extends the launch to vector fields; [beam setup](../free-space/beams.md) adds a transverse profile.
 
 Measured-spectrum loading with `load_spectrum` and the launch into chosen modes were
-proposed and carried out by [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+proposed and carried out by [SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md).

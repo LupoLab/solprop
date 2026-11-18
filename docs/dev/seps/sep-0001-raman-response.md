@@ -12,7 +12,7 @@
 | **Type** | Feature |
 | **Created** | 2026-09-26 |
 | **Resolution** | — |
-| **Requires** | [SEP 3](archive/sep-0003-optmat-materials.md) |
+| **Requires** | [SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
 | **Implementation** | Not started |
@@ -98,7 +98,7 @@ or arbitrary changing collision partners.
 | Proposal | Relationship |
 |---|---|
 | SEP 3 | Implemented material ownership, data identities and Raman tensor mapping |
-| [SEP 6](archive/sep-0006-dispersive-nonlinearity.md) | Electronic response composition and harmonic-sector checks; no Raman dispersion model |
+| [SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md) | Electronic response composition and harmonic-sector checks; no Raman dispersion model |
 | SEP 10 | Extends this SEP's execution contract with approximate spectral bases |
 | [SEP 11](sep-0011-finite-density-gas-index.md) | Supplies consistent density paths from the selected EOS; is not a dependency of either evaluator |
 | SEP 32 | Separate nonlinear molecular state model; its weak limit can use these exact kernel references |
@@ -847,9 +847,14 @@ No implementation phases have started.
 - 2026-10-22: Split the new material model into SEP 32; reviewed and revised the
   remaining proposal jointly with SEP 10, with compatibility changes to SEP 11.
 - 2026-11-01: Tracking issue [#113](https://github.com/LupoLab/solprop/issues/113).
-- 2026-11-02: [SEP 43](archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
+- 2026-11-02: [SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
   proposal names Numba or `numba_cpu`, it was written before that: such a phase or check falls
   away, and the feature goes on `numpy_ref` and the native backend (SEP 0).
+- 2026-11-18: Written before the current architecture. Where this proposal names
+  solprop-kokkos or its files, read the native package in this repository (`native/`,
+  [SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md)); the backends have since been
+  cut to two, binary64 only, with one shape and a native seam that only marshals
+  ([SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md), ADR-077, ADR-079).
 
 ### Maintainer decisions for this revision — 2026-10-22
 

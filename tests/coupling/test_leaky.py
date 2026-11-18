@@ -54,7 +54,9 @@ def integral(p, q, radius):
 )
 def test_the_disc_overlap_is_lommels_integral(p, q, rel):
     got = complex(leaky.disc_overlap(np.array(p), np.array(q), RADIUS))
-    assert got == pytest.approx(integral(p, q, RADIUS), rel=rel)
+    # Also to rel of the disc's scale R^2: two zeros of J0 are orthogonal on it (the
+    # first row), and their overlap is zero to the rounding of that scale.
+    assert got == pytest.approx(integral(p, q, RADIUS), rel=rel, abs=rel * RADIUS**2)
 
 
 def test_inner_products_are_normalised_and_hermitian():

@@ -79,8 +79,8 @@ $K$ is negative and so is the bracket, because the population per magnetic suble
 falls with $J$; the lines therefore come out positive, with the same sign as a
 vibration. The ladder is truncated wherever $E_J$ stops increasing with $J$: beyond
 that the two-term expansion has left its range of validity and the levels it predicts
-are an artefact. For hydrogen's constants ($B = 58.9$, $D = 0.05$ cm⁻¹), whose
-centrifugal distortion is large, that is $J(J+1) > B/2D = 589$, so $J \le 24$. The ladder otherwise runs from
+are an artefact. For a supplied species with constants close to hydrogen's
+($B = 58.9$, $D = 0.05$ cm⁻¹), whose centrifugal distortion is large, that is $J(J+1) > B/2D = 589$, so $J \le 24$. The ladder otherwise runs from
 `MolecularOptions.min_j` to `max_j` (default 0 and 50), and the populations are
 normalised over the levels retained.
 

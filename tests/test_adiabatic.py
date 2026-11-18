@@ -231,13 +231,18 @@ def test_an_abrupt_step_attains_the_reflection_bound(contrast):
     exact_reflection, exact_forward = fresnel_step(K0, K0 * math.sqrt(1 + contrast))
     # A step's reflectance is the Fresnel value, which is tanh^2(Lambda) exactly:
     # the bound is attained, within the certificate's and the closed form's
-    # rounding.
+    # rounding. The closed form's k1 - k0 cancels to contrast/2 of k, which leaves
+    # 2 eps / contrast in the ratio and twice that in its square (5.5e-13 for the gas
+    # step); 8 eps / contrast keeps a margin of two.
+    closed_form = 8 * EPS / contrast
     assert admission.reflection == pytest.approx(
-        exact_reflection, rel=CERTIFICATE_ROUNDING
+        exact_reflection, rel=CERTIFICATE_ROUNDING + closed_form
     )
     # The witness's jump transfer is exact; its integration of the flat pieces is
     # a phase only, so it reproduces the closed form to rounding.
-    assert wave.reflectance == pytest.approx(exact_reflection, rel=64 * EPS)
+    assert wave.reflectance == pytest.approx(
+        exact_reflection, rel=64 * EPS + closed_form
+    )
     assert wave.forward_error == pytest.approx(exact_forward, rel=1e-12)
     assert_bounds_hold(admission, wave)
 

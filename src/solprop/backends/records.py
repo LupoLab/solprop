@@ -44,9 +44,9 @@ from jaxtyping import Float, UInt
 from solprop.backends.exponential import carrier_reference
 from solprop.backends.memory import low_storage_flows
 from solprop.monitor import (
-    _FLOOR,  # pyright: ignore[reportPrivateUsage] - the floor the monitor judges by
+    _FLOOR,  # the floor the monitor judges by
     FLOOR_MARGIN,
-    _count,  # pyright: ignore[reportPrivateUsage] - one refusal of a count
+    _count,  # one refusal of a count
 )
 from solprop.spatial_absorber import RAMP_K_FLOOR
 from solprop.stepper.controller import START_GROWTH, PIController
@@ -363,7 +363,7 @@ def low_storage_settings(
     if not isinstance(stepper.integrator, LowStorageRungeKutta):
         return None
     return LowStorageSettings(
-        flows=low_storage_flows(problem, stepper, "native"),
+        flows=low_storage_flows(problem, stepper),
         separable=problem.linear.separable is not None,
         origin=float(problem.linear.z_span[0]),
     )
@@ -684,8 +684,8 @@ def edge_config(
         The configuration.
     """
     design = edge.design
-    faces = edge._faces  # pyright: ignore[reportPrivateUsage] - the edge's own geometry
-    weights = edge._weights  # pyright: ignore[reportPrivateUsage]
+    faces = edge._faces  # the edge's own geometry
+    weights = edge._weights
     first = faces[0].edge
     modes = max(int(np.count_nonzero(first)), 1) * max(int(edge.band.size), 1)
     return EdgeConfig(
@@ -693,7 +693,7 @@ def edge_config(
         warn=edge.budget**2,
         stop=(edge.stop_factor * edge.budget) ** 2,
         length=float(edge.length),
-        guard=float(edge._guard),  # pyright: ignore[reportPrivateUsage]
+        guard=float(edge._guard),
         k_min=float(edge.k_min),
         k_floor=float(RAMP_K_FLOOR),
         reads=float(READS),
@@ -701,15 +701,15 @@ def edge_config(
         reach_growth=float(REACH_GROWTH),
         noise_factor=float(NOISE_FACTOR),
         columns=np.ascontiguousarray(
-            edge._columns,  # pyright: ignore[reportPrivateUsage]
+            edge._columns,
             dtype=np.float64,
         ),
         kappa=np.ascontiguousarray(
-            edge._kappa,  # pyright: ignore[reportPrivateUsage]
+            edge._kappa,
             dtype=np.float64,
         ),
         kappa_order=np.ascontiguousarray(
-            edge._kappa_order,  # pyright: ignore[reportPrivateUsage]
+            edge._kappa_order,
             dtype=np.uint64,
         ),
         design=design is not None,
@@ -969,7 +969,7 @@ def monitor_continuation(
         cast("Mapping[str, object]", record) if isinstance(record, Mapping) else None
     )
     edge = monitor.transverse
-    faces = 0 if edge is None else len(edge._faces)  # pyright: ignore[reportPrivateUsage]
+    faces = 0 if edge is None else len(edge._faces)
     stretches = cast("Sequence[tuple[float, float]]", continuation.get("unwatched", ()))
     return MonitorContinuation(
         record=resumption(mapping),

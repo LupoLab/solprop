@@ -822,3 +822,41 @@ def test_an_echoed_line_goes_to_standard_error_without_a_stream(capsys):
     reporter = BarReporter(logger=logger, clock=Clock())
     reporter.summary("Starting propagation")
     assert capsys.readouterr().err == "Starting propagation\n"
+
+
+def test_a_refused_progress_setting_is_a_solprop_error():
+    from solprop.exceptions import DriverError  # noqa: PLC0415
+
+    # Past the session's annotation check, as production calls them.
+    with pytest.raises(DriverError, match="progress must be one of"):
+        unwrap(set_default_progress)("loud")
+    with pytest.raises(DriverError, match="progress must be one of"):
+        unwrap(default_reporter)(choice="loud")
+    with pytest.raises(DriverError, match="positive and finite"):
+        BarReporter(file=io.StringIO(), period=0.0)
+
+
+def test_the_log_file_is_written_as_utf8(tmp_path, monkeypatch):
+    # Asked for by name: under Python's UTF-8 mode the locale default would hide it.
+    asked = {}
+
+    class Recording(logging.FileHandler):
+        def __init__(self, *args, **kwargs):
+            asked.update(kwargs)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(logging, "FileHandler", Recording)
+    package = logging.getLogger("solprop")
+    previous_handlers, previous_level = package.handlers[:], package.level
+    package.handlers = []
+    try:
+        configure_logging(file=tmp_path / "log.txt")
+        (handler,) = package.handlers
+        assert isinstance(handler, Recording)
+        assert asked.get("encoding") == "utf-8"
+        assert handler.encoding == "utf-8"
+    finally:
+        for handler in package.handlers:
+            handler.close()
+        package.handlers = previous_handlers
+        package.setLevel(previous_level)

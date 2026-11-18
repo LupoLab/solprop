@@ -98,7 +98,7 @@ def collar_field_fraction(
     of frequency** (:func:`collar_block`), never as the whole volume: each node's
     fluence is a sum over frequency, so blocks accumulate it exactly, up to the order
     of the sum (SEP 22 section 6.3), and the transient is one block, bounded by the
-    node chunk. The radial kind synthesises by node chunk, as before.
+    node chunk. The radial kind synthesises by node chunk.
     """
     transform = problem.transform
     chunk = plan_node_chunk(problem).chunk if node_chunk is None else node_chunk
@@ -975,8 +975,10 @@ def _axis_statistics(
     - Returns: requested on-axis statistics and axial fluence in J/m^2.
     """
     conversion = 0.5 * EPS0 * C
-    factor = fourier.spectral_density(
-        np.ones(grid.n_omega, complex), grid.dt, kind=grid.kind
+    # The energy weight of each bin per unit frequency: on a field grid the end bins
+    # take the analytic signal's weight, a quarter of an interior bin's.
+    factor = (
+        fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind) / grid.d_omega
     )
     density = conversion * factor * np.sum(np.real(axis * np.conj(closure)), axis=0)
     values: dict[str, np.ndarray] = {}

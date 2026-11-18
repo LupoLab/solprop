@@ -515,7 +515,6 @@ class _HostHarness(_Scripted):
             interpolate=stepper.interpolate_planes,
             shape=(1, 1, 1),
             proposal=self.scenario.proposal,
-            lag=1,
             name=self.name,
         )
         march.state.z = self.scenario.z0

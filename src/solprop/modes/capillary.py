@@ -145,7 +145,7 @@ class MarcatiliTerms:
     core_susceptibility : numpy.ndarray
         Per-particle susceptibility ``gamma(omega)`` in m^3, so that
         ``chi = gamma * rho``. Mixtures carry shape ``(n_species, n_omega)``;
-        the existing single-gas spelling retains its frequency vector. Values are
+        a single gas carries shape ``(n_omega,)``. Values are
         real for transparent built-in gases and complex for absorbing custom species.
     dcore_susceptibility_domega : numpy.ndarray
         Its analytic frequency derivative in m^3 s/rad.
@@ -257,6 +257,8 @@ class MarcatiliMode(GasFillMixin):
         The fill species, or ``None`` for an evacuated capillary.
     pressure : float or ZProfile
         Absolute pressure in **bar**, >= 0 (``docs/dev/conventions.md`` section 1).
+        Required beside `gas`: a gas without it is refused. Without a gas it is
+        omitted, and holds 0 once the mode is built.
     kind : str
         ``"HE"`` (hybrid), ``"TE"`` or ``"TM"``. The transverse families require
         ``n == 0``; hybrids require ``n != 0``.
@@ -331,7 +333,7 @@ class MarcatiliMode(GasFillMixin):
 
     radius: float | ZProfile
     gas: Gas | str | None = None
-    pressure: float | ZProfile = 0.0
+    pressure: float | ZProfile | None = None
     _: KW_ONLY
     kind: ModeKind = "HE"
     n: int = 1
@@ -382,7 +384,8 @@ class MarcatiliMode(GasFillMixin):
         ModeError
             If the family and the azimuthal index disagree, the radial index is not
             positive, the model is unknown, ``alpha`` or ``loss_scale`` is invalid or
-            both are given, or the radius or temperature is not positive.
+            both are given, a gas comes without its pressure, or the radius or
+            temperature is not positive.
         """
         self._check_arguments()
         # The transverse families sit on a zero of J_1; the hybrids on one of J_(n-1).
@@ -413,7 +416,7 @@ class MarcatiliMode(GasFillMixin):
         """
         if self.mixture is not None:
             # A mode the run interfaces build carries its fill as a mixture and no
-            # `gas`; before this branch it printed as evacuated.
+            # `gas`, so the mixture names the fill.
             fill = "+".join(self.mixture.labels)
         else:
             fill = "evacuated" if self.gas is None else str(self.gas)
@@ -847,8 +850,8 @@ class MarcatiliMode(GasFillMixin):
         """Return ``n_eff - 1`` and ``dn_eff/domega`` before the loss specification.
 
         - ``radius``: core radius in m.
-        - ``density``: number density in m^-3, scalar for the existing gas spelling or
-          one entry per sampled mixture component.
+        - ``density``: number density in m^-3, scalar for a single gas or one entry
+          per sampled mixture component.
         - Returns: the refractivity and its derivative, with the model's own loss
           included.
         """
@@ -1142,10 +1145,10 @@ class MarcatiliMode(GasFillMixin):
         ``W = (u s)^2 (1 - i v s)^2``, ``s = c/(omega a)``, so that
         ``dW/da = -(2 u^2 s^2/a)(1 - i v s)(1 - 2 i v s)`` and
         ``dn/dz = (sum_s gamma_s rho_s' - (dW/da) a')/(2 n)``; the reduced model
-        differentiates its own polynomial. The loss specification acts on the
-        imaginary part exactly as it does on the index: ``False`` drops it, a float
-        scales it, a measured curve ``alpha(omega)`` does not depend on ``z`` and
-        contributes nothing, where the no-gain clamp binds the imaginary part's slope
+        differentiates its own polynomial. The loss declaration acts on the
+        imaginary part exactly as it does on the index: ``loss_scale`` scales it (0
+        drops it), and an ``alpha`` replaces it and, having no ``z``, contributes
+        nothing; where the no-gain clamp binds the imaginary part's slope
         is zero, and where the evanescent floor binds the whole slope is zero, as
         :meth:`dneff_domega`'s is. What the coherent wall
         route reads is the real part, the slope of the power weight
@@ -1430,7 +1433,7 @@ _SHARED_TERMS: ContextVar[
 
 Keyed by ``id(mode)`` with the mode itself held beside its terms, so an id cannot be
 reused by another mode while the scope lasts; ``None`` outside a scope, where every
-call samples afresh exactly as it always has."""
+call samples afresh."""
 
 
 @contextmanager
@@ -1443,7 +1446,7 @@ def shared_sampling() -> Iterator[None]:
     translation cost. Inside this scope
     :meth:`MarcatiliMode.sampled_terms` returns the terms it already built for the same
     mode and the same frequencies: the same function of the same inputs, so every array
-    built from them is bitwise what it was. The shared
+    built from them is bitwise the unshared one. The shared
     arrays are made read-only, so a caller that wrote into one would fail loudly rather
     than change what the next caller reads.
 

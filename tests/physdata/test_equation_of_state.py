@@ -124,21 +124,31 @@ def test_unknown_gas_is_rejected(func):
         func("Argon", 1.0)
 
 
-@pytest.mark.parametrize(
-    ("func", "bad"), [(density, -1e-12), (pressure, -1.0), (ideal_gas_density, -1.0)]
-)
-def test_negative_argument_is_rejected(func, bad):
-    with pytest.raises(MaterialError, match="must not be negative"):
-        func(bad) if func is ideal_gas_density else func(Gas.Ar, bad)
+@pytest.mark.parametrize("bad", [-1e-12, np.nan, np.inf, -np.inf])
+@pytest.mark.parametrize("ideal", [False, True])
+def test_a_non_finite_or_negative_state_is_rejected_on_either_path(bad, ideal):
+    # The ideal law would return NaN or infinity; both paths refuse alike.
+    with pytest.raises(MaterialError, match="pressure must be finite and non-negative"):
+        density(Gas.Ar, bad, ideal=ideal)
+    with pytest.raises(
+        MaterialError, match="number density must be finite and non-negative"
+    ):
+        pressure(Gas.Ar, bad * 1e37, ideal=ideal)
+    with pytest.raises(MaterialError, match="temperature must be finite and positive"):
+        density(Gas.Ar, 1.0, bad, ideal=ideal)
+    with pytest.raises(MaterialError, match="temperature must be finite and positive"):
+        pressure(Gas.Ar, 1e25, bad, ideal=ideal)
 
 
-@pytest.mark.parametrize("temperature", [0.0, -1.0])
-def test_non_positive_temperature_is_rejected(temperature):
-    with pytest.raises(MaterialError, match="temperature must be positive"):
-        density(Gas.Ar, 1.0, temperature)
-    with pytest.raises(MaterialError, match="temperature must be positive"):
-        pressure(Gas.Ar, 1e25, temperature)
-    with pytest.raises(MaterialError, match="temperature must be positive"):
+@pytest.mark.parametrize("bad", [-1.0, np.nan, np.inf])
+def test_ideal_gas_density_rejects_a_non_finite_or_negative_pressure(bad):
+    with pytest.raises(MaterialError, match="pressure must be finite and non-negative"):
+        ideal_gas_density(bad)
+
+
+@pytest.mark.parametrize("temperature", [0.0, -1.0, np.nan, np.inf])
+def test_a_non_positive_or_non_finite_temperature_is_rejected(temperature):
+    with pytest.raises(MaterialError, match="temperature must be finite and positive"):
         ideal_gas_density(1.0, temperature)
 
 

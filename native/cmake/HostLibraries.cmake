@@ -95,7 +95,7 @@ if(NOT SOLPROP_NATIVE_PROFILE STREQUAL "LOCAL")
   if(_native_request STREQUAL "ON")
     message(FATAL_ERROR
       "A ${SOLPROP_NATIVE_BUILD_PROFILE} build runs on other machines; it cannot be "
-      "combined with ENABLE_NATIVE_ARCH=ON.")
+      "combined with SOLPROP_NATIVE_HOST_ARCH=ON.")
   endif()
   if(NOT SOLPROP_NATIVE_BLAS_VENDOR STREQUAL "AUTO" OR SOLPROP_NATIVE_BLAS_LIBRARIES)
     message(FATAL_ERROR
@@ -114,7 +114,8 @@ if(SOLPROP_NATIVE_PROFILE STREQUAL "DISTRIBUTION" AND _tpl_request STREQUAL "OFF
     "combined with ENABLE_TPL_BLAS=OFF.")
 endif()
 if(_native_request STREQUAL "AUTO")
-  # Device builds keep their host code generic, as their qualified presets did.
+  # Device builds keep their host code generic, as the qualified cuda and hip presets
+  # set it (CMakePresets.json).
   if(SOLPROP_NATIVE_PROFILE STREQUAL "LOCAL" AND NOT _device_build)
     set(SOLPROP_NATIVE_HOST_ARCH ON)
   else()
@@ -179,7 +180,7 @@ if(NOT SOLPROP_NATIVE_CPU_BASELINE STREQUAL "none" AND
   if(SOLPROP_NATIVE_HOST_ARCH)
     message(FATAL_ERROR
       "SOLPROP_NATIVE_CPU_BASELINE=${SOLPROP_NATIVE_CPU_BASELINE} and "
-      "ENABLE_NATIVE_ARCH=ON both choose the architecture; set one.")
+      "SOLPROP_NATIVE_HOST_ARCH=ON both choose the architecture; set one.")
   endif()
   if(_x86_processor)
     set(SOLPROP_NATIVE_CPU_BASELINE_FLAG "-march=${SOLPROP_NATIVE_CPU_BASELINE}")
@@ -207,7 +208,7 @@ if(SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP)
     message(FATAL_ERROR "Host BLAS/FFT selections cannot be used in device builds.")
   endif()
   # The device's vendor BLAS (cuBLAS, rocBLAS) is the local default; KokkosKernels
-  # finds it with the toolkit and a missing one fails there, as before.
+  # finds it with the toolkit and a missing one fails there.
   if(_tpl_request STREQUAL "AUTO")
     if(SOLPROP_NATIVE_PROFILE STREQUAL "REFERENCE")
       set(SOLPROP_NATIVE_ENABLE_TPL_BLAS OFF)

@@ -107,7 +107,9 @@ their figure, and a map follows a pulse that walks off or spreads along the run.
 
 {py:func}`~solprop.plotting.propagation.time_1d` and
 {py:func}`~solprop.plotting.propagation.spec_1d` draw one or more positions along the
-fibre: a colour per position, a dash pattern per mode (the patterns repeat when there
+fibre, chosen by position with `z=` or by index with `plane=` as the
+[processing readers](processing.md) choose a plane (the spectrogram draws one, chosen
+the same way): a colour per position, a dash pattern per mode (the patterns repeat when there
 are more modes than patterns), and the width at half maximum
 appended to each temporal legend entry. `time_1d` draws the power, the real field or its
 square; `spec_1d` draws the density on any of the three abscissae, logarithmic by default
@@ -171,8 +173,10 @@ and transforms at evenly spaced positions, through
 $\tau$ resolves frequencies no better than $1/\tau$, so a short gate shows *when* and a
 long gate shows *what*. The gate below is at the geometric mean of the transform-limited
 duration and the chirped one, which is where a linear chirp is most legible. By default
-the gate is a twentieth of the time range wide (`gate_fwhm`) and is placed at 256
-positions across it (`positions`); `log=True` draws decibels below the peak. A spectrogram
+the gate's width (`gate_fwhm`) is a twentieth of the time range clipped to the window
+({py:func}`~solprop.processing.fields.default_gate_fwhm`), and it is placed at 256
+positions across that range (`positions`); `log=True` draws decibels below the peak, down
+to `db_min` (−40 dB by default). A spectrogram
 is of one field, so a multimode run must name the mode it means, and is refused if it
 does not. The map itself, without the figure, is
 {py:func}`~solprop.processing.fields.get_spectrogram`: the gate positions, the spectral
@@ -326,4 +330,4 @@ icon.savefig(buffer, format="png")  # 96 x 96 pixels, for a picker's icon
 ```
 
 The geometry outlines were proposed and carried out by
-[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+[SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md).

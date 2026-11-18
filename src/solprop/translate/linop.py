@@ -139,16 +139,15 @@ absolute round-off of order 1e-7 whatever the frame quantities cost. A hundred i
 smallest round decade that leaves margin above the floor; see
 ``docs/guide/numerics/linear-operator.md``.
 
-The factor was originally what stood between a floor measured against the *global*
-envelope and a tail measured *per element*, and it was not enough: with the spectral
-collar active the global envelope is the collar's own rate, the floor is read two orders
-too small, and the interval budget is exhausted before the tolerance is relaxed and the
-whole search paid again. The floor is now measured in the
-acceptance test's own norm, so the two are comparable and the factor is a margin rather
-than a correction. Measured on a capillary with its absorber (1.5 m, 90 nm to 4 um,
-n_omega 2049, four modes): the floor goes from 1.5e-13 to 2.3e-7 at 1 mm and the first
-build from 416 s to 1.1 s, at half the memory and an agreement with ``quad_vec`` of
-5.5e-11 against 2.5e-12.
+The floor is measured in the acceptance test's own norm, per element, so floor and tail
+are comparable and the factor is a margin rather than a correction. A floor read against
+the *global* envelope would not be: with the spectral collar active that envelope is the
+collar's own rate, the floor would be read two orders too small, and the interval budget
+would be exhausted before the tolerance is relaxed and the whole search paid again.
+Measured on a capillary with its absorber (1.5 m, 90 nm to 4 um, n_omega 2049, four
+modes), the per-element floor is 2.3e-7 at 1 mm against 1.5e-13 for the global one, and
+the first build takes 1.1 s against 416 s, at half the memory and an agreement with
+``quad_vec`` of 5.5e-11 against 2.5e-12.
 """
 
 MAX_TOL = 1e-7
@@ -898,8 +897,8 @@ def build_phi(
     that expansion against scalar integral tables along z
     (:mod:`solprop.translate.expansion`). The paths' breakpoints are mandatory edges of
     the scalar tables, so a stage boundary or a taper corner is never crossed and
-    becomes a hard kink, exactly as before; what changes is that the cusps and the
-    corners are resolved in tables of ``n_terms`` scalars rather than of the state.
+    becomes a hard kink, as in the z table; the cusps and the corners are resolved in
+    tables of ``n_terms`` scalars rather than of the state.
 
     Anything else takes the **z table**: the scalar paths are resolved first, because
     they are cheap and carry the structure that makes the operator hard, and the
@@ -1035,58 +1034,9 @@ def _dispersion_phi(
     reuse: ParameterExpansion | None = None,
     kinks: Sequence[float] | np.ndarray = (),
 ) -> LinearOperator:
-    """Build the cumulative linear operator of a mode set over a run.
+    """Build the operator of :func:`build_phi` without its power weight.
 
-    Three representations, in the order they are tried.
-
-    A mode set that reports ``z_constant`` takes :func:`constant_phi`: one interval,
-    degree 1, and a :func:`delta_phi` that is exact to the last bit.
-
-    A mode set whose whole z dependence runs through scalar paths it declares
-    (:class:`solprop.modes.protocol.ParameterisedMode`) takes the **expansion in those
-    parameters**: ``D`` is resolved once over the range each path spans, and ``Phi`` is
-    that expansion against scalar integral tables along z
-    (:mod:`solprop.translate.expansion`). The paths' breakpoints are mandatory edges of
-    the scalar tables, so a stage boundary or a taper corner is never crossed and
-    becomes a hard kink, exactly as before; what changes is that the cusps and the
-    corners are resolved in tables of ``n_terms`` scalars rather than of the state.
-
-    Anything else takes the **z table**: the scalar paths are resolved first, because
-    they are cheap and carry the structure that makes the operator hard, and the
-    operator itself is then resolved on the union of their edges and integrated exactly
-    in the Chebyshev basis. That is the general representation and the fallback for a
-    mode whose parameters do not resolve; the only approximation anywhere in ``Phi`` is
-    the interpolation of ``D`` (``docs/guide/numerics/linear-operator.md``).
-
-    - ``mode``: only ``neff``, ``dneff_domega``, the declared ``core_radius`` and
-      ``density`` paths and, for the expansion, ``at_parameters`` are used.
-    - ``grid``: the grid; supplies the frequency axis, the active band and the layout.
-    - ``z_max``: length the run covers, m, positive and finite.
-    - ``n_pol``: polarisation components, 1 or 2. ``D`` is the same for both components
-      of one mode, and is stored for each so that a birefringent mode needs no new
-      layout.
-    - ``absorber_rate``: spectral absorber rate in 1/m, shape ``(n_omega,)``, folded
-      into ``D`` before the integration so the collar is exact as a rate.
-    - ``loss``: applied to ``D`` before ``Phi`` is integrated, never to an accumulated
-      exponent afterwards.
-    - ``tol``: target bound on the uniform error of the table relative to the value
-      scale. The request is raised to :data:`ROUNDOFF_SAFETY` times the measured
-      round-off floor of ``D`` when that is larger, because no interpolant can resolve a
-      function below the noise of its own evaluation, and relaxed further, by decades up
-      to :data:`MAX_TOL`, if the interval budget is exhausted anyway
-      (``docs/dev/stepper.md`` section 4, step 4). Both are logged.
-    - ``max_intervals``: exceeding it sets the fallback flag and logs a warning.
-    - ``representation``: which representation to build. ``"auto"``, the default,
-      prefers the expansion; ``"table"`` forces the z table, which is what an
-      equivalence test between the two needs; ``"expansion"`` refuses to fall back. A
-      ``z_constant`` mode set takes :func:`constant_phi` whatever this says, since that
-      path is exact.
-    - ``reuse``: coefficients of the identical operator function on the same grid, frame
-      and fixed parameters. The caller must establish function identity. Covered paths
-      receive new scalar weights; other paths rebuild normally, with a logged reason.
-    - ``kinks``: further hard kinks in m beside the mode set's breakpoints, as for
-      :func:`build_phi`.
-    - Returns: section 3 of the kernel contract, covering ``[0, z_max (1 + margin)]``.
+    :func:`build_phi` describes the three representations and every argument.
     """
     _checked_representation(representation)
     span = _checked_span(z_max, margin)
@@ -1348,7 +1298,7 @@ def power_weight_row(
     """Evaluate the modal power weight of an assembled linear group at one position.
 
     :func:`power_weight_at` on a problem and the entrance conversion of the launch in
-    :mod:`solprop.translate.problem` are the same quantity, so they share this one
+    :mod:`solprop.translate.assembly` are the same quantity, so they share this one
     arithmetic path: a second, independent evaluation of the mode's index would leave
     the launch and the output sites disagreeing at the last few bits and break the
     exactness of the entrance round trip.

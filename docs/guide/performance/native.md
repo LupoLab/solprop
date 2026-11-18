@@ -18,7 +18,7 @@ It is the backend to use, and a required dependency: `pip install solprop` insta
 `backend="auto"` — the default of every entry point — selects it. `numpy_ref`, which is
 unthreaded and roughly 6 to 40 times slower than threaded native
 ([which backend to use](backends.md#which-backend-to-use)), remains the numerical
-reference, and runs [the few features native does not](backends.md#features-that-run-on-the-reference-backend).
+reference, and runs [a problem a GPU build refuses](backends.md#features-that-run-on-the-reference-backend).
 
 ## What it runs
 
@@ -52,7 +52,7 @@ of an HDF5 output that keeps the resume history, and for each periodic snapshot.
 resume installs them again and continues the history ([resuming](../results/resuming.md)).
 A frozen-residual coupled flow's history is kept in a native form (each sample's
 generator applied to its state), so a snapshot of it continues only on the native
-backend, and a host engine's snapshot of it only on `numpy_ref`; a
+backend, and a `numpy_ref` snapshot of it only on `numpy_ref`; a
 mismatch starts the history afresh and says why. Other histories cross between backends.
 
 The planar guide resolved in y is built into the GPU builds but has not been qualified
@@ -95,10 +95,10 @@ python -c "import solprop_native as sn; sn.check_build()"
 ```
 
 `check_build()` raises if the build is inconsistent (for example a GPU build that sees
-no device) or does not fit the installed solprop: the two packages share a kernel
-contract, and `check_build()` names any solprop member the build relies on that is
-missing. In a checkout it also refuses an extension built from other sources than
-`native/`. Install the two at the same version, from one release or one checkout. The build
+no device). In a checkout it also refuses an extension built from other sources than
+`native/`. It does not compare the build with the installed solprop: solprop requires
+solprop-native at exactly its own version, so install the two at the same version, from
+one release or one checkout. The build
 record reports the profile (`build_profile`), the BLAS (`blas_selection`,
 `blas_library`), FFTW, the compiler flags, the thread counts and, on a GPU build, the
 device. Then, in Python:
@@ -127,9 +127,9 @@ It needs a C++20 compiler; a contributor to the Python or the documentation can 
 one ([contributing](../../dev/contributing.md)). The editable install does not rebuild
 itself: run `uv sync --reinstall-package solprop-native` after a native change.
 `uv run poe check-native` runs the native gate
-and `uv run poe check-all` both gates. A build stays valid across solprop changes until
-the sources under `native/` change, when `check_build()` refuses it and names that
-command, or until `check_build()` names a member the installed solprop lacks. Running solprop's test lanes against the build is described in
+and a native change runs it after `uv run poe check`. A build stays valid across solprop
+changes until the sources under `native/` change, when `check_build()` refuses it and names that
+command. Running solprop's test lanes against the build is described in
 the developer notes on [testing](../../dev/testing.md#tiers-and-backends).
 
 ## Running on a GPU
@@ -164,7 +164,7 @@ planes. Things to know:
   device sums in its own order; the difference is at the level of rounding and is
   covered by the same derived error bounds that every backend is tested against. A
   repeat on one build is held to the same bounds, not to identical bits
-  ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
+  ([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
 - **Time your own problem first.** Run ten steps on the device and on the CPU before
   committing to either for a long campaign.
 
@@ -191,8 +191,8 @@ It is an environment setting with no keyword, and scan workers inherit it. It is
 backend selection, before any state is allocated or a step taken, by reading the build's
 `build_info().device_backend` and `device_count`, never a version label. It refuses, with a
 `BackendError`, a CPU build, the wrong device backend and a device build that sees no device.
-It also refuses `numpy_ref`, by name or through `backend="auto"` for a TDSE run, because
-such a run would not meet the job's requirement; unset it for such a run.
+It also refuses `numpy_ref`, because such a run would not meet the job's requirement; unset
+it for such a run.
 
 ## Threads on the CPU build
 
@@ -214,8 +214,9 @@ large run, for a scan of many runs and on a cluster.
 
 ## When something goes wrong
 
-- **`ImportError`, or `check_build()` naming a missing member.** The
-  installed solprop-native does not fit the installed solprop; install both at the same
+- **`ImportError`, or another error from inside `solprop_native`, after one package was
+  installed alone.** The installed solprop-native does not fit the installed solprop;
+  install both at the same
   version (`pip install --force-reinstall solprop`, or both from one checkout
   as in [Building the native backend](building-native.md)).
 - **`check_build()` saying the extension was built from other sources.** A checkout's
@@ -243,5 +244,5 @@ large run, for a scan of many runs and on a cluster.
 
 The native backend's place in this repository and its
 precompiled wheels were proposed and carried out by
-[SEP 29](../../dev/seps/archive/sep-0029-compiled-backend-distribution.md), and
-[SEP 43](../../dev/seps/archive/sep-0043-retire-numba-cpu.md) made it a required dependency.
+[SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md), and
+[SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) made it a required dependency.

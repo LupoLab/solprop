@@ -38,7 +38,7 @@ from solprop._display import Displayed, line
 from solprop.constants import ROOM_TEMPERATURE
 from solprop.exceptions import DiluteScalingWarning, MaterialError
 from solprop.physdata import _optmat
-from solprop.physdata.gases import Gas
+from solprop.physdata.gases import Gas, _fractions
 from solprop.physdata.raman_types import Dephasing, MolecularOptions
 from solprop.physdata.selection import (
     DiluteScalingCheck,
@@ -430,17 +430,6 @@ def _check_flow_weight(
             f"or temperature path: its eta(T) T differs from this declaration's by "
             f"{mismatch:.2g} relative (at most {_WEIGHT_MATCH:g}). {build}"
         )
-
-
-def _fractions(values: Sequence[float]) -> tuple[float, ...]:
-    """Validate a distribution without silently renormalising supplied fractions."""
-    result = tuple(float(v) for v in values)
-    if not result or any(not math.isfinite(v) or v < 0 for v in result):
-        raise MaterialError("fractions must be finite, non-negative and non-empty")
-    # A supplied distribution can incur one rounding per entry and its sum.
-    if abs(math.fsum(result) - 1.0) > 2 * len(result) * np.finfo(float).eps:
-        raise MaterialError(f"fractions must sum to one, got {math.fsum(result):.17g}")
-    return result
 
 
 _PREIONISATION_PROBES = 65

@@ -83,7 +83,7 @@ A saved result needs the grid, field convention, material models, response choic
        checkout when there is one, and when the run started.
    * - ``reference``
      - The **plane-reference record**
-       (`SEP 31 <../../dev/seps/archive/sep-0031-simulation-coupling.html>`_): the carrier, the
+       (`SEP 31 <https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0031-simulation-coupling.md>`_): the carrier, the
        frame integral of the terms the linear operator removed (exact Chebyshev
        antiderivatives of the frame's ``beta_0`` and ``beta_1`` tables, with the frequency
        origin of the linear term), the reference origin of the run's path, and the
@@ -97,7 +97,7 @@ A saved result needs the grid, field convention, material models, response choic
        strength, and a collar's strength, band, threshold and step limit; ``None``
        without a transverse boundary.
    * - ``schema_version``, ``spectral_convention``, ``field_layout``
-     - The version of this record layout (currently 4), the sign convention of the
+     - The version of this record layout (currently 3), the sign convention of the
        stored field (always ``"optics"``) and the axis order of the stored field.
 ```
 
@@ -171,8 +171,8 @@ holds two kinds of entry.
   is taken as transparent, with the absorption bound of that approximation;
 - `policies`, the approximations in force: linear density scaling of a gas
   susceptibility, with its warning threshold; the electronic policy and the carrier
-  wavelength; the Raman line-shift policy and reference temperature; and the plasma
-  energy-loss convention. A policy the run does not use (a Raman shift without a
+  wavelength; the Raman line-shift policy and reference temperature; and each optmat
+  ionisation rate's threshold and energy-loss convention. A policy the run does not use (a Raman shift without a
   shifting response, a GNLSE fraction off the GNLSE) is recorded as `None`.
 
 **Measurements**, which are recorded beside them and are not in the key:

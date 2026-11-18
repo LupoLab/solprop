@@ -7,7 +7,7 @@
 Six commands, parsed by ``_parser`` and dispatched by :func:`main`:
 ``solprop run recipe.toml -o out.h5`` builds and runs a recipe, ``solprop resume
 out.h5`` continues it from the file and the recipe it records, ``solprop check``
-reports what stops it building, ``solprop export --python`` prints the equivalent
+reports what stops it building, ``solprop export`` prints the equivalent
 script, ``solprop scan`` is ``python -m solprop.scan``, and ``solprop calibrate``
 measures, shows, exports, imports or forgets the native backend's machine profile
 (:mod:`solprop.calibration.command`, SEP 46). A run maps SIGINT and SIGTERM onto its
@@ -38,7 +38,8 @@ def _parser() -> argparse.ArgumentParser:
     """Return the command line's parser."""
     parser = argparse.ArgumentParser(
         prog="solprop",
-        description="Run, check and export solprop recipes.",
+        description="Run, resume, check and export solprop recipes, run scans, and "
+        "calibrate the native backend.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
     run = commands.add_parser("run", help="build and run a recipe")
@@ -75,7 +76,10 @@ def _parser() -> argparse.ArgumentParser:
     export = commands.add_parser("export", help="print a recipe as another form")
     export.add_argument("recipe", type=Path, help="the recipe file")
     export.add_argument(
-        "--python", action="store_true", required=True, help="print a Python script"
+        "--form",
+        choices=("python",),
+        default="python",
+        help="the form to print: a Python script (default: python)",
     )
     export.add_argument(
         "-o", "--output", default=None, help="the file the script's run writes"
@@ -229,8 +233,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     Returns
     -------
     int
-        The exit status: zero on success, one when a recipe has an error, two for a
-        refused recipe or arguments.
+        The exit status: zero on success; one when ``check`` finds an error in a
+        recipe, or a calibration is inconclusive; two for refused arguments or input
+        (a recipe or file that cannot be read or built) and for a run or scan that
+        fails with a solprop error; ``128`` plus the signal's number when a signal
+        stopped a run.
 
     Examples
     --------
@@ -239,13 +246,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     2
     """
     arguments = list(sys.argv[1:] if argv is None else argv)
-    if arguments and arguments[0] == "scan":
-        from solprop.scan import main as scan  # noqa: PLC0415 - its own parser
-
-        return scan(arguments[1:])
-    args = _parser().parse_args(arguments)
     try:
-        return _command(args)
+        if arguments and arguments[0] == "scan":
+            from solprop.scan import main as scan  # noqa: PLC0415 - its own parser
+
+            return scan(arguments[1:])
+        return _command(_parser().parse_args(arguments))
     except (SolpropError, OSError) as error:
         sys.stderr.write(f"solprop: {error}\n")
         return 2

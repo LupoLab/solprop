@@ -12,7 +12,7 @@ rule, including the tube-index-dependent exponents. Samples include resonance
 centres and offsets of the dispersion width, in addition to 200 nm--2 um.
 
 The expression is solprop's form of the fits: dispersion width 0.03, the printed ``3 +
-10 lambda/a`` in the effective radius, the normalised frequency ``(2t/lambda) sqrt(n_t^2
+20 lambda/a`` in the effective radius, the normalised frequency ``(2t/lambda) sqrt(n_t^2
 - n_g^2)`` wherever it enters (the minimum loss keeps its ``n_t^2 - 1`` factors), the
 waveguide decrement divided by the gas index once, and the area with the paper's
 ``1/n_g`` prefactor. The gas symbol is real in the algebra and complex in the numbers,
@@ -106,7 +106,7 @@ def symbolic_expressions(geometry):
         * 3
         / 64
         * outer**2
-        * (1 + (3 + 10 * wavelength / radius) * gap / outer)
+        * (1 + (3 + 20 * wavelength / radius) * gap / outer)
     )
     shift = 4.5e-7 * (1 - ratio) ** -4 * (wavelength / radius) ** 2 * dispersion
     decrement = (
@@ -220,7 +220,7 @@ def main():
                     "bessel_zero": BESSEL_ZERO,
                     "conventions": {
                         "dispersion_width": 0.03,
-                        "radius_coefficient": 10,
+                        "radius_coefficient": 20,
                         "single_power_decrement": True,
                         "area_over_gas_index": True,
                         "filled_frequency": True,

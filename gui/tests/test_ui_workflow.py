@@ -4,6 +4,7 @@
 
 """The workflow window, offscreen: Home, Setup, Run and Analyse, for every class."""
 
+import gc
 import warnings
 from collections.abc import Iterator
 from pathlib import Path
@@ -18,7 +19,7 @@ from pytestqt.qtbot import QtBot
 from shiboken6 import isValid
 from solprop.constants import C
 from solprop.output import open_file
-from solprop.service.messages import Event
+from solprop.service.messages import Event, Reply
 from solprop.service.states import ExecutionState
 
 from conftest import TINY
@@ -53,7 +54,7 @@ from solprop_gui.ui.fields import ParameterRow
 from solprop_gui.ui.home import HomePage
 from solprop_gui.ui.quantity import QuantityField, _readable
 from solprop_gui.ui.theme import FONT
-from solprop_gui.ui.workflow_window import WorkflowWindow
+from solprop_gui.ui.workflow_window import WorkflowWindow, collect_between_events
 from solprop_gui.views.cross_section import CrossSection
 
 WAIT_MS = 120_000
@@ -91,6 +92,19 @@ def shot(widget: QWidget, folder: Path, name: str) -> None:
     assert image.save(str(folder / f"{name}.png"))
 
 
+def listed_runs(home: HomePage) -> list[str]:
+    """Return the first line of each item Home lists under its runs."""
+    texts = []
+    for index in range(home.runs.count()):
+        entry: Any = home.runs.itemAt(index)
+        item = entry.widget()
+        if not isinstance(item, QLabel):  # an item: its title line
+            item = item.findChild(QLabel, "itemTitle")
+        assert isinstance(item, QLabel)
+        texts.append(item.text())
+    return texts
+
+
 def open_tiny(window: WorkflowWindow, qtbot: QtBot) -> None:
     """Open the quick capillary, and wait until solprop has accepted it."""
     window.document.set_model(RecipeModel(TINY), base=None)
@@ -124,10 +138,11 @@ def test_home_offers_each_class_and_asks_for_nothing_open(
     assert window.home.workspace.text().startswith("In ")
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    window.run_panel.set_workspace(elsewhere)
+    with qtbot.waitSignal(window.runs_listed, timeout=WAIT_MS):
+        window.run_panel.set_workspace(elsewhere)
     assert window.home.workspace.toolTip() == str(elsewhere)
     assert window.settings.value("workspace") == str(elsewhere)
-    assert window.home.runs.count() == 1  # "No runs yet." in the new folder
+    assert listed_runs(window.home) == ["No runs yet."]  # none in the new folder
     window.home.show_workspace(Path.home() / "runs")
     assert window.home.workspace.text() == "In ~/runs"
 
@@ -299,15 +314,45 @@ def test_the_gas_is_a_list_with_plain_names(
     assert row.choice.currentText().startswith("Helium")
 
 
-def test_a_lost_worker_explains_itself(window: WorkflowWindow, qtbot: QtBot) -> None:
+def test_a_lost_run_explains_itself(window: WorkflowWindow, qtbot: QtBot) -> None:
     open_tiny(window, qtbot)
     panel = window.run_panel
     panel.run_id = "gone"
     panel.state = ExecutionState.RUNNING
-    panel.on_event(Event("gone", "lost", {"exitcode": -9}))
+    panel.on_event(Event("gone", "lost", {"message": "out of memory"}))
     assert not window.analyse.advice.isHidden()
-    assert "out of memory" in window.analyse.advice_text.text()
+    assert "(out of memory)" in window.analyse.advice_text.text()
     assert "LowStorageRungeKutta" in window.analyse.advice_text.text()
+
+
+def test_a_host_collects_garbage_on_a_timer_not_automatically(qtbot: QtBot) -> None:
+    del qtbot  # the application, for the collector's timer
+    gc.enable()
+    try:
+        collector = collect_between_events()
+        assert not gc.isenabled() and collector.timer.isActive()
+        collector.timer.stop()
+    finally:
+        gc.disable()  # as the suite keeps it (conftest.py)
+
+
+def test_a_failed_reply_to_the_windows_own_request_is_said(
+    window: WorkflowWindow,
+) -> None:
+    bar = window.statusBar()
+    window._pending[-7] = "gases"
+    window._on_reply(Reply("gases", -7, 0, error="no gas data"))
+    assert (
+        bar.currentMessage() == "solprop could not give the list of gases: no gas data"
+    )
+    window._pending[-6] = "warm-rdw"
+    window._on_reply(Reply("example", -6, 0, error="gone"))
+    assert bar.currentMessage() == "solprop could not give the example rdw: gone"
+    # A superseded reply is no failure: a newer request answers instead.
+    bar.clearMessage()
+    window._pending[-5] = "curve"
+    window._on_reply(Reply("curve", -5, 0, superseded=True))
+    assert bar.currentMessage() == ""
 
 
 def test_the_sheet_helps_finds_and_folds(window: WorkflowWindow, qtbot: QtBot) -> None:
@@ -415,9 +460,10 @@ def test_a_run_goes_from_setup_to_analyse_with_one_scrubber(
     assert not window.analyse.rail.isVisible()
     window.show_stage(Stage.SETUP)
     assert window.top.isVisible()
-    window.show_stage(Stage.HOME)
+    with qtbot.waitSignal(window.runs_listed, timeout=WAIT_MS):
+        window.show_stage(Stage.HOME)
     assert window.top.isVisible()  # the stages lead back to what is open
-    assert window.home.runs.count() == 1
+    assert listed_runs(window.home) == [Path(session.path or "").parent.name]
 
 
 def test_results_from_home_find_their_class_and_restore_the_setup(
@@ -1043,7 +1089,7 @@ def test_a_solid_core_fibre_runs_and_every_page_reads_it(  # noqa: PLR0915 - one
     low, high = overview.spectrum_map.box.viewRange()[0]
     assert low > 500.0
     assert high < 2000.0
-    assert not analyse.buttons["noise"].isEnabled()
+    assert "noise" not in analyse.buttons  # no run is a seeded ensemble yet
     # A plane that has arrived but is not drawn yet is read as the last drawn one.
     top = float(overview.rows[-1]["z"]) * overview._unit[1]
     overview.rows.append({**overview.rows[-1], "z": 2 * float(overview.rows[-1]["z"])})
@@ -1229,7 +1275,7 @@ def test_a_fibre_has_its_own_rows_and_no_map(
     assert stage.fields["lattice.n_tubes"].isVisible()
     assert not stage.solve_button.isEnabled()
     zero = stage.numbers["zdw"]
-    qtbot.waitUntil(lambda: zero.text() == "483 nm", timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: zero.text() == "484 nm", timeout=WAIT_MS)
     stage.show_page("map")
     assert stage.page == "curves"
     assert "capillary" in stage.note.text()

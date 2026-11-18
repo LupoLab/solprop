@@ -409,15 +409,6 @@ def _raman(values: Mapping[str, object]) -> Resolution:
     )
 
 
-def _pressure(values: Mapping[str, object]) -> Resolution:
-    """Return the capillary's default pressure.
-
-    - Returns: one bar.
-    """
-    del values
-    return Resolution(1.0, "one bar when no pressure is given")
-
-
 # ------------------------------------------------------------------- the forms
 
 
@@ -906,11 +897,10 @@ def _capillary() -> tuple[Parameter, ...]:
             ),
             "medium",
             "basic",
-            "Fill pressure: a number, an end-to-end gradient, (z, p) pairs or a "
-            "profile.",
+            "Fill pressure, required beside a gas: a number, an end-to-end "
+            "gradient, (z, p) pairs or a profile.",
             "guide/media/mixtures.md",
             display="bar",
-            resolver=_pressure,
         ),
         Parameter(
             "pressure_floor",
@@ -1194,7 +1184,6 @@ def _waveguide() -> tuple[Parameter, ...]:
     """
     supplied = "guide/waveguides/supplied-guides.md"
     provider = f"{supplied}#a-guide-instead-of-a-fill"
-    general = "guide/waveguides/general-modal.md"
     beam = "guide/workflows/coupling.md#a-beam-into-a-general-modal-guide"
     rule = "guide/waveguides/mode-sets.md#the-transverse-quadrature"
     return (
@@ -1252,22 +1241,6 @@ def _waveguide() -> tuple[Parameter, ...]:
             "advanced",
             "The cubic a provider's material regions respond with.",
             provider,
-        ),
-        Parameter(
-            "observable_rtol",
-            (Form("number", minimum=0.0),),
-            "numerics",
-            "advanced",
-            "Accuracy of a provider run's observables; only the solver's own, none.",
-            f"{general}#declared-refused-recorded",
-        ),
-        Parameter(
-            "observable_atol",
-            (Form("number", minimum=0.0),),
-            "numerics",
-            "advanced",
-            "Accuracy of a provider run's observables; only the solver's own, none.",
-            f"{general}#declared-refused-recorded",
         ),
         Parameter(
             "n_r",

@@ -100,7 +100,8 @@ class StepperSettings:
         kink. ``None`` for an adaptive run.
     save_planes : numpy.ndarray
         Positions in z the driver will ask for, m, shape ``(n_z,)``, increasing. Steps
-        land on them exactly; there is no dense output.
+        land on them exactly, unless `interpolate_planes` observes them inside
+        accepted steps.
     propagator_mode : {'auto', 'tabulate', 'recompute'}
         Whether the backend tabulates the stage propagator factors or recomputes them.
         ``"auto"`` leaves the choice to the backend, which records what it resolved.
@@ -113,7 +114,10 @@ class StepperSettings:
         Whether a step is capped at the width of the operator-table interval it starts
         in. The cumulative table makes the flow exact across intervals, so the cap is
         off on the diagonal-flow routes and on for a coupled flow, whose flow error the
-        embedded estimate does not see (SEP 14 section 4.1).
+        embedded estimate does not see (SEP 14 section 4.1). The Runge-Kutta and
+        low-storage marches read it; an Adams march caps by its method's own
+        :attr:`~solprop.stepper.multistep.Multistep.interval_cap`, which ``assemble``
+        records here.
     auto_init : bool
         Whether the start-up rule takes the step after the first from the first step's
         own error estimate (``PIController.start_factor``); ``False`` grows from

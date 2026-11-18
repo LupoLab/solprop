@@ -170,8 +170,8 @@ def capillary_fill(
     material : Gas, str, Mapping or Mixture
         A built-in gas, mole fractions or a complete mixture declaration.
     pressure : float, sequence, ZProfile or None
-        Total pressure in bar; None uses one bar for a built-in gas or fractions.
-        A supplied Mixture requires None because it already carries its paths.
+        Total pressure in bar, required for a built-in gas or fractions. A supplied
+        Mixture requires None because it already carries its paths.
     length : float
         Capillary length in m, needed by endpoint pressure pairs.
     temperature : float, ZProfile or None
@@ -209,8 +209,8 @@ def capillary_fill(
     Raises
     ------
     DriverError
-        If pressure, temperature or optical arguments conflict, or a label is
-        unknown.
+        If a built-in gas or fractions come without a pressure, pressure,
+        temperature or optical arguments conflict, or a label is unknown.
     """
     if isinstance(material, Mixture):
         if temperature is not None and not _same_temperature(
@@ -247,6 +247,7 @@ def capillary_fill(
             )
         mixture = material
     else:
+        pressure = _gas_pressure(material, pressure)
         temperature = ROOM_TEMPERATURE if temperature is None else temperature
         # The bore shapes only a fill built here from end pressures; a supplied
         # profile is used as given, and the constructor warns if it is boreless.
@@ -279,7 +280,7 @@ def capillary_fill(
                     rule="mixture-carries-susceptibility",
                 )
             mixture = Mixture.air(
-                1.0 if pressure is None else pressure,
+                pressure,
                 temperature=temperature,
                 argon=False,
                 length=length,
@@ -296,7 +297,7 @@ def capillary_fill(
             fractions = {selected: 1.0}
         mixture = Mixture.fill(
             fractions,
-            1.0 if pressure is None else pressure,
+            pressure,
             temperature=temperature,
             length=length,
             floor=floor,
@@ -304,6 +305,19 @@ def capillary_fill(
             vacuum_end=vacuum_end,
         )
     return _with_initial_populations(mixture, preionisation)
+
+
+def _gas_pressure(
+    material: Gas | str | Mapping[str, float], pressure: Pressure | None
+) -> Pressure:
+    """Return the pressure of a fill built from a gas or fractions, which needs one."""
+    if pressure is None:
+        msg = (
+            f"a gas fill needs its pressure: pass pressure= in bar beside "
+            f"gas={material!r}, or a Mixture that carries its own paths"
+        )
+        raise DriverError(msg, parameter="pressure")
+    return pressure
 
 
 def _with_initial_populations(

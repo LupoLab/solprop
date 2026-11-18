@@ -192,7 +192,7 @@ def test_spatial_absorber_step_refinement_matches_matrix_exponential(
 
 @pytest.mark.parametrize("illumination", ["confined", "extended"])
 def test_spatial_collar_diagnostic_reports_the_measured_fraction(
-    absorber_case, spatial_backend_class, illumination
+    absorber_case, illumination
 ):
     grid, space, _, _, _, _, _, _ = absorber_case
     problem, run_request = problem_for(absorber_case, 8)
@@ -215,9 +215,6 @@ def test_spatial_collar_diagnostic_reports_the_measured_fraction(
         assert expected > run_request.stepper.controller.rtol
     else:
         assert expected < run_request.stepper.controller.rtol
-    # The end-of-plane log of this share is retired (SEP 40 section 5.3): the
-    # monitor's transverse edge judges the boundary instead.
-    del spatial_backend_class
 
 
 def test_spatial_rate_stability_refusal_is_not_lifted_by_temporal_split(

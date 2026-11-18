@@ -4,9 +4,9 @@
 
 """A run's execution state, the window's own (design 4 and 10.2).
 
-The execution state says what the window and the worker are doing; solprop's outcome
-says what the run achieved, and whether a file can be continued is always asked of
-solprop (``resumability``), never read from either.
+The execution state says what the window and the run's process are doing; solprop's
+outcome says what the run achieved, and whether a file can be continued is always asked
+of solprop (``resumability``), never read from either.
 
 ::
 
@@ -14,7 +14,7 @@ solprop (``resumability``), never read from either.
                  │           │  └──▶ failed
                  │           └─▶ stopping ─▶ stopped
                  └─▶ failed            └──▶ (complete, failed: the run ended first)
-    any active state ─▶ worker lost
+    any active state ─▶ lost
 """
 
 from enum import StrEnum
@@ -33,7 +33,7 @@ class ExecutionState(StrEnum):
     STOPPED = "stopped"
     COMPLETE = "complete"
     FAILED = "failed"
-    LOST = "worker lost"
+    LOST = "lost"
 
 
 ACTIVE: Final = frozenset(
@@ -80,7 +80,7 @@ def advance(state: ExecutionState, event: str) -> ExecutionState:
     state : ExecutionState
         The run's state.
     event : str
-        A worker event's kind (``"started"``, ``"stopped"``, ``"finished"``,
+        A run's event kind (``"started"``, ``"stopped"``, ``"finished"``,
         ``"failed"``, ``"lost"``) or a window action (``"launch"``, ``"stop"``).
         Any other event (progress, rows, logs) leaves the state as it is.
 
@@ -106,20 +106,20 @@ _MEMORY_HINT = (
 )
 
 
-def failure_advice(kind: str, message: str, exitcode: object = None) -> str:
+def failure_advice(kind: str, message: str) -> str:
     """Say why a run stopped short, and what to try.
 
     solprop admits every run and a run that does not fit fails where it fails: with a
-    ``MemoryError``, or with its worker killed and no Python error (ADR-065).
+    ``MemoryError``, or with its process killed and no Python error (ADR-065).
 
     Parameters
     ----------
     kind : {'failed', 'lost'}
         How it ended.
     message : str
-        The message solprop gave, if any.
-    exitcode : object, optional
-        The worker's exit status, for one that was lost.
+        The message solprop gave a failed run, or the reason a lost run went, as its
+        state says it (Slurm's ``out of memory`` or ``timeout``, say); empty when there
+        is none.
 
     Returns
     -------
@@ -132,15 +132,14 @@ def failure_advice(kind: str, message: str, exitcode: object = None) -> str:
     'The grid is too small.'
     >>> failure_advice("failed", "MemoryError").endswith("help too.")
     True
-    >>> failure_advice("lost", "", -9).startswith("The run's worker was killed")
+    >>> failure_advice("lost", "timeout")
+    "The run's process ended without recording how (timeout)."
+    >>> failure_advice("lost", "out of memory").endswith("help too.")
     True
-    >>> failure_advice("lost", "", 1)
-    "The run's worker ended without saying why (exit status 1)."
     """
+    memory = "MemoryError" in message or "out of memory" in message.lower()
     if kind == "failed":
-        if "MemoryError" in message or "out of memory" in message.lower():
-            return f"{message} {_MEMORY_HINT}"
-        return message
-    if exitcode in (-9, 137):
-        return f"The run's worker was killed, with no error from Python. {_MEMORY_HINT}"
-    return f"The run's worker ended without saying why (exit status {exitcode})."
+        return f"{message} {_MEMORY_HINT}" if memory else message
+    reason = f" ({message})" if message else ""
+    said = f"The run's process ended without recording how{reason}."
+    return f"{said} {_MEMORY_HINT}" if memory else said

@@ -45,8 +45,8 @@ That is all a report needs. A maintainer fills in the rest.
 
 ## Writing an issue
 
-Planned work lives in [GitHub issues](https://github.com/LupoLab/solprop/issues), not on
-the roadmap, which lists only SEPs (ADR-062). So an issue for planned work, written by
+Planned work lives in [GitHub issues](https://github.com/LupoLab/solprop/issues)
+(ADR-062). So an issue for planned work, written by
 a person or an agent, has to let someone pick up the task from its text alone.
 [#76](https://github.com/LupoLab/solprop/issues/76) and
 [#77](https://github.com/LupoLab/solprop/issues/77) are examples.
@@ -112,32 +112,12 @@ git clone https://github.com/LupoLab/solprop.git
 cd solprop
 uv sync                 # the package and native/, both editable, with the development tools
 uv run poe check        # the full gate: lint, format, types, docstrings, spelling, tests, docs
-uv run poe check-all    # solprop's gate, then the native gate (`poe check-native`)
 ```
 
-The material models come from [optmat](https://github.com/LupoLab/optmat), installed as
-an ordinary dependency.
-
-The compiled backend, solprop-native, lives in the same repository under
-[`native/`](native/README.md). It is a second distribution with the same version and a
-required dependency, so a plain `uv sync` builds it, which takes a C++20 compiler, CMake and
-FFTW, on Linux or macOS. A Python or documentation change doesn't need that. The lightweight
-setup, which also serves Windows, has no native package and no compiler:
-
-```sh
-uv run --no-project tools/setup_light.py
-export UV_NO_SYNC=1                          # or activate .venv and run the tools directly
-SOLPROP_TEST_BACKEND=numpy_ref uv run poe test
-```
-
-It supports the reference backend and the lint, type, test and documentation checks. uv can't
-be told to leave native out for good, so a later plain `uv sync`, or `uv run` without that
-setting, builds it. There `backend="auto"` refuses, so scripts name `backend="numpy_ref"`, and
-tests that need native skip. [Contributing](docs/dev/contributing.md) has the details, and
-`poe fetch-wheel`, which installs the wheel CI built when it fits your tree.
-
-A change that touches `native/` runs `poe check-all` and follows the native rules in
-[`native/AGENTS.md`](native/AGENTS.md).
+A plain `uv sync` builds the native backend, which takes a C++20 compiler, CMake and FFTW,
+on Linux or macOS. [Contributing](docs/dev/contributing.md#set-up-a-development-environment)
+covers the rest: the native and front-end gates, the lightweight setup with no compiler for
+Python and documentation changes (which also serves Windows), and `poe fetch-wheel`.
 
 ## Making a change
 

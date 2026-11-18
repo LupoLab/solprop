@@ -71,7 +71,6 @@ from solprop.driver.inputs import (
 from solprop.driver.material_output import material_manifest
 from solprop.driver.metadata import (
     RecipeSource,
-    _frame_follows_the_electronic_rule,
     _plane_frame,
     metadata_for,
 )
@@ -82,12 +81,10 @@ from solprop.driver.mixtures import (
     mixture_profiles,
 )
 from solprop.driver.resume import (
-    _adopt_recorded_seed,
     _check_resume_choice,
     _continues,
-    _interpolated,
     _open_output,
-    _ResumeChoice,
+    _resumed_simulation,
     _start,
     _validate_resume,
 )
@@ -122,7 +119,12 @@ from solprop.driver.routes.spatial import (
     _selected_planar,
     _transverse_specification,
 )
-from solprop.driver.run import check_snapshot_request, field_retention, run_problem
+from solprop.driver.run import (
+    _TDSE_OUTPUT_REFUSAL,
+    check_snapshot_request,
+    field_retention,
+    run_problem,
+)
 from solprop.driver.runner import SimulationRunner, _peak_field_reports
 from solprop.driver.settings import (
     _EXECUTION_SETTINGS,
@@ -165,6 +167,7 @@ from solprop.log import (
     DEFAULT_PROGRESS_PERIOD,
     ProgressChoice,
     ProgressReporter,
+    ResumeChoice,
     StopFlag,
 )
 from solprop.modes.antiresonant import TubeLattice
@@ -277,15 +280,18 @@ class Simulation(Displayed):
     """A run that can be translated once and executed many times.
 
     Construct it from the physics objects and a
-    :class:`~solprop.driver.settings.SimulationSettings`, or through
-    :meth:`from_gnlse` for a GNLSE fibre. :meth:`translate` assembles the kernel problem
+    :class:`~solprop.driver.settings.SimulationSettings`, or through one of the
+    ``from_*`` constructors: :meth:`from_free`, :meth:`from_planar`,
+    :meth:`from_gnlse`, :meth:`from_capillary` and :meth:`from_waveguide`.
+    :meth:`translate` assembles the kernel problem
     and caches it, so a second :meth:`run` -- into another handler, or resuming a
     file -- reuses it. :attr:`settings` may be replaced until that first translation;
-    after it only its ``backend`` may change. What the run is built from -- the grid,
-    the modes, the responses, the input and the rest of the parameters below -- is
-    read-only, because the input, the translation and the record are derived from it:
-    :meth:`with_input` derives a run with a new input, noise or launch position,
-    :meth:`with_mixture` one with a new fill, and anything else is a new simulation.
+    after it only the execution settings :attr:`settings` lists may change. What the
+    run is built from -- the grid, the modes, the responses, the input and the rest of
+    the parameters below -- is read-only, because the input, the translation and the
+    record are derived from it: :meth:`with_input` derives a run with a new input,
+    noise or launch position, :meth:`with_mixture` one with a new fill, and anything
+    else is a new simulation.
 
     Parameters
     ----------
@@ -551,9 +557,10 @@ class Simulation(Displayed):
         Assigning a new :class:`~solprop.driver.settings.SimulationSettings` before the
         first :meth:`translate` (or :meth:`run`) takes effect. After it the translated
         problem is cached, so an assignment that changes anything the translation
-        consumed is refused, because it could no longer change the run; the ``backend``
-        and ``tdse_execution`` resources, which are read when the run executes, may
-        still change.
+        consumed is refused, because it could no longer change the run. The execution
+        settings, read when the run executes, may still change: ``backend``,
+        ``node_budget``, ``resume_history``, ``tdse_execution``, ``fields``,
+        ``field_planes`` and ``boundary_check``.
 
         The settings the run is, or will be, translated with.
         """
@@ -579,9 +586,8 @@ class Simulation(Displayed):
         DriverError
             If the planes do not fit this run's interval, a replayed schedule does not
             cover it, or the simulation has already been translated and the
-            replacement changes a setting other than ``backend``, ``resume_history``,
-            ``fields``, ``field_planes``, ``tdse_execution`` or ``boundary_check``,
-            naming them.
+            replacement changes a setting other than the execution settings
+            :attr:`settings` lists, naming them.
         """
         settings = _adopted(
             settings, entrance=float(self.initial_z), length=float(self.grid.length)
@@ -601,9 +607,8 @@ class Simulation(Displayed):
                     f"this Simulation is already translated, so a new "
                     f"{', '.join(changed)} would be ignored; set the settings before "
                     "the first translate() or run(), or build a new Simulation (only "
-                    "the backend, resume_history, fields, field_planes, the TDSE "
-                    "execution resources and boundary_check may change after "
-                    "translation)"
+                    f"{', '.join(_EXECUTION_SETTINGS[:-1])} and "
+                    f"{_EXECUTION_SETTINGS[-1]} may change after translation)"
                 )
                 raise DriverError(msg)
         if self._recipe is not None:
@@ -1547,15 +1552,9 @@ class Simulation(Displayed):
         )
         if self.frame is not None:
             configuration["frame"] = self.frame
-        elif _frame_follows_the_electronic_rule(self.responses, self.grid):
-            # A Raman thg flag kept beta_0 on an envelope grid before the frame
-            # followed the electronic responses alone (issue #77). Recording the
-            # co-moving frame here, and only here, refuses a resume of such an
-            # earlier run by name, which would otherwise continue under another
-            # frame with the same digest; every other run keeps its digest.
-            configuration["frame"] = Frame.comoving(self.grid)
-        # The operator settings of SEP 22 phase 2, recorded only where set, so
-        # every earlier run keeps its digest; a collar as its two numbers.
+        # The operator settings of SEP 22 phase 2, recorded only where set: unset,
+        # each is its documented default, which its absence implies, so the record
+        # stays short. A collar as its two numbers.
         if self.settings.evanescent_rate is not None:
             configuration["evanescent_rate"] = self.settings.evanescent_rate
         if self.settings.spatial_absorber is not None:
@@ -1797,7 +1796,7 @@ class Simulation(Displayed):
         *,
         progress: ProgressReporter | ProgressChoice | None = None,
         progress_period: float = DEFAULT_PROGRESS_PERIOD,
-        resume: _ResumeChoice = False,
+        resume: ResumeChoice = False,
         tdse_archive: TDSEArchive | None = None,
         snapshots: SnapshotController | None = None,
         stop: StopFlag | None = None,
@@ -1829,8 +1828,10 @@ class Simulation(Displayed):
             file is returned. Only a path can be resumed: the driver has to open the
             file in append mode itself. Noise a constructor drew without a seed is drawn
             again from the seed the file recorded, so re-running the same call continues
-            its file. A file whose last plane was interpolated inside a step is refused
-            unless this is ``"interpolated"``: it then continues afresh from the
+            its file; the redraw is the resume's own, and this simulation keeps its
+            realisation for a later fresh run. A file whose last plane was interpolated
+            inside a step is refused unless this is ``"interpolated"``: it then
+            continues afresh from the
             interpolated field, and the position is recorded in the annotation
             :data:`~solprop.output.metadata.INTERPOLATED_RESUMES_ANNOTATION` before
             the first step, so a session that stops later still records it.
@@ -1847,7 +1848,7 @@ class Simulation(Displayed):
             interpolated plane its step crossed. Requires HDF5 and ``fields='all'``.
             Adams history cannot be explicitly disabled. A configured archive is
             copied together with the optical file.
-        stop : object or None, optional
+        stop : solprop.log.StopFlag or None, optional
             This run's own stop flag: any object with an ``is_set()`` method, such as
             a :class:`threading.Event` (SEP 41, S17). It is polled before the first
             step and before every trial step, so the run answers within one step or
@@ -1909,7 +1910,7 @@ class Simulation(Displayed):
         *,
         progress: ProgressReporter | ProgressChoice | None = None,
         progress_period: float = DEFAULT_PROGRESS_PERIOD,
-        resume: _ResumeChoice = False,
+        resume: ResumeChoice = False,
         tdse_archive: TDSEArchive | None = None,
         snapshots: SnapshotController | None = None,
         stop: StopFlag | None = None,
@@ -1917,20 +1918,53 @@ class Simulation(Displayed):
     ) -> Output:
         """Execute the run, on a new backend or on one a caller keeps between runs.
 
+        A resume runs the copy :func:`~solprop.driver.resume._resumed_simulation`
+        returns, so this simulation keeps its own noise realisation; what the run
+        learns about its peak fields is kept here as for any run.
+
         - ``progress_period``: as for :meth:`run`, s.
         - ``kept``: a backend built for this problem but for its input, which is loaded
           and left open for the caller; ``None`` constructs one and closes it. It serves
           a fresh run only, with no TDSE response.
         """
         _check_resume_choice(resume)
+        simulation = self
+        if resume:
+            with _optmat.material_context(self._material_log):
+                simulation = _resumed_simulation(self, output)
+        handler = simulation._execute(
+            output,
+            progress=progress,
+            progress_period=progress_period,
+            resume=resume,
+            tdse_archive=tdse_archive,
+            snapshots=snapshots,
+            stop=stop,
+            kept=kept,
+        )
+        self._peak_fields = simulation._peak_fields
+        return handler
+
+    def _execute(
+        self,
+        output: Output | Path | str | None,
+        *,
+        progress: ProgressReporter | ProgressChoice | None,
+        progress_period: float,
+        resume: ResumeChoice,
+        tdse_archive: TDSEArchive | None,
+        snapshots: SnapshotController | None,
+        stop: StopFlag | None,
+        kept: Backend | None,
+    ) -> Output:
+        """Execute the run on this simulation as it is (:meth:`_run`)."""
         with _optmat.material_context(self._material_log):
-            if resume:
-                _adopt_recorded_seed(self, output)
             problem = self.translate()
             request = self.run_request()
             _refuse_pending_check(problem)
             metadata = self.metadata()
             handler, state = _open_output(output, metadata, resume=resume)
+            next_plane: int | None = None
             if state is not None:
                 next_plane = _validate_resume(
                     problem, request, state, self.settings.tdse_execution
@@ -1952,9 +1986,7 @@ class Simulation(Displayed):
             if tdse_descriptor(problem.route) is not None and not isinstance(
                 handler, CheckpointOutput
             ):
-                raise DriverError(
-                    "TDSE output must support terminal checkpoints and call ledgers"
-                )
+                raise DriverError(_TDSE_OUTPUT_REFUSAL)
             _check_tdse_archive(tdse_archive, problem, handler)
             check_snapshot_request(
                 request,
@@ -2004,6 +2036,7 @@ class Simulation(Displayed):
                     state,
                     kept=kept is not None,
                     restoration=restoration,
+                    next_plane=next_plane,
                 )
                 _restore_atomic(binding, start)
                 _consistency_gate(self, binding, problem, handler, metadata, backend)
@@ -2027,12 +2060,14 @@ class Simulation(Displayed):
                     recipe=None if self._recipe is None else self._recipe.record(self),
                     restoration=restoration or None,
                     # Allowed only by resume="interpolated"; the record says where.
-                    interpolated_resume=state is not None and _interpolated(state),
+                    interpolated_resume=state is not None and state.interpolated,
                 )
             except StopRequested as error:
-                failure = error
-                # A stop raised by another run's flag is that run's to catch.
+                # A stop raised by another run's flag is that run's to catch. The run's
+                # own stop is not an error, so a resource that fails to close after it
+                # is raised rather than noted on a stop nobody sees.
                 if error.flag is not stop:
+                    failure = error
                     raise
             except BaseException as error:
                 failure = error
@@ -2898,7 +2933,7 @@ class Simulation(Displayed):
             populations carrying their own density paths. A mapping uses
             total pressure.
         pressure : float, sequence, ZProfile or None, optional
-            None uses one bar for a gas or fractions. Omit pressure beside a Mixture;
+            Required beside a built-in gas or fractions. Omit it beside a Mixture;
             every explicit pressure is refused because it already carries its paths.
             Fill pressure in **bar**: a number for a constant fill, a pair
             ``(p_in, p_out)`` for the steady-flow gradient of
@@ -3251,8 +3286,6 @@ class Simulation(Displayed):
         incident: SpatialPulse | None = None,
         coupling: CouplingModel | None = None,
         kerr_form: KerrForm = "real",
-        observable_rtol: float | None = None,
-        observable_atol: float | None = None,
         pressure_floor: float | None = None,
         vacuum_end: VacuumEnd | None = None,
         wavelength: float,
@@ -3325,9 +3358,10 @@ class Simulation(Displayed):
         three-component
         E and H at quadrature nodes, whose material regions own their responses and
         whose channels are Poynting-normalised, so that a channel amplitude is a
-        true-power amplitude by construction. It is qualified on ``numpy_ref`` and the
-        native CPU backend, a declared split block's coupled
-        flow included, and propagates constant geometry on a **field** grid.
+        true-power amplitude by construction. It runs on ``numpy_ref`` and the
+        native backend, its CPU build and its CUDA and HIP device builds alike, a
+        declared split block's coupled flow included, on a **field** grid, for a
+        guide of constant geometry or a solid guide whose geometry moves along z.
         Every gas keyword is refused by name beside a provider, because a guide's
         materials are its regions' and not a fill.
 
@@ -3354,7 +3388,7 @@ class Simulation(Displayed):
             carrying their own density paths. A mapping uses total pressure. Required
             without `provider` and refused beside one.
         pressure : float, sequence, ZProfile or None, optional
-            None uses one bar for a gas or fractions. Omit pressure beside a Mixture;
+            Required beside a built-in gas or fractions. Omit it beside a Mixture;
             every explicit pressure is refused because it already carries its paths.
             Fill pressure in **bar**: a number for a constant fill, a pair
             ``(p_in, p_out)`` for the steady-flow gradient of
@@ -3414,14 +3448,6 @@ class Simulation(Displayed):
             dispersive electronic policies a region's gas fill takes the dispersive
             cubic in the matching sector: ``"real"`` its full cubic, ``"analytic"``
             its number-conserving sector. Requires `provider`.
-        observable_rtol, observable_atol : float or None, optional
-            Requested accuracy of the named physical observables of a general modal run.
-            ``None``, the only value accepted, means **the solver's own** `rtol` and
-            `atol`: the route's basis is orthonormal in true power, so the controller's
-            weighted norm on the amplitudes already is a norm on the physical channel
-            powers. A different number is refused by name, because the separate error
-            allocation it would ask for -- over the table's interpolation, the
-            transverse rule and the step -- is not implemented. Require `provider`.
         pressure_floor : float or None, optional
             Lowest pressure the fill is allowed to reach, bar; ``None`` takes
             :data:`solprop.profiles.DEFAULT_PRESSURE_FLOOR_FRACTION` of the highest
@@ -3697,8 +3723,6 @@ class Simulation(Displayed):
             ("incident", incident),
             ("coupling", coupling),
             ("kerr_form", None if kerr_form == "real" else kerr_form),
-            ("observable_rtol", observable_rtol),
-            ("observable_atol", observable_atol),
         ):
             if value is not None:
                 msg = (

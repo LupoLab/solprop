@@ -61,6 +61,10 @@ _MOMENT_RTOL = 2e-6
 _NEGLIGIBLE_RATE = 1e-30
 _FORMAT_VERSION = 1
 _CYCLES: dict[str, CycleIntegralData] = {}
+"""Validated cycle integrals by identity; the oldest is dropped past `_CYCLES_KEPT`."""
+_CYCLES_KEPT = 16
+"""Cycle integrals kept: the field range, and so the identity, follows each input, so
+an in-process energy scan would otherwise keep one per point."""
 
 
 @dataclass(frozen=True, eq=False)
@@ -667,5 +671,7 @@ def build_cycle_integrals(
             f"{np.max(validation.residuals):.3e}"
         )
     result = CycleIntegralData(table, rules, validation, identity)
+    if len(_CYCLES) >= _CYCLES_KEPT:
+        del _CYCLES[next(iter(_CYCLES))]
     _CYCLES[identity] = result
     return result

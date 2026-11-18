@@ -12,8 +12,9 @@ watches a ``stop`` file (:func:`request_stop`, :func:`stop_requested`,
 :func:`watch_stop`, :func:`clear_stop`). So a run needs no connection: whoever can read
 its folder can follow it, whoever can write there can stop it, and its state is read
 from these files, never kept by a daemon. :func:`set_aside` keeps a continued run's
-earlier record apart, :func:`write_json` replaces a file whole, and :func:`alive` says
-whether a run's process still lives.
+earlier record apart (and :func:`put_back` returns it when the continuation cannot be
+launched), :func:`write_json` replaces a file whole, and :func:`alive` says whether a
+run's process still lives.
 
 **The ending is recorded last**: the terminal event, then ``job.json``'s end, and only
 then ``status.json``, after which the run writes nothing more, so a reader acting on a
@@ -41,7 +42,7 @@ from solprop.service.messages import TERMINAL, Event, ServiceError
 
 if TYPE_CHECKING:
     # Only named here: this module stays light (no propagation imports), and the
-    # worker that runs the propagation makes the token.
+    # run's process, which runs the propagation, makes the token.
     from solprop.backends.session import StopToken
 
 __all__ = [
@@ -57,6 +58,7 @@ __all__ = [
     "alive",
     "clear_stop",
     "process_stamp",
+    "put_back",
     "read_events",
     "read_job",
     "read_status",
@@ -157,8 +159,7 @@ class Job:
     run_id : str
         The run, its folder's name.
     launcher : str
-        ``"window"`` (a window's own worker), ``"direct"`` (a detached process) or
-        ``"slurm"``.
+        ``"direct"`` (a detached process) or ``"slurm"``.
     host : str
         The machine the run's process runs on.
     pid : int
@@ -166,7 +167,8 @@ class Job:
     stamp : str or None
         When that process started (:func:`process_stamp`).
     slurm_job : str or None
-        Its Slurm job, when it runs in one.
+        The Slurm job solprop submitted it as (launcher ``"slurm"``); ``None`` for a
+        run started any other way, even one inside a Slurm allocation.
     started : float
         When it started, s since the epoch.
     ended : float or None
@@ -202,7 +204,8 @@ class Job:
         run_id : str
             The run.
         launcher : str
-            How it was started.
+            How it was started; ``"slurm"`` records this process's Slurm job as the
+            run's own.
         threads : int or None, optional
             Its thread budget.
 
@@ -219,7 +222,7 @@ class Job:
             host=socket.gethostname(),
             pid=os.getpid(),
             stamp=process_stamp(os.getpid()),
-            slurm_job=os.environ.get("SLURM_JOB_ID"),
+            slurm_job=os.environ.get("SLURM_JOB_ID") if launcher == "slurm" else None,
             started=time.time(),
             solprop=__version__,
             threads=threads,
@@ -306,40 +309,91 @@ def stop_requested(folder: Path) -> bool:
     return (folder / STOP).exists()
 
 
-def set_aside(folder: Path) -> None:
+def _aside(count: int) -> tuple[tuple[str, str], ...]:
+    """Return each record file and its name when set aside as the ``count``-th part."""
+    return (
+        (EVENTS, f"events-{count}.bin"),
+        (JOB, f"job-{count}.json"),
+        (STATUS, f"status-{count}.json"),
+    )
+
+
+def _aside_number(folder: Path) -> int:
+    """Return the number :func:`set_aside` keeps a folder's record under next."""
+    count = 1
+    while any((folder / kept).exists() for _, kept in _aside(count)):
+        count += 1
+    return count
+
+
+def set_aside(folder: Path) -> int:
     """Keep a continued run's earlier record apart, so its new one starts empty.
 
     A window following the continued run reads its new events from the start, not the
     ending of the part before (``events.bin`` becomes ``events-1.bin``, then
-    ``events-2.bin``, ...); its summary and stop file start afresh too. A folder with
-    no record is left as it is.
+    ``events-2.bin``, ...), and the earlier part's ``job.json`` and ``status.json``
+    go beside them (``job-1.json``, ``status-1.json``, ...), so its process is never
+    taken for the new part's and its summary starts afresh; the stop file is
+    removed. A folder with no record is left as it is.
 
     Parameters
     ----------
     folder : pathlib.Path
         The run's folder.
 
+    Returns
+    -------
+    int
+        The number the record is kept under, as :func:`put_back` takes it.
+
     Examples
     --------
     >>> import tempfile
     >>> folder = Path(tempfile.mkdtemp())
     >>> _ = (folder / EVENTS).write_bytes(b"")
+    >>> _ = (folder / JOB).write_text("{}", encoding="utf-8")
     >>> set_aside(folder)
+    1
     >>> sorted(path.name for path in folder.iterdir())
-    ['events-1.bin']
+    ['events-1.bin', 'job-1.json']
     """
-    events = folder / EVENTS
-    if events.exists():
-        count = 1
-        while (folder / f"events-{count}.bin").exists():
-            count += 1
-        events.replace(folder / f"events-{count}.bin")
-    (folder / STATUS).unlink(missing_ok=True)
+    count = _aside_number(folder)
+    for name, kept in _aside(count):
+        if (folder / name).exists():
+            (folder / name).replace(folder / kept)
     clear_stop(folder)
+    return count
+
+
+def put_back(folder: Path, count: int) -> None:
+    """Return a record :func:`set_aside` kept apart to its place, as before.
+
+    For a continuation that could not be launched: the folder then reads as the
+    earlier part left it, its ending included.
+
+    Parameters
+    ----------
+    folder : pathlib.Path
+        The run's folder.
+    count : int
+        The number the record was kept under.
+
+    Examples
+    --------
+    >>> import tempfile
+    >>> folder = Path(tempfile.mkdtemp())
+    >>> _ = (folder / EVENTS).write_bytes(b"")
+    >>> put_back(folder, set_aside(folder))
+    >>> sorted(path.name for path in folder.iterdir())
+    ['events.bin']
+    """
+    for name, kept in _aside(count):
+        if (folder / kept).exists():
+            (folder / kept).replace(folder / name)
 
 
 def clear_stop(folder: Path) -> None:
-    """Remove a run's stop file, as a run does when it starts or continues.
+    """Remove a run's stop file, as a launcher does before a run starts.
 
     Parameters
     ----------
@@ -498,6 +552,8 @@ class EventLog:
         self._status: dict[str, Any] = {"run_id": run_id, "updated": time.time()}
         self._written = -float("inf")
         self._stream = (folder / EVENTS).open("ab")
+        self._length = self._stream.tell()  # appending starts at the end
+        self._intact = True
         self._thread = threading.Thread(
             target=self._write, name="solprop-record", daemon=True
         )
@@ -577,11 +633,34 @@ class EventLog:
 
     def _append(self, event: Event) -> bool:
         """Append one event to ``events.bin``; return whether it was written."""
+        if not self._intact:
+            return False
         try:
-            self._stream.write(encode(_value(event)))
+            frame = encode(_value(event))
+            self._stream.write(frame)
             self._stream.flush()
-        except OSError, ServiceError:
-            # A full disk or an unwritable value costs the record, not the run.
+        except ServiceError:
+            return False  # an unwritable value costs that event, not the run
+        except OSError:
+            # A full disk costs the event, not the run. Part of the frame may have
+            # been written, and a reader would take the frames after it for its rest.
+            self._intact = self._cut_back()
+            return False
+        self._length += len(frame)
+        return True
+
+    def _cut_back(self) -> bool:
+        """Cut ``events.bin`` back to its whole frames and reopen it; return success.
+
+        Closing drops what the failed write left buffered; a record that cannot be cut
+        back keeps no more events, so none follows a part of a frame.
+        """
+        with contextlib.suppress(OSError):
+            self._stream.close()
+        try:
+            os.truncate(self.folder / EVENTS, self._length)
+            self._stream = (self.folder / EVENTS).open("ab")
+        except OSError:
             return False
         return True
 

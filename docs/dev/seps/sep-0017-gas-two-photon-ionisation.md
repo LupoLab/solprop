@@ -12,7 +12,7 @@
 | **Type** | Feature |
 | **Created** | 2026-10-08 |
 | **Resolution** | Re-accepted 2026-10-12 by John Travers after the independent review and the three follow-up corrections recorded in Part III. Phase 0 qualification remains required before production implementation in Phase 1. The earlier acceptance and return to Draft remain in the history. |
-| **Requires** | [SEP 3](archive/sep-0003-optmat-materials.md) (material data); [SEP 6](archive/sep-0006-dispersive-nonlinearity.md) (electronic response composition); optmat OEP 6's implemented continuum data |
+| **Requires** | [SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md) (material data); [SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md) (electronic response composition); optmat OEP 6's implemented continuum data |
 | **Supersedes** | — |
 | **Superseded-by** | — |
 | **Implementation** | — |
@@ -107,7 +107,7 @@ with their changed resolutions and scope made explicit. There is one implementat
 track and no separate rate-based two-photon response to enable beside it.
 
 The existing [plasma response](../../guide/media/field-plasma.md#the-plasma-response) supplies
-pump-ionisation and free-electron currents. [SEP 18](archive/sep-0018-band-exact-plasma-integrals.md)
+pump-ionisation and free-electron currents. [SEP 18](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0018-band-exact-plasma-integrals.md)
 provides band-exact running integrals, but does not supply a physical ionisation-time
 history. The proposed optical continuum supplies a polarisation directly; it does not
 need to pass through the plasma current's running integral. Q18 still requires the
@@ -115,7 +115,7 @@ correct source factor and discrete work. References in the archived SEP 18 to th
 proposal's former section 4.9 describe the earlier design; the current treatment is
 in sections 4.3 and 4.6 and Q18.
 
-[SEP 12](archive/sep-0012-tdse-nonlinear-response.md) provides a TDSE comparison
+[SEP 12](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0012-tdse-nonlinear-response.md) provides a TDSE comparison
 route; its native response must be used without replacing its absorptive cubic by a
 real Kerr term. Its calibrated material and numerical limitations remain separate from
 this SEP's model error. For structural atomic comparisons use native scale one and
@@ -128,7 +128,7 @@ optmat [OEP 6][oep6] supplies `two_photon_ionisation_model`, `cross_section`,
 `pair_cross_section`, thresholds, region masks, uncertainties and identities.
 [OEP 8][oep8] and its review explicitly leave propagation polarisation, electron
 accounting and energy balance in solprop. The optmat adapter and material identities
-follow [SEP 3](archive/sep-0003-optmat-materials.md); no cross-section table is copied
+follow [SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md); no cross-section table is copied
 into solprop. These APIs must be present in the optmat version pinned for implementation;
 the current optmat floor is not evidence that all of them are installed.
 
@@ -879,7 +879,7 @@ Part I above. The revised Part I was reviewed on 2026-10-12 (the last section).
   of the Drude current. That factor also applies to the existing field-grid plasma
   path, independently of this SEP. The drafting-agent field now names the review
   revisions' agent. Part I is unchanged.
-- 2026-11-02: [SEP 43](archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Part I stays
+- 2026-11-02: [SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Part I stays
   as accepted; its Numba phase falls away, and the feature goes on `numpy_ref` and the native
   backend (SEP 0).
 

@@ -19,8 +19,8 @@ uv sync
 The native backend lives in `native/` in the same repository and is a second distribution,
 solprop-native, at the same version and a required dependency. A plain `uv sync` therefore
 builds it and installs it editable into the same environment, which needs its C++
-toolchain, and `uv run poe check-all` runs solprop's gate and then the native gate; a change
-that touches `native/` runs both and follows `native/AGENTS.md`.
+toolchain. A change that touches `native/` runs solprop's gate and the native gate,
+`uv run poe check` and `uv run poe check-native`, and follows `native/AGENTS.md`.
 [Building the native backend](../guide/performance/building-native.md)
 covers its builds; the [architecture](architecture.md) and
 [kernel contract](kernel-contract.md) describe the boundary between the two packages.
@@ -69,9 +69,10 @@ history only if the difference between that artifact's commit and the working tr
 uncommitted changes, touches neither `native/` nor the solprop modules that `solprop_native`
 imports. Anything else is refused, and so is an expired artifact; each refusal names `uv sync`
 and the lightweight setup. A later plain `uv sync` or `uv run` builds native in its place, so
-run with `uv run --no-sync`. The wheel keeps the commit it was built from, and `check_build`'s
-lookup of the seam's names remains the guard at run time; the comparison of source digests is
-for an editable checkout, and a wheel has no sources beside it to compare.
+run with `uv run --no-sync`. The wheel keeps the commit it was built from, and that commit,
+checked by `poe fetch-wheel`, is the guard: `check_build` compares source digests only in an
+editable checkout, and a wheel has no sources beside it to compare, so nothing at import
+catches a fetched wheel that is stale beside a newer solprop.
 
 ## Agree and implement a change
 
@@ -114,9 +115,11 @@ its committed output. There are three galleries:
   rendered into `docs/auto_tutorials/`. Both are deterministic and large enough to show the
   physics, and may run their real problem at full length when that is what they
   demonstrate. CI's docs job runs every one again on each change
-  (`SOLPROP_RUN_EXAMPLES=tutorials`).
-- **Worked examples**, `docs/examples/**/plot_*.py`: full-size problems of minutes to half
-  an hour, rendered into `docs/auto_examples/` and run only by hand.
+  (`SOLPROP_RUN_EXAMPLES=tutorials`) and keeps none of what they write; the published
+  pages are the committed output.
+- **Worked examples**, `docs/examples/**/plot_*.py`: full-size problems that take from a
+  few seconds to about ten minutes each, rendered into `docs/auto_examples/` and run only
+  by hand; each page shows the stored result of its last run.
 
 After changing a gallery script, including its prose, regenerate its output with
 `uv run poe docs-examples <name>` (or with no name, every stale script) on an idle machine

@@ -24,13 +24,13 @@ from typing import Any
 
 import numpy as np
 import pytest
-from tests.backends.adams_traces import (
+
+from backends.adams_traces import (
     Scenario,
     _HostHarness,
     _march_state,
     run_scenario,
 )
-
 from solprop.backends import available
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.log import NullReporter
@@ -44,7 +44,7 @@ pytestmark = pytest.mark.skipif(
 native = pytest.importorskip("solprop_native")
 _testing = pytest.importorskip("solprop_native._core")._testing
 
-from tests.backends.native_trace_marches import TraceAdamsMarch  # noqa: E402
+from backends.native_trace_marches import TraceAdamsMarch  # noqa: E402
 
 CORPUS = Path(__file__).parents[1] / "data" / "adams_traces.json.gz"
 

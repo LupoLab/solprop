@@ -6,19 +6,19 @@
 
 The inner loop, many adaptive or replayed steps between two save planes, lives inside a
 backend and is compiled; :func:`run_problem` is the Python loop around it, which runs a
-few hundred times at most (``docs/dev/architecture.md`` section 5). It opens the
-output (:func:`open_run`), starts the backend's session and hands it to
-:mod:`solprop.driver.session_loop`, which lands on each save plane in turn and hands
-the plane (:func:`plane_from_observation`, :func:`history_of`) to the output handler.
-It never conjugates a spectrum and never touches the state between planes: the
+few hundred times at most (``docs/dev/architecture.md`` section 5). It starts the
+backend's session and hands it to :mod:`solprop.driver.session_loop`, which opens the
+output (:func:`open_run`), lands on each save plane in turn and hands the plane, its
+step history converted by :func:`history_of`, to the output handler;
+:func:`plane_from_observation` builds the same plane from one session observation by
+hand. It never conjugates a spectrum and never touches the state between planes: the
 backend owns the step loop and the output handler the sign convention on disk
 (``docs/dev/conventions.md`` section 2); a plane crosses as a
 :class:`solprop.output.records.SavedPlane` in the internal FFT convention, with modal
 amplitudes in true-power units. :func:`field_retention`, :func:`retention_at` and
 :func:`check_snapshot_request` resolve what a run keeps. Progress goes to a
-:class:`solprop.log.ProgressReporter`, re-exported here with
-:class:`solprop.log.LogReporter` because this is where a run reaches them; the
-protocol is ``docs/dev/architecture.md`` section 14. The manual page is
+:class:`solprop.log.ProgressReporter`; the protocol is ``docs/dev/architecture.md``
+section 14. The manual page is
 ``docs/guide/setup/running.md``.
 """
 
@@ -32,8 +32,8 @@ import numpy as np
 from solprop._interrupts import handled
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import Backend, BackendHistory, Observation
-from solprop.backends.registry import statistics_refusal
 from solprop.backends.session import RunSession, Start, statistics_unavailable
+from solprop.driver.settings import _FIELDS_BESIDE_STEP_PLANES
 from solprop.exceptions import (
     BackendError,
     DriverError,
@@ -42,7 +42,6 @@ from solprop.exceptions import (
 )
 from solprop.log import (
     DEFAULT_PROGRESS_PERIOD,
-    LogReporter,
     ProgressChoice,
     ProgressReporter,
     StopFlag,
@@ -85,8 +84,6 @@ from solprop.translate.tdse import TDSEBinding
 
 __all__ = [
     "RESTART_RECORD",
-    "LogReporter",
-    "ProgressReporter",
     "SessionFacts",
     "check_snapshot_request",
     "field_retention",
@@ -98,6 +95,9 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+# Refused here and, before the atomic provider is started, by Simulation.run.
+_TDSE_OUTPUT_REFUSAL = "TDSE output must support terminal checkpoints and call ledgers"
 
 
 def history_of(history: BackendHistory) -> StepHistory:
@@ -243,20 +243,14 @@ class SessionFacts:
         ticket = session.pending_ticket()
         return None if ticket is None else session.march_snapshot(ticket)
 
-    def march_snapshot_nbytes(self, z: float) -> int | None:
+    def march_snapshot_nbytes(self) -> int | None:
         """Return the size of the session's method-history snapshot, or ``None``.
-
-        Parameters
-        ----------
-        z : float
-            The position, m.
 
         Returns
         -------
         int or None
             Bytes, or ``None`` without one.
         """
-        del z
         return self._session.march_snapshot_nbytes()
 
 
@@ -296,10 +290,11 @@ def run_problem(
     then each save plane in turn: propagate, observe, collect statistics, save. Steps
     land on the planes exactly, so a saved field is an exact step endpoint and there
     is no interpolation (``docs/dev/stepper.md`` section 3), unless the request asks
-    for dense output. With ``stepper.step_planes`` the march also stops at the end of
-    every ``step_planes``-th accepted step, which is saved too before the same plane
-    is asked for again. A plane whose propagation did not meet its tolerance is logged
-    as a warning naming that plane (``docs/dev/stepper.md`` section 8).
+    for dense output. With ``backend.request.observation.step_planes`` the march also
+    stops at the end of every ``step_planes``-th accepted step, which is saved too
+    before the same plane is asked for again. A plane whose propagation did not meet
+    its tolerance is logged as a warning naming that plane (``docs/dev/stepper.md``
+    section 8).
 
     Parameters
     ----------
@@ -445,20 +440,13 @@ def run_problem(
     _refuse_unrunnable(
         problem, prepared, spec, start_plane, planes.size, metadata=metadata
     )
-    # The backend's door for a spec handed here rather than the problem's own, which
-    # `select` already checked (SEP 23: a backend without a statistic refuses it).
-    refusal = statistics_refusal(backend.name, spec.names)
-    if refusal is not None:
-        raise DriverError(refusal)
     retention = field_retention(prepared, fields, field_planes)
     _check_retainable(output, retention)
     check_snapshot_request(prepared, output, snapshots, resume_history, fields)
     if tdse_descriptor(problem.route) is not None and not isinstance(
         output, CheckpointOutput
     ):
-        raise DriverError(
-            "TDSE output must support terminal checkpoints and call ledgers"
-        )
+        raise DriverError(_TDSE_OUTPUT_REFUSAL)
     if progress is not None and not isinstance(
         progress, str | ProgressReporter
     ):  # pragma: no cover - refused by the annotation where it is checked
@@ -657,12 +645,7 @@ def field_retention(
         raise DriverError(refusal)
     observation = request.observation
     if fields == "planes" and observation.step_planes:
-        msg = (
-            "fields='planes' names saved planes by index, and step_planes saves the "
-            "march's own steps as well, so the plane count is not known in advance; "
-            "keep fields='all' or 'none' beside step_planes"
-        )
-        raise DriverError(msg)
+        raise DriverError(_FIELDS_BESIDE_STEP_PLANES)
     try:
         return FieldRetention(
             cast("FieldsChoice", fields), tuple(int(index) for index in field_planes)

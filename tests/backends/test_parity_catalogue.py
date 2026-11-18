@@ -12,6 +12,8 @@ step, medium when it marches its window, and slow when it says it is slow by cos
 import pytest
 
 import parity_ladder
+from backends.adams_source_cases import one_evaluation
+from backends.planar_rows import without_responses
 from capability_routes import catalogue
 
 solprop_native = pytest.importorskip("solprop_native")
@@ -29,3 +31,21 @@ def _param(row: parity_ladder.Row):
 @pytest.mark.parametrize("row", [_param(row) for row in catalogue()])
 def test_every_rung_agrees_with_the_reference(row, request):
     parity_ladder.check(solprop_native.NativeBackend, row, request)
+
+
+# Medium: the argon capillary's translation takes about a second.
+@pytest.mark.medium
+def test_a_guard_that_switches_off_every_response_of_several_is_refused():
+    """Kerr beside the plasma: removing both would let Kerr clear a plasma guard."""
+    built = one_evaluation("envelope plasma")
+    assert parity_ladder.responses_held(built.problem) == ("kerr", "envelope plasma")
+    row = parity_ladder.Row(
+        id="every response of two",
+        why="The envelope plasma's source is the reference's.",
+        axes={"response": "envelope plasma"},
+        build=lambda: built,
+        rungs={"source": lambda _: 1.0},
+        switch_off=without_responses,
+    )
+    with pytest.raises(AssertionError, match=r"holds \('kerr', 'envelope plasma'\)"):
+        parity_ladder.check(solprop_native.NativeBackend, row)

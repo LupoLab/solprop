@@ -1536,9 +1536,9 @@ class SilicaTensorResponse(Displayed):
     carry, at the field-domain amplitude :data:`SILICA_TENSOR_AMPLITUDE` explains,
     which is what makes the declared ``n2`` come out right on the fundamental.
 
-    On an **envelope** grid, and on a field grid with the analytic-signal cubic, the
-    drive is the beat-free ``Re(E_a,k conj(E_a,l))/2`` instead, exactly as
-    :func:`raman_drive` chooses it for the scalar response.
+    On a field grid with the analytic-signal cubic, the drive is the beat-free
+    ``Re(E_a,k conj(E_a,l))/2`` instead, exactly as :func:`raman_drive` chooses it
+    for the scalar response. The response runs on field grids only (its `traits`).
 
     **From optmat.** With `parameters` an optmat tensor bundle
     (:class:`~solprop.physdata.glasses.SilicaBundle`, ``SilicaBundle.resolve(

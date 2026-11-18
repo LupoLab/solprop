@@ -27,12 +27,15 @@ env:
 jobs:
   # Which lanes to run. A change confined to docs/ and Markdown files runs the static
   # checks, the documentation build and the tests that read the documentation
-  # (docs-tests), not the test lanes; one confined to the front end (gui/, with docs/
-  # and Markdown) runs the static checks, the documentation build and the front end's
-  # own job; anything else, or a push whose base is unknown, runs everything, the front
-  # end's job included, so a change to solprop is checked against the front end. A push to main that merges a pull request runs nothing when the
-  # pushed tree is the pull request head's tree and CI passed on that head: the pull
-  # request was up to date with main, so its run already tested exactly this tree.
+  # (docs-tests), not the test lanes. Otherwise, one confined to gui/, docs/ and
+  # Markdown files runs those and the front end's own job; so does a documentation
+  # change to the front end's chapter of the user guide (docs/guide/front-end/), which
+  # its tests read. Anything else, gui/pyproject.toml included (solprop's release tests
+  # read it), or a push whose base is unknown, runs everything, the front end's job
+  # included, so a change to solprop is checked against the front end. A push to main
+  # that merges a pull request runs nothing when the pushed tree is the pull request
+  # head's tree and CI passed on that head: the pull request was up to date with main,
+  # so its run already tested exactly this tree.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -65,9 +68,11 @@ jobs:
           if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             git diff --name-only "$BASE" HEAD > changed.txt
             cat changed.txt
-            if ! grep -qvE '^docs/|\.md$' changed.txt; then
+            # The front end's tests read its chapter of the user guide, and solprop's
+            # release tests read gui/pyproject.toml.
+            if ! grep -qvE '^docs/|\.md$' changed.txt && ! grep -q '^docs/guide/front-end/' changed.txt; then
               lanes=docs
-            elif ! grep -qvE '^gui/|^docs/|\.md$' changed.txt; then
+            elif ! grep -qvE '^gui/|^docs/|\.md$' changed.txt && ! grep -qx 'gui/pyproject.toml' changed.txt; then
               lanes=gui
             fi
           fi
@@ -96,7 +101,7 @@ jobs:
 
   docs-tests:
     needs: [changes, native-wheel]
-    if: needs.changes.outputs.lanes == 'docs'
+    if: needs.changes.outputs.lanes == 'docs' || needs.changes.outputs.lanes == 'gui'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -123,6 +128,11 @@ jobs:
       - name: The tests that read the documentation
         run: |
           uv run --no-sync pytest -n 4 $(grep -lE '"docs"|"docs/|"(CHANGELOG|README|AGENTS)\.md"|\.md"\)|/ "[a-z0-9-]+\.md"' tests/test_*.py tests/*/test_*.py)
+      # Every python block of docs/guide/ runs (AGENTS.md): the slow-tier test that
+      # executes them, in the slow lane's configuration, so a documentation-only change
+      # cannot merge a broken snippet.
+      - name: The guide's snippets
+        run: uv run --no-sync poe test-slow tests/test_guide_snippets.py
 
   # The definition-of-done gate of AGENTS.md (`poe check`), split into jobs that run in
   # parallel: the static checks, the documentation, and the default lane, sharded, with
@@ -150,6 +160,9 @@ jobs:
       - run: uv run poe reuse
       - run: uv run poe changelog-check
       - run: uv run poe size-check
+      # solprop's sdist, whose include list and readme the root pyproject.toml sets: the
+      # wheels workflow builds it only weekly and on a release tag.
+      - run: uv build --package solprop --sdist --out-dir dist
 
   docs:
     needs: [changes, native-wheel]
@@ -368,7 +381,10 @@ jobs:
       - run: uv python install 3.14
       - run: uv sync --locked --no-install-package solprop-native
       - run: uv pip install --no-deps wheelhouse/*.whl
-      - run: uv run --no-sync poe test-slow
+      - run: uv run --no-sync poe test-slow --junitxml=junit.xml
+      - name: No unexpected skips
+        if: ${{ !cancelled() }}
+        run: uv run --no-sync python -I native/ci/check_skips.py junit.xml
 
   # The slow lane on macOS, with the native wheel installed.
   slow-macos:
@@ -393,7 +409,10 @@ jobs:
       - run: uv python install 3.14
       - run: uv sync --locked --no-install-package solprop-native
       - run: uv pip install --no-deps wheelhouse/*.whl
-      - run: uv run --no-sync poe test-slow
+      - run: uv run --no-sync poe test-slow --junitxml=junit.xml
+      - name: No unexpected skips
+        if: ${{ !cancelled() }}
+        run: uv run --no-sync python -I native/ci/check_skips.py junit.xml
 
   # The coverage lane (`poe cov`) as parallel jobs, on Linux with the native wheel
   # installed and the driver tests on it (solprop's native paths are part of the 100 %):

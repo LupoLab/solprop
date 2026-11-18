@@ -2508,13 +2508,6 @@
   },
   {
    "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: radial real BLAS derivative (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_spatial_execution.py::test_radial_real_blas_preserves_transform_and_memory_contract[numpy_ref-128-1-128-3e-13]"
-  },
-  {
-   "axis": "largest",
    "fraction": 0.08579503574802753,
    "series": "numpy_ref: raw QDHT Gram (1)",
    "write": 0,

@@ -13,11 +13,10 @@ section could lose its figure, or show another's; and a figure could be drawn an
 shown. All three are checked here, in the fast lane.
 
 The script keeps the page's section headings beside the figures as data, together with
-the sections a later slice will fill (``PENDING``) and the ones that are about every
-decomposition (``UNFIGURED``), so a new section on the page has to be declared in one of
-the three. The redraw comparison is skipped when the drawing library is absent -- it is
-a dev-group dependency -- and the page checks are not, because they need only the
-committed files and the script's data.
+the ones that are about every decomposition (``UNFIGURED``), so a new section on the
+page has to be declared in one of the two. The redraw comparison is skipped when the
+drawing library is absent -- it is a dev-group dependency -- and the page checks are
+not, because they need only the committed files and the script's data.
 
 The script is loaded by path, as `tests/test_structure_figures.py` loads the structure
 figures' script.
@@ -57,9 +56,9 @@ def page_sections() -> dict[str, str]:
 
 
 def test_every_section_of_the_page_is_declared_by_the_script():
-    """A section is a figure's, a later slice's, or about every decomposition."""
+    """A section is a figure's, or about every decomposition."""
     declared = {figure.section for figure in geometries.FIGURES.values()}
-    declared |= set(geometries.PENDING) | set(geometries.UNFIGURED)
+    declared |= set(geometries.UNFIGURED)
     assert set(page_sections()) == declared
 
 
@@ -77,17 +76,10 @@ def test_every_figure_is_shown_in_its_own_section_and_only_there(name):
     assert elsewhere == []
 
 
-@pytest.mark.parametrize("heading", [*geometries.PENDING, *geometries.UNFIGURED])
+@pytest.mark.parametrize("heading", geometries.UNFIGURED)
 def test_sections_without_a_figure_show_none(heading):
-    """A placeholder gains its figure with its slice, and moves into FIGURES then."""
+    """A section about every decomposition shows no decomposition's figure."""
     assert SHOWN.findall(page_sections()[heading]) == []
-
-
-def test_the_placeholders_name_the_slice_that_fills_them():
-    """A placeholder says which slice replaces it, as the script declares."""
-    sections = page_sections()
-    for heading, slice_name in geometries.PENDING.items():
-        assert slice_name in sections[heading]
 
 
 def test_every_committed_svg_is_a_figure_the_script_draws():

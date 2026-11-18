@@ -12,6 +12,7 @@ which names its own argument; the route renames the ones it spells otherwise. No
 is run but the boundary monitor's: every refusal comes while the simulation is built.
 """
 
+import threading
 import warnings
 from collections.abc import Callable
 from typing import Any, cast
@@ -333,6 +334,20 @@ REFUSALS = [
         id="capillary-pressure",
     ),
     pytest.param(
+        lambda: _hollow(100e-6, 0.01, "He"),
+        DriverError,
+        "pressure",
+        "a gas fill needs its pressure",
+        id="capillary-gas-without-pressure",
+    ),
+    pytest.param(
+        lambda: _hollow(100e-6, 0.01, "air"),
+        DriverError,
+        "pressure",
+        "a gas fill needs its pressure",
+        id="capillary-air-without-pressure",
+    ),
+    pytest.param(
         lambda: _hollow(
             100e-6, 0.01, Mixture.fill({"He": 1.0}, 1.0), 1.0, pressure_floor=1e-3
         ),
@@ -454,11 +469,11 @@ def test_a_refusal_names_the_keyword_it_refuses(
     # Which rule each refusal enforces, if any, is tests/test_capability_queries.py's.
 
 
-def test_an_error_raised_outside_an_interface_names_no_parameter() -> None:
+def test_an_error_names_a_parameter_only_when_its_raiser_gives_one() -> None:
     assert DriverError("refused").parameter is None
     with pytest.raises(PulseError, match="super-Gaussian order") as caught:
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6, m=0)
-    assert caught.value.parameter is None
+    assert caught.value.parameter == "m"
 
 
 def test_a_material_status_warning_names_the_gas() -> None:
@@ -519,3 +534,41 @@ def test_an_inner_refusal_that_names_its_keyword_keeps_it() -> None:
     with pytest.raises(DriverError) as caught, _about("pulses"):
         raise DriverError("refused", parameter="pulses[0].energy")
     assert caught.value.parameter == "pulses[0].energy"
+
+
+def test_overlapping_warning_blocks_on_two_threads_leave_the_filters_as_they_were():
+    """Two threads' constructors never restore each other's warning state.
+
+    ``catch_warnings`` swaps the process's filters, so a block entered on one thread
+    and left after another thread's block began would restore that block's filters,
+    leaving its ``"always"`` and its recorder in place for good. The first block waits
+    a while for the second to enter: they take turns instead.
+    """
+    from solprop.driver.routes.keywords import (  # noqa: PLC0415 - a private seam
+        _MATERIAL_WARNINGS,
+        _warnings_about,
+    )
+
+    before = list(warnings.filters)
+    first_in, second_in, first_out = (threading.Event() for _ in range(3))
+
+    def first() -> None:
+        with _warnings_about("gas", _MATERIAL_WARNINGS):
+            first_in.set()
+            second_in.wait(timeout=0.5)
+        first_out.set()
+
+    def second() -> None:
+        with _warnings_about("raman", _MATERIAL_WARNINGS):
+            second_in.set()
+            first_out.wait(timeout=5.0)
+
+    one = threading.Thread(target=first)
+    one.start()
+    assert first_in.wait(timeout=5.0)
+    two = threading.Thread(target=second)
+    two.start()
+    one.join(timeout=10.0)
+    two.join(timeout=10.0)
+    assert not one.is_alive() and not two.is_alive()
+    assert warnings.filters == before

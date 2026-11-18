@@ -9,8 +9,12 @@ a remote one is reached short of ``ssh`` itself; solprop's service tests drive t
 helper and the connection in depth.
 """
 
+import contextlib
 import json
+import os
 import shutil
+import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +47,29 @@ def test_machines_are_remembered_with_this_computer_first():
     assert store.get("cluster") == SLURM and store.get("nowhere") is None
     app_settings().setValue("machines", "not json")
     assert [m.name for m in store.machines()] == [LOCAL]
+
+
+def test_closing_closes_every_machine_s_connection_together(qtbot: QtBot):
+    del qtbot  # the application
+    hub = MachineHub()
+    together = threading.Barrier(3)
+    met: list[str] = []
+
+    class Stuck:
+        """A connection whose close waits until every other close has begun."""
+
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def close(self) -> None:
+            with contextlib.suppress(threading.BrokenBarrierError):
+                together.wait(timeout=2.0)
+                met.append(self.name)
+
+    for name in ("a", "b", "c"):
+        hub.connections[name] = Stuck(name)  # pyright: ignore[reportArgumentType]
+    hub.close()
+    assert sorted(met) == ["a", "b", "c"] and hub.connections == {}
 
 
 def test_the_runs_on_line_offers_the_machines(qtbot: QtBot, tmp_path: Path):
@@ -170,7 +197,6 @@ def test_a_run_is_started_and_followed_through_a_machine(qtbot: QtBot, tmp_path:
     assert kinds.count("row") == 6 and kinds[-1] == "finished"
     again = bridge.attach_on(Machine(LOCAL), "r1", str(tmp_path / "r1"))
     qtbot.waitUntil(again.ended.is_set, timeout=WAIT_MS)
-    handle.subscribe(3)  # a record drops nothing: no replay needed
     bridge.close()
 
 
@@ -196,6 +222,116 @@ def test_the_setup_dialog_shows_its_script_before_running_it(
     released = SetupDialog(SLURM, "0.3.0")
     qtbot.addWidget(released)
     assert released.note.text() == "" and released.run_button.isEnabled()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the script runs in a POSIX shell")
+def test_the_setup_dialog_runs_its_script_and_keeps_the_python(
+    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
+):
+    from solprop.service import install  # noqa: PLC0415 - only here
+
+    from solprop_gui.ui.setup_dialog import SetupDialog  # noqa: PLC0415 - only here
+
+    def local_shell(machine: Machine, askpass: str) -> tuple[list[str], dict[str, str]]:
+        """Run the script with this computer's shell, as ssh runs it on the machine."""
+        del machine, askpass
+        return ["sh", "-s"], dict(os.environ)
+
+    # The transport is this computer's shell, and the install a stub that names its
+    # Python as the real script's last line does; the thread, the log and the ending
+    # are the dialog's own.
+    monkeypatch.setattr(install, "_ssh_shell", local_shell)
+    dialog = SetupDialog(SLURM, "0.3.0")
+    qtbot.addWidget(dialog)
+    dialog.script.setPlainText(
+        f'echo installing\necho "{install.PYTHON_LINE}/env/bin/python"\n'
+    )
+    dialog.start()
+    qtbot.waitUntil(lambda: dialog.python is not None, timeout=WAIT_MS)
+    assert dialog.python == "/env/bin/python"
+    log = dialog.log.toPlainText()
+    assert log.startswith("installing\n")
+    assert log.endswith("Set up: runs on cluster use /env/bin/python")
+    assert dialog.run_button.isEnabled()
+
+
+def test_the_setup_dialog_says_why_a_machine_was_not_set_up(qtbot: QtBot):
+    from solprop_gui.ui.setup_dialog import SetupDialog  # noqa: PLC0415 - only here
+
+    # This computer has no SSH host, so the setup thread fails before running anything
+    # and the dialog reports the refusal rather than a Python.
+    dialog = SetupDialog(Machine(LOCAL), "0.3.0")
+    qtbot.addWidget(dialog)
+    dialog.start()
+    assert not dialog.run_button.isEnabled()
+    qtbot.waitUntil(lambda: "Not set up" in dialog.log.toPlainText(), timeout=WAIT_MS)
+    assert dialog.log.toPlainText().strip() == "Not set up: local has no SSH host"
+    assert dialog.python is None
+    assert dialog.run_button.isEnabled()
+
+
+@pytest.mark.parametrize(
+    ("question", "echo"),
+    [("me@lab's password:", "Password"), ("Verification code:", "Normal")],
+)
+def test_askpass_prints_the_answer_to_ssh_s_question(
+    qtbot: QtBot,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    question: str,
+    echo: str,
+):
+    from PySide6.QtWidgets import QInputDialog, QLineEdit  # noqa: PLC0415 - only here
+
+    from solprop_gui import askpass  # noqa: PLC0415 - only here
+
+    del qtbot  # the application
+    asked: list[tuple[str, QLineEdit.EchoMode]] = []
+
+    def answer(
+        parent: object, title: str, label: str, mode: QLineEdit.EchoMode
+    ) -> tuple[str, bool]:
+        del parent, title
+        asked.append((label, mode))
+        return "the answer", True
+
+    monkeypatch.setattr(QInputDialog, "getText", answer)
+    assert askpass.main(question.split()) == 0
+    # A password is asked hidden; a one-time code is shown as it is typed.
+    assert asked == [(question, getattr(QLineEdit.EchoMode, echo))]
+    assert capsys.readouterr().out == "the answer\n"
+
+
+def test_askpass_answers_nothing_when_cancelled(
+    qtbot: QtBot,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    from PySide6.QtWidgets import QInputDialog  # noqa: PLC0415 - only here
+
+    from solprop_gui import askpass  # noqa: PLC0415 - only here
+
+    del qtbot  # the application
+    monkeypatch.setattr(QInputDialog, "getText", lambda *args: ("", False))
+    assert askpass.main([]) == 1
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the POSIX script")
+def test_askpass_program_is_a_private_script_running_the_module(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    from solprop_gui import askpass  # noqa: PLC0415 - only here
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    written = askpass.askpass_program()
+    program = tmp_path / ".solprop-gui" / "askpass.sh"
+    assert written == str(program)
+    text = program.read_text(encoding="utf-8")
+    assert text == (
+        f"#!/bin/sh\nexec '{sys.executable}' -m solprop_gui.askpass \"$@\"\n"
+    )
+    assert program.stat().st_mode & 0o777 == 0o700
 
 
 def test_a_copy_is_fetched_in_pieces_and_resumed(
@@ -247,20 +383,27 @@ def test_a_copy_is_fetched_in_pieces_and_resumed(
     assert target.read_bytes() == source.read_bytes()
     # A file that changes while it is copied is not kept.
     growing: list[tuple[object, object]] = []
+    connection = hub.connections[LOCAL]
+    piece = connection.call
 
-    def grow(have: int, total: int) -> None:
-        if have < total:
+    def grow(kind: str, body: Any = None) -> Any:
+        """Answer as the helper does, the file growing after each piece."""
+        value = piece(kind, body)
+        if kind == "fetch":
             with source.open("ab") as stream:
                 stream.write(b"more")
+        return value
 
-    hub.fetch(
-        LOCAL,
-        str(source),
-        tmp_path / "copies" / "grown.h5",
-        grow,
-        lambda value, error: growing.append((value, error)),
-    )
-    qtbot.waitUntil(lambda: bool(growing), timeout=WAIT_MS)
+    with monkeypatch.context() as patched:
+        patched.setattr(connection, "call", grow)
+        hub.fetch(
+            LOCAL,
+            str(source),
+            tmp_path / "copies" / "grown.h5",
+            lambda have, total: None,
+            lambda value, error: growing.append((value, error)),
+        )
+        qtbot.waitUntil(lambda: bool(growing), timeout=WAIT_MS)
     assert growing[0][0] is None and "changed while it was copied" in str(growing[0][1])
     assert not (tmp_path / "copies" / "grown.h5").exists()
     missing: list[tuple[object, object]] = []
@@ -415,6 +558,50 @@ def test_files_are_copied_to_a_machine_before_its_request(
     )
     qtbot.waitUntil(lambda: len(copied) == 2, timeout=WAIT_MS)
     assert copied[1][0] is None
+    hub.close()
+
+
+def test_the_runs_window_shows_how_far_a_fetched_copy_has_got(
+    qtbot: QtBot, tmp_path: Path, run: str, monkeypatch
+):
+    import threading  # noqa: PLC0415 - only here
+
+    from solprop_gui.ui import machines_hub, runs_window  # noqa: PLC0415
+
+    monkeypatch.setattr(machines_hub, "CHUNK", 4096)  # a copy in many pieces
+    shown: list[tuple[int, bool]] = []
+
+    class Dialog(runs_window.QProgressDialog):
+        """The fetch's progress dialog, remembering each value and its thread."""
+
+        def setValue(self, value: int) -> None:  # noqa: N802 - Qt's name
+            here = threading.current_thread() is threading.main_thread()
+            shown.append((value, here))
+            super().setValue(value)
+
+    monkeypatch.setattr(runs_window, "QProgressDialog", Dialog)
+    workspace = tmp_path / "runs"
+    folder = workspace / "r1"
+    folder.mkdir(parents=True)
+    shutil.copy(run, folder / "run.h5")
+    (folder / "recipe.toml").write_text('[recipe]\ntitle = "Two modes"\n', "utf-8")
+    target = tmp_path / "copies" / "run.h5"
+    hub = MachineHub()
+    hub.ensure(Machine(LOCAL))
+    window = RunsWindow(
+        lambda: [Machine(LOCAL)], hub, lambda: workspace, lambda *_: target
+    )
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitUntil(lambda: window.table.rowCount() == 1, timeout=WAIT_MS)
+    window.table.selectRow(0)
+    with qtbot.waitSignal(window.fetched, timeout=WAIT_MS) as fetched:
+        window._fetch()
+    assert fetched.args == [str(target)]
+    assert target.read_bytes() == (folder / "run.h5").read_bytes()
+    assert len(shown) > 2 and shown[-1] == (1000, True)  # piece by piece, to the end
+    assert all(here for _, here in shown)  # every value set on the window's thread
+    window.hide()
     hub.close()
 
 

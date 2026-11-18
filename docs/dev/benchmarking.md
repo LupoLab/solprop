@@ -3,8 +3,8 @@
 `benchmarks/` times **complete runs** of a small set of representative workloads. Each
 release adds a few lines per case to a history file kept per hardware set, so that
 regressions and improvements show from one release to the next. The design is
-[SEP 38](seps/archive/sep-0038-performance-tracking.md), which replaced SEP 30's standard
-suite. The rules for a performance claim and the indicative results are in
+[SEP 38](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0038-performance-tracking.md), which replaced SEP 30's standard
+suite. The rules for a performance claim and the current results are in
 [Benchmarks](benchmarks.md); this page is the manual.
 
 ```sh
@@ -69,7 +69,7 @@ same steps; the summary says so when they do not.
 
 **Library defaults.** A case is the interface call a user would write. It passes no
 tolerance or integrator, so it runs with its interface's defaults
-([SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md)). A changed default therefore
+([SEP 37](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0037-noise-and-stepper-defaults.md)). A changed default therefore
 shows in the history as a new integrator or tolerance on that row. Every noisy launch
 fixes the same seed, so its repeats and its releases are comparable. The N = 3 soliton
 is the one noiseless case: a soliton-recurrence study runs without noise, and SEP 37
@@ -101,7 +101,7 @@ spin before sleeping), `active` (idle threads spin), `bound` (threads pinned to
 neighbouring cores) or `bound-active`. The policy is recorded with each row, and rows
 compare only within one policy. Binding also confines SciPy's transforms on the host to the
 main thread's core, so a free-space row's edge reads cost more under a bound policy than
-under `passive` ([the edge against 0.1.0](benchmarks.md#the-transverse-edge-against-010)).
+under `passive` ([the edge against 0.1.0](benchmarks.md#the-transverse-edge)).
 
 ## On a GPU
 
@@ -128,7 +128,7 @@ uv run python -m benchmarks track --append-history
 ```
 
 A series measures a user's default run, so it runs calibrated
-([SEP 46](seps/archive/sep-0046-machine-calibration.md) section 6.13): before the first
+([SEP 46](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0046-machine-calibration.md) section 6.13): before the first
 configuration, `track` runs `solprop calibrate --thorough` (`--calibrate` chooses another
 level, or `none` to keep the profiles there are), and its workers apply the profile
 (`SOLPROP_CALIBRATION=use`) without measuring inside a timed window. Each history row
@@ -147,7 +147,7 @@ bundle to a directory outside the repository.
 `--append-history` adds one row per configuration to
 `benchmarks/history/<hardware>.csv`, which is committed. Each row names its backend,
 and rows compare only with rows of the same backend, so the `numba_cpu` rows recorded at
-0.1.0, before [SEP 43](seps/archive/sep-0043-retire-numba-cpu.md) retired that backend, keep their own series beside the native one. It records only the whole default plan
+0.1.0, before [SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) retired that backend, keep their own series beside the native one. It records only the whole default plan
 with at least three repeats, and only when:
 
 - every configuration finished, and its repeats took the same steps and reached the
@@ -291,7 +291,7 @@ adoption verdict; the [rules](benchmarks.md#rules) say how a claim is judged.
 
 ## SEP 47's matrix and the structural counters
 
-[SEP 47](seps/archive/sep-0047-run-ownership.md) section 7.2 compares builds on a predeclared
+[SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) section 7.2 compares builds on a predeclared
 matrix of short windows, each holding the events it measures, with structural counters
 beside the timings (section 7.3). `--set sep47` selects the windows added for it; each
 finishes in seconds at its full declared length, so run it without `--length`:
@@ -311,9 +311,10 @@ uv run python -m benchmarks ab --set sep47 --threads 1 --counters \
 | `cartesian_filament_128_{saved,free}_{memory,hdf5}` | the Cartesian filament's first 1 mm, likewise | the same on a 128² grid |
 | `taper_flow_4`, `taper_flow_17` | 40 µm of a He capillary tapering from 50 to 48 µm with taper coupling, 4 or 17 modes | a coupled flow on the native Adams march, and one wider than 16 channels, whose host passes hold each bin's channel vectors in a row of their own (a device build's passes hold none) |
 
-Today a snapshot controller needs `step_planes=1` and HDF5 output, so the snapshot cases
-save a plane at every step; their variant without step planes becomes possible with SEP
-47's independent snapshot scheduling, and the cases will be extended then. Every case uses
+The snapshot cases save a plane at every step (`step_planes=1`) to HDF5; the harness
+requires HDF5 output of a snapshot case (`benchmarks/registry.py`). A snapshot itself no longer needs
+step planes: SEP 47 takes it at the next accepted endpoint and writes a running checkpoint
+where no plane is saved; no case measures that yet. Every case uses
 only public interfaces of the current code; one whose interface changes is updated with
 it, and the harness copied into each A/B run keeps both arms on one definition.
 

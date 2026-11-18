@@ -644,7 +644,6 @@ def test_a_wide_or_off_route_coupled_flow_keeps_the_contract(start, executor, ki
     # 17-channel block is long, and its repeatability is the suite's other tests'.
     repeated = executor.deterministic and executor.name.startswith("native")
     runs = []
-    # Either build steps both natively, so a HostMarchWarning stays an error.
     for _ in range(2 if repeated else 1):
         started = start(problem, request, context=context)
         runs.append(drive(started, export=IDENTITY))

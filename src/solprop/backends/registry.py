@@ -23,7 +23,7 @@ import importlib
 import importlib.util
 import logging
 import os
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from types import ModuleType
 from typing import Final, cast
@@ -34,7 +34,6 @@ from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
-from solprop.spatial import FAR_FIELD_STATISTICS
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 from solprop.translate.tdse import TDSEBinding
@@ -46,7 +45,6 @@ __all__ = [
     "available",
     "resolve_name",
     "select",
-    "statistics_refusal",
 ]
 
 logger = logging.getLogger(__name__)
@@ -98,52 +96,11 @@ def _native_installed() -> bool:
     return importlib.util.find_spec(_NATIVE_PACKAGE) is not None
 
 
-def statistics_refusal(name: str, names: Sequence[str]) -> str | None:
-    """Return why a backend cannot form some of the statistics named, or ``None``.
-
-    Asking about the native backend imports the installed package, as selecting it
-    would, to read the far-field statistics its class declares it forms.
-
-    Parameters
-    ----------
-    name : str
-        The resolved backend name.
-    names : collections.abc.Sequence of str
-        The statistics asked for.
-
-    Returns
-    -------
-    str or None
-        The refusal, naming the backend that forms them, or ``None`` when the backend
-        forms every one (or is not installed, which selecting it reports).
-
-    Examples
-    --------
-    >>> from solprop.backends.registry import statistics_refusal
-    >>> statistics_refusal("numpy_ref", ["energy", "beam_spectrum"]) is None
-    True
-    """
-    asked = [one for one in names if one in FAR_FIELD_STATISTICS]
-    # numpy_ref forms every far-field statistic.
-    if not asked or name != "native" or not _native_installed():
-        return None
-    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        NativeBackend,
-    )
-
-    formed = cast(Collection[str], NativeBackend.far_field_statistics)
-    missing = [one for one in asked if one not in formed]
-    if not missing:
-        return None
-    return (
-        f"the installed native backend does not form the far-field statistics "
-        f"{missing}; install a solprop-native build that does, or run them on "
-        "numpy_ref"
-    )
-
-
 def available() -> tuple[str, ...]:
-    """Return the names of the backends that can run here and now.
+    """Return the names of the backends installed here.
+
+    An installed native package may still be refused when selected: on a processor
+    below its build's CPU baseline (:func:`resolve_name`), or when it does not load.
 
     Detection is by :func:`importlib.util.find_spec`, so nothing is imported and nothing
     is cached: a native package installed while the process runs becomes available
@@ -153,7 +110,7 @@ def available() -> tuple[str, ...]:
     Returns
     -------
     tuple of str
-        The usable names, in the order of :data:`BACKEND_NAMES`.
+        The installed names, in the order of :data:`BACKEND_NAMES`.
 
     Examples
     --------
@@ -366,8 +323,9 @@ def select(
     Raises
     ------
     BackendError
-        If ``name`` is neither backend, or the backend does not run what the problem
-        asks for; the message says what to use instead.
+        If ``name`` is neither backend, the native package refuses one of its
+        process-start settings as it loads, or the backend does not run what the
+        problem asks for; the message says what to use instead.
     ImportError
         If ``name`` is ``"native"`` and its package is missing; the message says what
         to install.
@@ -379,19 +337,17 @@ def select(
     ('numpy_ref', 'native')
     """
     name = resolve_name(name)
+    _check_required_device(name)
     if name == "native":
+        if not _native_installed():
+            raise ImportError(_NATIVE_INSTALL)
         # SEP 46: a first native workspace in an allocation with no profile row runs
-        # the quick calibration first, before the extension's runtime starts if it
-        # has not yet.
+        # the quick calibration first, once every refusal above has passed, and before
+        # the extension's runtime starts if it has not yet. A required device that
+        # passed is a device build, which never calibrates.
         from solprop.calibration.first_use import ensure  # noqa: PLC0415 - layer above
 
         ensure()
-    _check_required_device(name)
-    refusal = statistics_refusal(name, request.observation.stats.names)
-    if refusal is not None:
-        raise BackendError(refusal)
-    if name == "native" and not _native_installed():
-        raise ImportError(_NATIVE_INSTALL)
     backend = _construct(
         name,
         problem,
@@ -420,14 +376,20 @@ def _construct(
     """Import and build the named backend, whose package is installed.
 
     Imported here, not at module scope: selecting a backend must not be a reason to
-    import the other or initialize a native runtime. A TDSE binding goes to either
-    backend, which refuses a problem without its binding by name.
+    import the other or initialize a native runtime. The native package reads its
+    process-start settings (thread counts, the CPU variant, the wait policy) as it
+    loads, and refuses a malformed one with a plain ``ValueError`` or ``RuntimeError``,
+    which is re-raised as a :class:`BackendError` with its text. A TDSE binding goes to
+    either backend, which refuses a problem without its binding by name.
     """
     factory: Callable[..., Backend]
     if name == "native":
-        from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-            NativeBackend,
-        )
+        try:
+            from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+                NativeBackend,
+            )
+        except (ValueError, RuntimeError) as error:
+            raise BackendError(f"solprop-native did not load: {error}") from error
 
         factory = cast("Callable[..., Backend]", NativeBackend)
     else:

@@ -4,7 +4,7 @@
 
 # The release wheels of solprop-native, built, repaired and qualified, and the pure
 # Python distributions of solprop and solprop-gui, built and installed; on a release
-# tag, once enabled, published.
+# tag, published.
 # The recipe is docs/dev/releasing.md; cibuildwheel's configuration is in
 # native/pyproject.toml and the dependency scripts in native/ci/.
 name: Wheels
@@ -167,7 +167,7 @@ jobs:
           uv run --no-project --python ../coexist python -I native/ci/coexistence.py
       # The default lane's peak memory with four test workers is at the edge of a 16 GB
       # runner (the aarch64 runner shut down mid-suite, as CI's did): swap on Linux and
-      # three workers, as in CI's native-suite job.
+      # three workers, as in CI's coverage job.
       # A safeguard only: with three workers no lane used any swap when measured. Keep it
       # small, because some runners have 13 GB of free disk and 12 GB of swap filled them,
       # which kills the job with its log.
@@ -524,11 +524,10 @@ jobs:
   # building from source). solprop's sdist and wheel follow from `pypi` once every
   # native wheel is up: the `native` extra pins solprop-native at this version
   # (hatch_build.py), so a failed native upload leaves no solprop release behind.
-  # Guarded until the PyPI projects, their trusted publishers and both environments
-  # exist and the repository variable PUBLISH is set to "true" (the pre-flight
-  # checklist in docs/dev/releasing.md). The front end, solprop-gui, is published from
-  # its own environment `pypi-gui` once PUBLISH_GUI is "true" too; until then
-  # `solprop[gui]` resolves only in the repository's workspace.
+  # Guarded by the repository variable PUBLISH, set to "true" once the PyPI projects,
+  # their trusted publishers and the environments existed (the pre-flight checklist in
+  # docs/dev/releasing.md). The front end, solprop-gui, is published after solprop from
+  # its own environment `pypi-gui`, guarded by PUBLISH_GUI as well.
   publish-native:
     # cpu-floor runs only when SDE_URL names an emulator, so it may be skipped only then.
     needs: [test, python-3-15, solprop-dist, cpu-floor, minimum-systems]

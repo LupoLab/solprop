@@ -44,7 +44,7 @@ ionisation there.
 [optmat](https://github.com/LupoLab/optmat) curates strong-field rate models for every
 gas solprop ships, checked against all-electron static rates, a time-dependent
 calculation and measured yields. solprop takes them, and keeps no formula of its own
-([SEP 3](../../dev/seps/archive/sep-0003-optmat-materials.md)). The free-space and planar
+([SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md)). The free-space and planar
 routes, whose rates are the caller's, bind an `OptmatRate`'s energy per event to the
 input's peak field as the capillary route does.
 
@@ -74,7 +74,7 @@ explicit-parameter constructor, or a rate of the caller's own
 ([below](#a-rate-of-your-own)).
 
 **The models.** All of optmat's rates are for linear polarisation, take the field in
-V/m and return s⁻¹. At optmat 0.8.0 (unchanged since 0.4.0) the recommended models are, with the adapter's
+V/m and return s⁻¹. At optmat 0.10 the recommended models are, with the adapter's
 values at 800 nm (the threshold below which the rate is exactly zero, the maximum field
 above which it is held, and the energy per event in the weak-field limit):
 
@@ -110,12 +110,13 @@ the same [table](#tables) as every other rate.
 
 **The maximum field.** Each model declares the largest field its static correction was
 fitted to: twice the barrier-suppression field with Tong and Lin's correction (an atom),
-4.5 times with Zhang's, 1.5 times for the molecules. Above it optmat's instantaneous rate
-leaves its fit: it turns over a few per cent above the maximum field (4–7 % for Ar, Kr
-and Xe, 16–19 % for N₂ and He), is erratic beyond (argon's spikes to 2600 times its
-value at the maximum field at 1.6 times that field) and falls towards zero within a
-decade, and a rate table, which by default reaches thirty times the input's peak,
-would extend there. The adapter therefore **holds the rate at its value at the maximum
+4.5 times with Zhang's, and for each molecule the range its own correction was fitted
+to, 1.6 to 2 times (1.61 for H₂, 1.71 for N₂, 1.96 for O₂). Above it the corrected
+instantaneous rate leaves its fit: extrapolated, it turns over above the maximum field
+(36–42 % above it for Ar, Kr and Xe, 57 % for He, 28 % for N₂) and falls towards
+zero within a decade (argon's to $10^{-7}$ of its value at the maximum field at ten
+times that field), and a rate table, which by default reaches thirty times the input's
+peak, would extend there. The adapter therefore **holds the rate at its value at the maximum
 field** above it, as a table holds its last knot, and the table stops there. Holding
 is the least bad of the choices: at that rate a population is depleted within a
 femtosecond, so the held value already ionises everything it reaches. optmat warns at
@@ -151,7 +152,7 @@ with that energy as its potential
 loss term, the envelope's loss current and the species statistics all pay it.
 
 **Polarisation.** The rates are for a linearly polarised field. An elliptical or
-circular run stays admitted, as before, on the quasi-static average of the
+circular run is admitted, on the quasi-static average of the
 instantaneous rate around the polarisation ellipse, and the manifest records the
 approximation. A run whose input is not linearly polarised at its peak, at a Keldysh
 parameter above one there, warns once: there elliptic and orbital-resolved
@@ -278,7 +279,7 @@ a whole column. A propagation evaluates the rate once per sample of the fine tim
 on every column, at every stage, so it uses a precomputed table:
 {py:class}`solprop.translate.ionisation.RateTable`, built by
 {py:func}`solprop.translate.ionisation.build_rate_table`, which brings that to about 10 ns
-in NumPy; the compiled backends evaluate the same table inside their kernels. The table
+in NumPy; the native backend evaluates the same table inside its kernels. The table
 controls interpolation accuracy and behaviour outside its sampled interval. Its tolerance is separate
 from the optical stepper tolerance and the rate model's physical uncertainty.
 
@@ -348,7 +349,7 @@ table = build_rate_table(rate, (1e9, 1e11))    # converged to 1e-6, log-spaced k
 t = np.linspace(-40e-15, 40e-15, 2049)
 field = 4e10 * np.exp(-(t / 10e-15) ** 2)      # 4e10 V/m peak, 17 fs FWHM in field
 fraction = ionisation_fraction(table, field, float(t[1] - t[0]))
-print(f"{100 * fraction[-1]:.2f} % ionised")   # 44.72 % ionised
+print(f"{100 * fraction[-1]:.2f} % ionised")   # 38.35 % ionised
 ```
 
 ## Molecules: an orientation-averaged rate
@@ -392,7 +393,7 @@ subtract the initial fraction before converting a result into a chemical increme
 The initial fraction may be a path along `z` per population, such as
 `preionisation={"N2": PiecewiseLinear(...), "O2": 0.0}`: the fraction ionised before
 the pulse arrives at each position, read by every backend at every stage, with the
-steps landing on the path's kinks ([nonlinear.md](field-plasma.md#a-pre-ionised-fraction-along-the-fibre)).
+steps landing on the path's kinks ([a pre-ionised fraction along the fibre](field-plasma.md#a-pre-ionised-fraction-along-the-fibre)).
 
 
 ## Envelope plasma sources

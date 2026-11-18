@@ -35,7 +35,7 @@ from solprop.nonlinear.tdse import (
     TDSEGasResponse,
     TDSESampling,
 )
-from solprop.output import MemoryOutput, open_file, resume
+from solprop.output import MemoryOutput, open_file, read_resume_state
 from solprop.stats import StatsSpec
 from solprop.stepper.multistep import Multistep
 from solprop.translate.routes import tdse_descriptor
@@ -241,7 +241,7 @@ def test_interior_natural_save_resumes_without_resetting_atomic_budget(
     path = tmp_path / "natural-atomic.h5"
     with pytest.raises(ResponseBudgetError):
         simulation.run(path, progress="none")
-    first = resume(path)
+    first = read_resume_state(path)
     assert first.checkpoint is not None and first.checkpoint.landed
     assert first.checkpoint.next_save_index == 0
     assert first.n_saved == 2
@@ -256,7 +256,7 @@ def test_interior_natural_save_resumes_without_resetting_atomic_budget(
 
     with pytest.raises(ResponseBudgetError):
         simulation.run(path, resume=True, progress="none")
-    second = resume(path)
+    second = read_resume_state(path)
     assert len(bindings) == 2 and bindings[1].purposes == []
     assert second.outcome is not None
     assert second.outcome.atomic_calls == first.outcome.atomic_calls
@@ -278,7 +278,7 @@ def test_interior_natural_save_resumes_without_resetting_atomic_budget(
         simulation.settings, tdse_execution=TDSEExecution(max_atomic_calls=20)
     )
     simulation.run(path, resume=True, progress="none")
-    final = resume(path)
+    final = read_resume_state(path)
     assert final.checkpoint is None
     assert final.plane.z == simulation.grid.length
     assert final.outcome is not None and final.outcome.status == "complete"

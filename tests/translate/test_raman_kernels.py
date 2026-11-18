@@ -103,7 +103,10 @@ def test_the_taper_edge_has_the_collars_own_width(grid):
     delays = delays_of(grid)
     span = float(delays[-1])
     started = delays[taper < 1.0][0]
-    assert span - started == pytest.approx(grid.t_collar.width_high, rel=1e-3)
+    # A Planck edge rounds to one until exp(zeta) passes eps/2, over its first
+    # 1/37 or so (3.0 % here, with the sampling), so the first sample below one lies
+    # that far inside the edge.
+    assert span - started == pytest.approx(grid.t_collar.width_high, rel=5e-2)
 
 
 def test_a_collar_wider_than_the_response_span_is_refused(grid):

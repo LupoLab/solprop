@@ -644,7 +644,8 @@ class NumpyWorkspace:
         Returns
         -------
         numpy.ndarray
-            The prefactor times the crop scale, in m/(V s) per unit polarisation.
+            The prefactor times the crop scale, in the unit
+            :class:`~solprop.translate.responses.CompiledResponses` states.
         """
         if bundle.prefactor is None or self._terms.prefactor is None:
             return prefactor_at(self._problem.responses, bundle.z1, helpers=PLAIN)

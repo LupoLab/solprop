@@ -2,7 +2,7 @@
 
 solprop is released as three distributions from one repository, at one version taken from
 the `v*` git tag; no other tag affects it
-([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md)):
+([SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md)):
 
 - **`solprop`**, pure Python: a source distribution and one universal wheel.
 - **`solprop-native`**, the compiled backend built from `native/`: **wheels only**, one
@@ -11,8 +11,7 @@ the `v*` git tag; no other tag affects it
   build; source builds are made from the repository
   ([Building the native backend](../guide/performance/building-native.md)).
 - **`solprop-gui`**, the desktop front end built from `gui/`, pure Python: a source
-  distribution and one universal wheel, installed as `solprop[gui]` and published only
-  once its publishing is set up (pre-flight step 5).
+  distribution and one universal wheel, installed as `solprop[gui]`.
 
 Versions are 0.x for now: a minor release may break the API, the output schema or the
 resume key, and every break is listed under "Changed (breaking)" in the changelog
@@ -35,7 +34,7 @@ also runs by hand.
 | OpenMP runtime | GCC's `libgomp` | GCC's `libgomp` | LLVM `libomp`, built for the target | LLVM `libomp` from the LLVM installation | the same |
 | BLAS | OpenBLAS 0.3.34, OpenMP, `DYNAMIC_ARCH`, `solprop_` prefix (built by the configure step) | the same | Accelerate | OpenBLAS 0.3.34, OpenMP, one fixed target per build (Haswell, Nehalem; no `DYNAMIC_ARCH`), static | OpenBLAS 0.3.34, OpenMP, Neoverse N1 target, static |
 | FFTW 3.3.11 | shared, SSE2 and AVX codelets | shared, cycle counter, NEON codelets | shared, cycle counter, NEON codelets | static, SSE2 and AVX codelets | static, cycle counter, NEON codelets |
-| vector maths (ADR-059) | SLEEF 3.9.0, static, AVX2 in the v3 build and SSE2 in the v2 | the system libm | the system libm | SLEEF 3.9.0, static, AVX2 in the v3 build and SSE2 in the v2 | the system libm |
+| vector maths (ADR-059) | SLEEF 3.9.0, static, AVX2 in the v3 build and SSE2 in the v2 | the system libm | SLEEF 3.9.0, static, AdvSIMD | SLEEF 3.9.0, static, AVX2 in the v3 build and SSE2 in the v2 | the system libm |
 | repair | `auditwheel` | `auditwheel` | `delocate` | `delvewheel` (mangled names) | `delvewheel` (mangled names) |
 
 An x86-64 wheel holds two extensions, `_core` at x86-64-v3 and `_core_v2` at x86-64-v2, and
@@ -94,8 +93,8 @@ checkout and run, in order:
 
 1. `python -I native/ci/smoke.py --version VERSION`: the package imports and passes
    `check_build()`, is the distribution build at the release's version, loads the FFT,
-   BLAS and OpenMP libraries from inside the wheel, and carries their licences; on Arm,
-   both precisions of its FFTW carry the NEON codelets;
+   BLAS and OpenMP libraries from inside the wheel, and carries their licences and no
+   single-precision FFTW; on Arm, its FFTW carries the NEON codelets;
 2. `python -I -m solprop_native`: the build record;
 3. `python -I native/ci/coexistence.py`: NumPy and SciPy imported before
    and after `solprop_native`, each order in a fresh process, every package's thread
@@ -116,7 +115,7 @@ runs on a Penryn (no SSE4.2). It runs when the repository variables `SDE_URL` an
 unit-tested with stand-in processors in `native/tests/test_cpu_baseline.py`; no CI job
 runs them on a processor below the baseline.
 
-**macOS and pyFFTW.** solprop no longer uses pyFFTW, but a script or another package may.
+**macOS and pyFFTW.** solprop does not use pyFFTW, but a script or another package may.
 pyFFTW's macOS wheel carries its own `libomp`, which it initialises
 when it is imported. LLVM's OpenMP runtime refuses, or crashes on, a second initialised
 copy, so the native package raises at import when pyFFTW is already loaded
@@ -124,6 +123,12 @@ copy, so the native package raises at import when pyFFTW is already loaded
 that says what to do. The test jobs' second coexistence check installs pyFFTW and Numba
 as outside packages and runs `native/ci/coexistence.py` among them, so that guard meets a
 real pyFFTW on every platform but Windows on Arm, which has no pyFFTW wheel.
+The guard stays until a replacement is shown safe in fresh processes, in both import
+orders, with interleaved short runs (SEP 29): importing solprop does not load
+`solprop_native`, so nothing in solprop can decide the order. Run by hand on macOS with
+pyFFTW installed, `python -I native/ci/coexistence.py --bypass-guard` adds a scenario that
+hides pyFFTW from the guard and reports what happens, without failing; it is the evidence a
+change to the rule would start from.
 
 **solprop's distributions.** The `solprop-dist` job builds solprop's sdist and wheel and
 installs each from the file in a fresh environment, outside the checkout, beside this run's
@@ -186,8 +191,8 @@ reaches `main`, the next pending fragment starts a new draft for the next cycle.
 
 A release tag builds and tests everything but publishes nothing until a maintainer with
 admin rights on the repository and an account on PyPI has set up publishing. Steps 1 to
-4 were done once, before 0.1.0, for solprop and solprop-native; step 5 is done once, before
-the first release that publishes the front end.
+4 were done once, before 0.1.0, for solprop and solprop-native, and step 5 before 0.2.0,
+the first release that published the front end.
 
 1. **On PyPI** (done), under *Your account → Publishing*, add a pending trusted publisher
    for each project, both naming the owner `LupoLab`, the repository `solprop` and the
@@ -208,7 +213,7 @@ the first release that publishes the front end.
    (the organisation must grant Zenodo's application access). Zenodo archives each
    GitHub release, not a tag, with the metadata of `.zenodo.json`, and gives it a DOI,
    plus one concept DOI for every version, which `CITATION.cff` and the README cite.
-5. **The front end, `solprop-gui`**, in this order:
+5. **The front end, `solprop-gui`** (done), in this order:
    1. On PyPI, add a pending trusted publisher for the project `solprop-gui`, naming the
       owner `LupoLab`, the repository `solprop`, the workflow `wheels.yml` and the
       environment `pypi-gui`.
@@ -219,17 +224,16 @@ the first release that publishes the front end.
       reviewer and no tag rule, so with the variable set first the next tag would publish
       the front end unreviewed.
 
-   Until `PUBLISH_GUI` is `true`, each release builds the front end and checks an install
-   of `solprop[gui]` from the files, and the extra resolves only in the repository's
-   workspace.
-
 Then, for every release:
 
 6. In the rolling release PR, marked ready to freeze refreshes, check that every pending
    fragment has been collected and the changelog's `Unreleased` section describes the
-   release. Move it under the new version, `## [X.Y.Z] - YYYY-MM-DD`, retaining an empty
-   `## Unreleased` section above it, and give
-   `CITATION.cff` the same `version` and `date-released`
+   release. Check that the output schema the release writes,
+   `solprop.output.SCHEMA_VERSION`, is at most one above the last release's: it is bumped
+   at most once between two releases
+   ([the schema version](../guide/results/output.md#the-schema-version)). Move the
+   section under the new version, `## [X.Y.Z] - YYYY-MM-DD`, retaining an empty
+   `## Unreleased` section above it, and give `CITATION.cff` the same `version` and `date-released`
    (`tests/test_release_metadata.py` checks that they agree). The commit that does so
    is the release commit; it reaches `main` through this PR, after the required checks.
 7. Check that CI passed on the release commit. When it merged a pull request whose head
@@ -240,7 +244,11 @@ Then, for every release:
    workflow that builds and tests the Linux aarch64 wheel, and on `main` it otherwise
    runs only weekly. On a branch the publish jobs are skipped, so this is a dry run of
    the release.
-9. Then tag that commit, as below.
+9. Run the GPU lane on that commit by hand, on a machine with a device: `uv run poe
+   test-gpu` against a CUDA build of solprop-native, and against a HIP build where an AMD
+   device is available ([testing](testing.md#2-tiers-and-lanes)). No CI job reaches a
+   device. Record each result on the release's tracking issue.
+10. Then tag that commit, as below.
 
 ### Tagging and publishing
 
@@ -301,6 +309,11 @@ Then, for every release:
    and 0.1.0, which did not require the native backend, installs there with no error
    ([#463](https://github.com/LupoLab/solprop/issues/463)). A yanked version still
    installs when it is asked for exactly (`solprop==0.1.0`).
+8. Record the release in the benchmark history: on each
+   [recorded hardware set](benchmarking.md#recorded-hardware), rerun the tracking set
+   from a checkout of the release tag with `uv run python -m benchmarks track
+   --append-history`, as [Recording a run](benchmarking.md#recording-a-run) describes,
+   and commit the rows it appends in a pull request.
 
 ### Rechecking a published release
 
@@ -334,4 +347,4 @@ The actions in the workflows are pinned by commit; when updating one, take the c
 its release tag and keep the version in the trailing comment.
 
 The release recipe on this page was set up and qualified by
-[SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md).
+[SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md).

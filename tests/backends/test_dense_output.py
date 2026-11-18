@@ -22,14 +22,13 @@ from sessions.runs import run as session_run
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import select
-from solprop.driver.resume import _interpolated
 from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError, OutputError, TranslationError
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
 from solprop.noise import modified_noise
 from solprop.output import MemoryOutput
-from solprop.output.hdf5 import open_file, resume
+from solprop.output.hdf5 import open_file, read_resume_state
 from solprop.output.metadata import INTERPOLATED_RESUMES_ANNOTATION, _example_metadata
 from solprop.output.records import StepLimits, StepperRecord
 from solprop.output.store import PlaneStore
@@ -351,14 +350,14 @@ def test_a_stopped_interpolated_resume_records_its_position(tmp_path):
     dense = {"backend": "numpy_ref", "integrator": RungeKutta(), "n_save": 6}
     with pytest.raises(StopError):
         capillary(interpolate_planes=True, **dense).run(path, progress=Stop())
-    first = resume(path)
-    assert _interpolated(first)
+    first = read_resume_state(path)
+    assert first.interpolated
     with pytest.raises(StopError):
         capillary(interpolate_planes=True, **dense).run(
             path, resume="interpolated", progress=Stop()
         )
-    second = resume(path)
-    assert _interpolated(second)
+    second = read_resume_state(path)
+    assert second.interpolated
     assert second.n_saved > first.n_saved
     with open_file(path) as stored:
         assert stored.annotations[INTERPOLATED_RESUMES_ANNOTATION] == [first.plane.z]
@@ -396,8 +395,8 @@ def test_an_interpolated_plane_is_resumed_only_on_request(tmp_path, dense):
     path = tmp_path / "dense.h5"
     with pytest.raises(StopError):
         capillary(backend="numpy_ref", **dense).run(path, progress=Stop())
-    state = resume(path)
-    assert _interpolated(state)
+    state = read_resume_state(path)
+    assert state.interpolated
     with pytest.raises(DriverError, match="resume='interpolated'"):
         capillary(backend="numpy_ref", **dense).run(path, resume=True)
     # A run asking for no interpolation is another run, which the hash refuses.
@@ -410,9 +409,9 @@ def test_an_interpolated_plane_is_resumed_only_on_request(tmp_path, dense):
     assert isinstance(handler, PlaneStore)
     assert handler.annotations[INTERPOLATED_RESUMES_ANNOTATION] == [state.plane.z]
     # The run is complete and ends landed, so it resumes without the request.
-    finished = resume(path)
+    finished = read_resume_state(path)
     assert finished.n_saved == 4
-    assert not _interpolated(finished)
+    assert not finished.interpolated
     capillary(backend="numpy_ref", **dense).run(path, resume=True, progress="none")
 
 

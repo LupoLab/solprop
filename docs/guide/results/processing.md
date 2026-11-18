@@ -486,7 +486,7 @@ every band wider than 256 bins keeps the 64-bin edge.
 A run with input shot noise ([shot noise](../media/noise.md)) saves a field that carries
 its seed: one photon per active bin and channel, a floor of $\hbar\omega/\Delta\omega$
 under the whole spectrum. `get_spectral_density(..., noise_floor="subtract")` removes it
-([SEP 37](../../dev/seps/archive/sep-0037-noise-and-stepper-defaults.md), section 5.5). It
+([SEP 37](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0037-noise-and-stepper-defaults.md), section 5.5). It
 subtracts the energy of the stored realisation, $|N_0|^2$ bin by bin and channel by
 channel in the route's own photon measure, before the polarisation components are summed
 and before any mode selection or smoothing:
@@ -580,8 +580,8 @@ print(f"time-bandwidth product {float(time_bandwidth(output, plane=-1)):.3f}")
 Reading a run from disk goes through a handler that is **open**: during the run it already
 is, and afterwards {py:func}`~solprop.output.hdf5.open_file` opens the file read-only
 through the same protocol, as a context manager if you like.
-{py:func}`~solprop.output.hdf5.resume` returns the last plane only; it is for continuing a
-run, not for reading one.
+{py:func}`~solprop.output.hdf5.read_resume_state` returns the last plane only, the state a
+resume continues from; it is not for reading a run.
 
 ```{code-block} python
 from solprop.output import open_file

@@ -220,8 +220,11 @@ def test_pre_ionisation_sits_inside_the_exponential():
     preionised = ionisation_fraction(rate, field, dt, preionisation=0.4)
     assert preionised[0] == pytest.approx(0.4)
     assert np.all(preionised <= 1.0)
-    # Every atom already ionised is one the pulse cannot ionise again.
-    assert np.allclose(1.0 - preionised, 0.6 * (1.0 - plain))
+    # Every atom already ionised is one the pulse cannot ionise again. Where the
+    # fractions reach one, 1 - f keeps the absolute rounding of f, a few eps.
+    assert np.allclose(
+        1.0 - preionised, 0.6 * (1.0 - plain), atol=4 * np.finfo(float).eps
+    )
     assert np.all(ionisation_fraction(rate, field, dt, preionisation=1.0) == 1.0)
 
 
@@ -238,7 +241,7 @@ def test_no_field_ionises_nothing():
 
 @pytest.mark.parametrize("bad", [0.0, -1.0, math.inf, math.nan])
 def test_a_non_positive_wavelength_is_rejected(bad):
-    with pytest.raises(MaterialError, match="wavelength must be positive"):
+    with pytest.raises(MaterialError, match="wavelength must be finite and positive"):
         keldysh(Gas.He, bad, 1e10)
 
 
@@ -261,7 +264,7 @@ def test_a_non_finite_field_is_rejected(bad):
 
 @pytest.mark.parametrize("bad", [0.0, -1.0, math.inf, math.nan])
 def test_a_non_positive_time_step_is_rejected(bad):
-    with pytest.raises(MaterialError, match="dt must be positive"):
+    with pytest.raises(MaterialError, match="dt must be finite and positive"):
         ionisation_fraction(adk_oracle("He"), np.zeros(4), bad)
 
 

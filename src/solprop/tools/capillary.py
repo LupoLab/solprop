@@ -152,9 +152,9 @@ class SolitonParams(Displayed):
     fission_length : float
         In m.
     zdw : float
-        Zero-dispersion wavelength in m within 100 nm to 3 um, or NaN when the
-        dispersion does not change sign there. No second, guess-seeded search is
-        tried.
+        Zero-dispersion wavelength in m within 100 nm to 3 um nearest the pump,
+        among those no resonance separates from it (:func:`solprop.modes.base.zdw`
+        with ``near``), or NaN when there is none.
     loss_length : float
         The 1/e **power** loss length of the mode at the pump in m.
     effective_area : float

@@ -4,10 +4,9 @@
 
 """SEP 43's retired column tests: their rows of the case catalogue.
 
-**What is compared.** The compiled CPU backend's kernel tests (``test_numba_cpu.py``,
-``test_numba_cpu_kernels.py`` and ``test_numba_band_kernels.py``), retired with that
-backend in SEP 43, held its columns to the reference on inputs of their own. Native took
-over their claims against ``numpy_ref`` on the same inputs, and they are these rows:
+**What is compared.** The kernel tests of the compiled CPU backend retired in SEP 43
+held its columns to the reference on inputs of their own. Native holds their claims
+against ``numpy_ref`` on the same inputs in these rows:
 
 - the ionising capillary (:func:`ionising_capillary`): argon in a pressure gradient,
   a thousandth pre-ionised and ionising hard, two fixed Dormand-Prince steps;

@@ -9,7 +9,7 @@ accurate. It wins outright in three places: for ensembles, where identical steps
 the numerical error a common systematic that cancels between members instead of a
 per-member variance that adds; for repeat calculations and debugging, since a replayed
 run takes the recorded steps and meets the original run's accuracy target (it need not
-reproduce its bits, [SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md));
+reproduce its bits, [SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md));
 and on a device, where there is nothing to synchronise. Both modes are therefore first
 class.
 
@@ -147,7 +147,7 @@ A stability limit belongs to the integrator, `Multistep()`'s being far shorter t
 `RungeKutta()`'s, so run the discovery with the integrator the replay will use: the
 printed limit is computed for it.
 
-A requested spatial collar on a spatial route ([SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md))
+A requested spatial collar on a spatial route ([SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md))
 adds three more limits on a replayed step: its own stable step, which also depends on the
 integrator, and the fixed-schedule crossing and damping bounds, which do not. An adaptive
 run is held only to the looser adaptive crossing limit, so its history can break them.
@@ -190,7 +190,7 @@ mode fails silently.
 check it on more than the seed that discovered it. A schedule discovered on a noiseless
 run integrates the seed's own dynamics poorly: on a 20 pJ fibre soliton it got the
 noise-driven part of the field wrong by 6 % with `RungeKutta()` and 78 % with
-`Multistep()` ([SEP 37](../../dev/seps/archive/sep-0037-noise-and-stepper-defaults.md), §3.4).
+`Multistep()` ([SEP 37](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0037-noise-and-stepper-defaults.md), §3.4).
 
 ## The low-storage march
 

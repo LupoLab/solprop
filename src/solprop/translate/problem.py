@@ -208,8 +208,10 @@ class Flags:
     """Static booleans a kernel specialises on at compile time.
 
     Section 1 of the kernel contract. They are *derived* from the content of the problem
-    by :meth:`from_content` and never passed in, so a flag cannot disagree with the
-    arrays it describes.
+    by :meth:`from_content`, which every solprop path that builds or changes a problem
+    calls, so that a flag agrees with the arrays it describes. The problem's
+    constructor and :meth:`PropagationProblem.validate` do not re-derive them: a problem
+    built by hand keeps them consistent itself.
 
     Attributes
     ----------
@@ -749,6 +751,40 @@ class PropagationProblem:
             )
             raise TranslationError(msg)
 
+    def _tdse_route_departures(self, stepper: StepperSettings | None) -> list[str]:
+        """Return how the problem departs from the TDSE's route, each by name."""
+        flags = self.flags
+        checks = [
+            (self.grid_kind != "field", "an envelope grid"),
+            (self.shape[:2] != (1, 1), "more than one mode or polarisation"),
+            (self.transform.n_pol != 1, "a polarised transform"),
+            (flags.mode_averaged, "a mode-averaged transform"),
+            # The input draw is part of the launch and drives the atom with it; the
+            # modified one is kept apart and is not (SEP 37, section 6).
+            (self.initial.noise_model == "modified", "the 'modified' noise model"),
+            (flags.has_plasma, "a plasma response"),
+            (flags.has_raman, "a Raman response"),
+            (self.linear.coupled_flow is not None, "a coupled linear flow"),
+        ]
+        if stepper is not None:
+            checks += [
+                (
+                    not isinstance(stepper.integrator, Multistep),
+                    "a method other than Adams",
+                ),
+                (stepper.interpolate_planes, "interpolated save planes"),
+                (stepper.schedule is not None, "a fixed schedule"),
+            ]
+        scheme = self.responses.absorber_scheme
+        checks.append(
+            (
+                scheme != "nonlinear",
+                f"the {scheme!r} absorber scheme (it takes the in-stage 'nonlinear' "
+                "one)",
+            )
+        )
+        return [reason for failed, reason in checks if failed]
+
     def _check_tdse(self, source: TDSESource, stepper: StepperSettings | None) -> None:
         """Refuse a manually constructed atomic seam outside the admitted route.
 
@@ -756,30 +792,13 @@ class PropagationProblem:
           :func:`validate_run`.
         """
         descriptor = source.descriptor
-        if (
-            self.grid_kind != "field"
-            or self.shape[:2] != (1, 1)
-            or self.transform.n_pol != 1
-            or self.flags.mode_averaged
-            # The input draw is part of the launch and drives the atom with it; the
-            # modified one is kept apart and is not (SEP 37, section 6).
-            or self.initial.noise_model == "modified"
-            or self.flags.has_plasma
-            or self.flags.has_raman
-            or (
-                stepper is not None
-                and (
-                    not isinstance(stepper.integrator, Multistep)
-                    or stepper.interpolate_planes
-                    or stepper.schedule is not None
-                )
+        reasons = self._tdse_route_departures(stepper)
+        if reasons:
+            msg = (
+                "TDSE requires the scalar resolved modal Adams route, not "
+                f"{', '.join(reasons)}"
             )
-            or self.linear.coupled_flow is not None
-            or self.responses.absorber_scheme != "nonlinear"
-        ):
-            raise TranslationError(
-                "TDSE requires the scalar resolved modal Adams route"
-            )
+            raise TranslationError(msg)
         if (
             descriptor.samples != self.grids.n_to
             or descriptor.spacing != self.grids.dt_fine
@@ -1980,7 +1999,7 @@ def _walk_arrays(
                     if run is not None:
                         visit("stepper", run.stepper)
                         visit("stats_spec", run.stats)
-                    # The route's leaves keep the names they have always had:
+                    # The route's leaves are named without the route prefix:
                     # ``transform.synthesis``, ``flux.base.kperp_sq``.
                     visit(prefix, getattr(node, entry.name))
                     continue
@@ -2011,7 +2030,7 @@ def _walk_tables(problem: PropagationProblem) -> list[tuple[str, PiecewiseChebys
         ("responses.density", problem.responses.density),
         ("responses.prefactor", problem.responses.prefactor),
         (
-            "responses.prefactor.weights",
+            "responses.prefactor_expansion.weights",
             None
             if problem.responses.prefactor_expansion is None
             else problem.responses.prefactor_expansion.weights,

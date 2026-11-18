@@ -3144,8 +3144,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.modes.guide",
-   "module_short": "solprop.modes.guide",
+   "module": "solprop.modes.path",
+   "module_short": "solprop.modes.path",
    "name": "ModalPath"
   },
   {

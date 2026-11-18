@@ -46,7 +46,6 @@ pytestmark = [
     # Noise-free launches into time windows kept tight for speed: the boundary monitor
     # warns (SEP 21), and the window's edge is not what this module tests.
     pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
-    pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning"),
 ]
 
 

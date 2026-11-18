@@ -421,6 +421,8 @@ class RectMode(_WallPairFill):
         The fill gas; None means vacuum unless a mixture is supplied.
     pressure : float or ZProfile
         Absolute fill pressure in **bar**, non-negative, or a path of it along z.
+        Required beside `gas`: a gas without it is refused. Without a gas it is
+        omitted, and holds 0 once the mode is built.
     n, m : int
         Positive mode indices along y and x respectively.
     polarisation : {'x', 'y'}
@@ -473,7 +475,7 @@ class RectMode(_WallPairFill):
     half_width_x: float | ZProfile
     half_width_y: float | ZProfile
     gas: Gas | str | None = None
-    pressure: float | ZProfile = 0.0
+    pressure: float | ZProfile | None = None
     _: KW_ONLY
     n: int = 1
     m: int = 1

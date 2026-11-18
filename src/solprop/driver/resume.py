@@ -16,7 +16,7 @@ import logging
 import warnings
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -26,9 +26,15 @@ from solprop.driver.inputs import _realisation
 from solprop.driver.run import retention_at
 from solprop.exceptions import DriverError, SolpropWarning
 from solprop.fourier import power_amplitude
+from solprop.log import ResumeChoice
 from solprop.nonlinear.tdse import TDSEExecution
-from solprop.output.hdf5 import HDF5Output, ResumeState, _stored_metadata, check_cache
-from solprop.output.hdf5 import resume as resume_state
+from solprop.output.hdf5 import (
+    HDF5Output,
+    ResumeState,
+    _stored_metadata,
+    check_cache,
+    read_resume_state,
+)
 from solprop.output.memory import MemoryOutput
 from solprop.output.metadata import RunMetadata
 from solprop.output.records import MarchSnapshot
@@ -48,21 +54,22 @@ __all__ = []
 
 logger = logging.getLogger(__name__)
 
-type _ResumeChoice = bool | Literal["interpolated"]
-"""What ``resume`` takes: no, yes, or from a plane interpolated inside a step."""
 
-
-def _adopt_recorded_seed(
+def _resumed_simulation(
     simulation: "Simulation", output: Output | Path | str | None
-) -> None:
-    """Take the noise seed of the file a resume continues, where the call gave none.
+) -> "Simulation":
+    """Return the run a resume continues, drawn from the file's seed if unseeded.
 
     The maintainers' ruling on resuming a default call (``seed=None``): the
     realisation is drawn again from the seed the file recorded, so the re-run
-    call describes the run it continues. Nothing happens when there is no file,
-    the file recorded no seed or another noise model, or the realisation was
-    seeded or supplied by the caller; :func:`~solprop.output.hdf5.check_cache`
-    then judges the run as before.
+    call describes the run it continues. It is drawn on a copy
+    (:meth:`~solprop.driver.simulation.Simulation._reseeded`), so the caller's
+    simulation keeps its own realisation and a later fresh run of it does not carry
+    the file's; the copy shares the caller's material log, as the caller's own run
+    would. `simulation` itself is returned when there is no file, the file recorded
+    no seed or another noise model, or the realisation was seeded or supplied by the
+    caller; :func:`~solprop.output.hdf5.check_cache` then compares the call's
+    realisation as it was built.
     """
     if (
         simulation._noise_redraw is None
@@ -70,17 +77,20 @@ def _adopt_recorded_seed(
         or not isinstance(output, Path | str)
         or not Path(output).exists()
     ):
-        return
+        return simulation
     stored = _stored_metadata(output)[0].noise
     if stored is None or stored.seed is None or stored.model != simulation.noise.model:
-        return
-    if simulation._reseed(stored.seed):
+        return simulation
+    resumed = simulation._reseeded(stored.seed)
+    if resumed is not simulation:
+        resumed._material_log = simulation._material_log
         logger.info(
             "resuming %s: the noise was drawn without a seed, so it is drawn again "
             "from the seed the file recorded, %d",
             output,
             stored.seed,
         )
+    return resumed
 
 
 def _start(
@@ -90,6 +100,7 @@ def _start(
     *,
     kept: bool = False,
     restoration: dict[str, object] | None = None,
+    next_plane: int | None = None,
 ) -> Start:
     """Return where the run starts: the entrance, or the state a file resumes.
 
@@ -100,13 +111,16 @@ def _start(
       the entrance.
     - ``kept``: the backend was built for another input, so this one's noise has to
       be handed to it.
+    - ``next_plane``: what :func:`_validate_resume` returned for `state`, which a
+      caller that has validated it passes; ``None`` validates it here.
     """
     if state is None:
         return Start.entrance(problem, noise=_realisation(problem) if kept else None)
     request = simulation.run_request()
-    next_plane = _validate_resume(
-        problem, request, state, simulation.settings.tdse_execution
-    )
+    if next_plane is None:
+        next_plane = _validate_resume(
+            problem, request, state, simulation.settings.tdse_execution
+        )
     logger.info(
         "resuming at z = %.6e m, plane %d of %d",
         state.plane.z,
@@ -240,7 +254,7 @@ def _missing_history(
     if kept == "omitted" and why == "explicit_policy":
         return reset("explicit_policy")
     # Nothing to continue (a position the march held no history at), or a file
-    # that does not say: as before, the history starts afresh without a warning.
+    # that does not say: the history starts afresh without a warning.
     return reset("unavailable_history")
 
 
@@ -303,20 +317,11 @@ def _validate_resume(
     return next_plane
 
 
-def _interpolated(state: ResumeState) -> bool:
-    """Return whether the plane a file resumes from was interpolated inside a step.
-
-    A landed plane is the end of an accepted step of the run; an interpolated one lies
-    inside a step. The entrance is the initial field.
-    """
-    return state.interpolated
-
-
 def _open_output(
     output: Output | Path | str | None,
     metadata: RunMetadata,
     *,
-    resume: _ResumeChoice,
+    resume: ResumeChoice,
 ) -> tuple[Output, ResumeState | None]:
     """Choose the handler a run writes to, and read what a resumed file holds.
 
@@ -326,7 +331,7 @@ def _open_output(
     if isinstance(output, Path | str):
         path = Path(output)
         if resume and check_cache(path, metadata):
-            return HDF5Output(path, append=True), resume_state(path)
+            return HDF5Output(path, append=True), read_resume_state(path)
         return HDF5Output(path), None
     if resume:
         msg = (
@@ -361,14 +366,14 @@ def _work_left(request: RunRequest, state: ResumeState, next_plane: int) -> bool
     )
 
 
-def _refuse_interpolated(path: Path, state: ResumeState, resume: _ResumeChoice) -> None:
+def _refuse_interpolated(path: Path, state: ResumeState, resume: ResumeChoice) -> None:
     """Refuse to continue from a plane interpolated inside a step, unless accepted.
 
     An interpolated plane is not a state the march passed through, so a run restarted
     there is not the run it continues (SEP 14 section 5); ``resume="interpolated"``
     accepts that.
     """
-    if resume == "interpolated" or not _interpolated(state):
+    if resume == "interpolated" or not state.interpolated:
         return
     msg = (
         f"{path} ends on a plane interpolated inside a step at z = "
@@ -383,7 +388,7 @@ def _continues(
     request: RunRequest,
     state: ResumeState,
     next_plane: int,
-    resume: _ResumeChoice,
+    resume: ResumeChoice,
 ) -> bool:
     """Say whether a resume of a file computes anything, once its hash has passed.
 

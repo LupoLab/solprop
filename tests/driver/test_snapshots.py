@@ -35,9 +35,9 @@ from solprop.output import (
     TDSEArchive,
     open_file,
     open_tdse_archive,
+    read_resume_state,
     read_snapshot,
     restore_snapshot,
-    resume,
 )
 from solprop.output import snapshots as module
 from solprop.output.store import PlaneStore
@@ -181,7 +181,7 @@ def test_several_tdse_snapshots_keep_the_same_plans_and_all_calls(
 
 def _verify_tdse_generation(generation, destination, run_uuid, startup, caplog):
     info = read_snapshot(generation)
-    state = resume(info.files.output)
+    state = read_resume_state(info.files.output)
     assert state.outcome is not None
     assert state.outcome.status == "running" and state.march is not None
     assert state.plane.z == state.march.z == info.z
@@ -211,7 +211,7 @@ def _verify_tdse_generation(generation, destination, run_uuid, startup, caplog):
             tdse_archive=restored.tdse_archive,
         )
     assert "continuing the Adams history" in caplog.text
-    after = resume(restored.output)
+    after = read_resume_state(restored.output)
     assert after.outcome is not None
     assert after.outcome.status == "complete"
     # The pressure kink restarts both histories once; restoration adds no startup.
@@ -243,11 +243,11 @@ def test_ordinary_snapshot_resumes_in_a_fresh_process(backend, tmp_path):
                 """
 import sys
 from tests.driver.test_snapshots import ordinary
-from solprop.output import restore_snapshot, resume
+from solprop.output import restore_snapshot, read_resume_state
 files = restore_snapshot(sys.argv[1], sys.argv[2])
-before = resume(files.output)
+before = read_resume_state(files.output)
 ordinary(sys.argv[3]).run(files.output, resume=True, progress="none")
-after = resume(files.output)
+after = read_resume_state(files.output)
 assert after.outcome.status == "complete"
 assert (after.outcome.logical_calls.get("startup", 0)
         == before.outcome.logical_calls.get("startup", 0))
@@ -279,7 +279,9 @@ def test_snapshot_requires_history_even_above_the_automatic_limit(
     assert controller.last_result.disposition == "published"
     assert controller.last_result.generation is not None
     assert (
-        resume(read_snapshot(controller.last_result.generation).files.output).march
+        read_resume_state(
+            read_snapshot(controller.last_result.generation).files.output
+        ).march
         is not None
     )
 
@@ -319,7 +321,7 @@ def test_snapshots_do_not_reset_cumulative_atomic_budget(fake, tmp_path):
             tdse_archive=TDSEArchive(tmp_path / "run.tdse.h5"),
             progress=Requests(controller),
         )
-    state = resume(tmp_path / "run.h5")
+    state = read_resume_state(tmp_path / "run.h5")
     assert state.outcome is not None
     assert state.outcome.status == "budget_exhausted"
     assert plain(state.outcome.atomic_calls)["attempted"] == 30
@@ -330,7 +332,7 @@ def test_snapshots_do_not_reset_cumulative_atomic_budget(fake, tmp_path):
             resume=True,
             tdse_archive=TDSEArchive(tmp_path / "run.tdse.h5"),
         )
-    state = resume(tmp_path / "run.h5")
+    state = read_resume_state(tmp_path / "run.h5")
     assert state.outcome is not None
     assert plain(state.outcome.atomic_calls)["attempted"] == 30
 
@@ -493,7 +495,7 @@ def test_native_adams_snapshots_carry_the_resident_history(tmp_path, caplog):
     fields = []
     for index, generation in enumerate(generations):
         files = restore_snapshot(generation, tmp_path / f"restore-{index}")
-        march = resume(files.output).march
+        march = read_resume_state(files.output).march
         assert march is not None and march.rows["store"].any()
         with caplog.at_level(logging.INFO, logger="solprop.driver"):
             final = _run(adams(), files.output, resume=True)
@@ -554,7 +556,7 @@ def test_a_resume_with_no_outcome_record_can_start_taking_snapshots(tmp_path):
     with h5py.File(path, "r+") as file:
         del file["meta/outcome"]
         del file["terminal_checkpoint"]
-    assert resume(path).outcome is None
+    assert read_resume_state(path).outcome is None
     controller = SnapshotController(tmp_path / "snapshots")
     controller.request()
     _run(ordinary(), path, resume=True, snapshots=controller)
@@ -568,7 +570,7 @@ def test_a_resume_with_no_outcome_record_can_start_taking_snapshots(tmp_path):
 
 def _history(path):
     """Return a closed file's whole step history: starts, lengths and acceptance."""
-    history = resume(path).history
+    history = read_resume_state(path).history
     return history.z, history.h, history.accepted
 
 
@@ -619,7 +621,7 @@ def test_snapshots_without_step_planes_resume_from_a_running_checkpoint(tmp_path
     running = 0
     for index, generation in enumerate(generations):
         files = restore_snapshot(generation, tmp_path / f"restore-{index}")
-        state = resume(files.output)
+        state = read_resume_state(files.output)
         if state.checkpoint is not None:
             running += 1
             assert state.checkpoint.landed
@@ -652,7 +654,7 @@ def test_a_resume_from_a_running_checkpoint_keeps_the_history_once(tmp_path):
     _run(ordinary(step_planes=0), working, snapshots=controller)
     (generation,) = controller._directory.glob("snapshot-*")
     files = restore_snapshot(generation, tmp_path / "restored")
-    state = resume(files.output)
+    state = read_resume_state(files.output)
     assert state.checkpoint is not None
     before = state.history.n_steps
     assert before >= 1
@@ -666,7 +668,7 @@ def test_a_resume_from_a_running_checkpoint_keeps_the_history_once(tmp_path):
 
 def _assert_checkpoint_holds_every_attempt(path):
     """Assert a file's terminal checkpoint carries every attempt since the launch."""
-    state = resume(path)
+    state = read_resume_state(path)
     assert state.checkpoint is not None
     assert state.outcome is not None and state.outcome.status == "failed"
     history = state.history
@@ -722,7 +724,7 @@ def test_an_interrupt_out_of_a_propagation_keeps_the_running_attempts(tmp_path):
         ordinary(step_planes=0).run(path, snapshots=controller, progress=Interrupt())
     assert len(list(controller._directory.glob("snapshot-*"))) == 1
     _assert_checkpoint_holds_every_attempt(path)
-    assert resume(path).history.accepted.sum() >= 2
+    assert read_resume_state(path).history.accepted.sum() >= 2
     _run(ordinary(step_planes=0), path, resume=True)
     assert_contiguous(path, 0.001)
 
@@ -819,7 +821,7 @@ def test_dense_snapshots_resume_without_losing_or_repeating_a_plane(
     fields = [live[-1]]
     for index, generation in enumerate(generations):
         files = restore_snapshot(generation, tmp_path / f"restore-{index}")
-        state = resume(files.output)
+        state = read_resume_state(files.output)
         # Every snapshot follows an interpolated plane, so each is a running checkpoint
         # at an accepted endpoint past every plane saved before it.
         assert state.checkpoint is not None and state.checkpoint.landed

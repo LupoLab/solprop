@@ -7,6 +7,7 @@ import pytest
 
 from solprop import fourier, stats
 from solprop._validation import choice
+from solprop.constants import C
 from solprop.exceptions import ModeError, OutputError, ProcessingError
 from solprop.output import MemoryOutput
 from solprop.processing import axes, fields
@@ -57,13 +58,16 @@ def test_the_convention_switch_is_the_exact_conjugation(output, grid):
 
 @pytest.mark.parametrize("axis", ["omega", "f", "wavelength"])
 def test_the_spectral_density_integrates_to_the_energy(output, grid, axis):
-    _, density = fields.get_spectral_density(output, axis, plane=0, modes="sum")
-    omega = grid.omega[axes._keep_index(grid, "active")]
-    _, jacobian = axes.spectral_axis(omega, axis)
-    weights = grid.d_omega / jacobian
-    if axis == "wavelength":
-        weights = weights[::-1]
-    total = float(np.sum(density * weights))
+    x, density = fields.get_spectral_density(output, axis, plane=0, modes="sum")
+    # Each bin's width on the returned abscissa, derived here rather than taken from
+    # the accessor's own Jacobian: d omega, d omega / (2 pi), and |d lambda| =
+    # lambda^2 d omega / (2 pi c) at the bin's own wavelength.
+    widths = {
+        "omega": np.full_like(x, grid.d_omega),
+        "f": np.full_like(x, grid.d_omega / (2.0 * np.pi)),
+        "wavelength": x**2 * grid.d_omega / (2.0 * np.pi * C),
+    }[axis]
+    total = float(np.sum(density * widths))
     expected = float(np.sum(stats.energy(grid, output.fields("fft")[0])))
     # The change of variable is exact bin by bin, so the only differences are the energy
     # outside the active band, which the collar has driven to zero, and the order of the
@@ -167,7 +171,7 @@ def test_a_modal_sum_adds_the_densities(synthetic):
     output = synthetic.build_run("envelope", n_modes=2)
     _, each = fields.get_spectral_density(output, "omega", plane=0)
     _, total = fields.get_spectral_density(output, "omega", plane=0, modes="sum")
-    assert np.allclose(total, each.sum(axis=0), rtol=1e-15)
+    assert np.allclose(total, each.sum(axis=0), rtol=1e-15, atol=0.0)
 
 
 def test_the_real_field_is_the_real_part_of_the_analytic_signal(output):
@@ -182,20 +186,26 @@ def test_the_envelope_is_the_analytic_signal_without_its_carrier(output, grid):
     t, analytic = fields.get_field(output, plane=0, kind="analytic")
     _, envelope = fields.get_field(output, plane=0, kind="envelope")
     # In the optics convention the carrier is exp(+i omega0 t) (conventions.md 2).
-    assert np.allclose(envelope, analytic * np.exp(1j * grid.omega0 * t), rtol=1e-12)
+    assert np.allclose(
+        envelope, analytic * np.exp(1j * grid.omega0 * t), rtol=1e-12, atol=0.0
+    )
 
 
 def test_the_power_is_the_modulus_squared_of_the_analytic_signal(output):
     _, analytic = fields.get_field(output, plane=0, kind="analytic")
     _, power = fields.get_power(output, plane=0)
-    assert np.allclose(power, np.abs(analytic) ** 2, rtol=1e-14)
+    assert np.allclose(power, np.abs(analytic) ** 2, rtol=1e-14, atol=0.0)
 
 
 def test_oversampling_refines_the_axis_and_keeps_the_energy(output, grid):
     t_one, power_one = fields.get_power(output, plane=0)
     t_four, power_four = fields.get_power(output, plane=0, oversampling=4)
     assert t_four.size == 4 * t_one.size
-    assert np.isclose(t_four[1] - t_four[0], (t_one[1] - t_one[0]) / 4, rtol=1e-14)
+    # Differences of axis values about a thousand spacings from zero keep their
+    # rounding, |t| / dt eps ~ 2e-13 of the spacing (measured 1.1e-13).
+    assert np.isclose(
+        t_four[1] - t_four[0], (t_one[1] - t_one[0]) / 4, rtol=1e-12, atol=0.0
+    )
     energy_one = float(np.sum(power_one)) * float(t_one[1] - t_one[0])
     energy_four = float(np.sum(power_four)) * float(t_four[1] - t_four[0])
     # Zero-padding in frequency is exact interpolation of a band-limited trace, so the
@@ -283,8 +293,8 @@ def test_a_spectrogram_on_wavelength_is_a_density_per_metre(output):
     by_lam = np.trapezoid(per_m, lam, axis=0)
     by_omega = np.trapezoid(per_rad, omega, axis=0)
     bright = by_f > 1e-3 * by_f.max()
-    assert np.allclose(by_lam[bright], by_f[bright], rtol=2e-2)
-    assert np.allclose(by_omega, by_f, rtol=1e-9)
+    assert np.allclose(by_lam[bright], by_f[bright], rtol=2e-2, atol=0.0)
+    assert np.allclose(by_omega, by_f, rtol=1e-9, atol=0.0)
 
 
 def test_a_spectrogram_takes_a_time_range_a_gate_and_a_band(output):
@@ -298,6 +308,30 @@ def test_a_spectrogram_takes_a_time_range_a_gate_and_a_band(output):
     )
     assert outside.max() < 1e-6 * whole.max()
     assert values.max() > 0.0
+
+
+def test_the_default_gate_is_a_twentieth_of_the_range_within_the_window():
+    t = np.linspace(-1e-12, 1e-12, 401)
+    # Each a twentieth of the range clipped to the window: exact up to one rounding
+    # of the span's subtraction and division.
+    assert fields.default_gate_fwhm(t) == pytest.approx(1e-13, rel=1e-15)
+    assert fields.default_gate_fwhm(t, (-1e-9, 1e-9)) == pytest.approx(1e-13, rel=1e-15)
+    assert fields.default_gate_fwhm(t, (4e-13, 0.0)) == pytest.approx(2e-14, rel=1e-15)
+    with pytest.raises(ProcessingError, match="holds no gate position"):
+        fields.default_gate_fwhm(t, (2e-12, 3e-12))
+    # The spectrogram's own default is that gate.
+    field = np.cos(2.4e15 * t) * np.exp(-((t / 3e-14) ** 2))
+    wide = (-1e-9, 1e-9)
+    by_default = fields.field_spectrogram(t, field, time_range=wide, positions=16)
+    given = fields.field_spectrogram(
+        t,
+        field,
+        time_range=wide,
+        gate_fwhm=fields.default_gate_fwhm(t, wide),
+        positions=16,
+    )
+    assert by_default[2].max() > 0.0
+    assert np.array_equal(by_default[2], given[2])  # the same computation, bit for bit
 
 
 def test_a_spectrogram_refuses_what_it_cannot_draw(output, synthetic):

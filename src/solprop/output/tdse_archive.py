@@ -44,7 +44,7 @@ import h5py
 import numpy as np
 from jaxtyping import Float
 
-from solprop.exceptions import OutputError, TDSEArchiveError
+from solprop.exceptions import OutputError, OutputRequestError, TDSEArchiveError
 from solprop.output._writer_lock import WriterLock
 
 __all__ = [
@@ -130,10 +130,9 @@ class TDSEArchive:
 
     Raises
     ------
-    TypeError
-        If `path` is not a path or a string.
-    ValueError
-        If `path` is empty or `outputs` is neither selection.
+    OutputRequestError
+        If `path` is not a path or a string or is empty, or `outputs` is neither
+        selection.
 
     Examples
     --------
@@ -151,12 +150,12 @@ class TDSEArchive:
         candidate: object = path
         if not isinstance(candidate, Path | str):
             msg = f"TDSEArchive path must be a path or a string, got {type(path)!r}"
-            raise TypeError(msg)
+            raise OutputRequestError(msg)
         if str(candidate) == "":
-            raise ValueError("TDSEArchive path must not be empty")
+            raise OutputRequestError("TDSEArchive path must not be empty")
         if outputs not in ("full", "required"):
             msg = f"TDSEArchive outputs must be 'full' or 'required', got {outputs!r}"
-            raise ValueError(msg)
+            raise OutputRequestError(msg)
         object.__setattr__(self, "path", Path(candidate))
         object.__setattr__(self, "outputs", outputs)
 

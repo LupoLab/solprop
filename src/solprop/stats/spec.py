@@ -14,7 +14,7 @@
 
 import math
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -68,13 +68,26 @@ def _aperture_array(
         array = np.array(values, dtype=np.float64, order="C", copy=True)
     except (TypeError, ValueError) as error:
         msg = f"ApertureSet.{name} must be numeric, {stated}"
-        raise OutputError(msg) from error
+        raise ProcessingError(msg) from error
     fits = array.ndim == 1 if shape is None else array.shape == shape
     if not fits or not np.all(np.isfinite(array)):
         msg = f"ApertureSet.{name} must be finite, {stated}, got {array.shape}"
-        raise OutputError(msg)
+        raise ProcessingError(msg)
     array.setflags(write=False)
     return array
+
+
+def _known(check: Callable[[object], None], value: object) -> None:
+    """Refuse an unknown aperture profile or shape as a malformed request.
+
+    - ``check``: :func:`~solprop.spatial.check_aperture_profile` or
+      :func:`~solprop.spatial.check_aperture_shape`, whose refusal is the spatial
+      tables' :class:`~solprop.exceptions.OutputError`.
+    """
+    try:
+        check(value)
+    except OutputError as error:
+        raise ProcessingError(str(error)) from error
 
 
 def check_aperture_choices(profile: object, weighting: object) -> None:
@@ -93,7 +106,7 @@ def check_aperture_choices(profile: object, weighting: object) -> None:
 
     Raises
     ------
-    OutputError
+    ProcessingError
         If either is not one of its choices.
 
     Examples
@@ -102,13 +115,13 @@ def check_aperture_choices(profile: object, weighting: object) -> None:
     >>> check_aperture_choices("tanh", "quadrature") is None
     True
     """
-    check_aperture_profile(profile)
+    _known(check_aperture_profile, profile)
     if weighting not in ("amplitude", "quadrature"):
         msg = (
             f"unknown aperture weighting {weighting!r}; choose 'amplitude' or "
             "'quadrature'"
         )
-        raise OutputError(msg)
+        raise ProcessingError(msg)
 
 
 def _off_axis(shape: str) -> int:
@@ -174,7 +187,7 @@ class ApertureSet:
 
     Raises
     ------
-    OutputError
+    ProcessingError
         If there are no apertures or more than
         :data:`~solprop.stats.spec.MAX_APERTURES`; an array is
         not finite or not of its stated shape; a diameter, an extent or a distance
@@ -243,14 +256,14 @@ class ApertureSet:
 
         Raises
         ------
-        OutputError
+        ProcessingError
             Naming the field and the rule it breaks.
         """
         diameters = _aperture_array(self.diameters, None, "diameters")
         count = diameters.size
         if not 1 <= count <= MAX_APERTURES:
             msg = f"an ApertureSet holds 1 to {MAX_APERTURES} apertures, got {count}"
-            raise OutputError(msg)
+            raise ProcessingError(msg)
         object.__setattr__(self, "diameters", diameters)
         object.__setattr__(
             self, "centres", _aperture_array(self.centres, (count, 2), "centres")
@@ -263,7 +276,7 @@ class ApertureSet:
         self._check_outlines(count)
         if np.any(np.asarray(self.distances) <= 0):
             msg = "every aperture diameter and distance must be positive"
-            raise OutputError(msg)
+            raise ProcessingError(msg)
         self._check_edges(count)
         self._check_paraxial()
         labels = (
@@ -277,7 +290,7 @@ class ApertureSet:
             or len(set(labels)) != count
         ):
             msg = f"ApertureSet.labels must be {count} unique non-empty strings"
-            raise OutputError(msg)
+            raise ProcessingError(msg)
         object.__setattr__(self, "labels", labels)
 
     def _adopt_rows(self, count: int) -> None:
@@ -290,9 +303,9 @@ class ApertureSet:
             shapes = tuple(self.shapes)
             if len(shapes) != count:
                 msg = f"ApertureSet.shapes must hold {count}, got {len(shapes)}"
-                raise OutputError(msg)
+                raise ProcessingError(msg)
             for shape in shapes:
-                check_aperture_shape(shape)
+                _known(check_aperture_shape, shape)
             object.__setattr__(
                 self, "shapes", None if set(shapes) == {"circle"} else shapes
             )
@@ -303,15 +316,15 @@ class ApertureSet:
             msg = (
                 f"ApertureSet.profiles must hold {count} profiles, got {len(profiles)}"
             )
-            raise OutputError(msg)
+            raise ProcessingError(msg)
         for profile in profiles:
-            check_aperture_profile(profile)
+            _known(check_aperture_profile, profile)
         if self.profile != "hard":
             msg = (
                 "give the set's edge profile or a profile per row, not both; pass "
                 "profile or profiles"
             )
-            raise OutputError(msg)
+            raise ProcessingError(msg)
         one = set(profiles)
         object.__setattr__(self, "profile", profiles[0] if len(one) == 1 else "hard")
         object.__setattr__(self, "profiles", None if len(one) == 1 else profiles)
@@ -324,14 +337,14 @@ class ApertureSet:
         diameters = np.asarray(self.diameters)
         if np.any(diameters[circle] <= 0):
             msg = "every aperture diameter and distance must be positive"
-            raise OutputError(msg)
+            raise ProcessingError(msg)
         if np.any(diameters[~circle] != 0):
             msg = "a diameter is a circle's; give zero on every row of another shape"
-            raise OutputError(msg)
+            raise ProcessingError(msg)
         if self.extents is None:
             if np.any(sized):
                 msg = "an ellipse or a rectangle needs extents, (D_x, D_y) per aperture"
-                raise OutputError(msg)
+                raise ProcessingError(msg)
         else:
             extents = _aperture_array(self.extents, (count, 2), "extents")
             object.__setattr__(self, "extents", extents)
@@ -340,13 +353,13 @@ class ApertureSet:
                     "extents are an ellipse's or a rectangle's, and would be silently "
                     "unused here; pass extents=None"
                 )
-                raise OutputError(msg)
+                raise ProcessingError(msg)
             if np.any(extents[sized] <= 0) or np.any(extents[~sized] != 0):
                 msg = (
                     "ApertureSet.extents must be positive on the row of an ellipse or "
                     "a rectangle and zero on any other"
                 )
-                raise OutputError(msg)
+                raise ProcessingError(msg)
         centres = np.asarray(self.centres)
         for row, shape in enumerate(shapes):
             if shape.startswith("half_plane") and centres[row, _off_axis(shape)] != 0:
@@ -354,7 +367,7 @@ class ApertureSet:
                     f"aperture {row}, a half-plane, has an edge on one axis only; its "
                     "centre on the other must be zero"
                 )
-                raise OutputError(msg)
+                raise ProcessingError(msg)
 
     def _edge_measures(self) -> Float[np.ndarray, " n_apertures"]:
         """Return the width each row's edge width is measured against.
@@ -383,11 +396,11 @@ class ApertureSet:
                     "a hard aperture has no edge, and an edge given beside it would "
                     "be silently unused; pass edges=None"
                 )
-                raise OutputError(msg)
+                raise ProcessingError(msg)
             return
         if self.edges is None:
             msg = f"a {smooth[0]} aperture needs edges, one per aperture"
-            raise OutputError(msg)
+            raise ProcessingError(msg)
         edges = _aperture_array(self.edges, (count,), "edges")
         object.__setattr__(self, "edges", edges)
         rows = np.array(kinds)
@@ -396,7 +409,7 @@ class ApertureSet:
                 "a hard aperture has no edge, and an edge given beside it would be "
                 "silently unused; give zero on its row"
             )
-            raise OutputError(msg)
+            raise ProcessingError(msg)
         for kind in dict.fromkeys(smooth):
             if kind == "supergauss":
                 self._check_orders(edges, rows == kind)
@@ -412,7 +425,7 @@ class ApertureSet:
                 "quadrature weighting needs a symmetric edge, and a supergauss "
                 "profile has none; use amplitude weighting"
             )
-            raise OutputError(msg)
+            raise ProcessingError(msg)
         if any(
             shape.startswith("half_plane")
             for shape, row in zip(self.row_shapes, rows, strict=True)
@@ -422,10 +435,10 @@ class ApertureSet:
                 "a supergauss profile falls from a centre, and a half-plane has none; "
                 "use a hard, tanh or rcos edge"
             )
-            raise OutputError(msg)
+            raise ProcessingError(msg)
         if np.any(edges[rows] < 2):
             msg = "every supergauss order must be at least 2"
-            raise OutputError(msg)
+            raise ProcessingError(msg)
 
     def _check_widths(
         self, kind: str, edges: Float[np.ndarray, " n_apertures"], rows: np.ndarray
@@ -452,10 +465,10 @@ class ApertureSet:
                     f"a {kind} aperture under {self.weighting} weighting needs "
                     f"0 < w <= D/{fraction} for every aperture"
                 )
-                raise OutputError(msg)
+                raise ProcessingError(msg)
         if np.any(edges[rows & half_plane] <= 0):
             msg = f"a {kind} half-plane needs a positive edge width"
-            raise OutputError(msg)
+            raise ProcessingError(msg)
         if kind == "tanh" and self.weighting == "amplitude":
             # tanh is not flat at its centre: W'(0) = -sech^2(r/w) / 2w, so for
             # r/w < 4 a bright beam there converges only at third order in the mask
@@ -493,7 +506,7 @@ class ApertureSet:
                 "|X| + D/2 (+ w for rcos) >= z; a component there cannot leave the "
                 "exit face (SEP 23 section 4.2)"
             )
-            raise OutputError(msg)
+            raise ProcessingError(msg)
 
     def _reach(self, row: int, shape: str, centre: Float[np.ndarray, " 2"]) -> float:
         """Return how far from the origin a row's outline reaches in the mask plane.
@@ -856,7 +869,7 @@ def far_field_tables(
 
     Raises
     ------
-    OutputError
+    ProcessingError
         On a line, for an aperture whose centre is off ``y = 0``, a half-plane bounded
         in y or an ellipse, which have no meaning uniform in y, or a region whose
         ``kappa_y`` interval excludes zero, which would select nothing.
@@ -870,7 +883,7 @@ def far_field_tables(
                 "on a line uniform in y an aperture is a slit along x, so its y centre "
                 "must be zero"
             )
-            raise OutputError(msg)
+            raise ProcessingError(msg)
         if apertures is not None:
             _refuse_off_line(apertures)
         excluded = np.flatnonzero(~((regions[:, 2] <= 0) & (regions[:, 3] > 0)))
@@ -880,7 +893,7 @@ def far_field_tables(
                 f"{excluded.tolist()}, whose kappa_y interval excludes zero, would "
                 "select nothing"
             )
-            raise OutputError(msg)
+            raise ProcessingError(msg)
     if apertures is None:
         empty = np.empty(0)
         return ApertureTables(
@@ -926,7 +939,7 @@ def _refuse_off_line(apertures: ApertureSet) -> None:
                 "a circle or a rectangle, each a slit along x, or a half-plane bounded "
                 "in x"
             )
-            raise OutputError(msg)
+            raise ProcessingError(msg)
 
 
 def _outlines(apertures: ApertureSet, *, line: bool) -> list[ApertureOutline]:

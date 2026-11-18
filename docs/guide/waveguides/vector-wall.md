@@ -104,7 +104,7 @@ $\mathrm{HE}_{11}, \mathrm{HE}_{12}, \mathrm{EH}_{11}, \mathrm{EH}_{12}$.
 ```{eval-rst}
 .. plot::
    :filename-prefix: modes-vector-wall
-   :caption: The wall's anisotropy converts between the two radial families of one azimuthal order. Ten fixed steps of 20 micrometres of a 50 micrometre helium-filled bore, launched into HE_11 alone, with the fraction of the arriving energy in each channel. The vector block leaves 2.8e-8 in EH_11; the uncoupled route leaves 1e-50 there, and the scalar block cannot carry the set at all.
+   :caption: The wall's anisotropy converts between the two radial families of one azimuthal order. Adaptive steps of at most 20 micrometres along 200 micrometres of a 50 micrometre helium-filled bore, launched into HE_11 alone, with the fraction of the arriving energy in each channel. The vector block leaves 2.8e-8 in EH_11; the uncoupled route leaves 1e-50 there, and the scalar block cannot carry the set at all.
 
    import warnings
 

@@ -27,6 +27,7 @@ import numpy as np
 from matplotlib.figure import Figure
 
 from solprop import capabilities, plotting
+from solprop.constants import C
 from solprop.driver import Simulation
 from solprop.exceptions import OutputError, SolpropError
 from solprop.grid import FreeGrid, LineGrid, RadialGrid
@@ -38,13 +39,16 @@ from solprop.processing import (
     get_phase,
     get_power,
     get_spectral_density,
+    grid_of,
     node_fluence,
     physical_energy,
     transverse_units,
 )
 from solprop.processing.fields import (
     DEFAULT_GATE_POSITIONS,
+    default_gate_fwhm,
     get_spectrogram,
+    real_field_oversampling,
     time_axis,
 )
 from solprop.processing.scans import ScanOutput
@@ -60,9 +64,6 @@ from solprop.spatial import SpatialFlux, spatial_power
 from solprop.stats import CATALOGUE
 
 __all__ = ["RESULTS_HANDLERS", "band_of", "spatial_plane"]
-
-
-C = 299_792_458.0
 
 
 def _modes(payload: Payload) -> ModeSelection:
@@ -557,28 +558,35 @@ def spectrogram(payload: Payload) -> dict[str, object]:
     modes = _modes(payload)
     mode = 0 if modes == "sum" else modes
     time_range = band_of({"bandpass": payload.get("time_range")})
-    gate = payload.get("gate_fwhm")
+    given = payload.get("gate_fwhm")
     with open_file(path) as handler:
+        if given is None:
+            # solprop's default, asked of solprop and passed on: the gate reported is
+            # the gate used.
+            grid = grid_of(handler)
+            times = time_axis(grid, real_field_oversampling(grid))
+            gate = default_gate_fwhm(times, time_range)
+        else:
+            gate = float(given)  # pyright: ignore[reportArgumentType]
         t, x, values = get_spectrogram(
             handler,
             axis,  # pyright: ignore[reportArgumentType]
             plane=int(payload["index"]),  # pyright: ignore[reportArgumentType]
             modes=mode,
             time_range=time_range,
-            gate_fwhm=None if gate is None else float(gate),  # pyright: ignore[reportArgumentType]
+            gate_fwhm=gate,
             positions=int(payload.get("positions") or DEFAULT_GATE_POSITIONS),  # pyright: ignore[reportArgumentType]
             bandpass=band_of(payload),
         )
     window = _window(path, axis, x, values)
     rows, image = even_rows(x, values, window, SPECTROGRAM_ROWS)
-    span = float(t[-1] - t[0]) if time_range is None else abs(np.ptp(time_range))
     return {
         "t": t,
         "x": rows,
         "values": image.astype(np.float32),
         "axis": axis,
         "mode": int(mode),  # pyright: ignore[reportArgumentType]
-        "gate_fwhm": float(gate) if gate is not None else span / 20.0,  # pyright: ignore[reportArgumentType]
+        "gate_fwhm": gate,
     }
 
 
@@ -638,26 +646,34 @@ def figure(payload: Payload) -> list[str] | list[dict[str, object]]:
     """
     import io  # noqa: PLC0415 - only here
 
+    import matplotlib.pyplot as plt  # noqa: PLC0415 - loaded by solprop.plotting
+
     target = Path(str(payload["file"]))
     with open_file(str(payload["path"])) as handler:
         drawn = _drawn(handler, payload)
     written: list[str] = []
     given: list[dict[str, object]] = []
-    for number, one in enumerate(drawn, start=1):
-        path = (
-            target
-            if len(drawn) == 1
-            else target.with_name(f"{target.stem}-{number}{target.suffix}")
-        )
-        if payload.get("bytes"):
-            buffer = io.BytesIO()
-            kind = path.suffix.lstrip(".").lower() or "png"
-            one.savefig(buffer, dpi=200, format=kind)
-            data = np.frombuffer(buffer.getvalue(), dtype=np.uint8)
-            given.append({"name": path.name, "data": data})
-        else:
-            one.savefig(path, dpi=200)
-            written.append(str(path))
+    try:
+        for number, one in enumerate(drawn, start=1):
+            path = (
+                target
+                if len(drawn) == 1
+                else target.with_name(f"{target.stem}-{number}{target.suffix}")
+            )
+            if payload.get("bytes"):
+                buffer = io.BytesIO()
+                kind = path.suffix.lstrip(".").lower() or "png"
+                one.savefig(buffer, dpi=200, format=kind)
+                data = np.frombuffer(buffer.getvalue(), dtype=np.uint8)
+                given.append({"name": path.name, "data": data})
+            else:
+                one.savefig(path, dpi=200)
+                written.append(str(path))
+    finally:
+        # The plots draw through pyplot, which keeps every figure until it is
+        # closed: in the long-lived kernel each export would stay for the session.
+        for one in drawn:
+            plt.close(one)
     return given if payload.get("bytes") else written
 
 

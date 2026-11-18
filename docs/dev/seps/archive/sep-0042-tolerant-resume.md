@@ -6,7 +6,7 @@
 | **Title** | Resuming by what matters to the run |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 |
-| **Status** | Superseded |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); Opus 5.5 (AI) |
 | **Type** | Change |

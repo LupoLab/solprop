@@ -532,3 +532,18 @@ def test_a_problem_without_the_leaf_adds_no_node_buffers(field_grid, mode):
     assert compiled.dispersive_kerr is None
     assert dispersive_node_buffers(compiled, spatial=False) == 0
     assert dispersive_node_buffers(compiled, spatial=True) == 0
+
+
+def test_the_dispersive_leaf_refuses_responses_that_disagree_on_thg():
+    """One leaf has one sector, so its responses must agree on ``thg`` as it says."""
+    from solprop.translate.linop import profile_table  # noqa: PLC0415
+    from solprop.translate.responses import dispersive_terms  # noqa: PLC0415
+
+    grid = FieldGrid.from_limits(1.0, 800e-9, (400e-9, 2e-6), 200e-15)
+    table = profile_table(Constant(1e25), 0.0, 1.0)
+    responses = [
+        DispersiveKerrResponse(HELIUM, "symmetric", species="He"),
+        DispersiveKerrResponse(ARGON, "symmetric", thg=False, species="Ar"),
+    ]
+    with pytest.raises(TranslationError, match="must agree on thg"):
+        dispersive_terms(responses, ["He", "Ar"], [table, table], grid)

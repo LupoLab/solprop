@@ -39,7 +39,7 @@ from solprop.exceptions import (
     TDSEUnqualifiedModelWarning,
 )
 from solprop.nonlinear.tdse import TDSEConsistency, TDSEExecution
-from solprop.output import MemoryOutput, open_file, resume
+from solprop.output import MemoryOutput, open_file, read_resume_state
 from solprop.output.metadata import SCHEMA_VERSION
 from solprop.stats import StatsSpec
 
@@ -112,7 +112,7 @@ def test_hacc_run_records_model_window_consistency_and_ledger(fake, cache, windo
     simulation = _simulation(atomic_window=window)
     output = _run(simulation)
     assert output.metadata is not None
-    assert output.metadata.schema_version == SCHEMA_VERSION == 4
+    assert output.metadata.schema_version == SCHEMA_VERSION == 3
     descriptor = json.loads(plain(output.metadata.tdse)["configuration_json"])
     assert descriptor["schema"] == "solprop.tdse-descriptor.v5"
     assert descriptor["response"]["model"] == "hacc"
@@ -189,7 +189,7 @@ def test_checkpoint_and_resume_keep_identities_and_never_repeat_the_check(
     simulation.settings = dataclasses.replace(simulation.settings, resume_history=False)
     with pytest.raises(ResponseBudgetError):
         _run(simulation, path)
-    first = resume(path)
+    first = read_resume_state(path)
     assert first.outcome is not None and first.outcome.status == "budget_exhausted"
     assert first.outcome.atomic_calls["diagnostic_calls"] == 1
     with open_file(path) as saved:
@@ -200,7 +200,7 @@ def test_checkpoint_and_resume_keep_identities_and_never_repeat_the_check(
         simulation.settings, tdse_execution=TDSEExecution(max_atomic_calls=1000)
     )
     _run(simulation, path, resume=True)
-    final = resume(path)
+    final = read_resume_state(path)
     assert final.outcome is not None and final.outcome.status == "complete"
     with open_file(path) as saved:
         assert saved.metadata is not None
@@ -235,7 +235,7 @@ def test_a_resume_without_the_cached_check_restores_its_accounting_first(
     simulation.settings = dataclasses.replace(simulation.settings, resume_history=False)
     with pytest.raises(ResponseBudgetError):
         _run(simulation, path)
-    first = resume(path)
+    first = read_resume_state(path)
     assert first.outcome is not None
     attempted = int(cast("int", first.outcome.atomic_calls["attempted"]))
     for entry in cache.glob("*.json"):
@@ -244,7 +244,7 @@ def test_a_resume_without_the_cached_check_restores_its_accounting_first(
         simulation.settings, tdse_execution=TDSEExecution(max_atomic_calls=1000)
     )
     _run(simulation, path, resume=True)
-    final = resume(path)
+    final = read_resume_state(path)
     assert final.outcome is not None and final.outcome.status == "complete"
     assert final.outcome.atomic_calls["diagnostic_calls"] == 2
     assert int(cast("int", final.outcome.atomic_calls["attempted"])) > attempted

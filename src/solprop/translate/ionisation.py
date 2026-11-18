@@ -123,7 +123,8 @@ class RateTable:
         The largest relative deviation from direct evaluation measured during the build.
     key : str
         A digest of the rate's parameters and the build settings, stable across
-        processes. Names a cache entry; two tables with the same key are the same table.
+        processes; two tables with the same key are the same table. A plasma channel's
+        identity records it, so a run's record names the table it used.
     convention : str
         Optical-cycle convention retained from the source rate. A table constructed
         by hand defaults to ``'unspecified'``.
@@ -329,7 +330,7 @@ def rate_table_key(
 
     Every setting that changes the table appears once, in name order, so the key cannot
     depend on the order in which the rate's keyword arguments were written: the same
-    settings in a different order give the same cache file.
+    settings in a different order give the same entry in the in-memory cache.
 
     Parameters
     ----------
@@ -586,20 +587,7 @@ def build_rate_table(
 
 def _finalise(table: RateTable, error: float) -> RateTable:
     """Return a copy of the table with the measured error recorded."""
-    return RateTable(
-        log_rate=table.log_rate,
-        coefficients=table.coefficients,
-        log_field_min=table.log_field_min,
-        d_log_field=table.d_log_field,
-        field_min=table.field_min,
-        field_max=table.field_max,
-        rate_max=table.rate_max,
-        error=error,
-        key=table.key,
-        convention=table.convention,
-        species_identity=table.species_identity,
-        ionisation_potential=table.ionisation_potential,
-    )
+    return replace(table, error=error)
 
 
 def frozen_table(table: RateTable) -> RateTable:
@@ -629,10 +617,11 @@ def frozen_table(table: RateTable) -> RateTable:
 
 
 def _digest(key: tuple[object, ...]) -> str:
-    """Return a stable hexadecimal digest of a cache key.
+    """Return a stable hexadecimal digest of a table's settings.
 
     Through :mod:`hashlib` rather than :func:`hash`, whose value for a string is salted
-    per process: the digest names a cache entry that may outlive this process.
+    per process: the digest is recorded in a run's identity
+    (``rate_table_identity``), which must name the same table in every process.
     """
     return hashlib.blake2b(repr(key).encode("utf-8"), digest_size=8).hexdigest()
 

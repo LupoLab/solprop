@@ -16,7 +16,7 @@ from matplotlib.figure import Figure
 from service.cases import STATS
 from solprop.exceptions import SolpropError
 from solprop.output import open_file
-from solprop.processing import get_power
+from solprop.processing import energy, fwhm_t, get_power
 from solprop.recipe import Recipe
 from solprop.service import handlers, results
 from solprop.service.reduce import TIME_OVERSAMPLING
@@ -81,7 +81,7 @@ def test_the_spectrogram_and_figures(run: str, tmp_path: Path, monkeypatch):
     assert found["values"].shape == (found["x"].size, found["t"].size)
     assert found["mode"] == 0 and found["axis"] == "wavelength"  # a sum: the first
     assert 1e-7 < found["x"][0] < found["x"][-1] < 1e-5  # the recipe's window, even
-    assert np.allclose(np.diff(found["x"]), found["x"][1] - found["x"][0])
+    assert np.allclose(np.diff(found["x"]), found["x"][1] - found["x"][0], atol=0.0)
     narrow = {
         "path": run,
         "index": 2,
@@ -97,10 +97,14 @@ def test_the_spectrogram_and_figures(run: str, tmp_path: Path, monkeypatch):
     # On frequency the map starts at the transform's lowest, not the window's.
     assert gated["x"][0] < 1e14 < gated["x"][-1]
     assert np.all(np.abs(gated["t"]) <= 5e-14)
+    import matplotlib.pyplot as plt  # noqa: PLC0415 - only here
+
+    before = plt.get_fignums()
     for kind in ("prop_2d", "spec_1d", "time_1d", "spectrogram", "plot_stats"):
         file = tmp_path / f"{kind}.png"
         written = ask("result_figure", {"path": run, "file": str(file), "plot": kind})
         assert all(Path(path).stat().st_size > 1000 for path in written)
+        assert plt.get_fignums() == before  # drawn, written and let go
     with pytest.raises(ValueError, match="no plot"):
         ask(
             "result_figure", {"path": run, "file": str(tmp_path / "x.png"), "plot": "x"}
@@ -113,10 +117,35 @@ def test_the_spectrogram_and_figures(run: str, tmp_path: Path, monkeypatch):
     assert [Path(path).name for path in many] == ["stats-1.pdf", "stats-2.pdf"]
 
 
+def test_a_spectrogram_reports_the_gate_solprop_used(run: str):
+    from solprop.processing import (  # noqa: PLC0415 - only here
+        get_spectrogram,
+        grid_of,
+        real_field_oversampling,
+        time_axis,
+    )
+
+    wide = [-1e-9, 1e-9]  # far wider than the time window: the gate's range is clipped
+    found = ask("spectrogram", {"path": run, "index": 2, "time_range": wide})
+    with open_file(run) as handler:
+        grid = grid_of(handler)
+        times = time_axis(grid, real_field_oversampling(grid))
+        _, _, values = get_spectrogram(
+            handler, "wavelength", plane=2, modes=0, gate_fwhm=found["gate_fwhm"]
+        )
+        _, _, by_default = get_spectrogram(
+            handler, "wavelength", plane=2, modes=0, time_range=(wide[0], wide[1])
+        )
+    window = float(times[-1] - times[0])
+    assert found["gate_fwhm"] == pytest.approx(window / 20.0, rel=1e-12)  # rounding
+    assert by_default.max() > 0.0
+    assert np.array_equal(values, by_default)  # the gate reported is the one used
+
+
 def test_a_file_says_its_planes_positions_and_modes(run: str, monkeypatch):
     described = ask("describe_output", {"path": run})
     assert described["labels"] == ["HE1,1:even", "HE1,2:even"]
-    assert np.allclose(described["z"], [0.0, 0.025, 0.05])
+    assert np.allclose(described["z"], [0.0, 0.025, 0.05], atol=0.0)
 
     def refuse(_handler: object) -> None:
         raise SolpropError("no modes")
@@ -257,6 +286,31 @@ def test_a_plane_gives_its_energy_and_a_band_its_share(finished_run: Path) -> No
     drawn = np.asarray(whole["power"]["t"])
     assert drawn.size == TIME_OVERSAMPLING * np.asarray(t).size
     assert drawn[0] == pytest.approx(t[0]) and drawn[-1] >= t[-1]
+
+
+def test_a_plane_reads_out_its_own_energy_and_width(finished_run: Path) -> None:
+    with open_file(str(finished_run)) as handler:
+        last = int(np.asarray(handler["z"]).size) - 1
+        expected = {
+            index: (
+                float(energy(handler, plane=index, modes="sum")),
+                float(fwhm_t(handler, plane=index, modes="sum")),
+            )
+            for index in (0, last)
+        }
+    # The fill's loss takes 0.7 % of the energy by the last plane and the width moves
+    # by 3 %, so a read-out of the wrong plane cannot pass.
+    assert expected[last][0] < 0.995 * expected[0][0]
+    assert abs(expected[last][1] / expected[0][1] - 1.0) > 0.01
+    path = str(finished_run)
+    for index, (plane_energy, width) in expected.items():
+        found: dict[str, Any] = results.plane({"path": path, "index": index})
+        # The same reductions of the same stored plane: equal to their rounding.
+        assert found["energy"] == pytest.approx(plane_energy, rel=1e-12)
+        assert found["fwhm"] == pytest.approx(width, rel=1e-12)
+    # The recipe launches 100 uJ, and the entrance plane holds it (to 1e-8 measured;
+    # 1e-6 leaves room for that and is far tighter than a wrong plane or unit).
+    assert expected[0][0] == pytest.approx(100e-6, rel=1e-6)
 
 
 def test_run_health_says_how_the_run_went(finished_run: Path) -> None:

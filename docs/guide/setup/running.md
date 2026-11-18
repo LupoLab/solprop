@@ -479,7 +479,9 @@ planes and the statistics a fresh run takes.
 once just as `translate()` does. Those two are what the run-layer functions take when you
 drive the loop over save planes yourself, for example
 `solprop.backends.registry.select(name, problem, request)` to construct a backend for
-{py:func}`~solprop.driver.run.run_problem`.
+{py:func}`~solprop.driver.run.run_problem`, which also takes the run's start
+(`solprop.backends.session.Start.entrance(problem)` for a fresh run) and its
+{py:class}`~solprop.output.metadata.RunMetadata` as the keywords `start` and `metadata`.
 
 {py:class}`~solprop.driver.settings.SimulationSettings` holds everything numerical:
 the controller and its tolerances, the save planes, the step limits, a fixed schedule,
@@ -520,7 +522,8 @@ change what a simulation is built from: its `grid`, `modes`, `responses`, `initi
 `initial_z`, `noise`, `profiles`, `configuration`, `frame` and the rest are read-only,
 because the input was built, and the record is derived, from them when it was
 constructed. Assigning one raises `AttributeError`, naming these methods; only
-`settings` may be replaced, before the first translation.
+`settings` may be replaced: wholly before the first translation, and after it in the
+execution settings that {py:attr}`~solprop.driver.simulation.Simulation.settings` lists.
 
 `SimulationSettings.fields` and `field_planes` choose which saved planes keep their
 field — every one by default, the named ones, or none for a run wanted as statistics
@@ -547,7 +550,7 @@ that once. {py:meth}`~solprop.driver.simulation.Simulation.runner` translates (o
 the cached translation) and constructs one backend; each
 {py:meth}`~solprop.driver.runner.SimulationRunner.run` then loads one input into it
 and runs the save-plane loop
-([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §5.2):
+([SEP 22](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §5.2):
 
 ```{code-block} python
 import dataclasses
@@ -647,7 +650,7 @@ instructions, and it refuses a bad input before it is loaded.
 **The boundary check on a free-space scan.** The default
 [`boundary_check`](../numerics/boundaries.md) reads a free-space run's transverse edge at the
 launch, at every plane and at every read, and a requested collar's at every committed step. `native` does it where the
-state lives, with only numbers crossing, even on a device ([SEP 44](../../dev/seps/archive/sep-0044-native-edge-read.md)). `numpy_ref` reads a host copy of the state
+state lives, with only numbers crossing, even on a device ([SEP 44](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0044-native-edge-read.md)). `numpy_ref` reads a host copy of the state
 instead, and transform it out of place: on a device, a whole state's copy at each read. On native
 CPU at 256 × 256 × 48, with sixteen steps and two planes at sixteen threads, the check took a point from 1.8 to 2.0 s and
 from 1.5 to 2.1 volumes above the level before the run. A scan whose window is already settled can
@@ -724,7 +727,7 @@ What the handler cannot do, it refuses by name:
   {py:class}`~solprop.exceptions.OutputError`, and so does whatever reads a run through
   them; `key in handler` answers `False`.
 - A resume: `resume=True` needs a path, and
-  {py:func}`~solprop.output.hdf5.check_cache`, {py:func}`~solprop.output.hdf5.resume` and
+  {py:func}`~solprop.output.hdf5.check_cache`, {py:func}`~solprop.output.hdf5.read_resume_state` and
   {py:func}`~solprop.output.resumable.resumability` read a file and refuse any handler.
 - A second run: having kept no plane, it has nothing to continue, so build one per run.
 - A TDSE run, whose call ledger has to be recorded.
@@ -736,4 +739,4 @@ range ({py:class}`~solprop.exceptions.MaterialRangeWarning`). Read `peak_ionisat
 in the callable where that matters.
 
 The length and the saved planes were proposed and implemented by
-[SEP 51](../../dev/seps/archive/sep-0051-save-planes.md).
+[SEP 51](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0051-save-planes.md).

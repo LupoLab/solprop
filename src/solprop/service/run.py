@@ -12,9 +12,9 @@ and hands the row to the record, whose own thread writes it; :class:`ScanObserve
 turns a scan's progress into events and :class:`EventHandler` forwards log records.
 The run's stop file sets its stop token (:class:`solprop.backends.session.StopToken`).
 
-Whether a run *stopped* comes from the worker's own flag and the run's clean return,
-never from solprop's outcome, which records a stop as a failure. This module imports
-solprop and runs only in a worker process.
+Whether a run *stopped* comes from its own stop flag and its clean return, never from
+solprop's outcome, which records a stop as a failure. This module imports solprop and
+runs only in a run's process.
 """
 
 import logging
@@ -37,11 +37,14 @@ from solprop.output import open_file
 from solprop.recipe import Recipe, resume_file
 from solprop.service.beam import beam_reading, profile_row
 from solprop.service.messages import Event
+from solprop.service.recipes import is_scan
 from solprop.service.record import (
+    EVENTS,
+    JOB,
     EventLog,
     Job,
-    clear_stop,
     set_aside,
+    stop_requested,
     watch_stop,
 )
 from solprop.service.reduce import (
@@ -300,7 +303,7 @@ class ScanObserver(ScanReporter):
         )
 
     def scan_finished(self) -> None:
-        """Do nothing: the scan's terminal event is the worker's."""
+        """Do nothing: the scan's terminal event is the run's own (:func:`execute`)."""
 
 
 class EventHandler(logging.Handler):
@@ -448,10 +451,16 @@ def execute(spec: RunSpec) -> None:
     """Run, or continue, one run, recording its events until its terminal one.
 
     The run appends its events to its record and obeys its stop file
-    (:mod:`solprop.service.record`). A signal that ends the run (``SIGTERM``, as Slurm
+    (:mod:`solprop.service.record`); one already there when it starts, a Stop pressed
+    while it waited in a queue or started, ends it as stopped before anything is
+    built. A signal that ends the run (``SIGTERM``, as Slurm
     sends at a time limit or ``scancel``, and as Kill sends) leaves the file resumable,
     so it ends the run as stopped. A run tied to a window (``spec.owner``) stops, in
     the same way as Stop, when that window's process has gone.
+
+    However it ends, its terminal event names its results file (``path``: a scan's,
+    with ``scan`` true, for a recipe with a ``[scan]`` table) and gives ``output``,
+    that file where it exists and ``None`` where the run wrote none.
 
     Parameters
     ----------
@@ -460,12 +469,23 @@ def execute(spec: RunSpec) -> None:
     """
     folder = Path(spec.folder)
     folder.mkdir(parents=True, exist_ok=True)
-    output = folder / OUTPUT
+    # Every ending of a scan names the scan's file and says it was a scan, however it
+    # comes: a window decides what to open from it.
+    scanning = spec.resume is None and is_scan(spec.recipe)
+    output = folder / (SCAN_OUTPUT if scanning else OUTPUT)
+    ending: dict[str, object] = {"path": str(output)}
+    if scanning:
+        ending["scan"] = True
     stop = StopToken()
     done = threading.Event()
-    if spec.resume is not None:
-        set_aside(folder)  # as the launcher did, for a run continued by hand
-    clear_stop(folder)
+    if spec.resume is not None and any(
+        (folder / name).exists() for name in (EVENTS, JOB)
+    ):
+        # Continued by hand: the earlier part's record is still in place. A launcher
+        # sets it aside before the job exists, so that a stop file found here is a
+        # Stop pressed while the run waited, and is obeyed below.
+        set_aside(folder)
+    stopped_early = stop_requested(folder)
     owner = None if spec.owner is None else (int(spec.owner[0]), spec.owner[1])
     watch_stop(folder, stop, done, owner=owner)
     record = EventLog(
@@ -477,20 +497,28 @@ def execute(spec: RunSpec) -> None:
     detach = _attach_log(folder, spec.run_id, record.put)
 
     kind = "failed"
-    data: dict[str, object] = {"path": str(output)}
+    data: dict[str, object] = dict(ending)
     try:
-        kind, data = _march(spec, folder, record.put, observer, stop)
+        if stopped_early:
+            # Nothing built and nothing written: a continued run's file is as it was.
+            kind = "stopped"
+            data = {**ending, "message": "stopped before it started"}
+        else:
+            kind, data = _march(spec, folder, record.put, observer, stop)
     except RunTerminated as error:
         # solprop wrote the state a resume needs before raising.
-        kind, data = "stopped", {"path": str(output), "terminated": True}
+        kind, data = "stopped", {**ending, "terminated": True}
         data["message"] = str(error) or "ended by a signal"
     except BaseException as error:
         data = {
-            "path": str(output),
+            **ending,
             "message": str(error) or type(error).__name__,
             "detail": traceback.format_exc(),
         }
     finally:
+        # The results file, where there is one to open: a run can end before it
+        # writes any.
+        data["output"] = str(output) if output.exists() else None
         record.put(Event(spec.run_id, kind, data))
         done.set()
         record.close()  # records the job's end too

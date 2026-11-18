@@ -24,7 +24,7 @@ import pytest
 from solprop.driver import Simulation
 from solprop.driver.estimate import _catalogued_entries, plane_bytes
 from solprop.grid import EnvelopeGrid
-from solprop.output import HDF5Output, MemoryOutput, open_file, resume
+from solprop.output import HDF5Output, MemoryOutput, open_file, read_resume_state
 from solprop.output.metadata import RunMetadata
 from solprop.output.records import (
     GridRecord,
@@ -281,7 +281,7 @@ def test_an_interrupted_file_reads_resumes_and_continues_exactly(
         assert_identical(
             stored(file), stored(write(MemoryOutput(), metadata, planes[:5]))
         )
-    state = resume(path)
+    state = read_resume_state(path)
     assert state.n_saved == 5
     assert state.plane.z == planes[4].z
     np.testing.assert_array_equal(state.plane.field, planes[4].field)
@@ -340,7 +340,7 @@ def test_a_hard_stop_part_way_through_a_plane_loses_only_that_plane(metadata, tm
         assert file.n_saved == 3
         np.testing.assert_array_equal(file["z"], [0.0, 0.1, 0.2])
         np.testing.assert_array_equal(file["stats/energy"][:, 0], [0.0, 1.0, 2.0])
-    assert resume(path).plane.z == 0.2
+    assert read_resume_state(path).plane.z == 0.2
 
 
 # ------------------------------------------------------------- memory admission

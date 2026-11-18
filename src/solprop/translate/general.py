@@ -820,7 +820,7 @@ def general_modal_route(
         guide, grid, z_end=float(z_max) * (1.0 + float(margin)), gram_atol=gram_atol
     )
     # One sampling of the reference's own flux Gram at the run's coarse bins, used
-    # twice: for the occupied-support certificate every route now carries, and for
+    # twice: for the occupied-support certificate every route carries, and for
     # the dense metric a declared basis declares. Measuring it once is what keeps
     # the two from drifting apart, and it costs 2.2 ms of a 28.2 ms route build --
     # 8 % -- on the 1.5 um strand fixture, and nothing per step.
@@ -1584,8 +1584,8 @@ def guide_identity(guide: ModalGuide) -> Mapping[str, JsonValue]:
                 "raman": None
                 if region.raman is None
                 else _raman_identity(region.raman.parameters),
-                # Written only for a region with a gas fill, so that every other
-                # guide's identity, and its resume key, is what it was.
+                # Written only for a region with a gas fill, so that a guide without
+                # one carries no gas entry in its identity or its resume key.
                 **({} if region.gas is None else {"gas": _gas_identity(region.gas)}),
             }
             for region in guide.regions
@@ -1782,7 +1782,7 @@ def modal_identity(
             "chi3": [float(one) for one in responses.chi3[0, 0]],
         },
         # Written only where a gas region takes SEP 6's dispersive cubic, so that
-        # every other route's record is what it was.
+        # every other route's record carries no dispersive entry.
         **(
             {}
             if route.dispersive is None
@@ -1815,7 +1815,7 @@ def modal_identity(
             "certificate_id": flow.certificate_id,
             "reference_channel": int(route.reference_channel),
             # A moving guide's connection certificate, written only where there is
-            # one so that a split block's file keeps the key it was stamped with.
+            # one, so that a split block's key carries no certificate entry.
             **(
                 {
                     "connection_certificate": quantised_measurement(

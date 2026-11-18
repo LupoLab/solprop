@@ -134,9 +134,11 @@ class SpatialMedium:
         Gas name, existing glass model, or constant index. Default 1 is vacuum.
         Positive imaginary index is loss; negative imaginary index is gain.
         A mixture supplies its own density paths, temperature and optical models.
-    pressure : float or solprop.profiles.ZProfile
-        Absolute gas pressure in bar, nonnegative, optionally varying along z.
-        Only gas media use pressure; other materials require the default 1.
+    pressure : float or solprop.profiles.ZProfile or None
+        Absolute gas pressure in bar, nonnegative, optionally varying along z. A gas
+        needs it: ``None`` (the default) beside a gas is refused. A glass, a constant
+        index or a mixture takes none; the attribute then holds 1, which nothing
+        reads, and an explicit 1 is accepted so that a recorded medium rebuilds.
     temperature : float or None
         Gas temperature in K, finite and positive; ``None`` (the default) is room
         temperature for a gas and the mixture's own beside a mixture, which is what
@@ -160,7 +162,7 @@ class SpatialMedium:
     """
 
     material: Gas | str | GlassIndex | complex | Mixture = 1.0
-    pressure: float | ZProfile = 1.0
+    pressure: float | ZProfile | None = None
     temperature: float | None = None
     susceptibility: GasSusceptibility | None = None
     density: ZProfile = field(init=False, repr=False)
@@ -168,8 +170,13 @@ class SpatialMedium:
     def __post_init__(self) -> None:
         """Resolve the material and its scalar density path."""
         self._resolve_temperature()
+        given = self.pressure is not None and self.pressure != 1.0
+        if not isinstance(self.material, str | Gas):
+            # No gas, so no pressure applies; the field holds a placeholder 1, which
+            # keeps the records of such media as they were.
+            object.__setattr__(self, "pressure", 1.0)
         if isinstance(self.material, Mixture):
-            if self.pressure != 1.0 or self.susceptibility is not None:
+            if given or self.susceptibility is not None:
                 raise MaterialError("mixture carries its pressure and susceptibility")
             paths = tuple(c.density for c in self.material.components)
             object.__setattr__(
@@ -178,7 +185,7 @@ class SpatialMedium:
         elif isinstance(self.material, str | Gas):
             self._resolve_gas()
         else:
-            if self.pressure != 1.0 or self.susceptibility is not None:
+            if given or self.susceptibility is not None:
                 msg = "pressure and susceptibility apply only to gas media"
                 raise MaterialError(msg)
             if not isinstance(self.material, GlassIndex):
@@ -233,6 +240,12 @@ class SpatialMedium:
         The built-in gas is optmat's: its law and its equation of state.
         """
         gas = as_gas(cast("str | Gas", self.material))
+        if self.pressure is None:
+            msg = (
+                f"a gas fill needs its pressure: pass pressure= in bar beside "
+                f"material={self.material!r}"
+            )
+            raise MaterialError(msg, parameter="pressure")
         pressure = as_profile(self.pressure)
         if float(pressure(np.array([0.0]))[0]) < 0:
             msg = "spatial medium pressure must be nonnegative"
@@ -1709,8 +1722,11 @@ def on_axis_spectrum(
     -------
     numpy.ndarray
         Real spectral fluence in J s/m^2 per angular frequency bin, shape
-        ``(n_omega,)``. Its sum times ``grid.d_omega`` is the on-axis fluence.
-        It is a density, so changing Fourier convention leaves it unchanged.
+        ``(n_omega,)``. Each bin carries its weight in
+        :func:`solprop.fourier.energy_weights` per ``grid.d_omega``, so a field grid's
+        end bins count a quarter of an interior bin, as in the analytic signal, and the
+        sum times ``grid.d_omega`` is exactly the on-axis fluence. It is a density, so
+        changing Fourier convention leaves it unchanged.
 
     Raises
     ------
@@ -1719,8 +1735,10 @@ def on_axis_spectrum(
     """
     field, closure = _on_axis_pair(spectrum, flux)
     grid = flux.grid
-    factor = fourier.spectral_density(
-        np.ones(grid.n_omega, complex), grid.dt, kind=grid.kind
+    # The energy weight of each bin per unit frequency: on a field grid the end bins
+    # take the analytic signal's weight, a quarter of an interior bin's.
+    factor = (
+        fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind) / grid.d_omega
     )
     return 0.5 * EPS0 * C * factor * np.sum(np.real(field * np.conj(closure)), axis=0)
 
@@ -1746,8 +1764,9 @@ def node_spectrum(
     -------
     numpy.ndarray
         Real spectral fluence in J s/m^2 per angular frequency bin, shape
-        ``(n_nodes, n_omega)``. Its sum over frequency times ``grid.d_omega`` is the
-        node's :func:`spatial_fluence`.
+        ``(n_nodes, n_omega)``, weighted per bin as :func:`on_axis_spectrum` is. Its
+        sum over frequency times ``grid.d_omega`` is the node's
+        :func:`spatial_fluence`.
 
     Raises
     ------
@@ -1757,8 +1776,10 @@ def node_spectrum(
     _check_flux(spectrum, flux, planar=False)
     field, closure = _local_pair(spectrum, flux)
     grid = flux.grid
-    factor = fourier.spectral_density(
-        np.ones(grid.n_omega, complex), grid.dt, kind=grid.kind
+    # The energy weight of each bin per unit frequency: on a field grid the end bins
+    # take the analytic signal's weight, a quarter of an interior bin's.
+    factor = (
+        fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind) / grid.d_omega
     )
     return 0.5 * EPS0 * C * factor * np.sum(np.real(field * np.conj(closure)), axis=1)
 
@@ -2984,8 +3005,9 @@ class _FarFieldSums:
         """Return the requested statistics from the accumulated partials."""
         conversion = 0.5 * EPS0 * C
         grid = self._grid
-        factor = fourier.spectral_density(
-            np.ones(grid.n_omega, complex), grid.dt, kind=grid.kind
+        # Per unit frequency, with the analytic signal's end-bin weights.
+        factor = (
+            fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind) / grid.d_omega
         )
         on_axis = factor * np.sum(
             np.real(self._amplitude * np.conj(self._closure)), axis=1

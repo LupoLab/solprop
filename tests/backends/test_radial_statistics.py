@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from builders import load_reference
+from builders import live_nyquist, load_reference
 from hankel_oracles import gamma
 from sessions.runs import bare, final_field, launch_statistics
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -21,7 +21,12 @@ from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.output.records import SavedPlane
 from solprop.profiles import Constant
 from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.spatial import SpatialFlux, SpatialMedium, spatial_fluence
+from solprop.spatial import (
+    SpatialFlux,
+    SpatialMedium,
+    on_axis_spectrum,
+    spatial_fluence,
+)
 from solprop.stats import StatsSpec, collect, default_spec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.assembly import assemble
@@ -189,6 +194,52 @@ def test_radial_statistics_match_the_host_without_field_observation(
     finally:
         backend.close()
         oracle.close()
+
+
+def test_the_on_axis_spectrum_weighs_the_end_bins_as_the_definition(
+    spatial_backend_class,
+):
+    """A backend's on-axis spectrum is the reference's at the end bins too.
+
+    Both end bins carry field; DC has no admittance, so the Nyquist bin, made active by
+    widening the collar past it, is where the analytic signal's end-bin weight shows.
+    """
+    grid = live_nyquist(FieldGrid.from_limits(1e-4, 800e-9, (600e-9, 1.2e-6), 150e-15))
+    assert grid.active_mask[-1]
+    space = RadialGrid(6e-4, 16, collar_fraction=0.0)
+    rng = np.random.default_rng(155)
+    shape = (space.n_r, 1, grid.n_omega)
+    state = rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
+    # The end bins of a real field are real.
+    state[..., [0, -1]] = np.real(state[..., [0, -1]])
+    spec = StatsSpec(names=("on_axis_spectrum",))
+    problem, run_request = assemble(
+        grid,
+        None,
+        [],
+        state,
+        spatial_grid=space,
+        medium=SpatialMedium(),
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[grid.length],
+        dz_max=grid.length,
+        dz_init=grid.length / 8,
+        stats_spec=spec,
+    )
+    flux = SpatialFlux.resolve(grid, space, SpatialMedium())
+    expected = on_axis_spectrum(state, flux)
+    backend = spatial_backend_class(problem, run_request, grid=grid)
+    try:
+        actual = launch_statistics(backend, problem, run_request, field=state)
+    finally:
+        backend.close()
+    # Each bin's coherent sum over n_r columns, its pairing and the weight, in any
+    # order (the flux statistics' budget).
+    bound = gamma(32 * (space.n_r + grid.n_omega)) * float(np.max(np.abs(expected)))
+    assert_allclose(actual["on_axis_spectrum"], expected, rtol=0, atol=bound)
+    # Non-vacuous: the interior weight at the Nyquist bin, 4 for 1, would move it by
+    # three times its value, far beyond the bound.
+    assert 3 * abs(expected[-1]) > 1e3 * bound
 
 
 def test_empty_spatial_widths_and_intensities(case, spatial_backend_class):

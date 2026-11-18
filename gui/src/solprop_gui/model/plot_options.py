@@ -2,42 +2,28 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The plot options shared by the live run, the Overview and the plane views.
+"""The plot options shared by the live run, the Overview and the Analyse pages.
 
-One :class:`PlotOptions` holds what the plot options panel sets: the spectral axis
-(wavelength or frequency), typed limits for the spectral and time axes, the spectral
-scale and its floor, and a bandpass for the time-domain views. Values are kept in SI
-(m, Hz, s); the panel shows them in nm, THz and fs (:data:`UNITS`).
+One :class:`PlotOptions` holds the spectral axis (wavelength or frequency), limits for
+the spectral and time axes, the spectral scale and its floor, a bandpass for the
+time-domain views and the spectrogram's gate. Values are kept in SI (m, Hz, s); the
+views show them in nm, THz and fs (:data:`UNITS`).
 
 The axis and the bandpass change what solprop computes (the spectral density on the
-axis, the power within the band), so they travel to the kernel and the run's worker
-(:meth:`PlotOptions.request`); the limits, scale and floor only change how a view
-draws what it has.
+axis, the power within the band), so they travel to the kernel; the limits, scale and
+floor only change how a view draws what it has.
 """
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final, Literal
 
-__all__ = [
-    "AXES",
-    "SCALES",
-    "UNITS",
-    "PlotOptions",
-    "from_display",
-    "from_mapping",
-    "parse_limit",
-    "to_display",
-]
+__all__ = ["AXES", "UNITS", "PlotOptions", "parse_limit", "to_display"]
 
 Axis = Literal["wavelength", "f"]
 Scale = Literal["dB", "linear"]
 
 AXES: Final[dict[str, str]] = {"wavelength": "Wavelength", "f": "Frequency"}
 """The spectral axes, by solprop's name, with their labels."""
-
-SCALES: Final = ("dB", "linear")
-"""The spectral scales."""
 
 UNITS: Final[dict[str, tuple[str, float]]] = {
     "wavelength": ("nm", 1e-9),
@@ -68,29 +54,6 @@ def to_display(axis: str, value: float) -> float:
     (800.0, 3.0)
     """
     return value / UNITS[axis][1]
-
-
-def from_display(axis: str, value: float) -> float:
-    """Return a value in its axis's display unit in SI.
-
-    Parameters
-    ----------
-    axis : str
-        ``"wavelength"``, ``"f"`` or ``"time"``.
-    value : float
-        The value in nm, THz or fs.
-
-    Returns
-    -------
-    float
-        It in m, Hz or s.
-
-    Examples
-    --------
-    >>> from_display("f", 375.0)
-    375000000000000.0
-    """
-    return value * UNITS[axis][1]
 
 
 def parse_limit(text: str) -> float | None:
@@ -127,7 +90,7 @@ Limits = tuple[float | None, float | None]
 
 @dataclass(frozen=True)
 class PlotOptions:
-    """What the plot options panel sets.
+    """What the views draw with, and what they ask solprop for.
 
     Attributes
     ----------
@@ -153,8 +116,8 @@ class PlotOptions:
 
     Examples
     --------
-    >>> PlotOptions().request()
-    {'axis': 'wavelength', 'bandpass': None}
+    >>> PlotOptions().label()
+    'Wavelength (nm)'
     """
 
     axis: Axis = "wavelength"
@@ -165,61 +128,6 @@ class PlotOptions:
     bandpass: tuple[float, float] | None = None
     gate_fwhm: float | None = None
     positions: int = 256
-
-    def spectrogram(self) -> tuple[object, ...]:
-        """Return what a spectrogram is computed with.
-
-        Returns
-        -------
-        tuple
-            The axis, band, time limits, gate and positions: the spectrogram is
-            asked for again when they change.
-
-        Examples
-        --------
-        >>> PlotOptions().spectrogram() == PlotOptions(floor=-20).spectrogram()
-        True
-        """
-        return (
-            self.axis,
-            self.bandpass,
-            self.time_limits,
-            self.gate_fwhm,
-            self.positions,
-        )
-
-    def request(self) -> dict[str, object]:
-        """Return what solprop is asked to compute differently.
-
-        Returns
-        -------
-        dict
-            ``axis`` and ``bandpass``, as the kernel's handlers and the run's
-            display take them.
-        """
-        return {"axis": self.axis, "bandpass": self.bandpass}
-
-    def same_request(self, other: PlotOptions) -> bool:
-        """Return whether another set of options asks solprop for the same data.
-
-        Parameters
-        ----------
-        other : PlotOptions
-            The other options.
-
-        Returns
-        -------
-        bool
-            True when only the drawing differs.
-
-        Examples
-        --------
-        >>> PlotOptions().same_request(PlotOptions(scale="linear"))
-        True
-        >>> PlotOptions().same_request(PlotOptions(axis="f"))
-        False
-        """
-        return self.request() == other.request()
 
     def shown_limits(self, which: str) -> Limits:
         """Return an axis's limits in its display unit, ascending.
@@ -276,68 +184,3 @@ class PlotOptions:
             return ""
         low, high = (to_display("wavelength", v) for v in self.bandpass)
         return f"time domain within {low:.0f}-{high:.0f} nm"
-
-
-def from_mapping(values: Mapping[str, object]) -> PlotOptions:
-    """Return options saved as a mapping, defaults where a value is missing or bad.
-
-    Parameters
-    ----------
-    values : Mapping
-        What :func:`dataclasses.asdict` gave, as settings keep it.
-
-    Returns
-    -------
-    PlotOptions
-        The options.
-
-    Examples
-    --------
-    >>> options = from_mapping({"axis": "f", "floor": "-40", "scale": "nonsense"})
-    >>> options.axis, options.floor, options.scale
-    ('f', -40.0, 'dB')
-    """
-    axis = values.get("axis")
-    scale = values.get("scale")
-
-    def limits(name: str) -> Limits:
-        """Return a saved pair of limits; automatic where it is not a pair.
-
-        Parameters
-        ----------
-        name : str
-            The field.
-
-        Returns
-        -------
-        tuple
-            The limits.
-        """
-        pair = values.get(name)
-        if not isinstance(pair, list | tuple) or len(pair) != 2:
-            return (None, None)
-        low, high = (None if v is None else float(v) for v in pair)  # pyright: ignore[reportArgumentType]
-        return low, high
-
-    band = values.get("bandpass")
-    bandpass = None
-    if isinstance(band, list | tuple) and len(band) == 2:
-        bandpass = (float(band[0]), float(band[1]))  # pyright: ignore[reportArgumentType]
-    try:
-        floor = float(values.get("floor", -60.0))  # pyright: ignore[reportArgumentType]
-    except TypeError, ValueError:
-        floor = -60.0
-    gate = values.get("gate_fwhm")
-    gate_fwhm = float(gate) if isinstance(gate, int | float) and gate > 0 else None
-    count = values.get("positions")
-    positions = int(count) if isinstance(count, int) and count > 0 else 256
-    return PlotOptions(
-        axis=axis if axis in AXES else "wavelength",  # pyright: ignore[reportArgumentType]
-        spectral_limits=limits("spectral_limits"),
-        time_limits=limits("time_limits"),
-        scale=scale if scale in SCALES else "dB",  # pyright: ignore[reportArgumentType]
-        floor=floor,
-        bandpass=bandpass,
-        gate_fwhm=gate_fwhm,
-        positions=positions,
-    )

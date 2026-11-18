@@ -62,7 +62,7 @@
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.modes.fill",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.fill",
    "name": "GasFillMixin"
   },
   {
@@ -136,7 +136,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.modes.base",
-   "module_short": "solprop.modes.base",
+   "module_short": "solprop.modes",
    "name": "beta2"
   }
  ],
@@ -152,7 +152,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.modes.base",
-   "module_short": "solprop.modes.base",
+   "module_short": "solprop.modes",
    "name": "db_per_m"
   }
  ],

@@ -34,7 +34,6 @@ __all__ = [
     "GeneralModalBasisWarning",
     "GrazingIncidenceWarning",
     "GridError",
-    "HostMarchWarning",
     "MaterialError",
     "MaterialRangeWarning",
     "MaterialStatusWarning",
@@ -43,6 +42,7 @@ __all__ = [
     "NoiseError",
     "OpticsGeometryError",
     "OutputError",
+    "OutputRequestError",
     "ParameterPath",
     "PolarisationError",
     "ProcessingError",
@@ -238,7 +238,7 @@ class ModeError(SolpropError, ValueError):
 
 
 class NoZeroDispersionError(ModeError):
-    """``beta_2`` has one sign at both ends of a zero-dispersion search window."""
+    """A zero-dispersion search found no zero of ``beta_2`` in its window."""
 
 
 class PulseError(SolpropError, ValueError):
@@ -267,6 +267,16 @@ class CalibrationError(BackendError):
 
 class OutputError(SolpropError, RuntimeError):
     """An output handler could not save, load or resume a run."""
+
+
+class OutputRequestError(SolpropError, ValueError):
+    """An output request was given a value it refuses.
+
+    Raised when a :class:`~solprop.output.snapshots.SnapshotController` or a
+    :class:`~solprop.output.tdse_archive.TDSEArchive` is built, so it is a
+    ``ValueError``, as the driver's refusals are. A file that cannot be written or
+    read later is an :class:`OutputError`.
+    """
 
 
 class TDSEArchiveError(OutputError):
@@ -420,16 +430,6 @@ class CalibrationNotice(SolpropWarning):
     and allocation runs the quick calibration (about 30 s), saying where the result
     goes and how to choose another level or turn it off. Silence it with the standard
     warnings filters, or with ``SOLPROP_CALIBRATION=use``.
-    """
-
-
-class HostMarchWarning(SolpropWarning):
-    """The native backend steps a run with solprop's Python march.
-
-    No built-in backend issues it since SEP 47's phase 5: the native backend steps
-    every run it admits with its own ``Multistep()`` (SEP 39) and ``RungeKutta()``
-    (SEP 45) marches and refuses the rest by name. The class stays importable for
-    warning filters that name it.
     """
 
 

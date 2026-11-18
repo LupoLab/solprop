@@ -25,7 +25,6 @@ from jaxtyping import Complex
 from scipy.linalg import expm
 
 from solprop.backends.exponential import phi_functions
-from solprop.backends.numpy_ref.adams_tables import exponential_rows
 from solprop.backends.numpy_ref.passes.stepping import accumulate
 
 __all__ = [
@@ -630,29 +629,6 @@ class ExponentialKernels:
         return self._times_flow(flow, state) + self.apply(
             moments, coefficients, values, dz
         )
-
-    def defect_rows(
-        self, nodes: list[float], orders: list[int], width: int
-    ) -> np.ndarray:
-        """Return the defects' coefficients in the form :meth:`correct` takes.
-
-        Parameters
-        ----------
-        nodes : list of float
-            The history's normalised positions, newest first.
-        orders : list of int
-            The orders scored, the step's own first.
-        width : int
-            ``1 + max(orders)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            The monomial rows of
-            :func:`~solprop.backends.numpy_ref.adams_tables.exponential_rows`, shape
-            ``(len(orders), width, width)``.
-        """
-        return exponential_rows(nodes, orders, width)
 
     def correct(  # noqa: PLR0917 - buffers are a kernel's parameters
         self,

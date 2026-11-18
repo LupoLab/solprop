@@ -2,13 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""SEP 14 phase 2: the Adams march on the compiled backends, against the reference.
+"""SEP 14 phase 2: the Adams march on the compiled backend, against the reference.
 
-The march is shared (``solprop.backends.numpy_ref.multistep``); only the one source
-evaluation and the propagator differ: Kokkos evaluates through its general engine's
-stage pipeline. Parity is the reference's trajectory to round-off: the same steps,
-orders and calls, and fields that agree to the accumulated rounding of the evaluation
-orders.
+Native runs its own compiled Adams march, evaluating the source through its general
+engine's stage pipeline. Parity is the reference's trajectory to round-off: the same
+steps, orders and calls, and fields that agree to the accumulated rounding of the
+evaluation orders.
 """
 
 import dataclasses
@@ -185,10 +184,11 @@ def test_native_marches_a_problem_without_responses(
 SOURCE_SHARE_BOUND = 1e-10
 """The matched runs' source contributions' departure, relative to the reference's.
 
-Measured 5.4e-12 (analytic field) and 7.5e-12 (envelope plasma) on native. The floor is
-the fields' own rounding over the source's share of them (1.1e-5): an eps of the field
-is 2e-11 of the source, and the linear runs alone part by 2e-17 to 5e-17 of their
-field. 1e-10 is about five eps of the field, 13 times the worst measured.
+Measured 3.0e-12 (analytic field) and 1.9e-13 (envelope plasma) on native. The floor is
+the fields' own rounding over the source's share of them (1.1e-5 on helium's analytic
+field, 3.1e-4 on argon's envelope): an eps of the field is 2e-11 of the smaller source,
+and the linear runs alone part by 2e-17 to 5e-17 of their field. 1e-10 is about five
+eps of that field, 33 times the worst measured.
 """
 
 
@@ -244,18 +244,21 @@ def assert_sources_the_reference(backend_class, route):
     """Assert `backend_class`'s Adams march sources a column family as the reference.
 
     The Adams source through the stage pipeline's two other column families: the
-    analytic signal of a field without THG, and the envelope with its plasma assembly,
-    at a launch that reaches into the temporal collar. The propagator is compared as
-    before SEP 47 (:func:`assert_propagates_as_the_reference`); then the march's use of
-    the source: both backends replay :data:`SOURCE_STEPS` fixed steps at the method's
-    top order through their sessions, the same discrete method and history
-    (``backends/matched.py``), so they part by rounding alone. Each backend's source
-    contribution is its run's field less its own run of the launch scaled to the linear
-    limit (``faint``), where the source's share falls a millionfold; the two
+    analytic signal of a field without THG, on helium, and the envelope with its plasma
+    assembly, on argon, which ionises; each launch reaches into the temporal collar.
+    The propagator is compared as before SEP 47
+    (:func:`assert_propagates_as_the_reference`); then the march's use of the source:
+    both backends replay :data:`SOURCE_STEPS` fixed steps at the method's top order
+    through their sessions, the same discrete method and history
+    (``backends/matched.py``), so they part by rounding alone. Each backend's
+    source contribution is its run's field less its own run of the launch scaled to the
+    linear limit (``faint``), where the source's share falls a millionfold; the two
     contributions are held to :data:`SOURCE_SHARE_BOUND` of the reference's. The source
-    moves the field by 1.1e-5 of it over the run, seven decades above the fields'
-    matched-window bound (512 eps a step); the fields themselves are the catalogue's
-    row ``ladder adams matched run ...``.
+    moves the field by 1.1e-5 of it over the run on the analytic field and 3.1e-4 on the
+    envelope, seven decades and more above the fields' matched-window bound (512 eps a
+    step); the envelope plasma is 2e-4 of its source's contribution, so a backend that
+    dropped it would miss the bound by a millionfold. The fields themselves are the
+    catalogue's row ``ladder adams matched run ...``.
     """
     assert_propagates_as_the_reference(backend_class, route)
     built = matched_run(route)

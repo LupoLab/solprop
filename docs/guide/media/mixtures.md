@@ -23,7 +23,7 @@ on the [profiles page](../waveguides/profiles.md).
 susceptibility, real-gas equation of state, transport properties and Kerr model are
 optmat's ([materials from optmat](material-selection.md#materials-from-optmat)), and its
 `IonisationData` is optmat's first ionisation energy. Its rate and Raman response are
-optmat's too, resolved for the run ([SEP 3](../../dev/seps/archive/sep-0003-optmat-materials.md));
+optmat's too, resolved for the run ([SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md));
 a built-in species carries no Raman constants of its own. A custom species carries
 its own data, Raman constants included
 ({class}`~solprop.physdata.raman_types.MolecularRaman`). Missing response data is
@@ -66,7 +66,8 @@ deliberate approximation: argon is 0.93 % of dry air's molecules, so leaving it 
 costs about 1 % of the dispersion and Kerr response, and its ionisation contribution must be assessed at the actual field strength.
 Its 15.76 eV ionisation potential does not exclude ionisation in every air calculation. Pass
 `gas=Mixture.air(...)` to keep it; argon then contributes dispersion and Kerr, and its
-missing Raman response is logged at INFO.
+missing Raman response is logged at INFO. {py:func}`~solprop.physdata.gases.is_air` is
+the drivers' test of whether a name means air: `Gas.Air`, or `"air"` in any case.
 
 These rounded major constituents follow the dry-air composition described by
 [NOAA](https://www.noaa.gov/jetstream/atmosphere). The fractions define the model; they
@@ -291,6 +292,11 @@ responses = responses_for(
 )
 ```
 
+At 6 bar and 300 K the fill is 5.4 amagat, above the 2.07 amagat to which optmat
+validates the air Raman response, so this warns once with a
+{class}`~solprop.exceptions.MaterialRangeWarning`
+([validated ranges](raman-data.md#validated-ranges-and-vacuum)).
+
 **Selecting Raman.** `raman` takes the same vocabulary here and on the drivers:
 
 - `True` selects every available Raman term and logs, at INFO, the components without
@@ -318,8 +324,10 @@ Pass `envelope=True` to `responses_for` for an envelope simulation. Explicit
 `plasma=True` or a per-label rate mapping then builds `EnvelopePlasmaResponse`
 channels and defaults third-harmonic generation off. Each rate must declare the
 instantaneous isotropic convention; a pre-averaged rate is rejected. For example,
-`responses_for(fill, envelope=True, plasma={"N2": True}, raman=False)`
-opens only nitrogen's channel. `Simulation.with_mixture` retains this response
+`responses_for(fill, envelope=True, plasma={"N2": True}, raman=False, wavelength=800e-9)`
+opens only nitrogen's channel (the carrier `wavelength` is needed because the Kerr
+response, on by default, takes optmat's dispersive coefficient at it).
+`Simulation.with_mixture` retains this response
 selection and reuses the immutable rate data while updating each population's
 density and preionisation paths.
 
@@ -375,8 +383,8 @@ deposited by that pulse. Linear absorption is separate from this ionisation work
 `prop_capillary`, `prop_waveguide` and their `Simulation.from_capillary` and
 `Simulation.from_waveguide` constructors accept, as `gas`, a built-in gas, `"air"` (the
 two-component mixture [above](#air)), a mapping of species names to mole fractions, or a
-complete `Mixture`. A built-in gas or a mapping takes `pressure` as the total pressure
-(one bar when omitted); a `Mixture` carries its own paths, and `pressure`,
+complete `Mixture`. A built-in gas or a mapping takes `pressure` as the total pressure,
+and refuses to go without one; a `Mixture` carries its own paths, and `pressure`,
 `pressure_floor`, `vacuum_end`, `susceptibility` and a different `temperature` beside it
 are refused.
 Pressure endpoints require a length in mixture constructors; the capillary entry
@@ -413,7 +421,7 @@ retain their component's declaration, including when the whole `preionisation`
 argument is omitted. A path is validated in `[0, 1]`, printed by its own description
 and recorded in the run metadata by its samples and breakpoints, like a density path;
 the steps of a run land on its kinks
-([nonlinear.md](field-plasma.md#a-pre-ionised-fraction-along-the-fibre)).
+([a pre-ionised fraction along the fibre](field-plasma.md#a-pre-ionised-fraction-along-the-fibre)).
 
 ```{code-block} python
 from dataclasses import replace
@@ -494,7 +502,7 @@ A finite radial Hankel transform is only approximately unitary: its physical
 and spectral quadrature energies converge with radial resolution, rather than being
 bitwise equal on an arbitrary coarse grid.
 
-The [air tutorial](../../auto_tutorials/capillaries/plot_04_air_mixture) shows separate nitrogen and
+The [air tutorial](../../auto_tutorials/capillaries/plot_04_air_mixture.rst) shows separate nitrogen and
 oxygen ionisation, the nitrogen Raman kernel and a three-point composition update.
 
 A regression test uses a 15 µm capillary of length 0.225 m, air at 6 bar and 300 K,

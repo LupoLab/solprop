@@ -134,8 +134,10 @@ class Machine:
     port : int or None
         A port other than the configuration's.
     python : str
-        The Python with solprop on the machine, as its shell finds it (``~`` is
-        expanded there).
+        The Python with solprop on the machine: one path, a leading ``~/`` standing
+        for the home folder there, or a command its shell finds on its ``PATH``
+        (``"python3"``). It is quoted whole, so variables, ``~user`` and options
+        are not read.
     workspace : str
         The folder of its runs, on the machine.
     launcher : str
@@ -223,8 +225,8 @@ def ssh_command(
     Examples
     --------
     >>> command, _ = ssh_command(Machine("lab", "me@lab", port=2222), "true")
-    >>> command[0], command[-2:], "2222" in command
-    ('ssh', ['me@lab', 'true'], True)
+    >>> command[0], command[-3:], "2222" in command
+    ('ssh', ['--', 'me@lab', 'true'], True)
     """
     if not machine.destination:
         msg = f"{machine.name} has no SSH host"
@@ -257,7 +259,8 @@ def ssh_command(
         environment["SSH_ASKPASS"] = askpass
         environment["SSH_ASKPASS_REQUIRE"] = "force"
         environment.setdefault("DISPLAY", ":0")
-    return ["ssh", *options, str(machine.destination), remote], environment
+    # "--" ends the options: a destination is never read as one.
+    return ["ssh", *options, "--", str(machine.destination), remote], environment
 
 
 def agent_command(
@@ -285,13 +288,23 @@ def agent_command(
     Examples
     --------
     >>> command, _ = agent_command(Machine("lab", "me@lab", python="~/env/bin/python"))
-    >>> command[0], command[-2:]
-    ('ssh', ['me@lab', 'exec ~/env/bin/python -m solprop.service.agent'])
+    >>> command[0], command[-1]
+    ('ssh', 'exec "$HOME"/env/bin/python -m solprop.service.agent')
     """
     if machine.local:
         return [sys.executable, "-m", "solprop.service.agent"], dict(os.environ)
-    remote = f"exec {machine.python} -m solprop.service.agent"
+    remote = f"exec {_shell_path(machine.python)} -m solprop.service.agent"
     return ssh_command(machine, remote, askpass=askpass)
+
+
+def _shell_path(path: str) -> str:
+    """Return a path quoted whole for a POSIX shell, a leading ``~/`` still the home.
+
+    Nothing else in it is read by the shell: no variable, ``~user`` or option.
+    """
+    if path == "~" or path.startswith("~/"):
+        return '"$HOME"' + shlex.quote(path[1:]) if path != "~" else '"$HOME"'
+    return shlex.quote(path)
 
 
 def _drain(stream: BinaryIO, into: list[bytes]) -> None:
@@ -457,9 +470,16 @@ class Connection:
                 self._deliver(cast("dict[str, Any]", frame))
 
     def _no_helper(self, said: str) -> str:
-        """Return why a session gave no hello, as the user should read it."""
-        missing = (
-            "No module named" in said or "not found" in said or "No such file" in said
+        """Return why a session gave no hello, as the user should read it.
+
+        Only a missing solprop, or a shell's word that the machine's Python is not
+        there, refuses the machine for good; any other error, a network filesystem's
+        passing "No such file" among them, leaves the session to be tried again.
+        """
+        last = said.splitlines()[-1].lower() if said.strip() else ""
+        python = self.machine.python.removeprefix("~").lower()  # the shell expands ~
+        missing = "No module named" in said or (
+            python in last and ("not found" in last or "no such file" in last)
         )
         if missing:
             reason = (

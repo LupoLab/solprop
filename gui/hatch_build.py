@@ -41,6 +41,8 @@ class SolpropPinHook(MetadataHookInterface):
         """
         metadata["dependencies"] = [
             f"solprop=={metadata['version']}",
+            # solprop's own floor: the window's views compute with NumPy directly.
+            "numpy>=2.5",
             # 6.10.1: the first release whose wheels admit CPython 3.14 (6.10.0 declares
             # <3.14). Essentials holds the Qt modules the front end uses, about a third
             # of the full PySide6.

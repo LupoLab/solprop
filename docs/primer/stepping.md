@@ -214,7 +214,7 @@ scheme at first ([the two temporal schemes](../guide/numerics/boundaries.md#the-
 integrated explicitly, so it limits the step to the integrator's stability interval, which binds only on very short runs. The
 split integrates the rate exactly and is unconditionally stable; on the spatial routes the in-stage collar took 1.2 to 4.6
 times its steps at equal or worse accuracy, so the spatial routes take the split by default
-([SEP 21](../dev/seps/archive/sep-0021-absorbing-boundaries.md)).
+([SEP 21](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md)).
 
 ## 12.8 Linear coupling between modes
 

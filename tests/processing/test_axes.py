@@ -94,12 +94,12 @@ def test_spectral_axis_carries_the_jacobian_of_each_abscissa():
     assert np.array_equal(x, omega)
     assert np.array_equal(jacobian, np.ones_like(omega))
     x, jacobian = axes.spectral_axis(omega, "f")
-    assert np.allclose(x, omega / (2 * np.pi), rtol=1e-15)
-    assert np.allclose(jacobian, 2 * np.pi, rtol=1e-15)
+    assert np.allclose(x, omega / (2 * np.pi), rtol=1e-15, atol=0.0)
+    assert np.allclose(jacobian, 2 * np.pi, rtol=1e-15, atol=0.0)
     x, jacobian = axes.spectral_axis(omega, "wavelength")
     # The wavelength Jacobian is 2 pi c / lambda^2, which is omega^2 / (2 pi c); the two
     # forms agree to round-off, which is what this checks.
-    assert np.allclose(jacobian, 2 * np.pi * 299792458.0 / x**2, rtol=1e-14)
+    assert np.allclose(jacobian, 2 * np.pi * 299792458.0 / x**2, rtol=1e-14, atol=0.0)
 
 
 def test_spectral_axis_refuses_a_wavelength_at_zero_frequency():

@@ -64,6 +64,11 @@ logger = logging.getLogger(__name__)
 # has somewhere to fall to zero.
 WINDOW_FACTOR = 1.1
 
+# The least field-grid ffac: the fine Nyquist frequency, ffac omega_max / 2, must reach
+# the collar's foot at WINDOW_FACTOR omega_max, so that the coarse Nyquist bin lies at
+# or past it and carries no field.
+FIELD_FFAC_MIN = 2.0 * WINDOW_FACTOR
+
 # Relative tolerance for the grid invariants. They are exact in real arithmetic and are
 # built from products and quotients of a handful of exactly representable integers, so
 # only a few units in the last place separate them from equality.
@@ -1245,7 +1250,8 @@ class TimeGrid(Displayed):
         Fine sample spacing, s.
     ffac : float
         Oversampling factor: the fine grid is sampled at ``ffac`` times the highest
-        frequency of the window. At least 2.
+        frequency of the window. At least 2 (at least 2.2 when a field grid is built
+        by :meth:`FieldGrid.from_limits`).
     omega_collar : Collar
         Spectral collar geometry, rad/s: rises over ``[omega_min/2, omega_min]`` and
         falls over ``[omega_max, 1.1 omega_max]``.
@@ -1659,7 +1665,9 @@ class FieldGrid(TimeGrid):
     """Grid for field-resolved propagation of a real electric field.
 
     The state is the one-sided spectrum on ``omega_k = k d_omega``, ``k = 0 ... n_t/2``,
-    so ``n_omega = n_t/2 + 1`` and the time samples are real. Build one with
+    so ``n_omega = n_t/2 + 1`` and the time samples are real. Both end bins, zero
+    frequency and Nyquist, lie outside the spectral collar, where its window is exactly
+    zero, so they carry no field; :meth:`~TimeGrid.validate` checks it. Build one with
     :meth:`from_limits`; see :class:`TimeGrid` for the stored attributes.
 
     Examples
@@ -1714,11 +1722,12 @@ class FieldGrid(TimeGrid):
             Requested fine sample spacing, s. The value used is this or the value the
             frequency window demands, whichever is smaller.
         ffac : float, optional
-            Fine-grid oversampling factor, at least 2. The default 6 resolves a cubic
+            Fine-grid oversampling factor, at least 2.2. The default 6 resolves a cubic
             response, whose third harmonic reaches ``3 omega_max``; 4 suffices for a
-            response that generates no third harmonic, such as ``|E_a|^2 E``. At exactly
-            2 the fine Nyquist frequency is ``omega_max`` itself, so the apodisation
-            collar above it is truncated rather than represented.
+            response that generates no third harmonic, such as ``|E_a|^2 E``. The fine
+            Nyquist frequency is ``ffac omega_max / 2``, and the least value puts it at
+            the collar's foot, ``1.1 omega_max``: below that the coarse Nyquist bin
+            would lie inside the collar and keep field there.
         fft_size : {'auto', 'pow2', 'smooth'}, optional
             How the transform sizes are rounded up: ``'auto'``, the default, takes the
             cheapest even 2-3-5-smooth size between the requirement and the next power
@@ -1757,6 +1766,14 @@ class FieldGrid(TimeGrid):
         2.0
         """
         _check_common(length, reference_wavelength, trange, dt, ffac, collar_fraction)
+        if ffac < FIELD_FFAC_MIN:
+            msg = (
+                f"ffac must be at least {FIELD_FFAC_MIN:g} on a field grid, so that "
+                f"the fine Nyquist frequency, ffac omega_max / 2, reaches the spectral "
+                f"collar's foot at {WINDOW_FACTOR:g} omega_max and the Nyquist bin "
+                f"carries no field, got {ffac!r}"
+            )
+            raise GridError(msg, parameter="ffac")
         omega_min, omega_max = _frequency_limits(wavelength_limits)
         omega_max_window = WINDOW_FACTOR * omega_max
 
@@ -1780,28 +1797,37 @@ class FieldGrid(TimeGrid):
         # dt comes from the integer ratio rather than from pi/omega[-1], so that the
         # dt/dt_fine == n_to/n_t invariant holds by construction, not to round-off.
         dt_coarse = dt_fine * (n_to // n_t)
+        omega = np.arange(n_t // 2 + 1, dtype=float) * d_omega
+        # At the least ffac the Nyquist bin is the collar's foot in exact arithmetic,
+        # and rounding can leave it an ulp below, where the taper is about 1e-305
+        # rather than zero; the foot then moves onto the bin. Above that, or with a
+        # finer dt, the Nyquist bin lies past the foot and this changes nothing.
+        zero_high = min(omega_max_window, float(omega[-1]))
 
         _log_grid("field", n_t, n_to, dt_coarse, trange_even)
         grid = cls(
             length=float(length),
             reference_wavelength=float(reference_wavelength),
             t=(np.arange(n_t, dtype=float) - n_t / 2) * dt_coarse,
-            omega=np.arange(n_t // 2 + 1, dtype=float) * d_omega,
+            omega=omega,
             t_fine=(np.arange(n_to, dtype=float) - n_to / 2) * dt_fine,
             omega_fine=np.arange(n_to // 2 + 1, dtype=float) * d_omega,
             dt=dt_coarse,
             dt_fine=float(dt_fine),
             ffac=float(ffac),
-            omega_collar=Collar(
-                0.5 * omega_min, omega_min, omega_max, omega_max_window
-            ),
+            omega_collar=Collar(0.5 * omega_min, omega_min, omega_max, zero_high),
             t_collar=_temporal_collar(trange, trange_even, collar_fraction),
         )
         grid.validate()
         return grid
 
     def _validate_spectrum(self) -> None:
-        """Check that the frequency axis is the one-sided rfft axis of the time axis."""
+        """Check the one-sided rfft axis, and that the collar is zero at both its ends.
+
+        The end bins are self-conjugate, so the analytic signal does not double them:
+        the identities of :func:`solprop.fourier.oversample` and
+        :func:`solprop.fourier.spectral_density` hold only where they carry no field.
+        """
         expected_dt = np.pi / self.omega[-1]
         if not math.isclose(self.dt, expected_dt, rel_tol=INVARIANT_RTOL):
             msg = f"dt is {self.dt!r}, expected pi/omega[-1] = {expected_dt!r}"
@@ -1810,6 +1836,22 @@ class FieldGrid(TimeGrid):
         if not np.allclose(self.omega, expected, rtol=INVARIANT_RTOL, atol=0.0):
             msg = "omega is not the non-negative rfft axis k*d_omega, k = 0 ... n_t/2"
             raise GridError(msg)
+        ends = self.omega_collar.window(self.omega[[0, -1]])
+        for end, frequency, value in zip(
+            ("zero frequency", "Nyquist"), self.omega[[0, -1]], ends, strict=True
+        ):
+            if value != 0.0:
+                hint = (
+                    f"; build the grid with ffac >= {FIELD_FFAC_MIN:g}"
+                    if end == "Nyquist"
+                    else ""
+                )
+                msg = (
+                    f"the spectral collar must vanish at the {end} bin of a field "
+                    f"grid, but its window at {frequency:.6g} rad/s is {value:.3g}"
+                    f"{hint}"
+                )
+                raise GridError(msg)
 
 
 @dataclass(frozen=True, eq=False, repr=False)

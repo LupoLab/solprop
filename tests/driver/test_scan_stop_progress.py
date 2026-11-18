@@ -26,7 +26,7 @@ from solprop.driver.executors import Local, Queue, Slurm, pool
 from solprop.driver.executors.pool import PlaneScalars, Pool, _Channel, _WorkerReporter
 from solprop.driver.scan import Scan, run_scan
 from solprop.driver.simulation import Simulation
-from solprop.exceptions import DriverError, ExecutorError, StopRequested
+from solprop.exceptions import DriverError, ExecutorError, RunTerminated, StopRequested
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter, NullScanReporter, PlaneSummary, ScanReporter
 from solprop.stepper import FixedSchedule, Multistep
@@ -71,6 +71,13 @@ def _fibre(power, steps, n_planes):
 def build_point(point):
     """A forty-step point with two planes after the entrance."""
     return _fibre(point.values["power"], STEPS, len(PLANES))
+
+
+def interrupted_point(point):
+    """Interrupt a point of negative power in its worker, as Ctrl-C there would."""
+    if point.values["power"] < 0:
+        raise KeyboardInterrupt
+    return build_point(point)
 
 
 def slow_point(point):
@@ -408,6 +415,66 @@ def test_pool_stop_message_stops_the_point_in_flight(tmp_path):
     # The worker's stop stands for the caller's flag.
     assert isinstance(error, StopRequested)
     assert error.flag is flag
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize(
+    ("powers", "statuses"),
+    [([-1.0, 2.0], ["todo", "done"]), ([1.0, -2.0], ["done", "todo"])],
+    ids=["probed", "running"],
+)
+def test_an_interrupt_in_a_pool_worker_stops_its_point_rather_than_failing_it(
+    tmp_path, powers, statuses
+):
+    # The first point is probed for memory in a worker before any runs.
+    scan = Scan("pool_interrupt", power=powers)
+    reporter = Recorder(watch=False)
+    output = run_scan(
+        scan,
+        interrupted_point,
+        output=tmp_path / "scan.h5",
+        executor=Pool(workers=1, pin=False),
+        progress=reporter,
+    )
+    # Not committed as a failure: given back, so a rerun computes it; the scan goes on.
+    assert output.status.tolist() == statuses
+    assert sorted(reporter.finished()) == [
+        (index, "stopped" if status == "todo" else status)
+        for index, status in enumerate(statuses)
+    ]
+
+
+@pytest.mark.parametrize(
+    "interruption",
+    [KeyboardInterrupt(), StopRequested(threading.Event()), RunTerminated(15)],
+    ids=["keyboard", "stop", "sigterm"],
+)
+def test_a_worker_reports_an_interrupted_point_apart_from_a_failure(interruption):
+    def interrupted(point):
+        raise interruption
+
+    parent, child = mp.Pipe()
+    parent.send(("run", 7))
+    pool._serve(cast(Connection, child), interrupted, ())
+    tag, text = parent.recv()
+    assert tag == pool.INTERRUPTED
+    assert type(interruption).__name__ in text
+    assert child.closed
+    parent.close()
+
+
+def test_an_interrupted_worker_s_point_is_stopped_by_the_work_s_hook():
+    error = pool._WorkerInterruptedError(
+        "scan worker was interrupted: KeyboardInterrupt"
+    )
+    work = _Work(build_point, _Options((), "none", (), "all"), "interrupted")
+    job = _Job(Scan("interrupted", power=[1.0]).point(0))
+    result = pool._interrupted_work(work, job, error)
+    assert isinstance(result, type(work.stopped(job)))
+    assert result.status == "stopped"
+    # Work without the hook raises it, as a crash without a failure hook does.
+    with pytest.raises(ExecutorError, match="interrupted: KeyboardInterrupt"):
+        pool._interrupted_work(abs, 1, error)
 
 
 @pytest.mark.skipif(

@@ -336,7 +336,12 @@ def test_element_order_matters_and_a_chain_commutes_only_internally(
     gap = FreeSpace(0.2, air, beyond_window="remove", edge_tolerance=1e-2)
     first = apply_sequence(state, [aperture, gap])
     second = apply_sequence(state, [gap, aperture])
-    assert not np.allclose(first.state.spectrum, second.state.spectrum, rtol=1e-3)
+    assert not np.allclose(
+        first.state.spectrum,
+        second.state.spectrum,
+        rtol=1e-3,
+        atol=1e-3 * np.max(np.abs(second.state.spectrum)),
+    )
     gdd = TaylorPhase((0.0, 0.0, 200e-30), 800e-9)
     tod = TaylorPhase((0.0, 0.0, 0.0, 3000e-45), 800e-9)
     forward = apply_sequence(state, [Chain((gdd, tod)), gap])

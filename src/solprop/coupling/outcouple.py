@@ -32,7 +32,7 @@ from jaxtyping import Float
 
 from solprop import fourier
 from solprop.constants import EPS0, C
-from solprop.coupling.coupler import target_columns
+from solprop.coupling.coupler import _channels, target_columns
 from solprop.coupling.plane import FieldPlane, PlaneBasis, PlaneMetric
 from solprop.coupling.port import METRIC_TOLERANCE
 from solprop.exceptions import CouplingError
@@ -177,13 +177,7 @@ class Outcouple:
             )
             raise CouplingError(msg)
         columns = target_columns(profiles, self.space)
-        jones = np.asarray(profiles.jones)
-        n_pol_in = plane.samples.shape[1]
-        if n_pol_in == 2:
-            jones_c = np.tile(np.eye(2), (profiles.n_modes, 1))
-            mode_of = np.repeat(np.arange(profiles.n_modes), 2)
-        else:
-            jones_c, mode_of = jones, np.arange(profiles.n_modes)
+        jones_c, mode_of = _channels(profiles, plane.samples.shape[1])
         n_pol = 2 if np.any(jones_c[:, 1] != 0.0) else 1
         effective = profiles.effective_index[mode_of]
         factor = np.where(

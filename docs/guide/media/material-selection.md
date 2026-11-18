@@ -15,7 +15,7 @@ response — its total $n_2$, Raman
 fraction and Raman shape — from optmat's silica bundle, each gas's ionisation rate
 ([rates from optmat](ionisation.md#rates-from-optmat)) and a gas fill's Raman response
 ([Raman responses from optmat](raman-data.md#raman-responses-from-optmat)). An omitted selection is `MaterialSelection()`, which takes optmat's recommended
-models. The [material integration proposal](../../dev/seps/archive/sep-0003-optmat-materials.md)
+models. The [material integration proposal](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md)
 records how the data are mapped into solprop.
 
 ## Selecting gases
@@ -50,7 +50,7 @@ optmat's whole hyperpolarisability model
 ([below](#the-dispersive-electronic-policies)). `raman` selects a gas response in a gas-filled guide or a silica bundle for the GNLSE;
 the permitted objects differ between those contexts. `ionisation` names the run's rate models:
 `plasma=True` takes optmat's rate for each species, its plasma loss pays
-that rate's own energy per event (`energy_loss="peak-weighted"`), and a custom species
+that rate's own energy per event, and a custom species
 needs an explicit rate; see [rates from optmat](ionisation.md#rates-from-optmat).
 `raman` names a gas fill's Raman response and `raman_shift` its density-shift
 approximation ([Raman responses from optmat](raman-data.md#raman-responses-from-optmat)).
@@ -109,7 +109,7 @@ n2("Ar", pressure=3.0, wavelength=800e-9, selection=selection)
 ## The dispersive electronic policies
 
 `MaterialSelection(electronic="gas-polynomial")` and `"symmetric-kerr"`, from
-[SEP 6](../../dev/seps/archive/sep-0006-dispersive-nonlinearity.md), evaluate optmat's whole fit,
+[SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md), evaluate optmat's whole fit,
 $\gamma_T=\gamma_0[1+AS_2+BS_2^2+B'S_4]$ over each quartet's four signed vacuum
 wavenumbers, at the absolute frequencies of every quartet the cubic couples, instead of
 one coefficient: the polynomial itself, or a symmetric factorisation of its Kerr
@@ -433,27 +433,15 @@ so two default walls or cores built separately are one material.
 and the compressors, which name their glasses.
 
 **Named models.** `model=` selects any other optmat model of the material, among them
-the published Sellmeier formulas, made absolute (see below):
+the published Sellmeier formulas, made absolute (see below). optmat's registry lists a
+material's models by name, the recommended one among them; the material names are
+`SiO2`, `CaF2`, `MgF2`, `BaF2`, `Al2O3` (sapphire) and `N-BK7`:
 
-```{eval-rst}
-.. list-table::
-   :header-rows: 1
-   :widths: 34 66
+```{code-block} python
+from optmat.solid.models import registry
 
-   * - factory
-     - optmat model
-   * - ``fused_silica``
-     - ``malitson_1965/sellmeier``; ``franta_2016/udm_lithosil_q2``
-   * - ``calcium_fluoride``
-     - ``daimon_2002/sellmeier_20C``; ``malitson_1963/sellmeier``
-   * - ``magnesium_fluoride``
-     - ``dodge_1984/sellmeier_o``
-   * - ``bk7``
-     - ``schott_2023/sellmeier``
-   * - ``sapphire``
-     - ``weber_2003/sellmeier_o`` (Malitson and Dodge's ordinary-ray formula, as Weber prints it)
-   * - ``barium_fluoride``
-     - ``malitson_1964/sellmeier``
+sorted(registry.models("CaF2"))
+# ['daimon_2002/sellmeier_20C', 'daimon_2002/sellmeier_25C', 'malitson_1963/sellmeier']
 ```
 
 - **Absolute index.** Every optmat index is relative to vacuum. The published
@@ -465,7 +453,7 @@ the published Sellmeier formulas, made absolute (see below):
 - **Birefringence.** MgF₂ and sapphire are uniaxial, and an optmat model is per ray: a
   window or wall names its ray, `axis="o"` or `axis="e"`, and the recommended model
   without an axis is refused by name — `magnesium_fluoride()`, `sapphire()` and
-  `glass("MgF2")` included, a deliberate breaking change. A named model is per ray
+  `glass("MgF2")` included. A named model is per ray
   too, and refuses the other `axis`.
 - **Metals** are tables with their interpolant's exact derivative. Outside their range
   they hold their end values, with a warning.
@@ -603,5 +591,5 @@ and carry their own citations.
   recommended model, as `MaterialSelection()` does.
 
 This page documents the functionality proposed and implemented by
-[SEP 3](../../dev/seps/archive/sep-0003-optmat-materials.md); its dispersive electronic
-policies are [SEP 6](../../dev/seps/archive/sep-0006-dispersive-nonlinearity.md)'s.
+[SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md); its dispersive electronic
+policies are [SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md)'s.

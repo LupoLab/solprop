@@ -234,13 +234,11 @@ def _low_storage_rows(
         "accumulator_error": 0,
         "register_accumulator": field_bytes,
         "register_stage": field_bytes,
-        "propagators": low_storage_flows(problem, stepper, "numpy_ref") * field_bytes,
+        "propagators": low_storage_flows(problem, stepper) * field_bytes,
     }
 
 
-def low_storage_flows(
-    problem: PropagationProblem, stepper: StepperSettings, backend: str
-) -> int:
+def low_storage_flows(problem: PropagationProblem, stepper: StepperSettings) -> int:
     """Return how many flow volumes a compiled backend's low-storage march holds.
 
     The one predicate the engines share (SEP 24 section 4.3): with
@@ -258,8 +256,6 @@ def low_storage_flows(
         The translated problem.
     stepper : solprop.stepper.settings.StepperSettings
         The run's stepper section, whose propagator mode decides the count.
-    backend : str
-        A registry name; every backend that runs the march counts the same.
 
     Returns
     -------
@@ -282,10 +278,9 @@ def low_storage_flows(
     ...                    controller=PIController(rtol=1e-8, atol=1e-16),
     ...                    save_planes=[0.01], dz_max=0.01, dz_init=1e-3,
     ...                    density=1.0, shock=False, prefactor_index=1.0)
-    >>> low_storage_flows(problem, request.stepper, "native")  # a constant table
+    >>> low_storage_flows(problem, request.stepper)  # a constant table
     1
     """
-    del backend
     asked = stepper.propagator_mode
     constant = problem.flags.constant_linop
     if asked == "recompute" or (asked == "auto" and not constant):

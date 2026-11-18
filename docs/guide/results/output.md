@@ -81,7 +81,7 @@ handler.close()                 # idempotent
 
 A run that is wanted as spectra and diagnostics need not store a field at every plane.
 `SimulationSettings(fields=..., field_planes=...)`
-([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md)) chooses, with the
+([SEP 22](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0022-memory-lean-spatial-execution.md)) chooses, with the
 vocabulary {py:func}`~solprop.driver.scan.run_scan` already uses:
 
 | `fields` | what each saved plane keeps |
@@ -170,11 +170,6 @@ already counted from the entrance, and the shape `(n_modes, n_pol, n_omega)` of 
 known even when no plane will carry a field. A handler already holding planes
 under a different rule raises {py:class}`~solprop.exceptions.OutputError`, as a resumed
 store does.
-
-In this phase the backend still observes the field at every plane, and the driver drops
-it: the storage, the preallocation, the record copies and the conversion go, the
-device transfer and the collar diagnostic of a Cartesian run remain until the
-observation itself can skip the field.
 
 ## What goes in, and in which convention
 
@@ -290,15 +285,31 @@ lists their saved-plane indices; a `"none"` run has neither dataset.
 step-history and between-planes columns grow by doubling; a run that saves more planes
 than planned grows the plane-indexed ones by doubling too. The root attribute `n_saved`
 is the number of planes actually written. Each plane's data is written and flushed
-first and the count raised last, so a hard stop — a SIGKILL, an out-of-memory kill, a
-lost node — leaves the count at the last complete plane, even part-way through the next.
-The attempts and rows belonging to the counted planes are the sums of
+first and the count raised last, so the count never includes a plane that a stop cut off
+part-way. The attempts and rows belonging to the counted planes are the sums of
 `step_history/counts` and `step_stats/counts` over them, so the one count fixes every
-column. Every reader, {py:func}`~solprop.output.hdf5.resume` and a handler continuing
+column. Every reader, {py:func}`~solprop.output.hdf5.read_resume_state` and a handler continuing
 the file use only what is counted, and a clean close trims every dataset to it, so a
 finished file holds no unused rows and its datasets' extents are exactly the counts.
 Read a file through {py:func}`~solprop.output.hdf5.open_file`, not
 `h5py` directly, if it may be one a hard stop left behind.
+
+**What a hard stop can do.** The count is kept consistent, but the file is not made
+crash-proof. A flush hands HDF5's buffers to the operating system without syncing them
+to disk, and the file is not opened in HDF5's single-writer/multiple-reader (SWMR) mode.
+HDF5 therefore does not promise that a file stopped hard — by a SIGKILL, an
+out-of-memory kill or a lost node — while it was writing, part-way through a plane or
+while a dataset grew, can be opened at all; a lost node or a power cut can also lose
+writes the operating system had not yet made. For a copy that a hard stop cannot damage,
+request [periodic snapshots](#periodic-snapshots-while-computing) with `snapshots=` (an
+HDF5 run with `fields="all"`): each copies the closed files, syncs the copies to disk
+and records their checksums, and
+{py:func}`~solprop.output.snapshots.restore_snapshot` turns a verified one into working
+files to resume. A scan's collected file has the same exposure on the `Local` and `Pool`
+executors, which hold each completed point only in that file and take no snapshots; a
+`Queue` or `Slurm` scan also keeps each point's artifact in the queue, synced to disk
+before it is published, and `python -m solprop.scan collect` can write a collected
+file from them again ([durable queues](../workflows/scans.md#durable-queues-and-slurm)).
 
 The march snapshot is the Adams march's state at the last saved plane or terminal
 checkpoint, rewritten in place at each one (`SimulationSettings.resume_history`). It is
@@ -402,7 +413,7 @@ coarse for the tolerance the norm is scaled by ([stepper.md](../../dev/stepper.m
 A rejected attempt that diverged, whose propagator or error overflowed (a long step
 under a strong collar), records an infinite norm; the
 stepper retried it at a much shorter step, so take the largest norm over the accepted
-attempts. {py:func}`~solprop.output.hdf5.resume` returns the history recorded so far with the last
+attempts. {py:func}`~solprop.output.hdf5.read_resume_state` returns the history recorded so far with the last
 plane, and an appending handler numbers the next attempt where the file left off, so a
 resumed run's file keeps one continuous record.
 
@@ -428,27 +439,25 @@ it with `open_tdse_archive` ([the TDSE response](../media/tdse.md#the-raw-respon
 ## The schema version
 
 Every file records its `schema_version`; this release writes and reads output
-schema **4** (`solprop.output.SCHEMA_VERSION`). Schema 1 was the first released layout,
+schema **3** (`solprop.output.SCHEMA_VERSION`). Schema 1 was the first released layout,
 that of 0.1.0; schema 2, that of 0.2.0, adds `spectral_phase` to the record of a
-{py:class}`~solprop.pulses.DataPulse`; schema 3 stores a march snapshot's `state` and
-its engine `rows` without the leading axis of one they kept before; schema 4 records no
-basis identity in the plane-reference record, whose `basis` entry is gone: a plane's
-basis is derived when it is read ([coupling simulations](../workflows/coupling.md)). A
-file of any other schema is refused by name wherever it is opened, read or resumed: files
-written by an earlier release or by development versions of solprop, which declared
-output schemas up to 28, are not read, and nor is a file from a later release. Read such
-a file with the solprop version
-that wrote it. A scan file is refused the same way, by the output schema each point's run
-record declares, whether it is read or resumed; its own `scan_schema_version` versions
-the scan container, not the records in it, and is still 1. A resume needs the file's
-schema to be this one, and checks that before it compares the records
+{py:class}`~solprop.pulses.DataPulse`; schema 3 makes two changes. It stores a march
+snapshot's `state` and its engine `rows` without the leading axis of one they kept
+before, and it records no basis identity in the plane-reference record, whose
+`basis` entry is gone: a plane's basis is derived when it is read
+([coupling simulations](../workflows/coupling.md)). A file of any other schema is
+refused by name wherever it is opened, read or resumed, and the refusal names the file:
+a file of an earlier or a later release is not read. Read such a file with the solprop version that wrote it: a 0.1.0 file (schema 1) with
+solprop 0.1.x, a 0.2.0 file (schema 2) with solprop 0.2.x. A scan file is refused the
+same way, by the output schema each point's run record declares, whether it is read or
+resumed; its own `scan_schema_version` versions the scan container, not the records in
+it, and is still 1. A resume needs the file's schema to be this one, and checks that
+before it compares the records
 ([what a resume compares](resuming.md#what-a-resume-compares)).
 
 Every run records its plane-reference record (`RunMetadata.reference`,
 [provenance](provenance.md#the-metadata-schema)), from which a saved plane is read back
-as a coherent field plane ([coupling simulations](../workflows/coupling.md)). The
-configuration no longer records a precision: solprop computes in binary64 only. A run
-started on an earlier release, whose configuration did, finishes on that release.
+as a coherent field plane ([coupling simulations](../workflows/coupling.md)).
 
 How a run resumes from its last plane depends on what that plane is:
 
@@ -499,16 +508,12 @@ version, which the next release is the first to write. Development builds betwee
 releases are therefore not compatible with one another: a file written by an earlier
 build of the same schema may be refused, and is read with the build that wrote it.
 
-**Five columns of `absorbed_power`.** The fifth column, `custom`, folded into schema 2 the
-same way, and the first column became the collar alone. A file from a development build
-before it, with four columns, is not supported: read it with the build that wrote it.
-
 ## A worked example
 
 ```{code-block} python
 import numpy as np
 from solprop.grid import EnvelopeGrid
-from solprop.output import HDF5Output, MemoryOutput, resume
+from solprop.output import HDF5Output, MemoryOutput, read_resume_state
 from solprop.output.metadata import RunMetadata
 from solprop.output.records import GridRecord, SavedPlane, StepperRecord
 from solprop.stepper import DOPRI5, PIController
@@ -527,7 +532,7 @@ memory.open(metadata)
 memory.save(SavedPlane(z=0.0, field=np.ones((1, 1, grid.n_omega), complex)))
 memory.to_file("run.h5", compression="lzf")
 
-state = resume("run.h5")
+state = read_resume_state("run.h5")
 assert state.plane.z == 0.0
 assert np.array_equal(state.plane.field, memory.planes()[0].field)
 ```
@@ -541,9 +546,9 @@ function. The default, `None`, leaves the run unchanged. This is an execution po
 outside the scientific configuration hash; `SimulationRunner`'s restriction on
 reusing TDSE across inputs still applies.
 
-A snapshot requires an HDF5 run with `fields="all"`; it no longer needs
-`step_planes`, and it is taken with interpolated planes too
-([SEP 47](../../dev/seps/archive/sep-0047-run-ownership.md)). With `interpolate_planes=True` a
+A snapshot requires an HDF5 run with `fields="all"`, and it is taken with interpolated
+planes too
+([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md)). With `interpolate_planes=True` a
 request is taken at the end of the step that crossed the plane being saved, once every
 plane that step crossed has been saved, so the snapshot holds a state the march passed
 through and `resume=True` continues it without `resume="interpolated"`. Adams runs must allow retained
@@ -696,4 +701,4 @@ creation fails before it can return a writer and its handle also cannot close,
 ownership remains held until process exit; the exception reports both failures.
 
 The recipe stored in a run's output and the result capabilities were proposed and
-carried out by [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+carried out by [SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md).

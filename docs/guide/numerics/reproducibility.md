@@ -4,7 +4,7 @@ solprop promises numerical accuracy, not identical bits. Two runs of the same pr
 on different machines, backends, builds or thread counts agree within the accuracy the
 problem was qualified to; they need not agree in every bit, and the faster code paths
 depend on that freedom. The policy and its derivations are in
-[SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md).
+[SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md).
 
 ## What is promised
 

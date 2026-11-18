@@ -92,13 +92,31 @@ for time-domain arrays and wherever only the sign matters. A Taylor phase about 
 pure delay commutes with the origin shift and may be applied to a stored spectrum directly
 (Luna's `prop_taylor!`); an *absolute* spectral phase — measured data, a group delay read
 as an arrival time — must go through the spectrum helpers. The shift is `(−1)^k` on the
-storage index for both layouts and nothing else: a pulse's `phase[0]` is therefore its
+storage index for both layouts and nothing else: a pulse's `phases[0]` is therefore its
 carrier-envelope phase at its own peak on either grid, independent of the window length
 (Luna's envelope-grid constant `exp(−iω₀ n_t δt/2)` is not carried). No other
 module conjugates anything. Energies, spectral densities, masks and windows are
 convention-free (`|Ẽ|²`). A round-trip test guards the sign: build a pulse with positive
 group-delay dispersion, read the spectral phase back, delay it by τ and check that it arrives
 later.
+
+**Transverse axes and their signs** (`FreeGrid` and `LineGrid`; a `RadialGrid`'s Hankel
+transform has no direction). The stored transverse spectrum is the raw forward DFT of the
+samples taken in the order of `FreeGrid.x` and `FreeGrid.y`,
+`Ẽ(k_x, k_y) = Σ E(x, y) e^{−i(k_x x + k_y y)}` (NumPy's `fft2` over `(y, x)`, x fastest
+in the node index), with `k_x` and `k_y` in unshifted FFT order. It has the time
+transform's sign, and the boundary does not conjugate it. A beam travelling towards +x
+with physical transverse wave number `κ_x > 0` carries `e^{+iκ_x x}` in the optics
+convention and so `e^{−iκ_x x}` on the internal samples: it is stored at **negative**
+`k_x`, and a stored column's axis is `k^{(s)} = −κ` (`spatial.mask_plane_offsets`,
+[SEP 23](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0023-far-field-aperture-spectra.md) §4.1). A **positive
+displacement** `d_x` moves the beam towards +x, `E(x) → E(x − d_x)`, which multiplies the
+stored spectrum by `e^{−i k_x d_x}`. A **positive tilt** `θ_x` makes the beam propagate
+towards +x: the screen `e^{+i k x sin θ_x}` in the optics convention
+(`coupling.elements.Alignment`, which converts it with `fourier.to_internal`), which is
+`e^{−i k x sin θ_x}` on the internal samples (`pulses.SpatialPulse`), `k` the medium's real
+wave number. The same holds for y. `tests/test_beam_alignment.py` and
+`tests/coupling/test_transport.py` hold both signs.
 
 The amplitude conversion is a separate, named boundary beside these Fourier helpers:
 `fourier.power_amplitude` maps internal `a` to saved `b`, and its inverse maps a resumed
@@ -123,7 +141,10 @@ from the wavelength limits `(λ_min, λ_max)` and the requested window `trange` 
 - `ω_min = 2πc/λ_max`, `ω_max = 2πc/λ_min`, `ω_max_win = 1.1 ω_max`;
 - the **fine** grid is sampled at `ffac × f_max` (`δt_fine = 1/(ffac f_max)`, or the user's
   `δt` if finer); `ffac = 6` by default so that a cubic response (`E³`, reaching `3ω_max`)
-  is resolved; `ffac = 4` suffices for a response without third harmonic; `ffac ≥ 2`;
+  is resolved; `ffac = 4` suffices for a response without third harmonic; `ffac ≥ 2.2`,
+  so that the fine Nyquist frequency `ffac ω_max/2` reaches `ω_max_win` and the coarse
+  Nyquist bin lies at or past it (where rounding leaves it an ulp short at the minimum,
+  `ω_max_win` is moved onto it);
 - `n_to` = the transform size ≥ `trange/((1 − 2 collar_fraction) δt_fine)`, room for the
   temporal collar outside the request (`collar_fraction = 0.1` by default; `trange/δt_fine`
   under `collar_placement="inside"`); the realised window is `trange_even = n_to δt_fine` and
@@ -131,8 +152,9 @@ from the wavelength limits `(λ_min, λ_max)` and the requested window `trange` 
 - the coarse grid keeps the fine bins up to the first `ω > ω_max_win`, its size `n_t` rounded
   up to the smallest even divisor of `n_to` (so `2^k + 1` bins on a power-of-two grid; clamped
   to the fine grid); `δt = π/ω[−1]`, `n_t = 2 (n_omega − 1)`;
-- invariants (asserted): `δt/δt_fine = n_to/n_t = ω_fine[−1]/ω[−1]`, and the coarse time
-  samples coincide with fine samples.
+- invariants (asserted): `δt/δt_fine = n_to/n_t = ω_fine[−1]/ω[−1]`, the coarse time
+  samples coincide with fine samples, and the spectral window is exactly zero at the
+  zero-frequency and Nyquist bins, which the analytic signal does not double.
 
 Note that `ffac` changes the whole grid (δω, window length, `n_omega`), not only the fine one.
 
@@ -226,7 +248,7 @@ mode per active bin, fixed modulus and random phase. Its field-grid modulus is
 `sqrt(hbar omega/domega) sqrt(2 pi)/dt`. The internal draw is divided by the entrance
 square root. It is not a circular-Gaussian draw.
 
-**Spatial geometry** ([SEP 34](seps/archive/sep-0034-medium-flux.md)). Radial, Cartesian and
+**Spatial geometry** ([SEP 34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md)). Radial, Cartesian and
 line states retain physical V/m or V m units and have no modal power-weight row. They are
 measured with the scalar axial admittance of the medium at the plane,
 `Y_c = eps0 c² k_z/omega` per transverse column and bin, zero on nonpropagating,
@@ -251,7 +273,7 @@ admitted only when every propagating column meets the adiabatic certificate:
 `delta* = expm1(Lambda tanh Lambda)` within `AdiabaticAccuracy` (default 1e-4 each;
 `solprop.adiabatic`).
 
-**Field planes and coupling** ([SEP 31](seps/archive/sep-0031-simulation-coupling.md)). A
+**Field planes and coupling** ([SEP 31](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0031-simulation-coupling.md)). A
 `FieldPlane` holds a stored spectrum exactly as the output does: the optics-convention
 raw DFT of each column, referenced to the window centre, in √W (ordinary and general
 modal coordinates), V m (the Hankel spectrum of a radial field) or V/m (the DFT of a

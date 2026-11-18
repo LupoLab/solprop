@@ -783,14 +783,7 @@ class Recipe:
         """
         self._require_keywords()
         pins = read_pins(self)
-        working = self._copy(("pins",))
-        for pin in pins:
-            if pin.stage == "pulse":
-                working._document["build"] = set_path(
-                    working._document["build"],
-                    parse_path(pin.path),
-                    placeholder(pin.path),
-                )
+        working = self._working_copy(pins)
         for pin in pins:
             value = _pick(pin, working._solve(pin))
             working._document["build"] = set_path(
@@ -828,14 +821,7 @@ class Recipe:
         if chosen is None:
             msg = "this path is not pinned"
             raise RecipeError(msg, path=path)
-        working = self._copy(("pins",))
-        for pin in pins:
-            if pin.stage == "pulse":
-                working._document["build"] = set_path(
-                    working._document["build"],
-                    parse_path(pin.path),
-                    placeholder(pin.path),
-                )
+        working = self._working_copy(pins)
         if chosen.stage == "pulse":
             for pin in pins:
                 if pin.stage == "guide":
@@ -894,6 +880,18 @@ class Recipe:
         '275.0 uJ'
         """
         return preview.preview_input(self)
+
+    def _working_copy(self, pins: Sequence[Pin]) -> "Recipe":
+        """Return a copy to solve pins on: no ``[pins]``, pulse pins at placeholders."""
+        working = self._copy(("pins",))
+        for pin in pins:
+            if pin.stage == "pulse":
+                working._document["build"] = set_path(
+                    working._document["build"],
+                    parse_path(pin.path),
+                    placeholder(pin.path),
+                )
+        return working
 
     def _copy(self, drop: tuple[str, ...]) -> "Recipe":
         """Return a copy without some top-level tables, its data files kept."""
@@ -1330,7 +1328,9 @@ def resume_file(
 
     Resuming a file runs the setup it holds. A file received from someone else does
     not choose its own limit: the recipe's ``node_budget`` is ignored, and the caller's
-    applies.
+    applies. A data file the run recorded by name only, beyond the 16 MiB it embeds
+    (:data:`~solprop.recipe.provenance.EMBED_LIMIT`), is not in the file, so such a
+    file does not resume on its own.
 
     Parameters
     ----------
@@ -1354,16 +1354,13 @@ def resume_file(
     Raises
     ------
     RecipeError
-        If the file records no recipe, or one of a newer format.
+        If the file records no recipe, or one of a newer format, or its recipe refers
+        to a data file the file does not hold.
     """
-    recipe = Recipe.from_output(path, resolved=True)
-    document = recipe.to_dict()
-    document["build"].pop("node_budget", None)
+    rebuilt = Recipe.from_output(path, resolved=True)._copy(())
+    rebuilt._document["build"].pop("node_budget", None)
     if node_budget is not None:
-        document["build"]["node_budget"] = node_budget
-    rebuilt = Recipe(document)
-    rebuilt._embedded = recipe._embedded
-    rebuilt._filed = recipe._filed
+        rebuilt.set("node_budget", node_budget)
     return rebuilt.build().run(
         Path(path),
         resume=mode,
@@ -1394,7 +1391,8 @@ class RecipeBuilder:
     Attributes
     ----------
     text : str
-        The recipe, without its ``[scan]`` and ``[execution]`` tables.
+        The recipe, without its ``[scan]`` table and the ``[execution]`` keys
+        :func:`~solprop.driver.scan.run_scan` takes.
     base : str or None
         Its directory, for data files.
     allow_outside : bool

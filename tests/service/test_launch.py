@@ -85,6 +85,11 @@ def test_a_prepared_folder_holds_the_spec_and_refuses_a_second_run(tmp_path):
     (folder / "run.h5").write_bytes(b"")
     with pytest.raises(ServiceError, match="already holds a run"):
         prepare(spec)
+    # A scan's folder too: a new start would append to its record.
+    scan = RunSpec("s1", str(tmp_path / "s1"), recipe=TINY)
+    (prepare(scan) / "scan.h5").write_bytes(b"")
+    with pytest.raises(ServiceError, match="already holds a run"):
+        prepare(scan)
 
 
 def test_the_batch_script_asks_for_what_the_template_says(tmp_path):
@@ -114,7 +119,7 @@ def test_the_batch_script_asks_for_what_the_template_says(tmp_path):
     ):
         assert wanted in lines
     assert "#SBATCH --job-name=solprop-a_run" in lines
-    assert lines[-1].startswith("exec /env/bin/python -m solprop.service.job '")
+    assert lines[-1].startswith("exec /env/bin/python -m solprop.service.job --slurm '")
     assert resources.brief == "gpu · 8 CPUs · 16G · gpu:1 · 1-00:00:00"
     plain = slurm_script(tmp_path, "python", SlurmResources())
     assert "export SOLPROP_THREADS=${SLURM_CPUS_PER_TASK:-1}" in plain
@@ -279,6 +284,7 @@ def test_a_direct_run_stops_on_its_stop_file(tmp_path):
 
 def test_the_job_command_needs_a_folder_with_a_spec(tmp_path, capsys):
     assert job_main([]) == 2
+    assert job_main(["--slurm"]) == 2
     assert job_main([str(tmp_path)]) == 2
     assert "no run to start" in capsys.readouterr().err
     (tmp_path / SPEC).write_text('{"run_id": "r1", "nonsense": 1}', encoding="utf-8")
@@ -289,11 +295,28 @@ def test_the_job_command_runs_in_this_process(tmp_path, monkeypatch):
     folder = prepare(RunSpec("r1", str(tmp_path / "r1"), recipe=TINY, threads=1))
     monkeypatch.setenv("SLURM_JOB_ID", "77")
     monkeypatch.setenv("SOLPROP_THREADS", "2")  # restored after the test
-    assert job_main([str(folder)]) == 0
+    assert job_main(["--slurm", str(folder)]) == 0
     assert os.environ["SOLPROP_THREADS"] == "1"
     job = json.loads((folder / JOB).read_text(encoding="utf-8"))
     assert (job["launcher"], job["slurm_job"]) == ("slurm", "77")
     assert summarise(folder)["state"] == "finished"
+
+
+def test_a_job_started_inside_an_allocation_is_not_that_allocation(
+    tmp_path, monkeypatch
+):
+    """Only the batch script solprop submits makes a run its Slurm job's own."""
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    seen = []
+    monkeypatch.setattr(run_module, "execute", seen.append)
+    monkeypatch.setenv("SLURM_JOB_ID", "77")
+    folder = prepare(RunSpec("r1", str(tmp_path / "r1"), recipe=TINY))
+    assert job_main([str(folder)]) == 0
+    assert job_main(["--slurm", str(folder)]) == 0
+    assert [spec.launcher for spec in seen] == ["direct", "slurm"]
+    assert Job.here("r1", "direct").slurm_job is None
+    assert Job.here("r1", "slurm").slurm_job == "77"
 
 
 def test_a_start_that_fails_says_why(tmp_path, monkeypatch):
@@ -404,6 +427,111 @@ def test_a_scan_as_a_job_runs_its_points_in_a_pool(tmp_path):
     summary = summarise(folder)
     assert summary["state"] == "finished" and summary["scan"]
     assert (summary["points"], summary["done"]) == (2, 2)
+
+
+def test_a_stop_pressed_before_a_new_run_starts_is_obeyed(tmp_path):
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    folder = tmp_path / "r1"
+    folder.mkdir()
+    request_stop(folder)  # a stop file left over in the folder before the run
+    spec = RunSpec("r1", str(folder), recipe=TINY)
+    prepare(spec)
+    assert not summarise(folder)["stopping"]
+    request_stop(folder)  # Stop pressed while the job waits in the queue
+    run_module.execute(spec)
+    (ending,) = [e for e in read_events(folder)[0] if e.terminal]
+    assert ending.kind == "stopped"
+    assert ending.data["message"] == "stopped before it started"
+    assert not (folder / "run.h5").exists()
+    assert ending.data["output"] is None  # nothing written to open
+    assert summarise(folder)["state"] == "stopped"
+
+
+def test_a_scan_stopped_before_it_starts_ends_as_a_scan(tmp_path):
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    scan = TINY + '\n[scan]\nname = "pressure"\npressure = ["0.5 bar", "1 bar"]\n'
+    folder = tmp_path / "s1"
+    spec = RunSpec("s1", str(folder), recipe=scan)
+    prepare(spec)
+    request_stop(folder)  # Stop pressed while the scan waits in the queue
+    run_module.execute(spec)
+    (ending,) = [e for e in read_events(folder)[0] if e.terminal]
+    assert ending.kind == "stopped" and ending.data["scan"] is True
+    assert ending.data["path"] == str(folder / "scan.h5")
+    assert ending.data["output"] is None
+    summary = summarise(folder)
+    assert (summary["state"], summary["scan"]) == ("stopped", True)
+
+
+def test_a_recipe_that_is_not_toml_fails_as_a_plain_run(tmp_path):
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    folder = tmp_path / "r1"
+    spec = RunSpec("r1", str(folder), recipe='[scan\nname = "pressure"\n')
+    prepare(spec)
+    run_module.execute(spec)
+    (ending,) = [e for e in read_events(folder)[0] if e.terminal]
+    # Not a scan, since it cannot be read as one: its ending names the run's file.
+    assert ending.kind == "failed" and "scan" not in ending.data
+    assert ending.data["path"] == str(folder / "run.h5")
+    assert ending.data["output"] is None
+    assert summarise(folder)["state"] == "failed"
+
+
+def test_a_stop_pressed_before_a_continued_run_starts_is_obeyed(tmp_path):
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    folder = prepare(RunSpec("r1", str(tmp_path / "r1"), recipe=TINY))
+    (folder / "run.h5").write_bytes(b"earlier part")
+    write_job(folder, Job("r1", "direct", socket.gethostname(), 0, None, None, 0.0))
+    (folder / "events.bin").write_bytes(b"")
+    request_stop(folder)  # how the earlier part was stopped
+    spec = RunSpec("r1", str(folder), resume=True)
+    prepare(spec)
+    request_stop(folder)  # Stop pressed while the continuation is starting
+    run_module.execute(spec)
+    (ending,) = [e for e in read_events(folder)[0] if e.terminal]
+    assert ending.kind == "stopped"
+    assert (folder / "run.h5").read_bytes() == b"earlier part"
+
+
+def test_a_run_continued_by_hand_sets_aside_its_earlier_record_and_stop(tmp_path):
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    folder = prepare(RunSpec("r1", str(tmp_path / "r1"), recipe=TINY))
+    (folder / "run.h5").write_bytes(b"")
+    write_job(folder, Job("r1", "direct", socket.gethostname(), 0, None, None, 0.0))
+    (folder / "events.bin").write_bytes(b"")
+    request_stop(folder)  # how the earlier part was stopped
+    # No launcher prepared it: the job itself finds the earlier part's record.
+    run_module.execute(RunSpec("r1", str(folder), resume=True))
+    assert (folder / "events-1.bin").exists() and (folder / "job-1.json").exists()
+    (ending,) = [e for e in read_events(folder)[0] if e.terminal]
+    assert ending.kind == "failed"  # it went on, and found no file to continue
+
+
+def test_a_continued_direct_run_is_starting_until_its_new_process_records_itself(
+    tmp_path,
+):
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    folder = tmp_path / "r1"
+    run_module.execute(RunSpec("r1", str(folder), recipe=TINY))
+    assert summarise(folder)["state"] == "finished"
+    prepare(RunSpec("r1", str(folder), resume=True))
+    # As start_direct records it: the new part's process (this one stands in for it)
+    # has started and not yet written its job.json.
+    here = socket.gethostname()
+    write_json(
+        folder / SUBMITTED,
+        {"launcher": "direct", "host": here, "pid": os.getpid(), "submitted": 1.0},
+    )
+    found = summarise(folder)
+    assert found["state"] == "starting"
+    assert (found["started"], found["ended"]) == (None, None)
+    assert json.loads((folder / "job-1.json").read_text(encoding="utf-8"))["ended"]
 
 
 def test_a_continued_run_s_folder_starts_a_new_record(tmp_path):

@@ -22,7 +22,7 @@ from collections.abc import Mapping
 from dataclasses import KW_ONLY, dataclass, field, replace
 from functools import cache, cached_property
 from types import MappingProxyType
-from typing import Literal
+from typing import Literal, cast
 
 import numpy as np
 from jaxtyping import Complex, Float
@@ -34,7 +34,7 @@ from scipy.special import jn_zeros, jv, jvp, kve
 from solprop._display import Displayed, engineering, line
 from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError
-from solprop.modes.fill import LossFunction
+from solprop.modes.fill import LossFunction, _alpha_values
 from solprop.modes.protocol import ChannelLabel, CrossSection
 from solprop.physdata.glasses import GlassIndex, fused_silica, lossless_index
 from solprop.profiles import ZProfile, as_profile
@@ -646,10 +646,28 @@ def _cutoff(kind: _Kind, n: int, m: int, ratio: float) -> float:
 
 @dataclass(frozen=True, eq=False, kw_only=True)
 class _ApertureIndex(GlassIndex):
-    """Implement the numerical-aperture core index and its material slope."""
+    """Implement the numerical-aperture core index and its material slope.
+
+    Compared by the index it computes, its cladding law and aperture, so that two
+    channels built for one fibre share a guide (:meth:`StepIndexMode.same_guide`).
+    """
 
     cladding: GlassIndex | float
     numerical_aperture: float
+
+    def __eq__(self, other: object) -> bool:
+        """Compare two aperture indices by cladding law and numerical aperture."""
+        if type(other) is not type(self):
+            return NotImplemented
+        aperture = cast("_ApertureIndex", other)
+        return (self.cladding, self.numerical_aperture) == (
+            aperture.cladding,
+            aperture.numerical_aperture,
+        )
+
+    def __hash__(self) -> int:
+        """Hash as :meth:`__eq__` compares."""
+        return hash((self.cladding, self.numerical_aperture))
 
     def _index_and_derivative(
         self, omega: Float[np.ndarray, "*shape"]
@@ -944,6 +962,44 @@ class StepIndexMode(Displayed):
             alpha=alpha,
         )
 
+    def same_guide(self, other: object) -> bool:
+        """Return whether another mode is a channel of this mode's physical guide.
+
+        Each channel bounds the cladding at its own outer radius, where its evanescent
+        field has decayed, so two channels of one fibre have different
+        ``dimlimits``; one guide means the same core radius and the same core and
+        cladding index laws. A set of such channels shares the widest of their discs
+        (:meth:`solprop.modes.collection.ModeCollection.dimlimits`).
+
+        Parameters
+        ----------
+        other : object
+            Another mode.
+
+        Returns
+        -------
+        bool
+            Whether `other` is a :class:`StepIndexMode` of the same radius, core and
+            cladding.
+
+        Examples
+        --------
+        >>> from solprop.modes import StepIndexMode
+        >>> one, two = (
+        ...     StepIndexMode(10e-6, core=1.46, cladding=1.44, m=m,
+        ...                   profile_wavelength=1e-6)
+        ...     for m in (1, 2)
+        ... )
+        >>> one.same_guide(two)
+        True
+        """
+        return (
+            isinstance(other, StepIndexMode)
+            and (self.radius is other.radius or self.radius == other.radius)
+            and self._core == other._core
+            and self._cladding == other._cladding
+        )
+
     def _radius(self, z: float) -> float:
         """Evaluate and validate the radius at every requested position.
 
@@ -1038,40 +1094,6 @@ class StepIndexMode(Displayed):
             return "alpha(omega)"
         return "none" if self.alpha == 0 else f"alpha {self.alpha:g} 1/m"
 
-    def _alpha_values(
-        self, omega: Float[np.ndarray, " n_omega"]
-    ) -> tuple[Float[np.ndarray, " n_omega"], Float[np.ndarray, " n_omega"]]:
-        """Return absolute power attenuation and its slope.
-
-        - ``omega``: positive angular frequencies in rad/s.
-        - Returns: attenuation in 1/m and its derivative in s/(rad m).
-        """
-        if not callable(self.alpha):
-            return np.full_like(omega, self.alpha), np.zeros_like(omega)
-        attenuation = np.asarray(self.alpha(omega), dtype=float)
-        if (
-            attenuation.shape != omega.shape
-            or not np.all(np.isfinite(attenuation))
-            or np.any(attenuation < 0)
-        ):
-            raise ModeError(
-                "alpha callable must return finite non-negative coefficients "
-                "with the shape of omega"
-            )
-        analytic = getattr(self.alpha, "derivative", None)
-        if callable(analytic):
-            slope = np.asarray(analytic(omega), dtype=float)
-        else:
-            # Same fourth-order difference and step as the existing absolute-loss
-            # path; the lossless eigenvalue derivative is always analytic.
-            step, curve = omega * 1e-5, self.alpha
-            wide = (curve(omega + step) - curve(omega - step)) / (2 * step)
-            narrow = (curve(omega + step / 2) - curve(omega - step / 2)) / step
-            slope = (4 * narrow - wide) / 3
-        if slope.shape != omega.shape or not np.all(np.isfinite(slope)):
-            raise ModeError("alpha derivative must be finite with the shape of omega")
-        return attenuation, slope
-
     def neff(
         self, omega: ArrayLike | float, z: float = 0.0
     ) -> Complex[np.ndarray, " n_omega"]:
@@ -1095,7 +1117,7 @@ class StepIndexMode(Displayed):
             If inputs are invalid or any frequency is below cutoff.
         """
         values = _checked_omega(omega)
-        attenuation, _ = self._alpha_values(values)
+        attenuation, _ = _alpha_values(self.alpha, values)
         return np.asarray(
             self._eigenpairs(values, z)[0] + 0.5j * C * attenuation / values
         )
@@ -1175,7 +1197,7 @@ class StepIndexMode(Displayed):
             if partial_index == 0 or not math.isfinite(float(partial_index)):
                 raise ModeError("eigenvalue derivative is singular")
             slope[row] = -partial_frequency / partial_index
-        attenuation, dattenuation = self._alpha_values(values)
+        attenuation, dattenuation = _alpha_values(self.alpha, values)
         result = np.asarray(
             slope + 0.5j * C * (dattenuation * values - attenuation) / values**2
         )
@@ -1228,7 +1250,15 @@ class StepIndexMode(Displayed):
 
     @property
     def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
-        """Azimuthal mode index n."""
+        """Azimuthal mode index n.
+
+        This departs from the :class:`~solprop.modes.protocol.Mode` definition,
+        the highest harmonic of the profile: the Cartesian components of ``HE_nm``
+        and ``EH_nm`` carry harmonics up to ``n + 1``, and those of ``TE_0m`` and
+        ``TM_0m`` up to 1. A rule sized from it alone is too small;
+        :meth:`~solprop.modes.stepindex_vector.StepIndexProvider.node_rule` sizes
+        its own polar rule from ``n + 1``.
+        """
         return self.n
 
     def principal_component(self, z: float = 0.0) -> None:
@@ -1558,7 +1588,7 @@ class StepIndexMode(Displayed):
 
         omega, z = float(omega), float(z)
         # A public boundary owes its caller a ModeError, not the AttributeError a
-        # list of pairs used to raise on the first `.ndim` inside the field helper.
+        # list of pairs raises on the first `.ndim` inside the field helper.
         points = np.asarray(xy, dtype=float)
         if points.ndim != 2 or points.shape[1] != 2:
             raise ModeError(

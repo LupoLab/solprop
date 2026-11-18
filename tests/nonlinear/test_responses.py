@@ -246,7 +246,7 @@ def test_envelope_response_radiates_the_third_harmonic_only_when_declared(
 def test_thg_carrier_is_the_squared_carrier():
     t = np.linspace(-1e-14, 1e-14, 33)
     omega0 = 1.8e15
-    assert np.allclose(thg_carrier(omega0, t), np.exp(1j * omega0 * t) ** 2)
+    assert np.allclose(thg_carrier(omega0, t), np.exp(1j * omega0 * t) ** 2, atol=0.0)
 
 
 def test_thg_carrier_rejects_a_non_positive_frequency():

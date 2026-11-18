@@ -10,12 +10,12 @@ which mixes widely separated colours, therefore uses a coefficient that is right
 some of its processes and wrong for others.
 
 This page describes the two **dispersive electronic policies** of
-[SEP 6](../../dev/seps/archive/sep-0006-dispersive-nonlinearity.md), which evaluate optmat's whole
+[SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md), which evaluate optmat's whole
 fit of a gas's hyperpolarisability at the absolute frequencies of every quartet the
 cubic couples, in one broadband polarisation. It is for readers who want to know which
 polarisation such a run computes, what each of the two evaluators approximates and what
 it costs, what happens where the field leaves the gas's data, and how to read what a run
-recorded. The [tutorial](../../auto_tutorials/capillaries/plot_11_dispersive_kerr) runs
+recorded. The [tutorial](../../auto_tutorials/capillaries/plot_11_dispersive_kerr.rst) runs
 both of SEP 6's demonstration cases under all three policies.
 
 | `MaterialSelection.electronic` | Response | What it evaluates |
@@ -147,8 +147,8 @@ polarisation off the edges of the time window, multiplies each product in time
 before its output multipliers and $\Pi_+$: $G[w\,(GE)^3]$, and likewise for every
 term of the polynomial. The constant cubic's collar multiplies its polarisation, and
 with no output multiplier the two orders coincide. For the dispersive evaluators the difference depends on the filtered fields and products near the collar.
-Check it by enlarging the window while retaining resolution. The earlier comparison found a difference of a few parts in
-$10^3$ for a pulse at nine tenths of the half-window. A statement of equivalence
+Check it by enlarging the window while retaining resolution. For a pulse at nine tenths
+of the half-window the difference is a few parts in $10^3$. A statement of equivalence
 for a well-contained pulse is conditional on the filtered field also remaining
 clear of the collar.
 
@@ -235,7 +235,7 @@ translation, per gas, into three regions:
 A run whose band reaches the bounded or best-effort region logs that once, at INFO,
 naming the gas and the band; nothing is refused and nothing warns per step. The leg
 bounds and band edges are optmat's, read from its support record, never written into
-solprop; at optmat 0.8.0 (unchanged since 0.4.0), for one linear polarisation:
+solprop; at optmat 0.10, for one linear polarisation:
 
 | Gas | Leg bound (nm) | Band edge (nm) |
 |---|---:|---:|
@@ -248,7 +248,7 @@ solprop; at optmat 0.8.0 (unchanged since 0.4.0), for one linear polarisation:
 | CO₂, CH₄, SF₆, N₂O, O₃ | 230.1, 224.7, 215.9, 383.4, 401.0 | undefined: no curated two-photon limit, so best effort beyond the leg bound |
 
 Air has no fit of its own; each of its populations carries its own, and O₂ makes air
-best effort below about 305 nm. CO₂, CO and O₃ have optmat fits but are not yet
+best effort below about 305 nm. CO₂, CO and O₃ have optmat fits but are not
 built-in species.
 
 ## Pump dynamics and emission in one response
@@ -274,7 +274,7 @@ The dispersive wave's wavelength is set by phase matching to the soliton's nonli
 wavenumber, which comes from the exactly evaluated self-phase modulation, so it moves
 little between the policies; its energy, and its evolution after emission, are what
 change. In the full-size case (the
-[worked example](../../auto_examples/processes/plot_07_rdw_dispersive_kerr)) the
+[worked example](../../auto_examples/processes/plot_07_rdw_dispersive_kerr.rst)) the
 100–150 nm band at the exit carries about 30 % more energy under both dispersive
 policies than under the carrier one with two or four modes, and about 53 % more with
 one, and its centre moves by 2–3 nm; in the tutorial's shorter two-mode case, about
@@ -416,7 +416,7 @@ factorisation's own departure from the polynomial, 0.9 % and 1.3 %: as an approx
 of the polynomial the mixture's filter is as good as the exact sum. In a 3 cm, 150 µJ
 capillary run the exit field's nonlinear change departs from the polynomial's by 0.29 %
 (helium and argon) and 0.36 % (air), against 0.27 % and 0.29 % for the exact sum and
-5–6 % for the carrier policy ([SEP 6](../../dev/seps/archive/sep-0006-dispersive-nonlinearity.md)).
+5–6 % for the carrier policy ([SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md)).
 
 A supplied species, which carries no optmat model, is refused under a dispersive policy
 by name rather than given a borrowed curve; air resolves through its populations.
@@ -435,8 +435,8 @@ components is not represented. The run records it as `"isotropic-kleinman"`.
 
 Both of SEP 6's demonstration cases were run at full size, under all three policies on
 the default backend, in the worked examples
-[the dispersive wave under a frequency-dependent response](../../auto_examples/processes/plot_07_rdw_dispersive_kerr)
-and [deep-ultraviolet four-wave mixing in argon](../../auto_examples/processes/plot_08_duv_fwm_dispersive_kerr).
+[the dispersive wave under a frequency-dependent response](../../auto_examples/processes/plot_07_rdw_dispersive_kerr.rst)
+and [deep-ultraviolet four-wave mixing in argon](../../auto_examples/processes/plot_08_duv_fwm_dispersive_kerr.rst).
 Each difference below is the carrier policy's against the polynomial's, and the symmetric
 evaluator's against the polynomial's. Values are rounded from the recorded example output.
 
@@ -615,7 +615,7 @@ entry["regions"]["best_effort"]  # None: the band stays inside argon's band edge
 ```
 
 After a run the same manifest is `output.metadata.materials`, and the
-[tutorial](../../auto_tutorials/capillaries/plot_11_dispersive_kerr) shades the regions on a
+[tutorial](../../auto_tutorials/capillaries/plot_11_dispersive_kerr.rst) shades the regions on a
 spectrum from it.
 
 ## Limitations
@@ -644,4 +644,4 @@ spectrum from it.
   Hopper device (CUDA).
 
 This page documents the functionality proposed and implemented by
-[SEP 6](../../dev/seps/archive/sep-0006-dispersive-nonlinearity.md).
+[SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md).

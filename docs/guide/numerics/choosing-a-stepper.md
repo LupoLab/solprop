@@ -19,7 +19,7 @@ a problem that wants another one.
 ## The defaults
 
 Each interface has its own default integrator and tolerances. All but one were chosen by
-[SEP 37](../../dev/seps/archive/sep-0037-noise-and-stepper-defaults.md)'s rule: the fastest
+[SEP 37](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0037-noise-and-stepper-defaults.md)'s rule: the fastest
 method at matched accuracy on the benchmark suite's cases for that interface, with noise
 on and off, among the methods every route of the interface admits. The capillary is the
 exception: the rule prefers `RungeKutta()` there, and `prop_capillary` keeps
@@ -58,41 +58,25 @@ on this page about each method's tolerance was measured at the levels it names, 
 `rtol=` beside `integrator=` when you change the method; for instance, the capillary's
 Runge–Kutta comparison below is at `1e-5`.
 
-On the GNLSE, the Runge–Kutta march is 2.5 to 4.8 times faster than the exponential
-Adams method at matched accuracy, more with noise. On the waveguide route it is 4 times
-faster; the interaction-formulation Adams method is faster still there but refuses the
-coupled flows some waveguide routes carry. On the capillary the Adams method is the
-default for every representation, by the maintainer's decision against the rule
-([ADR-055](../../dev/decisions.md)): it wins the runs the capillary is mostly used for,
-and loses the single-mode runs with plasma or Raman. With several resolved modes the
-source beats at the modes' phase mismatches: the interaction-picture march has to
-resolve that beat within its steps (going from one resolved mode to four multiplies its
-steps by 3.6 on the RDW capillary), while the exponential Adams method carries it in its
-propagator and is 2.1 to 2.2 times faster there at its 1e-6 than the Runge–Kutta march at
-its 1e-5. With one mode, or a mode-averaged one, the Adams method at 1e-6 was 1.35 to 3
-times faster than the Runge–Kutta march at 1e-5 on the Kerr-only worked examples, and
-more accurate (on self-phase modulation in argon, a field error of 4e-5 against 3e-4).
-It spends one response evaluation per step where the Runge–Kutta march spends six, so
-an expensive response widens the gap. The dispersive Kerr policies
-(`MaterialSelection(electronic="symmetric-kerr")` or `"gas-polynomial"`) cost more per
-evaluation than the carrier Kerr default: on a single-mode argon four-wave-mixing scan
-with them, the Adams method was 3.6 times faster. On one mode or a mode-averaged one
-with Raman or plasma, `RungeKutta()` is the faster choice: about twice as fast at 1e-5 on
-the ionisation blueshift example, and 1.1 to 2.9 times on the benchmark suite's
-single-mode and mode-averaged capillary cases, at a field error still far inside the
-spectral budget below. There the Adams method needs about as many source calls as the
-Runge–Kutta march, and on a cheap source each of its steps costs up to about twice a
-Runge–Kutta stage. The TDSE response runs only on `Multistep()`. The radial and
-planar defaults hold their methods, which are faster there than the Runge–Kutta march
-(by 1.4 to 2.4 times on the radial filament), and set a tolerance where the caller gave
-no controller. A free-space run takes the Runge–Kutta march: the Adams history's
-memory rules the multistep method out for a large transverse state. Its tolerance is
-looser because the spectrum never set it: on a Cartesian Kerr beam near self-focusing,
-every level from 1e-3 to 1e-6 kept the spectrum within 0.002 dB of a tight reference,
-and 1e-4 was taken for a field error 2.5 times smaller than at 1e-3. The adaptive march
-needs no step calibration, and on that beam it was 26 to 53 times faster than a
-0.5 µm fixed RK4IP schedule. A fixed `LowStorageRungeKutta()` step calibrated to the
-same error is cheaper still, by about 1.6 times, and uses about half the memory.
+Each default is the faster method on its interface's usual runs ([measured](#measured)
+below, and the [gallery](#the-gallery)). On the capillary the Adams method is the default
+for every representation, by the maintainer's decision against the rule
+([ADR-055](../../dev/decisions.md)): it wins the runs the capillary is mostly used for and
+loses the single-mode runs with plasma or Raman. With several resolved modes the source
+beats at the modes' phase mismatches, which the interaction-picture march has to resolve
+within its steps and the exponential Adams method carries in its propagator (2.1 to 2.2
+times faster on the RDW capillary at its 1e-6 than the Runge–Kutta march at its 1e-5); it
+spends one response evaluation per step where the Runge–Kutta march spends six, so an
+expensive response widens the gap. On one mode or a mode-averaged one with Raman or
+plasma, `RungeKutta()` is the faster choice: there the Adams method needs about as many
+source calls, and on a cheap source each of its steps costs up to about twice a
+Runge–Kutta stage. The TDSE response runs only on `Multistep()`. The radial and planar
+defaults hold their methods, which are faster there than the Runge–Kutta march, and set a
+tolerance where the caller gave no controller. A free-space run takes the Runge–Kutta
+march: the Adams history's memory rules the multistep method out for a large transverse
+state. Its tolerance is looser because the spectrum never set it: on a Cartesian Kerr
+beam near self-focusing, every level from 1e-3 to 1e-6 kept the spectrum within 0.002 dB
+of a tight reference.
 
 The tolerances were set by a convergence test: the loosest of three levels a decade
 apart at which a seeded ensemble's mean spectrum stays within 0.5 dB, above −40 dB of
@@ -168,7 +152,7 @@ the Adams method pays it for each call, and adds its history's arithmetic. When 
 dominates — a multimode transform pair, an ionisation rate, a Raman convolution, a
 transverse transform — fewer calls is less time, nearly in proportion. When a call is
 a few fast Fourier transforms of a single mode, the step's own work weighs as much, and
-three times fewer calls can be slower. The compiled backends make calls cheap, which is
+three times fewer calls can be slower. The native backend makes calls cheap, which is
 why the ranking is measured per backend rather than read off the call count.
 
 **How complicated the nonlinearity is.** A richer response costs more per call, which
@@ -211,7 +195,7 @@ its steps.
 
 Indicative ratios at matched error against a converged reference, one thread on a shared
 Darwin/arm64 workstation (the [gallery](#the-gallery) below has every point, and the
-devices; [the benchmark notes](../../dev/benchmarks.md#indicative-results) say how to read
+devices; [the benchmark rules](../../dev/benchmarks.md#rules) say how to read
 such ratios). Ratios are the Runge–Kutta march's time over the default's: above one, the
 default is faster.
 
@@ -272,7 +256,7 @@ doesn't fit fails with an out-of-memory error
 
 `LowStorageRungeKutta()` is the classical fourth-order Runge–Kutta method in the
 interaction picture anchored at each step's midpoint, Hult's RK4IP
-([SEP 24](../../dev/seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md)). Only
+([SEP 24](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md)). Only
 forward half-step flows are applied, and on a constant operator one factor
 $e^{hD/2}$ serves every one of them. Each slope is folded into a running sum as soon as
 it is produced, so beside the source pipeline's scratch a step needs three copies of
@@ -311,8 +295,8 @@ signal between a step's first source evaluation and its commit leaves a state th
 neither end of the step. The backend then refuses to be observed or stepped until a
 state is loaded again, and the run writes no terminal checkpoint, saying why: the file
 ends at its last saved plane, from which `resume=True` continues, and `step_planes=k`
-bounds the loss to `k` steps. A last plane that kept no field is held by the backend,
-one more copy of the state, and checkpointed instead
+bounds the loss to `k` steps. A file whose last plane kept no field cannot be resumed
+from there (`resume=True` refuses it by name), so keep the field at some planes
 ([field retention](../results/output.md)). A field that diverges is caught on the accepted state, in
 flight, with the same consequence. The march also watches its own stiffness: when the
 indicator $h\rho$ of SEP 24 §6.3 passes 2.785 on a step -- strong plasma loss near
@@ -419,5 +403,5 @@ A planar guide: two slab modes. {download}`CSV <../figures/stepper-gallery/plana
 ```
 
 The qualification on this page was proposed and carried out by
-[SEP 16](../../dev/seps/archive/sep-0016-unified-multistep.md); the dense-gas advice
-comes from [SEP 35](../../dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md).
+[SEP 16](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0016-unified-multistep.md); the dense-gas advice
+comes from [SEP 35](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md).

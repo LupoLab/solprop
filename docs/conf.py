@@ -25,6 +25,9 @@ from sphinx.errors import ConfigError
 from sphinx_gallery.sorting import ExplicitOrder
 from sphinx_gallery.utils import get_md5sum
 
+_DOCS = Path(__file__).parent
+sys.path.insert(0, str(_DOCS))  # api_surface and gallery_session, named below
+
 # Read the Docs discards the log of a build it stops at its time limit. There
 # `docs/build-on-read-the-docs.sh` sets SOLPROP_DOCS_WATCHDOG to a delay in seconds
 # after which every thread's stack is written to the log, before the build is stopped.
@@ -40,11 +43,6 @@ os.environ.setdefault("SOLPROP_CALIBRATION", "off")
 # runtime before autodoc or a tutorial imports the rest of the stack, as the tests do.
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
-
-# Initialise the reference backend through its package entry point before
-# autosummary visits its implementation modules in an arbitrary order. Importing
-# populations first encounters the package's existing circular initialisation.
-importlib.import_module("solprop.backends.numpy_ref")
 
 project = "solprop"
 author = "John C. Travers and contributors"
@@ -78,6 +76,9 @@ exclude_patterns = [
     "tutorials/*/README.rst",
     "examples/README.rst",
     "examples/*/README.rst",
+    # Archived enhancement proposals are kept in the repository as records, not built
+    # into the manual; pages link each one's file on GitHub (SEP 0, section 4).
+    "dev/seps/archive/**",
 ]
 
 # --- myst
@@ -95,6 +96,11 @@ myst_heading_anchors = 3
 # ---------------------------------------------------------------------
 autosummary_generate = True
 autosummary_imported_members = False
+# A package page documents the public names that no submodule's page can (the module
+# template says why); `tests/test_api_reference.py` holds the result to `__all__`.
+autosummary_context = {
+    "package_members": importlib.import_module("api_surface").package_members()
+}
 # Source links belong to the defining module. Following re-exported aliases makes
 # viewcode reuse one alias prefix with another page's anchors, breaking backlinks.
 # The complete API still documents aliases; their home modules retain source links.
@@ -137,8 +143,6 @@ intersphinx_timeout = 10
 nitpicky = True
 nitpick_ignore = [
     ("py:class", "logging.Logger"),
-    # Removed with numba_cpu (SEP 43); the Final SEP 18 keeps its reference as history.
-    ("py:mod", "solprop.backends.bodies"),
     # The private base of the two tabulated hollow modes. `show-inheritance`
     # emits it under "Bases:" for both subclasses; documenting it to satisfy the
     # reference would publish an underscore name in the API reference and its
@@ -185,13 +189,13 @@ nitpick_ignore_regex = [
 # Three galleries, each with committed output: the introductory lessons
 # (`introduction/tutorials/` → `introduction/lessons/`), which run developed physical
 # problems; the focused tutorials (`tutorials/` → `auto_tutorials/`); and the worked
-# examples (`examples/` → `auto_examples/`), full-size runs of minutes to half an hour
-# each. A normal build executes none of them: their generated pages, figures and
-# sphinx-gallery checksums are committed, and sphinx-gallery reuses a script's stored
-# output unchanged whenever the source's checksum matches the stored one. The build
-# that publishes the manual therefore runs no gallery (Read the Docs' builders stalled
-# on the lessons and tutorials from 2026-10-29); its only propagations are three short
-# `.. plot::` blocks on `numpy_ref` in `guide/waveguides/` (`vector-wall.md`, and
+# examples (`examples/` → `auto_examples/`), full-size runs of a few seconds to about
+# ten minutes each. A normal build executes none of them: their generated pages, figures
+# and sphinx-gallery checksums are committed, and sphinx-gallery reuses a script's
+# stored output unchanged whenever the source's checksum matches the stored one. The
+# build that publishes the manual therefore runs no gallery (Read the Docs' builders
+# stalled on the lessons and tutorials from 2026-10-29); its only propagations are three
+# short `.. plot::` blocks on `numpy_ref` in `guide/waveguides/` (`vector-wall.md`, and
 # `coherent-wall.md` twice).
 #
 # `SOLPROP_RUN_EXAMPLES` executes them. "stale" (`poe docs-examples`) runs every
@@ -206,8 +210,6 @@ nitpick_ignore_regex = [
 # code and figures disagree, with nothing on it to say so, and rendering it without
 # output would overwrite the committed page in the working tree. The refusal names the
 # command that refreshes it (`_check_committed_galleries` below).
-_DOCS = Path(__file__).parent
-sys.path.insert(0, str(_DOCS))  # gallery_session, named below
 _GALLERIES = (
     (_DOCS / "introduction" / "tutorials", _DOCS / "introduction" / "lessons"),
     (_DOCS / "tutorials", _DOCS / "auto_tutorials"),

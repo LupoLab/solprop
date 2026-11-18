@@ -12,6 +12,7 @@ test-only ADK oracle (``tests/rate_oracles.py``), which compares like with like.
 
 import dataclasses
 import math
+import re
 import warnings
 from functools import partial
 from typing import Any, cast
@@ -130,7 +131,7 @@ def test_optmats_tracker_ids_are_dropped_from_a_rate_range_warning():
     text = "below 350 nm (the carrier) the rate is extrapolated"
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        warnings.warn(f"{text} (TC-831)", ModelRangeWarning, stacklevel=1)
+        warnings.warn(f"{text} (TC-1)", ModelRangeWarning, stacklevel=1)
     with (
         _optmat.material_context() as log,
         pytest.warns(MaterialRangeWarning) as raised,
@@ -157,6 +158,22 @@ def test_the_ceiling_clips_and_a_field_must_be_finite():
     assert float(rate(rate.maximum_field)) == 1e10
     with pytest.raises(MaterialError, match="finite"):
         rate(np.array([1e10, np.nan]))
+
+
+def test_a_nan_rate_from_optmat_is_refused_and_an_infinite_one_clipped(monkeypatch):
+    rate = OptmatRate("Ar", WAVELENGTH, maximum=1e10)
+    field = 0.5 * rate.maximum_field
+
+    def raw(self: OptmatRate, fields: np.ndarray) -> np.ndarray:
+        return np.full_like(fields, value)
+
+    monkeypatch.setattr(OptmatRate, "_raw", raw)
+    value = math.inf
+    assert float(rate(field)) == 1e10
+    value = math.nan
+    expected = rf"Ar: optmat's rate nan at {re.escape(f'{field:.4g}')} V/m"
+    with pytest.raises(MaterialError, match=expected):
+        rate(np.array([0.0, field]))
 
 
 def test_a_rate_table_reproduces_the_direct_rate_and_holds_above_the_maximum():
@@ -535,7 +552,7 @@ def test_construction_refuses_what_optmat_does_not_serve():
     ):
         with pytest.raises(MaterialError, match=keyword):
             OptmatRate("Ar", WAVELENGTH, **cast("Any", {keyword: value}))
-    with pytest.raises(MaterialError, match="wavelength must be positive"):
+    with pytest.raises(MaterialError, match="wavelength must be finite and positive"):
         OptmatRate("Ar", True)
     for span in ((1e9, 1e8), (0.0, 1e9), (1e9, math.inf)):
         with pytest.raises(MaterialError, match="field_range"):

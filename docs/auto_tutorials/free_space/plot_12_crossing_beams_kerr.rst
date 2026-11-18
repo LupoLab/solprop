@@ -126,7 +126,7 @@ meet at 0.4 mm / tan(5 mrad) = 8 cm.
  .. code-block:: none
 
     BoundaryWarning: the safety ramp has removed 1.40e-06 of the launch energy above the input noise's share: content reached the grid's outer wavenumbers; refine the transverse grid (SEP 40 section 5.3)
-    Both runs in 5.6 s
+    Both runs in 7.5 s
 
 
 
@@ -225,7 +225,7 @@ beams; the linear crossing is :doc:`/introduction/lessons/plot_04_crossing_beams
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 8.958 seconds)
+   **Total running time of the script:** (0 minutes 10.252 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_12_crossing_beams_kerr.py:

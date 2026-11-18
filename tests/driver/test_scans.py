@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import os
+import re
 import time
 from collections.abc import Mapping
 from typing import cast
@@ -24,6 +25,7 @@ from march_bounds import (
     simulation_bound,
 )
 from solprop import _process
+from solprop.driver import _scan_run
 from solprop.driver._scan_context import _EXECUTOR
 from solprop.driver._scan_model import name_seed
 from solprop.driver.executors import Local, pool
@@ -35,6 +37,7 @@ from solprop.grid import EnvelopeGrid
 from solprop.noise import input_noise
 from solprop.output._scan_lock import lock_path
 from solprop.output.hdf5 import _dataset, _group
+from solprop.output.scan import ScanWriter
 from solprop.processing import scans
 from solprop.pulses import SechPulse
 from solprop.scan import main
@@ -115,23 +118,58 @@ def test_scan_order_global_subsets_and_seed_independence():
     assert [p.seed for p in explicit.points()] == [7, 8]
 
 
+def test_derived_point_seeds_follow_the_documented_rule():
+    # Literals computed once from the documented derivations: a scan's base seed, or the
+    # little-endian first eight bytes of SHA-256 of its name, as the root entropy of
+    # SeedSequence([root, global_index]).generate_state(1, dtype=uint64)[0].
+    assert [name_seed("unseeded", index) for index in (0, 1)] == [
+        13766556482837212248,
+        10884373728482101469,
+    ]
+    assert [p.seed for p in Scan("s", base_seed=91, x=[0, 1]).points()] == [
+        15497448034978523998,
+        1624429969735552845,
+    ]
+
+
 @pytest.mark.parametrize(
-    "call",
+    ("values", "row"),
     [
-        lambda: Scan("bad/name"),
-        lambda: Scan("scan", power=[[1, 2]]),
-        lambda: Scan("scan", seed=[-1]),
-        lambda: Scan("scan", base_seed=-1),
-        lambda: Scan("scan", power=[1]).point(1),
-        lambda: Scan("scan", power=[1]).chunk(1, 1),
-        lambda: Scan("scan", power=[1]).subset([0, 0]),
-        lambda: Scan("scan", power=[1]).subset([0]).add("extra", [1]),
-        lambda: Scan("scan", power=[1]).add("power", [2]),
-        lambda: Scan("scan").add("", [1]),
+        ([1.0, 2.5], "2 values, 1 to 2.5"),
+        (["He", "Ar"], "2 values, 'He' to 'Ar'"),
+        ([], "no values"),
+        ([{"gas": "He"}], "1 values, {'gas': 'He'} to {'gas': 'He'}"),
     ],
 )
-def test_scan_invalid_declarations(call):
-    with pytest.raises(DriverError):
+def test_a_printed_scan_describes_each_axis_whatever_its_kind(values, row):
+    lines = str(Scan("scan", power=values)).splitlines()
+    key, value = lines[1].split(":", 1)
+    assert (key.strip(), value.strip()) == ("power", row)
+
+
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        (lambda: Scan("bad/name"), "no path separators"),
+        (lambda: Scan("scan", power=[[1, 2]]), "must be one-dimensional"),
+        (lambda: Scan("scan", seed=[-1]), "seed values must be non-negative"),
+        (lambda: Scan("scan", base_seed=-1), "base_seed must be a non-negative"),
+        (lambda: Scan("scan", power=[1]).point(1), "outside scan size 1"),
+        (lambda: Scan("scan", power=[1]).chunk(1, 1), "chunk requires n > 0"),
+        (lambda: Scan("scan", power=[1]).subset([0, 0]), "must be unique members"),
+        (
+            lambda: Scan("scan", power=[1]).subset([0]).add("extra", [1]),
+            "cannot add variables to a selected scan",
+        ),
+        (
+            lambda: Scan("scan", power=[1]).add("power", [2]),
+            "repeated scan variable 'power'",
+        ),
+        (lambda: Scan("scan").add("", [1]), "repeated scan variable ''"),
+    ],
+)
+def test_scan_invalid_declarations(call, message):
+    with pytest.raises(DriverError, match=re.escape(message)):
         call()
 
 
@@ -355,8 +393,9 @@ def test_periodic_statistics_equal_single_run(tmp_path):
         )
 
 
-def test_scan_reclaims_stale_running_and_leaves_recent_claim(tmp_path):
-
+def test_scan_reclaims_a_running_point_whatever_its_age(tmp_path):
+    # The controller holds the file's lock for its whole session, so a `running`
+    # mark it finds was left by a controller that has gone, however recent.
     scan = Scan("scan", power=[1.0, 2.0])
     path = tmp_path / "scan.h5"
     output = run_scan(scan.subset([0]), build_point, output=path, progress="none")
@@ -364,11 +403,84 @@ def test_scan_reclaims_stale_running_and_leaves_recent_claim(tmp_path):
         _dataset(file, "points/status")[1] = "running"
         _dataset(file, "points/updated")[1] = time.time()
     run_scan(scan, build_point, output=path, progress="none")
-    assert output.status.tolist() == ["done", "running"]
-    with h5py.File(path, "a") as file:
-        _dataset(file, "points/updated")[1] = 0.0
+    assert output.status.tolist() == ["done", "done"]
+
+
+class ClaimThenFail:
+    """An executor that claims every point and then fails before running any."""
+
+    def run(self, points, work):
+        claimed = list(points)
+        assert claimed
+        raise RuntimeError("deliberate executor failure")
+        yield  # a generator, as an executor's run is
+
+
+class ClaimThenReturn:
+    """An executor that claims every point and then ends without running any."""
+
+    def run(self, points, work):
+        claimed = list(points)
+        assert claimed
+        return
+        yield  # a generator, as an executor's run is
+
+
+def test_a_failed_executor_gives_its_claimed_points_back(tmp_path):
+    scan = Scan("scan", power=[1.0, 2.0])
+    path = tmp_path / "scan.h5"
+    with pytest.raises(RuntimeError, match="deliberate executor failure"):
+        run_scan(
+            scan, build_point, output=path, executor=ClaimThenFail(), progress="none"
+        )
+    output = scans.ScanOutput(path)
+    assert output.status.tolist() == ["todo", "todo"]
     run_scan(scan, build_point, output=path, progress="none")
     assert output.status.tolist() == ["done", "done"]
+
+
+@pytest.mark.parametrize(
+    ("executor", "raised"),
+    [
+        (ClaimThenFail(), (RuntimeError, "deliberate executor failure")),
+        (ClaimThenReturn(), (OSError, "deliberate write failure")),
+    ],
+    ids=["failing", "ending"],
+)
+def test_a_failing_release_still_closes_the_writer(
+    tmp_path, monkeypatch, caplog, executor, raised
+):
+    """Giving the claims back writes to the file; when that fails too, the writer is
+    still closed, so its lock is released. A failing scan reports its own error and
+    logs the release's; a scan that ended reports the release's."""
+    closed = []
+    close = ScanWriter.close
+
+    def recording_close(self, **keywords):
+        closed.append(self.path)
+        close(self, **keywords)
+
+    def failing_release(writer, index, claim):
+        raise OSError("deliberate write failure")
+
+    monkeypatch.setattr(ScanWriter, "close", recording_close)
+    monkeypatch.setattr(_scan_run, "_release", failing_release)
+    path = tmp_path / "scan.h5"
+    with (
+        caplog.at_level(logging.ERROR, logger="solprop.driver._scan_run"),
+        pytest.raises(raised[0], match=raised[1]),
+    ):
+        run_scan(
+            Scan("scan", power=[1.0, 2.0]),
+            build_point,
+            output=path,
+            executor=executor,
+            progress="none",
+        )
+    assert closed == [path]
+    # The release's own error is logged when the scan's replaces it, not lost.
+    logged = "deliberate write failure" in caplog.text
+    assert logged == isinstance(executor, ClaimThenFail)
 
 
 def test_resume_builder_failure_keeps_the_completed_point_and_its_arrays(
@@ -412,17 +524,22 @@ def test_pool_rejects_unpickleable_builder_before_output(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "controls",
+    ("controls", "message"),
     [
-        {"fields": "planes"},
-        {"fields": "none", "field_planes": [0]},
-        {"stale_age": 0.0},
-        {"stats": "energy"},
-        {"reductions": [scans.peak_power(), scans.peak_power()]},
+        ({"fields": "planes"}, "field_planes is required exactly when"),
+        (
+            {"fields": "none", "field_planes": [0]},
+            "field_planes is required exactly when",
+        ),
+        ({"stats": "energy"}, "stats must be all, none or a sequence of names"),
+        (
+            {"reductions": [scans.peak_power(), scans.peak_power()]},
+            "reduction names must be unique",
+        ),
     ],
 )
-def test_scan_rejects_invalid_retention(tmp_path, controls):
-    with pytest.raises(DriverError):
+def test_scan_rejects_invalid_retention(tmp_path, controls, message):
+    with pytest.raises(DriverError, match=message):
         run_scan(
             Scan("scan", power=[1.0]),
             build_point,

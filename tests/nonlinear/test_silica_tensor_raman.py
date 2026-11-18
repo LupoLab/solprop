@@ -179,7 +179,7 @@ def test_the_vibrational_shape_is_the_existing_damped_oscillator(response, delay
 
 
 def test_the_seam_kernels_integrate_to_five_sixths_and_one_sixth(response):
-    """The A2 companion's 5/6 and 1/6, and not the paper's own 3/4 and 1/4.
+    """The seam's 5/6 and 1/6, derived below, and not the paper's own 3/4 and 1/4.
 
     ``r_trace = a + b/3`` and ``r_rank = 2 b/3`` come from matching
     ``a tr(Q) E + b Q E`` to the trace and ``T(Q) = (3 Q - tr(Q) I)/2`` channels the
@@ -392,7 +392,7 @@ def scalar_oracle(response, field, chi3, *, thg=True):
             numpy.ndarray
                 The kernel, 1/s.
             """
-            assert np.allclose(t, delays)
+            assert np.allclose(t, delays, atol=0.0)
             return self.values
 
     total = np.zeros_like(field)

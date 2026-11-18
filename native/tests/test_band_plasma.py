@@ -373,7 +373,7 @@ def test_the_band_rule_matches_the_reference_on_every_route(name: str) -> None:
 @pytest.mark.parametrize(
     ("trange", "ffac", "half"),
     [
-        (5e-15, 2.0, 6),  # n_to = 8 < 2K: both ends reflect into one window
+        (5e-15, 2.2, 6),  # the smallest ffac: both ends reflect into one window
         (5e-15, 4.0, 8),  # n_to = 16 = 2K: the two edge regions meet
         (1e-14, 4.0, 8),  # n_to = 32 < 3K + 2K + 1: every stage on an edge
     ],

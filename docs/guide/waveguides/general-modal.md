@@ -93,8 +93,8 @@ output = prop_waveguide(
 ```
 
 The run warns once, with a {py:class}`~solprop.exceptions.GeneralModalBasisWarning`:
-thirteen knots leave the interpolated basis $1.1\times10^{-4}$ from orthonormal near
-1.73 µm, at the long-wavelength edge of the active band where the launched pulse puts no
+thirteen knots leave the interpolated basis $1.0\times10^{-4}$ from orthonormal near
+1.72 µm, at the long-wavelength edge of the active band where the launched pulse puts no
 light. The warning, and why it is a warning rather than a refusal, are explained under
 [normalisation](modal-projection.md#normalisation-and-why-the-power-weight-is-one); more knots remove it.
 
@@ -126,7 +126,7 @@ the basis's flux metric is the pulse's, and the run records
 `incident=` takes a {class}`~solprop.pulses.SpatialPulse` — a Gaussian or super-Gaussian
 beam carrying its own temporal pulse — and launches what the guide's channels capture of
 it, coupled under a declared model
-([SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md);
+([SEP 31](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0031-simulation-coupling.md);
 [coupling simulations](../workflows/coupling.md)):
 
 ```text
@@ -199,10 +199,9 @@ Every gas keyword is **refused by name** beside a provider — `gas`, `pressure`
 `temperature`, `kerr`, `thg`, `plasma`, `raman`, `n_r`, `n_theta` and the rest — because
 a guide owns its materials, its responses and its transverse rule, and a keyword
 silently ignored would let you believe a fill or a resolution had been applied.
-`observable_rtol` and `observable_atol` are accepted as `None`, which means the
-solver's own `rtol` and `atol`: the route's basis is orthonormal in true power, so the
-controller's weighted norm on the amplitudes already is a norm on the physical channel
-powers.
+The accuracy of the run's observables is the solver's own `rtol` and `atol`: the
+route's basis is orthonormal in true power, so the controller's weighted norm on the
+amplitudes already is a norm on the physical channel powers.
 
 For a worked example that runs and plots, see
 {doc}`../../auto_tutorials/waveguides/plot_05_general_modal`; for a **graded-index** guide, its
@@ -217,7 +216,7 @@ multimode fibre at full size.
 **A guide must be solved over at least twice the band a run declares.**
 `Grid.active_mask` runs from half the lowest declared frequency to the window's highest,
 so the `FieldGrid` above, declared over 790–890 nm, has an active band of
-724.9–1774.0 nm — a factor 2.45 in frequency — and the guide's table must cover all of
+722.3–1763.7 nm — a factor 2.44 in frequency — and the guide's table must cover all of
 it, at the low end of which a weakly bound mode reaches furthest into the cladding and a
 truncating node rule discards most of it. Outside the table's own knots the stored
 reference is an explicit zero, and a run that reaches there is refused with both bands
@@ -233,27 +232,28 @@ not the nonlinearity, is what the step controller reacts to. On the millimetre a
 general route takes 42 accepted steps with the collar and exactly 10 without, and
 `prop_capillary` on the same grid does the same thing: this is not the general route's
 doing, it only matters more here because a general modal step costs about a hundred
-fused ones. Two settings change it: `absorber_scheme="split_step"` applies the same rates
+fused ones. Two keywords change it: `absorber_scheme="split_step"` applies the same rates
 once per step, outside the stage, and reaches the same answer in the collar-free step
-count; `absorber=None` in the settings removes the absorber, for a lossless check.
-`absorber=None` passed to `from_waveguide` itself means "build the default collar", so
-replace the settings before the first `translate()` or `run()` instead:
+count; `absorber=False` switches the temporal and spectral collars off and keeps the hard
+band mask, for a lossless check. `absorber=None`, the default, builds the default collar.
 
 ```{code-block} python
-import dataclasses
-
 from solprop.driver import Simulation
 
 simulation = Simulation.from_waveguide(
-    (), length, provider=guide, grid=grid, wavelength=835e-9, fwhm=40e-15, energy=4e-11
-)
-simulation.settings = dataclasses.replace(
-    simulation.settings, absorber_scheme="split_step"
+    (),
+    length,
+    provider=guide,
+    grid=grid,
+    wavelength=835e-9,
+    fwhm=40e-15,
+    energy=4e-11,
+    absorber_scheme="split_step",
 )
 ```
 
-`prop_gnlse` builds no absorber at all, so a like-for-like comparison with it needs one
-of the two.
+`prop_gnlse` builds its own grid's default collar too, so a like-for-like comparison with
+it passes `absorber=False` to both.
 
 ## Noise, statistics and what comes back
 
@@ -269,10 +269,10 @@ under unitary mixing, so drawing again in the declared basis would be a differen
 stochastic model. A basis with unequal channel norms is neither of those and is refused
 by name.
 
-The route's statistics are **`physical_energy`** and **`analytic_flux`**, and they are
-its defaults. Both are scalars: a coordinate energy and a coordinate power are not
-additive on a basis that is not orthonormal, so the names that promise one are refused
-here rather than redefined. `physical_energy` is the same-frequency product of the state
+The route's default statistics are `omega0`, **`physical_energy`**, **`analytic_flux`**,
+`fwhm_t` and `fwhm_t_outer`. The two in bold are its own names, and both are scalars: a
+coordinate energy and a coordinate power are not additive on a basis that is not
+orthonormal, so the names that promise one are refused here rather than redefined. `physical_energy` is the same-frequency product of the state
 with the basis's flux metric, integrated over frequency; `analytic_flux` is the peak over
 time of that same **same-frequency flux**, $\max_t \mathbf a^{\mathsf H}W\mathbf a$. On
 an identity metric — every guide in the provider's own coordinates — that is
@@ -355,7 +355,7 @@ it.
 | the cubic's form | `kerr_form="real"` (the default, third harmonic included) or `"analytic"` | [the response at a node](modal-projection.md#the-response-at-a-node) |
 | the launch | `channel=` (an index or a label) or `incident=` (a `SpatialPulse` coupled under `coupling=`, of which the captured share enters) | [running one](#running-one) |
 | a unitary change of basis — of an exactly degenerate block, which stays diagonal, or of a split one, which becomes a coupled flow | `basis=` and `degenerate_blocks=` on `from_provider` | [declaring a circular basis](modal-bases.md#declaring-a-circular-basis), [a split block](modal-bases.md#a-declared-basis-of-a-block-that-is-only-nearly-degenerate) |
-| the statistics | `physical_energy` and `analytic_flux` (the defaults), `spectral_flux` by name | [noise, statistics and what comes back](#noise-statistics-and-what-comes-back) |
+| the statistics | `omega0`, `physical_energy`, `analytic_flux`, `fwhm_t` and `fwhm_t_outer` (the defaults), `spectral_flux` by name | [noise, statistics and what comes back](#noise-statistics-and-what-comes-back) |
 
 **What is refused, and why.** Every refusal names itself, at the entry point and again
 at the translation layer and in the backend.
@@ -378,7 +378,6 @@ at the translation layer and in the backend.
 * The scalar-route power names, `quadrature_error` and — beside a split block — `zdw`: a
   statistic the basis does not define is refused with its replacement where it has one,
   rather than redefined.
-* `observable_rtol` and `observable_atol` as numbers, which nothing would enforce.
 
 **How to read the record.** `output.metadata.modal` is the run's modal
 identity, and every entry of it is in the key a resume is checked against. `basis` says
@@ -466,12 +465,10 @@ Not implemented, and refused rather than approximated:
   rebuilding the tables from the guide — tens of milliseconds for the route, about 0.7 s
   if the guide itself must still be solved — and every accessor checks them against the
   identity the file carries, path by path, with the guide, which they require;
-* **`observable_rtol` and `observable_atol` as numbers.** `None` is accepted and means
-  the solver's own `rtol` and `atol`, which on this route is a true statement; a
-  different number is refused by name, because the separate error allocation it asks
-  for — over the table's frequency interpolation, the transverse rule and the step — is
-  not implemented, and accepting a number nothing enforces would be a silent claim about
-  accuracy;
+* **a separate accuracy for the observables.** The solver's own `rtol` and `atol` bound
+  them, which on this route is a true statement; an accuracy of their own would need an
+  error allocation over the table's frequency interpolation, the transverse rule and the
+  step, which is not implemented, so the route takes no keyword for one;
 * a **backward or evanescent** declared launch. `incident=` (above) recovers the
   incident field through the flux pairing with the forward-field closure, and nothing in the
   arithmetic can see that a declared field was not forward-propagating; such a launch is
@@ -499,5 +496,5 @@ the entrance geometry (a moving solid guide's rule moves with its interfaces, se
 section): the rule's certified tail bound and its sampled Gram belong to that geometry
 and to no other.
 
-The incident-beam launch (`incident=` under `coupling=`) and its coupling budget were
-proposed and carried out by [SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md).
+The design of the incident-beam launch (`incident=` under `coupling=`) and its coupling
+budget is [SEP 31](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0031-simulation-coupling.md).

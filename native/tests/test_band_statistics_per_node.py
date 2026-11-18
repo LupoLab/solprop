@@ -4,10 +4,10 @@
 
 """The band statistics of one node and of each channel, against numpy_ref (SEP 43).
 
-Inventory item 25. The retired Numba tests held the statistics column's per-node
-fraction, peak rate and diagnostics, and the column's per-channel fractions, to the
-band column's budget ``64 (2K + 1) n_to eps``, about 1e-10 relative. What survived was
-plane-level, at ``1e3`` times that for the rates and absolutely for the diagnostics.
+The retired Numba tests held the statistics column's per-node fraction, peak rate and
+diagnostics, and the column's per-channel fractions, to the band column's budget
+``64 (2K + 1) n_to eps``, about 1e-10 relative. What survived was plane-level, at
+``1e3`` times that for the rates and absolutely for the diagnostics.
 
 **How it is reached.** Native reports no node's statistics, only the largest over a
 plane, so each node of the original (a pulse of 6e10, 9e10 or 1.2e10 V/m, 4 fs, on the

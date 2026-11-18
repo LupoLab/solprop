@@ -62,7 +62,7 @@ supply a beam width. Scalar and vector profiles, taper motion, material regions,
 modal coherence and saved-field amplitude conventions are in scope.
 
 Existing radial, Cartesian, line and hybrid planar statistics remain supported;
-their common flux measure follows [SEP 34](archive/sep-0034-medium-flux.md)'s
+their common flux measure follows [SEP 34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md)'s
 medium-flux correction. Adding further time-resolved spatial measurements
 is outside this SEP. SEP 31 also owns transported observation-plane fields;
 the measurements here describe fields inside the propagation route.
@@ -957,7 +957,7 @@ No implementation has started.
 - 2026-09-27: Drafted after a capability and reconstruction audit. Scope includes
   both full-pulse fluence and time-resolved beam widths, explicit spectral filters,
   and separately defined quadrature and modal-span diagnostics.
-- 2026-10-17: Restated for [SEP 25](archive/sep-0025-rounding-level-reproducibility.md).
+- 2026-10-17: Restated for [SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md).
   §7 item 11's "propagated arrays bitwise unchanged" by statistics becomes a
   structural rule (statistics only read the state and change no march operation)
   plus a rounding bound fixed before measurement for replayed runs and the case's
@@ -972,10 +972,15 @@ No implementation has started.
   measurement scope; schema changes require no old-file compatibility layer.
 
 - 2026-10-23: Reassigned the shared medium-flux prerequisite to
-  [SEP 34](archive/sep-0034-medium-flux.md) following SEP 31's review and split.
+  [SEP 34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md) following SEP 31's review and split.
   SEP 31 retains field exchange and coupling; the shared flux proposal
   includes admitted radial adiabatic transport and complex local flux.
 - 2026-11-01: Tracking issue [#119](https://github.com/LupoLab/solprop/issues/119).
-- 2026-11-02: [SEP 43](archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
+- 2026-11-02: [SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
   proposal names Numba or `numba_cpu`, it was written before that: such a phase or check falls
   away, and the feature goes on `numpy_ref` and the native backend (SEP 0).
+- 2026-11-18: Written before the current architecture. Where this proposal names
+  solprop-kokkos or its files, read the native package in this repository (`native/`,
+  [SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md)); the backends have since been
+  cut to two, binary64 only, with one shape and a native seam that only marshals
+  ([SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md), ADR-077, ADR-079).

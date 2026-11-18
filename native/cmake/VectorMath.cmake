@@ -9,11 +9,11 @@
 # 6240, and SLEEF's AVX2 and AVX-512 functions take it 3 to 3.6 times faster at the same
 # worst error on the kernels' own arguments. On Apple silicon the system libm is already
 # about 3 ns, but SLEEF's AdvSIMD functions over the gathered blocks, and the passes and
-# lanes kernels they enable, ran an Apple M5 Max's cases faster once the plasma column
-# gathered its live samples: comb-to-continuum 0.84 at one thread and 0.87 at six, the
+# lanes kernels they enable, run an Apple M5 Max's cases faster since the plasma column
+# gathers its live samples: comb-to-continuum 0.84 at one thread and 0.87 at six, the
 # averaged helium 0.91, the Raman GNLSE 0.91, the graded-index guide level within its
-# A/A spread; geometric mean 0.934 (solprop issue #339, November 2026). Earlier, with
-# per-sample plasma kernels, it was 11.6 % slower there.
+# A/A spread; geometric mean 0.934 (solprop issue #339, November 2026). The gain depends
+# on that gathering: over per-sample plasma kernels SLEEF measured 11.6 % slower there.
 #
 # AUTO takes SLEEF on x86-64 CPU builds and on macOS arm64, and the system libm on Linux
 # aarch64 (where SLEEF measured level, 1.00 on a Neoverse V2) and in device builds, whose

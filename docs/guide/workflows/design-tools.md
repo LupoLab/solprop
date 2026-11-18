@@ -96,20 +96,17 @@ effective-area field instead; do not equate that with a resolved on-axis rate. I
 and a test compares it with the first plane of a run.
 
 **The zero-dispersion wavelength is searched, not bracketed once.** A gas resonance in
-the vacuum ultraviolet flips the sign of $\beta_2$ twice (krypton near 120 nm), so a
-single bracket over 100 nm to 3 µm sees the same sign at both ends and finds nothing.
-The dispersion is sampled, each sign change refined, the changes through a pole
-discarded (there $\beta_1$ diverges; at a zero it is extremal), and the zero nearest the
-pump reported. When there is none the field is `nan` and the block says so.
-
-```{note}
-The modes' own {py:func}`~solprop.modes.base.zdw`, and the `zdw` statistic that uses
-it, do not search this way: they test only the signs of $\beta_2$ at the ends of the
-window before a bracketed root search, so an even number of interior zeros — two
-zero-dispersion wavelengths, or a resonance's pair of sign changes as in krypton or
-xenon — reads as no zero, and the search raises. Use the design tools' search for such a
-case.
-```
+the vacuum ultraviolet flips the sign of $\beta_2$ many times (krypton near 120 nm), so a
+single bracket over 100 nm to 3 µm can see the same sign at both ends and find nothing.
+The design tools call {py:func}`~solprop.modes.base.zdw` with the pump as its `near`
+reference: the dispersion is sampled, each sign change refined, the changes that are not
+zeros discarded (at a zero $\beta_1$ has a resolved extremum; through a pole, beside a
+line or on the evanescent floor it does not), and so are the clustered zeros of fine
+structure narrower than 1.5 % in frequency, such as silica's OH bands; the zero nearest
+the pump on its side of the lines is reported
+([mode sets](../waveguides/mode-sets.md)). When there is none the field is `nan` and the block says
+so. The `zdw` statistic searches the same way, with the grid's reference wavelength as
+its reference.
 
 **The critical power** is {py:func}`~solprop.tools.beam.self_focusing_power`,
 $P_{\rm cr}=1.86226\,\lambda^2/(4\pi n_0n_2)$ (Fibich and Gaeta, Opt. Lett. **25**, 335
@@ -238,12 +235,9 @@ estimate with the linear condition.
    :alt: Computed phase mismatch versus wavelength for a helium-filled capillary; the Kerr term shifts the short-wavelength zero.
    :caption: The phase mismatch of the fundamental mode of a 125 µm capillary filled with 1 bar of helium, for an 800 nm soliton, with and without the nonlinear wavenumber of a 30 GW soliton. The dispersive wave is phase matched where a curve crosses zero; the linear curve has a double zero at the pump because its carrier and group-delay terms have been subtracted. The nonlinear curve is shifted and need not vanish there.
 
-   import warnings
-
    import matplotlib.pyplot as plt
    import numpy as np
 
-   from solprop.exceptions import MaterialRangeWarning
    from solprop.modes import MarcatiliMode
    from solprop.physdata import n2
    from solprop.tools import lambda_rdw, nonlinear_coefficient, phase_mismatch
@@ -254,14 +248,11 @@ estimate with the linear condition.
    omega = 2 * np.pi * 299792458.0 / wavelength
 
    fig, ax = plt.subplots(figsize=(6.0, 3.4))
-   with warnings.catch_warnings():
-       # The window reaches below the 210 nm of the silica fit.
-       warnings.simplefilter("ignore", MaterialRangeWarning)
-       for power, label in ((None, "linear"), (30e9, "with the Kerr term, 30 GW")):
-           kerr = {} if power is None else {"peak_power": power, "gamma": gamma, "nonlinear_phase": "supplied_power"}
-           ax.plot(wavelength * 1e9, phase_mismatch(mode, omega, 800e-9, **kerr), label=label)
-           root = lambda_rdw(mode, 800e-9, **kerr)
-           ax.axvline(root * 1e9, color="0.6", lw=0.8, ls=":")
+   for power, label in ((None, "linear"), (30e9, "with the Kerr term, 30 GW")):
+       kerr = {} if power is None else {"peak_power": power, "gamma": gamma, "nonlinear_phase": "supplied_power"}
+       ax.plot(wavelength * 1e9, phase_mismatch(mode, omega, 800e-9, **kerr), label=label)
+       root = lambda_rdw(mode, 800e-9, **kerr)
+       ax.axvline(root * 1e9, color="0.6", lw=0.8, ls=":")
    ax.axhline(0.0, color="k", lw=0.6)
    ax.set_ylim(-60, 60)
    ax.set_xlabel("wavelength (nm)")
@@ -284,10 +275,11 @@ at its ends, rather than returning a placeholder that would propagate silently.
 travels in, and the first argument the mode the wave is emitted into.
 
 **Range warnings.** The search evaluates the index across a window far wider than its
-answer, and those probes are silent. The answer is not: a dispersive wave at 187 nm in a
-silica capillary lies below the 210 nm of Malitson's fit, and
-{py:class}`~solprop.exceptions.MaterialRangeWarning` says so, because the number then
-rests on an extrapolated cladding index.
+answer, and those probes are silent. The answer is not: the index is evaluated again at
+the roots it finds, outside the probing, so a root that takes the gas or the cladding
+beyond its index model's qualified range raises
+{py:class}`~solprop.exceptions.MaterialRangeWarning`, because the number then rests on an
+extrapolated index.
 
 ## The pressure that tunes it
 
@@ -304,9 +296,9 @@ step, so a search costs milliseconds.
 >>> from solprop.modes import MarcatiliMode
 >>> mode = MarcatiliMode(125e-6, "He", 1.0, cladding=1.45)
 >>> f"{lambda_rdw(mode, 800e-9) * 1e9:.1f} nm"
-'186.8 nm'
+'200.1 nm'
 >>> f"{pressure_rdw(125e-6, 'He', 160e-9, 800e-9, cladding=1.45):.2f} bar"
-'0.74 bar'
+'0.66 bar'
 ```
 
 Both refuse a bracket without a root by name. `pressure_rdw` samples the pressure
@@ -604,4 +596,4 @@ the tools at the pressure where you expect the fission, not at the entrance. The
 suite checks this comparison against the run.
 
 The design solvers, `solve_parameter` and its targets, were proposed and carried out by
-[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+[SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md).

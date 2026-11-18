@@ -166,7 +166,7 @@
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.nonlinear.optmat_rates",
-   "module_short": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear",
    "name": "OptmatRate"
   },
   {
@@ -187,7 +187,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.nonlinear.optmat_rates",
-   "module_short": "solprop.nonlinear.optmat_rates",
+   "module_short": "solprop.nonlinear",
    "name": "OptmatRate"
   }
  ],
@@ -404,6 +404,13 @@
   }
  ],
  "beam": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.tools.beam",
+   "module_short": "solprop.tools",
+   "name": "BeamParams"
+  },
   {
    "is_class": false,
    "is_explicit": false,

@@ -376,11 +376,11 @@ def spatial_grids(
     )
     if name == "spatial_absorber":
         # SEP 40: the aperture of three waists with 2.6 radii of room outside it, for
-        # the requested collar, at the former spacing (64 samples over the aperture).
+        # the requested collar, at 64 samples over the aperture.
         return field, RadialGrid(3e-4, size, collar_fraction=2.6)
     if name.startswith("radial"):
-        # 1.5 mm since revision 2 (SEP 40): on 1 mm the filament's light reaches the
-        # wall at 2.9 cm, and the transverse edge stops the run.
+        # 1.5 mm (SEP 40): on 1 mm the filament's light reaches the wall at 2.9 cm,
+        # and the transverse edge stops the run.
         return field, RadialGrid(1.5e-3, size)
     if name == "line":
         return field, LineGrid(1e-3, size)
@@ -395,6 +395,9 @@ def kerr(name: str, settings: SimulationSettings, fft_size: str = "case") -> Sim
     The Sellmeier coefficients are inherited from the SEP 28 builder, citing
     Malitson, JOSA 55, 1205 (1965), doi:10.1364/JOSA.55.001205. This extraction
     preserves its declared UV extrapolation and records the resulting warning.
+
+    No statistics are collected: the cases time four fixed steps, and the free-space
+    route's default statistics at the observed plane would cost a quarter of that.
     """
     from solprop.constants import EPS0, MU0, C  # noqa: PLC0415
     from solprop.driver import Simulation  # noqa: PLC0415
@@ -403,6 +406,7 @@ def kerr(name: str, settings: SimulationSettings, fft_size: str = "case") -> Sim
     from solprop.physdata.glasses import SellmeierGlass  # noqa: PLC0415
     from solprop.pulses import GaussianPulse, SpatialPulse  # noqa: PLC0415
     from solprop.spatial import SpatialMedium  # noqa: PLC0415
+    from solprop.stats import StatsSpec  # noqa: PLC0415
 
     grid, space = spatial_grids(name, fft_size)
     assert isinstance(space, FreeGrid)
@@ -422,7 +426,7 @@ def kerr(name: str, settings: SimulationSettings, fft_size: str = "case") -> Sim
         SpatialMedium(glass),
         [KerrResponse(chi3=2.2e-22 * MU0 * EPS0 * C**2, thg=False)],
         launch,
-        settings=settings,
+        settings=dataclasses.replace(settings, stats=StatsSpec(names=())),
     )
 
 

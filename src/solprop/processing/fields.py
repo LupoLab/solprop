@@ -64,6 +64,7 @@ __all__ = [
     "FieldKind",
     "ModeSelection",
     "NoiseFloor",
+    "default_gate_fwhm",
     "field_spectrogram",
     "get_field",
     "get_phase",
@@ -358,8 +359,8 @@ def _check_spec_range(
 ) -> None:
     """Refuse a ``spec_range`` that selects no sample of the abscissa.
 
-    Without it the density came back empty, and a plot failed later inside NumPy with
-    a message that named neither the range nor its units.
+    An empty selection would give an empty density, and a plot would fail later inside
+    NumPy with a message that named neither the range nor its units.
 
     - ``x``: the abscissa, ascending, in the units of ``axis``.
     """
@@ -863,7 +864,8 @@ def get_spectrogram(
         The time range the gate positions cover, s, in either order and clipped to
         the time window; the whole window by default.
     gate_fwhm : float or None
-        Width of the gate, s; a twentieth of the time range by default.
+        Width of the gate, s; a twentieth of the time range by default
+        (:func:`default_gate_fwhm`).
     positions : int
         How many gate positions to place across the time range.
     bandpass : tuple of float, Passband, numpy.ndarray or None
@@ -988,7 +990,8 @@ def field_spectrogram(
         The time range the gate positions cover, s, in either order and clipped to
         the time window; the whole window by default.
     gate_fwhm : float or None
-        Width of the gate, s; a twentieth of the time range by default.
+        Width of the gate, s; a twentieth of the time range by default
+        (:func:`default_gate_fwhm`).
     positions : int
         How many gate positions to place across the time range.
 
@@ -1013,17 +1016,9 @@ def field_spectrogram(
         msg = f"a spectrogram needs at least one gate position, got {positions!r}"
         raise ProcessingError(msg)
     window = (float(t[0]), float(t[-1]))
-    low, high = window if time_range is None else time_range
-    low, high = min(low, high), max(low, high)
-    if high < window[0] or low > window[1]:
-        msg = (
-            f"the time range {time_range!r} holds no gate position: the window is "
-            f"{window[0]:.4g} s to {window[1]:.4g} s"
-        )
-        raise ProcessingError(msg)
-    low, high = max(low, window[0]), min(high, window[1])
+    low, high = _gate_range(t, time_range)
     span = high - low
-    width = span / 20.0 if gate_fwhm is None else gate_fwhm
+    width = default_gate_fwhm(t, time_range) if gate_fwhm is None else gate_fwhm
     if not 0.0 < width <= window[1] - window[0]:
         msg = (
             f"the gate's width must be positive and within the time window "
@@ -1045,6 +1040,62 @@ def field_spectrogram(
     values = intensity[positive][:, inside] * (jacobian / (2.0 * np.pi))[:, None]
     order = np.argsort(x)
     return times[inside], x[order], values[order]
+
+
+def default_gate_fwhm(
+    t: Float[np.ndarray, " n_t"], time_range: tuple[float, float] | None = None
+) -> float:
+    """Return the gate width a spectrogram uses when it is given none.
+
+    A twentieth of the time range its gate positions cover, that range clipped to the
+    field's time window: what :func:`get_spectrogram`, :func:`field_spectrogram` and
+    :func:`~solprop.processing.beams.on_axis_spectrogram` take for ``gate_fwhm=None``.
+
+    Parameters
+    ----------
+    t : numpy.ndarray
+        The field's times, s, evenly spaced and ascending: for a saved plane,
+        :func:`time_axis` at :func:`real_field_oversampling`.
+    time_range : tuple of float or None, optional
+        The time range of the gate positions, s, in either order; the whole window by
+        default.
+
+    Returns
+    -------
+    float
+        The gate's full width at half maximum, s.
+
+    Raises
+    ------
+    solprop.exceptions.ProcessingError
+        If the time range misses the time window.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> t = np.linspace(-1e-12, 1e-12, 401)
+    >>> whole, half = default_gate_fwhm(t), default_gate_fwhm(t, (0.0, 9.0))
+    >>> round(whole * 1e15, 6), round(half * 1e15, 6)
+    (100.0, 50.0)
+    """
+    low, high = _gate_range(t, time_range)
+    return (high - low) / 20.0
+
+
+def _gate_range(
+    t: Float[np.ndarray, " n_t"], time_range: tuple[float, float] | None
+) -> tuple[float, float]:
+    """Return the time range of a spectrogram's gate positions, within the window, s."""
+    window = (float(t[0]), float(t[-1]))
+    low, high = window if time_range is None else time_range
+    low, high = min(low, high), max(low, high)
+    if high < window[0] or low > window[1]:
+        msg = (
+            f"the time range {time_range!r} holds no gate position: the window is "
+            f"{window[0]:.4g} s to {window[1]:.4g} s"
+        )
+        raise ProcessingError(msg)
+    return max(low, window[0]), min(high, window[1])
 
 
 def _gate_transform(

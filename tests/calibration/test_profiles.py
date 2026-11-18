@@ -231,7 +231,14 @@ def test_the_command_line_measures_at_each_level(
         progress("measuring")
         return controller.CalibrationReport(
             level=level,
-            status="published" if level != "thorough" else "inconclusive",
+            # A kept higher row is a success too: the store holds a profile.
+            status=(
+                "published"
+                if level == "standard"
+                else "kept"
+                if level == "quick"
+                else "inconclusive"
+            ),
             fingerprint="f",
             allocation={},
             reason="because",

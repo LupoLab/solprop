@@ -94,7 +94,7 @@ class GlassIndex(ABC):
     name : str
         The material, e.g. ``"SiO2"``.
     source : str
-        The name used to select this model, e.g. ``"malitson"``.
+        The name used to select this model, e.g. ``"fit/SiO2"``.
     wavelength_range : tuple of float
         Shortest and longest wavelength in m over which the source is valid.
     citation : str

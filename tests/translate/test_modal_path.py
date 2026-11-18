@@ -607,4 +607,5 @@ def test_the_reference_s_maps_refuse_weights_that_do_not_match_them(moving_table
         + tables.synthesis[0, 2]
         - tables.synthesis[0, 3]
         + tables.synthesis[0, 4],
+        atol=1e-12 * np.max(np.abs(tables.synthesis)),
     )

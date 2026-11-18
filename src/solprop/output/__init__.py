@@ -15,9 +15,9 @@
 - The handlers: :mod:`~solprop.output.memory`
   (:class:`~solprop.output.memory.MemoryOutput`), :mod:`~solprop.output.hdf5`
   (:class:`~solprop.output.hdf5.HDF5Output` with :func:`~solprop.output.hdf5.open_file`,
-  :func:`~solprop.output.hdf5.resume` and :func:`~solprop.output.hdf5.check_cache`) and
-  :mod:`~solprop.output.callback` (:class:`~solprop.output.callback.CallbackOutput`, for
-  a run reduced plane by plane).
+  :func:`~solprop.output.hdf5.read_resume_state` and
+  :func:`~solprop.output.hdf5.check_cache`) and :mod:`~solprop.output.callback`
+  (:class:`~solprop.output.callback.CallbackOutput`, for a run reduced plane by plane).
 - The other files a run leaves: :mod:`~solprop.output.tdse_archive` (the raw TDSE
   response archive), :mod:`~solprop.output.snapshots` (checkpoints published while a run
   computes), :mod:`~solprop.output.resumable` (whether a file can continue), and a
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
         ResumeState,
         check_cache,
         open_file,
-        resume,
+        read_resume_state,
     )
     from solprop.output.memory import MemoryOutput
     from solprop.output.metadata import SCHEMA_VERSION, RunMetadata
@@ -101,10 +101,10 @@ __all__ = [
     "check_cache",
     "open_file",
     "open_tdse_archive",
+    "read_resume_state",
     "read_snapshot",
     "restore_snapshot",
     "resumability",
-    "resume",
 ]
 
 _HOMES: Final = {
@@ -135,10 +135,10 @@ _HOMES: Final = {
     "check_cache": "hdf5",
     "open_file": "hdf5",
     "open_tdse_archive": "tdse_archive",
+    "read_resume_state": "hdf5",
     "read_snapshot": "snapshots",
     "restore_snapshot": "snapshots",
     "resumability": "resumable",
-    "resume": "hdf5",
 }
 """The submodule each name of ``__all__`` is defined in, imported on first access."""
 

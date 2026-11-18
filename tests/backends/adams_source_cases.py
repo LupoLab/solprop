@@ -6,7 +6,8 @@
 
 Shared by ``test_compiled_multistep.py`` and the catalogue's march rows
 (``backends/ladder_rows.py``): a helium capillary on the analytic field (no harmonic)
-and on the envelope with its plasma, its launch reaching into the temporal collar; one
+and an argon one on the envelope with its plasma, which ionises at this launch, each
+launch reaching into the temporal collar; one
 evaluation of the source a step from the anchor (:func:`one_evaluation`), and a matched
 run of fixed steps at the method's top order (:func:`matched_run`).
 """
@@ -25,9 +26,12 @@ from solprop.stepper.schedule import FixedSchedule
 
 ROUTES = {
     "analytic field": {"thg": False, "plasma": False},
-    "envelope plasma": {"envelope": True, "plasma": True},
+    "envelope plasma": {"envelope": True, "plasma": True, "gas": "Ar"},
 }
-"""The stage pipeline's two other column families, for one evaluation of the source."""
+"""The stage pipeline's two other column families, for one evaluation of the source.
+
+Each is the capillary's settings, and its gas where not helium: argon for the envelope
+plasma, which helium would leave without a free electron at this launch."""
 
 
 SOURCE_STEPS = 8
@@ -41,7 +45,7 @@ SOURCE_AT = 1e-3
 
 
 def source_case(route, length, **settings):
-    """Return `route`'s helium capillary of `length` and its edged launch.
+    """Return `route`'s capillary of `length` and its edged launch.
 
     The window's own grid, whose collar is the original evaluation's. The launch is the
     pulse plus half of it rolled two fifths of the window along, which reaches into the
@@ -56,10 +60,12 @@ def source_case(route, length, **settings):
     # A run ends at its grid's length (SEP 51): the grid is cut at the run's length,
     # with the collar the centimetre window gave.
     grid = grid_at(window, length)
+    route = dict(route)
+    gas = route.pop("gas", "He")
     simulation = Simulation.from_capillary(
         150e-6,
         length,
-        "He",
+        gas,
         1.0,
         wavelength=800e-9,
         fwhm=10e-15,

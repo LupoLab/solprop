@@ -16,7 +16,7 @@ comparison, and [accuracy](accuracy.md) explains what to refine.
 
 This chapter gives configuration, equations, interpolation and restart behaviour,
 and limitations. Its design record is
-[SEP 16](../../dev/seps/archive/sep-0016-unified-multistep.md).
+[SEP 16](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0016-unified-multistep.md).
 
 ## Using it
 
@@ -141,21 +141,6 @@ and the full canonical and RDW runs 8 and 4 per cent fewer calls. The interactio
 unchanged: its history is carried through the propagators, whose stiffness the collar
 alone does not describe, and the cap cost it calls.
 
-### What was compared
-
-SEP 13 also ran these variants. They were removed once the selection was settled:
-
-- **PECE**, which spends a second call at the corrected field;
-- **plain Adams–Bashforth**, with an a-posteriori recheck;
-- **matched predictor–corrector pairs**, controlled by Milne's estimate.
-
-None of them used fewer calls at the same accuracy on any case:
-
-- PECE does not repay its second call.
-- The matched pairs underestimate their error at loose tolerances, and their small
-  stability regions meet the temporal collar first.
-- Plain Adams–Bashforth takes about as many steps as PEC, but is less accurate.
-
 ## The exponential formulation
 
 `Multistep(formulation="exponential")` keeps the predict–evaluate–correct recurrence,
@@ -199,12 +184,10 @@ history is the one a polynomial follows:
   in the laboratory frame, thousands of radians per metre in a dense gas. Neither
   formulation makes it smooth; [the carrier frame](#the-carrier-frame) does.
 
-On the scalar witnesses of `tests/stepper/test_exponential_scalar_march.py` the first
-case gives the exponential formulation errors of $10^{-11}$ where the interaction
+On scalar witnesses the first case gives the exponential formulation errors of $10^{-11}$ where the interaction
 picture's are of order one, at $|\operatorname{Im}D|h$ up to ten; the second gives the
 opposite. Real problems mix both, which is why the choice is measured per regime
-rather than assumed. On a second-order soliton (`tests/backends/test_exponential_march.py`)
-the populated bins converge at order $q+1$ in both formulations, the exponential one
+rather than assumed. On a second-order soliton the populated bins converge at order $q+1$ in both formulations, the exponential one
 30 to 200 times more accurately; but the weak wings, more than $10^8$ below the peak
 power, hold free radiation under the soliton's cross-phase modulation, a source linear
 in each bin's own field, and there the exponential formulation converges only at about
@@ -212,25 +195,11 @@ order 0.6 once $|\operatorname{Im}D|h$ exceeds one, where the interaction pictur
 converges at order three to four. The step-size norm does not see bins that weak; a
 weak-band observable is scored separately for that reason.
 
-**The moments.** $\varphi_0\ldots\varphi_{q+2}$ are formed once per trial for every
-element, by a scaled Taylor series and doubling for $|x| \le 3$ and an upward
-recurrence beyond, and every formula of the trial — predictor, corrector, the
-neighbouring orders' estimates, an interpolated plane — is applied in the monomial
-basis of its interpolant, so no per-node weight array is formed. Checked against
-augmented matrix exponentials and quadrature, each moment is within a few hundred ulp
-of its scale, so the coefficients add nothing measurable to a step's error and no term
-for them enters the error norm.
-
 **What it measured** (short windows, one thread, at common worst-plane field and
 weak-band errors from 1e-3 to 1e-5). On the six-mode hydrogen comb-to-continuum launch, a
-Raman-active source that is costly to evaluate, it took 2.0 to 3.3 times less time
-than IP-DOPRI5 and 1.5 to 2.5 times less than the interaction formulation on
-the since-retired `numba_cpu` backend, and won on native CPU too. On developed GNLSE
-supercontinuum windows it
-took two to five times fewer calls than both and, from 3e-4 to 1e-5, 3 to 36 % less
-time than IP-DOPRI5 and 8 to 31 % less than the interaction formulation, again on
-`numba_cpu`; at 1e-3 the interaction formulation was as fast.
-Where the source is cheap and the state small — a radial beam with Kerr alone — its
+Raman-active source that is costly to evaluate, it took less time than IP-DOPRI5 and the
+interaction formulation on native CPU. On developed GNLSE supercontinuum windows it took
+two to five times fewer calls than both. Where the source is cheap and the state small — a radial beam with Kerr alone — its
 per-step arithmetic outweighs the calls it saves and the interaction formulation is
 faster. [Choosing a stepper](choosing-a-stepper.md#measured) ranks the methods on full
 runs, on the native backend's CPU build and on devices. Beside the
@@ -277,7 +246,7 @@ limit (below) can set the step instead: with it, a 2 cm gradient held the Adams 
 near 30 µm, where the per-step collar needed 18 times fewer attempts. The per-step
 collar is the remedy only when the collar holds no field. Treating the compensation in the untransported frame
 instead is kept only as a test witness: where the compensation dominates, its error is
-under-reported to the controller ([SEP 16](../../dev/seps/archive/sep-0016-unified-multistep.md)
+under-reported to the controller ([SEP 16](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0016-unified-multistep.md)
 §4.2, Q8).
 
 **Where it runs.** On `numpy_ref` and native CPU, for the constant
@@ -406,11 +375,11 @@ reference element, one number a step, so nothing is read back from the engine, a
 accepted step's $\sigma$ is held for its interpolated planes. It follows `numpy_ref`
 to rounding on matched steps. On ten replayed steps of a dense-gas capillary each step
 cost 4–6 % more than the unshifted method's with a cheap Kerr source and under 1 % more
-with Raman ([benchmarks](../../dev/benchmarks.md)); the policy pays for itself only
+with Raman ([benchmarks](../../dev/benchmarks.md#adams-carrier-frame-per-step)); the policy pays for itself only
 through the steps it saves.
 
 **What it measured.** On short windows of the benchmark suite's cases
-([SEP 35](../../dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md) Part II) — the
+([SEP 35](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md) Part II) — the
 launch from the input plane and a developed window started from a plane of an earlier
 run, each against IP-DOPRI5 three orders tighter, one thread — the one-thread time each
 method needs at matched error in the total field and in the weak bins, as a ratio to
@@ -474,7 +443,7 @@ left the comb-to-continuum's self-phase-modulated light above $2\omega_0$ and th
 fundamental band of an envelope run with the third harmonic several times less
 accurate, and with a boundary set from the launched spectrum it was the scalar shift
 everywhere but one launch window
-([SEP 35](../../dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md) §7.4).
+([SEP 35](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md) §7.4).
 
 ## Stability, and the temporal collar
 
@@ -519,10 +488,10 @@ the collar holds field.
   collar treatment would buy nothing beyond it (SEP 16 Q4).
 - **For such runs keep the in-stage collar**, the modal routes' default. With it, the interaction
   formulation needed about 2.4 times fewer calls than IP-DOPRI5 on the RDW case at
-  Luna's tolerance. [SEP 14](../../dev/seps/archive/sep-0014-stepper-efficiency.md)
+  Luna's tolerance. [SEP 14](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0014-stepper-efficiency.md)
   studied a second-order split and did not adopt it: with a Kerr source it is first
   order wherever the collar holds field. An implicit collar is an open question of
-  [SEP 15](../../dev/seps/archive/sep-0015-exponential-adams.md).
+  [SEP 15](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0015-exponential-adams.md).
 
 The higher orders' tiny imaginary-axis intervals are why variable order settles at
 orders two and three on the canonical capillary. On the measured runs the Kerr phase a
@@ -588,7 +557,7 @@ uninterrupted run's computation, between planes too when it stopped at a termina
 checkpoint (a spent call budget, a failed source), and agrees with it within its
 accuracy envelope: to rounding while the steps are the same, and to the tolerance where
 a rounding difference changes an adaptive step, as one occasionally does. solprop does
-not promise identical bits ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)). That is what makes a run
+not promise identical bits ([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)). That is what makes a run
 with a minutes-long source cheap to continue ([ADR-046](../../dev/decisions.md)). The
 native backend keeps its history resident and copies it to the host only for the
 snapshot. Without a snapshot -- `resume_history=False`, an unreadable one, or one
@@ -614,7 +583,7 @@ SEP 13 counted the calls of the interaction formulation on the canonical helium
 capillary (4.2 m, steady fill peaking at 0.2 bar, 6 fs and 1 mJ at 800 nm, compressing
 to 1.25 fs, 50 save planes), in full-length runs scored at every plane against a
 converged reference. They are the method's call economy; run time, the exponential
-formulation and the compiled backends are in [choosing a stepper](choosing-a-stepper.md).
+formulation and the native backend are in [choosing a stepper](choosing-a-stepper.md).
 
 | Method | `rtol` | source calls | field error in the window | peak power | UV-band field |
 |---|---|---|---|---|---|
@@ -643,11 +612,11 @@ times at loose and medium accuracy, falling to about two at the tightest:
 - 443 calls (PEC3/4) against 1001 (IP-DOPRI5) for a window error near 3e-3;
 - 594 calls (PEC4/5) against 1176 for 5e-4.
 
-On a cheap source, calls are not run time. On the compiled backends one source
+On a cheap source, calls are not run time. On the native backend one source
 evaluation can cost less than a Runge–Kutta step's own linear work, and the Adams march
 takes more steps, so the call saving shrinks in wall time or disappears: a
 single-mode capillary, a coupled wall. On `native` the `Multistep()` controller runs
-natively as well ([SEP 39](../../dev/seps/archive/sep-0039-native-adams-march.md)),
+natively as well ([SEP 39](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0039-native-adams-march.md)),
 so a step costs its kernels and almost no Python. [Choosing a stepper](choosing-a-stepper.md)
 gives the measured ranking by regime, on the native backend's CPU build and on devices.
 
@@ -663,8 +632,8 @@ gives the measured ranking by regime, on the native backend's CPU build and on d
   replayed, on every route it admits, and what it does not step is refused by name
   before the run starts. It takes the same steps as solprop's reference march.
 - **Resume across backends.** A frozen-residual coupled flow's history is kept in a
-  native form on `native` and as per-sample weights on the host engines, so its snapshot
-  continues only on a backend of the same kind; a resume elsewhere starts the history
+  native form on `native` and as per-sample weights on `numpy_ref`, so its snapshot
+  continues only on the backend that wrote it; a resume elsewhere starts the history
   afresh and says why. Every other history crosses between backends.
 - **Memory.** The history holds from seven (`numpy_ref`, constant operator) to about
   sixty (`native`, a varying operator) further copies of the state. On a capillary the
@@ -703,7 +672,7 @@ gives the measured ranking by regime, on the native backend's CPU build and on d
   fixed for the run and added to each sample's field at that sample's own position,
   never to the propagating state, so conditional on the draw the source is a
   deterministic function of position, which the history interpolates
-  ([SEP 16](../../dev/seps/archive/sep-0016-unified-multistep.md) §4.4), on every backend.
+  ([SEP 16](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0016-unified-multistep.md) §4.4), on every backend.
   Interpolated planes are refused beside it for every stepper.
 - **A prescribed schedule** is replayed with either formulation: its steps are taken
   as given and accepted, the predictor–corrector estimate is still computed and
@@ -723,7 +692,7 @@ gives the measured ranking by regime, on the native backend's CPU build and on d
   time-dependent Schrödinger equation.
 
 The carrier frame on this page was proposed, measured and delivered by
-[SEP 35](../../dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md).
+[SEP 35](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md).
 The native march, which runs the `Multistep()` controller in the compiled backend, was
 proposed, measured and delivered by
-[SEP 39](../../dev/seps/archive/sep-0039-native-adams-march.md).
+[SEP 39](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0039-native-adams-march.md).

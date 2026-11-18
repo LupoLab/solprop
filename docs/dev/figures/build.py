@@ -1272,7 +1272,6 @@ SEAM_METHODS = (
     ("timing_probe", "single trials from a start, committing nothing, for timing"),
     ("metadata", "what the execution was: pools, plans, digests, propagator mode"),
     ("memory_ledger", "every named buffer and its size"),
-    ("available_device_memory", "free device bytes for scan admission; None on hosts"),
     ("close", "idempotent"),
 )
 """The methods of `backends.protocol.Backend`: a run is its session's, on every

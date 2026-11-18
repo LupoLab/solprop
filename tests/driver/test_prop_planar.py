@@ -399,7 +399,7 @@ def test_a_planar_pulse_refuses_what_it_does_not_carry(keywords, match):
 def test_a_planar_pulse_prints_its_two_waists():
     launch = pulse()
     assert repr(launch).startswith("PlanarPulse(waist_x=")
-    assert "waist_y=400 um" in repr(launch)
+    assert "waist=400 um" in repr(launch)
     assert "astigmatic Gaussian" in str(launch)
 
 

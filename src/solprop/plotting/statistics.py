@@ -97,7 +97,7 @@ def plot_stats(output: Output, **kwargs: Any) -> list[Figure]:
     (:attr:`solprop.stats.StatsSpec.periodic`), the between-planes rows are drawn
     instead: they are the same numbers on a far denser grid of z, so a curve that a
     few save planes would render as a polygon is drawn as the trace it is. A run
-    without that channel is drawn from its planes exactly as before.
+    without that channel is drawn from its planes.
 
     Parameters
     ----------

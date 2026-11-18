@@ -151,6 +151,14 @@ with $\beta_1 = 3/25$ and $\beta_2 = -1/25$ — Söderlind's $0.6$ and $-0.2$ di
 $k = q+1 = 5$, the **estimator's** order, not the scheme's — safety $S = 0.8$, growth cap
 $f_{\max} = 1.1$, and a lag of one step by default.
 
+That is the Runge–Kutta march's controller (`RungeKutta()`). The Adams march
+(`Multistep()`, the default on the capillary, radial and planar routes) scores its
+predictor–corrector defect, scaled by the state before the step, and takes the elementary
+factor $\operatorname{clip}\!\big(S\,e_n^{-1/(k+1)}, f_{\min}, f_{\max}\big)$ of the order
+$k$ it chose, with $S = 0.8$, $f_{\min} = 0.2$ and its own growth cap $f_{\max} = 2$
+(`factor` in `backends/adams_core.py`; [stepper.md §2](stepper.md), *Low-call Adams
+methods*).
+
 **Where.** {py:func}`solprop.stepper.controller.weak_norm_scale` and
 {py:func}`solprop.stepper.controller.weighted_norm_scale`;
 {py:class}`solprop.stepper.controller.PIController`;
@@ -190,7 +198,7 @@ reproducible, because {py:class}`solprop.stepper.controller.PIController` is fro
 `propose` is a pure function of the norm history; the replayed run is required to meet the
 overall accuracy target, not to reproduce the original run's bits or every adaptive
 decision ([stepper.md §8](stepper.md);
-[SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)).
+[SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
 
 **Order and accuracy.** The controller chooses $h$; it does not change the order. The
 calibration gate refuses an observed order above $p + 3$
@@ -430,8 +438,8 @@ the product $E_jE_kE_l$ is symmetric in $(j, k, l)$, so the sum is evaluated as
 $\sum_m C_{im}\,(E_jE_k)E_l$ over the ten monomials $j \le k \le l$, with $C_{im}$ the
 sum of $A_{ijkl}$ over the orderings of monomial $m$ — an identity for any tensor —
 formed once per node and evaluation: 3 + 10 products a component a sample in place of
-the dense 81 + 3, 2.5 times faster in the kernel of the since-retired `numba_cpu`
-([benchmarks.md](benchmarks.md#general-route-symmetric-contraction)). The
+the dense 81 + 3, which ran a two-channel step-index window 1.35 times faster at one
+thread ([benchmarks.md](benchmarks.md#general-route-symmetric-contraction)). The
 order is fixed: the orderings in lexicographic order, the monomials likewise, every sum
 from zero; `numpy_ref` defines it and the native backend runs it. Its rounding is
 within $\gamma_{17}$ of $\sum_{jkl}|A_{ijkl}||E_j||E_k||E_l|$, against $\gamma_{14}$ for
@@ -456,7 +464,7 @@ Final ionised inventory includes pre-ionisation; work done during the pulse coun
 $f_c-f_{0,c}$.
 
 **The rate.** solprop keeps no rate formula of its own
-([SEP 3](seps/archive/sep-0003-optmat-materials.md), D1): every built-in rate is one of optmat's
+([SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md), D1): every built-in rate is one of optmat's
 curated models — short-range PPT forms with Tong and Lin's barrier-suppression
 correction for the atoms, orientation-averaged molecular models for the molecules —
 adapted to the rate protocol by {py:class}`solprop.nonlinear.optmat_rates.OptmatRate`,
@@ -502,14 +510,14 @@ $-i(\delta t/2)\cot(\omega\,\delta t/2)$, compared with the exact $-i/\omega$:
 the ratio is $(\theta/2)\cot(\theta/2)$ with $\theta=\omega\,\delta t_{\rm fine}$.
 The default field grid reaches $\theta=\pi/3$ at $\omega_{\max}$, giving 0.907.
 The production source does not integrate the current into a polarisation in time
-([SEP 27](seps/archive/sep-0027-held-plasma-current.md)): it uses
+([SEP 27](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0027-held-plasma-current.md)): it uses
 $A_J=\operatorname{DFT}[gJ]/(i\omega)-\operatorname{DFT}[g'J]/(i\omega)^2$ on active
 bins, with exact zeros elsewhere, so the free-current dispersion has one running-integral
 multiplier and converting the loss current to its source has none. The physical
 `PlasmaResponse.evaluate` oracle integrates the current to an ungated polarisation.
 
 The band rule (`integration="band"`,
-[SEP 18](seps/archive/sep-0018-band-exact-plasma-integrals.md)) keeps the running sums and filters
+[SEP 18](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0018-band-exact-plasma-integrals.md)) keeps the running sums and filters
 each integrand first. The filter has $2K+1$ symmetric taps designed in translation for
 the grid, so that the composite multiplier is within a certified $10^{-5}$ of one up to
 $1.1\,\omega_{\max}$. It uses $K = 4$ on the default grid and is refused below
@@ -583,9 +591,10 @@ mask stays a 0/1 mask, idempotent, and never had the problem.
 **Where.** {py:func}`solprop.boundaries.collar_rate`,
 {py:func}`solprop.boundaries.temporal_collar_rate` and
 {py:func}`solprop.boundaries.absorber`;
-{py:func}`solprop.boundaries.nonlinear_absorber_term` and
-{py:func}`solprop.boundaries.split_step_factor` are the two temporal applications;
-{py:func}`solprop.boundaries.stable_step`; {py:func}`solprop.boundaries.apply_band_mask`.
+{py:func}`solprop.boundaries.nonlinear_absorber_term` is the in-stage temporal
+application, and the reference backend's `apply_temporal_rate`
+(`backends/numpy_ref/passes/stepping.py`) the split-step one;
+{py:func}`solprop.boundaries.stable_step`.
 
 **Why a rate.** A per-step multiplicative window gives total absorption $W^n$ for however
 many steps the controller happened to take, so the physics becomes a function of `rtol`:
@@ -608,7 +617,7 @@ problem, so an explicit method needs $h\alpha/2$ inside its stability region, an
 exactly and is unconditionally stable, which is the one thing it is better at; both stay
 implemented behind `absorber_scheme`, and the measured orders are in ADR-025. On the
 radial, Cartesian and planar routes the split is the default unless planes are
-interpolated ([SEP 21](seps/archive/sep-0021-absorbing-boundaries.md)): there the
+interpolated ([SEP 21](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md)): there the
 in-stage term took 1.2 to 4.6 times the split's steps at equal or worse accuracy.
 
 **Cost.** The spectral rate is free. The in-stage term costs one extra modal transform per
@@ -633,7 +642,7 @@ ever cost stability.
 **The transverse collar's design check.** A free-space run's collar
 ({py:class}`solprop.spatial_absorber.SpatialAbsorber`) is checked at translation for what
 it sends back ({py:func}`solprop.translate.collar_check.design_check`,
-[SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md) §4.4). A product of
+[SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md) §4.4). A product of
 plane-wave reflection and a ray share cannot say how much of a launch a collar returns:
 evaluated on the phase-0 witnesses it was wrong by up to nine decades, because the return
 lives in diffraction tails. So the check computes it. The launch is propagated linearly on
@@ -707,7 +716,7 @@ evaluated every $N$ accepted steps through the same `stats` a plane uses, so a r
 the plane's own number to the statistic's rounding bound ([backends.md §1](backends.md)).
 **The reductions are two-stage**: a kernel writes one partial per column and the driver
 combines them. Their order is free
-([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)): repeats and thread counts are
+([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)): repeats and thread counts are
 asserted against the reduction's rounding bound, not for identical bits, and a norm that
 moves in its last bit may fork an adaptive trajectory, which the accuracy envelopes of
 adaptive comparisons allow for.

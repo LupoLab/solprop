@@ -110,7 +110,8 @@ def stage_output(
         The modal polarisation on the coarse grid, complex128, shape
         ``(n_modes, n_pol, n_omega)``, in C/m^2.
     prefactor : numpy.ndarray
-        ``responses.prefactor_at(responses, z)``, complex128, in m/(V s), broadcastable
+        ``responses.prefactor_at(responses, z)``, complex128, in the unit
+        :class:`~solprop.translate.responses.CompiledResponses` states, broadcastable
         against the polarisation.
     omega_window : numpy.ndarray
         The spectral collar profile in ``[0, 1]``, float64, shape ``(n_omega,)``.

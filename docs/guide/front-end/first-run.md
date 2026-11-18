@@ -114,5 +114,5 @@ setup. **⋯ → Save** keeps the setup as a recipe file of your own, and
 page's **Export** menu has *Copy as Python* too: the code that draws that page from the
 results file, with {py:mod}`solprop.processing` and {py:mod}`solprop.plotting`.
 
-The two forms of the saved planes were proposed and implemented by
-[SEP 51](../../dev/seps/archive/sep-0051-save-planes.md).
+The design of the two forms of the saved planes is
+[SEP 51](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0051-save-planes.md).

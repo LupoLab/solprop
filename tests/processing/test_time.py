@@ -101,12 +101,12 @@ def test_the_duration_follows_the_dispersion_law(output, synthetic):
     # The closed form of a Gaussian under pure group-velocity dispersion; the sampled
     # trace resolves the width with dt/tau of a few per cent, so the crossing is found
     # to second order in that.
-    assert np.allclose(widths, expected, rtol=2e-3)
+    assert np.allclose(widths, expected, rtol=2e-3, atol=0.0)
 
 
 def test_energy_is_conserved_by_pure_dispersion(output):
     values = time.energy(output)
-    assert np.allclose(values, values[0], rtol=1e-12)
+    assert np.allclose(values, values[0], rtol=1e-12, atol=0.0)
 
 
 def test_the_peak_power_falls_as_the_pulse_broadens(output):
@@ -128,6 +128,25 @@ def test_a_bandpass_reduces_the_energy(output, grid):
     window = spectra.bandpass(grid, (790e-9, 810e-9), width=4 * grid.d_omega)
     inside = float(time.energy(output, plane=0, bandpass=window))
     assert 0.1 * total < inside < 0.9 * total
+
+
+def test_a_bandpass_weights_each_bin_s_energy_by_the_window_squared(output, grid):
+    # An off-centre band on the 800 nm pulse's red side, with the default edges, so a
+    # good part of the band's energy sits in the tapers. The window multiplies the
+    # field and the energy is a fixed multiple of the summed |E|^2 (Parseval; the
+    # zero-frequency and Nyquist bins it weights apart on a field grid hold nothing of
+    # this pulse), so the band's share of the energy is the window-squared share of
+    # |E|^2, summed here directly. A window applied twice, or on the wrong side,
+    # misses by far more than the round-off of the two reductions.
+    window = spectra.bandpass(grid, (810e-9, 850e-9))
+    spectrum = np.abs(output.fields("fft")[0, 0, 0]) ** 2
+    share = float(np.sum(window**2 * spectrum) / np.sum(spectrum))
+    total = float(time.energy(output, plane=0))
+    inside = float(time.energy(output, plane=0, bandpass=window))
+    assert inside / total == pytest.approx(share, rel=1e-13)
+    tapered = (window > 0.0) & (window < 1.0)
+    in_tapers = float(np.sum(window[tapered] ** 2 * spectrum[tapered]))
+    assert in_tapers > 0.1 * share * float(np.sum(spectrum))
 
 
 def test_a_bandpass_window_must_fit_the_grid(output, grid):
@@ -196,9 +215,10 @@ def test_the_intensity_autocorrelation_of_a_gaussian_is_wider_by_root_two(output
 
 def test_the_coherence_time_of_a_gaussian_spectrum(output, synthetic):
     measured = float(time.coherence_time(output, plane=0))
-    # For a transform-limited Gaussian the field autocorrelation has the width of the
-    # pulse, so its squared modulus is narrower by sqrt(2).
-    assert measured == pytest.approx(synthetic.fwhm / np.sqrt(2), rel=5e-3)
+    # For a transform-limited Gaussian of intensity FWHM tau the field autocorrelation
+    # is exp(-ln 2 d^2 / tau^2), of FWHM 2 tau, so its squared modulus has FWHM
+    # sqrt(2) tau.
+    assert measured == pytest.approx(synthetic.fwhm * np.sqrt(2), rel=5e-3)
 
 
 @pytest.mark.parametrize(

@@ -209,9 +209,8 @@ inline constexpr int band_host_filter_block = 512;
  * Filter the interior samples `[low, high)` of a host row, `half` taps a side known at
  * compile time: each sample's sum in `band_filter_at`'s order, the centre and then each
  * pair, so the values are its own bit for bit. With the tap count fixed the sum unrolls
- * and the compiler runs it across samples, the form of the Julia backend experiment's
- * single-pass filter (solprop issue #560, idea 6). The caller keeps the samples within
- * `half` of the row's ends out of `[low, high)`.
+ * and the compiler runs it across samples in one pass (solprop issue #560, idea 6).
+ * The caller keeps the samples within `half` of the row's ends out of `[low, high)`.
  */
 template <int Half>
 KOKKOS_INLINE_FUNCTION void band_filter_interior(const double* row, double* out,

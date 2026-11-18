@@ -27,8 +27,8 @@ import numpy as np
 
 from solprop.exceptions import OutputError, SolpropError
 from solprop.output._writer_lock import WriterHeldError, WriterLock
-from solprop.output.hdf5 import ResumeState, _file_path, resume
-from solprop.output.metadata import SCHEMA_VERSION
+from solprop.output.hdf5 import ResumeState, _file_path, read_resume_state
+from solprop.output.metadata import SCHEMA_VERSION, _schema_remedy
 from solprop.output.serialisation import deserialise
 from solprop.output.store import Output
 from solprop.recipe.document import FORMAT
@@ -179,12 +179,12 @@ def resumability(path: str | Path | Output, *, gate: bool = False) -> Resumabili
     if schema != SCHEMA_VERSION:
         return _refused(
             f"the file is of output schema {schema}, and this solprop reads "
-            f"{SCHEMA_VERSION} only"
+            f"{SCHEMA_VERSION} only; {_schema_remedy(schema)}"
         )
     if _writer_alive(path):
         return _refused("a writer still holds the file")
     try:
-        state = resume(path)
+        state = read_resume_state(path)
     except OutputError as error:
         return _refused(f"no state to continue from: {error}")
     planes = np.asarray(

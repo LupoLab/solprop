@@ -409,9 +409,9 @@ keep the launched energy to about 1e-6 in every run.
 
  .. code-block:: none
 
-    L =  0.05 mm: LP_02 holds 6.131e-02 at the exit (first order 6.267e-02); energy lost 6.7e-10
-    L =  0.10 mm: LP_02 holds 5.394e-02 at the exit (first order 5.517e-02); energy lost 6.8e-10
-    L =  0.20 mm: LP_02 holds 3.112e-02 at the exit (first order 3.192e-02); energy lost 7.7e-10
+    L =  0.05 mm: LP_02 holds 6.131e-02 at the exit (first order 6.267e-02); energy lost 6.9e-10
+    L =  0.10 mm: LP_02 holds 5.394e-02 at the exit (first order 5.517e-02); energy lost 7.0e-10
+    L =  0.20 mm: LP_02 holds 3.112e-02 at the exit (first order 3.192e-02); energy lost 7.8e-10
     L =  0.50 mm: LP_02 holds 7.900e-04 at the exit (first order 7.597e-04); energy lost 2.0e-09
     L =  1.00 mm: LP_02 holds 6.548e-04 at the exit (first order 6.496e-04); energy lost 7.0e-09
     L =  2.00 mm: LP_02 holds 3.271e-04 at the exit (first order 3.272e-04); energy lost 3.1e-08
@@ -917,7 +917,7 @@ Twelve guides, eight linear runs on the moving guide and four nonlinear runs.
 
  .. code-block:: none
 
-    433 s; backend native, 16 threads
+    413 s; backend native, 32 threads
 
 
 
@@ -934,7 +934,7 @@ For a paced introduction to propagation, start with the
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (7 minutes 12.609 seconds)
+   **Total running time of the script:** (6 minutes 52.874 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_05_moving_solid_guide.py:

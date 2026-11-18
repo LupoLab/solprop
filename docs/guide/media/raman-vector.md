@@ -37,12 +37,15 @@ These averages are over a **three-dimensional** molecular orientation sphere.
 Propagating only two transverse field components does not change the factor
 three to two; embed the transverse $Q$ in three dimensions with zero z entries.
 
-The vibrational model retains only the response of the mean polarisability, which
-gives an isotropic (trace) channel. Real diatomic vibrational Raman scattering can also
-have anisotropic contributions; those need further strengths and resolved tensor data,
-and are absent from the defaults. CH4 and SF6 retain only their totally symmetric bands.
-This isotropic vibration and the weak (first-order) rotational response are the model
-solprop implements.
+A supplied species' vibrational model
+({class}`~solprop.physdata.raman_types.MolecularRaman`) retains only the response of the
+mean polarisability, which gives an isotropic (trace) channel; with the weak
+(first-order) rotational response, that is the model solprop builds from supplied
+constants. optmat's built-in responses also carry each vibrational Q line's anisotropic
+share, as a rank-two term
+([Raman data](raman-data.md#the-same-convention-mapped-onto-terms)), and leave out the
+vibrational O and S branches. CH4 and SF6 retain only their totally symmetric bands, which are
+isotropic.
 
 ## Cartesian tensor and envelope conventions
 
@@ -248,7 +251,7 @@ Replace the declaration with
 `response_for("H2", selection=MaterialSelection(carrier_wavelength=800e-9))` to include
 optmat's isotropic and rank-two terms. Add a delayed weak probe to either Cartesian
 component before evaluation to retain its full history. The deterministic
-[vector Raman gallery](../../auto_tutorials/capillaries/plot_06_vector_raman) compares linear
+[vector Raman gallery](../../auto_tutorials/capillaries/plot_06_vector_raman.rst) compares linear
 and circular pumps and an oblique-pump, cross-polarised delayed probe.
 
 A launch Jones vector sets the field amplitudes in the **real modal basis**. It does not make the modal profiles complex. The two supported modal

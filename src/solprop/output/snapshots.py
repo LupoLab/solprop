@@ -35,9 +35,9 @@ from typing import Literal, cast
 import numpy as np
 
 from solprop._interrupts import deferred_handlers
-from solprop.exceptions import OutputError, TDSEArchiveError
+from solprop.exceptions import OutputError, OutputRequestError, TDSEArchiveError
 from solprop.output._writer_lock import SNAPSHOT_SCHEMA, WriterLock
-from solprop.output.hdf5 import HDF5Output, ResumeState, resume
+from solprop.output.hdf5 import HDF5Output, ResumeState, read_resume_state
 from solprop.output.metadata import RunMetadata
 from solprop.output.tdse_archive import (
     ArchiveOutputs,
@@ -181,7 +181,7 @@ class SnapshotController:
 
     Raises
     ------
-    OutputError
+    OutputRequestError
         If the interval or capacity is invalid.
 
     Examples
@@ -205,13 +205,15 @@ class SnapshotController:
             or not math.isfinite(interval_seconds)
             or interval_seconds <= 0
         ):
-            raise OutputError("snapshot interval_seconds must be positive and finite")
+            msg = "snapshot interval_seconds must be positive and finite"
+            raise OutputRequestError(msg)
         if (
             isinstance(max_snapshots, bool)
             or not isinstance(max_snapshots, int)
             or max_snapshots < 1
         ):
-            raise OutputError("snapshot max_snapshots must be a positive integer")
+            msg = "snapshot max_snapshots must be a positive integer"
+            raise OutputRequestError(msg)
         self._directory = Path(directory).resolve()
         self._interval = interval_seconds
         self._capacity = max_snapshots
@@ -596,11 +598,11 @@ def _checkpoint(directory: Path, records: list[_FileRecord]) -> dict[str, object
     - Returns: checkpoint identity and provenance checked against the actual files.
     """
     optical = directory / records[0].path
-    state = resume(optical)
+    state = read_resume_state(optical)
     outcome = state.outcome
     # The endpoint is the last saved plane, or a running checkpoint beyond it at the
-    # running outcome's position (SEP 47 section 5.5), which `resume` prefers; it is
-    # an accepted endpoint, never a dense observation.
+    # running outcome's position (SEP 47 section 5.5), which `read_resume_state`
+    # prefers; it is an accepted endpoint, never a dense observation.
     if (
         outcome is None
         or outcome.status != "running"

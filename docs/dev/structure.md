@@ -51,10 +51,10 @@ layer that owns it. The annotations between them are
 [architecture.md §5](architecture.md)'s own. The thing to notice is where the boundary
 falls: the service loop serves a session's events, while the session runs the step loop
 (the reference's `HostSession` over its Python marches, or native's session over its
-compiled ones, [SEP 47](seps/archive/sep-0047-run-ownership.md), [SEP 52](seps/archive/sep-0052-backend-shape.md)). Reference passes, compiled kernels and library transforms,
+compiled ones, [SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md), [SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md)). Reference passes, compiled kernels and library transforms,
 or one native trial do the numerical work behind that loop.
 
-![One run of solprop, from prop_capillary through the kernel problem and the step driver to a saved plane](figures/one_run.svg)
+![One run of solprop, from prop_capillary through the kernel problem and the backend's session to a saved plane](figures/one_run.svg)
 
 Text: [architecture.md §5](architecture.md). The seam itself is figure 5.
 
@@ -67,10 +67,10 @@ at the bottom is the one thing about the contract that is not a field — Φ and
 prefactor each take one of four representations, and `device_ready` is a predicate over
 the pair.
 
-![The eight sections of the kernel contract, what feeds each of them and what a backend does with each](figures/kernel_contract.svg)
+![Sections 1 to 8 of the kernel contract, what feeds each of them and what a backend does with each](figures/kernel_contract.svg)
 
 Text: [kernel-contract.md §1](kernel-contract.md) to §8, the split in
-[kernel-contract.md §3](kernel-contract.md) and
+[kernel-contract.md §1](kernel-contract.md#1-identity-and-validation) and
 [backends.md §1](backends.md).
 
 ## 4. One stage
@@ -89,16 +89,17 @@ Text: [architecture.md §8](architecture.md) for the passes,
 
 ## 5. The backends
 
-The seam at the top is the whole of what a backend is. Under it is the step loop no
-backend reimplements — the march, the replay, the landing, the controller, the history,
-the noise and the per-stage bundle all live in the reference's session and marches,
-`backends/numpy_ref/`, while the native backend's session marches natively
-([SEP 47](seps/archive/sep-0047-run-ownership.md)) — and under that the
-implemented backends: NumPy reference and native (built from `native/`). Each
-supplies trial/state operations and the relevant hooks; the loop's
-statistics channel and progress reporter call back through the seam.
+The seam at the top is the whole of what a backend is. Under it each backend runs its own
+session and marches — the march, the replay, the landing, the controller, the history,
+the noise and the per-stage bundle: the reference's in Python in `backends/numpy_ref/`, the
+native backend's compiled ([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md),
+[SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md)), held to the same decisions by the shared
+controller cores and run records of `solprop.backends` — and under that the
+implemented backends: NumPy reference and native (built from `native/`). Each session
+keeps its statistics rows between events and hands them, with its events, to the service
+loop through the seam.
 
-![The backend seam, the shared step driver, and the implemented backends](figures/backends.svg)
+![The backend seam, each backend's session and marches, and the implemented backends](figures/backends.svg)
 
 Text: [backends.md §1](backends.md) for the seam and the three things a backend owes,
 [backends.md §2–4](backends.md) for the implementations, and

@@ -536,8 +536,11 @@ def test_binding_module_import_does_not_load_optional_engine():
 def test_binding_rejects_unsupported_interpreter_before_native_import(monkeypatch):
     monkeypatch.setattr(_pyroraptor.sys, "version_info", (3, 15, 0))
     source_channel.in_process(monkeypatch)
-    with pytest.raises(BackendError, match=r"Python 3\.14"):
+    with pytest.raises(
+        BackendError, match=r"supports Python 3\.14 only, and this is Python 3\.15"
+    ) as refusal:
         tdse.basis_from_preset("helium", "production")
+    assert "pinned" not in str(refusal.value)
 
 
 def test_binding_without_distribution_metadata_still_records_native_identity(

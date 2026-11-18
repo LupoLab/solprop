@@ -218,7 +218,7 @@ and across y after integrating over the gap. The widths in y are the run's
 
  .. code-block:: none
 
-    ran in 0.8 s
+    ran in 0.3 s
 
 
 
@@ -235,7 +235,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.812 seconds)
+   **Total running time of the script:** (0 minutes 0.330 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_04_planar_hybrid.py:

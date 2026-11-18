@@ -206,7 +206,7 @@ class _Session:
         share what is left of it, at most `limit` each, and the problems it leaves no
         time for are skipped and listed.
 
-        - ``effort``: ``"measure"`` or ``"patient"``.
+        - ``effort``: the FFTW planning effort, ``"measure"``.
         - ``limit``: FFTW's planning time limit per transform, in seconds.
         - ``budget``: the seconds the whole capture may take; none bounds it but
           `limit`.
@@ -259,7 +259,7 @@ class _Session:
                 options=simulation.settings.execution_options(),
             )
             try:
-                found = backend._diagnostics()["fft_planning"]  # pyright: ignore[reportPrivateUsage]
+                found = backend._diagnostics()["fft_planning"]
             finally:
                 backend.close()
             wisdom |= cast(dict[str, str], found["captured"])

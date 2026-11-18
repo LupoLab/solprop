@@ -10,7 +10,7 @@ build the same simulation, configuration hash included.
 Recipes describe the keyword routes `gnlse`, `capillary` and `waveguide`, and the
 free-space routes `radial`, `free` and `planar`, whose keywords are objects
 ([below](#free-space-routes)). They are specified in
-[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+[SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md).
 
 ## A recipe
 
@@ -437,18 +437,20 @@ A test reads the source for every refusal marked with a rule and holds it to
 ```text
 solprop run rdw.toml -o rdw.h5 [--progress log] [--resume]
 solprop check rdw.toml              # print the issues; exit 1 on an error
-solprop export rdw.toml --python    # print the equivalent script
+solprop export rdw.toml             # print the equivalent script (--form python)
 solprop resume rdw.h5               # continue a run from its file alone
 solprop scan ...                    # python -m solprop.scan, unchanged
 solprop calibrate --show            # the native backend's machine profile, if any
 ```
 
 `python -m solprop` is the same command. `check` exits 0 when the recipe builds (warnings
-included), 1 when it does not, and 2 when the file cannot be read. `run` and `resume` stop
+included), 1 when it does not, and 2 when the file cannot be read. Every command exits 2
+on arguments it refuses, and on a recipe or file it cannot read or build or a run or scan
+that fails, which it reports in one `solprop:` line. `run` and `resume` stop
 cleanly on Ctrl-C, writing the state, and `solprop resume` continues it
 ([resuming from the file alone](../results/resuming.md#resuming-from-the-file-alone)).
 `solprop calibrate` reads and manages the native backend's machine calibration
-([SEP 46](../../dev/seps/archive/sep-0046-machine-calibration.md)): `--show` prints the profile
+([SEP 46](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0046-machine-calibration.md)): `--show` prints the profile
 this allocation would use, with each setting beside the built-in value it replaces, or
 says that the built-in table applies; `--export FILE` and `--import FILE` move a profile
 between stores, for example to share one per node type of a cluster; and `--clear`
@@ -478,6 +480,6 @@ its reason, in the test that holds the examples to the gallery, so the list stay
   and the pressure-and-energy scan, built with `with_mixture` and `with_input`.
 
 This page documents the functionality proposed and implemented by
-[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+[SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md).
 The saved planes follow
-[SEP 51](../../dev/seps/archive/sep-0051-save-planes.md).
+[SEP 51](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0051-save-planes.md).

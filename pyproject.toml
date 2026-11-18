@@ -41,8 +41,7 @@ Changelog = "https://github.com/LupoLab/solprop/blob/main/CHANGELOG.md"
 
 # The `gui` extra, pinned by hatch_build.py, installs the desktop front end, the
 # distribution solprop-gui built from gui/, at solprop's own version:
-# `pip install solprop[gui]`, then `solprop-gui`. Until it is published, the TDSE provider
-# Pyroraptor is installed separately (docs/guide/media/tdse.md).
+# `pip install solprop[gui]`, then `solprop-gui`.
 
 [dependency-groups]
 dev = [
@@ -156,8 +155,6 @@ exclude = [
     ".hypothesis",
     ".pytest_cache",
     ".coverage*",
-    "*.nbi",
-    "*.nbc",
     "*.fftw_wisdom",
     ".DS_Store",
     "/docs/_build",
@@ -250,7 +247,6 @@ max-positional-args = 5           # past this, parameters are keyword-only
 "docs/introduction/tutorials/**" = ["D", "ANN", "T20", "E402"]  # the same gallery cell conventions
 "docs/tutorials/**" = ["D", "ANN", "T20", "E402"]   # gallery scripts: cells and prints
 "docs/examples/**" = ["D", "ANN", "T20", "E402"]    # worked examples: the same
-"docs/auto_examples/**" = ["D", "ANN", "T20", "E402"]   # their committed copies
 
 # -------------------------------------------------------------------------- type check
 [tool.basedpyright]               # basedpyright also reads [tool.pyright]
@@ -356,8 +352,10 @@ size       = "python -m tools.size_report"           # where the lines go, per p
 size-check = "python -m tools.size_report --check"   # the ratchets of tools/size_budget.toml
 test-medium = "pytest -m medium --durations=0"   # each test timed against its 30 s budget
 docs       = "sphinx-build -b html -W -n --keep-going docs docs/_build/html"
-# Python rather than `rm -rf`, so the task also runs on Windows.
-docs-clean = "python -c \"import shutil; [shutil.rmtree(p, ignore_errors=True) for p in ('docs/_build', 'docs/introduction/lessons', 'docs/auto_tutorials', 'docs/api/generated')]\""
+# Python rather than `rm -rf`, so the task also runs on Windows. It removes only the
+# untracked build output: the galleries' generated pages are committed, and a build
+# refuses a gallery whose pages are missing.
+docs-clean = "python -c \"import shutil; [shutil.rmtree(p, ignore_errors=True) for p in ('docs/_build', 'docs/api/generated')]\""
 
 [tool.poe.tasks.bench]
 cmd = "python -m benchmarks"
@@ -402,27 +400,27 @@ sequence = [
 env = { PYTHONUTF8 = "1", SOLPROP_TEST_BACKEND = "native" }
 help = "GPU lane: the gpu-marked tests of solprop and solprop-native against an installed CUDA or HIP build, on a device."
 
-# The CPU coverage lane measures coverage-cpu.ini's source, which is the whole package.
+# The coverage lane measures [tool.coverage]'s source, which is the whole package.
 # It runs under xdist with one thread per worker, as `poe test` does, and pytest-cov
 # combines the workers' data.
 [tool.poe.tasks.cov]
-cmd = "pytest --cov --cov-config=coverage-cpu.ini --cov-report=term-missing --cov-report=xml --durations=25 -m 'not slow and not gpu and not benchmark' -n auto --dist loadgroup"
+cmd = "pytest --cov --cov-report=term-missing --cov-report=xml --durations=25 -m 'not slow and not gpu and not benchmark' -n auto --dist loadgroup"
 env = { PYTHONUTF8 = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
-help = "Coverage lane: 100 % of the CPU source required."
+help = "Coverage lane: 100 % of the package required."
 
 # CI runs the coverage lane as parallel jobs: cov-part once per shard
 # (SOLPROP_TEST_SHARD=i/n, tests/shards.py), each leaving its own data file, which
 # cov-report combines from coverage-data/ and holds to the 100 %.
 [tool.poe.tasks.cov-part]
-cmd = "pytest --cov --cov-config=coverage-cpu.ini --cov-report= --cov-fail-under=0 -m 'not slow and not gpu and not benchmark' -n auto --dist loadgroup"
+cmd = "pytest --cov --cov-report= --cov-fail-under=0 -m 'not slow and not gpu and not benchmark' -n auto --dist loadgroup"
 env = { PYTHONUTF8 = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
 help = "The coverage lane for one shard (SOLPROP_TEST_SHARD), without the 100 % check."
 
 [tool.poe.tasks.cov-report]
 sequence = [
-    { cmd = "coverage combine --rcfile=coverage-cpu.ini coverage-data" },
-    { cmd = "coverage xml --rcfile=coverage-cpu.ini --fail-under=0" },
-    { cmd = "coverage report --rcfile=coverage-cpu.ini" },
+    { cmd = "coverage combine coverage-data" },
+    { cmd = "coverage xml --fail-under=0" },
+    { cmd = "coverage report" },
 ]
 help = "Combine the coverage parts in coverage-data/, write coverage.xml, require 100 %."
 

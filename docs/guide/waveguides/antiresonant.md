@@ -37,7 +37,7 @@ propagation_area = mode.aeff()  # Marcatili field integral, m^2
 To propagate, pass `lattice=` beside an integer `modes=` to `prop_capillary` or
 `Simulation.from_capillary`, or build a numbered set with `ModeCollection.vincetti`.
 Supplied mode objects carry their own geometry, so combining them with `lattice=` is
-refused. The [antiresonant tutorial](../../auto_tutorials/waveguides/plot_01_antiresonant_fibre)
+refused. The [antiresonant tutorial](../../auto_tutorials/waveguides/plot_01_antiresonant_fibre.rst)
 shows argon pressure tuning and a short Kerr propagation.
 
 The model combines the confinement-loss fits of
@@ -45,15 +45,15 @@ The model combines the confinement-loss fits of
 [Vincetti and Rosa (2019)](https://doi.org/10.1364/OE.27.005230) with the dispersion
 fit of [Rosa, Melli and Vincetti (2021)](https://doi.org/10.3390/fib9100058).
 These are empirical fits, not an exact solution of Maxwell's equations for the tube
-geometry. Every coefficient was transcribed from the papers and checked term by term
-against the published text. The minimum-loss prefactor is the 2019 paper's
+geometry. Every coefficient is the papers' own, checked term by term against the
+published text. The minimum-loss prefactor is the 2019 paper's
 $3\times10^{-4}$, the minimum, rather than the 2016 paper's average $5\times10^{-4}$.
 The 2016 equation (its Eq. 3) has been checked against the typeset page and matches term for
 term, apart from the prefactor; the paper's normalised-loss definition carries an extra
 $\sqrt{r/\lambda}$ that would make it inconsistent with Eq. 3, which is the dimensionally
 consistent form and the one used. In
-five places the printed papers and earlier published implementations of the model
-differ; the form solprop uses is decided [below](#the-five-conventions), term by term.
+four places the printed papers and earlier published implementations of the model
+differ; the form solprop uses is decided [below](#the-four-conventions), term by term.
 
 With $\lambda=2\pi c/\omega$, tube index $n_t=\operatorname{Re}n_{\rm cladding}$,
 and gas index $n_g$ from the declared mixture, the normalised wall frequency is
@@ -93,7 +93,7 @@ $$
 \begin{aligned}
 R_{\rm eff}&=\left[1.027+10^{-3}(F+2/F^4)\right]
  \sqrt{a^2+\frac N\pi\frac3{64}r^2
-       \left[1+(3+10\lambda/a)\delta/r\right]},\\
+       \left[1+(3+20\lambda/a)\delta/r\right]},\\
 L_i(F,F_0)&=\frac{F_0^2-F^2}{(F^2-F_0^2)^2+(0.03F)^2},\\
 \Delta n&=4.5\times10^{-7}(1-t/r)^{-4}(\lambda/a)^2 A(1)
  \sum_{\nu=1}^{n_{\rm terms}}
@@ -103,6 +103,9 @@ L_i(F,F_0)&=\frac{F_0^2-F^2}{(F^2-F_0^2)^2+(0.03F)^2},\\
 \end{aligned}
 $$
 
+The coefficient 20 of $\lambda/a$ is Rosa 2021's: its Eq. 10 is typeset as
+$3+2\cdot10\lambda/R_{co}$, Melli et al. (2025) Eq. 7 writes $3+20\lambda/R_{co}$, and
+earlier implementations carry 20 too.
 The square on $r$ follows from the trapezoid area in the geometric derivation. The
 waveguide term is the first-order expansion of $\beta=\sqrt{n_g^2k^2-(u_{nm}/R_{\rm
 eff})^2}$, one power of $n_g$, as the parent's full model has it; the neglected
@@ -124,7 +127,7 @@ where the fitted denominator changes sign. It is a diagnostic fit and does not
 replace the positive field integral used by the nonlinear transform or the area
 stored in output metadata.
 
-### The five conventions
+### The four conventions
 
 Earlier published implementations of the Vincetti model (pyJCMwave among them) share
 one form of the fits; the printed papers give another. One rule decides each term: a
@@ -138,15 +141,25 @@ of them) in argon at 294 K, as solprop's form minus the earlier one.
 | term | solprop | earlier implementations | printed | reason | size |
 |---|---|---|---|---|---|
 | dispersion width $\gamma_d$ | 0.03 | 0.03 | 0.003 (2021 eq. 2) | fits the FEM better than the printed value: the near-resonance index is 3.2× (vacuum) and 1.9× (argon) worse with 0.003 | none |
-| $R_{\rm eff}$ coefficient | $3+10\lambda/a$ | 20 | $3+2\cdot10\lambda/R_{co}$, that is 20 (2021 eq. 10, typeset); Melli et al. 2025 eq. 7 writes 20 | negligible (0.9 % of the decrement, a quarter of the fit's median residual); solprop's 10 came from a misreading of the printed bracket and is kept for now, with the vacuum index RMSE 13 % better than with 20 | $n_{\rm eff}$ $-1.7\times10^{-6}$ at 800 nm; $\beta_2$ $-7.7$ fs²/m (1.7 %) at 800 nm, $+2.2$ at 1030 nm; area $-1.0\,\%$ |
 | waveguide decrement | $D_0/n_g$ | $D_0/n_g^2$ | $D_0/n_g$ (2021 eqs. 21, 23) | physical: the expansion of $\beta$; the FEM's 10 bar index is predicted from its vacuum index to $2.2\times10^{-8}$ with one power and $6.7\times10^{-7}$ with two | 30 bar: $n_{\rm eff}$ $-1.3\times10^{-6}$ at 800 nm; $\beta_2$ $+0.1$ fs²/m at 800 nm, $+8.9$ (1.7 %) at 1030 nm |
 | area prefactor | $1/n_g$ | none | $1/n_g$ (2021 eq. 22) | physical: with the single-power decrement the area is fill independent, as the FEM's is to $10^{-4}$ | 30 bar: area $-0.8\,\%$ |
 | normalised frequency | $\sqrt{n_t^2-n_g^2}$ wherever $F$ enters | $\sqrt{n_t^2-1}$ | $\sqrt{n_t^2-n_g^2}$ (2021 eq. 23) | physical: the wall's slab resonance in the filled core | 30 bar: the $q=1$ loss peak 2.5 nm shorter (0.08 nm at 1 bar); loss ×0.74 at 400 nm, ×1.01 at 800 nm; $\beta_2$ $+71$ fs²/m (1.3 %) at 400 nm, $+2.4$ at 800 nm |
 
-All five together at 30 bar: $n_{\rm eff}$ $-3.0\times10^{-6}$ and $\beta_2$ $-4.9$
-fs²/m at 800 nm (where $\beta_2=+74$ fs²/m), $+70$ fs²/m at 400 nm, area
-$-2.4\,\%$; at 1 bar $-1.7\times10^{-6}$, $-7.7$ fs²/m at 800 nm, $+36$ at 400 nm,
-area $-1.0\,\%$. Evacuated, only the radius coefficient acts. The earlier form can be
+All four together at 30 bar: $n_{\rm eff}$ $-1.4\times10^{-6}$ and $\beta_2$ $+2.6$
+fs²/m at 800 nm (where $\beta_2=+88$ fs²/m), area $-1.5\,\%$; at 1 bar
+$-4.5\times10^{-8}$, $+0.1$ fs²/m at 800 nm, area $-0.05\,\%$. Evacuated, the two
+forms agree.
+
+The effective-radius coefficient is not among them, since the papers and earlier
+implementations agree on 20. On the finite-element fibre a coefficient of 10 would fit
+the vacuum index better (RMSE $7.5\times10^{-6}$ against $8.7\times10^{-6}$ over the
+79 rows), the argon index equally ($4.45\times10^{-6}$ against $4.47\times10^{-6}$
+away from resonance), and the fitted area better in vacuum (median residual 2.5 %
+against 3.1 %) but worse at 10 bar (1.2 % against 0.3 %). The term is 0.9 % of the
+decrement, below the fit's median residual, so by the rule above the printed value
+is used.
+
+The earlier form can be
 assembled from the same code as `solprop.modes.antiresonant.LEGACY_CONVENTIONS`, which
 the tests use to compare with
 earlier implementations and which no propagation uses; solprop's own form is checked
@@ -168,25 +181,25 @@ The model is compared with converged finite-element (FEM) solutions of one fibre
 $t/r=0.017$ fibre outside the fits' validated 0.05–0.2. The FEM data cover 79
 wavelengths from 200 to 1500 nm evacuated and 20 from 355 to 946 nm at 10 bar of argon
 and 293 K. The comparison uses the FEM's own silica index (without absorption) and the
-same three-pole argon Sellmeier fit (solprop's `kingston` source, whose gas indices
+same three-pole argon Sellmeier fit (Kingston's, as Luna uses it, whose gas indices
 match the FEM's exactly). No parameter was refitted.
 
-With the conventions above, the index residual has RMSE $7.5\times10^{-6}$ over
-the 79 vacuum rows and, away from the resonances, a median of 2.9 % of the
-waveguide decrement (p90 12 %, maximum 26 %); at 10 bar $4.5\times10^{-6}$ and
-0.7 %, and the vacuum-to-argon change of the index is reproduced to
-$7\times10^{-8}$. The loss in the interior of the first window is 0.5–1.6 times
+With the conventions above, the index residual has RMSE $8.7\times10^{-6}$ over
+the 79 vacuum rows and, away from the resonances, a median of 3.4 % of the
+waveguide decrement (p90 12 %, maximum 25 %); at 10 bar $4.5\times10^{-6}$ and
+0.5 %, and the vacuum-to-argon change of the index is reproduced to
+$8\times10^{-8}$. The loss in the interior of the first window is 0.5–1.6 times
 the FEM's; at the band edges the fit's Lorentzians are far narrower than the FEM
 resonances and the loss is up to 150 times too low. The fitted area's median
-residual is 2.5 % (vacuum) and 1.2 % (argon) away from resonance.
+residual is 3.1 % (vacuum) and 0.3 % (argon) away from resonance.
 
 **The group-velocity dispersion is the quantity this model is used for, and it is
 where the fit is weakest.** In the first transmission band of this fibre the FEM's
-own $\beta_2$ is more negative than the model's by 1 % at 607 nm, 18 % at 782 nm,
-48 % at 913 nm and 70 % at 1013 nm in vacuum ($-1268$ against $-744$ fs²/m), and by
-24–67 % over 720–913 nm at 10 bar. It is the curvature of the model's U-shaped index
+own $\beta_2$ is more negative than the model's by 3 % at 607 nm, 20 % at 782 nm,
+49 % at 913 nm and 70 % at 1013 nm in vacuum ($-1268$ against $-745$ fs²/m), and by
+24–68 % over 720–913 nm at 10 bar. It is the curvature of the model's U-shaped index
 residual (+24 % of the decrement at 400 nm, about zero at 800 nm, +5 % at 1360 nm),
-not a differencing artefact, and none of the five conventions moves it by more than
+not a differencing artefact, and none of the four conventions moves it by more than
 2 %. The 2019 and 2021 fits were validated for $t/r$ between 0.05 and 0.2; this
 fibre lies outside that range, and so does the tutorial's. These numbers are
 pinned as a regression test in `tests/modes/test_vincetti_fem.py`.

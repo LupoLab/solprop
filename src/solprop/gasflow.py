@@ -431,8 +431,8 @@ def throughput(
     gas: Composition | Mixture,
     radius: float | ZProfile,
     length: float,
-    start_bar: float,
-    end_bar: float,
+    start_pressure: float,
+    end_pressure: float,
     *,
     temperature: float = ROOM_TEMPERATURE,
 ) -> float:
@@ -448,7 +448,7 @@ def throughput(
         Core radius in m, > 0, over ``[0, length]``.
     length : float
         Length in m, > 0.
-    start_bar, end_bar : float
+    start_pressure, end_pressure : float
         Pressures in bar at ``z = 0`` and ``z = length``, >= 0.
     temperature : float, optional
         Gas temperature in K.
@@ -476,8 +476,8 @@ def throughput(
     """
     flow = _FlowGas.of(gas, temperature)
     _, resistance = _resistance(radius, length)
-    high = _checked_pressure(start_bar, "start_bar") * BAR
-    low = _checked_pressure(end_bar, "end_bar") * BAR
+    high = _checked_pressure(start_pressure, "start_pressure") * BAR
+    low = _checked_pressure(end_pressure, "end_pressure") * BAR
     return _poiseuille(flow, high, low, resistance)
 
 
@@ -499,7 +499,7 @@ def choked_pressure(
     gas: Composition | Mixture,
     radius: float | ZProfile,
     length: float,
-    high_bar: float,
+    high_pressure: float,
     *,
     exit_end: Literal["start", "end"] = "end",
     temperature: float = ROOM_TEMPERATURE,
@@ -514,7 +514,7 @@ def choked_pressure(
         Core radius in m, > 0, over ``[0, length]``.
     length : float
         Length in m, > 0.
-    high_bar : float
+    high_pressure : float
         Pressure in bar at the fed end, >= 0.
     exit_end : {'end', 'start'}, optional
         Which end exhausts: ``z = length`` (the default) or ``z = 0``. Its radius sets
@@ -549,7 +549,7 @@ def choked_pressure(
     path, resistance = _resistance(radius, length)
     position = 0.0 if exit_end == "start" else float(length)
     exit_radius = float(path(np.array([position]))[0])
-    high = _checked_pressure(high_bar, "high_bar") * BAR
+    high = _checked_pressure(high_pressure, "high_pressure") * BAR
     return _choke(flow, high, exit_radius, resistance) / BAR
 
 
@@ -868,7 +868,7 @@ class StageFlow(Displayed):
     ----------
     start, end : float
         The stage's ends in m.
-    start_bar, end_bar : float
+    start_pressure, end_pressure : float
         The fill's pressures in bar at the two ends.
     temperature : float
         Gas temperature in K.
@@ -899,8 +899,8 @@ class StageFlow(Displayed):
 
     start: float
     end: float
-    start_bar: float
-    end_bar: float
+    start_pressure: float
+    end_pressure: float
     temperature: float
     throughput: float
     mass_flow: float
@@ -921,7 +921,9 @@ class StageFlow(Displayed):
         ``knudsen_end`` when the flow runs towards +z, else ``knudsen_start``.
         """
         return (
-            self.knudsen_end if self.end_bar <= self.start_bar else self.knudsen_start
+            self.knudsen_end
+            if self.end_pressure <= self.start_pressure
+            else self.knudsen_start
         )
 
     @property
@@ -971,7 +973,7 @@ class FlowReport(Displayed):
         The gas viscosity in Pa s.
     sound_speed : float
         The dilute adiabatic sound speed in m s^-1.
-    choked_start_bar, choked_end_bar : float or None
+    choked_start_pressure, choked_end_pressure : float or None
         The choked pressure in bar of the first and last outer end, where that end is
         the low end of its stage; ``None`` where it is not.
     start_is_choked, end_is_choked : bool
@@ -982,8 +984,8 @@ class FlowReport(Displayed):
     stages: tuple[StageFlow, ...]
     viscosity: float
     sound_speed: float
-    choked_start_bar: float | None
-    choked_end_bar: float | None
+    choked_start_pressure: float | None
+    choked_end_pressure: float | None
     start_is_choked: bool
     end_is_choked: bool
 
@@ -1050,8 +1052,8 @@ class FlowReport(Displayed):
                 )
             )
         for name, value, flag in (
-            ("start", self.choked_start_bar, self.start_is_choked),
-            ("end", self.choked_end_bar, self.end_is_choked),
+            ("start", self.choked_start_pressure, self.start_is_choked),
+            ("end", self.choked_end_pressure, self.end_is_choked),
         ):
             if value is not None:
                 state = "choked" if flag else "not choked"
@@ -1140,8 +1142,8 @@ def _stage_flow(  # noqa: PLR0917 - called positionally
     return StageFlow(
         start=float(samples[0]),
         end=float(samples[-1]),
-        start_bar=first,
-        end_bar=second,
+        start_pressure=first,
+        end_pressure=second,
         temperature=temperature,
         throughput=rate,
         mass_flow=mass,
@@ -1237,7 +1239,7 @@ def _transitional(
 
 def _outer_chokes(
     flows: tuple[_FlowGas, _FlowGas],
-    pressures_bar: Float[np.ndarray, " n_positions"],
+    pressures: Float[np.ndarray, " n_positions"],
     exit_radii: tuple[float, float],
     resistances: tuple[float, float],
 ) -> tuple[float | None, float | None]:
@@ -1245,7 +1247,7 @@ def _outer_chokes(
 
     - ``flows``: the gas properties at the first and the last end: the same object at a
       constant temperature, each end's own along a temperature path.
-    - ``pressures_bar``: stage pressures in bar.
+    - ``pressures``: stage pressures in bar.
     - ``exit_radii``: the core radius in m at the first and the last position.
     - ``resistances``: the ``int a^-4 dz`` in m^-3 of the first and the last stage;
       along a temperature path ``int (eta T) / (eta_e T_e) a^-4 dz`` with the end's own
@@ -1259,8 +1261,8 @@ def _outer_chokes(
         (0, 1, flows[0], exit_radii[0], resistances[0]),
         (-1, -2, flows[1], exit_radii[1], resistances[1]),
     ):
-        if pressures_bar[end] < pressures_bar[other]:
-            high = float(pressures_bar[other]) * BAR
+        if pressures[end] < pressures[other]:
+            high = float(pressures[other]) * BAR
             chokes.append(_choke(flow, high, exit_radius, float(resistance)) / BAR)
         else:
             chokes.append(None)
@@ -1386,8 +1388,8 @@ def flow_report(
         ),
         viscosity=flow.viscosity,
         sound_speed=flow.sound_speed,
-        choked_start_bar=choked_start,
-        choked_end_bar=choked_end,
+        choked_start_pressure=choked_start,
+        choked_end_pressure=choked_end,
         start_is_choked=_at_choke(float(fill.pressures[0]), choked_start),
         end_is_choked=_at_choke(float(fill.pressures[-1]), choked_end),
     )
@@ -1450,7 +1452,7 @@ def temperature_weight(
 def steady_fill(
     gas: Composition | Mixture,
     positions: Sequence[float] | np.ndarray,
-    pressures_bar: Sequence[float] | np.ndarray,
+    pressures: Sequence[float] | np.ndarray,
     *,
     radius: float | ZProfile,
     temperature: float | ZProfile = ROOM_TEMPERATURE,
@@ -1484,7 +1486,7 @@ def steady_fill(
         a shared fill.
     positions : array_like
         Stage boundaries in m, strictly increasing, at least two.
-    pressures_bar : array_like
+    pressures : array_like
         Declared pressure in bar at each boundary, >= 0.
     radius : float or ZProfile
         Core radius in m, > 0, over the fill.
@@ -1532,7 +1534,7 @@ def steady_fill(
     """
     choice(vacuum_end, "vacuum_end", get_args(VacuumEnd), TranslationError)
     edges = _checked_edges(positions, "steady_fill")
-    declared = _checked_pressures(edges, pressures_bar)
+    declared = _checked_pressures(edges, pressures)
     path = as_profile(radius)
     kelvin = _checked_temperature(temperature, "the steady-flow fill")
     try:

@@ -98,6 +98,20 @@ def test_a_spectrogram_defaults_to_the_end_of_the_run(single):
     assert np.array_equal(np.asarray(end), np.asarray(last))
 
 
+def test_a_spectrogram_selects_a_plane_by_index_as_by_position(single):
+    by_index = spectrogram(single, plane=2).axes[0].collections[0].get_array()
+    by_position = spectrogram(single, 0.05).axes[0].collections[0].get_array()
+    assert np.array_equal(np.asarray(by_index), np.asarray(by_position))
+    first = spectrogram(single, plane=0).axes[0].collections[0].get_array()
+    # A different plane draws a different map, so the index is not ignored.
+    assert not np.array_equal(np.asarray(first), np.asarray(by_index))
+
+
+def test_a_spectrogram_refuses_a_plane_and_a_position_together(single):
+    with pytest.raises(ProcessingError, match="not both"):
+        spectrogram(single, 0.05, plane=2)
+
+
 def test_a_spectrogram_draws_into_a_given_axis(single):
     figure, ax = plt.subplots()
     assert spectrogram(single, 0.0, ax=ax) is figure

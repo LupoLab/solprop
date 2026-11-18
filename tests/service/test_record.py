@@ -119,6 +119,64 @@ def test_an_event_that_cannot_be_written_costs_the_record_not_the_run(tmp_path):
     assert [event.kind for event in read_events(tmp_path)[0]] == ["finished"]
 
 
+class ShortWriteOnce:
+    """A record's stream whose second write stops halfway, as a disk filling up."""
+
+    def __init__(self, stream) -> None:
+        self.stream = stream
+        self.writes = 0
+
+    def write(self, data: bytes) -> int:
+        self.writes += 1
+        if self.writes == 2:
+            self.stream.write(data[: len(data) // 2])
+            self.stream.flush()
+            raise OSError(28, "No space left on device")
+        return self.stream.write(data)
+
+    def flush(self) -> None:
+        self.stream.flush()
+
+    def close(self) -> None:
+        self.stream.close()
+
+
+def test_a_write_cut_short_leaves_no_part_of_a_frame_in_the_record(tmp_path):
+    log = EventLog(tmp_path, "r1")
+    log._stream = ShortWriteOnce(log._stream)  # pyright: ignore[reportAttributeAccessIssue]
+    for index in range(3):
+        log.put(Event("r1", "row", {"index": index}))
+    log.put(Event("r1", "finished", {}))
+    log.close()
+    events = read_events(tmp_path)[0]
+    assert [(e.kind, e.data.get("index")) for e in events] == [
+        ("row", 0),
+        ("row", 2),
+        ("finished", None),
+    ]
+
+
+def test_a_record_that_cannot_be_cut_back_keeps_no_more_events(tmp_path, monkeypatch):
+    def refused(path, length):
+        raise OSError(30, "Read-only file system")
+
+    log = EventLog(tmp_path, "r1")
+    log._stream = ShortWriteOnce(log._stream)  # pyright: ignore[reportAttributeAccessIssue]
+    monkeypatch.setattr(record.os, "truncate", refused)
+    for index in range(3):
+        log.put(Event("r1", "row", {"index": index}))
+    log.put(Event("r1", "finished", {}))
+    log.close()
+    events, offset = read_events(tmp_path)
+    # Nothing follows the part of a frame: the reader stops before it. The summary
+    # counts only the rows kept, and still records the run's ending.
+    assert [(e.kind, e.data.get("index")) for e in events] == [("row", 0)]
+    assert offset < (tmp_path / EVENTS).stat().st_size
+    status = read_status(tmp_path)
+    assert status is not None and status["rows"] == 1
+    assert status["ending"]["kind"] == "finished"
+
+
 def test_the_job_record_round_trips_and_a_torn_one_reads_as_none(tmp_path):
     assert read_job(tmp_path) is None
     job = Job.here("r1", "direct", threads=4)
@@ -194,7 +252,7 @@ def test_a_continued_run_sets_its_earlier_records_aside(tmp_path):
         request_stop(tmp_path)
         set_aside(tmp_path)
     names = sorted(path.name for path in tmp_path.iterdir())
-    assert names == ["events-1.bin", "events-2.bin"]
+    assert names == ["events-1.bin", "events-2.bin", "status-1.json", "status-2.json"]
 
 
 def test_a_run_tied_to_a_window_stops_when_the_window_goes(tmp_path, monkeypatch):

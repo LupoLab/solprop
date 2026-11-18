@@ -21,8 +21,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from tests.backends.adams_traces import Scenario, run_scenario
 
+from backends.adams_traces import Scenario, run_scenario
 from solprop.stepper.multistep import Multistep
 
 STATE = (

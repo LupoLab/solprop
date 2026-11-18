@@ -8,10 +8,13 @@ The native session catches an exception raised outside the march's own error ret
 -- a plane's statistics evaluation, say -- and ends the run with it. Its class is the
 one the marches give the same native exception (``rk_march.cpp``, ``adams_march.cpp``):
 an unresolved angular source is a ``ConvergenceError``, as the reference raises, not a
-``RuntimeError``.
+``RuntimeError``. A native refusal the adapter recognises by its text keeps that text
+in the C++ sources, so that a reworded message cannot lose its solprop class unseen.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -21,7 +24,8 @@ from solprop.exceptions import ConvergenceError
 from test_envelope_plasma import envelope_case, envelope_options, terms
 
 import solprop_native.backend as adapter
-from solprop_native import NativeBackend, _core
+import solprop_native.session as native_session
+from solprop_native import NativeBackend, _core, _statistics
 from solprop_native._lowering import (
     _lower,  # pyright: ignore[reportPrivateUsage]
     _LowerPlan,  # pyright: ignore[reportPrivateUsage]
@@ -72,3 +76,27 @@ def test_an_unresolved_launch_statistic_ends_the_run_as_a_convergence_error(
     # The launch plane's populations refuse before any step is taken.
     assert isinstance(terminal.error, ConvergenceError)
     assert "angular refinement" in str(terminal.error)
+
+
+def test_every_refusal_the_adapter_recognises_by_text_is_raised_by_the_cpp() -> None:
+    root = Path(__file__).parents[1]
+    sources = {
+        path: path.read_text(encoding="utf-8")
+        for folder in ("src", "include")
+        for path in sorted((root / folder).rglob("*"))
+        if path.suffix in {".cpp", ".hpp", ".inc"}
+    }
+    # The C++ tree was found: over a hundred files, the session's among them.
+    assert len(sources) > 50
+    assert root / "src" / "session" / "session.cpp" in sources
+    markers = [
+        *(marker for marker, _ in _statistics._TRANSLATED),  # pyright: ignore[reportPrivateUsage]
+        native_session._POWER_WEIGHTS_REFUSAL,  # pyright: ignore[reportPrivateUsage]
+    ]
+    assert len(markers) == 8
+    missing = [
+        marker
+        for marker in markers
+        if not any(marker in text for text in sources.values())
+    ]
+    assert missing == []

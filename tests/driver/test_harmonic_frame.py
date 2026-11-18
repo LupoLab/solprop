@@ -17,15 +17,13 @@ import dataclasses
 import numpy as np
 import pytest
 
-import solprop.driver.simulation as simulation_module
 import solprop.translate.assembly as assembly_module
 from solprop.backends.exponential import carrier_reference
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
-from solprop.exceptions import OutputError, TranslationError
+from solprop.exceptions import TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.linear import Frame
-from solprop.log import NullReporter
 from solprop.modes import PlanarGrid, SlabMode
 from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
 from solprop.nonlinear.responses import KerrResponse
@@ -254,48 +252,3 @@ def test_a_frame_the_compiled_carrier_disagrees_with_is_refused(thg, monkeypatch
     )
     with pytest.raises(TranslationError, match="internal inconsistency"):
         capillary(thg=thg, raman=False).translate()
-
-
-def test_only_a_run_whose_frame_the_rule_changed_records_it():
-    # Every other run keeps the record, and so the digest, it had before.
-    changed = raman_harmonic_flag().metadata().configuration
-    assert changed["frame"] == Frame(envelope_grid(thg=False).omega0, True)
-    for thg, raman in ((False, True), (True, False), (False, False)):
-        configuration = capillary(thg=thg, raman=raman).metadata().configuration
-        assert "frame" not in configuration
-
-
-class StoppedError(RuntimeError):
-    """What an interrupted run raises, standing in for a machine going away."""
-
-
-class StopAfterPlane(NullReporter):
-    """A reporter that stops the run once its first plane after the launch is saved."""
-
-    def __init__(self) -> None:
-        self.seen = 0
-
-    def plane(self, z, summary):
-        self.seen += 1
-        if self.seen >= 2:
-            raise StoppedError
-
-
-@pytest.mark.medium
-def test_a_run_saved_under_the_earlier_frame_rule_is_not_resumed(tmp_path, monkeypatch):
-    # Before the frame followed the electronic responses alone, this run kept beta_0
-    # and its record held no frame. Written with that record, it is refused by name
-    # rather than continued in another frame under the same digest.
-    path = tmp_path / "earlier.h5"
-    with monkeypatch.context() as earlier:
-        earlier.setattr(
-            simulation_module, "_frame_follows_the_electronic_rule", lambda *_: False
-        )
-        with pytest.raises(StoppedError):
-            raman_harmonic_flag(length=0.01, n_save=4).run(
-                path, progress=StopAfterPlane()
-            )
-    with pytest.raises(OutputError, match=r"configuration\.frame"):
-        raman_harmonic_flag(length=0.01, n_save=4).run(
-            path, resume=True, progress="none"
-        )

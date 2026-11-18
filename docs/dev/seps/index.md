@@ -7,8 +7,9 @@ options and how the result will be verified; once accepted it is implemented in 
 on `numpy_ref` and the native backend in either order, and each phase appends its
 report to the SEP. Finished SEPs are archived and linked from the manual pages they
 produced. [SEP 0](sep-0000-process.md) describes the process and says when a SEP is
-needed; new SEPs start from [the template](template.md). The [roadmap](../roadmap.md)
-lists accepted and in-progress SEPs first, then drafts under discussion.
+needed; new SEPs start from [the template](template.md). Each open SEP has a tracking
+[issue](https://github.com/LupoLab/solprop/issues?q=label%3Asep), which says where it
+stands.
 
 Commit hashes recorded before solprop's first public release (in proposals, reports
 and benchmark entries) refer to the unpublished development history; the public history
@@ -34,59 +35,55 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [17](sep-0017-gas-two-photon-ionisation.md) | Broadband two-photon continuum response beside strong-field ionisation | Accepted | Feature |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
 
-SEP 13, the standalone numerical prerequisite for SEP 12, SEP 14, which carried it to
-the compiled backends, and SEP 16, which unified the multistep family and made it the
-default, are final and archived; numbering records creation order, not implementation
-order.
-
 ## Archived
 
-Proposals that are final, rejected, withdrawn or superseded; the
-[archive](archive/index.md) lists them.
+Proposals that are final, rejected, withdrawn or superseded. The archive is kept in the
+repository, under `docs/dev/seps/archive/`, and is not built into this manual: each row
+links the SEP's file on GitHub.
 
 | SEP | Title | Status | Type |
 |---|---|---|---|
-| [3](archive/sep-0003-optmat-materials.md) | Materials, Raman responses and ionisation rates from optmat | Final | Change |
-| [4](archive/sep-0004-execution-autotuning.md) | Bounded execution autotuning | Superseded | Feature |
-| [6](archive/sep-0006-dispersive-nonlinearity.md) | Frequency-dependent electronic third-order response | Final | Feature |
-| [12](archive/sep-0012-tdse-nonlinear-response.md) | TDSE-driven nonlinear response for gas-filled capillaries | Final | Feature |
-| [13](archive/sep-0013-expensive-response-steppers.md) | Low-call integration for expensive nonlinear responses | Final | Feature |
-| [14](archive/sep-0014-stepper-efficiency.md) | Step efficiency across routes: limits, collars, tables and dense output | Final | Change |
-| [15](archive/sep-0015-exponential-adams.md) | Exponential Adams stepping for dispersive, broadband problems | Superseded | Feature |
-| [16](archive/sep-0016-unified-multistep.md) | Unified multistep integration and work–precision qualification | Final | Feature |
-| [18](archive/sep-0018-band-exact-plasma-integrals.md) | Band-exact running integrals for the field-grid plasma | Final | Change |
-| [19](archive/sep-0019-field-scale-quadrature.md) | Field-scale radial quadrature for single-mode capillaries | Final | Feature |
-| [20](archive/sep-0020-hacc-helium-tdse.md) | haCC helium TDSE target | Final | Feature |
-| [21](archive/sep-0021-absorbing-boundaries.md) | Temporal boundaries: wider windows, absorption and the escaped field | Final | Change |
-| [22](archive/sep-0022-memory-lean-spatial-execution.md) | Memory-lean spatial execution: statistics-only planes, construct-once runs and operator settings | Final | Change |
-| [23](archive/sep-0023-far-field-aperture-spectra.md) | Far-field aperture and angular-region spectra for free-space runs | Final | Feature |
-| [24](archive/sep-0024-low-storage-interaction-picture-runge-kutta.md) | A low-storage interaction-picture Runge–Kutta march for memory-bound fixed-step runs | Final | Feature |
-| [25](archive/sep-0025-rounding-level-reproducibility.md) | Rounding-level reproducibility and the performance it frees | Final | Change |
-| [26](archive/sep-0026-edge-free-tdse-source.md) | An edge-free gated TDSE source: hold the current instead of switching it off | Final | Change |
-| [27](archive/sep-0027-held-plasma-current.md) | An edge-free field-grid plasma source: hold the current at the temporal collar | Final | Change |
-| [28](archive/sep-0028-free-space-evaluation.md) | Free-space evaluation at the memory bound | Final | Change |
-| [29](archive/sep-0029-compiled-backend-distribution.md) | The native backend in solprop, distributed as binaries | Final | Change |
-| [30](archive/sep-0030-standard-benchmark-suite.md) | Standard benchmark suite | Superseded | Process |
-| [31](archive/sep-0031-simulation-coupling.md) | Coupling simulations and transporting ultrafast fields | Final | Feature |
-| [33](archive/sep-0033-single-precision-mlx.md) | Single-precision propagation, and an MLX backend for Apple GPUs | Final | Feature |
-| [34](archive/sep-0034-medium-flux.md) | Medium flux for free-space propagation | Final | Change |
-| [35](archive/sep-0035-carrier-frame-exponential-adams.md) | A carrier frame for the exponential Adams history | Final | Change |
-| [36](archive/sep-0036-native-reduced-precision.md) | Single and mixed precision on the native backend | Withdrawn | Feature |
-| [37](archive/sep-0037-noise-and-stepper-defaults.md) | Shot noise on by default, and an integrator and tolerances chosen for each interface | Final | Change |
-| [38](archive/sep-0038-performance-tracking.md) | Performance tracking: complete runs, about an hour per machine | Final | Process |
-| [39](archive/sep-0039-native-adams-march.md) | A native Adams march: the Multistep step loop in the compiled backend | Final | Change |
-| [40](archive/sep-0040-transverse-absorbing-boundaries.md) | Transverse absorbing boundaries for free-space propagation | Final | Change |
-| [41](archive/sep-0041-recipes-and-front-ends.md) | Recipes, and the hooks a front end needs | Final | Change |
-| [42](archive/sep-0042-tolerant-resume.md) | Resuming by what matters to the run | Superseded | Change |
-| [43](archive/sep-0043-retire-numba-cpu.md) | Retire `numba_cpu` | Final | Change |
-| [44](archive/sep-0044-native-edge-read.md) | Reading the transverse edge where the state lives | Final | Change |
-| [45](archive/sep-0045-native-rk-march.md) | A native Runge–Kutta march, and boundary checks inside the compiled marches | Final | Change |
-| [46](archive/sep-0046-machine-calibration.md) | Calibrating the native backend to its machine | Final | Change |
-| [47](archive/sep-0047-run-ownership.md) | Backend-owned execution sessions | Final | Change |
-| [48](archive/sep-0048-julia-backend.md) | A Julia backend: one engine for CPUs and GPUs, in both precisions | Withdrawn | Feature |
-| [49](archive/sep-0049-tdse-on-native.md) | The TDSE response on native | Final | Change |
-| [51](archive/sep-0051-save-planes.md) | One rule for the saved planes and the end of a run | Final | Change |
-| [52](archive/sep-0052-backend-shape.md) | One backend shape and a small native seam | Final | Change |
+| [3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md) | Materials, Raman responses and ionisation rates from optmat | Final | Change |
+| [4](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0004-execution-autotuning.md) | Bounded execution autotuning | Superseded | Feature |
+| [6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md) | Frequency-dependent electronic third-order response | Final | Feature |
+| [12](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0012-tdse-nonlinear-response.md) | TDSE-driven nonlinear response for gas-filled capillaries | Final | Feature |
+| [13](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0013-expensive-response-steppers.md) | Low-call integration for expensive nonlinear responses | Final | Feature |
+| [14](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0014-stepper-efficiency.md) | Step efficiency across routes: limits, collars, tables and dense output | Final | Change |
+| [15](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0015-exponential-adams.md) | Exponential Adams stepping for dispersive, broadband problems | Superseded | Feature |
+| [16](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0016-unified-multistep.md) | Unified multistep integration and work–precision qualification | Final | Feature |
+| [18](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0018-band-exact-plasma-integrals.md) | Band-exact running integrals for the field-grid plasma | Final | Change |
+| [19](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0019-field-scale-quadrature.md) | Field-scale radial quadrature for single-mode capillaries | Final | Feature |
+| [20](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0020-hacc-helium-tdse.md) | haCC helium TDSE target | Final | Feature |
+| [21](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md) | Temporal boundaries: wider windows, absorption and the escaped field | Final | Change |
+| [22](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) | Memory-lean spatial execution: statistics-only planes, construct-once runs and operator settings | Final | Change |
+| [23](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0023-far-field-aperture-spectra.md) | Far-field aperture and angular-region spectra for free-space runs | Final | Feature |
+| [24](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md) | A low-storage interaction-picture Runge–Kutta march for memory-bound fixed-step runs | Final | Feature |
+| [25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md) | Rounding-level reproducibility and the performance it frees | Final | Change |
+| [26](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0026-edge-free-tdse-source.md) | An edge-free gated TDSE source: hold the current instead of switching it off | Final | Change |
+| [27](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0027-held-plasma-current.md) | An edge-free field-grid plasma source: hold the current at the temporal collar | Final | Change |
+| [28](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0028-free-space-evaluation.md) | Free-space evaluation at the memory bound | Final | Change |
+| [29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md) | The native backend in solprop, distributed as binaries | Final | Change |
+| [30](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0030-standard-benchmark-suite.md) | Standard benchmark suite | Superseded | Process |
+| [31](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0031-simulation-coupling.md) | Coupling simulations and transporting ultrafast fields | Final | Feature |
+| [33](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0033-single-precision-mlx.md) | Single-precision propagation, and an MLX backend for Apple GPUs | Final | Feature |
+| [34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md) | Medium flux for free-space propagation | Final | Change |
+| [35](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md) | A carrier frame for the exponential Adams history | Final | Change |
+| [36](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0036-native-reduced-precision.md) | Single and mixed precision on the native backend | Withdrawn | Feature |
+| [37](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0037-noise-and-stepper-defaults.md) | Shot noise on by default, and an integrator and tolerances chosen for each interface | Final | Change |
+| [38](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0038-performance-tracking.md) | Performance tracking: complete runs, about an hour per machine | Final | Process |
+| [39](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0039-native-adams-march.md) | A native Adams march: the Multistep step loop in the compiled backend | Final | Change |
+| [40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md) | Transverse absorbing boundaries for free-space propagation | Final | Change |
+| [41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md) | Recipes, and the hooks a front end needs | Final | Change |
+| [42](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0042-tolerant-resume.md) | Resuming by what matters to the run | Final | Change |
+| [43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) | Retire `numba_cpu` | Final | Change |
+| [44](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0044-native-edge-read.md) | Reading the transverse edge where the state lives | Final | Change |
+| [45](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0045-native-rk-march.md) | A native Runge–Kutta march, and boundary checks inside the compiled marches | Final | Change |
+| [46](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0046-machine-calibration.md) | Calibrating the native backend to its machine | Final | Change |
+| [47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) | Backend-owned execution sessions | Final | Change |
+| [48](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0048-julia-backend.md) | A Julia backend: one engine for CPUs and GPUs, in both precisions | Withdrawn | Feature |
+| [49](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0049-tdse-on-native.md) | The TDSE response on native | Final | Change |
+| [51](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0051-save-planes.md) | One rule for the saved planes and the end of a run | Final | Change |
+| [52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md) | One backend shape and a small native seam | Final | Change |
 
 ```{toctree}
 :hidden:
@@ -104,5 +101,4 @@ sep-0011-finite-density-gas-index
 sep-0017-gas-two-photon-ionisation
 sep-0032-raman-maxwell-bloch
 template
-archive/index
 ```

@@ -664,8 +664,9 @@ def oversample(
 
     On a field grid this preserves energy only when the coarse Nyquist bin is zero: that
     bin is self-conjugate on the coarse grid but becomes an ordinary interior bin on the
-    fine one, so a non-zero value there gains a factor of two in amplitude. Every grid
-    built by :mod:`solprop.grid` apodises it to zero, so the condition holds in use.
+    fine one, so a non-zero value there gains a factor of two in amplitude. Every
+    :class:`solprop.grid.FieldGrid` that validates has its spectral window exactly zero
+    at that bin, so the condition holds in use.
 
     Parameters
     ----------
@@ -916,9 +917,11 @@ def spectral_density(
     On the field grid the zero-frequency and Nyquist bins are the one exception to
     ``δω Σ_k S_k = U``: the analytic signal does not double them, so summing this
     density over every bin overcounts those two, by ``3 δt (|Ẽ_0|² + |Ẽ_Nyq|²) / n_t``
-    in total. Every interior bin agrees exactly, and both end bins are identically zero
-    on any grid built by :mod:`solprop.grid`, whose spectral collar apodises them away.
-    Use :func:`energy_omega` when an exact energy is wanted.
+    in total. Every interior bin agrees exactly, and every
+    :class:`solprop.grid.FieldGrid` that validates has its spectral window exactly zero
+    at both end bins, so the sum is exact on an apodised spectrum. Use
+    :func:`energy_omega` or :func:`energy_weights` when an exact energy is wanted on an
+    arbitrary array.
 
     Parameters
     ----------

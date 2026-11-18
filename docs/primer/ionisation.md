@@ -159,9 +159,11 @@ factor of at least about 3.55. The plain trapezoid remains available as an optio
 multiplier for components inside its design band, not the total error of the plasma
 polarisation, the ionisation or the work it does. Unresolved integrands, truncation at the ends of
 the window, an undershoot of the filtered rate beside a sharp spike, a small mismatch between the
-work and the population, and a look-ahead of a few samples all remain. A run records
-`plasma_undershoot`, `plasma_work_defect` and `plasma_boundary_level` at each save plane for
-inspection; they are not used as pass/fail conditions, and temporal refinement remains the check
+work and the population, and a look-ahead of a few samples all remain. On the capillary and
+hollow-core waveguide routes a run whose field plasma uses this filter records
+`plasma_undershoot`, `plasma_work_defect` and `plasma_boundary_level` at each save plane by
+default; elsewhere they are recorded only when named in the run's statistics. They are for
+inspection, not used as pass/fail conditions, and temporal refinement remains the check
 ([how the current integrals are formed](../guide/media/field-plasma.md#how-the-current-integrals-are-formed)).
 This is an example of a
 general principle in solprop's numerics: an error that is the same at every step, of the representation

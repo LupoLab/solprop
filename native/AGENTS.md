@@ -50,8 +50,8 @@ approved dependencies are Kokkos, Kokkos Kernels (BLAS component) with a vendor 
 behind it (the distribution build's BLAS on Linux and in the Windows wheel is OpenBLAS
 built with OpenMP from pinned source; a Windows build without it falls back to
 `scipy-openblas32`, a build requirement; each is carried in the wheel), Kokkos-FFT with
-FFTW or the device FFT, SLEEF (the host vector maths, static, on x86-64 CPU builds;
-solprop's ADR-059), nanobind
+FFTW or the device FFT, SLEEF (the host vector maths, static, on x86-64 and macOS arm64
+CPU builds; solprop's ADR-059), nanobind
 and scikit-build-core; GoogleTest is test-only. Adding any other dependency needs approval.
 
 Major changes follow solprop's enhancement proposal process (SEPs,
@@ -82,7 +82,7 @@ The native gate runs from the repository root:
 
 ```console
 uv run poe check-native   # native/scripts/check.sh
-uv run poe check-all      # solprop's gate (poe check), then the native gate
+uv run poe check-all      # solprop's, the native and the front end's gates (gui extra)
 uv run poe fmt-native     # clang-format every tracked C++ file in place
 uv run poe tidy-native    # clang-tidy the C++ files changed from main (or those named)
 ```
@@ -91,8 +91,8 @@ uv run poe tidy-native    # clang-tidy the C++ files changed from main (or those
 clang-tidy and warnings, native tests, ASan+UBSan native tests, an editable build with
 pytest, a distribution wheel build and a clean wheel smoke test; per-file copyright and
 licence (`reuse lint`) is in solprop's `poe check`, which covers `native/` too. A change
-under `native/` is finished when `poe check-all` is green, so that solprop's test suite
-has passed with this backend freshly built. Report the compiler, build type, execution
+under `native/` is finished when `poe check` and `poe check-native` are green, so that
+solprop's test suite has passed with this backend freshly built. Report the compiler, build type, execution
 space, thread settings and any check that was not run.
 
 CI (the repository's `.github/workflows/ci.yml`) runs on every push and pull request:
@@ -101,9 +101,9 @@ each (`SOLPROP_NATIVE_CHECK_STAGES`). The `native-wheel` jobs build the CPU dist
 wheel on Linux, macOS and Windows, cached under a hash of `native/`, and solprop's
 default lane runs on it on macOS and Windows with the native backend selected, and in
 the coverage lane on Linux. The `device-compile` lanes compile the CUDA and HIP targets, tests included, on a change to
-`native/`, with no device. Running on one stays by hand
-(`.github/workflows/cuda.yml` on a self-hosted runner, with compute-sanitizer's four
-tools, or `pytest -m gpu` on a machine with a device). `.github/workflows/native-deep.yml`
+`native/`, with no device. Running on one stays by hand: `poe test-gpu` on a machine with
+a device, or `.github/workflows/cuda.yml`, dispatched on a self-hosted runner labelled
+`nvidia-gpu` (part of no gate), with compute-sanitizer's four tools. `.github/workflows/native-deep.yml`
 runs weekly and reports without gating: source coverage over the native tests, the
 extension under ASan and UBSan through the native pytest suite, and
 `misc-include-cleaner`. The tools adopted, scheduled and rejected are in
@@ -210,7 +210,7 @@ the gate.
   Never call Python from a Kokkos or OpenMP worker, or during teardown.
 - Public Python has complete annotations, NumPy-style docstrings, `__all__`, `py.typed`
   and a complete stub for the private extension, generated whole with its `_testing`
-  stub by nanobind's stubgen (`scripts/problem_stub.py`, checked in the lint stage):
+  stub by nanobind's stubgen (`scripts/stubs.py`, checked in the lint stage):
   a binding that takes or returns a record names its Python type with `nb::sig`, and a
   stub is regenerated, never edited. An entry point only solprop's tests reach goes in
   the extension's private `_testing` submodule (solprop SEP 52), which ships in the
