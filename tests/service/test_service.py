@@ -100,6 +100,29 @@ def test_serve_imports_solprops_handlers_when_given_none(
     assert os.environ["SOLPROP_THREADS"] == kernel.KERNEL_THREADS
 
 
+def test_serve_keeps_its_own_budget_and_a_file_only_plot_backend(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import os  # noqa: PLC0415 - only here
+
+    import matplotlib  # noqa: PLC0415 - only here
+
+    window, child = pipe()
+    window.close()
+    monkeypatch.setenv("SOLPROP_THREADS", "64")
+    monkeypatch.delenv(kernel.RUN_THREADS, raising=False)
+    backend = matplotlib.get_backend()
+    matplotlib.use("svg")
+    try:
+        kernel.serve(child, {})
+        assert matplotlib.get_backend().lower() == "agg"
+    finally:
+        matplotlib.use(backend)
+    # The window's budget is kept for runs; the kernel's own is its two threads.
+    assert os.environ[kernel.RUN_THREADS] == "64"
+    assert os.environ["SOLPROP_THREADS"] == kernel.KERNEL_THREADS
+
+
 # ---------------------------------------------------------------------- handlers
 
 

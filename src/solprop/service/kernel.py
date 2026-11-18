@@ -28,7 +28,7 @@ __all__ = ["KERNEL_THREADS", "RUN_THREADS", "answer", "latest", "serve"]
 KERNEL_THREADS = "2"
 """The thread budget of the kernel process (``SOLPROP_THREADS``)."""
 
-RUN_THREADS = "SOLPROP_GUI_RUN_THREADS"
+RUN_THREADS = "SOLPROP_SERVICE_RUN_THREADS"
 """Where the kernel keeps the ``SOLPROP_THREADS`` it started with, empty for unset."""
 
 Handler = Callable[[Mapping[str, object]], object]
@@ -139,8 +139,14 @@ def serve(
         (:data:`solprop.service.handlers.HANDLERS`).
     """
     # What a run would get: a run's process starts from the window's environment.
+    # The kernel's own budget is its own, whatever the window was started with.
     os.environ[RUN_THREADS] = os.environ.get("SOLPROP_THREADS", "")
-    os.environ.setdefault("SOLPROP_THREADS", KERNEL_THREADS)
+    os.environ["SOLPROP_THREADS"] = KERNEL_THREADS
+    # Figures are only ever written to files or bytes: never an interactive backend,
+    # which on macOS would open a window server connection from a background process.
+    import matplotlib  # noqa: PLC0415 - child only
+
+    matplotlib.use("Agg")
     # solprop's check reports a material out of its range on the Ready line; the
     # same warning from every edit's numbers would only fill the terminal.
     warnings.filterwarnings("ignore", category=MaterialRangeWarning)
