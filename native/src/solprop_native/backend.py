@@ -228,8 +228,6 @@ class NativeBackend:
         self._modes = modes
         self._profiles = profiles
         self._closed = False
-        # The start the native state was last loaded with (`_load`).
-        self._loaded: Loaded | None = None
         # solprop SEP 47 section 6.5: this backend's lowering of the host plan, and
         # the general route's own chunk at the plan's budget.
         self._node_chunk = native_node_chunk(
