@@ -286,9 +286,9 @@ def run_problem(
     then each save plane in turn: propagate, observe, collect statistics, save. Steps
     land on the planes exactly, so a saved field is an exact step endpoint and there
     is no interpolation (``docs/dev/stepper.md`` section 3), unless the request asks
-    for dense output. With ``stepper.step_planes`` the march also stops at the end of
-    every ``step_planes``-th accepted step, which is saved too before the same plane
-    is asked for again. A plane whose propagation did not meet its tolerance is logged
+    for dense output. With ``backend.request.observation.step_planes`` the march also
+    stops at the end of every ``step_planes``-th accepted step, which is saved too
+    before the same plane is asked for again. A plane whose propagation did not meet its tolerance is logged
     as a warning naming that plane (``docs/dev/stepper.md`` section 8).
 
     Parameters

@@ -276,8 +276,10 @@ class Simulation(Displayed):
     """A run that can be translated once and executed many times.
 
     Construct it from the physics objects and a
-    :class:`~solprop.driver.settings.SimulationSettings`, or through
-    :meth:`from_gnlse` for a GNLSE fibre. :meth:`translate` assembles the kernel problem
+    :class:`~solprop.driver.settings.SimulationSettings`, or through one of the
+    ``from_*`` constructors: :meth:`from_free`, :meth:`from_planar`,
+    :meth:`from_gnlse`, :meth:`from_capillary` and :meth:`from_waveguide`.
+    :meth:`translate` assembles the kernel problem
     and caches it, so a second :meth:`run` -- into another handler, or resuming a
     file -- reuses it. :attr:`settings` may be replaced until that first translation;
     after it only the execution settings :attr:`settings` lists may change. What the
@@ -1839,7 +1841,7 @@ class Simulation(Displayed):
             interpolated plane its step crossed. Requires HDF5 and ``fields='all'``.
             Adams history cannot be explicitly disabled. A configured archive is
             copied together with the optical file.
-        stop : object or None, optional
+        stop : solprop.log.StopFlag or None, optional
             This run's own stop flag: any object with an ``is_set()`` method, such as
             a :class:`threading.Event` (SEP 41, S17). It is polled before the first
             step and before every trial step, so the run answers within one step or
