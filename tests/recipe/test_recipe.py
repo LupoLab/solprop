@@ -628,7 +628,9 @@ def test_the_command_line_checks_exports_and_runs(tmp_path, capsys):
     path.write_text(GNLSE)
     assert main(["check", str(path)]) == 0
     assert "builds" in capsys.readouterr().out
-    assert main(["export", str(path), "--python"]) == 0
+    assert main(["export", str(path)]) == 0
+    assert "prop_gnlse(" in capsys.readouterr().out
+    assert main(["export", str(path), "--form", "python"]) == 0
     assert "prop_gnlse(" in capsys.readouterr().out
     assert (
         main(["run", str(path), "-o", str(tmp_path / "out.h5"), "--progress", "none"])
