@@ -510,7 +510,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         cls,
         radius: float | ZProfile,
         gas: Gas | str | None = None,
-        pressure: float | ZProfile = 0.0,
+        pressure: float | ZProfile | None = None,
         *,
         count: int = 1,
         model: MarcatiliModel = "full",
@@ -539,8 +539,9 @@ class ModeCollection(Displayed, Sequence[Mode]):
             Core radius, m, constant or along z.
         gas : Gas, str or None, optional
             Filling gas; None for vacuum or an explicit mixture.
-        pressure : float or ZProfile, optional
-            Fill pressure, bar, constant or along z; default zero.
+        pressure : float, ZProfile or None, optional
+            Fill pressure, bar, constant or along z; required beside `gas`, and
+            ``None`` without one.
         count : int, optional
             How many modes, at least one; the modes are HE_11 to HE_1count.
         model : {'full', 'reduced'}, optional
@@ -606,7 +607,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         cls,
         half_gap: float | ZProfile,
         gas: Gas | str | None = None,
-        pressure: float | ZProfile = 0.0,
+        pressure: float | ZProfile | None = None,
         *,
         orders: Sequence[int] = (1,),
         polarisation: SlabPolarisation = "te",
@@ -633,8 +634,9 @@ class ModeCollection(Displayed, Sequence[Mode]):
             Half the plate separation in m, constant or along z.
         gas : Gas, str or None, optional
             Filling gas; None for vacuum or an explicit mixture.
-        pressure : float or ZProfile, optional
-            Gas pressure in bar, constant or along z; default zero.
+        pressure : float, ZProfile or None, optional
+            Gas pressure in bar, constant or along z; required beside `gas`, and
+            ``None`` without one.
         orders : sequence of int, optional
             Mode orders ``p >= 1``, non-empty and without repeats, in state order;
             default the lowest order alone.
@@ -700,7 +702,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         cls,
         radius: float | ZProfile,
         gas: Gas | str | None = None,
-        pressure: float | ZProfile = 0.0,
+        pressure: float | ZProfile | None = None,
         *,
         count: int = 1,
         lattice: TubeLattice,
@@ -722,8 +724,9 @@ class ModeCollection(Displayed, Sequence[Mode]):
             Positive core radius in m, constant or along z.
         gas : Gas, str or None, optional
             Filling gas; None for vacuum or an explicit mixture.
-        pressure : float or ZProfile, optional
-            Gas pressure in bar, constant or along z; default zero.
+        pressure : float, ZProfile or None, optional
+            Gas pressure in bar, constant or along z; required beside `gas`, and
+            ``None`` without one.
         count : int, optional
             Number of modes, at least one, in radial order.
         lattice : TubeLattice
@@ -778,7 +781,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         cls,
         radius: float | ZProfile,
         gas: Gas | str | None = None,
-        pressure: float | ZProfile = 0.0,
+        pressure: float | ZProfile | None = None,
         *,
         kinds: Sequence[ModeKind],
         n: Sequence[int],
@@ -799,8 +802,9 @@ class ModeCollection(Displayed, Sequence[Mode]):
             Core radius, m, constant or along z.
         gas : Gas, str or None, optional
             Filling gas; None for vacuum or an explicit mixture.
-        pressure : float or ZProfile, optional
-            Fill pressure, bar, constant or along z; default zero.
+        pressure : float, ZProfile or None, optional
+            Fill pressure, bar, constant or along z; required beside `gas`, and
+            ``None`` without one.
         kinds : sequence of {'HE', 'TE', 'TM'}
             Family of each mode, non-empty.
         n : sequence of int

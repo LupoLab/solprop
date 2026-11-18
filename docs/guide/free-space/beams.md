@@ -72,8 +72,8 @@ A beam is a temporal pulse wrapped in a transverse profile,
 {py:class}`~solprop.pulses.SpatialPulse`; `waist` is the 1/e² intensity radius, and the
 pulse's `energy` or `peak_power` is the whole beam's physical energy or peak power in the
 medium at the launch plane ([energy and flux in a medium](flux.md)). The medium is a
-{py:class}`~solprop.spatial.SpatialMedium` — a gas at a pressure, a glass, or a constant
-index; `SpatialMedium()` is vacuum. The responses are the same objects the fibre routes
+{py:class}`~solprop.spatial.SpatialMedium` — a gas at a pressure, which a gas needs, a
+glass, or a constant index; `SpatialMedium()` is vacuum. The responses are the same objects the fibre routes
 use. Here a 100 µm beam at 1.5 times the critical power propagates a centimetre
 through argon with the Kerr effect, on an envelope grid, saving ten planes:
 

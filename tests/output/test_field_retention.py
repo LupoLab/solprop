@@ -21,7 +21,7 @@ from driver.test_field_free_planes import low_storage
 from solprop import fourier
 from solprop.exceptions import DriverError, OutputError
 from solprop.output import HDF5Output, MemoryOutput, Output, open_file
-from solprop.output.hdf5 import resume
+from solprop.output.hdf5 import read_resume_state
 from solprop.output.metadata import _example_metadata
 from solprop.output.records import RunOutcome, SavedPlane, TerminalCheckpoint
 from solprop.output.serialisation import (
@@ -307,7 +307,7 @@ def test_a_field_free_file_resumes_only_from_its_checkpoint(tmp_path, metadata):
         written.retain(resolved, (1, 1, metadata.grid.n_omega))
         for plane in planes(metadata, resolved)[:3]:
             written.save(plane)
-    state = resume(path)
+    state = read_resume_state(path)
     assert state.n_saved == 3 and state.plane.field is None
     assert state.plane.z == pytest.approx(0.2)
     with HDF5Output(path, append=True) as again:
@@ -320,7 +320,7 @@ def test_a_field_free_file_resumes_only_from_its_checkpoint(tmp_path, metadata):
             SavedPlane(z=0.25, field=field(metadata, 9.0)), 3, landed=True
         )
         again.record_outcome(RunOutcome("failed", 0.25), checkpoint)
-    state = resume(path)
+    state = read_resume_state(path)
     assert state.checkpoint is not None and state.plane.field is not None
     assert np.array_equal(state.plane.field, field(metadata, 9.0))
 

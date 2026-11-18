@@ -45,7 +45,7 @@ from solprop.nonlinear.tdse import (
     TDSEGasResponse,
     TDSESampling,
 )
-from solprop.output import open_file, resume
+from solprop.output import open_file, read_resume_state
 from solprop.stats import StatsSpec
 from solprop.stepper.multistep import Multistep
 from solprop.translate.routes import tdse_descriptor
@@ -159,7 +159,7 @@ def test_sae_run_records_certificate_round_trips_and_resumes(
     path = tmp_path / "held.h5"
     with pytest.raises(ResponseBudgetError):
         simulation.run(path, progress="none")
-    first = resume(path)
+    first = read_resume_state(path)
     assert first.outcome is not None and first.outcome.status == "budget_exhausted"
     with open_file(path) as saved:
         assert saved.metadata is not None
@@ -177,7 +177,7 @@ def test_sae_run_records_certificate_round_trips_and_resumes(
         simulation.settings, tdse_execution=TDSEExecution(max_atomic_calls=1000)
     )
     simulation.run(path, resume=True, progress="none")
-    final = resume(path)
+    final = read_resume_state(path)
     assert final.outcome is not None and final.outcome.status == "complete"
     with open_file(path) as saved:
         assert saved.metadata is not None
@@ -331,7 +331,7 @@ def test_hacc_run_round_trips_and_resumes(fake, tmp_path, window):
         simulation.settings, tdse_execution=TDSEExecution(max_atomic_calls=1000)
     )
     _quiet(simulation, path, resume=True)
-    final = resume(path)
+    final = read_resume_state(path)
     assert final.outcome is not None and final.outcome.status == "complete"
     with open_file(path) as saved:
         assert saved.metadata is not None

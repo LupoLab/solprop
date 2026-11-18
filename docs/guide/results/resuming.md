@@ -36,10 +36,10 @@ Restrict a long job to one CPU family, for example with a scheduler constraint.
 driver's to decide:
 
 ```{code-block} python
-from solprop.output import check_cache, resume
+from solprop.output import check_cache, read_resume_state
 
 if check_cache("run.h5", metadata):        # False when there is no file
-    state = resume("run.h5")               # metadata, last plane, step history
+    state = read_resume_state("run.h5")    # metadata, last plane, step history
     start_from(state.plane)                # already back in the FFT convention
 ```
 
@@ -230,19 +230,19 @@ dense observation can instead retain that interpolated field. It is separate fro
 `handler["field"]` and the per-plane statistics keep their original meanings.
 Checkpoint creation uses available observations and histories and makes no new
 material-statistics request. An interpolated checkpoint is labelled as such:
-`resume(path)` reads it, while restarting requires the explicit
+`read_resume_state(path)` reads it, while restarting requires the explicit
 `Simulation.run(..., resume="interpolated")` policy. Ordinary `resume=True`
 refuses it. TDSE uses landed save planes.
 
 ```{code-block} python
-from solprop.output import open_file, resume
+from solprop.output import open_file, read_resume_state
 
 with open_file("run.h5") as stored:
     status = stored.outcome.status if stored.outcome is not None else "unrecorded"
     checkpoint = stored.terminal_checkpoint
     regular_planes = stored.n_saved
 
-state = resume("run.h5")
+state = read_resume_state("run.h5")
 restart_z = state.plane.z
 ```
 

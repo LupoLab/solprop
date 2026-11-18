@@ -21,9 +21,9 @@ from solprop.exceptions import OutputError, TDSEArchiveError
 from solprop.output import (
     HDF5Output,
     _writer_lock,
+    read_resume_state,
     read_snapshot,
     restore_snapshot,
-    resume,
 )
 from solprop.output import snapshots as module
 
@@ -170,7 +170,7 @@ def test_checkpoint_validation_is_independent_of_checksums(
     generation, monkeypatch, change
 ):
     info = read_snapshot(generation)
-    original = resume(info.files.output)
+    original = read_resume_state(info.files.output)
     assert original.outcome is not None
     if change == "outcome":
         state = dataclasses.replace(original, outcome=None)
@@ -197,7 +197,7 @@ def test_checkpoint_validation_is_independent_of_checksums(
                 marker["next_save_index"] = -1
             del file[key]
             file.create_dataset(key, data=json.dumps(marker))
-    monkeypatch.setattr(module, "resume", lambda path: state)
+    monkeypatch.setattr(module, "read_resume_state", lambda path: state)
     records = module._file_records(
         json.loads((generation / "manifest.json").read_text(encoding="utf-8"))
     )

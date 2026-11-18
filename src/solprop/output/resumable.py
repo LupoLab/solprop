@@ -27,7 +27,7 @@ import numpy as np
 
 from solprop.exceptions import OutputError, SolpropError
 from solprop.output._writer_lock import WriterHeldError, WriterLock
-from solprop.output.hdf5 import ResumeState, _file_path, resume
+from solprop.output.hdf5 import ResumeState, _file_path, read_resume_state
 from solprop.output.metadata import SCHEMA_VERSION, _schema_remedy
 from solprop.output.serialisation import deserialise
 from solprop.output.store import Output
@@ -184,7 +184,7 @@ def resumability(path: str | Path | Output, *, gate: bool = False) -> Resumabili
     if _writer_alive(path):
         return _refused("a writer still holds the file")
     try:
-        state = resume(path)
+        state = read_resume_state(path)
     except OutputError as error:
         return _refused(f"no state to continue from: {error}")
     planes = np.asarray(

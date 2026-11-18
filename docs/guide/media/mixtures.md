@@ -383,8 +383,8 @@ deposited by that pulse. Linear absorption is separate from this ionisation work
 `prop_capillary`, `prop_waveguide` and their `Simulation.from_capillary` and
 `Simulation.from_waveguide` constructors accept, as `gas`, a built-in gas, `"air"` (the
 two-component mixture [above](#air)), a mapping of species names to mole fractions, or a
-complete `Mixture`. A built-in gas or a mapping takes `pressure` as the total pressure
-(one bar when omitted); a `Mixture` carries its own paths, and `pressure`,
+complete `Mixture`. A built-in gas or a mapping takes `pressure` as the total pressure,
+and refuses to go without one; a `Mixture` carries its own paths, and `pressure`,
 `pressure_floor`, `vacuum_end`, `susceptibility` and a different `temperature` beside it
 are refused.
 Pressure endpoints require a length in mixture constructors; the capillary entry

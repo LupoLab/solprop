@@ -85,8 +85,16 @@ def test_selection_defaults_and_validation():
         "recommended",
     )
     assert selection.ionisation == "recommended"
-    assert selection.energy_loss == "peak-weighted"
     assert selection.raman_shift is None
+    # The record holds the selection's six choices and nothing else.
+    assert set(selection.to_dict()) == {
+        "linear",
+        "electronic",
+        "raman",
+        "ionisation",
+        "carrier_wavelength",
+        "raman_shift",
+    }
     assert MaterialSelection(linear="  fit/Ar ").linear == "fit/Ar"
     assert MaterialSelection(linear=ARGON).linear is ARGON
     assert MaterialSelection(carrier_wavelength=800e-9).carrier_wavelength == 800e-9
@@ -99,7 +107,6 @@ def test_selection_defaults_and_validation():
         ({"linear": ""}, "empty string"),
         ({"raman": 3}, "optmat model object, got int"),
         ({"electronic": "full"}, "electronic must be one of"),
-        ({"energy_loss": "mean"}, "energy_loss must be one of"),
         ({"raman_shift": "always"}, "raman_shift must be one of"),
         ({"carrier_wavelength": -1e-6}, "carrier_wavelength"),
         ({"carrier_wavelength": math.inf}, "carrier_wavelength"),

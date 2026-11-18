@@ -24,7 +24,7 @@ from march_bounds import TIGHTER
 from solprop._interrupts import committing, handled, interruptible, raise_held
 from solprop.exceptions import RunTerminated
 from solprop.log import NullReporter
-from solprop.output.hdf5 import open_file, resume
+from solprop.output.hdf5 import open_file, read_resume_state
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
 # hold more than a millionth of the energy in their guards or collar: the boundary
@@ -82,7 +82,7 @@ def test_an_exception_as_a_step_is_recorded_leaves_a_consistent_checkpoint(
     with pytest.raises(CrashError):
         build().run(part, progress=reporter)
     assert reporter.done
-    state = resume(part)
+    state = read_resume_state(part)
     assert state.checkpoint is not None and state.march is not None
     assert state.march.z == state.checkpoint.plane.z
     build().run(part, resume=True, progress="none")
@@ -110,7 +110,7 @@ def test_sigterm_writes_the_run_s_state_and_a_resume_continues_it(
     assert stopped.value.code == 128 + signal.SIGTERM
     # The handler is the run's alone.
     assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
-    state = resume(part)
+    state = read_resume_state(part)
     assert state.outcome is not None and state.outcome.status == "failed"
     assert "terminated by SIGTERM" in state.outcome.message
     assert state.checkpoint is not None and state.march is not None

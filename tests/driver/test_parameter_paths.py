@@ -333,6 +333,20 @@ REFUSALS = [
         id="capillary-pressure",
     ),
     pytest.param(
+        lambda: _hollow(100e-6, 0.01, "He"),
+        DriverError,
+        "pressure",
+        "a gas fill needs its pressure",
+        id="capillary-gas-without-pressure",
+    ),
+    pytest.param(
+        lambda: _hollow(100e-6, 0.01, "air"),
+        DriverError,
+        "pressure",
+        "a gas fill needs its pressure",
+        id="capillary-air-without-pressure",
+    ),
+    pytest.param(
         lambda: _hollow(
             100e-6, 0.01, Mixture.fill({"He": 1.0}, 1.0), 1.0, pressure_floor=1e-3
         ),
@@ -454,11 +468,11 @@ def test_a_refusal_names_the_keyword_it_refuses(
     # Which rule each refusal enforces, if any, is tests/test_capability_queries.py's.
 
 
-def test_an_error_raised_outside_an_interface_names_no_parameter() -> None:
+def test_an_error_names_a_parameter_only_when_its_raiser_gives_one() -> None:
     assert DriverError("refused").parameter is None
     with pytest.raises(PulseError, match="super-Gaussian order") as caught:
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6, m=0)
-    assert caught.value.parameter is None
+    assert caught.value.parameter == "m"
 
 
 def test_a_material_status_warning_names_the_gas() -> None:

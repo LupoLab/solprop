@@ -80,7 +80,7 @@ from solprop.modes.tables import (
 from solprop.noise import photons_per_bin
 from solprop.nonlinear.normalisation import modal_kerr_coefficient
 from solprop.nonlinear.raman import SilicaTensorResponse
-from solprop.output.hdf5 import resume
+from solprop.output.hdf5 import read_resume_state
 from solprop.output.memory import MemoryOutput
 from solprop.physdata import n2_from_chi3
 from solprop.physdata.sellmeier import gamma as gas_susceptibility
@@ -1197,7 +1197,7 @@ def test_an_hdf5_file_carries_the_labels_and_the_identities(guide, grid, tmp_pat
     path = tmp_path / "general.h5"
     simulation = build(guide, grid)
     simulation.run(path, progress="none")
-    stored = resume(path).metadata
+    stored = read_resume_state(path).metadata
     assert stored.schema_version == 3
     assert stored.modal is not None
     assert dict(stored.modal)["basis"] == "general_modal"

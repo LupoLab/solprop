@@ -259,7 +259,9 @@ def _selected_medium(
         selected = dataclasses.replace(selected, susceptibility=medium.susceptibility)
     # A constructed medium holds its resolved temperature, a number.
     fill = Mixture.fill(
-        {selected: 1.0}, medium.pressure, temperature=cast("float", medium.temperature)
+        {selected: 1.0},
+        cast("float | ZProfile", medium.pressure),
+        temperature=cast("float", medium.temperature),
     )
     return SpatialMedium(fill)
 

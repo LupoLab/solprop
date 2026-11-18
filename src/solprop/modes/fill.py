@@ -160,7 +160,7 @@ class GasFillMixin(Displayed):
     """
 
     gas: Gas | str | None
-    pressure: float | ZProfile
+    pressure: float | ZProfile | None
     temperature: float | ZProfile | None
     susceptibility: GasSusceptibility | None
     mixture: Mixture | None
@@ -169,6 +169,11 @@ class GasFillMixin(Displayed):
     loss_scale: float
     model: Literal["full", "reduced"]
     _gain_warned: bool
+
+    @property
+    def _pressure_profile(self) -> ZProfile:
+        """The fill pressure in bar along z; never ``None`` once constructed."""
+        return as_profile(cast("float | ZProfile", self.pressure))
 
     @property
     def _lossless(self) -> bool:
@@ -206,7 +211,7 @@ class GasFillMixin(Displayed):
             return f"{labels} {float(shared(entrance)[0]):g} bar"
         if self.gas is None:
             return "evacuated"
-        return f"{self.gas} {float(as_profile(self.pressure)(entrance)[0]):g} bar"
+        return f"{self.gas} {float(self._pressure_profile(entrance)[0]):g} bar"
 
     def _check_fill_arguments(self) -> None:
         """Check the fill declaration and loss specification."""
@@ -238,13 +243,23 @@ class GasFillMixin(Displayed):
 
         if self.mixture is not None and (
             self.gas is not None
-            or self.pressure != 0.0
+            or (self.pressure is not None and self.pressure != 0.0)
             or self.susceptibility is not None
         ):
             raise ModeError(
                 "mixture carries its gas, pressure and susceptibility; "
                 "omit those arguments"
             )
+        if self.pressure is None:
+            if self.gas is not None:
+                msg = (
+                    f"a gas fill needs its pressure: pass pressure= in bar beside "
+                    f"gas={self.gas!r}, or omit the gas for an evacuated guide"
+                )
+                raise ModeError(msg, parameter="pressure")
+            # No gas: an evacuated guide, or a mixture's own paths. No pressure
+            # applies, and the field holds zero bar.
+            object.__setattr__(self, "pressure", 0.0)
 
     def _check_loss_arguments(self) -> None:
         """Check ``loss_scale`` and ``alpha``, alone and against each other."""
@@ -293,7 +308,7 @@ class GasFillMixin(Displayed):
             object.__setattr__(
                 self, "susceptibility", default_species(self.gas).susceptibility
             )
-        pressure = as_profile(self.pressure)
+        pressure = self._pressure_profile
         temperature = cast("float | ZProfile", self.temperature)
         # The gas whose equation of state, and whose flow weight, the fill takes.
         material: Species | None = (

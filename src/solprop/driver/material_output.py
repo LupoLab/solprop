@@ -470,7 +470,6 @@ def _policies(
             for one in raman
             if (assembly := one.assembly) is not None
         ],
-        "energy_loss": None if selection is None else selection.energy_loss,
     }
 
 

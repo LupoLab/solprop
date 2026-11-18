@@ -43,6 +43,7 @@ __all__ = [
     "NoiseError",
     "OpticsGeometryError",
     "OutputError",
+    "OutputRequestError",
     "ParameterPath",
     "PolarisationError",
     "ProcessingError",
@@ -267,6 +268,16 @@ class CalibrationError(BackendError):
 
 class OutputError(SolpropError, RuntimeError):
     """An output handler could not save, load or resume a run."""
+
+
+class OutputRequestError(SolpropError, ValueError):
+    """An output request was given a value it refuses.
+
+    Raised when a :class:`~solprop.output.snapshots.SnapshotController` or a
+    :class:`~solprop.output.tdse_archive.TDSEArchive` is built, so it is a
+    ``ValueError``, as the driver's refusals are. A file that cannot be written or
+    read later is an :class:`OutputError`.
+    """
 
 
 class TDSEArchiveError(OutputError):

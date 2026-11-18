@@ -134,9 +134,11 @@ class SpatialMedium:
         Gas name, existing glass model, or constant index. Default 1 is vacuum.
         Positive imaginary index is loss; negative imaginary index is gain.
         A mixture supplies its own density paths, temperature and optical models.
-    pressure : float or solprop.profiles.ZProfile
-        Absolute gas pressure in bar, nonnegative, optionally varying along z.
-        Only gas media use pressure; other materials require the default 1.
+    pressure : float or solprop.profiles.ZProfile or None
+        Absolute gas pressure in bar, nonnegative, optionally varying along z. A gas
+        needs it: ``None`` (the default) beside a gas is refused. A glass, a constant
+        index or a mixture takes none; the attribute then holds 1, which nothing
+        reads, and an explicit 1 is accepted so that a recorded medium rebuilds.
     temperature : float or None
         Gas temperature in K, finite and positive; ``None`` (the default) is room
         temperature for a gas and the mixture's own beside a mixture, which is what
@@ -160,7 +162,7 @@ class SpatialMedium:
     """
 
     material: Gas | str | GlassIndex | complex | Mixture = 1.0
-    pressure: float | ZProfile = 1.0
+    pressure: float | ZProfile | None = None
     temperature: float | None = None
     susceptibility: GasSusceptibility | None = None
     density: ZProfile = field(init=False, repr=False)
@@ -168,8 +170,13 @@ class SpatialMedium:
     def __post_init__(self) -> None:
         """Resolve the material and its scalar density path."""
         self._resolve_temperature()
+        given = self.pressure is not None and self.pressure != 1.0
+        if not isinstance(self.material, str | Gas):
+            # No gas, so no pressure applies; the field holds a placeholder 1, which
+            # keeps the records of such media as they were.
+            object.__setattr__(self, "pressure", 1.0)
         if isinstance(self.material, Mixture):
-            if self.pressure != 1.0 or self.susceptibility is not None:
+            if given or self.susceptibility is not None:
                 raise MaterialError("mixture carries its pressure and susceptibility")
             paths = tuple(c.density for c in self.material.components)
             object.__setattr__(
@@ -178,7 +185,7 @@ class SpatialMedium:
         elif isinstance(self.material, str | Gas):
             self._resolve_gas()
         else:
-            if self.pressure != 1.0 or self.susceptibility is not None:
+            if given or self.susceptibility is not None:
                 msg = "pressure and susceptibility apply only to gas media"
                 raise MaterialError(msg)
             if not isinstance(self.material, GlassIndex):
@@ -233,6 +240,12 @@ class SpatialMedium:
         The built-in gas is optmat's: its law and its equation of state.
         """
         gas = as_gas(cast("str | Gas", self.material))
+        if self.pressure is None:
+            msg = (
+                f"a gas fill needs its pressure: pass pressure= in bar beside "
+                f"material={self.material!r}"
+            )
+            raise MaterialError(msg, parameter="pressure")
         pressure = as_profile(self.pressure)
         if float(pressure(np.array([0.0]))[0]) < 0:
             msg = "spatial medium pressure must be nonnegative"

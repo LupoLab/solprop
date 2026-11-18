@@ -28,7 +28,7 @@ from solprop.output import (
     Output,
     check_cache,
     open_file,
-    resume,
+    read_resume_state,
 )
 from solprop.output import hdf5 as hdf5_module
 from solprop.output.hdf5 import COMPRESSIONS
@@ -504,7 +504,7 @@ def test_the_noise_realisation_travels_in_the_metadata(grid, schedule, tmp_path)
     handler = HDF5Output(tmp_path / "run.h5")
     run_into(handler, grid, metadata, 1)
     handler.close()
-    stored = resume(tmp_path / "run.h5").metadata.noise
+    stored = read_resume_state(tmp_path / "run.h5").metadata.noise
     assert stored is not None
     assert stored.spectral_convention == "fft"
     assert np.array_equal(stored.spectrum, realisation.spectrum)
@@ -827,7 +827,7 @@ def test_a_different_run_is_refused_unless_forced(grid, schedule, tmp_path):
     assert handler.metadata is two
     handler.save(make_plane(grid, 0))
     handler.close()
-    assert resume(tmp_path / "run.h5").metadata.configuration_hash() == (
+    assert read_resume_state(tmp_path / "run.h5").metadata.configuration_hash() == (
         two.configuration_hash()
     )
 
@@ -931,7 +931,7 @@ def test_resume_restores_the_last_plane_the_schedule_and_the_history(
     handler = HDF5Output(tmp_path / "run.h5")
     planes = run_into(handler, grid, metadata, 4, with_noise=True)
     handler.close()
-    state = resume(tmp_path / "run.h5")
+    state = read_resume_state(tmp_path / "run.h5")
     assert state.n_saved == 4
     assert state.plane.z == pytest.approx(planes[-1].z)
     # The field comes back through the inverse of the storage boundary, which is exact.
@@ -950,7 +950,7 @@ def test_resume_refuses_a_file_with_no_plane(metadata, tmp_path):
     handler.open(metadata)
     handler.close()
     with pytest.raises(OutputError, match="holds no saved plane"):
-        resume(tmp_path / "run.h5")
+        read_resume_state(tmp_path / "run.h5")
 
 
 # ------------------------------------------------------------------------ append
@@ -978,7 +978,7 @@ def test_an_appending_handler_continues_the_file_where_it_stopped(
     assert again["step_history/counts"].tolist() == [1, 2, 3, 1]
     again.close()
 
-    state = resume(path)
+    state = read_resume_state(path)
     assert state.n_saved == 4
     assert np.array_equal(kept(state.plane.field), kept(later[-1].field))
     assert state.history.n_steps == sum(
@@ -1005,7 +1005,7 @@ def test_an_appending_handler_refuses_a_different_run(grid, schedule, tmp_path):
         again.open(make_metadata(grid, schedule, configuration={"gamma": 0.22}))
     again.close()
     # The refusal left the file as it was.
-    assert resume(path).n_saved == 1
+    assert read_resume_state(path).n_saved == 1
 
 
 def test_an_appending_handler_needs_a_file_to_append_to(metadata, tmp_path):
@@ -1051,7 +1051,7 @@ def test_an_appending_handler_accepts_a_file_with_metadata_but_no_plane(
     assert again.n_saved == 0
     again.save(make_plane(grid, 0))
     again.close()
-    assert resume(path).n_saved == 1
+    assert read_resume_state(path).n_saved == 1
 
 
 # ------------------------------------------------------------------------ to_file
@@ -1203,7 +1203,7 @@ def test_a_file_recording_a_removed_backend_still_opens_and_resumes(
     # The resume key holds the problem and the state: the old file is the same run.
     assert check_cache(path, metadata)
     assert check_cache(path, make_metadata(grid, schedule))
-    assert resume(path).plane.z == make_plane(grid, 0).z
+    assert read_resume_state(path).plane.z == make_plane(grid, 0).z
 
 
 def test_the_backend_group_is_outside_the_resume_key(grid, schedule):
@@ -1386,7 +1386,7 @@ def test_an_appending_handler_continues_the_channel_where_it_stopped(
         handler.open(metadata)
         for plane in first:
             handler.save(plane)
-    state = hdf5_module.resume(path)
+    state = hdf5_module.read_resume_state(path)
     # The last plane comes back with its own rows, not the whole run's.
     assert state.plane.step_stats.n_rows == first[-1].step_stats.n_rows
     np.testing.assert_array_equal(state.plane.step_stats.z, first[-1].step_stats.z)
@@ -1438,7 +1438,7 @@ def test_five_columns_continue_as_before(grid, metadata, tmp_path):
     with HDF5Output(path) as handler:
         handler.open(metadata)
         handler.save(plane)
-    assert hdf5_module.resume(path).n_saved == 1
+    assert hdf5_module.read_resume_state(path).n_saved == 1
     assert hdf5_module.check_cache(path, metadata)
 
 
@@ -1484,7 +1484,7 @@ def test_a_file_of_another_output_schema_is_refused_by_name(
     with pytest.raises(OutputError, match=refusal):
         hdf5_module.open_file(path)
     with pytest.raises(OutputError, match=refusal):
-        hdf5_module.resume(path)
+        hdf5_module.read_resume_state(path)
     with pytest.raises(OutputError, match=refusal):
         hdf5_module.check_cache(path, metadata)
     continued = HDF5Output(path, append=True)

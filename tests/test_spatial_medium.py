@@ -77,7 +77,7 @@ def test_evanescent_prefactor_and_attenuation_cap_have_the_literal_limits(grid):
 @pytest.mark.parametrize("material", ["Ar", "silica"])
 def test_bulk_material_derivative_uses_the_existing_analytic_models(material):
     model = fused_silica() if material == "silica" else material
-    medium = SpatialMedium(model)
+    medium = SpatialMedium(model) if material == "silica" else SpatialMedium(model, 1.0)
     omega = 2 * np.pi * C / np.array([700e-9, 800e-9, 950e-9])
     if material == "silica":
         expected = model.index(omega)
@@ -107,6 +107,7 @@ def test_bulk_material_derivative_uses_the_existing_analytic_models(material):
         ({"temperature": 0}, "temperature"),
         ({"temperature": np.nan}, "temperature"),
         ({"pressure": 2}, "pressure"),
+        ({"material": "Ar"}, "a gas fill needs its pressure"),
         ({"material": "Ar", "pressure": -1}, "pressure"),
         ({"material": "Ar", "pressure": Linear(1, -1, 1)}, "pressure"),
     ],
@@ -121,8 +122,8 @@ def test_spatial_medium_refuses_a_temperature_other_than_its_mixtures():
     # Not given, or given as the mixture's own: the mixture's temperature.
     assert SpatialMedium(mixture).temperature == 300.0
     assert SpatialMedium(mixture, temperature=300.0).temperature == 300.0
-    assert SpatialMedium("Ar").temperature == ROOM_TEMPERATURE
-    assert SpatialMedium("Ar", temperature=250.0).temperature == 250.0
+    assert SpatialMedium("Ar", 1.0).temperature == ROOM_TEMPERATURE
+    assert SpatialMedium("Ar", 1.0, temperature=250.0).temperature == 250.0
     with pytest.raises(MaterialError, match=r"own temperature \(300 K\).*omit"):
         SpatialMedium(mixture, temperature=ROOM_TEMPERATURE)
 
@@ -178,5 +179,5 @@ def test_nonfinite_material_index_is_rejected_at_the_spatial_boundary(monkeypatc
 
 def test_explicit_gas_susceptibility_is_preserved():
     susceptibility = susceptibility_for("Ar")
-    medium = SpatialMedium("Ar", susceptibility=susceptibility)
+    medium = SpatialMedium("Ar", 1.0, susceptibility=susceptibility)
     assert medium.susceptibility is susceptibility

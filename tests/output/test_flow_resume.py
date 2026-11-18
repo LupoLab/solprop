@@ -53,7 +53,7 @@ from solprop.backends.registry import available
 from solprop.driver import Simulation
 from solprop.exceptions import GrazingIncidenceWarning, MaterialRangeWarning
 from solprop.modes import CoherentWall
-from solprop.output.hdf5 import resume
+from solprop.output.hdf5 import read_resume_state
 from solprop.stepper import FixedSchedule
 
 pytestmark = [
@@ -167,7 +167,7 @@ def interrupted(build, tmp_path, *, planes):
     # Stopped at the plane after the entrance: the rest comes from the resume.
     assert stored(part)["z"].size == planes - 1
     build().run(part, resume=True, progress="none")
-    whole_state, resumed_state = resume(whole), resume(part)
+    whole_state, resumed_state = read_resume_state(whole), read_resume_state(part)
     first, second = whole_state.metadata, resumed_state.metadata
     whole_outcome, resumed_outcome = whole_state.outcome, resumed_state.outcome
     assert whole_outcome is not None and resumed_outcome is not None

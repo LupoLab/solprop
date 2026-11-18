@@ -11,7 +11,7 @@ import pytest
 from solprop.exceptions import GridError
 from solprop.fourier import power_amplitude
 from solprop.output import HDF5Output
-from solprop.output.hdf5 import check_cache, resume
+from solprop.output.hdf5 import check_cache, read_resume_state
 from solprop.output.metadata import _example_metadata
 from solprop.output.records import SavedPlane
 
@@ -30,7 +30,10 @@ def test_the_hash_and_field_attribute_record_the_power_convention(tmp_path):
     with h5py.File(path) as file:
         assert file["field"].attrs["power_convention"] == "poynting"
     assert check_cache(path, metadata)
-    assert resume(path).metadata.configuration_hash() == metadata.configuration_hash()
+    assert (
+        read_resume_state(path).metadata.configuration_hash()
+        == metadata.configuration_hash()
+    )
 
 
 def test_power_amplitude_roundtrip_and_exact_unit_override():

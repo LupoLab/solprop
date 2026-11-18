@@ -53,7 +53,7 @@ from solprop.modes.protocol import ChannelLabel
 from solprop.modes.tables import sample_modal_table
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.optics import Chain, ChirpedMirror, Material, TaylorPhase
-from solprop.output.hdf5 import open_file, resume
+from solprop.output.hdf5 import open_file, read_resume_state
 from solprop.output.records import StepHistory
 from solprop.physdata import Mixture, calcium_fluoride, species
 from solprop.physdata.mixtures import Component
@@ -394,7 +394,7 @@ def build_examples(folder):
         "SimulationSettings": sim.settings,
         "MemoryOutput": run,
         "HDF5Output": open_file(folder / "run.h5"),
-        "ResumeState": resume(folder / "run.h5"),
+        "ResumeState": read_resume_state(folder / "run.h5"),
         "ScanOutput": scan_output(folder / "scan.h5"),
         "RunMetadata": run.metadata,
         "SavedPlane": plane,
@@ -641,7 +641,7 @@ def without_optmat_release(value: object, *, materials: bool = False) -> object:
     return value
 
 
-RUN_RECORD_SKELETON = "52adea809aeee0c100d56663a5dd8102f9fc7da680923375f84abaa0399f443a"
+RUN_RECORD_SKELETON = "980bd76c7bf1793a20b6e1c15151ecd88c357847c09fab9c6f165ac70ce8a4c4"
 """The structure of the example run's record, without what an optmat release writes."""
 
 
@@ -731,7 +731,7 @@ def test_an_hdf5_output_says_what_state_its_file_is_in(tmp_path):
     assert "closed, read-only" in repr(handler)
     # A closed handler still reads its file, one read at a time.
     assert "0 m to 100 mm" in str(handler)
-    state = resume(path)
+    state = read_resume_state(path)
     assert repr(state).startswith("ResumeState(5 planes saved")
     assert "last plane" in str(state)
     path.unlink()

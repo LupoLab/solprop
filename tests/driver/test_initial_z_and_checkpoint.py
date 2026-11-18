@@ -52,7 +52,7 @@ from solprop.output import (
     RunOutcome,
     SavedPlane,
     StepHistory,
-    resume,
+    read_resume_state,
 )
 from solprop.output.hdf5 import ResumeState, open_file
 from solprop.output.metadata import RunMetadata
@@ -495,7 +495,7 @@ def test_a_resume_divides_the_stored_field_by_the_modal_weight_at_its_position(
     simulation = built()
     simulation.run(whole, progress="none")
     run_until(built(), interrupted, after=3)
-    position = resume(interrupted).plane.z
+    position = read_resume_state(interrupted).plane.z
     assert 0.0 < position < length
     problem = simulation.translate()
     mask = problem.grids.active_mask
@@ -551,7 +551,7 @@ def test_budget_stop_is_separate_and_resume_cannot_reset_its_budget(tmp_path):
     path = tmp_path / "budget.h5"
     with pytest.raises(ResponseBudgetError):
         simulation.run(path, progress="none")
-    stopped = resume(path)
+    stopped = read_resume_state(path)
     assert stopped.n_saved == 1
     assert 0 < stopped.plane.z < 1e-5
     assert stopped.checkpoint is not None and stopped.checkpoint.next_save_index == 0
@@ -559,7 +559,7 @@ def test_budget_stop_is_separate_and_resume_cannot_reset_its_budget(tmp_path):
     calls = stopped.outcome.logical_calls
     with pytest.raises(ResponseBudgetError):
         simulation.run(path, resume=True, progress="none")
-    again = resume(path)
+    again = read_resume_state(path)
     assert again.plane.z == stopped.plane.z
     assert again.outcome is not None and again.outcome.logical_calls == calls
     assert_array_equal(again.plane.field, stopped.plane.field)
@@ -601,7 +601,7 @@ def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path
     )
     path = tmp_path / "checkpoint.h5"
     memory.to_file(path)
-    state = resume(path)
+    state = read_resume_state(path)
     backend = select(
         "numpy_ref", problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
@@ -641,7 +641,7 @@ def test_ordinary_resume_without_outcome_restores_plane_and_starts_fresh_ledgers
     memory.save(SavedPlane(z=5e-6, field=simulation._field0))
     path = tmp_path / "without-outcome.h5"
     memory.to_file(path)
-    state = resume(path)
+    state = read_resume_state(path)
     assert state.outcome is None
     backend = select(
         "numpy_ref", problem, run_request, grid=simulation.grid, modes=simulation.modes
@@ -898,11 +898,11 @@ def test_resume_saves_checkpoint_on_missing_final_plane_before_completion(
     monkeypatch.setattr(NumpyWorkspace, "stats", fail_final)
     with pytest.raises(DriverError, match="final statistics"):
         simulation.run(path, progress="none")
-    first = resume(path)
+    first = read_resume_state(path)
     assert first.n_saved == 1 and first.plane.z == 1e-5
     monkeypatch.setattr(NumpyWorkspace, "stats", original)
     simulation.run(path, resume=True, progress="none")
-    finished = resume(path)
+    finished = read_resume_state(path)
     assert finished.n_saved == 2
     assert finished.checkpoint is None
     assert finished.outcome is not None and finished.outcome.status == "complete"

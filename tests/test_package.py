@@ -134,6 +134,9 @@ def test_exception_hierarchy_roots_at_solprop_error():
     assert issubclass(exceptions.BackendError, RuntimeError)
     # A scan executor or its machine failing is a runtime failure, not a refusal.
     assert issubclass(exceptions.ExecutorError, RuntimeError)
+    # A refused argument to an output request is a refused value, not a failed write.
+    assert issubclass(exceptions.OutputRequestError, ValueError)
+    assert not issubclass(exceptions.OutputRequestError, exceptions.OutputError)
 
 
 def test_warning_hierarchy_roots_at_solprop_warning():

@@ -32,7 +32,7 @@ from solprop.exceptions import (
     TDSEUnqualifiedModelWarning,
 )
 from solprop.nonlinear.tdse import TDSEExecution
-from solprop.output import open_file, resume
+from solprop.output import open_file, read_resume_state
 
 DEADLINE = 10.0
 """A test-harness bound on a cancellation; the production code has none."""
@@ -272,7 +272,7 @@ def test_a_run_stopped_during_an_atomic_call_checkpoints_its_last_step(
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", TDSEDomainWarning)
         simulation.run(path, progress="none", stop=flag)
-    stopped = resume(path)
+    stopped = read_resume_state(path)
     assert stopped.outcome is not None
     # As any stopped run: ended before its length, with a terminal checkpoint.
     assert stopped.outcome.status == "failed"

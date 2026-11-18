@@ -257,6 +257,8 @@ class MarcatiliMode(GasFillMixin):
         The fill species, or ``None`` for an evacuated capillary.
     pressure : float or ZProfile
         Absolute pressure in **bar**, >= 0 (``docs/dev/conventions.md`` section 1).
+        Required beside `gas`: a gas without it is refused. Without a gas it is
+        omitted, and holds 0 once the mode is built.
     kind : str
         ``"HE"`` (hybrid), ``"TE"`` or ``"TM"``. The transverse families require
         ``n == 0``; hybrids require ``n != 0``.
@@ -331,7 +333,7 @@ class MarcatiliMode(GasFillMixin):
 
     radius: float | ZProfile
     gas: Gas | str | None = None
-    pressure: float | ZProfile = 0.0
+    pressure: float | ZProfile | None = None
     _: KW_ONLY
     kind: ModeKind = "HE"
     n: int = 1
@@ -382,7 +384,8 @@ class MarcatiliMode(GasFillMixin):
         ModeError
             If the family and the azimuthal index disagree, the radial index is not
             positive, the model is unknown, ``alpha`` or ``loss_scale`` is invalid or
-            both are given, or the radius or temperature is not positive.
+            both are given, a gas comes without its pressure, or the radius or
+            temperature is not positive.
         """
         self._check_arguments()
         # The transverse families sit on a zero of J_1; the hybrids on one of J_(n-1).

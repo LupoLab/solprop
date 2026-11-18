@@ -53,7 +53,7 @@ from solprop.log import NullReporter
 from solprop.modes import PlanarGrid, SlabMode
 from solprop.monitor import CHECKS, BoundaryCheck
 from solprop.nonlinear.responses import KerrResponse
-from solprop.output.hdf5 import open_file, resume
+from solprop.output.hdf5 import open_file, read_resume_state
 from solprop.output.records import HISTORY_FIELDS
 from solprop.output.store import PlaneStore
 from solprop.physdata import gamma3
@@ -636,7 +636,7 @@ def _resumed(
     with open_file(path) as handle:
         arrays["resumed/field"] = np.asarray(handle["field"][-1:])
         arrays["resumed/z"] = np.asarray(handle["z"])
-    outcome = resume(path).outcome
+    outcome = read_resume_state(path).outcome
     assert outcome is not None
     return {
         "monitor": _monitor(outcome.execution),

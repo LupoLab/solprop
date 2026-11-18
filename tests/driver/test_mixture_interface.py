@@ -106,6 +106,7 @@ def test_mixture_optics_conflict_is_explicit(material_grid, fractions):
             30e-6,
             grid.length,
             material,
+            1.0 if fractions else None,
             wavelength=800e-9,
             grid=grid,
             fwhm=10e-15,
