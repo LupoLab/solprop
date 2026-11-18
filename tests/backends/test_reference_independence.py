@@ -66,7 +66,7 @@ def test_an_injected_adams_engine_is_gated_and_checked_as_the_bridge_s(
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[1e-3])
     with (
         closing(NumpyRefBackend(problem, run_request, grid=narrow_grid)) as backend,
-        pytest.raises(BackendError, match="Adams engine lacks start, trial"),
+        pytest.raises(BackendError, match="Adams engine lacks accept, begin_attempt"),
     ):
         HostAdamsMarch(
             object(),

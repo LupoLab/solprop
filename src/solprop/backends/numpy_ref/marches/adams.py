@@ -22,7 +22,7 @@ import math
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, cast, get_protocol_members
 
 import numpy as np
 
@@ -30,7 +30,12 @@ from solprop._interrupts import committing
 from solprop.backends import adams_core
 from solprop.backends.engines import AdamsEngine, AttemptOutcome, HistoryEntry
 from solprop.backends.ledger import CallLedger
-from solprop.backends.numpy_ref.marches.host import MarchHost, MarchState
+from solprop.backends.numpy_ref.marches.host import (
+    MarchHost,
+    MarchState,
+    replay_divergence,
+    replay_shortfall,
+)
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.output.records import MarchSnapshot
 from solprop.stepper.controller import limit_step
@@ -390,11 +395,7 @@ class HostAdamsMarch:
             if host.natural_stop(target):
                 return
         if state.z < target - slack:
-            msg = (
-                f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
-                f"cannot reach z = {target:.6g} m"
-            )
-            raise BackendError(msg)
+            raise BackendError(replay_shortfall(float(schedule.z_end), target))
 
     def replay_step(self, dz: float, end: float, slack: float) -> float:
         """Take one prescribed step from the march's position and accept it.
@@ -428,18 +429,11 @@ class HostAdamsMarch:
         kink = adams_core.replay_kink(self._policy, end, slack)
         _, norm = self._attempt(dz, fixed=True, landing=(end, kink))
         if not math.isfinite(norm):
-            msg = (
+            step = (
                 f"{self._name}: a replayed {self._method.name} step of "
-                f"{dz:.4g} m ending at z = {end:.6g} m has a non-finite error norm "
-                f"({norm!r}): the field has diverged. A replayed schedule takes "
-                "its steps as given and cannot reject one, so a step beyond an "
-                "explicit stability limit -- the in-stage temporal collar's or a "
-                "coupled flow's advisory step -- grows until it overflows; the "
-                "translation refuses a declared step past the collar's limit and "
-                "warns on one past the flow's. Take shorter steps, or let the "
-                "controller choose them"
+                f"{dz:.4g} m ending at z = {end:.6g} m"
             )
-            raise ConvergenceError(msg)
+            raise ConvergenceError(replay_divergence(step, norm))
         return norm
 
     def _end(self, attempt: "_Attempt", *, accepted: bool) -> None:
@@ -749,17 +743,8 @@ class _Attempt:
         self._engine.end_attempt(outcome)
 
 
-_ENGINE_MEMBERS = (
-    "start",
-    "trial",
-    "accept",
-    "chord_phase",
-    "step_carrier",
-    "begin_attempt",
-    "end_attempt",
-    "reading",
-)
-"""What the march asks of an engine: the protocol."""
+_ENGINE_MEMBERS = tuple(sorted(get_protocol_members(AdamsEngine)))
+"""What the march asks of an engine: the protocol's members, sorted."""
 
 
 def _check_engine(engine: object) -> None:

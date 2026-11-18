@@ -24,6 +24,7 @@ from solprop.backends.numpy_ref.marches.host import (
     MarchHost,
     MarchState,
     in_flight_refusal,
+    replay_shortfall,
 )
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -177,11 +178,7 @@ class HostLowStorageMarch:
             if host.natural_stop(target):
                 return
         if state.z < target - slack:
-            msg = (
-                f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
-                f"cannot reach z = {target:.6g} m"
-            )
-            raise BackendError(msg)
+            raise BackendError(replay_shortfall(float(schedule.z_end), target))
 
     def replay_step(self, dz: float, end: float) -> float:
         """Take one prescribed step from the march's position and accept it.

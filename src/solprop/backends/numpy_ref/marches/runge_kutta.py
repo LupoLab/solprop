@@ -26,7 +26,12 @@ import numpy as np
 from solprop._interrupts import committing
 from solprop.backends import rk_core
 from solprop.backends.engines import RungeKuttaEngine
-from solprop.backends.numpy_ref.marches.host import MarchHost, MarchState
+from solprop.backends.numpy_ref.marches.host import (
+    MarchHost,
+    MarchState,
+    replay_divergence,
+    replay_shortfall,
+)
 from solprop.backends.records import RungeKuttaPolicy
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper.schedule import (
@@ -242,18 +247,11 @@ class RungeKuttaMarch:
             self._trying = (state.z, dz)
             norm = engine.trial(state.z, dz)
             if not math.isfinite(norm):
-                msg = (
+                step = (
                     f"{self._name}: replayed step {state.cursor + 1} of "
-                    f"{schedule.n_steps}, {dz:.4g} m from z = {state.z:.6g} m, has a "
-                    f"non-finite error norm ({norm!r}): the field has diverged. A "
-                    "replayed schedule takes its steps as given and cannot reject "
-                    "one, so a step beyond an explicit stability limit -- the "
-                    "in-stage temporal collar's or a coupled flow's advisory step -- "
-                    "grows until it overflows; the translation refuses a declared step "
-                    "past the collar's limit and warns on one past the flow's. Take "
-                    "shorter steps, or let the controller choose them"
+                    f"{schedule.n_steps}, {dz:.4g} m from z = {state.z:.6g} m,"
                 )
-                raise ConvergenceError(msg)
+                raise ConvergenceError(replay_divergence(step, norm))
             end = float(edges[state.cursor + 1])
             with committing():
                 record = engine.accept(dz)
@@ -266,8 +264,4 @@ class RungeKuttaMarch:
             if host.natural_stop(target):
                 return
         if state.z < target - slack:
-            msg = (
-                f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
-                f"cannot reach z = {target:.6g} m"
-            )
-            raise BackendError(msg)
+            raise BackendError(replay_shortfall(float(schedule.z_end), target))

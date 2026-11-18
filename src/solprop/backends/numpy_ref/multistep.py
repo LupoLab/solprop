@@ -44,7 +44,11 @@ from solprop.backends.numpy_ref.adams_kernels import (
     ExponentialKernels,
     coupled_moments,
 )
-from solprop.backends.numpy_ref.adams_tables import defect_rows, exponential_corrector
+from solprop.backends.numpy_ref.adams_tables import (
+    defect_rows,
+    exponential_corrector,
+    exponential_rows,
+)
 from solprop.exceptions import BackendError
 from solprop.stepper.multistep import (
     Multistep,
@@ -57,7 +61,14 @@ if TYPE_CHECKING:
     from solprop.backends.numpy_ref.workspace import NumpyWorkspace
     from solprop.stepper.controller import PIController
 
-__all__ = ["AdamsRows", "ExponentialHistory", "HostHistory", "InteractionHistory"]
+__all__ = [
+    "AdamsRows",
+    "DenseStep",
+    "ExponentialHistory",
+    "ExponentialStep",
+    "HostHistory",
+    "InteractionHistory",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -69,12 +80,22 @@ _Factors = Complex[np.ndarray, "n_used 1 1 #n_omega"]
 
 
 @dataclass
-class _DenseStep:
+class DenseStep:
     """The last accepted step, in its anchor's frame, for dense observation.
 
-    Its slopes, the new source first; the observation's weights are the session's, from
-    the march's record of the step
+    The observation's weights are the session's, from the march's record of the step
     (:class:`solprop.backends.numpy_ref.marches.adams.AcceptedStep`).
+
+    Attributes
+    ----------
+    z : float
+        The step's start, m.
+    dz : float
+        The step, m.
+    start : numpy.ndarray
+        The state at its start, ``(n_modes, n_pol, n_omega)``.
+    slopes : list of numpy.ndarray
+        Its slopes, the new source first, each of the state's shape.
     """
 
     z: float
@@ -84,12 +105,28 @@ class _DenseStep:
 
 
 @dataclass
-class _ExponentialStep:
+class ExponentialStep:
     """The last accepted exponential step, for dense observation.
 
-    Its samples as stored, the new one first; the observation's coefficients and, under
-    a carrier frame, its rotations are the session's, from the march's record of the
-    step (:class:`solprop.backends.numpy_ref.marches.adams.AcceptedStep`).
+    The observation's coefficients and, under a carrier frame, its rotations are the
+    session's, from the march's record of the step
+    (:class:`solprop.backends.numpy_ref.marches.adams.AcceptedStep`).
+
+    Attributes
+    ----------
+    z : float
+        The step's start, m.
+    dz : float
+        The step, m.
+    start : numpy.ndarray
+        The state at its start, ``(n_modes, n_pol, n_omega)``.
+    exponent : numpy.ndarray
+        The step's chord exponent ``x = h B_n``, of the state's shape.
+    values : list of numpy.ndarray
+        Its samples as stored, the new one first, each of the state's shape.
+    compensation : tuple or None
+        A varying operator's corrector nodes ``(1, theta_0, ...)`` and matching
+        untransported compensations; ``None`` without compensation.
     """
 
     z: float
@@ -756,7 +793,7 @@ class InteractionHistory(HostHistory):
                 trial.source,
                 *(store[slot].copy() for slot in trial.slots[:order]),
             ]
-            self.dense = _DenseStep(
+            self.dense = DenseStep(
                 z=trial.z,
                 dz=trial.dz,
                 start=trial.state.copy(),
@@ -940,7 +977,7 @@ class ExponentialHistory(HostHistory):
             lab = lab + compensation.predictor(order)
         source = workspace.lab_source(lab, z + dz, purpose="predictor")
         corrector = exponential_corrector(nodes, order, width)
-        rows = kernels.defect_rows(nodes, orders, width)
+        rows = exponential_rows(nodes, orders, width)
         extra = None
         if compensation is not None:
             rate = phi_rate(
@@ -1005,7 +1042,7 @@ class ExponentialHistory(HostHistory):
             # below leave out (they are the diagonal chord's alone).
             assert self._workspace.problem.linear.coupled_flow is None
             # Copied: the store's rows are overwritten by later steps.
-            self.dense = _ExponentialStep(
+            self.dense = ExponentialStep(
                 z=z,
                 dz=dz,
                 start=trial.state.copy(),
