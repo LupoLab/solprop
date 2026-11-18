@@ -1,1 +1,0 @@
-A calibration's child processes no longer inherit `SOLPROP_NATIVE_BAND_TILES`, `SOLPROP_NATIVE_FORWARD_PACK`, `SOLPROP_BLAS_THREADS` or `SOLPROP_OVERSUBSCRIBE` from the user's environment, as they already did not inherit the thread, wait and wisdom settings: the stored profile does not record them, so settings chosen under one would otherwise be applied to later runs without it.

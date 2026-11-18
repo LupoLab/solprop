@@ -1,1 +1,0 @@
-A run's event record no longer keeps part of an event whose write failed (a full disk, for example), which made every later read of the record fail, so that a window following the run reported it could not follow it; the record is cut back to its last whole event and goes on.
