@@ -655,7 +655,8 @@ def test_a_failed_scan_command_reports_one_line_and_exits_two(tmp_path, capsys):
     assert main(["scan", str(missing), "--local"]) == 2
     error = capsys.readouterr().err
     assert error.startswith("solprop: ")
-    assert str(missing) in error
+    # The message quotes the path as the operating system reports it.
+    assert missing.name in error
     assert "Traceback" not in error
 
 

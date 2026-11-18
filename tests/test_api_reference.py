@@ -18,7 +18,11 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
-from sphinx.ext.autosummary.generate import AutosummaryRenderer
+
+# The lowest-dependency lane installs no documentation tools.
+AutosummaryRenderer = pytest.importorskip(
+    "sphinx.ext.autosummary.generate"
+).AutosummaryRenderer
 
 DOCS = Path(__file__).resolve().parents[1] / "docs"
 spec = importlib.util.spec_from_file_location("api_surface", DOCS / "api_surface.py")

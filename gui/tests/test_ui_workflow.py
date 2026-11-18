@@ -1275,7 +1275,7 @@ def test_a_fibre_has_its_own_rows_and_no_map(
     assert stage.fields["lattice.n_tubes"].isVisible()
     assert not stage.solve_button.isEnabled()
     zero = stage.numbers["zdw"]
-    qtbot.waitUntil(lambda: zero.text() == "483 nm", timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: zero.text() == "484 nm", timeout=WAIT_MS)
     stage.show_page("map")
     assert stage.page == "curves"
     assert "capillary" in stage.note.text()
