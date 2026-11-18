@@ -155,6 +155,9 @@ jobs:
       - run: uv run poe reuse
       - run: uv run poe changelog-check
       - run: uv run poe size-check
+      # solprop's sdist, whose include list and readme the root pyproject.toml sets: the
+      # wheels workflow builds it only weekly and on a release tag.
+      - run: uv build --package solprop --sdist --out-dir dist
 
   docs:
     needs: [changes, native-wheel]
