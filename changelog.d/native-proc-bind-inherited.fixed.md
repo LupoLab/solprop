@@ -1,0 +1,1 @@
+A process started from one that imported the native backend no longer reports the inherited `OMP_PROC_BIND=false` as the user's choice: its run metadata's `openmp_proc_bind` is `false`, as in the parent, rather than `environment: OMP_PROC_BIND=false`. The import marks the setting with `SOLPROP_NATIVE_PROC_BIND`.
