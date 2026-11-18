@@ -1243,3 +1243,30 @@ def test_a_followed_run_gone_before_recording_its_ending_has_it_sent(
     (sent,) = [f for f in answers(output) if f.get("kind") == "events"]
     assert [e["kind"] for e in sent["events"]] == ["stopped"]
     helper.close()
+
+
+def test_a_followed_run_whose_ending_reached_only_its_summary_is_ended(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from solprop.service.record import EVENTS, STATUS, write_json  # noqa: PLC0415
+
+    monkeypatch.setattr(agent, "LIVENESS_PERIOD", 0.0)
+    folder = tmp_path / "r1"
+    folder.mkdir()
+    # The record could not take the terminal event (a full disk), the summary could.
+    frame = {"run_id": "r1", "kind": "row", "data": {"index": 0}}
+    (folder / EVENTS).write_bytes(encode(frame))
+    ending = {"kind": "stopped", "data": {"path": "run.h5", "message": "stop flag"}}
+    write_json(folder / STATUS, {"run_id": "r1", "ending": ending})
+    output = io.BytesIO()
+    helper = Agent(output)
+    helper.follow({"folder": str(folder), "offset": 0, "period": 0.02})
+    deadline = time.monotonic() + 10
+    while b"stopped" not in output.getvalue():
+        assert time.monotonic() < deadline
+        time.sleep(0.02)
+    sent = [f for f in answers(output) if f.get("kind") == "events"]
+    events = [event for frame in sent for event in frame["events"]]
+    assert [e["kind"] for e in events] == ["row", "stopped"]
+    assert events[-1] == {"run_id": "r1", **ending}
+    helper.close()

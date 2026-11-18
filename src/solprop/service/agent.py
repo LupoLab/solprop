@@ -291,7 +291,8 @@ class Agent:
         The terminal event is sent only once the run's summary records its ending
         (:mod:`solprop.service.record`), so a window that hears a run has ended finds
         it ended in a list of runs and can continue it at once; a run that goes
-        between the two has its terminal event sent as it wrote it.
+        between the two has its terminal event sent as it wrote it, and one whose
+        record could not take its terminal event has it sent from its summary.
         """
         from solprop.service.runs import slurm_jobs  # noqa: PLC0415 - light
 
@@ -334,6 +335,17 @@ class Agent:
                     return
             elif time.monotonic() - checked >= liveness:
                 checked = time.monotonic()
+                ending = _summary_ending(folder, offset)
+                if ending is not None:
+                    self.send(
+                        {
+                            "kind": "events",
+                            "folder": key,
+                            "offset": offset,
+                            "events": [ending],
+                        }
+                    )
+                    return
                 lost = _lost(folder)
                 if lost is not None:
                     # Gone without an ending: killed, out of memory, cancelled.
@@ -623,6 +635,28 @@ class Agent:
 def _ending_recorded(folder: Path) -> bool:
     """Return whether a run's summary records its ending, its record let go."""
     return "ending" in (read_status(folder) or {})
+
+
+def _summary_ending(folder: Path, offset: int) -> dict[str, Any] | None:
+    """Return the ending a run's summary records and its record lacks, as an event.
+
+    The record misses the terminal event only when it could not be written (and the
+    record not cut back to its whole frames); the summary, written after it, still
+    has the ending.
+
+    - ``offset``: where the record has been read to, bytes.
+    - Returns: the terminal event; ``None`` without a recorded ending, or with
+      events in the record still to be read (the terminal one among them).
+    """
+    status = read_status(folder) or {}
+    ending = status.get("ending")
+    if not isinstance(ending, Mapping) or read_events(folder, offset)[0]:
+        return None
+    return {
+        "run_id": str(status.get("run_id") or folder.name),
+        "kind": str(ending.get("kind")),  # pyright: ignore[reportUnknownMemberType]
+        "data": dict(ending.get("data") or {}),  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+    }
 
 
 _GOING: Final = frozenset({"queued", "starting", "running"})
