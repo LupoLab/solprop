@@ -128,7 +128,7 @@
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.modes.fill",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.fill",
    "name": "GasFillMixin"
   },
   {

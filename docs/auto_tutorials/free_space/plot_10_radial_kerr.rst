@@ -138,7 +138,7 @@ The fluence through each plane in the argon, against the radius.
  .. code-block:: none
 
     Second-moment radius: 1.0000 mm -> 1.0045 mm
-    Complete radial Kerr example: 0.070 s
+    Complete radial Kerr example: 0.356 s
 
 
 
@@ -153,7 +153,7 @@ Related reading
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.086 seconds)
+   **Total running time of the script:** (0 minutes 0.412 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_10_radial_kerr.py:

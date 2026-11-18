@@ -107,8 +107,8 @@ how far optmat vouches for it (``validated``, ``provisional``, ``untested``,
  .. code-block:: none
 
     gas_refractive           fit/Ar                   validated  f0efa785e42d
-    equation_of_state        eos/Ar                   validated  85ee5c2688ac
-    transport                transport/Ar             validated  1054ed95ba27
+    equation_of_state        eos/Ar                   validated  15a9b124e6ee
+    transport                transport/Ar             validated  314ba33bd217
     gas_hyperpolarizability  hyperpolarizability/Ar   validated  d15700d61f7a
     solid                    fit/SiO2                 validated  93e901d77368
 
@@ -364,7 +364,7 @@ The figure compares the exit spectra.
 
  .. code-block:: none
 
-    run time 5.5 s
+    run time 3.7 s
 
 
 
@@ -382,7 +382,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 5.566 seconds)
+   **Total running time of the script:** (0 minutes 3.731 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_basics_plot_06_material_choices.py:

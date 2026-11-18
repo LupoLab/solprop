@@ -229,8 +229,8 @@ Its units follow P_R(t) = eps0 rho_N2 E(t) integral h(t-t') E(t')^2 dt'.
  .. code-block:: none
 
     Oxygen Raman omitted by the explicit raman=('N2',) selection.
-    with_mixture translation times (s): [0.11414074990898371, 0.10931341699324548, 0.11484987498261034]
-    Complete example and three-point sweep: 2.126 s
+    with_mixture translation times (s): [0.42701091803610325, 0.4069260060787201, 0.42210832238197327]
+    Complete example and three-point sweep: 4.426 s
 
 
 
@@ -247,7 +247,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 2.202 seconds)
+   **Total running time of the script:** (0 minutes 4.712 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_capillaries_plot_04_air_mixture.py:

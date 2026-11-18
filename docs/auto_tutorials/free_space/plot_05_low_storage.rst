@@ -170,7 +170,7 @@ reused across steps, or the flow formed in every pass -- are those two computati
     BoundaryWarning: the fixed schedule's longest step, 1.309e-03 m, is longer than the transverse edge's read spacing, 1.227e-03 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
     BoundaryWarning: the fixed schedule's longest step, 1.309e-03 m, is longer than the transverse edge's read spacing, 1.227e-03 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
     BoundaryWarning: the fixed schedule's longest step, 1.309e-03 m, is longer than the transverse edge's read spacing, 1.227e-03 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
-    band fraction 2.123e-04, parity floor 6.8e-19
+    band fraction 2.123e-04, parity floor 4.6e-19
 
 
 
@@ -323,7 +323,7 @@ describes calibration and replay.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.216 seconds)
+   **Total running time of the script:** (0 minutes 2.959 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_05_low_storage.py:

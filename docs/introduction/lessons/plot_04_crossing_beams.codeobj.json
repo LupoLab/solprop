@@ -289,7 +289,7 @@
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "solprop.driver.simulation",
+   "module": "solprop.driver.settings",
    "module_short": "solprop.driver",
    "name": "SimulationSettings"
   },
@@ -1079,8 +1079,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output.schema",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.planes"
   },
   {
@@ -1150,7 +1150,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.driver.simulation",
+   "module": "solprop.driver.settings",
    "module_short": "solprop.driver",
    "name": "SimulationSettings"
   },
@@ -1436,8 +1436,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output.schema",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.planes"
   },
   {
@@ -1505,7 +1505,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.records",
    "module_short": "solprop.output",
    "name": "SavedPlane"
   },
@@ -2292,8 +2292,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.fields"
   },
   {
@@ -2357,8 +2357,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.metadata"
   },
   {
@@ -2422,8 +2422,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output.schema",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.planes"
   },
   {
@@ -2466,7 +2466,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.driver.simulation",
+   "module": "solprop.driver.settings",
    "module_short": "solprop.driver",
    "name": "SimulationSettings"
   },
