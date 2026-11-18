@@ -75,8 +75,10 @@ class ModePreview:
     aeff : float
         Effective area in m^2; for a slab mode, an effective width in m.
     zdw : float or None
-        Zero-dispersion wavelength in m within the band, or ``None`` where the
-        dispersion keeps one sign across it (or changes it more than once).
+        Zero-dispersion wavelength in m within the band, the one nearest the grid's
+        reference wavelength as the ``zdw`` statistic records it
+        (:func:`solprop.modes.base.zdw` with ``near``), or ``None`` where the band
+        holds none on the reference's side of the lines.
     gamma : numpy.ndarray or None
         The nonlinear coefficient ``n2 omega / (c A_eff)`` in rad/(W m), with the
         fill's ``n2`` at the grid's reference wavelength, the carrier its Kerr data
@@ -248,7 +250,9 @@ def modes(recipe: "Recipe", z: float | None = None) -> ModeSetPreview:
     previews = []
     for mode in channels:
         try:
-            zero: float | None = zdw(mode, at, wavelength_limits=limits)
+            zero: float | None = zdw(
+                mode, at, wavelength_limits=limits, near=grid.reference_wavelength
+            )
         except ModeError:
             zero = None
         area = aeff(mode, at)
