@@ -16,8 +16,8 @@ the output layer, read back as a test reads them:
   ``prop_gnlse``, ten fixed steps at the Adams method's fixed top order
   (``tests/entry_point_cases.py``); the last saved plane (``last_plane``), from the
   native instance of ``tests/driver/test_coherent_capillary.py``'s
-  ``test_the_prop_entry_points_are_what_they_were``, which keeps each run's record and
-  native's repeat of its own run;
+  ``test_the_prop_entry_points_match_their_recorded_final_states``, which keeps each
+  run's record and native's repeat of its own run;
 - ``rk replay ...`` rows: the GNLSE and coherent-wall capillary routes of
   ``capability_routes.ROUTES`` replaying 400 uniform steps on the Runge-Kutta march
   (``tests/rk_route_cases.py``); every saved plane (``run``), from
