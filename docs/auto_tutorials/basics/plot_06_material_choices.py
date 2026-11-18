@@ -8,7 +8,8 @@ Compare material choices
 
 The default material data for gases, solids, Raman responses and ionisation
 rates come from the curated library optmat
-(`SEP 3 <../../dev/seps/archive/sep-0003-optmat-materials.html>`_): a run
+(`SEP 3 <https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md>`_):
+a run
 with no ``materials=`` takes ``MaterialSelection()``, optmat's recommended model of
 each family. This tutorial shows how to see what a run resolved, how to declare a
 different material, and how to tell which part of the physics a change touches.

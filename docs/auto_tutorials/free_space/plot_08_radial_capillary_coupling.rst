@@ -795,7 +795,7 @@ Related reading
 their budgets. :doc:`/guide/free-space/model` and
 :doc:`/guide/waveguides/capillaries` describe the two propagations.
 The design is
-:doc:`SEP 31 </dev/seps/archive/sep-0031-simulation-coupling>`.
+`SEP 31 <https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0031-simulation-coupling.md>`_.
 
 
 .. rst-class:: sphx-glr-timing

@@ -5,13 +5,13 @@ indicate. A performance claim names what it measured, the build, the machine and
 result; the rules below say how to take it. The numbers in the indicative sections are
 indicative: each was measured once, on one machine, for one change. Re-measure before
 relying on any of them. Rows naming `numba_cpu` record a backend that
-[SEP 43](seps/archive/sep-0043-retire-numba-cpu.md) retired; they can no longer be re-measured, and
+[SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) retired; they can no longer be re-measured, and
 stay as what was measured.
 
 ## Where things are
 
 - **The benchmarks** are `benchmarks/`
-  ([SEP 38](seps/archive/sep-0038-performance-tracking.md)), run with `uv run poe bench`
+  ([SEP 38](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0038-performance-tracking.md)), run with `uv run poe bench`
   (`python -m benchmarks`). `track` times complete runs of the tracking set (about a
   dozen representative workloads, with each interface's default integrator and
   tolerances) at one thread and the production width, in about an hour per machine;
@@ -189,7 +189,7 @@ most. These grids are small for a device; the ratios say nothing about large gri
 
 ### The tracking set on the release wheel, without Numba
 
-[SEP 43](seps/archive/sep-0043-retire-numba-cpu.md)'s final tree against the history's 0.1.0 rows:
+[SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md)'s final tree against the history's 0.1.0 rows:
 `python -m benchmarks track` with CI's `cp314-abi3` wheel at its x86-64-v3 build, three repeats,
 passive threading, an exclusively allocated AMD EPYC 7763 node at 1 and 16 threads. The rows
 aren't appended, because the history holds releases.
@@ -596,7 +596,7 @@ threads the Kokkos march was 1.6 (shape A) to 2.1 (shape B) times faster than
 ### Band-rule plasma integration
 
 The band-exact plasma integrals
-([SEP 18](seps/archive/sep-0018-band-exact-plasma-integrals.md)) against the trapezoid, on
+([SEP 18](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0018-band-exact-plasma-integrals.md)) against the trapezoid, on
 the four-mode RDW window (33 nodes, 8192 fine samples, ten fixed steps from the launch),
 for the band column as first built:
 
@@ -619,7 +619,7 @@ the error.
 
 ### Dispersive electronic response
 
-The dispersive Kerr response ([SEP 6](seps/archive/sep-0006-dispersive-nonlinearity.md),
+The dispersive Kerr response ([SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md),
 [backends.md §3.11](backends.md#311-the-dispersive-electronic-response)) is judged by its
 nonlinear stage time against the constant cubic's on the same route: the symmetric
 evaluator's target is 1.3, the polynomial's 4. Same-process medians of ten-step windows
@@ -706,7 +706,7 @@ CPU. The gain shrinks as channels are added.
 
 ### Adams carrier frame per step
 
-The scalar carrier frame ([SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md))
+The scalar carrier frame ([SEP 35](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md))
 adds, per trial, a shifted argument and one complex product per element in the moments
 pass and one complex product per history row read. Ten replayed steps of a 2 mm,
 40 bar hydrogen capillary (16 µm, 515 nm, 2 ps window, 4097 bins, one mode, a weak
@@ -763,7 +763,7 @@ The march scales from 384² to 768² as 4.33 (Kokkos) and 4.20 (`numba_cpu`) aga
 $N \log N$'s 4.30. Against a per-evaluation reference built from the cost of its parts
 (transforms and response), the march's evaluations take 0.94–1.37 times the reference and
 IP-DOPRI5's 1.21 (Kokkos) and 1.80 (`numba_cpu`)
-([SEP 28](seps/archive/sep-0028-free-space-evaluation.md)).
+([SEP 28](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0028-free-space-evaluation.md)).
 
 ### The boundary monitor's reading
 
@@ -849,7 +849,7 @@ on every case: the cap never fell below a step these runs took.
 
 ### The transverse edge and a requested collar
 
-[SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md) puts a k⊥ safety ramp
+[SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md) puts a k⊥ safety ramp
 and reads of the transverse edge on every free-space run by default, and builds a real-space
 collar on request. The default's cost was measured as the monitor's was above, with each case
 built by the harness's builder and run four ways in the same process:
@@ -890,7 +890,7 @@ process's peak memory from 0.45 to 0.68 GB. The SEP's phase 3 report has the ful
 
 ### The native read of the transverse edge
 
-[SEP 44](seps/archive/sep-0044-native-edge-read.md) reads the edge on the state's own memory, with only numbers returning. Its Part II holds the measurements phase by phase, and [the next section](#the-native-read-on-the-data-centre-cards) those on an NVIDIA H200 and an AMD Instinct MI325X.
+[SEP 44](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0044-native-edge-read.md) reads the edge on the state's own memory, with only numbers returning. Its Part II holds the measurements phase by phase, and [the next section](#the-native-read-on-the-data-centre-cards) those on an NVIDIA H200 and an AMD Instinct MI325X.
 
 Against itself, SEP 40's four-way control, `python -m benchmarks.edge_overhead`, native at 18 threads of an Intel Xeon Gold 6240, 5 rounds, default check against no ramp and no reads:
 
@@ -1046,7 +1046,7 @@ and ×1.015.
 Two changes reduce it, neither moving a field by more than rounding:
 
 - **A read leaves out what cannot reach its resolution** (`READ_RESOLUTION`,
-  `transverse_monitor.py`; removed by [SEP 44](seps/archive/sep-0044-native-edge-read.md), since a
+  `transverse_monitor.py`; removed by [SEP 44](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0044-native-edge-read.md), since a
   read on the state's own memory has no copy to save). Each read synthesised every frequency plane, and a run's light
   occupies from a fifth to a third of them at this level on the filaments and Kerr beams.
   A read now leaves out the planes whose energy together is at most 1e-3 of the warning. By
@@ -1219,7 +1219,7 @@ functions forced on (`SOLPROP_NATIVE_VECTOR_MATH=SLEEF`) +11.6 %, `gnlse_raman_s
 ### Exponential Adams host cost: the SEP 39 baseline
 
 The host side of an exponential `Multistep()` trial on the native CPU backend, before
-[SEP 39](seps/archive/sep-0039-native-adams-march.md)'s native march, at the head of the vector
+[SEP 39](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0039-native-adams-march.md)'s native march, at the head of the vector
 maths change (a500d2d). The SEP's §3.3 reads these figures.
 
 **Method.**
@@ -1295,7 +1295,7 @@ the source.
 
 ### The native Adams march
 
-[SEP 39](seps/archive/sep-0039-native-adams-march.md)'s native march against solprop's Python
+[SEP 39](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0039-native-adams-march.md)'s native march against solprop's Python
 march on the same build (`benchmarks.adams_host --host-march`), and against the march
 with the host packing the stage rows, as before the SEP's phase 1 (`--host-stages`).
 Interleaved fresh processes, the arm order reversed every round, medians; every arm
@@ -1414,7 +1414,7 @@ to 70 kernels, most of it launch-bound
 ### A native Adams call's return and the stop flag
 
 A native call returns at a host event or at its bound, 256 attempts or 0.1 s
-([SEP 39](seps/archive/sep-0039-native-adams-march.md), Q3), and a run's stop flag is polled
+([SEP 39](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0039-native-adams-march.md), Q3), and a run's stop flag is polled
 before each call ([#519](https://github.com/LupoLab/solprop/issues/519)). That adds no
 return, only a Python call: 56 ns with no flag and 82 ns with a `threading.Event`
 (`timeit`). Everything here is on an Intel Xeon Gold 6240 pinned to CPUs of one socket on a
@@ -2717,7 +2717,7 @@ on the device and the operator built once, whole runs take 1.05 s on `mlx` again
 
 ### Machine calibration against the built-in table (SEP 46)
 
-[SEP 46](seps/archive/sep-0046-machine-calibration.md) section 7 items 1–4. On each machine a
+[SEP 46](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0046-machine-calibration.md) section 7 items 1–4. On each machine a
 thorough calibration, then the tracking set calibrated against the built-in table
 (`benchmarks ab`, a fifth of each case, three rounds of one run, both arms as default
 runs: no thread count of their own, `SOLPROP_CALIBRATION=off` against `use`), an A/A
@@ -2783,7 +2783,7 @@ this chip. Inconclusive sessions published nothing: the EPYC 9B45 at
 
 ### Scan workers calibrated on an AMD EPYC 7763 node (SEP 46)
 
-[SEP 46](seps/archive/sep-0046-machine-calibration.md) section 7 item 14, a scan's workers. One
+[SEP 46](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0046-machine-calibration.md) section 7 item 14, a scan's workers. One
 whole node of two AMD EPYC 7763 (128 cores, 8 NUMA domains), exclusive, GCC 16, commit
 `ad1df42e` of #582. The workload is an RDW tuning scan: a four-mode helium capillary
 (125 µm core radius, 5 cm, 7.5 fs at 800 nm, plasma) over pressure (0.6–1.2 bar) and
@@ -3088,7 +3088,7 @@ The shape rule alone (pack off) gave `line` 0.91 and 0.90 (Xeon 18 and 36) and 0
 
 ### The native workspace seam (SEP 52)
 
-[SEP 52](seps/archive/sep-0052-backend-shape.md)'s phase 4 replaced the native binding's
+[SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md)'s phase 4 replaced the native binding's
 configuration calls with one `Problem` and one run record per start, and the per-step
 probe paths with the workspace's own probe; the marches did not change. Measured on an
 exclusive node of two AMD EPYC 7763 (32 cores), `--threading bound`, `--calibrate none`,

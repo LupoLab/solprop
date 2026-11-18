@@ -64,7 +64,7 @@ build, transform plan or device can change floating-point summation order, so
 cross-backend agreement need not be bitwise. Nor is a repeat on the same build:
 solprop promises numerical accuracy, not identical bits, across backends, builds,
 machines, thread counts, batches and repeated runs
-([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)), and a rounding
+([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)), and a rounding
 difference can change an adaptive run's steps. Small differences can also grow in
 noise-sensitive propagation: compare the physical observable and numerical
 convergence, not only an array digest. Record the backend, build and thread

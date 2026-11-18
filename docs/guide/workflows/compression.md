@@ -164,7 +164,7 @@ data sheet.
 join {py:func}`~solprop.physdata.glasses.fused_silica`, and {py:func}`~solprop.physdata.glasses.glass`
 finds any of them by name; so do the elements and the compressors that name a glass.
 Each is optmat's recommended absolute index
-([SEP 3](../../dev/seps/archive/sep-0003-optmat-materials.md)), and magnesium fluoride and sapphire name their ray
+([SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md)), and magnesium fluoride and sapphire name their ray
 (`glass("MgF2", axis="o")`); a gas path is the gas's optmat fill. They are described on
 [the materials page](../media/material-selection.md#solids).
 

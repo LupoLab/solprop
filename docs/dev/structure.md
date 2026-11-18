@@ -51,7 +51,7 @@ layer that owns it. The annotations between them are
 [architecture.md §5](architecture.md)'s own. The thing to notice is where the boundary
 falls: the service loop serves a session's events, while the session runs the step loop
 (the reference's `HostSession` over its Python marches, or native's session over its
-compiled ones, [SEP 47](seps/archive/sep-0047-run-ownership.md), [SEP 52](seps/archive/sep-0052-backend-shape.md)). Reference passes, compiled kernels and library transforms,
+compiled ones, [SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md), [SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md)). Reference passes, compiled kernels and library transforms,
 or one native trial do the numerical work behind that loop.
 
 ![One run of solprop, from prop_capillary through the kernel problem and the backend's session to a saved plane](figures/one_run.svg)
@@ -92,8 +92,8 @@ Text: [architecture.md §8](architecture.md) for the passes,
 The seam at the top is the whole of what a backend is. Under it each backend runs its own
 session and marches — the march, the replay, the landing, the controller, the history,
 the noise and the per-stage bundle: the reference's in Python in `backends/numpy_ref/`, the
-native backend's compiled ([SEP 47](seps/archive/sep-0047-run-ownership.md),
-[SEP 52](seps/archive/sep-0052-backend-shape.md)), held to the same decisions by the shared
+native backend's compiled ([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md),
+[SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md)), held to the same decisions by the shared
 controller cores and run records of `solprop.backends` — and under that the
 implemented backends: NumPy reference and native (built from `native/`). Each session
 keeps its statistics rows between events and hands them, with its events, to the service

@@ -80,7 +80,7 @@ The [nonlinear model](../../guide/media/nonlinear.md),
 [general modal model](../../guide/waveguides/general-modal.md),
 [architecture](../architecture.md) and [kernel contract](../kernel-contract.md)
 provide the starting point. The proposal addresses the TPA item under
-*Spectral-domain responses* in the [roadmap](../roadmap.md), and is related to, but
+*Spectral-domain responses* in the [roadmap](https://github.com/LupoLab/solprop/blob/11cd808fe03db935457f432f790939d44a243c16/docs/dev/roadmap.md), and is related to, but
 does not implement, its separate *Ionisation in solids* item.
 
 The relevant current code is:
@@ -1029,7 +1029,7 @@ appends its report to Part II in its merging pull request.
   strengthened measurement provenance, corrected-theory and subsequent two-band
   validation requirements. Retained the proposed scalar first scope and recorded
   the remaining supplement/data gaps.
-- 2026-10-17: Restated for [SEP 25](archive/sep-0025-rounding-level-reproducibility.md).
+- 2026-10-17: Restated for [SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md).
   The disabled-term checks (§6.3 and the §7 table's last row) are exact only where the
   disabled case runs the unchanged old path, a structural no-op, and for counters,
   workspace, plans and the memory/transform ledger; a disabled case compiled as a
@@ -1037,6 +1037,6 @@ appends its report to Part II in its merging pull request.
   Phase 2's thread invariance (§11) becomes thread-count agreement within such a
   bound.
 - 2026-11-01: Tracking issue [#114](https://github.com/LupoLab/solprop/issues/114).
-- 2026-11-02: [SEP 43](archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
+- 2026-11-02: [SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
   proposal names Numba or `numba_cpu`, it was written before that: such a phase or check falls
   away, and the feature goes on `numpy_ref` and the native backend (SEP 0).

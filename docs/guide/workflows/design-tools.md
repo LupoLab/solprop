@@ -594,4 +594,4 @@ the tools at the pressure where you expect the fission, not at the entrance. The
 suite checks this comparison against the run.
 
 The design solvers, `solve_parameter` and its targets, were proposed and carried out by
-[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+[SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md).

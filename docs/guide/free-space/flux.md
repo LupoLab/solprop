@@ -5,7 +5,7 @@ Each is the axial Poynting flux of the scalar forward field in the medium at the
 measured plane, so a launch energy is what an energy meter in that medium would read.
 The page also derives how a radial run carries the field through a gas whose pressure
 varies along z, and gives the certificate that decides whether such a path is admitted.
-The design is [SEP 34](../../dev/seps/archive/sep-0034-medium-flux.md). The operator, the units
+The design is [SEP 34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md). The operator, the units
 and the transverse grids are described on [the free-space model](model.md) page.
 
 ## What energy means
@@ -452,4 +452,4 @@ wave numbers.
    [doi:10.1088/2040-8978/16/1/015707](https://doi.org/10.1088/2040-8978/16/1/015707).
 
 The design of the medium flux, the radial amplitude correction and its certificate is
-[SEP 34](../../dev/seps/archive/sep-0034-medium-flux.md).
+[SEP 34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md).

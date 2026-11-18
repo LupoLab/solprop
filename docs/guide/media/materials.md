@@ -14,7 +14,7 @@ and a general anisotropic crystal response are not modelled.
 
 solprop keeps no material database of its own. Every built-in gas, solid and response
 comes from the curated package optmat
-([SEP 3](../../dev/seps/archive/sep-0003-optmat-materials.md)): an omitted selection means
+([SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md)): an omitted selection means
 `MaterialSelection()`, optmat's recommended model of every family, and
 [materials from optmat](material-selection.md#materials-from-optmat) says what that resolves to. What solprop
 keeps is the propagation physics (linear density scaling, the mixture rule, the flow

@@ -27,7 +27,7 @@ physics or numerics rather than style, ask rather than guess.
 | Backends | `native` (required; `auto`; CPU and GPU; implements every feature, the TDSE response on CPU builds only) and `numpy_ref` (the numerical reference). No other backend. Binary64 only (ADR-077), with one method set on both |
 | Type checker | `basedpyright`, pinned exactly in the dev group |
 | Materials | [optmat](https://github.com/LupoLab/optmat), the curated optical-materials package |
-| Planned work | [GitHub issues](https://github.com/LupoLab/solprop/issues), not the roadmap, which lists only SEPs (ADR-062); [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write and label one |
+| Planned work | [GitHub issues](https://github.com/LupoLab/solprop/issues) (ADR-062); [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write and label one |
 | Enhancement proposals | `docs/dev/seps/` — process in SEP 0 (`sep-0000-process.md`), form in `template.md` |
 
 ## Commands
@@ -53,8 +53,8 @@ in `addopts` and selects the slow tier too. Select by path or `-k` instead.
 ## Definition of done
 
 **Documentation-only changes**, SEPs included: `git diff --check` and codespell on the
-changed files, `uv run pytest tests/test_seps.py` when proposals, their index or the
-roadmap change, and `uv run poe docs` when Sphinx content or links change (`testing.md`).
+changed files, `uv run pytest tests/test_seps.py` when proposals or their index
+change, and `uv run poe docs` when Sphinx content or links change (`testing.md`).
 
 **Other changes:** develop first, test towards the end. Run the fast checks (ruff check
 with `--fix`, ruff format, ruff check, basedpyright) and the modules that exercise what

@@ -16,4 +16,4 @@ page. Both names are importable from {mod}`solprop.coupling`.
 ```
 
 Transport between planes was proposed and carried out by
-[SEP 31](../dev/seps/archive/sep-0031-simulation-coupling.md).
+[SEP 31](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0031-simulation-coupling.md).

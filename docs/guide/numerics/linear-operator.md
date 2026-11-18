@@ -273,4 +273,4 @@ the assembly: five digits of $\beta$ are lost to it, so a comparison of two
 implementations of the operator is best stated against $\beta$ rather than against `D`.
 
 The carrier frame's pointer above comes from
-[SEP 35](../../dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md).
+[SEP 35](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md).

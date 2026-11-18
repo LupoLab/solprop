@@ -80,7 +80,7 @@ Four conventions change what the numbers mean:
 | what | Luna | solprop |
 |---|---|---|
 | Raman response of a molecular fill | on for N₂, H₂, D₂, N₂O, CH₄ and SF₆ | optmat's response, on for every species whose response is validated: N₂, O₂, H₂, D₂, CH₄, SF₆ (and air through N₂ and O₂); N₂O's is provisional, so it warns and runs without unless `MaterialSelection(raman="provisional")` admits it |
-| ionisation rate of a molecule | ADK for H₂, D₂, N₂O, CH₄, SF₆; PPT for N₂ and O₂ | optmat's recommended rate model of every gas ([SEP 3](../../dev/seps/archive/sep-0003-optmat-materials.md)) |
+| ionisation rate of a molecule | ADK for H₂, D₂, N₂O, CH₄, SF₆; PPT for N₂ and O₂ | optmat's recommended rate model of every gas ([SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md)) |
 | barrier-suppression correction | none in released Luna (the pull request that proposes one uses Zhang's) | optmat's atomic rates carry Tong and Lin's correction, its molecular ones their own ([ionisation](../media/ionisation.md#rates-from-optmat)) |
 | a pressure gradient to vacuum | reaches zero pressure, where $dp/dz$ diverges | the steady flow is **choked** at the exit, at the pressure where the laminar throughput is sonic; `vacuum_end="floor"` with `pressure_floor=0.0` reproduces a true vacuum |
 | the fill of a taper | the uniform-bore law | the steady flow follows the bore ($p^2$ linear in $\int a^{-4}\,dz$), with a flow-regime check |
@@ -124,12 +124,12 @@ has no plasma response on an envelope grid; solprop has a separate cycle-average
 response there. Luna forms the column's three running integrals with the cumulative
 trapezoid, which is 9 % short per integral at $\omega_{\max}$ on a default grid, and 11 %
 short at the top of the active band, $1.1\,\omega_{\max}$. solprop
-offers a band-exact rule ([SEP 18](../../dev/seps/archive/sep-0018-band-exact-plasma-integrals.md),
+offers a band-exact rule ([SEP 18](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0018-band-exact-plasma-integrals.md),
 `integration="band"`) and keeps the trapezoid, `integration="trapezoid"`, which every
 comparison with Luna states among its frozen inputs.
 solprop's field-grid plasma holds the post-pulse current through
 `DFT[gJ]/(i omega) - DFT[g'J]/(i omega)**2`
-([SEP 27](../../dev/seps/archive/sep-0027-held-plasma-current.md)); Luna's gated polarisation
+([SEP 27](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0027-held-plasma-current.md)); Luna's gated polarisation
 switches off both the residual current and polarisation at the temporal collar. No
 stored Luna run computes the held current, so the propagation comparisons whose exit
 spectra carry a plasma were dropped with the private gated source they ran: the reduced
@@ -242,7 +242,7 @@ and the launch is the projected amplitudes as they are. The energy the modes do 
 capture is not restored by renormalising to the requested energy (nor is it in Luna),
 and the coupling report states the incident, captured and uncaptured energies. A field taken from another run is coupled at its own
 physical scale ([coupling simulations](coupling.md),
-[SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md)).
+[SEP 31](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0031-simulation-coupling.md)).
 
 ## More accurate numerics, the same physics
 

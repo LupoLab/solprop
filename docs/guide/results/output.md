@@ -81,7 +81,7 @@ handler.close()                 # idempotent
 
 A run that is wanted as spectra and diagnostics need not store a field at every plane.
 `SimulationSettings(fields=..., field_planes=...)`
-([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md)) chooses, with the
+([SEP 22](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0022-memory-lean-spatial-execution.md)) chooses, with the
 vocabulary {py:func}`~solprop.driver.scan.run_scan` already uses:
 
 | `fields` | what each saved plane keeps |
@@ -540,7 +540,7 @@ reusing TDSE across inputs still applies.
 
 A snapshot requires an HDF5 run with `fields="all"`; it no longer needs
 `step_planes`, and it is taken with interpolated planes too
-([SEP 47](../../dev/seps/archive/sep-0047-run-ownership.md)). With `interpolate_planes=True` a
+([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md)). With `interpolate_planes=True` a
 request is taken at the end of the step that crossed the plane being saved, once every
 plane that step crossed has been saved, so the snapshot holds a state the march passed
 through and `resume=True` continues it without `resume="interpolated"`. Adams runs must allow retained
@@ -693,4 +693,4 @@ creation fails before it can return a writer and its handle also cannot close,
 ownership remains held until process exit; the exception reports both failures.
 
 The recipe stored in a run's output and the result capabilities were proposed and
-carried out by [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+carried out by [SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md).

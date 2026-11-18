@@ -372,6 +372,6 @@ through lenses, apertures and free space or coupled into a capillary or fibre
 ([coupling simulations](../workflows/coupling.md)). The [crossing-beam lesson](../../introduction/lessons/plot_04_crossing_beams.rst) shows how to launch a custom coherent array. The [radial filament lesson](../../introduction/lessons/plot_03_filament.rst) connects fluence, peak intensity and plasma. Refine the spatial grid and temporal bandwidth independently before interpreting either example quantitatively.
 
 The design of a beam's displacement and tilt is
-[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+[SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md).
 The saved planes follow
-[SEP 51](../../dev/seps/archive/sep-0051-save-planes.md).
+[SEP 51](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0051-save-planes.md).

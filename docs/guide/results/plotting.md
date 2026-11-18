@@ -327,4 +327,4 @@ icon.savefig(buffer, format="png")  # 96 x 96 pixels, for a picker's icon
 ```
 
 The geometry outlines were proposed and carried out by
-[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+[SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md).

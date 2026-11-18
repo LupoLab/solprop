@@ -19,7 +19,7 @@ a problem that wants another one.
 ## The defaults
 
 Each interface has its own default integrator and tolerances. All but one were chosen by
-[SEP 37](../../dev/seps/archive/sep-0037-noise-and-stepper-defaults.md)'s rule: the fastest
+[SEP 37](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0037-noise-and-stepper-defaults.md)'s rule: the fastest
 method at matched accuracy on the benchmark suite's cases for that interface, with noise
 on and off, among the methods every route of the interface admits. The capillary is the
 exception: the rule prefers `RungeKutta()` there, and `prop_capillary` keeps
@@ -272,7 +272,7 @@ doesn't fit fails with an out-of-memory error
 
 `LowStorageRungeKutta()` is the classical fourth-order Runge–Kutta method in the
 interaction picture anchored at each step's midpoint, Hult's RK4IP
-([SEP 24](../../dev/seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md)). Only
+([SEP 24](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md)). Only
 forward half-step flows are applied, and on a constant operator one factor
 $e^{hD/2}$ serves every one of them. Each slope is folded into a running sum as soon as
 it is produced, so beside the source pipeline's scratch a step needs three copies of
@@ -419,5 +419,5 @@ A planar guide: two slab modes. {download}`CSV <../figures/stepper-gallery/plana
 ```
 
 The qualification on this page was proposed and carried out by
-[SEP 16](../../dev/seps/archive/sep-0016-unified-multistep.md); the dense-gas advice
-comes from [SEP 35](../../dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md).
+[SEP 16](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0016-unified-multistep.md); the dense-gas advice
+comes from [SEP 35](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md).

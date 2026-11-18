@@ -197,7 +197,7 @@ the gas's own, under the run's `materials=` selection
 ([materials](../media/materials.md)). Under a carrier policy (the default) the region is the
 constant cubic above with $\chi^{(3)} = \sum_s N_s\gamma_{3,s}(\lambda_0)$, the Kerr
 coefficient at the run's carrier. Under one of the dispersive policies of
-[SEP 6](../../dev/seps/archive/sep-0006-dispersive-nonlinearity.md), `"symmetric-kerr"` or
+[SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md), `"symmetric-kerr"` or
 `"gas-polynomial"`, each species of the fill is a channel of the frequency-dependent
 cubic ({class}`~solprop.nonlinear.responses.DispersiveKerrResponse`) acting at the
 region's nodes on the real three-component field, the scalar kernel times the

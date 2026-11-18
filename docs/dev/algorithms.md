@@ -198,7 +198,7 @@ reproducible, because {py:class}`solprop.stepper.controller.PIController` is fro
 `propose` is a pure function of the norm history; the replayed run is required to meet the
 overall accuracy target, not to reproduce the original run's bits or every adaptive
 decision ([stepper.md §8](stepper.md);
-[SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)).
+[SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
 
 **Order and accuracy.** The controller chooses $h$; it does not change the order. The
 calibration gate refuses an observed order above $p + 3$
@@ -464,7 +464,7 @@ Final ionised inventory includes pre-ionisation; work done during the pulse coun
 $f_c-f_{0,c}$.
 
 **The rate.** solprop keeps no rate formula of its own
-([SEP 3](seps/archive/sep-0003-optmat-materials.md), D1): every built-in rate is one of optmat's
+([SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md), D1): every built-in rate is one of optmat's
 curated models — short-range PPT forms with Tong and Lin's barrier-suppression
 correction for the atoms, orientation-averaged molecular models for the molecules —
 adapted to the rate protocol by {py:class}`solprop.nonlinear.optmat_rates.OptmatRate`,
@@ -510,14 +510,14 @@ $-i(\delta t/2)\cot(\omega\,\delta t/2)$, compared with the exact $-i/\omega$:
 the ratio is $(\theta/2)\cot(\theta/2)$ with $\theta=\omega\,\delta t_{\rm fine}$.
 The default field grid reaches $\theta=\pi/3$ at $\omega_{\max}$, giving 0.907.
 The production source does not integrate the current into a polarisation in time
-([SEP 27](seps/archive/sep-0027-held-plasma-current.md)): it uses
+([SEP 27](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0027-held-plasma-current.md)): it uses
 $A_J=\operatorname{DFT}[gJ]/(i\omega)-\operatorname{DFT}[g'J]/(i\omega)^2$ on active
 bins, with exact zeros elsewhere, so the free-current dispersion has one running-integral
 multiplier and converting the loss current to its source has none. The physical
 `PlasmaResponse.evaluate` oracle integrates the current to an ungated polarisation.
 
 The band rule (`integration="band"`,
-[SEP 18](seps/archive/sep-0018-band-exact-plasma-integrals.md)) keeps the running sums and filters
+[SEP 18](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0018-band-exact-plasma-integrals.md)) keeps the running sums and filters
 each integrand first. The filter has $2K+1$ symmetric taps designed in translation for
 the grid, so that the composite multiplier is within a certified $10^{-5}$ of one up to
 $1.1\,\omega_{\max}$. It uses $K = 4$ on the default grid and is refused below
@@ -617,7 +617,7 @@ problem, so an explicit method needs $h\alpha/2$ inside its stability region, an
 exactly and is unconditionally stable, which is the one thing it is better at; both stay
 implemented behind `absorber_scheme`, and the measured orders are in ADR-025. On the
 radial, Cartesian and planar routes the split is the default unless planes are
-interpolated ([SEP 21](seps/archive/sep-0021-absorbing-boundaries.md)): there the
+interpolated ([SEP 21](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md)): there the
 in-stage term took 1.2 to 4.6 times the split's steps at equal or worse accuracy.
 
 **Cost.** The spectral rate is free. The in-stage term costs one extra modal transform per
@@ -642,7 +642,7 @@ ever cost stability.
 **The transverse collar's design check.** A free-space run's collar
 ({py:class}`solprop.spatial_absorber.SpatialAbsorber`) is checked at translation for what
 it sends back ({py:func}`solprop.translate.collar_check.design_check`,
-[SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md) §4.4). A product of
+[SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md) §4.4). A product of
 plane-wave reflection and a ray share cannot say how much of a launch a collar returns:
 evaluated on the phase-0 witnesses it was wrong by up to nine decades, because the return
 lives in diffraction tails. So the check computes it. The launch is propagated linearly on
@@ -716,7 +716,7 @@ evaluated every $N$ accepted steps through the same `stats` a plane uses, so a r
 the plane's own number to the statistic's rounding bound ([backends.md §1](backends.md)).
 **The reductions are two-stage**: a kernel writes one partial per column and the driver
 combines them. Their order is free
-([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)): repeats and thread counts are
+([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)): repeats and thread counts are
 asserted against the reduction's rounding bound, not for identical bits, and a norm that
 moves in its last bit may fork an adaptive trajectory, which the accuracy envelopes of
 adaptive comparisons allow for.

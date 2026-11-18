@@ -165,7 +165,7 @@ this way.
 A free-space grid has a hard edge: the radial transform holds the field at zero at its
 outer radius, and the Cartesian, line and planar grids are periodic, so light that
 reaches the edge is reflected or wraps round into the aperture, and the answer is wrong.
-solprop's answer, from [SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md),
+solprop's answer, from [SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md),
 is **room first, detection always, and absorption only for declared fast light**.
 
 **Room first.** The grids take `collar_fraction`, the room outside the requested size,
@@ -193,7 +193,7 @@ and doubles at each read whose spread has not grown by a tenth since it started,
 reads at `4g/v` and its steps are left alone; on the suite's `line` case the reads add
 no step. A fixed schedule cannot be held to it, and reports itself as `coarse`. A read covers
 every frequency, and `native` takes it where the state lives, with only numbers crossing
-([SEP 44](../../dev/seps/archive/sep-0044-native-edge-read.md)).
+([SEP 44](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0044-native-edge-read.md)).
 
 Every run reports a `transverse_status` in its monitor record and says at the start what
 it will be able to report: `clear` (read at the spacing, below the warning), `warned`,
@@ -252,7 +252,7 @@ For one frequency, with $k_z(\kappa) = \sqrt{k^2 - \kappa^2}$ and a collar of po
 $\alpha(x) = \alpha_0 P(x/w)$ over a width $w$, a component of transverse wavenumber
 $\kappa$ crossing the collar and coming back is attenuated in field by the local WKB
 integral with the exact symbol
-([SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md), section 4.2),
+([SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md), section 4.2),
 
 $$
 \Gamma(\kappa; \alpha_0) = 2 w \int_0^1 \left|\operatorname{Im} q\right| ds,

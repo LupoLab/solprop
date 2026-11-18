@@ -10,7 +10,7 @@ build the same simulation, configuration hash included.
 Recipes describe the keyword routes `gnlse`, `capillary` and `waveguide`, and the
 free-space routes `radial`, `free` and `planar`, whose keywords are objects
 ([below](#free-space-routes)). They are specified in
-[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+[SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md).
 
 ## A recipe
 
@@ -450,7 +450,7 @@ that fails, which it reports in one `solprop:` line. `run` and `resume` stop
 cleanly on Ctrl-C, writing the state, and `solprop resume` continues it
 ([resuming from the file alone](../results/resuming.md#resuming-from-the-file-alone)).
 `solprop calibrate` reads and manages the native backend's machine calibration
-([SEP 46](../../dev/seps/archive/sep-0046-machine-calibration.md)): `--show` prints the profile
+([SEP 46](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0046-machine-calibration.md)): `--show` prints the profile
 this allocation would use, with each setting beside the built-in value it replaces, or
 says that the built-in table applies; `--export FILE` and `--import FILE` move a profile
 between stores, for example to share one per node type of a cluster; and `--clear`
@@ -480,6 +480,6 @@ its reason, in the test that holds the examples to the gallery, so the list stay
   and the pressure-and-energy scan, built with `with_mixture` and `with_input`.
 
 This page documents the functionality proposed and implemented by
-[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+[SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md).
 The saved planes follow
-[SEP 51](../../dev/seps/archive/sep-0051-save-planes.md).
+[SEP 51](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0051-save-planes.md).

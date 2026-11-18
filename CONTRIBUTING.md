@@ -45,8 +45,8 @@ That is all a report needs. A maintainer fills in the rest.
 
 ## Writing an issue
 
-Planned work lives in [GitHub issues](https://github.com/LupoLab/solprop/issues), not on
-the roadmap, which lists only SEPs (ADR-062). So an issue for planned work, written by
+Planned work lives in [GitHub issues](https://github.com/LupoLab/solprop/issues)
+(ADR-062). So an issue for planned work, written by
 a person or an agent, has to let someone pick up the task from its text alone.
 [#76](https://github.com/LupoLab/solprop/issues/76) and
 [#77](https://github.com/LupoLab/solprop/issues/77) are examples.

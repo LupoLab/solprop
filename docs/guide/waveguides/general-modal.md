@@ -126,7 +126,7 @@ the basis's flux metric is the pulse's, and the run records
 `incident=` takes a {class}`~solprop.pulses.SpatialPulse` — a Gaussian or super-Gaussian
 beam carrying its own temporal pulse — and launches what the guide's channels capture of
 it, coupled under a declared model
-([SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md);
+([SEP 31](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0031-simulation-coupling.md);
 [coupling simulations](../workflows/coupling.md)):
 
 ```text
@@ -501,4 +501,4 @@ section): the rule's certified tail bound and its sampled Gram belong to that ge
 and to no other.
 
 The design of the incident-beam launch (`incident=` under `coupling=`) and its coupling
-budget is [SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md).
+budget is [SEP 31](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0031-simulation-coupling.md).

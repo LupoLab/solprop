@@ -60,7 +60,7 @@ longest step and `dz_init` is informational.
 ## The Runge–Kutta integrator
 
 On the native backend the adaptive Runge–Kutta loop runs in compiled code, with solprop's own
-loop as its reference ([SEP 45](../../dev/seps/archive/sep-0045-native-rk-march.md)): a run's
+loop as its reference ([SEP 45](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0045-native-rk-march.md)): a run's
 metadata records it (`rk_march`). A controller with methods of its own is refused by
 name on `native` and runs on `numpy_ref`.
 
@@ -201,7 +201,7 @@ below were measured on the test problems the controller was designed on:
 same step sizes. Norms that differ by rounding — another backend, thread count or build
 — can produce slightly different steps, or flip an accept/reject decision, so two
 adaptive runs agree to their accuracy, not bit for bit. A replayed schedule takes the
-recorded steps and meets the run's accuracy target ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
+recorded steps and meets the run's accuracy target ([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
 
 Asking for a step below `dz_min` raises
 {py:obj}`~solprop.exceptions.ConvergenceError` rather than clamping and carrying on. A

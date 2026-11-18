@@ -12,7 +12,7 @@
 | **Type** | Feature |
 | **Created** | 2026-09-27 |
 | **Resolution** | — |
-| **Requires** | [SEP 3 — Materials, Raman responses and ionisation rates from optmat](archive/sep-0003-optmat-materials.md) |
+| **Requires** | [SEP 3 — Materials, Raman responses and ionisation rates from optmat](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
 | **Implementation** | — |
@@ -107,7 +107,7 @@ small-ASE comparison, not a default justified by the presence of a seed.
 The current [solid-fibre guide](../../guide/waveguides/solid-fibres.md),
 [GNLSE](../../guide/waveguides/gnlse.md) and [general modal model](../../guide/waveguides/general-modal.md)
 already provide much of the passive propagation physics. The missing functionality is
-the “Gain with saturation” item in the [roadmap](../roadmap.md). Prescribed gain in a
+the “Gain with saturation” item in the [roadmap](https://github.com/LupoLab/solprop/blob/11cd808fe03db935457f432f790939d44a243c16/docs/dev/roadmap.md). Prescribed gain in a
 linear operator supplies neither populations nor a pump energy budget.
 
 The first delivery should extend the existing mode-averaged GNLSE interface, supplying
@@ -139,7 +139,7 @@ The relevant boundaries are:
   uses physical vector fields, a flux metric, and a field grid. It cannot be advertised
   as a scalar envelope gain route without a new derivation and implementation.
 
-[SEP 3](archive/sep-0003-optmat-materials.md) establishes the dependency and provenance pattern
+[SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md) establishes the dependency and provenance pattern
 for optmat, but its scope is gases and passive silica properties. It does not supply
 rare-earth spectroscopy. This proposal needs an upstream gain-spectroscopy extension
 in addition to SEP 3. [SEP 32](sep-0032-raman-maxwell-bloch.md) proposes a Raman
@@ -488,7 +488,7 @@ needs the noise to see only the emission gain, not the net gain. Either the nois
 injected separately and acted on by the emission part of the gain operator alone, as in
 the split of Chen and Wise (arXiv:2410.20567), which solprop's modified-noise injection
 path (ADR-008) could carry, or a gain Langevin term supplies the distributed
-spontaneous emission. [SEP 37](archive/sep-0037-noise-and-stepper-defaults.md) keeps that
+spontaneous emission. [SEP 37](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0037-noise-and-stepper-defaults.md) keeps that
 injection path until this choice is made. Such stochastic work is deferred here; there
 is no claim of reproducing all stochastic figures in [1, 2].
 
@@ -1106,7 +1106,7 @@ is an algebraic consistency check, not experimental evidence.
 - 2026-10-26: Added a note to §4.6 that stochastic ASE needs the noise to see only the
   emission gain, through a separate injection path or a gain Langevin term (SEP 37).
 - 2026-11-01: Tracking issue [#117](https://github.com/LupoLab/solprop/issues/117).
-- 2026-11-02: [SEP 43](archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
+- 2026-11-02: [SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
   proposal names Numba or `numba_cpu`, it was written before that: such a phase or check falls
   away, and the feature goes on `numpy_ref` and the native backend (SEP 0).
 - 2026-11-17: The kernel-contract references follow the current seam: `PropagationProblem`

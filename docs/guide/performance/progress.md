@@ -311,4 +311,4 @@ boundaries, as their results are collected. The table per executor, and the scan
 `stop=` flag, are in [watching and stopping a scan](../workflows/scans.md#watching-and-stopping-a-scan).
 
 The plane observer, the scan reporter and the cost estimate were proposed and carried
-out by [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+out by [SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md).

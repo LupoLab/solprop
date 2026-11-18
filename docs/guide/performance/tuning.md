@@ -245,7 +245,7 @@ Free-space transforms are planned at `SOLPROP_FFTW_PLAN`'s effort
 (`measure` by default); `estimate` skips the measured planning for
 short runs and tests. Answers at different thread counts may differ by rounding; solprop
 holds them to its rounding bounds, not to identical bits
-([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
+([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
 Contiguous modal and Raman FFTW plans default to measured planning at one thread and
 estimate planning at wider widths; the explicit effort overrides both, including
 long Raman rows and partial chunks. Measured planning can add substantial construction

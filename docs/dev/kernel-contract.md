@@ -33,7 +33,7 @@ polarisation component.
 **Agreement is a rounding bound.** The contract fixes quantities, not operation order. A
 backend reproduces the reference's results within a rounding bound fixed from its
 operation and reduction counts, never bit for bit
-([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)). That includes the plasma
+([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)). That includes the plasma
 column's running sums against `plasma_scan` and `plasma_current`, under either
 running-integral rule (§5); the Raman pass against `RamanResponse.evaluate` and
 `raman_spectrum` against `RamanKernels.spectrum`; and the statistics evaluated on one
@@ -58,7 +58,7 @@ above: `transform`, the route's transform, and `device_ready`, true when Φ (§3
 of a fixed set of arrays, and false when either took the z table.
 
 The problem is the run's numerical meaning and nothing of how it is run
-([SEP 47](seps/archive/sep-0047-run-ownership.md) §5.2). The stepper settings of §7 and the
+([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) §5.2). The stepper settings of §7 and the
 statistics request of §8 are run policy: they travel in the immutable
 `translate.run_request.RunRequest` that `translate.assembly.assemble` returns beside the
 problem (`Translation(problem, request)`), and a backend receives both where it is built
@@ -73,7 +73,7 @@ route, the statistics the route admits and dense observation's admission (§7's
 ### The route union
 
 `route` is one of three frozen variants from `translate.routes`, a closed union
-([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.2). The grid, operator, response and source
+([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) §6.2). The grid, operator, response and source
 groups above are shared by every route; a variant carries exactly the fields its
 executor needs, and checks them on construction. `validate()` visits the variant with a
 `match` statement for what spans groups, and every backend admits a problem the same
@@ -112,8 +112,8 @@ resource, the atomic binding, is the driver's and crosses explicitly (§6).
 |---|---|---|
 | `kind` | `"radial" \| "cartesian" \| "planar" \| "line"` | the transverse grid: Hankel, two-dimensional Cartesian, the hybrid planar slab transform, or a Cartesian grid one sample wide in y (`grid.LineGrid`); equal to `translate.routes.spatial_kind` of the geometry |
 | `transform` | frozen dataclass | §4, with a spatial `geometry` (`"radial"`, `"free"` or `"slab"`) |
-| `flux` | `FluxPlan` | the plane measure ([SEP 34](seps/archive/sep-0034-medium-flux.md), `translate.spatial.FluxPlan`): `base`, the separable coefficients with the entrance material square, whose principal root gives the dimensionless axial admittance `c k_z/omega` of every column and bin (zero on nonpropagating, inactive and nonpositive-frequency bins); `material`, the z table of the complex material square `(omega n/c)²` for a varying radial medium, `None` for a uniform one; and `admission`, the varying path's adiabatic certificate. `at(z)` gives a plane's coefficients. Every spatial statistic weights its columns by the real admittance at its plane (energy, spectra, absorbed powers) or synthesises the closure `G` with the complex one (fluence, intensities, on-axis spectrum). Its active mask equals `grids.active_mask` |
-| `transverse` | `SpatialAbsorberDesign` or `None` | the resolved transverse boundary ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md), `spatial_absorber.SpatialAbsorberDesign`), host-side: the safety ramp's rate per column, which the separable operator carries as `kperp_rate` (the dense operator radially), and a requested collar's rate on the nodes, which the geometry carries as `absorber_rate`, with its band, strength, crossing step and design check. A backend meets it only through those fields and the stepper's `dz_max`, held to the collar's crossing limit and to the ramp's exponent budget. `None` for no transverse boundary |
+| `flux` | `FluxPlan` | the plane measure ([SEP 34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md), `translate.spatial.FluxPlan`): `base`, the separable coefficients with the entrance material square, whose principal root gives the dimensionless axial admittance `c k_z/omega` of every column and bin (zero on nonpropagating, inactive and nonpositive-frequency bins); `material`, the z table of the complex material square `(omega n/c)²` for a varying radial medium, `None` for a uniform one; and `admission`, the varying path's adiabatic certificate. `at(z)` gives a plane's coefficients. Every spatial statistic weights its columns by the real admittance at its plane (energy, spectra, absorbed powers) or synthesises the closure `G` with the complex one (fluence, intensities, on-axis spectrum). Its active mask equals `grids.active_mask` |
+| `transverse` | `SpatialAbsorberDesign` or `None` | the resolved transverse boundary ([SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md), `spatial_absorber.SpatialAbsorberDesign`), host-side: the safety ramp's rate per column, which the separable operator carries as `kperp_rate` (the dense operator radially), and a requested collar's rate on the nodes, which the geometry carries as `absorber_rate`, with its band, strength, crossing step and design check. A backend meets it only through those fields and the stepper's `dz_max`, held to the collar's crossing limit and to the ramp's exponent budget. `None` for no transverse boundary |
 
 **How a stage is evaluated, and why `device_ready` exists.** Three of the quantities a
 stage needs are *arrays* that depend on z — the propagator's exponent ΔΦ, the response
@@ -248,7 +248,7 @@ in both directions; a second test checks the flags and counts named in the `flag
 against the fields of `Flags`.
 
 **The transverse edge.** `NumpyWorkspace.edge_reading(edge, *, faces, current, full)`
-(native's `GeneralResident::edge_reading` in C++, `native/src/march/engines.cpp`) returns an `_EdgeReading` ([SEP 44](seps/archive/sep-0044-native-edge-read.md)): region sums, each column's unweighted energy, each
+(native's `GeneralResident::edge_reading` in C++, `native/src/march/engines.cpp`) returns an `_EdgeReading` ([SEP 44](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0044-native-edge-read.md)): region sums, each column's unweighted energy, each
 line's `(inward, windowed)` strip and the summed rectified current, never the field. The reference forms them with
 the edge's host reduction (`_HostEdgeReduction`) on its host state. Native's takes the edge's `_EdgeTables` and `_EdgeLine`s, whose weights, strides,
 windows and onsets say all there is to know about the geometry, so a backend holds no face, mask or judgement of its own. It
@@ -276,7 +276,7 @@ either backend.
 at a lab-frame field and position -- the `modified` noise draw advanced to that
 position's absolute phase, the in-stage absorbers and the TDSE adapter with its labels --
 returned in the lab frame, with no propagator applied. The exponential Adams formulation
-([SEP 16](seps/archive/sep-0016-unified-multistep.md)) stores these untransported
+([SEP 16](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0016-unified-multistep.md)) stores these untransported
 samples and integrates their polynomial against the linear flow, and the low-storage
 step's passes evaluate it too. `Multistep.formulation` is `"interaction"` or
 `"exponential"`.
@@ -421,7 +421,7 @@ imaginary part. Compiled backends evaluate these formulas per element.
 
 `PropagationProblem.validate` holds a step the run cannot shrink -- a replayed schedule's
 longest step, or the floor `dz_min` -- to the propagator's exponent budget
-([SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md) §4.5): with `λ₋` and `λ₊` bounds on `max(-Re D)` and `max(Re D)` from
+([SEP 22](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §4.5): with `λ₋` and `λ₊` bounds on `max(-Re D)` and `max(Re D)` from
 `translate.spatial.rate_bounds` (a sorted search over the columns, `O(n_omega log
 n_modes)`), a step `h` with `h max(λ₋, σλ₊) > ln(DBL_MAX)` is refused naming the
 binding term and the admissible step and rate, and one past nine tenths of it warns
@@ -444,7 +444,7 @@ for a constant fill and for the GNLSE unit-index override. Statistics evaluate
 weights only through `translate.linop.power_weight_at(problem, z)`. Radial Φ in a varying
 gas carries the spatial counterpart, `-1/2 ln[Y_z(ω,k_r,z)/Y_z(ω,k_r,0)]` with
 `Y_z ∝ Re k_z/ω`, evaluated from endpoint admittances in both the table and the
-parameter-expansion representations ([SEP 34](seps/archive/sep-0034-medium-flux.md) §4.4); it
+parameter-expansion representations ([SEP 34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md) §4.4); it
 is exactly zero in a uniform medium, and a radial statistic reads the admittance at its
 plane through `flux.at(z)`.
 
@@ -620,7 +620,7 @@ execute every admitted combination.
 
 The transform carries **no node chunk**. How many nodes a response pass holds at once is
 an execution choice, not part of the scientific problem
-([SEP 47](seps/archive/sep-0047-run-ownership.md) sections 4.3 and 6.5): each backend plans it when
+([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) sections 4.3 and 6.5): each backend plans it when
 it is prepared, from the problem and its `ExecutionOptions` -- an explicit `node_budget`,
 which is authoritative, or the automatic choice
 (`solprop.backends.node_chunk.plan_node_chunk`) -- records it in its execution metadata,
@@ -788,7 +788,7 @@ integrand $\tilde y_n = c_0 y_n + \sum_{k=1}^K c_k (y_{n-k} + y_{n+k})$. The ref
 sums it centre first, then each pair added before it is weighted; a backend may sum the
 stencil and the running integrals in any order, held to the stencil's
 $\gamma_{2K+2} A_n$ bound and the absolute prefix bounds of the scans' signed increments
-([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md) §4.6). The $K$ samples past
+([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md) §4.6). The $K$ samples past
 each end are $y_{-m} = 2y_0 - y_m$ and $y_{N-1+m} = 2y_{N-1} - y_{N-1-m}$. The exposure
 is floored at zero pointwise, $X_n = \max(S_n, 0)$, before the fraction is formed; the
 loss current keeps the raw rate. So `plasma_scan` finalises the fraction at sample $n$
@@ -797,7 +797,7 @@ the production column stops at the total current. The physical oracle
 `PlasmaResponse.evaluate` also integrates that current to polarisation, from samples up
 to $n+3K$. The `"trapezoid"` rule has no filter, no boundary and no floor.
 
-**The held field-plasma source** ([SEP 27](seps/archive/sep-0027-held-plasma-current.md)).
+**The held field-plasma source** ([SEP 27](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0027-held-plasma-current.md)).
 The field-plasma column writes three complete streams: the collared non-plasma
 polarisation `P`, the collared current `X = gJ` and its collar-derivative companion
 `Z = g'J`, with `g'` the analytic `grids.t_window_fine_derivative` (§2). On active bins
@@ -893,7 +893,7 @@ pass.
 
 **`dispersive_kerr` is a leaf** (`translate.responses.DispersiveKerrTerms`), so its
 fields are not rows of this document. It is the frequency-dependent electronic
-response of [SEP 6](seps/archive/sep-0006-dispersive-nonlinearity.md) reduced to arrays, sampled by the translation layer on the problem's own fine
+response of [SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md) reduced to arrays, sampled by the translation layer on the problem's own fine
 spectral layout at **absolute** angular frequency: the one-sided `(n_to // 2 + 1,)`
 layout on a field grid, the full FFT-order `(n_to,)` layout on an envelope grid. Its
 fields are `evaluator` (`"symmetric"` or `"polynomial"`), `sector` (`"full"`, every
@@ -1024,7 +1024,7 @@ it changes no step, charge or reservation. None of this is part of the descripto
 or the kernel problem, which compiled backends see, so it is
 outside the kernel schema.
 
-**The native host source hook** ([SEP 49](seps/archive/sep-0049-tdse-on-native.md),
+**The native host source hook** ([SEP 49](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0049-tdse-on-native.md),
 ADR-078). On the native CPU build the binding reaches the resident Adams march as a
 host source: a session binding outside the kernel problem, whose three entry points the march calls
 from the thread that called `advance`, outside every parallel region, holding the
@@ -1135,7 +1135,7 @@ already holds, or one the translation built for it, is taken without a second co
 These settings, and the statistics request of §8, are run policy rather than the
 problem's numerical meaning, so they are not fields of `PropagationProblem`: they live in
 the immutable `translate.run_request.RunRequest`
-([SEP 47](seps/archive/sep-0047-run-ownership.md) §§5.2, 6.3), resolved by translation —
+([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) §§5.2, 6.3), resolved by translation —
 `assemble` fills the route's defaults and holds `dz_max` and `dz_init` to the collars'
 limits — and handed to a backend where it is built. The request structures them as its
 integration, error-control, replay and observation specifications; `RunRequest.stepper`
@@ -1155,9 +1155,9 @@ launch's remaining planes).
 | `schedule` | `(n_steps,) float64` or `None` | fixed schedule to replay; its edges must contain every save plane and hard kink, which `FixedSchedule.uniform` guarantees for a plain fixed-step run |
 | `save_planes` | `(n_z,) float64` | z positions the driver will ask for; steps land on them unless `interpolate_planes` is set |
 | `propagator_mode` | `"auto" \| "tabulate" \| "recompute"` | ADR-004 and [backends.md §3.6](backends.md). `"auto"` is the default and is the backend's own choice, resolved at construction and written into the run's `backend` metadata group: `tabulate` for `numpy_ref` and `recompute` for `native` on a modal problem; `recompute` on every backend for a separable free-space operator, whose increment `D (z₂ − z₁)` is exact. Under the low-storage march `tabulate` is one volume of `exp(h D / 2)` reused while the step holds (a varying operator's `P` and `Q` for the step), admitted on the free and planar kinds too, and `"auto"` resolves to `tabulate` for a constant operator and `recompute` for a varying one (SEP 24 §4.3), and to `recompute` on a native device build, where an extra field read costs more than the exponential |
-| `integrator` | `Multistep \| LowStorageRungeKutta \| None` | The method stepping the problem instead of the tableau, or `None` for the Runge-Kutta march. `Multistep` ([SEP 13](seps/archive/sep-0013-expensive-response-steppers.md), [SEP 16](seps/archive/sep-0016-unified-multistep.md)) is the Adams march in its exponential or interaction formulation, with an optional carrier frame (`carrier_frame`, [SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md), added in version 37: `"off"` or `"scalar"`, the latter on `numpy_ref` and native CPU builds and refused by name elsewhere); it runs on `numpy_ref` and Kokkos on every diagonal-flow route, and beside the constant-Schur and frozen-residual coupled flows in the exponential formulation; with a `schedule` it replays the schedule's steps (`HostAdamsMarch._replay_to`); the TDSE response runs adaptive, on `numpy_ref` and the native CPU build (SEP 49). `LowStorageRungeKutta` ([SEP 24](seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md)) is RK4 in the midpoint interaction picture in three registers: it replays a `schedule` and nothing else, records the norm 0.0 ("not estimated"), refuses a coupled flow, the TDSE response, interpolated planes and a step past RK4's negative-real interval 2.785, and runs on `numpy_ref` and solprop-native (a resident engine whose step is one native call) |
-| `interval_cap` | bool | whether a step is capped at the width of the operator-table interval it starts in. `assemble` turns it off on the diagonal-flow routes and on for a coupled flow or a reject-free controller, unless set ([SEP 14](seps/archive/sep-0014-stepper-efficiency.md) §4.1) |
-| `auto_init` | bool | whether the start-up rule takes the step after the first from the first step's own scaled norm (`PIController.start_factor`, at most 100 times `dz_init`). Set by the convenience interfaces when no `dz_init` is given; off for a coupled flow or a reject-free controller ([SEP 14](seps/archive/sep-0014-stepper-efficiency.md) §4.2) |
+| `integrator` | `Multistep \| LowStorageRungeKutta \| None` | The method stepping the problem instead of the tableau, or `None` for the Runge-Kutta march. `Multistep` ([SEP 13](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0013-expensive-response-steppers.md), [SEP 16](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0016-unified-multistep.md)) is the Adams march in its exponential or interaction formulation, with an optional carrier frame (`carrier_frame`, [SEP 35](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md), added in version 37: `"off"` or `"scalar"`, the latter on `numpy_ref` and native CPU builds and refused by name elsewhere); it runs on `numpy_ref` and Kokkos on every diagonal-flow route, and beside the constant-Schur and frozen-residual coupled flows in the exponential formulation; with a `schedule` it replays the schedule's steps (`HostAdamsMarch._replay_to`); the TDSE response runs adaptive, on `numpy_ref` and the native CPU build (SEP 49). `LowStorageRungeKutta` ([SEP 24](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md)) is RK4 in the midpoint interaction picture in three registers: it replays a `schedule` and nothing else, records the norm 0.0 ("not estimated"), refuses a coupled flow, the TDSE response, interpolated planes and a step past RK4's negative-real interval 2.785, and runs on `numpy_ref` and solprop-native (a resident engine whose step is one native call) |
+| `interval_cap` | bool | whether a step is capped at the width of the operator-table interval it starts in. `assemble` turns it off on the diagonal-flow routes and on for a coupled flow or a reject-free controller, unless set ([SEP 14](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0014-stepper-efficiency.md) §4.1) |
+| `auto_init` | bool | whether the start-up rule takes the step after the first from the first step's own scaled norm (`PIController.start_factor`, at most 100 times `dz_init`). Set by the convenience interfaces when no `dz_init` is given; off for a coupled flow or a reject-free controller ([SEP 14](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0014-stepper-efficiency.md) §4.2) |
 | `interpolate_planes` | bool | steps across the save planes and observes each inside its accepted step, through DOPRI5's continuous extension or, with an `integrator`, the Adams march's own polynomial (ADR-039); the end of the run and the hard kinks are still landed on. Refused with a schedule, a Runge-Kutta tableau without an extension, the per-step collar, a coupled flow and the `modified` noise |
 | `step_planes` | int | a positive `k` also saves the end of every `k`-th accepted step since the load: the march returns to its session there, short of its target, and the session observes the plane and marches on to the target (ADR-039). `0` never stops short |
 
@@ -1174,7 +1174,7 @@ the problem.
 
 | field | type | meaning |
 |---|---|---|
-| `stats` | frozen dataclass | `solprop.stats.StatsSpec`: which statistics, energy windows (`(n_windows, 2)` in ω), periodic subset and period, validated against the catalogue at construction; and the far-field tables of [SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md), `apertures` (an `ApertureSet`: centres, diameters, distances, edges, profile, weighting, labels, and from schema 45 the optional shapes, profiles and extents, which a record leaves out while they are unset) and `spectral_regions` (`(n_regions, 4)` boxes of physical transverse wavevector in rad/m, the one leaf whose entries may be infinite), read only when a name that uses them is requested, so a backend that does not know a name refuses it rather than misreading a table. Fields of the leaf, not rows of the contract |
+| `stats` | frozen dataclass | `solprop.stats.StatsSpec`: which statistics, energy windows (`(n_windows, 2)` in ω), periodic subset and period, validated against the catalogue at construction; and the far-field tables of [SEP 23](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0023-far-field-aperture-spectra.md), `apertures` (an `ApertureSet`: centres, diameters, distances, edges, profile, weighting, labels, and from schema 45 the optional shapes, profiles and extents, which a record leaves out while they are unset) and `spectral_regions` (`(n_regions, 4)` boxes of physical transverse wavevector in rad/m, the one leaf whose entries may be infinite), read only when a name that uses them is requested, so a backend that does not know a name refuses it rather than misreading a table. Fields of the leaf, not rows of the contract |
 
 The `periodic` subset and its `period` are read **when the backend is built**, not when a
 run is started: the session arms the between-planes channel from the statistics
@@ -1223,7 +1223,7 @@ the step history and over the same interval, and a row may not index past it.
 
 The descriptor is a typed contract, extended by changing its types and their tests in
 both distributions, never through an untyped optional field
-([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.2):
+([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) §6.2):
 
 | Addition | Contract, admission and qualification |
 |---|---|
@@ -1249,7 +1249,7 @@ reference.
 
 ## 11. The Adams march
 
-*Normative since kernel schema 39 ([SEP 39](seps/archive/sep-0039-native-adams-march.md),
+*Normative since kernel schema 39 ([SEP 39](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0039-native-adams-march.md),
 ADR-060). The native backend executes it for `Multistep()` in either formulation,
 adaptive or replayed, and has no Python march (its Runge–Kutta and low-storage marches are
 native too, §12); `numpy_ref` runs the reference.*
@@ -1258,7 +1258,7 @@ The step loop of `Multistep()` is one algorithm with one reference implementatio
 solprop's `HostAdamsMarch` and the controller core it calls (`solprop.backends.adams_core`).
 A backend may execute the same algorithm natively. It then receives every number the
 algorithm reads in one record, and holds no default and no constant of its own
-(`native/AGENTS.md`). [SEP 39](seps/archive/sep-0039-native-adams-march.md) §4 is the algorithm
+(`native/AGENTS.md`). [SEP 39](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0039-native-adams-march.md) §4 is the algorithm
 in full; this section is its interface.
 
 **The policy record** (`solprop.stepper.multistep.MarchPolicy`, formed once per run by
@@ -1333,7 +1333,7 @@ one attempt, of seven and of none to one set of bits.
   (convergence, value, backend) and message;
 - the state above, every step before the event committed.
 
-**The boundary checks inside the march** ([SEP 45](seps/archive/sep-0045-native-rk-march.md)
+**The boundary checks inside the march** ([SEP 45](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0045-native-rk-march.md)
 §4.8, normative since its phase 1). Unless the run's monitor reads a transverse edge, a
 call also takes the monitor's checks: the bounds carry the monitor's watch policy
 (`BoundaryMonitor.watch_policy`: the scaled floor
@@ -1375,7 +1375,7 @@ stripped extension labels only exported functions). The boundary checks above an
 
 ## 12. The Runge–Kutta march
 
-*Normative from [SEP 45](seps/archive/sep-0045-native-rk-march.md) phase 3. `native` executes it
+*Normative from [SEP 45](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0045-native-rk-march.md) phase 3. `native` executes it
 (`native/src/march/rk_march.cpp`), adaptive or replayed, with `PIController`'s norm, weighted or
 not, on CPU and device builds. `PIController` is final (ADR-077), so its decisions are
 the only ones either backend takes.*
@@ -1385,7 +1385,7 @@ reference implementation, solprop's `RungeKuttaMarch.march_to` and the controlle
 calls (`solprop.backends.rk_core`). A backend may execute the same algorithm natively,
 as §11's Adams march is executed. It then receives every number the algorithm reads in
 one record and holds no default and no constant of its own (`native/AGENTS.md`).
-[SEP 45](seps/archive/sep-0045-native-rk-march.md) §4 is the algorithm in full; this section is
+[SEP 45](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0045-native-rk-march.md) §4 is the algorithm in full; this section is
 its interface.
 
 **The policy record** (`solprop.backends.records.RungeKuttaPolicy`, formed once per run

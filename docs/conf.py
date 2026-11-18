@@ -76,6 +76,9 @@ exclude_patterns = [
     "tutorials/*/README.rst",
     "examples/README.rst",
     "examples/*/README.rst",
+    # Archived enhancement proposals are kept in the repository as records, not built
+    # into the manual; pages link each one's file on GitHub (SEP 0, section 4).
+    "dev/seps/archive/**",
 ]
 
 # --- myst

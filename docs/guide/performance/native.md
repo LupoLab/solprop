@@ -164,7 +164,7 @@ planes. Things to know:
   device sums in its own order; the difference is at the level of rounding and is
   covered by the same derived error bounds that every backend is tested against. A
   repeat on one build is held to the same bounds, not to identical bits
-  ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
+  ([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
 - **Time your own problem first.** Run ten steps on the device and on the CPU before
   committing to either for a long campaign.
 
@@ -244,5 +244,5 @@ large run, for a scan of many runs and on a cluster.
 
 The native backend's place in this repository and its
 precompiled wheels were proposed and carried out by
-[SEP 29](../../dev/seps/archive/sep-0029-compiled-backend-distribution.md), and
-[SEP 43](../../dev/seps/archive/sep-0043-retire-numba-cpu.md) made it a required dependency.
+[SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md), and
+[SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) made it a required dependency.

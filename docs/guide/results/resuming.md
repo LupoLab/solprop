@@ -81,11 +81,11 @@ snapshot and a scan row compare it too.
 The record holds the schema version, the grid, the modes, the configuration, the noise,
 the stepper settings, the material manifest's identities and policies, the stepping
 method when the Adams integrator
-([SEP 13](../../dev/seps/archive/sep-0013-expensive-response-steppers.md),
+([SEP 13](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0013-expensive-response-steppers.md),
 [the Adams integrator](../numerics/adams.md)) stepped the run instead of the tableau,
 named with its formulation, and the region the error norm scores. A run whose field
 plasma integrates by the band rule
-([SEP 18](../../dev/seps/archive/sep-0018-band-exact-plasma-integrals.md)) records the
+([SEP 18](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0018-band-exact-plasma-integrals.md)) records the
 rule in its configuration as `plasma_integration`. The record holds the policy, `K`,
 $\theta_b$, the taps at full precision, the certified error, and the boundary and
 exposure policies. A resume that would integrate the plasma differently is therefore
@@ -97,13 +97,13 @@ limit and taper counts are part of the identity; the measured certificate is exe
 evidence under `backend.settings.plasma_source`, outside the hash. A resolved modal run
 records its transverse rule in `quadrature` and in the key -- the family
 (`radial_rule`), the requested and realised counts, the nodes and the physical weights
-([SEP 19](../../dev/seps/archive/sep-0019-field-scale-quadrature.md)) -- so a resume on
+([SEP 19](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0019-field-scale-quadrature.md)) -- so a resume on
 another rule is refused. A run on the plain trapezoid records none of these, and a
 response's `integration` is left out of the key when it is `"trapezoid"`.
 The key also includes the absolute launch position, the scientific TDSE descriptor, the
 interval-cap and start-up rules, interpolation of save planes (`interpolate_planes`) and
 saving of accepted-step endpoints (`step_planes`)
-([SEP 14](../../dev/seps/archive/sep-0014-stepper-efficiency.md)). It is *not* Python's
+([SEP 14](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0014-stepper-efficiency.md)). It is *not* Python's
 `hash`, which is salted per interpreter,
 so the same run digests to the same string in every process — a test runs it in a
 subprocess with a different `PYTHONHASHSEED` and compares.
@@ -264,7 +264,7 @@ history neither repeats nor loses a step. A later saved plane supersedes it. A
 low-storage step abandoned in flight cannot be checkpointed; the file then falls back
 to its latest running checkpoint, or to the checkpoint the run resumed from, and only
 without one to its last saved plane
-([SEP 47](../../dev/seps/archive/sep-0047-run-ownership.md)).
+([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md)).
 
 ### What a restart keeps and restores
 
@@ -316,7 +316,7 @@ last flushed state and `running` status rather than a manufactured completion re
 **A run that keeps no field at its planes** (`fields="none"` or `"planes"`,
 [output](output.md#statistics-only-planes-which-planes-keep-their-field)) continues only
 from a plane that carries a field
-([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md)). The terminal
+([SEP 22](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0022-memory-lean-spatial-execution.md)). The terminal
 checkpoint always carries the field, whatever the run keeps at its planes: it costs one
 observation when the run stops, and a run stopped by an error, a signal or a call budget
 resumes from it. A file whose last regular plane kept no field and which holds
@@ -508,4 +508,4 @@ Independent resumed computations meet the repository's accuracy-envelope policy;
 stored copies, history arrays and structural identifiers remain exact.
 
 Resuming a run from its file and the recipe it records were proposed and carried out by
-[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+[SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md).

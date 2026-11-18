@@ -11,9 +11,9 @@ depends on all four frequencies of each mixing quartet, and it rises towards the
 ultraviolet: argon's Kerr coefficient at 267 nm is twice its value at 800 nm. The
 default ``carrier-kerr`` policy freezes it at the run's carrier and uses that value for
 every process the cubic drives. Two opt-in policies of
-`SEP 6 <../../dev/seps/archive/sep-0006-dispersive-nonlinearity.html>`_ evaluate
-optmat's whole fit instead, at the absolute frequencies of every quartet, in one
-broadband polarisation (:doc:`/guide/media/dispersive-kerr`):
+`SEP 6 <https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md>`_
+evaluate optmat's whole fit instead, at the absolute frequencies of every quartet,
+in one broadband polarisation (:doc:`/guide/media/dispersive-kerr`):
 
 - ``"gas-polynomial"`` evaluates the gas dispersion polynomial itself;
 - ``"symmetric-kerr"`` factorises its Kerr diagonal symmetrically over the four legs, a

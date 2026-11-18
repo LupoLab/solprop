@@ -16,7 +16,7 @@ comparison, and [accuracy](accuracy.md) explains what to refine.
 
 This chapter gives configuration, equations, interpolation and restart behaviour,
 and limitations. Its design record is
-[SEP 16](../../dev/seps/archive/sep-0016-unified-multistep.md).
+[SEP 16](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0016-unified-multistep.md).
 
 ## Using it
 
@@ -277,7 +277,7 @@ limit (below) can set the step instead: with it, a 2 cm gradient held the Adams 
 near 30 µm, where the per-step collar needed 18 times fewer attempts. The per-step
 collar is the remedy only when the collar holds no field. Treating the compensation in the untransported frame
 instead is kept only as a test witness: where the compensation dominates, its error is
-under-reported to the controller ([SEP 16](../../dev/seps/archive/sep-0016-unified-multistep.md)
+under-reported to the controller ([SEP 16](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0016-unified-multistep.md)
 §4.2, Q8).
 
 **Where it runs.** On `numpy_ref` and native CPU, for the constant
@@ -410,7 +410,7 @@ with Raman ([benchmarks](../../dev/benchmarks.md)); the policy pays for itself o
 through the steps it saves.
 
 **What it measured.** On short windows of the benchmark suite's cases
-([SEP 35](../../dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md) Part II) — the
+([SEP 35](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md) Part II) — the
 launch from the input plane and a developed window started from a plane of an earlier
 run, each against IP-DOPRI5 three orders tighter, one thread — the one-thread time each
 method needs at matched error in the total field and in the weak bins, as a ratio to
@@ -474,7 +474,7 @@ left the comb-to-continuum's self-phase-modulated light above $2\omega_0$ and th
 fundamental band of an envelope run with the third harmonic several times less
 accurate, and with a boundary set from the launched spectrum it was the scalar shift
 everywhere but one launch window
-([SEP 35](../../dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md) §7.4).
+([SEP 35](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md) §7.4).
 
 ## Stability, and the temporal collar
 
@@ -519,10 +519,10 @@ the collar holds field.
   collar treatment would buy nothing beyond it (SEP 16 Q4).
 - **For such runs keep the in-stage collar**, the modal routes' default. With it, the interaction
   formulation needed about 2.4 times fewer calls than IP-DOPRI5 on the RDW case at
-  Luna's tolerance. [SEP 14](../../dev/seps/archive/sep-0014-stepper-efficiency.md)
+  Luna's tolerance. [SEP 14](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0014-stepper-efficiency.md)
   studied a second-order split and did not adopt it: with a Kerr source it is first
   order wherever the collar holds field. An implicit collar is an open question of
-  [SEP 15](../../dev/seps/archive/sep-0015-exponential-adams.md).
+  [SEP 15](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0015-exponential-adams.md).
 
 The higher orders' tiny imaginary-axis intervals are why variable order settles at
 orders two and three on the canonical capillary. On the measured runs the Kerr phase a
@@ -588,7 +588,7 @@ uninterrupted run's computation, between planes too when it stopped at a termina
 checkpoint (a spent call budget, a failed source), and agrees with it within its
 accuracy envelope: to rounding while the steps are the same, and to the tolerance where
 a rounding difference changes an adaptive step, as one occasionally does. solprop does
-not promise identical bits ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)). That is what makes a run
+not promise identical bits ([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)). That is what makes a run
 with a minutes-long source cheap to continue ([ADR-046](../../dev/decisions.md)). The
 native backend keeps its history resident and copies it to the host only for the
 snapshot. Without a snapshot -- `resume_history=False`, an unreadable one, or one
@@ -647,7 +647,7 @@ On a cheap source, calls are not run time. On the native backend one source
 evaluation can cost less than a Runge–Kutta step's own linear work, and the Adams march
 takes more steps, so the call saving shrinks in wall time or disappears: a
 single-mode capillary, a coupled wall. On `native` the `Multistep()` controller runs
-natively as well ([SEP 39](../../dev/seps/archive/sep-0039-native-adams-march.md)),
+natively as well ([SEP 39](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0039-native-adams-march.md)),
 so a step costs its kernels and almost no Python. [Choosing a stepper](choosing-a-stepper.md)
 gives the measured ranking by regime, on the native backend's CPU build and on devices.
 
@@ -703,7 +703,7 @@ gives the measured ranking by regime, on the native backend's CPU build and on d
   fixed for the run and added to each sample's field at that sample's own position,
   never to the propagating state, so conditional on the draw the source is a
   deterministic function of position, which the history interpolates
-  ([SEP 16](../../dev/seps/archive/sep-0016-unified-multistep.md) §4.4), on every backend.
+  ([SEP 16](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0016-unified-multistep.md) §4.4), on every backend.
   Interpolated planes are refused beside it for every stepper.
 - **A prescribed schedule** is replayed with either formulation: its steps are taken
   as given and accepted, the predictor–corrector estimate is still computed and
@@ -723,7 +723,7 @@ gives the measured ranking by regime, on the native backend's CPU build and on d
   time-dependent Schrödinger equation.
 
 The carrier frame on this page was proposed, measured and delivered by
-[SEP 35](../../dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md).
+[SEP 35](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md).
 The native march, which runs the `Multistep()` controller in the compiled backend, was
 proposed, measured and delivered by
-[SEP 39](../../dev/seps/archive/sep-0039-native-adams-march.md).
+[SEP 39](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0039-native-adams-march.md).
