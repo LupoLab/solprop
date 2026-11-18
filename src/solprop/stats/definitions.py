@@ -1059,7 +1059,7 @@ def zdw(
         Position along the waveguide, m.
     wavelength_limits : tuple of float, optional
         Shortest and longest wavelength in m to search. Defaults to
-        :data:`DEFAULT_ZDW_RANGE`, 150 nm to 3 um; :func:`~solprop.stats.collect`
+        ``DEFAULT_ZDW_RANGE``, 150 nm to 3 um; :func:`~solprop.stats.collect`
         narrows it to the grid's own
         band with :func:`inband_wavelengths`, which is where the answer means anything
         and where the material models are not extrapolating.

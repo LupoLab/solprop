@@ -52,7 +52,7 @@ not a converged broadband prediction. Finally a synthetic 200-knot solid-core
 table sampled from Taylor dispersion demonstrates the GNLSE n2 route, with unit
 prefactor index and no gas-material response inferred from the fibre.
 
-.. GENERATED FROM PYTHON SOURCE LINES 40-79
+.. GENERATED FROM PYTHON SOURCE LINES 40-80
 
 .. code-block:: Python
 
@@ -66,6 +66,7 @@ prefactor index and no gas-material response inferred from the fibre.
 
     from solprop.constants import C
     from solprop.driver import Simulation, prop_gnlse
+    from solprop.exceptions import NoZeroDispersionError
     from solprop.grid import EnvelopeGrid
     from solprop.log import NullReporter
     from solprop.modes import IndexTable, TabulatedHollowMode, TabulatedMode
@@ -102,12 +103,12 @@ prefactor index and no gas-material response inferred from the fibre.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 80-82
+.. GENERATED FROM PYTHON SOURCE LINES 81-83
 
 Keep derivative probes inside both tables. The filled overlay stops at 940 nm,
 before its last 946 nm row, and begins after its first row.
 
-.. GENERATED FROM PYTHON SOURCE LINES 82-117
+.. GENERATED FROM PYTHON SOURCE LINES 83-118
 
 .. code-block:: Python
 
@@ -158,12 +159,16 @@ before its last 946 nm row, and begins after its first row.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 118-120
+.. GENERATED FROM PYTHON SOURCE LINES 119-125
 
 Bracket each root locally; broad endpoints can have the same sign even when
 two roots lie inside. All probes stay inside the vacuum table and gas fit.
+``zdw`` returns a zero only where it bounds a dispersion regime at least 1.5 % wide
+in frequency: the evacuated fibre's ``beta_2`` ripples through zero twice within
+3 nm near 455 nm, which is fine structure of the interpolant and no zero-dispersion
+wavelength, so the search refuses it and the loop passes over it.
 
-.. GENERATED FROM PYTHON SOURCE LINES 120-156
+.. GENERATED FROM PYTHON SOURCE LINES 125-162
 
 .. code-block:: Python
 
@@ -182,17 +187,18 @@ two roots lie inside. All probes stay inside the vacuum table and gas fit.
         curvature = beta2(mode, 2 * np.pi * C / probe_wavelength)
         brackets = np.flatnonzero(curvature[:-1] * curvature[1:] < 0)
         for index in brackets:
-            root_pressures.append(pressure)
-            root_wavelengths.append(
-                zdw(
+            try:
+                root = zdw(
                     mode,
                     wavelength_limits=(
                         float(probe_wavelength[index]),
                         float(probe_wavelength[index + 1]),
                     ),
                 )
-                * 1e9
-            )
+            except NoZeroDispersionError:
+                continue
+            root_pressures.append(pressure)
+            root_wavelengths.append(root * 1e9)
     figure, axis = plt.subplots(figsize=(6, 3.5))
     axis.scatter(root_pressures, root_wavelengths, s=22)
     axis.set(
@@ -215,7 +221,7 @@ two roots lie inside. All probes stay inside the vacuum table and gas fit.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 157-164
+.. GENERATED FROM PYTHON SOURCE LINES 163-170
 
 A mode's own fill drives the capillary material responses. Select its constant
 propagation area at the pulse wavelength, independently of the inherited fields.
@@ -225,7 +231,7 @@ the default multistep integrator is stable against it only for steps below 0.7 u
 so the 64 fixed steps would diverge. The pulse never reaches the collar, where the
 per-step split's error would lie (:doc:`/guide/numerics/adams`).
 
-.. GENERATED FROM PYTHON SOURCE LINES 164-203
+.. GENERATED FROM PYTHON SOURCE LINES 170-209
 
 .. code-block:: Python
 
@@ -280,12 +286,12 @@ per-step split's error would lie (:doc:`/guide/numerics/adams`).
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 204-206
+.. GENERATED FROM PYTHON SOURCE LINES 210-212
 
 Synthetic solid-core input: the area gives gamma = n2 omega0 / (c A_eff).
 This table samples an analytic Taylor model, rather than a FEM solution.
 
-.. GENERATED FROM PYTHON SOURCE LINES 206-237
+.. GENERATED FROM PYTHON SOURCE LINES 212-243
 
 .. code-block:: Python
 
@@ -328,12 +334,12 @@ This table samples an analytic Taylor model, rather than a FEM solution.
 
  .. code-block:: none
 
-    Tabulated examples completed in 4.19 s
+    Tabulated examples completed in 1.61 s
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 238-245
+.. GENERATED FROM PYTHON SOURCE LINES 244-251
 
 Related reading
 ---------------
@@ -346,7 +352,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 4.193 seconds)
+   **Total running time of the script:** (0 minutes 1.607 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_02_tabulated_modes.py:
