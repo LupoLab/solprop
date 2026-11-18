@@ -91,7 +91,7 @@ it means for anyone relying on the code.
   convergence studies and add accuracy checks that a small team would usually have to
   leave out.
 - **Complete test coverage.** Every line and branch of the package is exercised by a
-  broad test suite of more than 11,500 tests: unit and invariant tests, comparisons with
+  broad test suite of more than 20,000 tests: unit and invariant tests, comparisons with
   analytic solutions and independent references, convergence records, and parity
   between the backends.
 - **Faster development.** solprop has far more functionality than its hand-written
