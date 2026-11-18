@@ -465,9 +465,16 @@ class Connection:
                 self._deliver(cast("dict[str, Any]", frame))
 
     def _no_helper(self, said: str) -> str:
-        """Return why a session gave no hello, as the user should read it."""
-        missing = (
-            "No module named" in said or "not found" in said or "No such file" in said
+        """Return why a session gave no hello, as the user should read it.
+
+        Only a missing solprop, or a shell's word that the machine's Python is not
+        there, refuses the machine for good; any other error, a network filesystem's
+        passing "No such file" among them, leaves the session to be tried again.
+        """
+        last = said.splitlines()[-1].lower() if said.strip() else ""
+        python = self.machine.python.removeprefix("~").lower()  # the shell expands ~
+        missing = "No module named" in said or (
+            python in last and ("not found" in last or "no such file" in last)
         )
         if missing:
             reason = (

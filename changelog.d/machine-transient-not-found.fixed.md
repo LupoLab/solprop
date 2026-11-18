@@ -1,0 +1,1 @@
+A machine's connection now keeps reconnecting after a session that ends with a passing "No such file" or "not found" before its helper answers, as a network filesystem may say; only a missing solprop, or the shell's word that the machine's Python is not there, stops it until the machine is opened again.

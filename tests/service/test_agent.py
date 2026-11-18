@@ -264,6 +264,42 @@ def test_a_session_that_cannot_start_is_retried(monkeypatch: pytest.MonkeyPatch)
     broken.close()
 
 
+def test_a_missing_python_is_refused_and_a_passing_not_found_retried(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(machines, "RECONNECT_PAUSES", (0.01,))
+
+    def session_saying(text: str):
+        command = [sys.executable, "-c", f"import sys; sys.exit({text!r})"]
+        return lambda machine: (command, dict(os.environ))
+
+    # The shell's word that the machine's Python is not there: refused for good.
+    missing = Window()
+    absent = Connection(
+        Machine("lab", "me@lab", python="~/env/bin/python"),
+        missing.on_frame,
+        missing.on_state,
+        command=session_saying("bash: /home/me/env/bin/python: No such file"),
+    )
+    absent.open()
+    missing.wait(lambda: "refused" in missing.kinds())
+    assert "has no solprop at ~/env/bin/python" in str(dict(missing.states)["refused"])
+    absent.close()
+    # Any other file not found, as a network filesystem may say in passing: retried.
+    passing = Window()
+    flaky = Connection(
+        Machine("lab", "me@lab", python="~/env/bin/python"),
+        passing.on_frame,
+        passing.on_state,
+        command=session_saying("OSError: [Errno 2] No such file: '/nfs/me/x'"),
+    )
+    flaky.open()
+    passing.wait(lambda: passing.kinds().count("down") >= 2)
+    assert "refused" not in passing.kinds()
+    assert "/nfs/me/x" in str(dict(passing.states)["down"])
+    flaky.close()
+
+
 def test_a_helper_that_says_something_else_is_refused():
     window = Window()
     command = [
