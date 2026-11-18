@@ -575,7 +575,7 @@ class SimulationSettings(Displayed):
         # checked at run time, as in the test suite.
         if not isinstance(
             self.integrator, Multistep | RungeKutta | LowStorageRungeKutta
-        ):  # pragma: no cover
+        ):  # pragma: no cover - its annotation refuses it first
             msg = (
                 "integrator must be Multistep(), RungeKutta() or "
                 f"LowStorageRungeKutta(), got {self.integrator!r}"

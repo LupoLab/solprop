@@ -223,13 +223,19 @@ class Multistep:
         """
         # The Literal annotation refuses an unknown formulation first wherever the
         # annotations are checked at run time, as in the test suite.
-        if self.formulation not in ("interaction", "exponential"):  # pragma: no cover
+        if self.formulation not in (
+            "interaction",
+            "exponential",
+        ):  # pragma: no cover - its annotation refuses it first
             msg = (
                 "formulation must be 'interaction' or 'exponential', got "
                 f"{self.formulation!r}"
             )
             raise StepperError(msg)
-        if self.carrier_frame not in ("off", "scalar"):  # pragma: no cover
+        if self.carrier_frame not in (
+            "off",
+            "scalar",
+        ):  # pragma: no cover - its annotation refuses it first
             msg = f"carrier_frame must be 'off' or 'scalar', got {self.carrier_frame!r}"
             raise StepperError(msg)
         if self.carrier_frame != "off" and self.formulation != "exponential":
