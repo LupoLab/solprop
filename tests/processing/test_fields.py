@@ -7,6 +7,7 @@ import pytest
 
 from solprop import fourier, stats
 from solprop._validation import choice
+from solprop.constants import C
 from solprop.exceptions import ModeError, OutputError, ProcessingError
 from solprop.output import MemoryOutput
 from solprop.processing import axes, fields
@@ -57,13 +58,16 @@ def test_the_convention_switch_is_the_exact_conjugation(output, grid):
 
 @pytest.mark.parametrize("axis", ["omega", "f", "wavelength"])
 def test_the_spectral_density_integrates_to_the_energy(output, grid, axis):
-    _, density = fields.get_spectral_density(output, axis, plane=0, modes="sum")
-    omega = grid.omega[axes._keep_index(grid, "active")]
-    _, jacobian = axes.spectral_axis(omega, axis)
-    weights = grid.d_omega / jacobian
-    if axis == "wavelength":
-        weights = weights[::-1]
-    total = float(np.sum(density * weights))
+    x, density = fields.get_spectral_density(output, axis, plane=0, modes="sum")
+    # Each bin's width on the returned abscissa, derived here rather than taken from
+    # the accessor's own Jacobian: d omega, d omega / (2 pi), and |d lambda| =
+    # lambda^2 d omega / (2 pi c) at the bin's own wavelength.
+    widths = {
+        "omega": np.full_like(x, grid.d_omega),
+        "f": np.full_like(x, grid.d_omega / (2.0 * np.pi)),
+        "wavelength": x**2 * grid.d_omega / (2.0 * np.pi * C),
+    }[axis]
+    total = float(np.sum(density * widths))
     expected = float(np.sum(stats.energy(grid, output.fields("fft")[0])))
     # The change of variable is exact bin by bin, so the only differences are the energy
     # outside the active band, which the collar has driven to zero, and the order of the
