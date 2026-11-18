@@ -17,6 +17,7 @@ The machines themselves are kept in the window's settings (:class:`MachineStore`
 import contextlib
 import json
 import threading
+import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -30,6 +31,10 @@ from solprop.service.messages import Event, Reply, Request, ServiceError
 __all__ = ["MachineHub", "MachineRun", "MachineStore"]
 
 _KEY = "machines"
+
+_CLOSE_SECONDS = 10.0
+"""How long closing waits for the machines' sessions to end, together, s: one stuck
+session's own stop and the wait for its reader."""
 
 
 def _read_marker(path: Path) -> dict[str, object] | None:
@@ -748,9 +753,21 @@ class MachineHub(QObject):
         self._pool.submit(copy)
 
     def close(self) -> None:
-        """Close every connection, now; the machines' runs go on."""
+        """Close every connection, now; the machines' runs go on.
+
+        The connections close together, each on a thread of its own, within one
+        deadline: a stuck session waits for its process to stop and its reader to
+        end, and closed one after another the waits would add up machine by machine.
+        """
         self._closed = True
-        for connection in self.connections.values():
-            connection.close()
+        closers = [
+            threading.Thread(target=connection.close, daemon=True)
+            for connection in self.connections.values()
+        ]
+        for closer in closers:
+            closer.start()
+        deadline = time.monotonic() + _CLOSE_SECONDS
+        for closer in closers:
+            closer.join(max(0.0, deadline - time.monotonic()))
         self.connections.clear()
         self._pool.shutdown(wait=False, cancel_futures=True)
