@@ -1110,7 +1110,6 @@ Messages (sketch):
 | `validate(recipe)` | errors and warnings with parameter paths |
 | `summarise(recipe)` | a sheet's numbers, on a route with no lighter call |
 | `explore(geometry, medium, quantities, axis, sweep)` | arrays |
-| `solve_pin(recipe, pin)` | every root and the chosen value, or the attainable range (`Recipe.pin_roots`) |
 | `preview_input(recipe)` | pulse and beam arrays on the grid |
 | `estimate(recipe)` | sizes, memory, rough time |
 | `start_run(recipe, folder)` | `started`, `progress`, `plane`, `stats`, `warning` (the boundary lamp's among them), `log`, then `finished` / `stopped` / `failed` (with traceback) |
