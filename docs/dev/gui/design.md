@@ -226,9 +226,9 @@ serves.
   pins, so it follows new defaults. The *resolved* recipe that solprop stores beside it in
   every results file freezes what rebuilds the run: what the user set, every solved pin, the
   noise seed, the data files and the defaults solprop can write back and still get the same
-  run. "Open setup from this run" shows the resolved values; adopting the current defaults or
-  re-solving the pins is a separate, explicit action ("Update to current solprop"), which lists
-  what would change. A frozen setup can still be refused at resume if the materials data or the
+  run. Opening a results file restores its setup from the resolved values. Adopting the
+  current defaults or re-solving the pins is to be a separate, explicit action that lists what
+  would change ("Update to current solprop"); it is not built yet. A frozen setup can still be refused at resume if the materials data or the
   physics differ; solprop names the fields that changed (ADR-066).
 - **Run.** One execution of a recipe revision: a results file (solprop HDF5) with both
   recipes embedded, a log, and two separate states. The *execution state* is the GUI's:
@@ -248,8 +248,8 @@ serves.
   (`solprop_gui.model.workspace`), and the folder is the truth, so copying a run folder
   elsewhere loses nothing. Each machine (13.4) has a workspace of its own.
 - **Project file.** Just a recipe saved by the user wherever they like ("Save setup
-  as…"). Opening a results file offers "Open setup from this run", which loads its
-  embedded recipe as a new, unsaved project.
+  as…"). Opening a results file loads its resolved recipe into the sheet, when the open
+  setup may be discarded.
 
 ## 5. The window and the route through it
 
@@ -313,8 +313,8 @@ projector (S5).
 
 - A sheet is one column of sections beside its plot. On a narrow window the plot moves below.
 - An analysis page shows one large view at a time, and the rail can shrink to icons.
-- Fonts and plot line widths follow the system scale; a "Presentation" toggle enlarges
-  everything for S5.
+- Fonts and plot line widths follow the system scale. A "Presentation" toggle to enlarge
+  everything for S5 is not built yet.
 
 ## 6. Setup: one sheet per problem class
 
@@ -754,8 +754,8 @@ Capillary, helium              Setup  Run  Analyse              [■ Stop]  ⋯
 ### 10.3 Several runs
 
 The usual work is one run at a time, so the window shows one. Home lists the workspace's runs with
-their state, and opening one shows it. Starting a second while one runs is allowed, with a warning
-before oversubscribing the machine's thread budget. Campaigns are scans (12.7).
+their state, and opening one shows it. Starting a second while one runs is allowed; a warning
+before it oversubscribes the machine's thread budget is not built yet. Campaigns are scans (12.7).
 
 ## 11. Analyse
 
