@@ -11,7 +11,9 @@ helper and the connection in depth.
 
 import contextlib
 import json
+import os
 import shutil
+import sys
 import threading
 from pathlib import Path
 from typing import Any
@@ -220,6 +222,116 @@ def test_the_setup_dialog_shows_its_script_before_running_it(
     released = SetupDialog(SLURM, "0.3.0")
     qtbot.addWidget(released)
     assert released.note.text() == "" and released.run_button.isEnabled()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the script runs in a POSIX shell")
+def test_the_setup_dialog_runs_its_script_and_keeps_the_python(
+    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
+):
+    from solprop.service import install  # noqa: PLC0415 - only here
+
+    from solprop_gui.ui.setup_dialog import SetupDialog  # noqa: PLC0415 - only here
+
+    def local_shell(machine: Machine, askpass: str) -> tuple[list[str], dict[str, str]]:
+        """Run the script with this computer's shell, as ssh runs it on the machine."""
+        del machine, askpass
+        return ["sh", "-s"], dict(os.environ)
+
+    # The transport is this computer's shell, and the install a stub that names its
+    # Python as the real script's last line does; the thread, the log and the ending
+    # are the dialog's own.
+    monkeypatch.setattr(install, "_ssh_shell", local_shell)
+    dialog = SetupDialog(SLURM, "0.3.0")
+    qtbot.addWidget(dialog)
+    dialog.script.setPlainText(
+        f'echo installing\necho "{install.PYTHON_LINE}/env/bin/python"\n'
+    )
+    dialog.start()
+    qtbot.waitUntil(lambda: dialog.python is not None, timeout=WAIT_MS)
+    assert dialog.python == "/env/bin/python"
+    log = dialog.log.toPlainText()
+    assert log.startswith("installing\n")
+    assert log.endswith("Set up: runs on cluster use /env/bin/python")
+    assert dialog.run_button.isEnabled()
+
+
+def test_the_setup_dialog_says_why_a_machine_was_not_set_up(qtbot: QtBot):
+    from solprop_gui.ui.setup_dialog import SetupDialog  # noqa: PLC0415 - only here
+
+    # This computer has no SSH host, so the setup thread fails before running anything
+    # and the dialog reports the refusal rather than a Python.
+    dialog = SetupDialog(Machine(LOCAL), "0.3.0")
+    qtbot.addWidget(dialog)
+    dialog.start()
+    assert not dialog.run_button.isEnabled()
+    qtbot.waitUntil(lambda: "Not set up" in dialog.log.toPlainText(), timeout=WAIT_MS)
+    assert dialog.log.toPlainText().strip() == "Not set up: local has no SSH host"
+    assert dialog.python is None
+    assert dialog.run_button.isEnabled()
+
+
+@pytest.mark.parametrize(
+    ("question", "echo"),
+    [("me@lab's password:", "Password"), ("Verification code:", "Normal")],
+)
+def test_askpass_prints_the_answer_to_ssh_s_question(
+    qtbot: QtBot,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    question: str,
+    echo: str,
+):
+    from PySide6.QtWidgets import QInputDialog, QLineEdit  # noqa: PLC0415 - only here
+
+    from solprop_gui import askpass  # noqa: PLC0415 - only here
+
+    del qtbot  # the application
+    asked: list[tuple[str, QLineEdit.EchoMode]] = []
+
+    def answer(
+        parent: object, title: str, label: str, mode: QLineEdit.EchoMode
+    ) -> tuple[str, bool]:
+        del parent, title
+        asked.append((label, mode))
+        return "the answer", True
+
+    monkeypatch.setattr(QInputDialog, "getText", answer)
+    assert askpass.main(question.split()) == 0
+    # A password is asked hidden; a one-time code is shown as it is typed.
+    assert asked == [(question, getattr(QLineEdit.EchoMode, echo))]
+    assert capsys.readouterr().out == "the answer\n"
+
+
+def test_askpass_answers_nothing_when_cancelled(
+    qtbot: QtBot,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    from PySide6.QtWidgets import QInputDialog  # noqa: PLC0415 - only here
+
+    from solprop_gui import askpass  # noqa: PLC0415 - only here
+
+    del qtbot  # the application
+    monkeypatch.setattr(QInputDialog, "getText", lambda *args: ("", False))
+    assert askpass.main([]) == 1
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the POSIX script")
+def test_askpass_program_is_a_private_script_running_the_module(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    from solprop_gui import askpass  # noqa: PLC0415 - only here
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    written = askpass.askpass_program()
+    program = tmp_path / ".solprop-gui" / "askpass.sh"
+    assert written == str(program)
+    text = program.read_text(encoding="utf-8")
+    assert text == (
+        f"#!/bin/sh\nexec '{sys.executable}' -m solprop_gui.askpass \"$@\"\n"
+    )
+    assert program.stat().st_mode & 0o777 == 0o700
 
 
 def test_a_copy_is_fetched_in_pieces_and_resumed(
