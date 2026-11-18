@@ -94,7 +94,7 @@ no spontaneous Raman noise or complex modal basis is introduced.
 
  .. code-block:: none
 
-    MaterialRangeWarning: H2: optmat's Raman response raman_response/H2@293.15K,800nm is used outside its validated density range (0.3722 to 0.3722 amagat). optmat: density below 0.94 amagat, where the motion of the molecules sets the widths: the Dicke terms are capped at the Doppler widths (TC-688)
+    MaterialRangeWarning: H2: optmat's Raman response raman_response/H2@293.15K,800nm is used outside its validated density range (0.3722 to 0.3722 amagat). optmat: density below 0.94 amagat, where the motion of the molecules sets the widths: the Dicke terms are capped at the Doppler widths
 
 
 

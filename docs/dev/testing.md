@@ -440,6 +440,11 @@ these records.
 The mechanism (`tests/convergence_records.py`), how a record is compared or written, the
 tolerance each column carries and the commands are in [accuracy.md, "Regenerating the numbers"](accuracy.md#9-regenerating-the-numbers).
 
+Each record names the commit it was written at, and a test requires that commit to be in
+the repository's history. A pull request that regenerates a record is therefore merged
+with a merge commit, never squashed or rebased: squashing discards the recorded commit
+and the test then fails on `main`.
+
 ## 6. Layout and naming
 
 `tests/` mirrors `src/solprop/` (`tests/modes/test_capillary.py` ↔ `solprop/modes/capillary.py`);
