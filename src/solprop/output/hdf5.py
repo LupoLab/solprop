@@ -85,12 +85,13 @@ _COLUMN_CHUNK = 256
 """Entries per chunk of a one-dimensional column; one per plane would be wasteful."""
 
 _METADATA_KEY = "meta/json"
+"""Dataset holding the whole run record as JSON."""
+
 _RECORD_ARRAYS_KEY = "meta/arrays"
 """The group of the record's arrays, named by digest, dtype and shape (#309)."""
 
 _ANNOTATIONS_KEY = "meta/annotations"
 """Group of the post-run annotations, one JSON string dataset each; optional."""
-"""Dataset holding the whole run record as JSON."""
 
 _OUTCOME_KEY = "meta/outcome"
 _CHECKPOINT_KEY = "terminal_checkpoint"
@@ -538,8 +539,7 @@ def _read_annotations(file: h5py.File) -> dict[str, JsonValue]:
     found: dict[str, JsonValue] = {}
     group = _group(file, _ANNOTATIONS_KEY)
     for name in group:
-        stored = _dataset(group, str(name))[()]
-        text = stored.decode("utf-8") if isinstance(stored, bytes) else str(stored)
+        text = _text(_dataset(group, str(name))[()])
         found[str(name)] = cast("JsonValue", json.loads(text))
     return found
 
@@ -552,8 +552,7 @@ def _read_json(file: h5py.File) -> str:
             "solprop output file"
         )
         raise OutputError(msg)
-    stored = _dataset(file, _METADATA_KEY)[()]
-    return stored.decode("utf-8") if isinstance(stored, bytes) else str(stored)
+    return _text(_dataset(file, _METADATA_KEY)[()])
 
 
 def _current_checkpoint(
@@ -570,7 +569,7 @@ def _current_checkpoint(
     (SEP 47 section 5.5): a process killed between the two leaves a checkpoint behind
     the last plane, or one the ``running`` outcome does not name. That state is stale,
     not inconsistent, and is ignored. A closing (non-running) record that disagrees
-    with its checkpoint is refused, as before.
+    with its checkpoint is refused.
     """
     if checkpoint is None:
         return None
@@ -995,7 +994,6 @@ class HDF5Output(PlaneStore):
             return file
         if self._path.exists():
             logger.warning("replacing the existing output file %s", self._path)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
         return h5py.File(self._path, "w")
 
     def suspend(self) -> None:
