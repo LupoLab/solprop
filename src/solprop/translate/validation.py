@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""What translation refuses, and what it warns about, before a problem is returned.
+"""The route policy translation refuses or warns on before a problem is returned.
 
 The policy :func:`solprop.translate.assembly.assemble` applies to its arguments and to
 the problem it assembled: the refusals of a route's settings (a wall off the capillary
@@ -14,7 +14,10 @@ fixed-schedule limit and the coupled flow's advisory step
 :meth:`solprop.translate.problem.PropagationProblem.validate` and
 :func:`solprop.translate.problem.validate_run`, which also refuses dense observation
 where its interpolant is not the run's field, so a request changed after assembly is
-refused there too.
+refused there too. The checks that the arguments agree with one another (the state's
+layout with the mode set, a spatial grid with its medium, the save planes' range) stay
+inline in :func:`~solprop.translate.assembly.assemble` and the builders it calls,
+beside the code that reads them.
 """
 
 import math
@@ -75,21 +78,35 @@ __all__ = [
 ]
 
 
-_INPUT_NOISE_ADMITTED = (
-    "The 'input' model is admitted: its draw is part of the entrance state, in the "
-    "channel basis, which is orthonormal in true power on every coupled-flow route, "
-    "and the flow propagates it like any field"
-)
-"""The clause every coupled-flow refusal of the modified noise model ends with.
+def _refuse_modified_noise(
+    noise_model: str | None, flow: str, remedy: str = ""
+) -> None:
+    """Refuse the 'modified' noise model beside the coupled flow `flow` names.
 
-SEP 37 section 6. The input draw is one photon per channel and bin only in a basis
-orthonormal in true power. The capillary's ``HE_1m`` set (and the vector wall's
-``TE_0m``/``TM_0m`` families) are real Bessel profiles, orthogonal on the core and
-each normalised to its own power by
-:meth:`solprop.modes.capillary.MarcatiliMode.normalisation`. A general modal guide's
-basis is gated by :func:`solprop.translate.general.check_noise_basis` before any flow
-is built, at the entrance of a moving guide as everywhere else.
-"""
+    - ``flow``: the flow, as the message's subject ("a split block's coupled flow").
+    - ``remedy``: a route's own way out, a sentence, put before the input model's.
+
+    SEP 37 section 6. The modified model's draw is kept apart from the field and
+    advanced by the unitary phase of a diagonal flow; its transport through a coupled
+    flow is not measured. The input draw is one photon per channel and bin only in a
+    basis orthonormal in true power. The capillary's ``HE_1m`` set (and the vector
+    wall's ``TE_0m``/``TM_0m`` families) are real Bessel profiles, orthogonal on the
+    core and each normalised to its own power by
+    :meth:`solprop.modes.capillary.MarcatiliMode.normalisation`. A general modal
+    guide's basis is gated by :func:`solprop.translate.general.check_noise_basis`
+    before any flow is built, at the entrance of a moving guide as everywhere else.
+    """
+    if noise_model != "modified":
+        return
+    msg = (
+        f"{flow} refuses the 'modified' noise model: its draw is transported by the "
+        "unitary phase of a diagonal flow, and its transport through a coupled flow "
+        f"is not measured in this package. {remedy}{' ' if remedy else ''}The 'input' "
+        "model is admitted: its draw is part of the entrance state, in the channel "
+        "basis, which is orthonormal in true power on every coupled-flow route, and "
+        "the flow propagates it like any field"
+    )
+    raise TranslationError(msg)
 
 
 @dataclass(frozen=True)

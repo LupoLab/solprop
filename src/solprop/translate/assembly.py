@@ -136,7 +136,6 @@ from solprop.translate.tdse_source import (
 )
 from solprop.translate.transverse import checked_design, resolve_transverse
 from solprop.translate.validation import (
-    _INPUT_NOISE_ADMITTED,
     DEFAULT_FLOW_CONDITION_LIMIT,
     MOVING_FLOW_CERTIFICATE,
     _Assembly,
@@ -146,6 +145,7 @@ from solprop.translate.validation import (
     _check_tdse_assembly_route,
     _refuse_a_wall_off_the_capillary_route,
     _refuse_carrier_removing_frame,
+    _refuse_modified_noise,
     _refuse_planes_at_jumps,
     _refuse_split_crossing,
     _validated,
@@ -558,14 +558,7 @@ def _general_flow(
       n_modes, n_omega)``.
     - ``grid``: the run's grid, whose coarse axis the leaf is tabulated on.
     """
-    if build.noise_model == "modified":
-        msg = (
-            "a split block's coupled flow refuses the 'modified' noise model: its "
-            "draw is transported by the unitary phase of a diagonal flow, and the "
-            "transport of a draw through a nonunitary coupled flow is not measured "
-            "in this package; the backend refuses it too. " + _INPUT_NOISE_ADMITTED
-        )
-        raise TranslationError(msg)
+    _refuse_modified_noise(build.noise_model, "a split block's coupled flow")
     exponent = float(build.dz_max) * float(np.max(abs(coupled)))
     if exponent > MAX_GENERAL_FLOW_EXPONENT:
         worst = int(np.argmax(np.max(abs(coupled), axis=(0, 1))))
@@ -796,14 +789,7 @@ def _moving_flow(
     flow's sections are the maps' here, which is natural and not required: the
     stage bundle carries the two weight rows separately (kernel schema 14).
     """
-    if build.noise_model == "modified":
-        msg = (
-            "a moving guide's coupled flow refuses the 'modified' noise model: its "
-            "draw is transported by the unitary phase of a diagonal flow, and its "
-            "transport through a moving guide's coupled flow is not measured in "
-            "this package; the backend refuses it too. " + _INPUT_NOISE_ADMITTED
-        )
-        raise TranslationError(msg)
+    _refuse_modified_noise(build.noise_model, "a moving guide's coupled flow")
     assert route.moving_generator is not None
     return frozen_residual_flow(
         grid.omega,

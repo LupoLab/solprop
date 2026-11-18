@@ -30,7 +30,7 @@ from typing import Final, cast
 
 from solprop.backends.protocol import Backend
 from solprop.backends.session import ExecutionOptions
-from solprop.exceptions import BackendError
+from solprop.exceptions import BackendError, SolpropError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
@@ -97,7 +97,10 @@ def _native_installed() -> bool:
 
 
 def available() -> tuple[str, ...]:
-    """Return the names of the backends that can run here and now.
+    """Return the names of the backends installed here.
+
+    An installed native package may still be refused when selected: on a processor
+    below its build's CPU baseline (:func:`resolve_name`), or when it does not load.
 
     Detection is by :func:`importlib.util.find_spec`, so nothing is imported and nothing
     is cached: a native package installed while the process runs becomes available
@@ -107,7 +110,7 @@ def available() -> tuple[str, ...]:
     Returns
     -------
     tuple of str
-        The usable names, in the order of :data:`BACKEND_NAMES`.
+        The installed names, in the order of :data:`BACKEND_NAMES`.
 
     Examples
     --------
@@ -320,8 +323,9 @@ def select(
     Raises
     ------
     BackendError
-        If ``name`` is neither backend, or the backend does not run what the problem
-        asks for; the message says what to use instead.
+        If ``name`` is neither backend, the native package refuses one of its
+        process-start settings as it loads, or the backend does not run what the
+        problem asks for; the message says what to use instead.
     ImportError
         If ``name`` is ``"native"`` and its package is missing; the message says what
         to install.
@@ -372,14 +376,22 @@ def _construct(
     """Import and build the named backend, whose package is installed.
 
     Imported here, not at module scope: selecting a backend must not be a reason to
-    import the other or initialize a native runtime. A TDSE binding goes to either
-    backend, which refuses a problem without its binding by name.
+    import the other or initialize a native runtime. The native package reads its
+    process-start settings (thread counts, the CPU variant, the wait policy) as it
+    loads, and refuses a malformed one with a plain ``ValueError`` or ``RuntimeError``,
+    which is re-raised as a :class:`BackendError` with its text. A TDSE binding goes to
+    either backend, which refuses a problem without its binding by name.
     """
     factory: Callable[..., Backend]
     if name == "native":
-        from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-            NativeBackend,
-        )
+        try:
+            from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+                NativeBackend,
+            )
+        except SolpropError:
+            raise
+        except (ValueError, RuntimeError) as error:
+            raise BackendError(f"solprop-native did not load: {error}") from error
 
         factory = cast("Callable[..., Backend]", NativeBackend)
     else:

@@ -664,7 +664,12 @@ class RunSession(Protocol):
         ...
 
     def monitor_record(self) -> Mapping[str, object] | None:
-        """Return the boundary monitor's record, or ``None`` without a monitor."""
+        """Return the boundary monitor's record, or ``None`` without a monitor.
+
+        The run layer reads the record from :meth:`execution_record`, which carries it
+        once the monitor watches; this member is the seam the session conformance
+        tests read it through, on either backend, before and between events.
+        """
         ...
 
     def continue_monitor(self, continuation: Mapping[str, object]) -> None:

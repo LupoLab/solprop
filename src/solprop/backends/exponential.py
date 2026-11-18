@@ -212,8 +212,6 @@ def _phi_near(
     out[0] = np.exp(y)
     for level in range(int(squarings.max(initial=0))):
         active = squarings > level
-        if not np.any(active):  # pragma: no cover - squarings.max bounds the loop
-            break
         old = out[:, active]
         doubled = np.empty_like(old)
         doubled[0] = old[0] * old[0]

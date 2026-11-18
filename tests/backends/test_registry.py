@@ -186,6 +186,39 @@ def test_optional_constructor_receives_the_original_contract_without_fallback(
     }
 
 
+class _Unconfigurable(ModuleType):
+    """A native package whose import-time settings are malformed."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__("solprop_native")
+        self.error = error
+
+    def __getattr__(self, name: str) -> Any:
+        raise self.error
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ValueError("SOLPROP_THREADS must be a positive thread count, got 'x'"),
+        RuntimeError("SOLPROP_THREADS must be a positive thread count, got 'x'"),
+    ],
+    ids=["value", "runtime"],
+)
+def test_a_native_configuration_error_at_import_is_a_backend_error(
+    linear_problem, narrow_grid, monkeypatch, error
+):
+    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
+    monkeypatch.setitem(sys.modules, "solprop_native", _Unconfigurable(error))
+    with pytest.raises(
+        BackendError, match=r"solprop-native did not load: SOLPROP_THREADS must be"
+    ) as raised:
+        _construct(
+            "native", problem, run_request, grid=narrow_grid, modes=None, profiles=None
+        )
+    assert raised.value.__cause__ is error
+
+
 def test_there_are_exactly_two_backends():
     """ADR-077: the reference and native; numba_cpu and mlx are gone."""
     assert BACKEND_NAMES == ("numpy_ref", "native")

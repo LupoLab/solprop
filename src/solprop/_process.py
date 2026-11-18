@@ -387,8 +387,8 @@ class ThreadBudget:
     threads : int
         The budget, at least one.
     source : str
-        The tightest limit: ``"affinity"``, ``"cgroup quota"`` or the name of the
-        environment variable that set it.
+        The tightest limit: ``"affinity"``, ``"physical cores"``,
+        ``"top-tier cores"``, ``"cgroup quota"`` or ``"SOLPROP_THREADS"``.
     oversubscribe : bool
         Whether ``SOLPROP_OVERSUBSCRIBE`` lets an explicit count exceed the CPUs and
         the quota (see :meth:`explicit`).

@@ -31,10 +31,10 @@ from solprop.backends.numpy_ref.adams_kernels import ExponentialKernels, weighte
 from solprop.backends.numpy_ref.engines import NumpyRungeKutta
 from solprop.backends.numpy_ref.marches.adams import AcceptedStep, HostAdamsMarch
 from solprop.backends.numpy_ref.multistep import (
+    DenseStep,
     ExponentialHistory,
+    ExponentialStep,
     HostHistory,
-    _DenseStep,
-    _ExponentialStep,
 )
 from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.exceptions import BackendError
@@ -101,6 +101,9 @@ class RungeKuttaDense:
         bool
             True past the plane's landing tolerance (``not reached(target, z)``).
         """
+        # The march's own rule for holding a step's extension
+        # (`RungeKuttaMarch.march_to`): a step that ends within the landing tolerance
+        # of the plane holds none, so it must count as landing there, not crossing.
         return not reached(target, position)
 
     def observe(self, position: float) -> None:
@@ -176,6 +179,9 @@ class AdamsDense:
         bool
             True when `position` is past it.
         """
+        # Strict, unlike the Runge-Kutta rule: the Adams march records every accepted
+        # step (`HostAdamsMarch.last_step`), so any step past the plane, however
+        # slightly, can be interpolated, and a step that lands snaps to its target.
         return position > target
 
     def observe(self, position: float) -> None:
@@ -196,10 +202,10 @@ class AdamsDense:
             raise BackendError("no accepted Adams step is held for a dense observation")
         held = self._engine.dense
         if isinstance(self._engine, ExponentialHistory):
-            assert isinstance(held, _ExponentialStep)
+            assert isinstance(held, ExponentialStep)
             observed = self._observe_exponential(held, step, position)
         else:
-            assert isinstance(held, _DenseStep)
+            assert isinstance(held, DenseStep)
             observed = self._observe_fused(held, step, position)
         self._held.hold(observed)
 
@@ -208,7 +214,7 @@ class AdamsDense:
         self._held.restore()
 
     def _observe_fused(
-        self, held: _DenseStep, step: AcceptedStep, position: float
+        self, held: DenseStep, step: AcceptedStep, position: float
     ) -> _State:
         """Return the interaction formulation's field at `position`."""
         workspace = self._workspace
@@ -224,7 +230,7 @@ class AdamsDense:
         return workspace.mask(workspace.propagator(held.z, position, hold=True) * value)
 
     def _observe_exponential(
-        self, held: _ExponentialStep, step: AcceptedStep, position: float
+        self, held: ExponentialStep, step: AcceptedStep, position: float
     ) -> _State:
         """Return the exponential formulation's field at `position`.
 

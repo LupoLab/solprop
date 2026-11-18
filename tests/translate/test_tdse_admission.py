@@ -221,14 +221,23 @@ def test_seam_rejects_a_changed_current_sign_or_crop_factor(
         )
 
 
-@pytest.mark.parametrize("flag", ["has_plasma", "has_raman", "mode_averaged"])
+@pytest.mark.parametrize(
+    ("flag", "reason"),
+    [
+        ("has_plasma", "a plasma response"),
+        ("has_raman", "a Raman response"),
+        ("mode_averaged", "a mode-averaged transform"),
+    ],
+)
 def test_seam_rejects_unsupported_flags_before_atomic_setup(
-    admitted, flag, admitted_request
+    admitted, flag, reason, admitted_request
 ):
     damaged = dataclasses.replace(
         admitted, flags=dataclasses.replace(admitted.flags, **{flag: True})
     )
-    with pytest.raises(TranslationError, match="scalar resolved modal Adams"):
+    with pytest.raises(
+        TranslationError, match=f"scalar resolved modal Adams route, not {reason}$"
+    ):
         validate_run(damaged, admitted_request)
 
 
@@ -253,13 +262,19 @@ def test_seam_admits_the_input_draw_and_rejects_the_modified_one(
     if model == "input":
         validate_run(noisy, admitted_request)
         return
-    with pytest.raises(TranslationError, match="scalar resolved modal Adams"):
+    with pytest.raises(
+        TranslationError, match=r"Adams route, not the 'modified' noise model$"
+    ):
         validate_run(noisy, admitted_request)
 
 
-@pytest.mark.parametrize("interpolate", [False, True], ids=["no-adams", "dense"])
+@pytest.mark.parametrize(
+    ("interpolate", "reason"),
+    [(False, "a method other than Adams"), (True, "interpolated save planes")],
+    ids=["no-adams", "dense"],
+)
 def test_seam_requires_adams_and_landed_save_planes(
-    admitted, interpolate, admitted_request
+    admitted, interpolate, reason, admitted_request
 ):
     damaged, damaged_request = (
         admitted,
@@ -273,7 +288,7 @@ def test_seam_requires_adams_and_landed_save_planes(
             )
         ),
     )
-    with pytest.raises(TranslationError, match="scalar resolved modal Adams"):
+    with pytest.raises(TranslationError, match=f"Adams route, not {reason}"):
         validate_run(damaged, damaged_request)
 
 
@@ -282,7 +297,11 @@ def test_seam_refuses_split_step_absorption(admitted, admitted_request):
         admitted,
         responses=dataclasses.replace(admitted.responses, absorber_scheme="split_step"),
     )
-    with pytest.raises(TranslationError, match="scalar resolved modal Adams"):
+    with pytest.raises(
+        TranslationError,
+        match=r"Adams route, not the 'split_step' absorber scheme \(it takes the "
+        "in-stage 'nonlinear' one\\)$",
+    ):
         validate_run(damaged, admitted_request)
 
 

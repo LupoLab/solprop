@@ -697,6 +697,9 @@ class Backend(Protocol):
 
         The start's field, noise, position and resume flag are loaded as a session
         loads them; its method history, ledgers and monitor continuation are not read.
+        An Adams run is probed with a Runge-Kutta trial of its tableau: a start holds
+        no history to step from, and the probe's callers want the cost of one
+        right-hand-side evaluation, which they get by dividing by the stage count.
 
         Parameters
         ----------

@@ -55,10 +55,10 @@ from solprop.translate.linop import (
     with_power_weight,
 )
 from solprop.translate.validation import (
-    _INPUT_NOISE_ADMITTED,
     DEFAULT_FLOW_CONDITION_LIMIT,
     TAPER_FLOW_CERTIFICATE,
     _Assembly,
+    _refuse_modified_noise,
 )
 
 __all__: list[str] = []
@@ -511,15 +511,12 @@ def _check_taper_route(build: _Assembly, grid: TimeGrid) -> None:
             "taper_coupling=False for the adiabatic route"
         )
         raise TranslationError(msg)
-    if build.noise_model == "modified":
-        msg = (
-            "the taper coupling of a multimode capillary refuses the 'modified' "
-            "noise model: its draw is transported by the unitary phase of a "
-            "diagonal flow, and its transport through a coupled flow is not "
-            "measured in this package. Pass taper_coupling=False for the adiabatic "
-            "route, whose diagonal flow carries the draw. " + _INPUT_NOISE_ADMITTED
-        )
-        raise TranslationError(msg)
+    _refuse_modified_noise(
+        build.noise_model,
+        "the taper coupling of a multimode capillary",
+        "Pass taper_coupling=False for the adiabatic route, whose diagonal flow "
+        "carries the draw.",
+    )
 
 
 def _taper_generator_at(
@@ -906,14 +903,7 @@ def _check_wall_route(build: _Assembly) -> None:
             "are channels of the mode set, one component each"
         )
         raise TranslationError(msg)
-    if build.noise_model == "modified":
-        msg = (
-            "a coherent wall block refuses the 'modified' noise model: its draw is "
-            "transported by the unitary phase of a diagonal flow, and the transport "
-            "of a draw through a nonunitary coupled flow is not measured in this "
-            "package. " + _INPUT_NOISE_ADMITTED
-        )
-        raise TranslationError(msg)
+    _refuse_modified_noise(build.noise_model, "a coherent wall block")
 
 
 def _check_wall_total(

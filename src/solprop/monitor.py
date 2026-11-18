@@ -1046,6 +1046,8 @@ class BoundaryMonitor:
     def watch_state(self) -> dict[str, object]:
         """Return what a compiled march's predictions read and change of this monitor.
 
+        For tests: the native march keeps its own copy, which they compare with this.
+
         Returns
         -------
         dict
