@@ -25,12 +25,11 @@ from solprop.plotting.style import (
     _figure_of,
     spectral_display,
 )
-from solprop.processing.axes import ModeSelection, SpectralAxis
+from solprop.processing.axes import ModeSelection, SpectralAxis, _plane_index
 from solprop.processing.fields import (
     DEFAULT_GATE_POSITIONS,
     _check_spec_range,
     get_spectrogram,
-    nearest_plane,
 )
 
 __all__ = ["DEFAULT_GATE_POSITIONS", "spectrogram"]
@@ -41,6 +40,7 @@ def spectrogram(
     z: float | None = None,
     axis: SpectralAxis = "wavelength",
     *,
+    plane: int | None = None,
     modes: ModeSelection = None,
     time_range: tuple[float, float] | None = None,
     gate_fwhm: float | None = None,
@@ -64,9 +64,12 @@ def spectrogram(
     output : solprop.output.store.Output
         An opened output handler.
     z : float or None
-        Position of the plane, m; the end of the run by default.
+        Position of the plane, m: the nearest saved plane; the end of the run by
+        default.
     axis : {'wavelength', 'f', 'omega'}
         Spectral abscissa of the ordinate.
+    plane : int or None
+        The saved plane by index, negative from the end; refused beside `z`.
     modes : int, sequence of int, 'sum' or None
         Which mode to draw. A multimode run must name one: a spectrogram is of a field,
         and modal fields do not add away from a point in space.
@@ -84,7 +87,9 @@ def spectrogram(
     log : bool
         Whether to show decibels below the peak rather than a linear scale.
     db_min : float
-        Bottom of a logarithmic colour scale, dB.
+        Bottom of a logarithmic colour scale, dB below the peak: -40 dB by default,
+        where :func:`~solprop.plotting.propagation.prop_2d` and
+        :func:`~solprop.plotting.propagation.spec_1d` default to -60 dB.
     cmap : str, matplotlib.colors.Colormap or None
         Colour map.
     ax : matplotlib.axes.Axes or None
@@ -103,7 +108,8 @@ def spectrogram(
     solprop.exceptions.ModeError
         If a multimode run does not name a single mode.
     solprop.exceptions.ProcessingError
-        If ``spec_range`` selects no sample of the spectral axis.
+        If ``spec_range`` selects no sample of the spectral axis, or both `z` and
+        `plane` are given.
 
     Examples
     --------
@@ -115,7 +121,7 @@ def spectrogram(
     'Time (fs)'
     >>> plt.close(figure)
     """
-    plane = output.n_saved - 1 if z is None else nearest_plane(output, z)
+    plane = _plane_index(output, plane, z)
     if time_range is None:
         time_range = _plane_time_range(output, plane, modes, transfer)
     # The map per unit frequency, drawn against the axis asked for as it stands:
