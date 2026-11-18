@@ -107,6 +107,8 @@ __all__ = [
     "serve",
 ]
 
+# Not `__name__`: a run's lines, from run_problem and from this loop it serves, share
+# one logger, so a caller filtering on it sees all of them.
 logger = logging.getLogger("solprop.driver.run")
 
 _CONSUMER = ExportRecipe(power=True, optics=False)

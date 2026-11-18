@@ -56,6 +56,14 @@ from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule, replay_toleran
 from solprop.stepper.settings import PropagatorMode
 from solprop.translate.masks import AbsorberScheme
 
+# The refusal of fields='planes' beside step_planes, shared with the run's own check
+# (solprop.driver.run.field_retention).
+_FIELDS_BESIDE_STEP_PLANES = (
+    "fields='planes' names saved planes by index, and step_planes saves the march's "
+    "own steps as well, so the plane count is not known in advance; keep fields='all' "
+    "or 'none' beside step_planes"
+)
+
 __all__ = [
     "DEFAULT_N_SAVE",
     "LOOSE_ADAMS_RTOL",
@@ -559,13 +567,8 @@ class SimulationSettings(Displayed):
             raise DriverError(msg, parameter="resume_history")
         self._resolve_defaults()
         if self.fields == "planes" and self.step_planes:
-            msg = (
-                "fields='planes' names saved planes by index, and step_planes saves "
-                "the march's own steps as well, so the plane count is not known in "
-                "advance; keep fields='all' or 'none' beside step_planes"
-            )
             raise DriverError(
-                msg,
+                _FIELDS_BESIDE_STEP_PLANES,
                 parameter=("fields", "step_planes"),
                 rule="fields-planes-step-planes",
             )

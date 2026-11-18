@@ -12,6 +12,7 @@ request record from its constructor's locals.
 
 import contextlib
 import dataclasses
+import threading
 import warnings
 from collections.abc import Iterator, Mapping
 from typing import Any, Final, cast
@@ -65,6 +66,9 @@ It stands in for the issuing module's own, so that a ``"default"`` filter still 
 a warning once per location and text rather than once per run.
 """
 
+_CATCHING: Final = threading.RLock()
+"""Held through a :func:`_warnings_about` block; re-entrant, so a nested block runs."""
+
 
 @contextlib.contextmanager
 def _warnings_about(
@@ -80,24 +84,28 @@ def _warnings_about(
     every other warning is issued as it was.
     """
     caught: list[warnings.WarningMessage] = []
-    try:
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            yield
-    finally:
-        for record in caught:
-            # A recorded warning is an instance of its category, never a string.
-            message = cast("Warning", record.message)
-            if isinstance(message, categories) and message.parameter is None:
-                message.parameter = parameter
-            warnings.warn_explicit(
-                message,
-                record.category,
-                record.filename,
-                record.lineno,
-                registry=_REISSUED,
-                source=record.source,
-            )
+    # `catch_warnings` swaps the process's filters, so two threads' blocks that overlap
+    # would each restore the other's: they take turns. Another thread's warning issued
+    # during a block is still recorded by it.
+    with _CATCHING:
+        try:
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                yield
+        finally:
+            for record in caught:
+                # A recorded warning is an instance of its category, never a string.
+                message = cast("Warning", record.message)
+                if isinstance(message, categories) and message.parameter is None:
+                    message.parameter = parameter
+                warnings.warn_explicit(
+                    message,
+                    record.category,
+                    record.filename,
+                    record.lineno,
+                    registry=_REISSUED,
+                    source=record.source,
+                )
 
 
 _MATERIAL_WARNINGS: Final = (MaterialRangeWarning, MaterialStatusWarning)

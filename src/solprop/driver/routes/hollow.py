@@ -807,7 +807,7 @@ class _TDSEEntry:
     execution : TDSEExecution
         Atomic runtime resources.
     backend : str
-        The resolved backend, ``numpy_ref``.
+        The resolved backend (``"auto"`` resolves to ``native``).
     step_planes : int
         Resolved natural-step save interval.
     n_save : int or None

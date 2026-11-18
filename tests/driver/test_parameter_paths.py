@@ -12,6 +12,7 @@ which names its own argument; the route renames the ones it spells otherwise. No
 is run but the boundary monitor's: every refusal comes while the simulation is built.
 """
 
+import threading
 import warnings
 from collections.abc import Callable
 from typing import Any, cast
@@ -533,3 +534,41 @@ def test_an_inner_refusal_that_names_its_keyword_keeps_it() -> None:
     with pytest.raises(DriverError) as caught, _about("pulses"):
         raise DriverError("refused", parameter="pulses[0].energy")
     assert caught.value.parameter == "pulses[0].energy"
+
+
+def test_overlapping_warning_blocks_on_two_threads_leave_the_filters_as_they_were():
+    """Two threads' constructors never restore each other's warning state.
+
+    ``catch_warnings`` swaps the process's filters, so a block entered on one thread
+    and left after another thread's block began would restore that block's filters,
+    leaving its ``"always"`` and its recorder in place for good. The first block waits
+    a while for the second to enter: they take turns instead.
+    """
+    from solprop.driver.routes.keywords import (  # noqa: PLC0415 - a private seam
+        _MATERIAL_WARNINGS,
+        _warnings_about,
+    )
+
+    before = list(warnings.filters)
+    first_in, second_in, first_out = (threading.Event() for _ in range(3))
+
+    def first() -> None:
+        with _warnings_about("gas", _MATERIAL_WARNINGS):
+            first_in.set()
+            second_in.wait(timeout=0.5)
+        first_out.set()
+
+    def second() -> None:
+        with _warnings_about("raman", _MATERIAL_WARNINGS):
+            second_in.set()
+            first_out.wait(timeout=5.0)
+
+    one = threading.Thread(target=first)
+    one.start()
+    assert first_in.wait(timeout=5.0)
+    two = threading.Thread(target=second)
+    two.start()
+    one.join(timeout=10.0)
+    two.join(timeout=10.0)
+    assert not one.is_alive() and not two.is_alive()
+    assert warnings.filters == before

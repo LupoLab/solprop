@@ -81,12 +81,11 @@ from solprop.driver.mixtures import (
     mixture_profiles,
 )
 from solprop.driver.resume import (
-    _adopt_recorded_seed,
     _check_resume_choice,
     _continues,
-    _interpolated,
     _open_output,
     _ResumeChoice,
+    _resumed_simulation,
     _start,
     _validate_resume,
 )
@@ -121,7 +120,12 @@ from solprop.driver.routes.spatial import (
     _selected_planar,
     _transverse_specification,
 )
-from solprop.driver.run import check_snapshot_request, field_retention, run_problem
+from solprop.driver.run import (
+    _TDSE_OUTPUT_REFUSAL,
+    check_snapshot_request,
+    field_retention,
+    run_problem,
+)
 from solprop.driver.runner import SimulationRunner, _peak_field_reports
 from solprop.driver.settings import (
     _EXECUTION_SETTINGS,
@@ -1546,8 +1550,9 @@ class Simulation(Displayed):
         )
         if self.frame is not None:
             configuration["frame"] = self.frame
-        # The operator settings of SEP 22 phase 2, recorded only where set, so
-        # every earlier run keeps its digest; a collar as its two numbers.
+        # The operator settings of SEP 22 phase 2, recorded only where set: unset,
+        # each is its documented default, which its absence implies, so the record
+        # stays short. A collar as its two numbers.
         if self.settings.evanescent_rate is not None:
             configuration["evanescent_rate"] = self.settings.evanescent_rate
         if self.settings.spatial_absorber is not None:
@@ -1821,8 +1826,10 @@ class Simulation(Displayed):
             file is returned. Only a path can be resumed: the driver has to open the
             file in append mode itself. Noise a constructor drew without a seed is drawn
             again from the seed the file recorded, so re-running the same call continues
-            its file. A file whose last plane was interpolated inside a step is refused
-            unless this is ``"interpolated"``: it then continues afresh from the
+            its file; the redraw is the resume's own, and this simulation keeps its
+            realisation for a later fresh run. A file whose last plane was interpolated
+            inside a step is refused unless this is ``"interpolated"``: it then
+            continues afresh from the
             interpolated field, and the position is recorded in the annotation
             :data:`~solprop.output.metadata.INTERPOLATED_RESUMES_ANNOTATION` before
             the first step, so a session that stops later still records it.
@@ -1909,20 +1916,53 @@ class Simulation(Displayed):
     ) -> Output:
         """Execute the run, on a new backend or on one a caller keeps between runs.
 
+        A resume runs the copy :func:`~solprop.driver.resume._resumed_simulation`
+        returns, so this simulation keeps its own noise realisation; what the run
+        learns about its peak fields is kept here as for any run.
+
         - ``progress_period``: as for :meth:`run`, s.
         - ``kept``: a backend built for this problem but for its input, which is loaded
           and left open for the caller; ``None`` constructs one and closes it. It serves
           a fresh run only, with no TDSE response.
         """
         _check_resume_choice(resume)
+        simulation = self
+        if resume:
+            with _optmat.material_context(self._material_log):
+                simulation = _resumed_simulation(self, output)
+        handler = simulation._execute(
+            output,
+            progress=progress,
+            progress_period=progress_period,
+            resume=resume,
+            tdse_archive=tdse_archive,
+            snapshots=snapshots,
+            stop=stop,
+            kept=kept,
+        )
+        self._peak_fields = simulation._peak_fields
+        return handler
+
+    def _execute(
+        self,
+        output: Output | Path | str | None,
+        *,
+        progress: ProgressReporter | ProgressChoice | None,
+        progress_period: float,
+        resume: _ResumeChoice,
+        tdse_archive: TDSEArchive | None,
+        snapshots: SnapshotController | None,
+        stop: StopFlag | None,
+        kept: Backend | None,
+    ) -> Output:
+        """Execute the run on this simulation as it is (:meth:`_run`)."""
         with _optmat.material_context(self._material_log):
-            if resume:
-                _adopt_recorded_seed(self, output)
             problem = self.translate()
             request = self.run_request()
             _refuse_pending_check(problem)
             metadata = self.metadata()
             handler, state = _open_output(output, metadata, resume=resume)
+            next_plane: int | None = None
             if state is not None:
                 next_plane = _validate_resume(
                     problem, request, state, self.settings.tdse_execution
@@ -1944,9 +1984,7 @@ class Simulation(Displayed):
             if tdse_descriptor(problem.route) is not None and not isinstance(
                 handler, CheckpointOutput
             ):
-                raise DriverError(
-                    "TDSE output must support terminal checkpoints and call ledgers"
-                )
+                raise DriverError(_TDSE_OUTPUT_REFUSAL)
             _check_tdse_archive(tdse_archive, problem, handler)
             check_snapshot_request(
                 request,
@@ -1996,6 +2034,7 @@ class Simulation(Displayed):
                     state,
                     kept=kept is not None,
                     restoration=restoration,
+                    next_plane=next_plane,
                 )
                 _restore_atomic(binding, start)
                 _consistency_gate(self, binding, problem, handler, metadata, backend)
@@ -2019,7 +2058,7 @@ class Simulation(Displayed):
                     recipe=None if self._recipe is None else self._recipe.record(self),
                     restoration=restoration or None,
                     # Allowed only by resume="interpolated"; the record says where.
-                    interpolated_resume=state is not None and _interpolated(state),
+                    interpolated_resume=state is not None and state.interpolated,
                 )
             except StopRequested as error:
                 # A stop raised by another run's flag is that run's to catch. The run's

@@ -22,7 +22,6 @@ from bounds import assert_work_within
 from march_bounds import TIGHTER, assert_in_envelope
 from solprop.backends import available
 from solprop.driver import Simulation
-from solprop.driver.resume import _interpolated
 from solprop.exceptions import TranslationError
 from solprop.log import NullReporter
 from solprop.output.hdf5 import read_resume_state
@@ -176,7 +175,7 @@ def test_a_run_stopped_on_a_saved_step_resumes(tmp_path):
     with pytest.raises(RuntimeError, match="stopped"):
         soliton(step_planes=1).run(path, progress=Stop(5))
     state = read_resume_state(path)
-    assert not _interpolated(state)
+    assert not state.interpolated
     soliton(step_planes=1).run(path, resume=True, progress="none")
     finished = read_resume_state(path)
     assert finished.plane.z == pytest.approx(0.012, rel=1e-12)

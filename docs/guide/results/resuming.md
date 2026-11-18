@@ -131,7 +131,9 @@ A call without `seed=` draws fresh operating-system entropy each time it is buil
 ([reproducibility](../media/noise.md#reproducibility)). So that re-running the same call
 with `resume=True` continues its own file, a realisation the constructor drew without a
 seed is drawn again from the seed the file recorded before the hashes are compared,
-and the run logs that it did. This covers the default noise of `prop_gnlse`,
+and the run logs that it did. The redraw belongs to the resumed run alone: the
+`Simulation` keeps its own realisation, so a later fresh `run` of it is not the file's
+again. This covers the default noise of `prop_gnlse`,
 `prop_capillary`, `prop_waveguide` and `prop_free` on a radial grid, and an explicit `noise="input"` or
 `"modified"` given without a seed. A seed the call gives, or a realisation it passes in,
 is never replaced: a resume that differs in it is refused, and the refusal names the

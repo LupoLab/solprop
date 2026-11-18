@@ -40,7 +40,12 @@ from solprop._process import (
     spawn_environment,
     thread_budget,
 )
-from solprop.exceptions import DriverError, ExecutorError, StopRequested
+from solprop.exceptions import (
+    DriverError,
+    ExecutorError,
+    RunTerminated,
+    StopRequested,
+)
 from solprop.log import PlaneSummary, ProgressReporter, StopFlag
 
 __all__ = ["ControlledWork", "MemoryBudget", "PlaneScalars", "Pool", "peak_rss"]
@@ -56,14 +61,20 @@ else:
 
 # The worker pipe's messages. Controller to worker: ``("run", point)`` or
 # ``("probe", point)``, the ``STOP`` string while a point runs, and ``None`` to exit.
-# Worker to controller: ``(ok, value)`` once per command, and while a watched point runs
-# ``(PROGRESS, call, args)``, one of that run's reporter calls (`_WorkerReporter`).
+# Worker to controller: ``(ok, value)`` once per command, ``(INTERRUPTED, text)`` in its
+# place when Ctrl-C, SIGTERM or a stop flag ended the command, and while a watched point
+# runs ``(PROGRESS, call, args)``, one of that run's reporter calls (`_WorkerReporter`).
 STOP = "stop"
 PROGRESS = "progress"
+INTERRUPTED = "interrupted"
 
 
 class _WorkerError(ExecutorError):
     """Report an abnormal child exit separately from an invalid resource budget."""
+
+
+class _WorkerInterruptedError(_WorkerError):
+    """Report a worker whose command was interrupted, which is a stop, not a crash."""
 
 
 @runtime_checkable
@@ -456,6 +467,10 @@ def _serve(
             else:
                 value = work(point)
             connection.send((True, value))
+    except (KeyboardInterrupt, RunTerminated, StopRequested) as error:
+        # Ctrl-C reaches every worker of a terminal's scan; the run has written its
+        # state, and the point is stopped rather than failed.
+        connection.send((INTERRUPTED, f"{type(error).__name__}: {error}"))
     except BaseException:
         connection.send((False, traceback.format_exc()))
     finally:
@@ -505,6 +520,8 @@ def _receive(connection: _Pipe) -> object:
     if len(message) == 3 and isinstance(message[0], str) and message[0] == PROGRESS:
         return _Progress(message[1], message[2])
     success, value = message
+    if isinstance(success, str) and success == INTERRUPTED:
+        raise _WorkerInterruptedError(f"scan worker was interrupted: {value}")
     if not success:
         raise _WorkerError(f"scan worker failed:\n{value}")
     return value
@@ -519,6 +536,19 @@ def _failed_work(work: Callable, point: object, error: _WorkerError) -> object:
     if not callable(failed):
         raise error
     return failed(point, str(error))
+
+
+def _interrupted_work(
+    work: Callable, point: object, error: _WorkerInterruptedError
+) -> object:
+    """Let a scan give back a point its worker was interrupted in; others raise.
+
+    - Returns: the work's stopped result, if it has a ``stopped`` hook.
+    """
+    stopped = getattr(work, "stopped", None)
+    if not callable(stopped):
+        raise error
+    return stopped(point)
 
 
 def _stop(process: BaseProcess, connection: _Pipe) -> None:
@@ -603,6 +633,9 @@ class Pool:
         the abrupt ``terminate`` of a worker that does not
         exit stays the last resort. While a watched point runs, its worker sends the
         run's reporter calls, which the pool hands to :meth:`ControlledWork.relay`.
+        A point whose worker is interrupted (Ctrl-C, which a terminal sends to every
+        worker, SIGTERM, or another stop flag) is handed to the work's ``stopped``
+        hook rather than its ``failure`` hook: a stop, not a crash.
 
         Parameters
         ----------
@@ -622,7 +655,8 @@ class Pool:
             If resource admission fails.
         ExecutorError
             If a worker exits abnormally or fails, and the work has no ``failure``
-            hook to record it.
+            hook to record it; or is interrupted, and the work has no ``stopped``
+            hook.
         """
         self.validate(work)
         iterator = iter(points)
@@ -634,6 +668,8 @@ class Pool:
             try:
                 available, count = self._admit(work, first)
                 break
+            except _WorkerInterruptedError as error:
+                yield cast(R, _interrupted_work(work, first, error))
             except _WorkerError as error:
                 yield cast(R, _failed_work(work, first, error))
         session = _Session(self, work)
@@ -722,6 +758,10 @@ class _Session:
                 crashed = False
                 try:
                     received = _receive(connection)
+                except _WorkerInterruptedError as error:
+                    # Its worker has left its loop, so it is replaced as after a crash.
+                    received = _interrupted_work(self.work, point, error)
+                    crashed = True
                 except _WorkerError as error:
                     received = _failed_work(self.work, point, error)
                     crashed = True
