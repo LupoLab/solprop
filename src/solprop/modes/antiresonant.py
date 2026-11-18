@@ -927,14 +927,9 @@ class VincettiMode(MarcatiliMode):
             Ar 1 bar, loss=model)``; a gradient shows its pressure at ``z = 0``.
         """
         radius = float(self.core_radius(np.array([0.0]))[0])
-        if self.gas is None:
-            fill = "evacuated" if self.mixture is None else "mixture"
-        else:
-            pressure = float(self._pressure_profile(np.array([0.0]))[0])
-            fill = f"{self.gas} {pressure:g} bar"
         return (
             f"VincettiMode({self.kind}{self.n}{self.m}, a={radius * 1e6:g} um, "
             f"t={self.lattice.wall_thickness * 1e9:g} nm, "
             f"r_ext={self.lattice.tube_radius * 1e6:g} um, "
-            f"N={self.lattice.n_tubes}, {fill}, loss={self._loss_text()})"
+            f"N={self.lattice.n_tubes}, {self._fill_text()}, loss={self._loss_text()})"
         )

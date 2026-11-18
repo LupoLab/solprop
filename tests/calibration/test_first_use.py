@@ -122,6 +122,16 @@ def test_a_single_cpu_is_never_measured(
     assert auto == []
 
 
+def test_an_unreadable_store_leaves_the_built_in_table(
+    auto: list[tuple[str, tuple[int, ...]]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # What choice() returns, having warned, when reading the store raises OSError.
+    unread = _native.profile.Choice(mode="auto", note="the store is unreadable")
+    monkeypatch.setattr(calibration, "choice", lambda environ=None: unread)
+    assert first_use.ensure() is None
+    assert auto == []
+
+
 def test_a_device_build_is_left_to_its_own_calibration(
     auto: list[tuple[str, tuple[int, ...]]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

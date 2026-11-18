@@ -17,7 +17,7 @@ import pytest
 
 from solprop.constants import BAR, K_B, N_A, ROOM_TEMPERATURE
 from solprop.exceptions import MaterialError
-from solprop.physdata import Gas, IdealGas, Species, gamma, species
+from solprop.physdata import Gas, IdealGas, Mixture, Species, gamma, species
 from solprop.physdata.transport import (
     heat_capacity_ratio,
     mean_free_path,
@@ -151,13 +151,18 @@ def test_a_custom_species_is_refused_by_name():
     ("fractions", "message"),
     [
         ({"N2": 0.5, "O2": 0.4}, "sum to one"),
-        ({"N2": 1.2, "O2": -0.2}, "not negative"),
-        ({}, "sum to one"),
+        # Off by more than the rounding of two entries and their sum (4 eps): the
+        # rule a mixture's fill applies, so a flow and a fill accept the same sets.
+        ({"N2": 0.5, "O2": 0.5 + 1e-13}, "sum to one"),
+        ({"N2": 1.2, "O2": -0.2}, "non-negative"),
+        ({}, "non-empty"),
     ],
 )
 def test_invalid_fractions_are_refused(fractions, message):
     with pytest.raises(MaterialError, match=message):
         viscosity(fractions, 294.0)
+    with pytest.raises(MaterialError, match=message):
+        Mixture.fill(fractions, 1.0)
 
 
 def test_an_unknown_gas_is_refused():
@@ -176,6 +181,18 @@ def test_a_non_positive_pressure_is_refused(pressure):
 def test_a_real_gas_sound_speed_of_a_mixture_is_refused():
     with pytest.raises(MaterialError, match="pure gas only"):
         sound_speed({"N2": 0.5, "O2": 0.5}, 1.0, 294.0)
+
+
+def test_a_real_gas_sound_speed_checks_only_the_equation_of_state():
+    # Methane's transport model is provisional and declared for 95 K to 600 K; its
+    # equation of state is declared for 90.69 K to 625 K, and is all this value uses.
+    # Warnings are errors in the suite, so the first call also says that none is raised.
+    assert sound_speed("CH4", 1.0, ROOM_TEMPERATURE) > 0.0
+    assert sound_speed("CH4", 1.0, 610.0) > sound_speed("CH4", 1.0, 590.0)
+    with pytest.raises(MaterialError, match="equation of state"):
+        sound_speed("CH4", 1.0, 700.0)
+    with pytest.raises(MaterialError, match="temperature"):
+        sound_speed("CH4", 1.0, math.nan)
 
 
 def test_every_transport_function_defaults_to_room_temperature():

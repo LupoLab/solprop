@@ -39,6 +39,7 @@ from solprop.stats import (
     profile_value,
     zdw,
 )
+from solprop.stats.definitions import _whitened
 
 WAVELENGTH = 800e-9
 FWHM = 30e-15
@@ -705,7 +706,7 @@ def test_the_metric_weighted_energy_is_the_quadratic_form(field_grid):
 def test_the_whitening_is_the_positive_definite_square_root(field_grid):
     field = two_channel(field_grid)
     metric = metric_of(2, field_grid.n_omega)
-    whitened = stats._whitened(field, metric)
+    whitened = _whitened(field, metric)
     assert_allclose(
         np.einsum("mpk,mpk->k", whitened.conj(), whitened).real,
         np.einsum("mpk,mnk,npk->k", field.conj(), metric, field).real,

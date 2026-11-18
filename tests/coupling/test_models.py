@@ -112,3 +112,26 @@ def test_a_scalar_basis_refuses_sets_it_has_no_profiles_for(grid):
         ScalarModeBasis.from_modes([step_index_mode(6e-6, n=2)], grid)
     with pytest.raises(CouplingError, match="share one fibre and profile"):
         ScalarModeBasis.from_modes([step_index_mode(), step_index_mode(4.4e-6)], grid)
+    with pytest.raises(CouplingError, match="share one fibre and profile"):
+        ScalarModeBasis.from_modes(
+            [
+                step_index_mode(),
+                StepIndexMode(
+                    4e-6, core=CORE, cladding=CLADDING, profile_wavelength=1e-6
+                ),
+            ],
+            grid,
+        )
+
+
+def test_a_step_index_basis_holds_several_radial_orders_of_one_fibre(grid):
+    """HE11 and HE12 of one fibre bound their cladding at different radii, and are
+    still one fibre: LP01 and LP02 at the fibre's own V."""
+    modes = [step_index_mode(12e-6, m=m) for m in (1, 2)]
+    assert modes[0].dimlimits()[2] != modes[1].dimlimits()[2]
+    profiles = ScalarModeBasis.from_modes(modes, grid)
+    v = 2 * math.pi / 800e-9 * 12e-6 * math.sqrt(CORE**2 - CLADDING**2)
+    expected = [_lp_parameter(v, m)[0] for m in (1, 2)]
+    # The same solve on the same V, up to the rounding of V's two products.
+    np.testing.assert_allclose(profiles.u, expected, rtol=1e-12, atol=0.0)
+    assert expected[0] < expected[1]

@@ -372,9 +372,10 @@ class GasFillMixin(Displayed):
         Raises
         ------
         ModeError
-            If omega is non-positive or non-finite, or the mode declares an
+            If omega is non-positive or non-finite, the mode declares an
             ``alpha``, whose total attenuation cannot be assigned to individual
-            species.
+            species, or a single gas's susceptibility is absorbing (a mixture
+            component attributes it).
         """
         if np.any(omega <= 0) or not np.all(np.isfinite(omega)):
             raise ModeError("species absorption requires positive finite omega")
@@ -399,8 +400,18 @@ class GasFillMixin(Displayed):
                     scale * density * omega * np.imag(model.susceptibility(omega)) / C
                 )
             return result
-        # The single-gas slot carries a real GasSusceptibility. Absorbing supplied
-        # optical tables belong to explicit Species components of a mixture.
+        # Per-species attribution is the mixture's: an absorbing law in the
+        # single-gas slot puts loss into neff, which this row would not show.
+        if (
+            scale != 0
+            and self.susceptibility is not None
+            and self.susceptibility.absorbing
+        ):
+            msg = (
+                "an absorbing susceptibility on a single gas has no species "
+                "attribution; declare the gas as a component of a Mixture"
+            )
+            raise ModeError(msg)
         return np.zeros((1, omega.size))
 
     def _fill_paths(self) -> Mapping[str, ZProfile]:

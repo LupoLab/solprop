@@ -12,6 +12,9 @@ is not a separate gas; it is chosen with a
 :class:`~solprop.physdata.selection.MaterialSelection`.
 """
 
+import math
+import sys
+from collections.abc import Sequence
 from enum import StrEnum
 
 from solprop.exceptions import MaterialError
@@ -147,3 +150,18 @@ def is_air(material: Gas | str) -> bool:
     if isinstance(material, Gas):
         return material is Gas.Air
     return material.strip().lower() == "air"
+
+
+def _fractions(values: Sequence[float]) -> tuple[float, ...]:
+    """Validate mole fractions without silently renormalising them.
+
+    The one rule for a mixture's fill and a gas-flow composition, so that both accept
+    the same sets.
+    """
+    result = tuple(float(v) for v in values)
+    if not result or any(not math.isfinite(v) or v < 0 for v in result):
+        raise MaterialError("fractions must be finite, non-negative and non-empty")
+    # A supplied distribution can incur one rounding per entry and its sum.
+    if abs(math.fsum(result) - 1.0) > 2 * len(result) * sys.float_info.epsilon:
+        raise MaterialError(f"fractions must sum to one, got {math.fsum(result):.17g}")
+    return result
