@@ -5,6 +5,7 @@
 """Shared test configuration: widgets are drawn without a display."""
 
 import gc
+import numbers
 import os
 import shutil
 import time
@@ -21,6 +22,40 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 # A machine calibration (solprop SEP 46) neither runs nor applies here, as in solprop's
 # own suite: a first native run would otherwise calibrate, and its notice is an error.
 os.environ.setdefault("SOLPROP_CALIBRATION", "off")
+
+_PYTEST_APPROX = pytest.approx
+_PYTEST_REL = 1e-6
+"""pytest's default relative tolerance, which a bare ``approx`` of a number keeps."""
+
+
+def _approx(expected, rel=None, abs=None, nan_ok=False):
+    """Return ``pytest.approx`` with no absolute tolerance unless the test gives one.
+
+    The rule of solprop's ``tests/conftest.py``: pytest keeps an absolute tolerance of
+    1e-12 beside any ``rel``, which accepts any result for a quantity far below it (a
+    time limit of 1e-13 s, a wavelength). With ``rel=`` alone the comparison is
+    relative only, and a bare ``approx(x)`` of a nonzero number is relative to pytest's
+    1e-6 only; a bare ``approx`` of zero, or of a sequence, array or mapping, keeps
+    pytest's defaults. A test that needs an absolute tolerance gives ``abs=``.
+    """
+    if abs is None:
+        if rel is not None:
+            abs = 0.0
+        elif _nonzero_number(expected):
+            rel, abs = _PYTEST_REL, 0.0
+    return _PYTEST_APPROX(expected, rel=rel, abs=abs, nan_ok=nan_ok)
+
+
+def _nonzero_number(value: object) -> bool:
+    """Return whether `value` is a real or complex number, not a bool, other than 0."""
+    return (
+        isinstance(value, numbers.Complex)
+        and not isinstance(value, bool)
+        and value != 0
+    )
+
+
+pytest.approx = _approx
 
 
 def pytest_configure(config: pytest.Config) -> None:

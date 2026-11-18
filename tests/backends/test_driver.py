@@ -359,7 +359,7 @@ def test_the_modified_noise_model_keeps_its_realisation_apart(
             made.workspace.noise_at(made.workspace.stage_scalars(0.0, LENGTH / 2))
         )
         # Dispersion yes, loss and gain no: the magnitude is untouched by the advance.
-        assert np.allclose(np.abs(advanced), np.abs(drawn))
+        assert np.allclose(np.abs(advanced), np.abs(drawn), atol=0.0)
         assert not np.array_equal(advanced, drawn)
         assert present(made.workspace.noise_phase(0.0)).shape == problem.shape
 

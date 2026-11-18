@@ -43,7 +43,10 @@ def _case(
     """Return a short linear radial run of a 3 nJ beam through `medium`.
 
     On the former grid and without a collar, as an undeclared absorber meant before
-    SEP 21: the subject is the flux through the path, which a collar would drain.
+    SEP 21: the subject is the flux through the path, which a collar would drain. 32
+    radial nodes resolve the 60 um beam's angular spectrum (1.5e-11 of its peak at the
+    last k_r); on 16, where that is 1.8e-3, even vacuum loses 6e-6 of the energy over
+    the length.
     """
     grid = EnvelopeGrid.from_limits(
         LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15, **LEGACY_GRID
@@ -62,7 +65,7 @@ def _case(
         absorber=bare_absorber(grid),
     )
     return Simulation.from_free(
-        grid, RadialGrid(6e-4, 16), medium, [], pulse, settings=settings, noise=None
+        grid, RadialGrid(6e-4, 32), medium, [], pulse, settings=settings, noise=None
     )
 
 

@@ -269,8 +269,11 @@ def test_the_group_delay_at_the_reference_is_zero_and_the_gdd_is_silicas():
     # A central difference of a phase whose third derivative is ~1e-43 s^3/mm: the
     # residual delay is step^2/6 of that, 1e-19 s, against a group delay of 5e-12 s.
     assert abs(delay) < 1e-18
-    # 36.16 fs^2/mm, the textbook figure for fused silica at 800 nm.
-    assert gdd == pytest.approx(36.16e-30, rel=1e-3)
+    # The textbook 36.16 fs^2/mm for fused silica at 800 nm is Malitson's expansion
+    # taken as it is published, relative to air in air wavelengths. Made absolute in
+    # standard air (Peck and Reeder 1972), as optmat makes it, the same expansion gives
+    # 36.23 fs^2/mm.
+    assert gdd == pytest.approx(36.23e-30, rel=1e-3)
     infrared = 2.0 * math.pi * C / 1550e-9
     assert phase_derivatives(Material(silica, 1e-3, 1550e-9), infrared, step)[1] < 0.0
 

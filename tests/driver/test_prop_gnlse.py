@@ -348,7 +348,14 @@ def test_the_shock_term_can_be_switched_on():
     """`shock=True` is the prefactor's omega dependence, and it changes the answer."""
     without = cheap(shock=False)
     with_shock = cheap(shock=True)
-    assert not np.allclose(with_shock["field"][-1], without["field"][-1])
+    # Over this short run the shock moves the field by about 1e-6 of its peak, far
+    # above the 1e-9 of it held here and the rounding below that.
+    assert not np.allclose(
+        with_shock["field"][-1],
+        without["field"][-1],
+        rtol=0.0,
+        atol=1e-9 * np.max(np.abs(without["field"][-1])),
+    )
 
 
 # --------------------------------------------------------------- the pulse keywords
@@ -381,8 +388,18 @@ def test_the_energy_and_the_peak_power_specify_the_same_sech_pulse():
     # the two requests differ by the sech's truncated tails on that window: the
     # sampled energy of the peak-scaled pulse is 8.0e-8 below the analytic value, which
     # is the difference measured here (7.9e-8 relative in amplitude).
-    assert np.allclose(by_energy["field"][-1], by_power["field"][-1], rtol=1e-7)
-    assert not np.allclose(by_energy["field"][-1], by_power["field"][-1], rtol=1e-9)
+    assert np.allclose(
+        by_energy["field"][-1],
+        by_power["field"][-1],
+        rtol=1e-7,
+        atol=1e-7 * np.max(np.abs(by_power["field"][-1])),
+    )
+    assert not np.allclose(
+        by_energy["field"][-1],
+        by_power["field"][-1],
+        rtol=1e-9,
+        atol=1e-9 * np.max(np.abs(by_power["field"][-1])),
+    )
 
 
 def test_a_group_delay_phase_moves_the_pulse_later(soliton):

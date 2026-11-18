@@ -211,7 +211,9 @@ def test_specres_accepts_an_explicit_measure():
     given_x, given_smooth = spectra.specres(x, density, 60e-9, weights=weights)
     # On a uniform axis the central differences are the spacing, so the two agree.
     assert np.array_equal(default_x, given_x)
-    assert np.allclose(default_smooth, given_smooth, rtol=1e-14)
+    # To the spacings' own rounding: linspace's differ by 5e-13 of their mean here
+    # (measured 7e-14 apart, the far tails included).
+    assert np.allclose(default_smooth, given_smooth, rtol=1e-12, atol=0.0)
 
 
 def test_specres_smooths_every_trace_of_a_stack():

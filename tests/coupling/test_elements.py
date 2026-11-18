@@ -264,8 +264,12 @@ def test_spectral_transfer_attenuates_by_its_squared_modulus(
     np.testing.assert_allclose(
         report.spectrum_out[band], factor * report.spectrum_in[band], rtol=1e-12
     )
+    # Silica absorbs too little over 2 cm at 800 nm for the energies to differ by more
+    # than their rounding, so the loss is held at the rounding of energy_in.
     assert report.specified_loss == pytest.approx(
-        report.energy_in - report.energy_out, rel=1e-12
+        report.energy_in - report.energy_out,
+        rel=1e-12,
+        abs=16 * EPS * report.energy_in,
     )
     assert report.calibration[0].removes_delay is True
     assert report.calibration[0].removes_phase is False

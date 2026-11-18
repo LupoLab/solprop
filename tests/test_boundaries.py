@@ -77,7 +77,7 @@ def test_the_rate_reproduces_the_collar_over_one_reference_length():
     alpha = collar_rate(window, length)
     # Nothing here is near the cap, so the round trip is exact to the rounding of a
     # logarithm and an exponential: a few units in the last place.
-    assert np.allclose(np.exp(-alpha * length / 2.0), window, rtol=8 * EPS)
+    assert np.allclose(np.exp(-alpha * length / 2.0), window, rtol=8 * EPS, atol=0.0)
 
 
 def test_the_rate_is_exactly_zero_in_the_flat_region():
@@ -146,7 +146,9 @@ def test_the_in_term_is_the_derivative_of_the_split_factor():
     field = np.array([2.0 + 1.0j, -1.0 + 0.5j])
     step = 1e-9
     numerical = (field * np.exp(-0.5 * alpha * step) - field) / step
-    assert np.allclose(numerical, nonlinear_absorber_term(field, alpha), rtol=1e-6)
+    assert np.allclose(
+        numerical, nonlinear_absorber_term(field, alpha), rtol=1e-6, atol=0.0
+    )
 
 
 def test_the_in_term_broadcasts_over_the_leading_axes():
@@ -170,8 +172,14 @@ def test_the_absorber_reproduces_the_collars_over_one_reference_length(
     # is deliberately zeroed rather than capped. The temporal rates are not the
     # logarithm; the tests below say what they are.
     unclamped = (window > math.exp(-MAX_ALPHA_LENGTH / 2.0)) & (rate > 0.0)
+    # exp(log(W)) carries the logarithm's rounding times |log W|, its condition
+    # number: 24 eps at W = 2e-13, deep in the collar.
+    kept = window[unclamped]
     assert np.allclose(
-        np.exp(-rate[unclamped] * length / 2.0), window[unclamped], rtol=8 * EPS
+        np.exp(-rate[unclamped] * length / 2.0),
+        kept,
+        rtol=(8 + np.abs(np.log(kept))) * EPS,
+        atol=0.0,
     )
 
 

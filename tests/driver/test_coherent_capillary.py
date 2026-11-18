@@ -58,7 +58,7 @@ from solprop.backends import available
 from solprop.backends.exponential import FLOW_MAX_SQUARINGS
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.coupled_flow import _triangular_exponential
-from solprop.boundaries import absorber
+from solprop.boundaries import absorber, no_absorber
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation, prop_capillary
 from solprop.exceptions import (
@@ -1105,9 +1105,11 @@ def test_ten_steps_apply_the_block_the_translation_layer_declared():
     pure exponential, so the only departure is the rounding of ten products of a
     Schur action by a scalar propagator. What this adds to the operator tests is
     that the step loop applies the operator it was given, in the right convention,
-    with the carrier and the block multiplied rather than added.
+    with the carrier and the block multiplied rather than added. The case's weak
+    collar is left out: a single bin fills the whole window, collar included, and the
+    collar would take 2.2e-7 of its amplitude over this length.
     """
-    simulation = capillary(wall=CoherentWall(), modes=1)
+    simulation = capillary(wall=CoherentWall(), modes=1, absorber=no_absorber(GRID))
     problem = simulation.translate()
     flow = problem.linear.coupled_flow
     assert flow is not None

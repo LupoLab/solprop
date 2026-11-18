@@ -101,12 +101,12 @@ def test_the_duration_follows_the_dispersion_law(output, synthetic):
     # The closed form of a Gaussian under pure group-velocity dispersion; the sampled
     # trace resolves the width with dt/tau of a few per cent, so the crossing is found
     # to second order in that.
-    assert np.allclose(widths, expected, rtol=2e-3)
+    assert np.allclose(widths, expected, rtol=2e-3, atol=0.0)
 
 
 def test_energy_is_conserved_by_pure_dispersion(output):
     values = time.energy(output)
-    assert np.allclose(values, values[0], rtol=1e-12)
+    assert np.allclose(values, values[0], rtol=1e-12, atol=0.0)
 
 
 def test_the_peak_power_falls_as_the_pulse_broadens(output):
@@ -196,9 +196,10 @@ def test_the_intensity_autocorrelation_of_a_gaussian_is_wider_by_root_two(output
 
 def test_the_coherence_time_of_a_gaussian_spectrum(output, synthetic):
     measured = float(time.coherence_time(output, plane=0))
-    # For a transform-limited Gaussian the field autocorrelation has the width of the
-    # pulse, so its squared modulus is narrower by sqrt(2).
-    assert measured == pytest.approx(synthetic.fwhm / np.sqrt(2), rel=5e-3)
+    # For a transform-limited Gaussian of intensity FWHM tau the field autocorrelation
+    # is exp(-ln 2 d^2 / tau^2), of FWHM 2 tau, so its squared modulus has FWHM
+    # sqrt(2) tau.
+    assert measured == pytest.approx(synthetic.fwhm * np.sqrt(2), rel=5e-3)
 
 
 @pytest.mark.parametrize(

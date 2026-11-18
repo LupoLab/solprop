@@ -81,7 +81,7 @@ def test_the_spectrogram_and_figures(run: str, tmp_path: Path, monkeypatch):
     assert found["values"].shape == (found["x"].size, found["t"].size)
     assert found["mode"] == 0 and found["axis"] == "wavelength"  # a sum: the first
     assert 1e-7 < found["x"][0] < found["x"][-1] < 1e-5  # the recipe's window, even
-    assert np.allclose(np.diff(found["x"]), found["x"][1] - found["x"][0])
+    assert np.allclose(np.diff(found["x"]), found["x"][1] - found["x"][0], atol=0.0)
     narrow = {
         "path": run,
         "index": 2,
@@ -145,7 +145,7 @@ def test_a_spectrogram_reports_the_gate_solprop_used(run: str):
 def test_a_file_says_its_planes_positions_and_modes(run: str, monkeypatch):
     described = ask("describe_output", {"path": run})
     assert described["labels"] == ["HE1,1:even", "HE1,2:even"]
-    assert np.allclose(described["z"], [0.0, 0.025, 0.05])
+    assert np.allclose(described["z"], [0.0, 0.025, 0.05], atol=0.0)
 
     def refuse(_handler: object) -> None:
         raise SolpropError("no modes")

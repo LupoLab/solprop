@@ -352,7 +352,9 @@ def test_a_native_run_stopped_between_planes_continues_from_its_checkpoint(
     assert state.checkpoint is not None
     assert state.march is not None and state.march.z == state.checkpoint.plane.z
     stop = state.checkpoint.plane.z
-    assert stop > planes[1] and not any(np.isclose(stop, one) for one in planes)
+    assert stop > planes[1] and not any(
+        np.isclose(stop, one, atol=0.0) for one in planes
+    )
     with caplog.at_level(logging.INFO, logger="solprop.driver"):
         build().run(part, resume=True, progress="none")
     assert AFRESH not in caplog.text

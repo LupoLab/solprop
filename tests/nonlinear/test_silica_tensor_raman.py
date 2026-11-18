@@ -392,7 +392,7 @@ def scalar_oracle(response, field, chi3, *, thg=True):
             numpy.ndarray
                 The kernel, 1/s.
             """
-            assert np.allclose(t, delays)
+            assert np.allclose(t, delays, atol=0.0)
             return self.values
 
     total = np.zeros_like(field)

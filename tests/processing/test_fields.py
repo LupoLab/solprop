@@ -167,7 +167,7 @@ def test_a_modal_sum_adds_the_densities(synthetic):
     output = synthetic.build_run("envelope", n_modes=2)
     _, each = fields.get_spectral_density(output, "omega", plane=0)
     _, total = fields.get_spectral_density(output, "omega", plane=0, modes="sum")
-    assert np.allclose(total, each.sum(axis=0), rtol=1e-15)
+    assert np.allclose(total, each.sum(axis=0), rtol=1e-15, atol=0.0)
 
 
 def test_the_real_field_is_the_real_part_of_the_analytic_signal(output):
@@ -182,20 +182,26 @@ def test_the_envelope_is_the_analytic_signal_without_its_carrier(output, grid):
     t, analytic = fields.get_field(output, plane=0, kind="analytic")
     _, envelope = fields.get_field(output, plane=0, kind="envelope")
     # In the optics convention the carrier is exp(+i omega0 t) (conventions.md 2).
-    assert np.allclose(envelope, analytic * np.exp(1j * grid.omega0 * t), rtol=1e-12)
+    assert np.allclose(
+        envelope, analytic * np.exp(1j * grid.omega0 * t), rtol=1e-12, atol=0.0
+    )
 
 
 def test_the_power_is_the_modulus_squared_of_the_analytic_signal(output):
     _, analytic = fields.get_field(output, plane=0, kind="analytic")
     _, power = fields.get_power(output, plane=0)
-    assert np.allclose(power, np.abs(analytic) ** 2, rtol=1e-14)
+    assert np.allclose(power, np.abs(analytic) ** 2, rtol=1e-14, atol=0.0)
 
 
 def test_oversampling_refines_the_axis_and_keeps_the_energy(output, grid):
     t_one, power_one = fields.get_power(output, plane=0)
     t_four, power_four = fields.get_power(output, plane=0, oversampling=4)
     assert t_four.size == 4 * t_one.size
-    assert np.isclose(t_four[1] - t_four[0], (t_one[1] - t_one[0]) / 4, rtol=1e-14)
+    # Differences of axis values about a thousand spacings from zero keep their
+    # rounding, |t| / dt eps ~ 2e-13 of the spacing (measured 1.1e-13).
+    assert np.isclose(
+        t_four[1] - t_four[0], (t_one[1] - t_one[0]) / 4, rtol=1e-12, atol=0.0
+    )
     energy_one = float(np.sum(power_one)) * float(t_one[1] - t_one[0])
     energy_four = float(np.sum(power_four)) * float(t_four[1] - t_four[0])
     # Zero-padding in frequency is exact interpolation of a band-limited trace, so the
@@ -283,8 +289,8 @@ def test_a_spectrogram_on_wavelength_is_a_density_per_metre(output):
     by_lam = np.trapezoid(per_m, lam, axis=0)
     by_omega = np.trapezoid(per_rad, omega, axis=0)
     bright = by_f > 1e-3 * by_f.max()
-    assert np.allclose(by_lam[bright], by_f[bright], rtol=2e-2)
-    assert np.allclose(by_omega, by_f, rtol=1e-9)
+    assert np.allclose(by_lam[bright], by_f[bright], rtol=2e-2, atol=0.0)
+    assert np.allclose(by_omega, by_f, rtol=1e-9, atol=0.0)
 
 
 def test_a_spectrogram_takes_a_time_range_a_gate_and_a_band(output):

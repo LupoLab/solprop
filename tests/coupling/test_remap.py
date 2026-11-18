@@ -155,7 +155,8 @@ def test_a_delay_moves_the_record_and_leaves_the_absolute_spectrum():
     plane = plane_of(gaussian(), grid, reference=PlaneReference(0.3, 2e-12))
     step = 40 * grid.dt
     moved, report = regrid(plane, grid, delay=2e-12 - step)
-    assert report.shift == pytest.approx(step, rel=1e-15)
+    # The shift is a difference of two delays of 2 ps and keeps their rounding.
+    assert report.shift == pytest.approx(step, rel=1e-15, abs=16 * EPS * 2e-12)
     assert_allclose(
         moved.samples,
         direct_sum(plane, grid, shift=step),
