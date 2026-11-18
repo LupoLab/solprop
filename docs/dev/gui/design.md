@@ -281,8 +281,8 @@ Capillary, helium                  Setup   Run   Analyse         [▶ Run]   ⋯
   by itself, and editing a finished run's setup goes back to Setup without losing the results.
 - **One primary action.** The button at the top right is what comes next: Run, Stop or Rerun.
   Run, Stop and Resume appear nowhere else.
-- **One overflow menu** (⋯) holds Save, Save as, Export recipe, Export Python and Open setup
-  from this run. The platform's menu bar repeats these, with the keyboard shortcuts.
+- **One overflow menu** (⋯) holds Save, Save as, Show the recipe and Show as Python. The
+  platform's menu bar repeats the first two, with the keyboard shortcuts.
 - **No permanent console.** The log moves to the Run health page (11.3). A warning appears
   beside what it concerns and only when something is wrong. The recipe and its Python
   equivalent open in a drawer on request.
