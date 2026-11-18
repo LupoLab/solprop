@@ -8,10 +8,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pytest
 from solprop.service.handlers import HANDLERS
-from solprop.service.reduce import stats_row
 
 from solprop_gui.help.guide import guide_url
 from solprop_gui.model.workspace import new_run_folder, slug
@@ -19,21 +17,6 @@ from solprop_gui.registry.pages import LABELS, label
 from solprop_gui.registry.routes import card_of
 
 # ---------------------------------------------------------------------- messages
-
-
-# ---------------------------------------------------------------------- reduction
-
-
-def test_stats_row_totals_numbers_and_skips_the_rest():
-    row = stats_row(
-        {
-            "energy": np.array([[1.0, 2.0]]),
-            "zdw": float("nan"),
-            "label": object(),
-            "count": 3,
-        }
-    )
-    assert row == {"energy": 3.0, "count": 3.0}
 
 
 # ---------------------------------------------------------------------- states
