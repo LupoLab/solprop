@@ -104,12 +104,13 @@ def test_adams_converges_at_its_order(narrow_grid, soliton_problem, method, orde
     reference = solve(1, None, rtol=1e-12)
     errors = [
         np.linalg.norm(solve(n, method) - reference) / np.linalg.norm(reference)
-        for n in (20, 80)
+        for n in (20, 40, 80)
     ]
-    observed = math.log(errors[0] / errors[1]) / math.log(4)
-    # Three levels of the measurement: 2.0 for Richter's; the margin admits the
-    # irregular startup and landing steps.
-    assert observed > order - 0.6
+    observed = [math.log2(errors[i] / errors[i + 1]) for i in range(2)]
+    # Three levels at Richter's order 2: measured 2.00 and 1.99, so the irregular
+    # startup and landing steps cost nothing visible and 0.3 below is margin; the
+    # upper gate rejects an order the method cannot have (testing.md section 1).
+    assert all(order - 0.3 < one < order + 3 for one in observed), observed
 
 
 def test_adams_is_the_exact_linear_flow_without_a_source(narrow_grid, linear_problem):

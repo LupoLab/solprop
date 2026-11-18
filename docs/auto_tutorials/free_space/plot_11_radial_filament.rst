@@ -193,7 +193,7 @@ conical emission. Each has its own unit; the colours here are in dB of each.
 
  .. code-block:: none
 
-    Complete filament reader example: 3.2 s
+    Complete filament reader example: 3.4 s
 
 
 
@@ -208,7 +208,7 @@ and :doc:`/guide/setup/recipes` the recipe that builds this run.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 3.213 seconds)
+   **Total running time of the script:** (0 minutes 3.504 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_11_radial_filament.py:

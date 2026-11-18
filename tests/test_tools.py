@@ -6,6 +6,7 @@
 
 import json
 import math
+import re
 import warnings
 from dataclasses import replace
 from pathlib import Path
@@ -244,24 +245,45 @@ def test_the_critical_power_is_the_package_townes_power_times_the_index():
 
 
 @pytest.mark.parametrize(
-    "call",
+    ("call", "message"),
     [
-        lambda: choice("lorentz", "shape", get_args(tools.PulseShape), ToolsError),
-        lambda: tools.pulse_width(0.0),
-        lambda: tools.pulse_peak_power(-1.0, 10e-15),
-        lambda: tools.dispersion_length(10e-15, 0.0),
-        lambda: tools.dispersion_length(10e-15, math.nan),
-        lambda: tools.nonlinear_length(1.0, 0.0),
-        lambda: tools.nonlinear_coefficient(helium(), -1.0, PUMP),
-        lambda: tools.intensity_to_field(-1.0),
-        lambda: tools.self_focusing_power(PUMP, 1.0, 0.0),
-        lambda: tools.capillary_params(
-            -1e-6, "He", 1.0, energy=1e-6, fwhm=1e-14, wavelength=PUMP
+        (
+            lambda: choice("lorentz", "shape", get_args(tools.PulseShape), ToolsError),
+            "shape must be 'sech' or 'gauss'",
+        ),
+        (lambda: tools.pulse_width(0.0), "fwhm must be finite and positive"),
+        (
+            lambda: tools.pulse_peak_power(-1.0, 10e-15),
+            "energy must be finite and positive",
+        ),
+        (
+            lambda: tools.dispersion_length(10e-15, 0.0),
+            "beta2 must be finite and non-zero",
+        ),
+        (
+            lambda: tools.dispersion_length(10e-15, math.nan),
+            "beta2 must be finite and non-zero",
+        ),
+        (lambda: tools.nonlinear_length(1.0, 0.0), "gamma must be finite and positive"),
+        (
+            lambda: tools.nonlinear_coefficient(helium(), -1.0, PUMP),
+            "n2 must be finite and not negative",
+        ),
+        (lambda: tools.intensity_to_field(-1.0), "intensity must not be negative"),
+        (
+            lambda: tools.self_focusing_power(PUMP, 1.0, 0.0),
+            "n2 must be finite and positive",
+        ),
+        (
+            lambda: tools.capillary_params(
+                -1e-6, "He", 1.0, energy=1e-6, fwhm=1e-14, wavelength=PUMP
+            ),
+            "radius must be finite and positive",
         ),
     ],
 )
-def test_unusable_numbers_are_refused_by_name(call):
-    with pytest.raises(ToolsError):
+def test_unusable_numbers_are_refused_by_name(call, message):
+    with pytest.raises(ToolsError, match=re.escape(message)):
         call()
 
 
@@ -842,7 +864,7 @@ def test_a_sign_change_across_samples_that_are_not_finite_is_not_a_zero():
     grid = np.linspace(
         2.0 * math.pi * C / tools_waveguide._ZDW_RANGE[1],
         2.0 * math.pi * C / tools_waveguide._ZDW_RANGE[0],
-        tools_waveguide._ZDW_SAMPLES,
+        base._ZDW_SAMPLES,
     )
     centre = 0.5 * (grid[20] + grid[21])
 
@@ -859,6 +881,47 @@ def test_a_sign_change_across_samples_that_are_not_finite_is_not_a_zero():
     )
     assert np.all(np.isfinite(base.beta2(mode, grid)))
     assert math.isnan(tools_waveguide._zdw_near(mode, OMEGA0, 0.0))
+
+
+def test_the_floored_plateau_beside_a_resonance_is_not_a_zero():
+    # Above krypton's 123.6 nm line the index sits on the evanescent floor, the group
+    # delay is constant, and the differenced beta2 crosses zero at 123.57 nm; the
+    # physical zero of this capillary is at 770.5 nm.
+    mode = MarcatiliMode(14e-6, "Kr", 15.0)
+    found = tools_waveguide._zdw_near(mode, 2.0 * math.pi * C / 200e-9, 0.0)
+    # The noise of the differenced beta2 (5e-9, modes.base) sets the tolerance.
+    assert found == pytest.approx(770.5167e-9, rel=1e-6)
+
+
+def test_a_stencil_reaching_a_line_is_not_a_zero():
+    # From a 120 nm pump the nearest sign change in argon at 15 bar lies at 106.826 nm,
+    # half a beta2 step from the 106.666 nm line, where the group delay rises without
+    # an extremum. The line bounds the pump's side, whose zero is at 644.1 nm.
+    mode = MarcatiliMode(14e-6, "Ar", 15.0)
+    found = tools_waveguide._zdw_near(mode, 2.0 * math.pi * C / 120e-9, 0.0)
+    reference = base.zdw(mode, wavelength_limits=(200e-9, 3e-6))
+    # Other samples, so other brackets: both stop on the noise of the differenced
+    # beta2 (5e-9, modes.base).
+    assert found == pytest.approx(reference, rel=1e-8)
+    assert reference == pytest.approx(644.0787e-9, rel=1e-6)
+
+
+def test_the_zero_between_two_lines_is_found_from_a_pump_between_them():
+    # Krypton's 116.5 and 123.6 nm lines bound a band holding a pump at 120 nm, and a
+    # zero of the gas's own dispersion at 119.88 nm, outside the fit's qualified range.
+    mode = MarcatiliMode(14e-6, "Kr", 15.0)
+    with pytest.warns(MaterialRangeWarning, match="Kr"):
+        found = tools_waveguide._zdw_near(mode, 2.0 * math.pi * C / 120e-9, 0.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MaterialRangeWarning)
+        omega = 2.0 * math.pi * C / found
+        # 2001 samples of the analytic delay across the beta2 stencil.
+        offsets = np.linspace(-base.BETA2_RELATIVE_STEP, base.BETA2_RELATIVE_STEP, 2001)
+        delay = base.beta1(mode, omega * (1.0 + offsets), 0.0)
+    assert found == pytest.approx(119.8786e-9, rel=1e-6)
+    # An extremum of the delay, at the centre to ten samples of 3e-6 relative.
+    extremum = np.argmin(delay) if delay[0] > delay[1000] else np.argmax(delay)
+    assert abs(int(extremum) - 1000) <= 10
 
 
 @pytest.mark.parametrize(
@@ -1226,7 +1289,7 @@ def test_the_nearest_zero_is_found_without_refining_every_resonance(monkeypatch)
 
     mode = Recipe.example("antiresonant_fibre").build().modes[0]
     pump = 2.0 * math.pi * C / 800e-9
-    refine = tools_waveguide._refine_zero
+    refine = base._refine_zero
     calls = []
 
     def counted(*args):
@@ -1234,14 +1297,14 @@ def test_the_nearest_zero_is_found_without_refining_every_resonance(monkeypatch)
         calls.append(root)
         return root
 
-    monkeypatch.setattr(tools_waveguide, "_refine_zero", counted)
+    monkeypatch.setattr(base, "_refine_zero", counted)
     found = tools_waveguide._zdw_near(mode, pump, 0.0)
     assert len(calls) <= 4
     # What refining every change would have reported.
     grid = np.linspace(
         2.0 * math.pi * C / tools_waveguide._ZDW_RANGE[1],
         2.0 * math.pi * C / tools_waveguide._ZDW_RANGE[0],
-        tools_waveguide._ZDW_SAMPLES,
+        base._ZDW_SAMPLES,
     )
     with tools_waveguide._probing(), np.errstate(divide="ignore", invalid="ignore"):
         sampled = base.beta2(mode, grid, 0.0)

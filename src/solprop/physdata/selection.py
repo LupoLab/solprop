@@ -36,7 +36,6 @@ from solprop.exceptions import MaterialError
 __all__ = [
     "DISPERSIVE_POLICIES",
     "ELECTRONIC_POLICIES",
-    "ENERGY_LOSS_POLICIES",
     "RAMAN_POLICIES",
     "RAMAN_SHIFT_POLICIES",
     "STATUSES",
@@ -81,9 +80,6 @@ DISPERSIVE_POLICIES: Final[Mapping[str, str]] = {
     "gas-polynomial": "polynomial",
 }
 """The dispersive electronic policies and the evaluator each selects (SEP 6)."""
-
-ENERGY_LOSS_POLICIES: Final[tuple[str, ...]] = ("peak-weighted",)
-"""The plasma energy-loss conventions: the rate-weighted energy at the peak field."""
 
 RAMAN_POLICIES: Final[tuple[str, ...]] = ("recommended", "provisional")
 """The names ``MaterialSelection.raman`` takes, for a gas and for silica alike.
@@ -243,9 +239,6 @@ class MaterialSelection:
         the Raman pump dispersion and the rate are evaluated; positive and finite, or
         ``None`` to take the run's grid reference. A dispersive electronic policy
         does not use it: its response is evaluated at absolute frequencies.
-    energy_loss : str
-        The plasma energy-loss convention; ``"peak-weighted"`` is the only one, the
-        rate-weighted energy per event at the run's peak field.
     raman_shift : str or None
         ``None``, or ``"reference-density"``: the explicit approximation that holds a
         density-dependent Raman line shift at a reference density.
@@ -259,12 +252,12 @@ class MaterialSelection:
     --------
     >>> from solprop.physdata.selection import MaterialSelection
     >>> selection = MaterialSelection(carrier_wavelength=800e-9)
-    >>> selection.linear, selection.energy_loss
-    ('recommended', 'peak-weighted')
-    >>> MaterialSelection(energy_loss="mean")  # doctest: +ELLIPSIS
+    >>> selection.linear, selection.carrier_wavelength
+    ('recommended', 8e-07)
+    >>> MaterialSelection(electronic="mean")  # doctest: +ELLIPSIS
     Traceback (most recent call last):
         ...
-    solprop.exceptions.MaterialError: MaterialSelection.energy_loss must be one of ...
+    solprop.exceptions.MaterialError: MaterialSelection.electronic must be one of ...
     """
 
     linear: ModelChoice = "recommended"
@@ -272,7 +265,6 @@ class MaterialSelection:
     raman: ModelChoice = "recommended"
     ionisation: ModelChoice = "recommended"
     carrier_wavelength: float | None = None
-    energy_loss: str = "peak-weighted"
     raman_shift: str | None = None
 
     def __post_init__(self) -> None:
@@ -281,7 +273,6 @@ class MaterialSelection:
             object.__setattr__(self, name, _choice(getattr(self, name), name))
         policies: tuple[tuple[str, object, tuple[str | None, ...]], ...] = (
             ("electronic", self.electronic, ELECTRONIC_POLICIES),
-            ("energy_loss", self.energy_loss, ENERGY_LOSS_POLICIES),
             ("raman_shift", self.raman_shift, RAMAN_SHIFT_POLICIES),
         )
         for name, value, allowed in policies:
@@ -323,7 +314,6 @@ class MaterialSelection:
             "raman": _choice_record(self.raman),
             "ionisation": _choice_record(self.ionisation),
             "carrier_wavelength": self.carrier_wavelength,
-            "energy_loss": self.energy_loss,
             "raman_shift": self.raman_shift,
         }
 
@@ -407,15 +397,19 @@ class MaterialRecord:
         Returns
         -------
         MaterialRecord
-            Its name, kind, material, digest, status and override fields.
+            Its name, kind, material, digest, status and override fields; the
+            status reason without optmat's internal tracker ids.
         """
+        # _optmat imports this module: the import waits for the call.
+        from solprop.physdata._optmat import optmat_text  # noqa: PLC0415
+
         return cls(
             name=identity.name,
             kind=identity.kind,
             material=identity.material,
             digest=identity.digest,
             status=identity.status,
-            status_reason=identity.status_reason,
+            status_reason=optmat_text(identity.status_reason),
             optmat_version=identity.optmat_version,
             modified=identity.modified,
             base=identity.base,
@@ -697,9 +691,9 @@ class MaterialManifest:
         electronic response is SEP 6's dispersive one),
         ``gnlse_raman`` (a GNLSE run's held-back fraction, where it came from and
         the silica bundle), ``raman_shift`` and ``raman_reference_temperature``,
-        ``energy_loss``, and ``ionisation``: one entry per optmat rate, with its
-        threshold kind, its reference field, its constant energy per event and that
-        energy's bound
+        and ``ionisation``: one entry per optmat rate, with its threshold kind, its
+        reference field, its energy-loss convention, its constant energy per event
+        and that energy's bound
         (:meth:`solprop.nonlinear.optmat_rates.OptmatRate.manifest_entry`). A
         policy a later phase resolves is recorded as selected, or ``None``.
     dilute_scaling : tuple of collections.abc.Mapping

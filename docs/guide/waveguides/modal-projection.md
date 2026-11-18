@@ -28,9 +28,10 @@ renormalises that away. {func}`~solprop.translate.modal_tables.modal_transform_t
 evaluates the table on the grids a run will use and stores the execution maps.
 
 {meth}`~solprop.modes.guide.ModalGuide.from_provider` records what it solved on — the
-knots, the position, the node rule, the declared degenerate blocks and the **measured**
-profile interpolation error — as a {class}`~solprop.modes.guide.ModalSampling`, and that
-is what a run rebuilds its reference from. A guide built by
+knots, the position, the node rule, the declared degenerate blocks, any declared basis,
+the **measured** profile interpolation error and, for a moving guide, its path — as a
+{class}`~solprop.modes.guide.ModalSampling`, and that is what a run rebuilds its
+reference from. A guide built by
 {meth}`~solprop.modes.guide.ModalGuide.from_step_index` carries no sampling, because
 nothing there declares a transverse resolution, and is refused by name when a run asks
 for it.
@@ -196,7 +197,7 @@ the gas's own, under the run's `materials=` selection
 ([materials](../media/materials.md)). Under a carrier policy (the default) the region is the
 constant cubic above with $\chi^{(3)} = \sum_s N_s\gamma_{3,s}(\lambda_0)$, the Kerr
 coefficient at the run's carrier. Under one of the dispersive policies of
-[SEP 6](../../dev/seps/archive/sep-0006-dispersive-nonlinearity.md), `"symmetric-kerr"` or
+[SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md), `"symmetric-kerr"` or
 `"gas-polynomial"`, each species of the fill is a channel of the frequency-dependent
 cubic ({class}`~solprop.nonlinear.responses.DispersiveKerrResponse`) acting at the
 region's nodes on the real three-component field, the scalar kernel times the
@@ -277,7 +278,7 @@ the same `gram_atol`, because to first order that departure is what declaring $W
 the run's `physical_energy`. It is measured **where the launched light is**: the
 interpolation error lives at the long-wavelength end of the sampled band, where a pulse
 declared in the near infrared puts none of its own spectrum. On the weakly guiding test
-fibre the whole-band figure is $1.1\times10^{-4}$ near 1.73 µm, inside the 790–890 nm
+fibre the whole-band figure is $1.0\times10^{-4}$ near 1.72 µm, inside the 790–890 nm
 launch window it is $2.3\times10^{-7}$, and weighted by the pulse's own spectrum — which
 is what `from_waveguide` passes, since it builds the launch first — it is
 $3.7\times10^{-8}$. The number is on the record as `occupied_departure`, in the modal
@@ -286,9 +287,9 @@ so a guide refused here is fixed by **adding knots**, not by widening the rule.
 
 **The weighting is the launched spectrum, so the gate certifies the launch and not the
 run.** The active band is where light *can* go, and a broadening run occupies bins the
-launched spectrum discounted to nothing — on that same fibre the worst bin, 1.73 µm, is
+launched spectrum discounted to nothing — on that same fibre the worst bin, 1.72 µm, is
 inside `grid.active_mask`, so a run that broadened an octave would pay
-$1.1\times10^{-4}$ of its `physical_energy` there rather than the $3.7\times10^{-8}$ the
+$1.0\times10^{-4}$ of its `physical_energy` there rather than the $3.7\times10^{-8}$ the
 gate saw. The route therefore also measures the **unweighted** maximum over the whole
 active band, records it as `active_departure`, and emits a
 {py:class}`~solprop.exceptions.GeneralModalBasisWarning` naming the worst bin's

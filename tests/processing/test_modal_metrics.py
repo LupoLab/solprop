@@ -183,7 +183,7 @@ def test_the_reconstruction_carries_si_units_and_three_components(
 def test_the_coefficient_dual_recovers_the_amplitudes_it_synthesised(
     run, tables, grid, record_property
 ):
-    """The round trip of A2 companion section 4, to the rounding budget above."""
+    """The coefficient dual inverts the synthesis, to the rounding budget above."""
     stored = np.sum(run.fields("fft")[-1], axis=1)
     reference = tables.electric[0]
     magnetic = tables.magnetic[0]
@@ -267,7 +267,7 @@ def _cross_frequency_bound(run, tables):
 def test_the_reconstructed_peak_is_the_statistic_plus_the_cross_frequency_term(
     run, tables, guide, record_property
 ):
-    """The distinction A2 companion section 6 insists on, measured.
+    """Same-frequency flux against the physical cross-section flux, measured.
 
     The run statistic ``analytic_flux`` is the peak of the **same-frequency**
     diagonal, which is what a modal state can say on its own; the reconstruction
@@ -372,10 +372,9 @@ def test_the_instantaneous_flux_averages_to_the_analytic_one(
 def test_a_coordinate_intensity_is_not_the_physical_one(pair_guide, grid):
     """Two channels launched together interfere, and coordinate powers do not add.
 
-    The distinction A2 companion section 6 insists on: the sum over channels of
-    the per-coordinate flux densities is the physical density only where the
-    channels do not interfere. Here they do, at the same nodes, so the difference
-    is a measurable fraction of the total and is **not** clipped away.
+    The sum over channels of the per-coordinate flux densities is the physical
+    density only where the channels do not interfere. Here they do, at the same nodes,
+    so the difference is a measurable fraction of the total and is **not** clipped away.
     """
     route = route_for(pair_guide, grid)
     simulation = Simulation.from_waveguide(
@@ -456,7 +455,7 @@ def test_a_record_built_without_labels_says_so():
 
 
 def test_an_ordinary_run_is_refused_every_general_accessor(tables, guide):
-    """The reviewer's trap: an old file asked for a reconstruction."""
+    """A file of a run on no general guide is refused every reconstruction."""
     ordinary = example_output()
     for accessor in (
         electric_field,
@@ -756,7 +755,7 @@ def test_a_gas_or_spatial_name_is_refused_for_its_own_reason(name):
     A plasma density, a gas pressure and a beam radius are unavailable on a guide
     because it has no fill and no transverse grid, not because its coordinate powers
     do not add up. The gate names that reason and offers no replacement from the
-    flux family (A2 companion section 6).
+    flux family.
     """
     message = refusal_for("general_modal", [name])
     assert message is not None

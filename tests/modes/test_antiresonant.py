@@ -27,13 +27,13 @@ from solprop.modes import (
 )
 from solprop.modes.antiresonant import (
     AREA_FACTOR,
-    CONVENTIONS,
     LEGACY_CONVENTIONS,
     MAX_TERMS,
     RADIUS_COEFFICIENT,
 )
 from solprop.modes.base import alpha, beta2, db_per_m, loss_length, transmission
 from solprop.modes.protocol import ParameterisedMode
+from solprop.physdata import Mixture
 from solprop.profiles import Linear
 
 GEOMETRIES = [
@@ -41,7 +41,6 @@ GEOMETRIES = [
     (5e-6, 80e-9, 1e-6, 10),
     (core_radius_from_gap(10e-6, n_tubes=8, gap=5e-6), 1e-6, 10e-6, 8),
 ]
-LEGACY_RADIUS_COEFFICIENT = LEGACY_CONVENTIONS.radius_coefficient
 
 
 class LunaFormMode(VincettiMode):
@@ -78,12 +77,38 @@ def test_luna_regression():
     # the convention (c alpha/omega there, not c alpha/(2 omega)), so it is halved.
     assert result.real == pytest.approx(0.9998598623672965, rel=1e-13)
     assert result.imag == pytest.approx(3.4579455755137454e-8 / 2, rel=1e-12)
-    # Evacuated, so only the radius coefficient separates the production form: it
-    # gives Re n_eff = 0.9998591986525931 here, 6.64e-7 below Luna, and the same
-    # imaginary part. The difference is the closed form checked below.
+    # Evacuated, the three gas-index choices are identities and both forms carry the
+    # printed radius coefficient, so the production form gives Luna's value to the
+    # same rounding bound.
     production = replace(make_mode(GEOMETRIES[2]), cladding=1.44).neff(omega)[0]
     assert production.imag == result.imag
-    assert -7e-7 < production.real - result.real < -6e-7
+    assert production.real == pytest.approx(0.9998598623672965, rel=1e-13)
+
+
+def test_effective_radius_uses_the_printed_rosa_2021_coefficient():
+    # Rosa, Melli and Vincetti (2021) eq. 10 prints the bracket 3 + 2 * 10
+    # wavelength / R_co, a coefficient of 20.
+    assert RADIUS_COEFFICIENT == 20
+    radius, wall, outer, count = GEOMETRIES[0]
+    mode = make_mode()
+    wavelength = np.array([800e-9, 1030e-9])
+    omega = 2 * math.pi * C / wavelength
+    fit = mode._spectral_model(mode.sampled_terms(omega), radius, 0.0)
+    frequency = 2 * wall / wavelength * math.sqrt(1.45**2 - 1)
+    gap = mode.lattice.gap(radius)
+    expected = (1.027 + 1e-3 * (frequency + 2 / frequency**4)) * np.sqrt(
+        radius**2
+        + count
+        / math.pi
+        * 3
+        / 64
+        * outer**2
+        * (1 + (3 + 20 * wavelength / radius) * gap / outer)
+    )
+    # A few roundings of the same arithmetic; a coefficient of 10 moves R_eff by 0.5 %.
+    np.testing.assert_allclose(
+        fit.effective_radius.value, expected, rtol=16 * np.finfo(float).eps, atol=0
+    )
 
 
 @given(st.floats(1e-6, 100e-6), st.floats(0, 10e-6), st.integers(3, 20))
@@ -227,7 +252,7 @@ def test_symbolic_derivative(case):
     values, derivative = mode._model_values(terms, case["geometry"][0], 1.0)
     # Sympy differentiates the independent expression of the production form,
     # including all material slopes. The 1e-10 bound is declared in advance;
-    # measured worst 1.07e-12 on the derivative and 5.0e-11 on the value, the
+    # measured worst 1.07e-12 on the derivative and 1.9e-11 on the value, the
     # latter at a near-zero refractivity where the gas square root's rounding
     # dominates (hence the absolute allowance).
     np.testing.assert_allclose(
@@ -243,7 +268,7 @@ def test_symbolic_derivative(case):
         * (mode.u_nm * wavelength) ** 2
         / np.real(fit.decrement.value - fit.correction.value)
     )
-    # Measured worst 5.7e-13.
+    # Measured worst 5.4e-13.
     np.testing.assert_allclose(area, case["effective_area"], rtol=1e-10, atol=0)
 
 
@@ -378,12 +403,13 @@ def test_luna_witness(case):
 
 
 def test_production_form_against_luna_form():
-    """The five conventions change the fits by their closed forms, and only those.
+    """The four conventions change the fits by their closed forms, and only those.
 
-    The dispersion width is common to both forms. Evacuated, the gas index is unity
-    and the three gas-index choices are identities, so the radius coefficient is the
-    whole difference; filled, each choice moves its own term by the amount its
-    definition says (``docs/guide/waveguides/modes.md``, "The five conventions").
+    The dispersion width and the radius coefficient are common to both forms.
+    Evacuated, the gas index is unity and the three gas-index choices are identities,
+    so the forms agree; filled, each choice moves its own term by the amount its
+    definition says (``docs/guide/waveguides/antiresonant.md``, "The four
+    conventions").
     """
     lattice = TubeLattice(180e-9, 9e-6, 6)
     radius, tube_index = 15e-6, 1.45
@@ -394,57 +420,31 @@ def test_production_form_against_luna_form():
     def prefactor(frequency):
         return 1.027 + 0.001 * (frequency + 2 / frequency**4)
 
-    # Evacuated: equal to rounding but for the radius coefficient, whose effect on
-    # R_eff^2 is the coefficient difference times its own term. The rounding is the
-    # complex square root of n_t^2 - n_g^2 with n_g = 1 + 0j against the real
-    # square root of n_t^2 - 1: measured 4 ulps on the refractivity.
+    # Evacuated: equal to rounding. The rounding is the complex square root of
+    # n_t^2 - n_g^2 with n_g = 1 + 0j against the real square root of n_t^2 - 1:
+    # measured 4 ulps on the refractivity.
     mode = VincettiMode(radius, lattice=lattice, cladding=tube_index)
     terms = mode.sampled_terms(omega)
     luna = mode._spectral_model(terms, radius, 0.0, LEGACY_CONVENTIONS)
     production = mode._spectral_model(terms, radius, 0.0)
-    luna_coefficient = mode._spectral_model(
-        terms, radius, 0.0, replace(CONVENTIONS, radius_coefficient=20.0)
-    )
     for name in ("refractivity", "effective_radius", "correction", "decrement"):
         for part in ("value", "slope"):
             expected = getattr(getattr(luna, name), part)
             # The correction's slope crosses zero, so the floor is relative to
             # the largest element rather than to each.
             np.testing.assert_allclose(
-                getattr(getattr(luna_coefficient, name), part),
+                getattr(getattr(production, name), part),
                 expected,
                 rtol=8 * eps,
                 atol=8 * eps * float(np.max(np.abs(expected))),
             )
     np.testing.assert_allclose(
         mode.effective_area(omega, conventions=LEGACY_CONVENTIONS),
-        mode.effective_area(
-            omega, conventions=replace(CONVENTIONS, radius_coefficient=20.0)
-        ),
+        mode.effective_area(omega),
         rtol=8 * eps,
         atol=0,
     )
     frequency = 2 * lattice.wall_thickness / wavelength * math.sqrt(tube_index**2 - 1)
-    expected = (
-        prefactor(frequency) ** 2
-        * lattice.n_tubes
-        / math.pi
-        * 3
-        / 64
-        * lattice.tube_radius**2
-        * (RADIUS_COEFFICIENT - LEGACY_RADIUS_COEFFICIENT)
-        * wavelength
-        / radius
-        * lattice.gap(radius)
-        / lattice.tube_radius
-    )
-    # The difference of squares is 0.9 % of R_eff^2, so its rounding is 1e-13.
-    np.testing.assert_allclose(
-        production.effective_radius.value**2 - luna.effective_radius.value**2,
-        expected,
-        rtol=1e-12,
-        atol=0,
-    )
 
     # Argon at 30 bar, one choice at a time from Luna's form.
     mode = VincettiMode(radius, "Ar", 30.0, lattice=lattice, cladding=tube_index)
@@ -500,7 +500,7 @@ def test_production_form_against_luna_form():
     filled_loss = np.imag(filled.refractivity.value)
     assert np.max(np.abs(filled_loss / np.imag(luna.refractivity.value) - 1)) > 1e-3
     assert np.max(np.abs(filled.correction.value / luna.correction.value - 1)) > 1e-3
-    # All five together differ from Luna by more than rounding in every piece.
+    # All four together differ from Luna by more than rounding in every piece.
     production = mode._spectral_model(terms, *scalars)
     production_index = np.real(production.refractivity.value)
     assert np.max(np.abs(production_index - np.real(luna.refractivity.value))) > 1e-6
@@ -646,6 +646,8 @@ def test_invalid_samples_and_geometry():
         "N=6, Ar 1 bar, loss=model)"
     )
     assert "Ar 2 bar" in repr(make_mode(gas="Ar", pressure=Linear(2.0, 3.0, 1.0)))
+    mixed = make_mode(mixture=Mixture.fill({"He": 0.25, "Ar": 0.75}, 2.0))
+    assert repr(mixed).endswith("N=6, He+Ar 2 bar, loss=model)")
 
 
 def test_tube_count_warning_is_per_construction(caplog):

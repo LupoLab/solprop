@@ -12,7 +12,7 @@
 | **Type** | Feature |
 | **Created** | 2026-09-27 |
 | **Resolution** | — |
-| **Requires** | [SEP 3](archive/sep-0003-optmat-materials.md): material adapters and resolved material identities; [SEP 34](archive/sep-0034-medium-flux.md): shared medium flux and radial adiabatic transport |
+| **Requires** | [SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md): material adapters and resolved material identities; [SEP 34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md): shared medium flux and radial adiabatic transport |
 | **Supersedes** | — |
 | **Superseded-by** | — |
 | **Implementation** | — |
@@ -29,7 +29,7 @@ Fused silica and undoped YAG are the first material targets. Recommend a
 cycle-averaged solid Keldysh rate spanning multiphoton and tunnelling regimes, an
 explicitly selected multiphoton alternative, and a bounded population model with
 optional avalanche and carrier removal. Following
-[SEP 3](archive/sep-0003-optmat-materials.md)'s decision D15, optmat owns the solid
+[SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md)'s decision D15, optmat owns the solid
 photoionisation rate models, with their normalisation, averaging declaration and
 validation, together with the curated material parameters and their provenance.
 solprop tabulates those rates and owns the population/current equations, the
@@ -592,7 +592,7 @@ Pointwise broadband flux need not be nonnegative; do not clip it into a
 rate drive. Rates use §4.1's positive proxy. Specify zero-frequency/endpoints
 and refuse launch energy on nonpropagating support.
 
-[SEP 34](archive/sep-0034-medium-flux.md) owns the shared implementation for isotropic
+[SEP 34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md) owns the shared implementation for isotropic
 media, including launches, noise, observations, endpoint rules, certified radial
 forward transport and backend qualification. Use its constants consistently with
 the scalar source prefactor.
@@ -1181,13 +1181,18 @@ No implementation phases have started.
   Solid rates, kinetics and their qualification remain this proposal's scope.
 
 - 2026-10-23: Reassigned the shared medium-flux prerequisite to
-  [SEP 34](archive/sep-0034-medium-flux.md) following SEP 31's review and split.
+  [SEP 34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md) following SEP 31's review and split.
   SEP 31 retains field exchange and coupling; the shared flux proposal
   includes admitted radial adiabatic transport and complex local flux.
 - 2026-10-23: Aligned the shared-flux description with SEP 34's review response:
   the real-index path certificate, forward-component local closure and deferral
   of varying absorption. Solid-ionisation scope is unchanged.
 - 2026-11-01: Tracking issue [#116](https://github.com/LupoLab/solprop/issues/116).
-- 2026-11-02: [SEP 43](archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
+- 2026-11-02: [SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
   proposal names Numba or `numba_cpu`, it was written before that: such a phase or check falls
   away, and the feature goes on `numpy_ref` and the native backend (SEP 0).
+- 2026-11-18: Written before the current architecture. Where this proposal names
+  solprop-kokkos or its files, read the native package in this repository (`native/`,
+  [SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md)); the backends have since been
+  cut to two, binary64 only, with one shape and a native seam that only marshals
+  ([SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md), ADR-077, ADR-079).

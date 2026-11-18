@@ -118,9 +118,11 @@ carries the absorbing collar, which two guides with different index tables carry
 differently, and the same comparison reads 2e-2.
 
 **Where it runs, and what it refuses by name.** Every backend executes the leaf —
-`numpy_ref` and `native`, on the CPU and on a GPU. A **noise** model beside it is refused, because the shot-noise
-draw ({doc}`../media/noise`) is transported by the unitary phase of a *diagonal* flow and its
-transport through a coupled one has not been measured. And a block whose exponent over
+`numpy_ref` and `native`, on the CPU and on a GPU. The **`modified`** noise model beside
+it is refused, because its draw ({doc}`../media/noise`) is transported by the unitary
+phase of a *diagonal* flow and its transport through a coupled one has not been measured;
+the default `input` draw is part of the entrance state, which the flow propagates like any
+field, and is admitted. And a block whose exponent over
 the largest declared step exceeds `MAX_GENERAL_FLOW_EXPONENT` (1e3) is refused: the block carries every
 channel's departure from the reference, so a basis declared over channels that were
 never a degenerate group would put their whole dispersion difference into a matrix

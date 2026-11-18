@@ -12,7 +12,7 @@ uv run python -m benchmarks ab --case CASE --baseline-python OLD/bin/python  # f
 ```
 
 `history/` holds one CSV per hardware set, a few rows per release. Run bundles go to
-`.benchmarks/`, which git ignores; the benchmark rules and indicative results are in
+`.benchmarks/`, which git ignores; the benchmark rules and current results are in
 `docs/dev/benchmarks.md`. What has already been tried for CPU performance is in
 `docs/dev/cpu-performance.md`. Earlier campaign harnesses, the retired standard suite's
 baselines and their raw data are kept with the project's development records, not in

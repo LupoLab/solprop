@@ -67,15 +67,21 @@ it is qualified, [backends.md](backends.md); for the current seam,
   throughput. JAX therefore wins on neither problem in practice, and `numba_cpu` is the
   CPU backend either way; its per-element bodies are shared with a device family as this
   record intends. See [backends.md](backends.md) §5.
+- **Now:** the `numba_cpu` backend and its numba and pyfftw dependencies are gone
+  (ADR-064); `native` is built from this repository's `native/`, released with solprop
+  and required ([SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md)), and the two
+  backends are `native` and `numpy_ref` (ADR-077). The seam has no version number
+  (ADR-068) and no driver surface: each backend runs its own session ([SEP
+  47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md), ADR-079).
 
 ## ADR-003 — Kernel state layout `(n_batch, n_modes, n_pol, n_omega)`
 
-- **Status:** accepted; amended by [SEP 47](seps/archive/sep-0047-run-ownership.md) §6.2, which
+- **Status:** accepted; amended by [SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) §6.2, which
   removes the nominal `n_batch` from the single-trajectory seam: the state is
   `(n_modes, n_pol, n_omega)` and a group is a sequence of member problems; and by
-  [SEP 52](seps/archive/sep-0052-backend-shape.md) §5.4, which removes the remaining leading axis
+  [SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md) §5.4, which removes the remaining leading axis
   of one everywhere: the backends' state, the operator's value tables, the memory ledgers
-  and a march snapshot's stored state
+  and a march snapshot's stored state (ADR-079)
 - **Context:** Luna has different array shapes per geometry and special code paths for scalar
   vs vector polarisation and for mode-averaged vs modal propagation. Polarisation support must
   not slow single-polarisation runs; batch mode must be a first-class leading axis.
@@ -192,6 +198,8 @@ it is qualified, [backends.md](backends.md); for the current seam,
   three registers. Stepping across planes and interpolating them is ADR-039's opt-in.
 - **Consequences:** Saved fields are exact step endpoints. A run with many save planes takes
   slightly shorter steps near them (negligible at the usual ratios).
+- **Now:** `numba_cpu` is retired (ADR-064); `native`'s Runge–Kutta march holds the
+  stage rows as described.
 
 ## ADR-010 — Fixed-quadrature multimode transform only
 
@@ -206,7 +214,7 @@ it is qualified, [backends.md](backends.md); for the current seam,
   coarse-rule error estimate as an *alarm*, never a controller. Mode-averaged propagation is
   the `n_nodes = 1` case of the same pipeline with the effective-area normalisation.
 - **Consequences:** The ionisation rates, PPT among them, come from optmat
-  ([SEP 3](seps/archive/sep-0003-optmat-materials.md)); the quadrature order is a validated
+  ([SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md)); the quadrature order is a validated
   default with a convergence test in the manual.
 
 ## ADR-011 — Response definitions with declared traits, compiled into one fused pass
@@ -239,7 +247,10 @@ it is qualified, [backends.md](backends.md); for the current seam,
 
 ## ADR-013 — Batch mode: lockstep with fixed schedules, or independent adaptive runs
 
-- **Status:** accepted; batch agreement is held to ADR-049's rounding bound
+- **Status:** superseded in part by ADR-079, which removed lockstep execution, its batch
+  axis and the `Batch` executor's groups; the independent half (`Local` and `Pool`,
+  spawned processes) stands ([scans.md](scans.md)). Batch agreement was held to ADR-049's
+  rounding bound
 - **Context:** Many small problems must run in a highly parallel way; several large ones in
   separate processes. Adaptive stepping in a vectorised batch forces every member onto the
   stiffest member's step; ensembles must use identical steps so the numerical error is a
@@ -257,7 +268,11 @@ it is qualified, [backends.md](backends.md); for the current seam,
 
 ## ADR-014 — Stateful `Simulation` object
 
-- **Status:** accepted
+- **Status:** superseded in fact, by no single record: `Simulation` has no `reset()` or
+  `propagate_to(z)` (a run goes through the backend's session, SEP 47), its inputs are
+  read-only properties from which `with_input` and `with_mixture` derive new simulations
+  (the public API review, PR #872), and there is no batch mode (ADR-079). It still owns
+  translation and backend selection, and `prop_capillary` and `prop_gnlse` still build one
 - **Context:** Luna's free-function `run` cannot be re-run, reset or vectorised; the `LunaSim`
   branch showed a callable, re-runnable object is a better fit.
 - **Decision:** `Simulation` holds the physics objects, owns translation and backend selection,
@@ -322,7 +337,7 @@ it is qualified, [backends.md](backends.md); for the current seam,
   order gate calibrates it; production runs (every ensemble member, every scan point where
   the schedule transfers) replay the scaled schedule. Dithering a schedule to decorrelate
   round-off is an unimplemented idea, and whether it would help at all is an open question
-  ([open questions](open-questions.md), "Round-off growth with varying operators").
+  ([#262](https://github.com/LupoLab/solprop/issues/262)).
 - **Consequences:** Step schedules are first-class, saved with the output and re-loadable.
 
 ## ADR-020 — Priorities: accuracy and reliability, then CPU performance, then GPU
@@ -352,6 +367,9 @@ it is qualified, [backends.md](backends.md); for the current seam,
   `benchmark`. Reference problems: linear-only (P0), N-soliton with phase (P1), analytic
   z-varying loss and dispersion (P2), cross-scheme Richardson with order gate (P3), and stored
   Luna results for the two target simulations. See [testing.md](testing.md).
+- **Now:** the `NUMBA_DISABLE_JIT` lane and the identity-decorated kernel bodies went
+  with `numba_cpu` (ADR-064); the coverage lane measures solprop's Python with the
+  native wheel installed ([tooling.md](tooling.md)).
 
 ## ADR-023 — numba and pyfftw are core dependencies
 
@@ -478,8 +496,10 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-029 — Prefer the installed native backend when no backend is specified
 
-- **Status:** accepted; sets the default selection that ADR-002 leaves open; its fallback
-  is ADR-064's
+- **Status:** superseded by ADR-064 and ADR-077: native is a required dependency and
+  `backend="auto"` is `native`, with no fallback
+  ([SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md)). It set the default selection that
+  ADR-002 left open
 - **Context:** the optional native backend has measured CPU and GPU improvements, and
   installing its target-specific build should make ordinary propagation use it. Numba CPU
   remains a core dependency and the portable fallback. This is an installation policy,
@@ -528,7 +548,7 @@ Withdrawn (development-process record, not a design decision).
   20 bar gradient. The rejected alternative, carrying the true-power amplitude as the
   internal state, would have changed the first stage pass and the on-axis synthesis in
   every backend for the same result. The first approximation was removed by
-  [SEP 34](seps/archive/sep-0034-medium-flux.md) (2026-10-23): the spatial functionals, launches
+  [SEP 34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md) (2026-10-23): the spatial functionals, launches
   and noise now use the medium's axial admittance, and a radial gas gradient carries the
   matching endpoint term.
 
@@ -592,7 +612,7 @@ Withdrawn (development-process record, not a design decision).
   when the full gate (`poe check`, see [tooling.md](tooling.md)) and continuous
   integration are green. Design documents under `docs/dev/` describe the code as it is,
   and a change that alters the design updates them in the same pull request: a new or
-  reversed decision as a new record here, open work on the [roadmap](roadmap.md), and a
+  reversed decision as a new record here, open work in an issue, and a
   deliberate difference from Luna.jl's behaviour on the
   [differences from Luna](../guide/workflows/luna.md) page. Luna functionality is added
   when a use case needs it. Numerical claims need an analytic or independent reference and
@@ -605,7 +625,7 @@ Withdrawn (development-process record, not a design decision).
 - **Context:** A portable `solprop-native` build — no vendor BLAS, generic x86-64 — lost
   to `numba_cpu` on every measured case at one thread: Numba compiles for the processor it
   runs on and uses NumPy's OpenBLAS, which selects its kernels at run time. Builds compared
-  on an 18-core-per-socket AVX-512 server ([benchmarks.md](benchmarks.md#backends-and-builds))
+  on an 18-core-per-socket AVX-512 server ([benchmarks.md](benchmarks.md#builds-and-libraries))
   separated the local build's gain: the vendor BLAS is all of it on capillary problems
   (2.6–3.8× on straight capillaries), and the instruction set most of it on the general
   route. Against `x86-64-v3`, an `x86-64-v2` build's median cost on the benchmark core is
@@ -635,11 +655,14 @@ Withdrawn (development-process record, not a design decision).
   from source. The reference build is the gate's tidy and sanitizer build; the gate
   builds and smoke-tests the distribution wheel. MKL, 1.4–1.8× faster than OpenBLAS on
   TE/TM walls, remains a local-build choice.
+- **Now:** the `numba_cpu` fallback of `backend="auto"` was removed by ADR-064: below a
+  wheel's baseline `auto` refuses. The x86-64 wheels are built for `x86-64-v3` and, as a
+  second variant, `x86-64-v2` (`.github/workflows/wheels.yml`).
 
 ## ADR-035 — Enhancement proposals for major changes
 
 - **Status:** accepted; amends ADR-033. Its implementation order is amended by ADR-061,
-  [SEP 43](seps/archive/sep-0043-retire-numba-cpu.md) (which retired `numba_cpu`),
+  [SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) (which retired `numba_cpu`),
   ADR-068 and ADR-077: a feature now lands on `native` and `numpy_ref`, in either order
 - **Context:** Under ADR-033 every change is an ordinary branch and pull request. That
   suits fixes and small additions, but not a new model, route or numerical scheme: such
@@ -653,8 +676,8 @@ Withdrawn (development-process record, not a design decision).
   form. A SEP is standalone — it cites solprop's own documentation and code, the
   literature and public reports, never another code's source (optmat excepted, SEP 0 §7)
   or private notes — and carries the motivation, the theory with its references, the
-  implementation options and the verification plan. Accepted SEPs are listed on the
-  [roadmap](roadmap.md). They are implemented in phases on branches, `numpy_ref` first,
+  implementation options and the verification plan. Accepted SEPs are listed in the
+  [SEP index](seps/index.md). They are implemented in phases on branches, `numpy_ref` first,
   then `numba_cpu`, then the native CPU build, until the backends agree; each phase
   appends a report of its deviations, decisions, verification and open questions to the
   SEP. A finished SEP is archived under `docs/dev/seps/archive/` and linked from the manual
@@ -664,7 +687,7 @@ Withdrawn (development-process record, not a design decision).
 - **Consequences:** SEPs are public design records in the developer documentation. ADRs
   still record durable decisions and are what code cites; the manual and design pages
   describe the code as it is, and a final SEP is not updated to follow them.
-  `tests/test_seps.py` keeps the SEP files, their index and the roadmap consistent with
+  `tests/test_seps.py` keeps the SEP files and their index consistent with
   each SEP's status.
 
 ## ADR-036 — Dense observation for the low-call Adams march
@@ -679,12 +702,12 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-037 — The low-call Adams method: one-call PEC, variable order
 
-- **Status:** accepted; made the default integrator by ADR-045; amended by ADR-057 (the spatial routes' default collar scheme, and an opt-in quiet collar)
+- **Status:** accepted; made the default integrator by ADR-045; amended by ADR-057 (the spatial routes' default collar scheme, and an opt-in quiet collar); its comparison variants removed by ADR-077
 - **Context:** SEP 13 compared interaction-picture Adams methods for responses that
   dominate a run's cost: explicit Adams-Bashforth, PEC and PECE, matched and
   one-order-higher correctors, fixed and variable order. It ran them at full length on a
   gas-flow capillary at 1 and 2 mJ, and on RDW, CtC, GNLSE and soliton cases
-  ([SEP 14](seps/archive/sep-0014-stepper-efficiency.md)).
+  ([SEP 14](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0014-stepper-efficiency.md)).
 - **Decision:** `solprop.stepper.multistep.Multistep` is one-call PEC: an
   Adams-Bashforth predictor of order *q*, one source call at the predicted field, and an
   Adams-Moulton corrector one order higher through it. The step is controlled on the
@@ -708,12 +731,14 @@ Withdrawn (development-process record, not a design decision).
 - **Consequences:** `numpy_ref`, `numba_cpu` and `native` implement it, in both
   formulations of ADR-041 and, beside a coupled flow, as ADR-044 describes; a backend that
   does not refuses `Multistep()` by name. `RungeKutta()` names IP-DOPRI5 (ADR-045).
+- **Now:** `ComparisonMultistep` and the comparison variants were removed by ADR-077,
+  and `numba_cpu` by ADR-064; `numpy_ref` and `native` implement the method.
 
 ## ADR-038 — Step limits by route: no interval cap on diagonal flows, a start-up rule
 
 - **Status:** accepted; supersedes the interval cap of ADR-004 on the diagonal-flow routes
 - **Context:** On gas-flow capillaries
-  ([SEP 14](seps/archive/sep-0014-stepper-efficiency.md)), steps were limited by things
+  ([SEP 14](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0014-stepper-efficiency.md)), steps were limited by things
   other than the error estimate. ADR-004 capped every step at the width of the Chebyshev
   interval containing it, and a choked end's table bisects to its width floor, so the
   runs took hundreds of µm-scale steps there. From `dz_init = 1e-4 L` the growth cap of
@@ -756,7 +781,8 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-039 — Opt-in dense output and natural-step saving
 
-- **Status:** accepted; amends ADR-009 for `interpolate_planes` and `step_planes`;
+- **Status:** accepted; its bitwise `numpy_ref` resume superseded by ADR-049 (agreement to
+  a rounding bound); amends ADR-009 for `interpolate_planes` and `step_planes`;
   supersedes ADR-036
 - **Context:** ADR-009 lands every step on a save plane. With many planes that caps the
   steps at the plane spacing: on SEP 13's canonical capillary at `rtol=1e-3`, 501 planes
@@ -777,7 +803,7 @@ Withdrawn (development-process record, not a design decision).
     grows exponentially across the step and no polynomial follows it. The same guard
     applies to the Adams interpolant.
   - **Landed still:** the end of the run and every hard kink.
-  - **Refused** ([SEP 14](seps/archive/sep-0014-stepper-efficiency.md) §5): the per-step
+  - **Refused** ([SEP 14](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0014-stepper-efficiency.md) §5): the per-step
     temporal collar, a coupled flow, the `modified` noise model and a fixed schedule.
   - **Resume.** A file whose last plane was interpolated is refused for `resume=True`,
     for both steppers; `resume="interpolated"` continues afresh from it and records the
@@ -811,6 +837,11 @@ Withdrawn (development-process record, not a design decision).
   uninterrupted one to rounding (ADR-049).
   - The host keeps five field-sized coefficient buffers while a step that crosses a plane
     is held; `native` copies the seven stages to the host once per such step.
+- **Now:** `numba_cpu` is retired (ADR-064) and `ComparisonMultistep` removed (ADR-077).
+  The continuous extension is `solprop.stepper.tableau.extension_coefficients`, applied
+  by the Runge–Kutta engine's `extend` (`backends/engines.py`), and the run's session
+  observes the plane; there is no `_dense_stages` hook and no `propagate_to` ([SEP
+  47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md)).
 
 ## ADR-040 — Tables accept a tail at the sampling-noise floor of their positions
 
@@ -843,7 +874,7 @@ Withdrawn (development-process record, not a design decision).
   controller) take longer steps near a choked end.
 
 ## ADR-041 — One Adams family, two formulations: interaction and exponential
-- **Status:** accepted ([SEP 16](seps/archive/sep-0016-unified-multistep.md)); the default
+- **Status:** accepted ([SEP 16](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0016-unified-multistep.md)); the default
   formulation is ADR-045's
 - **Context:** SEP 15 found that interpolating the interaction picture's transported
   source limits the linear phase an Adams step can take in a driven bin to about one,
@@ -869,9 +900,15 @@ Withdrawn (development-process record, not a design decision).
 - **Consequences:** a backend without `_adams_lab_source` refuses the exponential
   formulation by name. Switching formulation mid-run is not defined; a resume
   restarts the history under the run's own formulation.
+- **Now:** the reference march is `HostAdamsMarch`
+  (`backends/numpy_ref/marches/adams.py`) and the lab-frame source the workspace's
+  `lab_source` (`NumpyWorkspace.lab_source`); native's compiled march evaluates its own.
+  `StepDriver` and its hooks were removed by [SEP
+  47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md), and the CF4 sections and comparison
+  variants by ADR-077.
 
 ## ADR-042 — The compensated reference for varying operators: the transported treatment
-- **Status:** accepted ([SEP 16](seps/archive/sep-0016-unified-multistep.md))
+- **Status:** accepted ([SEP 16](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0016-unified-multistep.md))
 - **Context:** the exponential formulation integrates its source exactly against a
   constant operator's flow. Along a varying operator the exact flow
   $U = e^{\Phi(z_2)-\Phi(z_1)}$ is available, but the source's polynomial is integrated
@@ -902,9 +939,12 @@ Withdrawn (development-process record, not a design decision).
   (SEP 16 §4.2) was built opt-in, measured slower on `numba_cpu` (4 % on the canonical
   run, 13 to 15 % on the M2/RDW run, with the same calls and fields) and removed at
   review (SEP 16, phase 3b report and D26); the exponential form stays the transport.
+- **Now:** the untransported witness is selected by a test hook of the reference backend
+  (`NumpyRefBackend._use_adams(..., compensation="untransported")`); `numba_cpu` is
+  retired (ADR-064).
 
 ## ADR-043 — The Adams march hands its state-sized work to an engine
-- **Status:** accepted ([SEP 16](seps/archive/sep-0016-unified-multistep.md)); amended by
+- **Status:** accepted ([SEP 16](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0016-unified-multistep.md)); amended by
   ADR-060, under which `native` executes the exponential march's controller itself
 - **Context:** a march that does its field arithmetic on host arrays and asks a backend
   only for a source and an adoption makes `native` copy the state, the predicted field and
@@ -929,9 +969,14 @@ Withdrawn (development-process record, not a design decision).
 - **Consequences:** an engine must reproduce `HostHistory` within the parity bounds of
   the compiled backends. A varying operator's per-sample rate is formed on the host
   (`translate.linop.phi_rate`) and handed to the engine, one row per accepted step.
+- **Now:** the engine protocol is `solprop.backends.engines.AdamsEngine` and the
+  reference's engine `HostHistory` (`backends/numpy_ref/multistep.py`); native's
+  compiled march has its own resident engine (ADR-060). `StepDriver` and its
+  `_adams_engine` hook (SEP 47), lockstep (ADR-079) and the PECE path are gone, and the
+  dense hold and observation are the session's (`backends/engines.py`).
 
 ## ADR-044 — The exponential formulation beside a coupled flow
-- **Status:** accepted ([SEP 16](seps/archive/sep-0016-unified-multistep.md))
+- **Status:** accepted ([SEP 16](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0016-unified-multistep.md))
 - **Context:** a coupled flow (a coherent capillary wall, a split block, a moving guide)
   is not a diagonal exponential. The interaction formulation would transport its history
   through the flow's inverse actions, whose conditioning grows with loss. Beside a
@@ -957,12 +1002,17 @@ Withdrawn (development-process record, not a design decision).
   section edge is not a kink unless declared; a declared kink restarts the history.
   *Amended 2026-11-10 (SEP 47 phase 4):* `native` keeps them resident at any width and
   whichever route each bin takes, on a CPU and a device build alike.
+- **Now:** `coupled_moments` is in `backends/numpy_ref/adams_kernels.py`, and the frozen
+  block comes from the workspace's `coupled_block`; `StepDriver._adams_block` ([SEP
+  47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md)), the CF4 sections (ADR-077) and
+  `numba_cpu` (ADR-064) are gone.
 
 ## ADR-045 — `Multistep()` is a default integrator, chosen per interface by ADR-055; `RungeKutta()` names the march
-- **Status:** accepted ([SEP 16](seps/archive/sep-0016-unified-multistep.md)); amended by
+- **Status:** accepted ([SEP 16](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0016-unified-multistep.md)); amended by
   ADR-055, which chooses each interface's default: `RungeKutta()` on `prop_gnlse`,
   `prop_waveguide` and `prop_free`, `Multistep()` on `prop_capillary` (an override of
-  its rule), `prop_radial` and `prop_planar`
+  its rule), `prop_radial` and `prop_planar`; its memory refusal naming `RungeKutta()`
+  removed by ADR-065 (no memory admission)
 - **Context:** the exponential formulation runs on every route and backend, devices
   included, and took the fewest calls on every case SEP 16 measured. With the
   error norm over the whole active band it was, at matched error on one CPU thread,
@@ -990,6 +1040,7 @@ Withdrawn (development-process record, not a design decision).
   Adams method's smaller negative-real stability interval under the in-stage collar; a
   few fixed steps start at order one. Tests whose subject is the interaction formulation
   or the Runge–Kutta march name it.
+- **Now:** `prop_radial` is `prop_free` on a `RadialGrid`.
 
 ## ADR-046 — A resume continues the Adams history
 - **Status:** accepted; agreement to a rounding bound (ADR-049)
@@ -1014,6 +1065,7 @@ Withdrawn (development-process record, not a design decision).
   afresh (roadmap). Superseded in part by SEP 29 §6.6: `native` exports and installs
   its resident rows, and continues too. A file holds one snapshot, of the history's size (7 to about 60
   copies of the state), rewritten at every save.
+- **Now:** `numba_cpu` is retired (ADR-064), and open work is in issues (ADR-062).
 
 ## ADR-047 — Signals reach a run between its commits
 - **Status:** accepted; "bit for bit on the host engines" is restated by ADR-049 as
@@ -1070,7 +1122,7 @@ Withdrawn (development-process record, not a design decision).
 ## ADR-049 — Reproducibility to the error bound
 
 - **Status:** accepted
-  ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)); supersedes the bitwise
+  ([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)); supersedes the bitwise
   clauses of ADR-013 (batches bit-identical to sequential runs), ADR-022 (bitwise
   repeatability and thread-count invariance tests), ADR-034 (pins for the reference
   build) and ADR-039 (`numpy_ref` resumes bitwise), and restates the "bit for bit"
@@ -1130,7 +1182,7 @@ Withdrawn (development-process record, not a design decision).
 ## ADR-050 — A replay-only low-storage march, accepted in place, with no estimate
 
 - **Status:** accepted
-  ([SEP 24](seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md));
+  ([SEP 24](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md));
   amends ADR-009's stage clause and, for this march only, ADR-047's premise that a step
   in flight holds nothing committed
 - **Context:** a Cartesian free-space state can take gigabytes, and the Runge–Kutta march
@@ -1171,12 +1223,17 @@ Withdrawn (development-process record, not a design decision).
   replay of the Runge–Kutta march catches before it writes the state. A resume rebuilds
   the half-step flow table from its own first step and agrees with the uninterrupted run
   to rounding. The kernel contract and the output schema carry the kind.
+- **Now:** the reference march is `HostLowStorageMarch`
+  (`backends/numpy_ref/marches/low_storage.py`) over the engine `NumpyLowStorage`
+  (`backends/numpy_ref/engines.py`); native's is its compiled march's resident engine
+  (`native/src/march/low_storage.cpp`). `StepDriver`, `propagate_to` and the lockstep
+  runner were removed ([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md), ADR-079).
 
 ## ADR-051 — No compatibility with earlier configurations, and one TDSE source form
 
 - **Status:** accepted; withdraws the source filter of
-  [SEP 12](seps/archive/sep-0012-tdse-nonlinear-response.md) and
-  [SEP 26](seps/archive/sep-0026-edge-free-tdse-source.md); one exception added on
+  [SEP 12](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0012-tdse-nonlinear-response.md) and
+  [SEP 26](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0026-edge-free-tdse-source.md); one exception added on
   2026-10-28 (`collar_placement="inside"`); its rules on resuming and on recorded fields
   narrowed by ADR-063, and restored by ADR-066
 - **Context:** before a first release there are no external output files to keep. An
@@ -1192,7 +1249,7 @@ Withdrawn (development-process record, not a design decision).
   `ComparisonMultistep`, both Raman spellings, the Luna witnesses (`LEGACY_CONVENTIONS`,
   the trapezoid plasma rule) and `vacuum_end="floor"`.
 - **The exception: `collar_placement="inside"`** (maintainer, 2026-10-28). It rebuilds
-  the time-window geometry of before [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md),
+  the time-window geometry of before [SEP 21](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md),
   the collar inside the request, bin for bin. It stays public because the Luna
   witnesses and the frozen cross-backend comparisons were measured on that geometry, and
   re-measuring them is work of its own. Tests pin it, through `tests/legacy_geometry.py`,
@@ -1205,10 +1262,12 @@ Withdrawn (development-process record, not a design decision).
   change that moves an identity bumps the version it moves and adds no compatibility
   layer. ADR-066 sets the resume policy: a file of another output schema is never resumed,
   by that precondition, and a field added to a record refuses every earlier file.
+- **Now:** `ComparisonMultistep` was removed by ADR-077.
 
 ## ADR-052 — One thread budget per process, which every pool stays within
 
-- **Status:** accepted; amended by ADR-056 (one thread per core)
+- **Status:** accepted; amended by ADR-056 (one thread per core) and ADR-070 (the budget
+  on a chip with cores of several kinds)
 - **Context:** each piece sized its threads its own way. `numba_cpu` read the affinity
   mask and the root control group's `cpu.max`, rounded to nearest, but not
   `NUMBA_NUM_THREADS`, so a large problem failed at construction when that was below the
@@ -1257,6 +1316,8 @@ Withdrawn (development-process record, not a design decision).
   `SOLPROP_THREADS` to its share; `Pool` already shares its budget among its workers.
   Virtual machines (cloud instances included) and Slurm jobs set no quota by default;
   their limit is the mask.
+- **Now:** `numba_cpu` and `NUMBA_NUM_THREADS` went with ADR-064; `SOLPROP_THREADS` and
+  the budget are as decided.
 
 ## ADR-053 — Runtime type checks in one CI lane; the CI lanes sharded
 
@@ -1297,7 +1358,7 @@ Withdrawn (development-process record, not a design decision).
 - **Status:** superseded by ADR-077 (binary64 only). It amended
   [architecture.md §1](architecture.md) ("Double precision throughout") and recorded an
   exception to ADR-020 for the `mlx` route
-  ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md))
+  ([SEP 33](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0033-single-precision-mlx.md))
 - **Context:** Apple-silicon GPUs have several times the CPU's single-precision
   throughput and no binary64 arithmetic, and Kokkos has no Metal backend. Whether a
   problem survives binary32 depends on the problem, so it has to be measured, against
@@ -1321,7 +1382,7 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-055 — Noise on by default, and defaults chosen for each interface
 
-- **Status:** accepted ([SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md)); amends
+- **Status:** accepted ([SEP 37](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0037-noise-and-stepper-defaults.md)); amends
   ADR-045 and ADR-008; the capillary's override of the selection rule requalified on
   2026-10-28 and re-timed on 2026-10-31
 - **Context:** every run was noiseless unless it asked, every interface stepped with
@@ -1399,10 +1460,14 @@ Withdrawn (development-process record, not a design decision).
     (the maintainers' ruling of 2026-10-28; `docs/guide/results/resuming.md`).
   - Low-energy GNLSE runs take more steps with noise (the seed's dynamics are
     resolved). Replayed schedules for noisy ensembles must be calibrated with noise on.
+- **Now:** single precision was removed by ADR-077, and `prop_radial` is `prop_free` on
+  a `RadialGrid`.
 
 ## ADR-056 — One thread per core, and idle native threads sleep at once
 
-- **Status:** accepted; amends ADR-052
+- **Status:** superseded in part by ADR-071 (idle threads spin briefly within native work
+  rather than sleep at once); amends ADR-052; amended by ADR-070 (the budget on a chip with
+  cores of several kinds)
 - **Context:** the thread budget counted CPUs, so on a machine with two hardware threads
   per core a default run took two threads per core. The native backend left OpenMP's
   waiting to the runtime, whose idle threads spin between parallel regions, and it runs
@@ -1437,7 +1502,7 @@ Withdrawn (development-process record, not a design decision).
 ## ADR-057 — Temporal boundaries: the collar outside the window, a watched edge, a quiet collar on request
 
 - **Status:** accepted; amends ADR-025 and ADR-037
-- **Context:** [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md) changed the
+- **Context:** [SEP 21](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md) changed the
   temporal boundaries' defaults:
   - the collar lies outside the requested window (the grid widens to
     `trange / (1 - 2 collar_fraction)`, `collar_fraction` 0.1);
@@ -1533,10 +1598,12 @@ Withdrawn (development-process record, not a design decision).
     exponential Adams march, the cap removes the gain. A per-step check that would lift
     the cap is [#224](https://github.com/LupoLab/solprop/issues/224).
   - The monitor's record counts `collar_left_out_checks`.
+- **Now:** single precision was removed by ADR-077, and `numba_cpu` by ADR-064.
 
 ## ADR-058 — The 0.x releases are unstable; the first output schema is 1
 
-- **Status:** accepted (maintainer, 2026-10-28)
+- **Status:** accepted (maintainer, 2026-10-28); `KERNEL_SCHEMA_VERSION` removed by ADR-068,
+  and the reserved batch axis by ADR-079
 - **Context:** ADR-021 promised nothing about stability until a first release, and
   nothing said what the first release promises. The exported surface is large
   (`solprop.translate` alone exports 61 names), and some internal seams are known to be
@@ -1558,11 +1625,16 @@ Withdrawn (development-process record, not a design decision).
   made now would freeze seams already known to need work.
 - **Consequences:** a released version cannot read a development output file; keep an
   older install for those. ADR-066 sets the resume policy.
+- **Now:** the seam has no version number (ADR-068). Of the reserved seams, the batch
+  axis was removed by [SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md) (ADR-079), and
+  the step loops are each backend's session and marches ([SEP
+  47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md), ADR-079).
 
 ## ADR-059 — Host vector maths on SLEEF for the native CPU kernels on x86-64
 
 - **Status:** accepted 2026-11-01, having shipped in the 0.1.0 wheels; the maintainers
-  asked for SLEEF to be evaluated and adopted if it paid (2026-10-28)
+  asked for SLEEF to be evaluated and adopted if it paid (2026-10-28); amended by ADR-072
+  (SLEEF on macOS arm64 too)
 - **Context:** a profile of the native exponential Adams trial found glibc's scalar
   `exp`, `cos` and `sin` about two thirds of its predict pass on a pressure-gradient
   helium case on an AMD EPYC 7763. A survey of the native CPU backend with Valgrind's
@@ -1631,7 +1703,9 @@ Withdrawn (development-process record, not a design decision).
     corrector and dense observation, the separable stage propagators).
 
 ## ADR-060 — The exponential Adams march executes natively; solprop's is the reference
-- **Status:** accepted ([SEP 39](seps/archive/sep-0039-native-adams-march.md)); amends ADR-043
+- **Status:** accepted ([SEP 39](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0039-native-adams-march.md)); amends ADR-043;
+  extended by ADR-069; its host march for configurations the native march did not cover
+  removed by [SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) phase 5
 - **Context:** ADR-043 keeps the Adams controller in solprop and hands the state-sized
   work to an engine, so each trial of a native run crosses the seam several times and
   runs Python on the host: 150 to 210 µs per trial on an AMD EPYC 7763 before SEP 39,
@@ -1664,6 +1738,13 @@ Withdrawn (development-process record, not a design decision).
   - Within one build the two marches read the same tables and norms and take the same
     steps; across builds they differ by rounding, as any two builds do.
   - A native run's metadata records which march stepped it (`adams_march`).
+- **Now:** the reference march is `HostAdamsMarch`
+  (`backends/numpy_ref/marches/adams.py`), which `numpy_ref` runs. Native has no Python
+  march and refuses by name what its march does not step ([SEP
+  47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) phase 5), so no configuration issues
+  `HostMarchWarning`, and the class was removed in 0.3. The native session books a call's attempts
+  (`native/src/session/session.cpp`, as the reference's `HostSession.record` does);
+  `StepDriver` was removed.
 
 ## ADR-061 — Backend tiers: where features land first
 
@@ -1737,7 +1818,7 @@ Withdrawn (development-process record, not a design decision).
 
 - **Status:** superseded by ADR-066, except its amendment on how often the schema is bumped,
   which stands. Accepted (maintainer, 2026-11-01, with
-  [SEP 42](seps/archive/sep-0042-tolerant-resume.md)); narrowed ADR-051 and set the policy
+  [SEP 42](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0042-tolerant-resume.md)); narrowed ADR-051 and set the policy
   ADR-058 left open; amended 2026-11-02 for how often the schema is bumped (the last
   bullet)
 - **Context:** a file resumed only when the rebuilt run's configuration hash equalled
@@ -1776,7 +1857,7 @@ Withdrawn (development-process record, not a design decision).
   table of classes and one table of neutral values rather than versioned hashers.
 - **Consequences:** a new recorded field needs a decision, which the frozen records of
   `tests/output/test_record_stability.py` enforce; each release adds its frozen records
-  from its tag (`docs/dev/releasing.md`). 0.2.0, the first release of output schema 2,
+  from its tag (`docs/dev/releasing.md`); both were removed with ADR-066. 0.2.0, the first release of output schema 2,
   is tagged after SEP 42, so that every released reader of schema 2 knows these rules; a
   later change to what force records bumps the schema.
 - **Amendment, how often the schema is bumped** (maintainer, 2026-11-02): the bump rule
@@ -1786,13 +1867,17 @@ Withdrawn (development-process record, not a design decision).
   are not compatible with one another, and a known difference between them is refused
   by name rather than read two ways (#80, the Multistep ledger's run-length encoded
   orders, folded into schema 2).
+- **Now:** the comparison table (`solprop.output.compatibility`), `NEUTRAL_VALUES` and
+  `resume="force"` were removed with ADR-066, which compares the configuration hash
+  exactly.
 
 ## ADR-064 — `numba_cpu` is retired: no Tier 2, and the documentation lane runs on the wheel
 
-- **Status:** accepted, with [SEP 43](seps/archive/sep-0043-retire-numba-cpu.md); supersedes
+- **Status:** accepted, with [SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md); supersedes
   ADR-061's Tier 2 and its statement that the documentation build installs no native
   backend, removes the fallback of ADR-029, and ends ADR-023; its single-precision clause
-  for `backend="auto"` is amended by ADR-077 (binary64 only)
+  for `backend="auto"` and Tier 3 (`mlx`) are amended by ADR-077 (binary64 only, two
+  backends), and its TDSE clause by ADR-078 (a TDSE response runs on `native`)
 - **Context:** every test, route and kernel of `numba_cpu` was a second copy of what
   `native` does. In the 0.1.0 history it took 1.5 to 2.8 times as long as native by
   geometric mean, with no winning configuration among the 22 measured on three machines,
@@ -1840,13 +1925,15 @@ Withdrawn (development-process record, not a design decision).
   - An exact pin means a new release replaces a source or GPU build with that release's CPU
     wheel. Released source builds take a local version label, and a GPU job can set
     `SOLPROP_REQUIRE_DEVICE`, which reads the actual build.
-  - Records keep the rows `numba_cpu` wrote, as evidence of what it measured. Records of
-    decisions that name it, this log's included, stay as written.
+  - Records keep the rows `numba_cpu` wrote, as evidence of what it measured. The SEPs
+    that name it stay as written; the decisions in this log that name it say so.
+- **Now:** `backend="auto"` resolves a TDSE response to `native` like every other run
+  (ADR-078), and `mlx` and single precision are retired (ADR-077).
 
 ## ADR-065 — No memory admission: a run that doesn't fit fails with an out-of-memory error
 
 - **Status:** accepted, 2026-11-04. Supersedes the memory admission of SEP 22, SEP 41 and
-  earlier decisions. Those records stay as written.
+  earlier decisions (ADR-045's refusal). The SEPs stay as written; ADR-045 says so.
 - **Decision:** solprop no longer estimates a run's memory before allocating or compares
   it with a budget. `estimate_memory`, `estimate_guide_memory`, `solprop.driver.memory`,
   `memory_budget=`, `SOLPROP_MEMORY_BUDGET`, `--memory-budget`, `MemoryBudgetError`,
@@ -1872,11 +1959,12 @@ Withdrawn (development-process record, not a design decision).
   - A run keeping its planes in memory can run out partway through, and a general modal
     guide fails while its tables are built. Both were previously refused or warned about
     before they started.
+- **Now:** there are no batch groups (ADR-079); scan workers stay bounded as described.
 
 ## ADR-066 — A resume continues on an exact configuration hash
 
 - **Status:** accepted, 2026-11-04. Supersedes ADR-063 and the design of
-  [SEP 42](seps/archive/sep-0042-tolerant-resume.md), except ADR-063's amendment on how often
+  [SEP 42](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0042-tolerant-resume.md), except ADR-063's amendment on how often
   the schema is bumped. Restores ADR-051's rule that every field is recorded.
 - **Context:** restarting a run is rare, and restarting from an earlier version essentially
   never happens. SEP 42's path-by-path comparison cost a classification for each new recorded
@@ -1894,8 +1982,9 @@ Withdrawn (development-process record, not a design decision).
     `RunOutcome.resumes` and `forced_positions` are removed. So are `record_none` and the
     refusal of four-column `absorbed_power`: every field is recorded at its default, and
     development builds are not compatible with one another.
-  - Reading is unchanged. A file of output schema 2 written by another build still reads,
-    with an absent field taking its default.
+  - Reading is unchanged. A file of the current output schema written by another build
+    still reads, with an absent field taking its default; one of any other schema is
+    refused (ADR-058).
   - `source=` in `field_plane` and a scan's reuse of a finished point use the same hash.
   - Nothing is carved out of the key for rounding, and provenance stays in it. A carve-out
     was tried for a band rule's taps and dropped, as the measurement below shows it can't
@@ -1914,8 +2003,8 @@ Withdrawn (development-process record, not a design decision).
   apart from 2 recipes with unseeded noise, which a resume redraws from the file's seed. All
   31 differed between those and an Intel Xeon Gold 6240, which also had another glibc and
   Python patch version, in the launch, absorber rates, quadrature weights, effective areas
-  and noise spectra. Forcing other OpenBLAS kernels on the Xeon moved 23 to 27 of 34 recipes.
-  So a long job has to stay on one CPU family to resume.
+  and noise spectra. Forcing other OpenBLAS kernels on the Xeon Gold 6240 moved 23 to 27 of
+  34 recipes. So a long job has to stay on one CPU family to resume.
 - **Why not a SEP:** SEP 42 stays `Final` as the record of what it did, with a note pointing
   here. The maintainer judged a decision record enough for removing a mechanism, and the same
   goes for ADR-067.
@@ -1940,8 +2029,8 @@ Withdrawn (development-process record, not a design decision).
 ## ADR-068 — Native is the primary backend; `numpy_ref` stays the oracle for numbers
 
 - **Status:** accepted (maintainer), 2026-11-04. Amends ADR-061 and
-  [SEP 0](seps/sep-0000-process.md)'s implementation rules. Those records, and the SEPs
-  implemented under them, stay as written.
+  [SEP 0](seps/sep-0000-process.md)'s implementation rules, which say so. The SEPs
+  implemented under them stay as written.
 - **Context:** production runs on `native`, and the costs of the split between Python and
   native decide what those runs can do. The written rules still steered work as if the
   reference came first: a SEP was implemented on `numpy_ref` and then on native, the kernel
@@ -1984,11 +2073,15 @@ Withdrawn (development-process record, not a design decision).
   - A wheel skips the comparison, and has only the pin and the name lookup between it and a
     mismatched solprop. `poe fetch-wheel` keeps its own check on the tree.
   - "Kernel schema N" in the code and the documents is history: the number a change took.
+- **Now:** `StepDriver` and its protected surface were removed by [SEP
+  47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md): the crossings are the kernel contract
+  (the problem, the run request and the stage bundles) and the `Backend` protocol,
+  frozen in `tests/backends/test_driver.py`. `mlx` was retired by ADR-077.
 
 ## ADR-069 — The Runge–Kutta march and the boundary checks run natively, solprop's as reference
 
 - **Status:** accepted (maintainer), 2026-11-07, with
-  [SEP 45](seps/archive/sep-0045-native-rk-march.md). Extends ADR-060 to the adaptive Runge–Kutta march
+  [SEP 45](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0045-native-rk-march.md). Extends ADR-060 to the adaptive Runge–Kutta march
   and to the boundary monitor's checks.
 - **Context:** after SEP 39 the native Adams march still returned to Python at every check of a
   busy boundary monitor, 100–250 µs each, and the Runge–Kutta march, the default of the fibre
@@ -2011,6 +2104,10 @@ Withdrawn (development-process record, not a design decision).
 - **Consequences:** native Runge–Kutta trajectories moved once at rounding level (phase 2); the
   split collar's crossing limit sums in one sequential order (Q7); the driver's protected
   surface gained `_account_step`, `_statistics_step` and `_watched_step` for `_skip_step`.
+- **Now:** `RungeKuttaPolicy` is in `solprop.backends.records`, and the reference march
+  is `RungeKuttaMarch` (`backends/numpy_ref/marches/runge_kutta.py`); `StepDriver` and
+  its hooks were removed ([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md)), and nothing
+  issues `HostMarchWarning`: the class was removed in 0.3.
 
 ## ADR-070 — On a chip with cores of several kinds, the budget is the fastest kind's cores
 
@@ -2109,10 +2206,15 @@ Withdrawn (development-process record, not a design decision).
   thresholds; Linux, Windows and wider teams are unchanged. A grain calibrated per machine at
   start-up (from the measured region cost and a small-pass probe) is the general form and a
   lead; this decision measures one platform and keeps to it.
+- **Now:** the thresholds are the built-in table of
+  `native/src/solprop_native/_execution.py` ([SEP
+  46](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0046-machine-calibration.md)), not `core.hpp`; the divisor and
+  the team cap are its `SPIN_DIVISOR` and `SPIN_MAX_TEAM`, and a machine calibration
+  (ADR-074) may replace the table.
 
 ## ADR-074 — A per-user calibration store, calibrated on first use, below explicit settings
 
-- **Status:** proposed with SEP 46's implementation (PR #582), for the maintainer.
+- **Status:** accepted (maintainer), 2026-11-09, with SEP 46's implementation (PR #582).
 - **Context:** the native backend's CPU execution settings (operation thresholds, medium and
   compact widths, the stable team, the waiting policy and team width, FFT plan efforts) were
   constants chosen on two or three machines; PR #576 found them not to transfer (ADR-073).
@@ -2192,7 +2294,7 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-076 — Runs keep the FFTW plans they measure, by transform, by default
 
-- **Status:** proposed with PR #602 (issue #136), for the maintainer.
+- **Status:** accepted (maintainer), 2026-11-09, with PR #602 (issue #136).
 - **Context:** measured plans for threaded rows win in the step (0.94–0.97, ADR-075), but
   planning them costs up to 12 s of a run's construction (`ctc` on 16 cores of an AMD EPYC
   7763: 13.8 s against 1.6 s), so the policy left them at estimate. Wisdom outlived the
@@ -2241,10 +2343,10 @@ Withdrawn (development-process record, not a design decision).
   across four comparisons on the EPYC (same build and against #598, two independent
   stored measurements), no slower than plans measured in place; `ctc` 1.003–1.017, its
   range spanning 1 with a second stored measurement, so the plan a single measurement
-  picks; `rdw` 1.00; the Xeon's geometric mean 1.015, every range spanning 1. Fields agree
-  to rounding. A first attempt that planned each transform from nothing measured a key
-  seeded twice twice and lost shared sub-plans (`rdw` 6.7 s cold on the Xeon against 1.4 s);
-  a transform to measure now starts from the workspace's own measurements. The store
+  picks; `rdw` 1.00; the Xeon Gold 6240's geometric mean 1.015, every range spanning 1.
+  Fields agree to rounding. A first attempt that planned each transform from nothing measured
+  a key seeded twice twice and lost shared sub-plans (`rdw` 6.7 s cold on the Xeon Gold 6240
+  against 1.4 s); a transform to measure now starts from the workspace's own measurements. The store
   holds about 20 kB a case at one width (80 kB for four cases on the EPYC) and grows with
   the shapes a user runs; nothing evicts a plan, and `--clear` empties it. Plans kept by
   the earlier opt-in file are not read. Measured threaded rows stay off by default: a
@@ -2255,12 +2357,12 @@ Withdrawn (development-process record, not a design decision).
 
 - **Status:** accepted (maintainer), 2026-11-11. Supersedes ADR-054 and ADR-061; amends
   ADR-064 (single precision under `backend="auto"`); withdraws
-  [SEP 48](seps/archive/sep-0048-julia-backend.md). Those records, and the SEPs
-  implemented under them, stay as written. Amended by ADR-078: native runs the TDSE
+  [SEP 48](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0048-julia-backend.md). The SEPs implemented under them stay
+  as written; the earlier records here say so. Amended by ADR-078: native runs the TDSE
   response too.
 - **Context:** single precision runs on `numpy_ref` alone since `mlx` was retired
   (SEP 47): no installed backend runs it quickly, and `backend="auto"` refuses it.
-  [SEP 36](seps/archive/sep-0036-native-reduced-precision.md) measured single and mixed
+  [SEP 36](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0036-native-reduced-precision.md) measured single and mixed
   precision on the native engine and was withdrawn, because the gains on the target
   hardware do not repay a precision-templated engine. The tiers of ADR-061 rank two
   backends whose roles are fixed: Tier 2 has been empty since ADR-064 and Tier 3 since
@@ -2298,7 +2400,7 @@ Withdrawn (development-process record, not a design decision).
 ## ADR-078 — The TDSE response runs on native through a host source; its provider in a worker
 
 - **Status:** accepted (maintainer), 2026-11-12, with
-  [SEP 49](seps/archive/sep-0049-tdse-on-native.md) (PR #771). Amends ADR-077's "every feature
+  [SEP 49](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0049-tdse-on-native.md) (PR #771). Amends ADR-077's "every feature
   except the TDSE response, for now": native implements every feature.
 - **Context:** the TDSE response ran on `numpy_ref` alone, and native refused it by name.
   Its source is a complete atomic calculation at every radial node, from 93 s to over
@@ -2351,13 +2453,13 @@ Withdrawn (development-process record, not a design decision).
   fastest recorded atomic call. Native runs without a host source are unchanged bit for
   bit. The hook's two rows are listed as `host_source` in the memory ledger. CI tests
   the hook and the worker with manufactured providers; compatibility with an installed
-  Pyroraptor is checked by hand ([SEP 49](seps/archive/sep-0049-tdse-on-native.md), section 7.4),
+  Pyroraptor is checked by hand ([SEP 49](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0049-tdse-on-native.md), section 7.4),
   and the worker's handshake refuses a mismatched protocol or execution space.
 
 ## ADR-079 — One backend shape; no groups or unit axis; a native seam that only marshals
 
 - **Status:** accepted (maintainer), 2026-11-16, with
-  [SEP 52](seps/archive/sep-0052-backend-shape.md) (accepted 2026-11-15 in PR #850,
+  [SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md) (accepted 2026-11-15 in PR #850,
   implemented in PRs #853, #854, #858 and #859). Amends ADR-003 (the state has no
   leading axis of one).
 - **Context:** after SEP 47 both backends kept one external contract, but behind it they
@@ -2436,7 +2538,7 @@ Withdrawn (development-process record, not a design decision).
 ## ADR-081 — A coupling envelope may be evaluated for each field; the capillary one measures launched modal power
 
 - **Status:** accepted (maintainer), 2026-11-17, with PR #878. Applies
-  [SEP 31](seps/archive/sep-0031-simulation-coupling.md) section 4.3 (benchmark
+  [SEP 31](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0031-simulation-coupling.md) section 4.3 (benchmark
   envelopes for an approximate coupling model's omitted physics) without changing its
   rule; replaces the capillary envelope recorded in SEP 31's phase 5 report
   (`capillary-he1m-scalar-vs-leaky-marcatili-2026-10`).

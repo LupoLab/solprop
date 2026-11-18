@@ -162,8 +162,16 @@ _CLEARED = (
     "SOLPROP_NATIVE_WAIT",
     "SOLPROP_NATIVE_WAIT_REQUEST",
     "OMP_NUM_THREADS",
+    "SOLPROP_BLAS_THREADS",
+    "SOLPROP_OVERSUBSCRIBE",
+    "SOLPROP_NATIVE_BAND_TILES",
+    "SOLPROP_NATIVE_FORWARD_PACK",
 )
-"""The user's thread, wait and wisdom settings, which a child never inherits."""
+"""The user's thread, wait, wisdom and kernel-form settings: a child inherits none.
+
+A stored row records only the settings it chose (``fitted_under``), so a child timed
+under an override of the user's would choose for a process that later runs without it.
+"""
 
 
 @dataclass(frozen=True)
@@ -194,11 +202,12 @@ class Candidate:
     def environment(self, base: Mapping[str, str]) -> dict[str, str]:
         """Return a child's environment, which never calibrates.
 
-        `base` without the user's thread, wait and wisdom settings, with this
-        candidate's, and with FFT plans at estimate, so that no stage outside the
-        FFT stage spends its time planning (SEP 46 section 6.3). NumPy's and SciPy's
-        BLAS threads go idle at once (``solprop._process.child_environment``),
-        so that they do not spin on the CPUs being timed.
+        `base` without the user's thread, wait, wisdom and kernel-form settings,
+        with this candidate's, and with FFT plans at estimate, so that no stage
+        outside the FFT stage spends its time planning (SEP 46 section 6.3). NumPy's
+        and SciPy's BLAS threads go idle at once
+        (``solprop._process.child_environment``), so that they do not spin on the
+        CPUs being timed.
 
         Parameters
         ----------
@@ -232,9 +241,11 @@ class CalibrationReport:
     level : str
         The level run.
     status : str
-        ``"published"``, ``"inconclusive"`` (nothing published: a busy or noisy
-        machine, a failed child, or too little time), or ``"held"`` (another process
-        is calibrating this allocation).
+        ``"published"``, ``"kept"`` (nothing published: the store holds a row of
+        this allocation from a higher level, which a lower one does not replace;
+        `chosen` is that row's settings), ``"inconclusive"`` (nothing published: a
+        busy or noisy machine, a failed child, or too little time), or ``"held"``
+        (another process is calibrating this allocation).
     fingerprint : str
         The machine and build's store key.
     allocation : Mapping[str, object]
@@ -255,7 +266,7 @@ class CalibrationReport:
     """
 
     level: str
-    status: Literal["published", "inconclusive", "held"]
+    status: Literal["published", "kept", "inconclusive", "held"]
     fingerprint: str
     allocation: Mapping[str, object]
     chosen: Mapping[str, object] = field(default_factory=dict[str, object])
@@ -1196,7 +1207,7 @@ def _planning(
         Each capture takes its share of the stage's time, so that the timing in the
         step still has the rest (SEP 46 section 6.7).
 
-        - ``effort``: ``"measure"`` or ``"patient"``.
+        - ``effort``: the FFTW planning effort, ``"measure"``.
         """
         budget = max(0.0, plan.deadline.remaining() - until) * share
         return cast(
@@ -1313,6 +1324,41 @@ def _planning(
     return {"efforts": chosen}, wisdom, evidence
 
 
+def _classified(
+    generation: Generation | None, allocation: AllocationClass
+) -> list[tuple[Row, bool]]:
+    """Return a generation's readable rows, each with whether it is `allocation`'s.
+
+    A row whose allocation cannot be read is dropped.
+    """
+    rows: list[tuple[Row, bool]] = []
+    for row in () if generation is None else generation.rows:
+        try:
+            same = _native.allocation.AllocationClass.read(row.allocation) == allocation
+        except ValueError:
+            continue
+        rows.append((row, same))
+    return rows
+
+
+def _higher_row(
+    store: Store, fingerprint: str, allocation: AllocationClass, level: str
+) -> Row | None:
+    """Return the store's row of `allocation` from a level above `level`, if any.
+
+    A lower level does not replace it: a quick or standard run after a thorough one
+    would otherwise discard the better measurement.
+    """
+    return next(
+        (
+            row
+            for row, same in _classified(store.current(fingerprint), allocation)
+            if same and ORDER.get(row.level, -1) > ORDER[level]
+        ),
+        None,
+    )
+
+
 def _publish(
     store: Store,
     fingerprint: str,
@@ -1320,23 +1366,9 @@ def _publish(
     allocation: AllocationClass,
     wisdom: Mapping[str, str] | None = None,
 ) -> Path:
-    """Publish `row` in a new generation, keeping the other classes' rows.
-
-    A row of the same class from a higher level is kept instead.
-    """
+    """Publish `row` in a new generation, keeping the other classes' rows."""
     previous: Generation | None = store.current(fingerprint)
-    rows: list[Row] = []
-    for kept in () if previous is None else previous.rows:
-        try:
-            same = (
-                _native.allocation.AllocationClass.read(kept.allocation) == allocation
-            )
-        except ValueError:
-            continue
-        if not same:
-            rows.append(kept)
-        elif ORDER.get(kept.level, -1) > ORDER[row.level]:
-            row = kept
+    rows = [kept for kept, same in _classified(previous, allocation) if not same]
     rows.append(row)
     return store.publish(
         _native.store.Generation(
@@ -1427,6 +1459,25 @@ def _calibrate_allocation(
             "grain": grain_evidence,
             "planning": planning_evidence,
         }
+        higher = _higher_row(plan.store, plan.digest, allocation, plan.level.name)
+        if higher is not None:
+            # Report what later runs apply, and publish nothing: neither this run's
+            # row nor its wisdom, which the kept row's plans were not chosen with.
+            return CalibrationReport(
+                level=plan.level.name,
+                status="kept",
+                fingerprint=plan.digest,
+                allocation=allocation.record(),
+                chosen={**higher.process, **higher.workspace},
+                builtin=builtin | {name: table[name] for name in higher.workspace},
+                evidence=evidence,
+                reason=(
+                    f"the store keeps its {higher.level} row of this allocation, "
+                    f"which a {plan.level.name} calibration does not replace; this "
+                    f"run's result is discarded ({reason})"
+                ),
+                seconds=plan.deadline.elapsed(),
+            )
         row = _native.store.Row(
             allocation=allocation.record(),
             level=plan.level.name,

@@ -1,6 +1,7 @@
 {
   "provenance": {
     "generated": "2026-09-13T17:57:16.743485+00:00",
+    "generated_by": "tests/data/generate_jcmwave_vincetti.py",
     "generator_sha256": "37cac048b74ae43a972df6aea3cb67b08d7f7d180a945bf50916b911117ef5bd",
     "library_root": "pyJCMwave",
     "source_sha256": {

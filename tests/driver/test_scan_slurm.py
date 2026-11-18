@@ -23,6 +23,7 @@ from solprop.driver.executors.queue import Queue
 from solprop.driver.executors.slurm import Slurm
 from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import DriverError, ExecutorError
+from solprop.output.records import RecipeFile, RecipeRecord
 from solprop.processing.scans import ScanOutput
 from solprop.scan import current_executor, main
 
@@ -144,16 +145,17 @@ def test_slurm_submission_uses_argument_vector(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "options",
+    ("options", "message"),
     [
-        {"ntasks": 0},
-        {"mem": "0"},
-        {"instances": 2},
-        {"partition": "bad\n#SBATCH --exclusive"},
+        ({"ntasks": 0}, "task, CPU and thread counts must be positive"),
+        ({"mem": "0"}, "mem must be a positive integer"),
+        ({"instances": 2}, "cannot fit the requested instances"),
+        ({"partition": "bad\n#SBATCH --exclusive"}, "must not contain line breaks"),
+        ({"stale_age": 0.0}, "stale_age must be positive and finite"),
     ],
 )
-def test_slurm_refuses_invalid_resources(options):
-    with pytest.raises(DriverError):
+def test_slurm_refuses_invalid_resources(options, message):
+    with pytest.raises(DriverError, match=message):
         Slurm("script.py", **options)
 
 
@@ -259,6 +261,27 @@ def test_cli_rejects_conflicting_or_malformed_routes(arguments):
         main(["scan.py", *arguments])
 
 
+def test_cli_stale_age_reaches_every_queue_and_is_refused_without_one(
+    tmp_path, monkeypatch
+):
+    captured = []
+    monkeypatch.setattr(
+        "solprop.scan.runpy.run_path",
+        lambda *a, **k: captured.append(current_executor()),
+    )
+    assert main(["scan.py", "--queue", str(tmp_path / "q"), "--stale-age", "30"]) == 0
+    assert isinstance(captured[0], Queue)
+    assert captured[0].stale_age == 30.0
+    # A Slurm submission hands its lease to the controllers its tasks start.
+    emitted = tmp_path / "job.sh"
+    assert main(["scan.py", "--emit-slurm", str(emitted), "--stale-age", "30"]) == 0
+    assert "--stale-age 30.0" in emitted.read_text(encoding="utf-8")
+    with pytest.raises(SystemExit):
+        main(["scan.py", "--stale-age", "30"])
+    with pytest.raises(SystemExit):
+        main(["scan.py", "--workers", "2", "--stale-age", "30"])
+
+
 def test_cli_chunk_binds_global_partition_and_restores_context(monkeypatch):
     previous = sys.argv
     captured = []
@@ -319,7 +342,13 @@ def test_slurm_prepares_worker_chunk_and_drains_inner_queue(tmp_path, monkeypatc
         Queue, "run", lambda self, points, work: iter([work(p) for p in points])
     )
     policy = Slurm(
-        "scan.py", ntasks=3, instances=2, cpus_per_task=4, mode="chunk", gres="gpu:2"
+        "scan.py",
+        ntasks=3,
+        instances=2,
+        cpus_per_task=4,
+        mode="chunk",
+        gres="gpu:2",
+        stale_age=30.0,
     )
     request = ScanRequest(Scan("tiny", x=[1]), {}, tmp_path / "scan.h5", abs)
     policy.validate(abs)
@@ -327,6 +356,7 @@ def test_slurm_prepares_worker_chunk_and_drains_inner_queue(tmp_path, monkeypatc
     assert prepared == [request]
     assert policy._queue is not None
     assert policy._queue.chunk == (3, 6)
+    assert policy._queue.stale_age == 30.0
     assert policy._queue.pool.workers == 1
     assert policy._queue.pool.memory_limit == 2 * 1024**3
     assert list(policy.run([-2], abs)) == [2]
@@ -355,6 +385,36 @@ def test_slurm_submission_route_collects_pending_manifest(tmp_path, monkeypatch)
     assert policy._queue.chunk is None
 
 
+def test_a_slurm_scan_file_records_the_recipe_the_scan_was_built_from(
+    tmp_path, monkeypatch
+):
+    # A task's in-process body: its chunk holds no point, so the scan runs no worker,
+    # and what is checked is the recipe's path through the Slurm executor's inner
+    # queue into the file the task writes and the one `collect` writes.
+    recipe = RecipeRecord(
+        1,
+        "[recipe]\nformat = 1\n",
+        "[recipe]\nformat = 1\nseed = 3\n",
+        {"data-0.npy": RecipeFile("data.npy", "0" * 64, b"\x00\x01")},
+    )
+    monkeypatch.setenv("SOLPROP_SLURM_WORKER", "1")
+    monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "2")
+    queue = tmp_path / "queue"
+    policy = Slurm(tmp_path / "scan.py", ntasks=2, mode="chunk", queue_path=queue)
+    output = run_scan(
+        Scan("recipe", power=[1.0]),
+        build,
+        executor=policy,
+        output=tmp_path / "scan.h5",
+        progress="none",
+        recipe=recipe,
+    )
+    assert output.recipe == recipe
+    collected = tmp_path / "collected.h5"
+    assert main(["collect", str(queue), "--output", str(collected)]) == 0
+    assert ScanOutput(collected).recipe == recipe
+
+
 def test_cli_help_documents_the_collect_mode(capsys):
     with pytest.raises(SystemExit) as stopped:
         main(["--help"])
@@ -364,6 +424,15 @@ def test_cli_help_documents_the_collect_mode(capsys):
     with pytest.raises(SystemExit):
         main(["collect", "--help"])
     assert "collect QUEUE --output OUT.h5" in capsys.readouterr().out
+
+
+def test_cli_help_explains_every_option():
+    from solprop.scan import _parser  # noqa: PLC0415 - the parser the help prints
+
+    unexplained = [
+        action.dest for action in _parser()._actions if not (action.help or "").strip()
+    ]
+    assert unexplained == []
 
 
 def test_slurm_production_guard_refuses_unknown_mode_without_session_hook():

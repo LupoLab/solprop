@@ -161,7 +161,7 @@ def test_the_taper_case_meets_its_tolerance_on_both_backends(
 @pytest.mark.medium
 @pytest.mark.parametrize("geometry", ["modal", "radial", "free"])
 @pytest.mark.parametrize("n_pol", [1, 2])
-def test_envelope_statistics_use_cycle_rates_on_all_host_geometries(
+def test_the_last_periodic_row_is_the_saved_plane_s_scan_on_every_geometry(
     envelope_mixture, geometry, n_pol, equivalence_backend_class
 ):
     """Each backend's last periodic row is its saved plane's scan, within the budget.

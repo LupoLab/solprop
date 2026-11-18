@@ -79,6 +79,19 @@ def _title(folder: Path) -> str:
     return folder.name
 
 
+def _own_slurm_job(submitted: Mapping[str, Any]) -> str | None:
+    """Return the Slurm job solprop submitted a run as, or ``None`` for any other run.
+
+    - ``submitted``: its ``submitted.json``.
+
+    Only the job ``sbatch`` named for the run is its own: a run started directly
+    inside a Slurm allocation sits in a job that is not the run's to follow or cancel,
+    whatever its ``job.json`` says.
+    """
+    job = submitted.get("slurm_job") if submitted.get("launcher") == "slurm" else None
+    return str(job) if job else None
+
+
 def slurm_jobs(folders: Sequence[Path]) -> list[str]:
     """Return the Slurm jobs of the runs that have not recorded an ending.
 
@@ -97,9 +110,9 @@ def slurm_jobs(folders: Sequence[Path]) -> list[str]:
         status = read_status(folder)
         if status is not None and "ending" in status:
             continue
-        submitted = _read(folder / SUBMITTED)
-        if submitted is not None and submitted.get("slurm_job"):
-            jobs.append(str(submitted["slurm_job"]))
+        job = _own_slurm_job(_read(folder / SUBMITTED) or {})
+        if job is not None:
+            jobs.append(job)
     return jobs
 
 
@@ -125,9 +138,10 @@ def summarise(
     -------
     dict
         ``run_id``, ``folder``, ``title``, ``state`` (as the module lists them),
-        ``detail`` (a reason or a message), ``launcher``, ``slurm_job``,
-        ``submitted``, ``started`` and ``ended`` (s since the epoch, or ``None``),
-        ``progress`` (the last, or ``None``), ``points`` and ``done`` for a scan,
+        ``detail`` (a reason or a message), ``launcher``, ``slurm_job`` (the job
+        solprop submitted it as, or ``None``), ``submitted``, ``started`` and
+        ``ended`` (s since the epoch, or ``None``), ``progress`` (the last, or
+        ``None``), ``points`` and ``done`` for a scan,
         ``scan``, ``output`` (its results file, or ``None`` before one exists),
         ``record`` (whether it keeps one) and ``stopping`` (asked to stop and not yet
         ended).
@@ -135,16 +149,19 @@ def summarise(
     status = read_status(folder) or {}
     job = read_job(folder)
     submitted = _read(folder / SUBMITTED) or {}
-    scan = (folder / SCAN_OUTPUT).exists() or "points" in status
-    output = folder / (SCAN_OUTPUT if scan else OUTPUT)
     ending = status.get("ending")
-    slurm_job = submitted.get("slurm_job") or (job.slurm_job if job else None)
+    scan = (
+        (folder / SCAN_OUTPUT).exists()
+        or "points" in status
+        or (isinstance(ending, Mapping) and bool(ending.get("data", {}).get("scan")))  # pyright: ignore[reportUnknownMemberType]
+    )
+    output = folder / (SCAN_OUTPUT if scan else OUTPUT)
     summary: dict[str, Any] = {
         "run_id": folder.name,
         "folder": str(folder),
         "title": _title(folder),
         "launcher": submitted.get("launcher") or (job.launcher if job else None),
-        "slurm_job": slurm_job,
+        "slurm_job": _own_slurm_job(submitted),
         "submitted": submitted.get("submitted"),
         "started": job.started if job else None,
         "ended": job.ended if job else None,
@@ -188,9 +205,9 @@ def _living_state(  # noqa: PLR0917 - called positionally
     - Returns: the state and its detail.
     """
     del folder
-    slurm_job = submitted.get("slurm_job") or (job.slurm_job if job else None)
+    slurm_job = _own_slurm_job(submitted)
     if slurm_job is not None:
-        known = slurm.get(str(slurm_job))
+        known = slurm.get(slurm_job)
         if known is None and job is None:
             # Not listed, and not started: just submitted (the scheduler lists a job
             # a moment later), or asked about without the scheduler.

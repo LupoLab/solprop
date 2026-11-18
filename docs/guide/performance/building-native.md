@@ -22,7 +22,7 @@ the arithmetic is double precision throughout, and no build enables fast-math.
 
 | requirement | version and notes |
 |---|---|
-| Python | 3.14, with NumPy 2.3 or newer, and solprop at the same version installed in the same environment |
+| Python | 3.14, with NumPy 2.5 or newer, and solprop at the same version installed in the same environment |
 | CMake | 3.23 or newer (with build isolation, scikit-build-core fetches one from PyPI if none is found) |
 | build tool | Ninja is recommended; scikit-build-core uses it when available |
 | C++20 compiler, macOS | Clang 14 or newer; Homebrew LLVM is recommended and selected by default |
@@ -50,7 +50,7 @@ them:
 The Python build requirements are scikit-build-core 0.11 and nanobind 3.1.0, pinned. CPU
 builds contract multiply-adds (`-ffp-contract=fast` with GCC,
 `-ffp-contract=fast-honor-pragmas` with Clang, after `-fno-fast-math`) except in a few protected blocks, as
-[SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md) sets out;
+[SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md) sets out;
 `build_info().compiler_flags` and `optimization_policy` record the setting. GPU builds
 follow their compilers' defaults throughout ([GPU builds](#gpu-builds)).
 
@@ -145,10 +145,9 @@ native build has the [lightweight setup](../../dev/contributing.md). The editabl
 install does not rebuild itself: run `uv sync --reinstall-package
 solprop-native` after a native change, with any build options in `CMAKE_ARGS`
 ([below](#passing-cmake-options)); a device build is made the same way. `uv run poe
-check-native` runs the native gate and `uv run poe check-all` both gates. A build stays
-valid across solprop changes until the sources under `native/` change, when `check_build()`
-refuses it and names that command, or until `check_build()` names a member the installed
-solprop lacks. Running solprop's test lanes
+check-native` runs the native gate, and a native change runs it after `uv run poe check`.
+A build stays valid across solprop changes until the sources under `native/` change, when
+`check_build()` refuses it and names that command. Running solprop's test lanes
 against the build is in the developer notes on
 [testing](../../dev/testing.md#tiers-and-backends), and the native package's own tests in
 `native/README.md`.
@@ -189,7 +188,7 @@ python -c "import solprop_native as sn; sn.check_build(); print(sn.build_info().
 ```
 
 `python -m solprop_native` prints the build record, `build_info()`, as one sorted JSON
-object suitable for a run log:
+object suitable for a run log. Its fields include:
 
 - **provenance:** `package_version`, `git_commit` (with `+dirty` for a modified tree),
   `source_digest` (the SHA-256 of the C++ sources, `CMakeLists.txt` and the CMake modules
@@ -197,7 +196,7 @@ object suitable for a run log:
   `solprop_version_built_against`;
 - **dependencies:** `kokkos_version`, `kokkos_kernels_version`, `kokkos_fft_version`,
   `nanobind_version`;
-- **profile and BLAS:** `build_profile`, `cpu_baseline`, `gemm_provider`,
+- **profile and BLAS:** `build_profile`, `cpu_baseline`, `vector_math`, `gemm_provider`,
   `tpl_blas_enabled`, `blas_backend`, `blas_selection`, `blas_thread_policy`,
   `blas_threads`, `blas_threading`, `blas_library`;
 - **execution:** `execution_space`, `host_execution_space`, `device_backend`,
@@ -209,7 +208,7 @@ object suitable for a run log:
   ([Performance tuning](tuning.md#the-native-backends-pools));
 - **compilation:** `compiler`, `compiler_family`, `compiler_flags`, `cxx_standard`,
   `build_type`, `native_arch_enabled`, `aggressive_vectorization_enabled`,
-  `ipo_enabled`, `fast_math_enabled`, `optimization_policy`, `precision`, `layout`;
+  `ipo_enabled`, `fast_math_enabled`, `optimization_policy`, `layout`;
 - **host:** `python_version`, `numpy_version`, `platform_machine`.
 
 The library paths (`fft_library`, `blas_library`, `openmp_library`) are the files
@@ -223,9 +222,8 @@ hand through `CXXFLAGS` appear in `compiler_flags`.
 
 `check_build()` raises `solprop.exceptions.BackendError` when an editable checkout's
 sources under `native/` are not the ones the extension was compiled from (it names
-`uv sync`; a wheel skips this); when the installed solprop lacks a driver member or bundle
-field the build relies on (it names them); when the build enables fast-math; when the execution-space record is inconsistent; when a GPU build sees no
-device; when the GEMM provider is unknown or its BLAS is unidentified; when
+`uv sync`; a wheel skips this); when the build enables fast-math; when the execution-space
+record is inconsistent; when a GPU build sees no device; when its BLAS is unidentified; when
 a reference build carries a vendor BLAS or machine-specific code, or a distribution
 build carries native code or no BLAS; and when a GPU build's BLAS is not the device's.
 Then, in solprop:
@@ -354,7 +352,7 @@ The options are read by `native/CMakeLists.txt` and the modules it includes from
 
 | option | default | values and effect |
 |---|---|---|
-| `SOLPROP_NATIVE_ENABLE_OPENMP` | `ON` | the OpenMP host execution space and threaded FFTW. `OFF` in GPU builds, whose host space is Serial |
+| `SOLPROP_NATIVE_ENABLE_OPENMP` | `ON` | the OpenMP host execution space and threaded FFTW: `ON` in every CPU build, `OFF` in GPU builds, whose host space is Serial; configuration refuses any other pairing |
 | `SOLPROP_NATIVE_ENABLE_CUDA` | `OFF` | the CUDA execution space with cuFFT (Linux, GNU host compiler) |
 | `SOLPROP_NATIVE_ENABLE_HIP` | `OFF` | the HIP execution space with rocFFT (Linux, ROCm Clang); exclusive with CUDA |
 | `SOLPROP_NATIVE_CUDA_ARCH` | `HOPPER90` | the Kokkos architecture suffix, `Kokkos_ARCH_<value>` ([CUDA](#cuda)) |
@@ -429,21 +427,23 @@ The CPU kernels form their transcendentals (the stage and step propagators, the
 exponential Adams method's flows, phi-functions and compensation, the ionisation rates
 and fractions) in passes over blocks of elements through one layer,
 `native/include/solprop_native/runtime/vmath.hpp` ([ADR-059](../../dev/decisions.md)). On x86-64
-it calls [SLEEF](https://sleef.org)'s vector functions, each within 1.0 ulp of the
-correctly rounded value over its whole domain: AVX2 where the build's target has it (the
-wheels' x86-64-v3 baseline and any local build on a processor from 2013 or later), SSE2
-otherwise. `SOLPROP_NATIVE_VECTOR_MATH_AVX512=ON` takes the AVX-512F functions on a
+and macOS arm64 it calls [SLEEF](https://sleef.org)'s vector functions, each within 1.0 ulp
+of the correctly rounded value over its whole domain: AVX2 where the build's target has it
+(the wheels' x86-64-v3 baseline and any local build on a processor from 2013 or later),
+SSE2 otherwise, and AdvSIMD on Arm. `SOLPROP_NATIVE_VECTOR_MATH_AVX512=ON` takes the AVX-512F functions on a
 target with AVX-512F: on one thread they ran the tracking cases about 4 % faster than
 the AVX2 ones on an AMD EPYC 9B45 (Zen 5) but 7 % slower on an Intel Xeon of the Ice
 Lake generation, whose cores lower their clock under 512-bit work. glibc's scalar `exp`, `cos` and `sin` cost a complex
 exponential 10 to 30 ns on an AMD EPYC 7763; SLEEF's AVX2 functions take it 3.3 to 3.6
 times faster at the same worst error on the kernels' own arguments. On Apple silicon
-the system libm is already about 3 ns, SLEEF's AdvSIMD functions gain nothing, and the
-build keeps the libm and each element's own calls (`SOLPROP_NATIVE_VECTOR_MATH=SLEEF`
-selects SLEEF there too). `build_info().vector_math` records the route, for example
+the system libm is already about 3 ns, but SLEEF's AdvSIMD functions over the gathered
+blocks, and the passes they enable, ran an Apple M5 Max's tracking cases faster
+(geometric mean 0.934 of the libm's time), so the build takes SLEEF there too. On Linux
+aarch64, where SLEEF measured level on a Neoverse V2, the build keeps the libm and each
+element's own calls (`SOLPROP_NATIVE_VECTOR_MATH=SLEEF` selects SLEEF there too). `build_info().vector_math` records the route, for example
 `"SLEEF 3.9.0 u10, AVX2"` or `"scalar libm"`. Results differ between the routes only
 by rounding (the functions' own ulp), within the backend's derived rounding budgets
-([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
+([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
 
 SLEEF is configured and built at build time as its own CMake project, with its own
 `-ffp-contract=off` (its double-double steps need every product and sum rounded) and
@@ -586,15 +586,6 @@ published [pyFFTW](https://github.com/pyFFTW/pyFFTW) wheels, for one, bundle the
 macOS `solprop_native` must then be imported first, and the package raises `RuntimeError`
 at import if pyFFTW is already loaded.
 
-**The rule stays, and this is why.** pyFFTW's macOS wheel carries and initialises its own
-`libomp`, and solprop no longer loads pyFFTW, so nothing in solprop can decide the order for
-you: importing solprop does not load `solprop_native`, which is loaded when a run first uses the
-backend. The refusal is a clear error rather than a wrong result, and a loaded second runtime is
-what it guards against. No replacement has been shown safe, which
-[SEP 29](../../dev/seps/archive/sep-0029-compiled-backend-distribution.md) asks of it in fresh
-processes, in both import orders, with interleaved short runs. So the guard stays until such a
-run exists.
-
 **What to do.** Import `solprop_native` before pyFFTW, or any package that imports it. `import
 solprop` alone is not enough, since it does not load the backend. In a notebook where a cell has
 already loaded pyFFTW, restart the kernel, or do the work in a fresh process. `backend="numpy_ref"`
@@ -602,19 +593,12 @@ does not load `solprop_native`, and is unthreaded and far slower. Import order a
 the second runtime, so where it matters pyFFTW is best built from source against the same FFTW and
 OpenMP runtime.
 
-**What would lift it.** `native/ci/coexistence.py` runs both import orders in fresh processes, starts each package's thread pool and interleaves short
-native and reference runs. On macOS it expects the refusal. Its `--bypass-guard` flag adds a scenario
-that hides pyFFTW from the guard and reports what happens, without failing the script. Run by hand on
-macOS with pyFFTW installed, with `python -I native/ci/coexistence.py --bypass-guard`, it is the
-evidence a change to this rule would start from. The `Wheels` workflow runs the same script on
-`macos-15`, without the flag.
-
 ## Wheels and redistribution
 
 A wheel meant for other machines is built with `SOLPROP_NATIVE_PROFILE=DISTRIBUTION`.
 It carries its BLAS (on Linux and Windows the OpenMP OpenBLAS, BSD-3-Clause) with its
 licence, and the licence texts of Kokkos, Kokkos Kernels, Kokkos-FFT, nanobind,
-robin_map and, on x86-64, SLEEF (BSL-1.0), which are compiled in. FFTW and the OpenMP
+robin_map and, on x86-64 and macOS arm64, SLEEF (BSL-1.0), which are compiled in. FFTW and the OpenMP
 runtime are bundled by the wheel
 repair (`auditwheel repair` on Linux, `delocate` on macOS, `delvewheel` on Windows), and
 their licence texts by `SOLPROP_NATIVE_BUNDLED_LICENCES`; FFTW (GPL-2.0-or-later) is
@@ -623,4 +607,4 @@ developer notes ([Releasing and the native wheels](../../dev/releasing.md)). CUD
 HIP builds link the vendors' libraries and are built from source only.
 
 The build profiles, CPU baselines and wheel recipes on this page were proposed and
-qualified by [SEP 29](../../dev/seps/archive/sep-0029-compiled-backend-distribution.md).
+qualified by [SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md).

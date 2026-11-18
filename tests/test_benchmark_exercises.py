@@ -79,6 +79,9 @@ def test_repeats_of_an_input_noise_run_reach_the_same_field():
     assert result["repeat_difference"] <= 1e-12
 
 
+# The purpose-built smoke case (a 1e-4 m fibre on 192 points, "for testing the
+# runner; not a workload") stays medium, as testing.md section 2 allows: it is not a
+# registered benchmark workload, so these test the worker's logic, not a case.
 @pytest.mark.medium
 def test_each_repeat_checks_the_boundaries_with_a_monitor_of_its_own(monkeypatch):
     # What a user runs: Simulation.run attaches a fresh boundary monitor to every run.
@@ -96,6 +99,9 @@ def test_each_repeat_checks_the_boundaries_with_a_monitor_of_its_own(monkeypatch
     assert monitors[0] is not monitors[1]
 
 
+# The purpose-built smoke case (a 1e-4 m fibre on 192 points, "for testing the
+# runner; not a workload") stays medium, as testing.md section 2 allows: it is not a
+# registered benchmark workload, so these test the worker's logic, not a case.
 @pytest.mark.medium
 def test_each_repeat_counts_its_own_source_evaluations():
     # The run's session loads the launch, which resets the backend's counters: each

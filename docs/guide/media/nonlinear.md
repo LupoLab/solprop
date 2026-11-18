@@ -188,7 +188,7 @@ Everything above multiplies the cubic by one $\chi^{(3)}$, which for a built-in 
 its Kerr coefficient at the run's carrier ([materials](material-selection.md#the-electronic-kerr-coefficient-at-the-carrier)).
 A gas's electronic response is in fact a function of all four frequencies of each
 quartet, and rises towards the ultraviolet. The dispersive electronic policies of
-[SEP 6](../../dev/seps/archive/sep-0006-dispersive-nonlinearity.md),
+[SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md),
 `MaterialSelection(electronic="gas-polynomial")` and `"symmetric-kerr"`, replace the
 constant by optmat's whole fit, evaluated at the absolute frequencies of every quartet
 in the same single broadband polarisation:

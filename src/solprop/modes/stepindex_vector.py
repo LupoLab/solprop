@@ -31,6 +31,7 @@ from solprop._display import Displayed, engineering, line
 from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError
 from solprop.modes.collection import ModeCollection
+from solprop.modes.fill import _alpha_values
 from solprop.modes.material import JsonValue, MaterialRegion
 from solprop.modes.stepindex import (
     PROFILE_MIN_W,
@@ -152,7 +153,7 @@ def _field_parameters(mode: StepIndexMode, omega: float, z: float) -> _FieldPara
     if not np.isfinite(omega) or omega <= 0 or not np.isfinite(z):
         raise ModeError("omega must be positive and z finite")
     frequency = np.array([omega], dtype=float)
-    if np.any(mode._alpha_values(frequency)[0] != 0):
+    if np.any(_alpha_values(mode.alpha, frequency)[0] != 0):
         raise ModeError(
             "leaky or attenuating E/H modes are unqualified: bound lossless fields only"
         )
@@ -444,9 +445,7 @@ class StepIndexProvider(Displayed):
             If the channels or material ownership are inconsistent.
         """
         ModeCollection(self.modes)
-        if any(
-            not ModeCollection(self.modes)._same_stepindex_guide(m) for m in self.modes
-        ):
+        if any(not self.modes[0].same_guide(mode) for mode in self.modes):
             raise ModeError("step-index channels must share one physical guide")
         if len(self.regions) != 2 or self.regions[-1].outer_radius is not None:
             raise ModeError("step-index provider requires core and unbounded cladding")

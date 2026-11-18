@@ -137,7 +137,7 @@ def test_the_modulus_is_the_same_for_every_realisation(grid_name, request):
     # Only the phase is random (conventions.md section 4), so two realisations differ
     # in phase and agree bin for bin in modulus, to the round-off of one exponential.
     assert_allclose(np.abs(first), np.abs(second), rtol=8 * EPS, atol=0.0)
-    assert not np.allclose(np.angle(first), np.angle(second))
+    assert not np.allclose(np.angle(first), np.angle(second), atol=0.0)
 
 
 @pytest.mark.parametrize("grid_name", GRIDS)
@@ -177,7 +177,7 @@ def test_modes_and_polarisations_are_independent(grid_name, request):
     phases = np.angle(realisation.spectrum[..., active]).reshape(6, -1)
     for i in range(6):
         for j in range(i + 1, 6):
-            assert not np.allclose(phases[i], phases[j])
+            assert not np.allclose(phases[i], phases[j], atol=0.0)
             correlation = float(np.corrcoef(np.cos(phases[i]), np.cos(phases[j]))[0, 1])
             # Independent draws over n bins have a sample correlation of order
             # 1/sqrt(n); with more than a thousand active bins, 0.2 is many standard

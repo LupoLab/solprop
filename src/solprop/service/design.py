@@ -6,7 +6,7 @@
 
 The waveguide explorer draws what ``Recipe.modes`` gives, per mode, as plain arrays,
 for the recipe as it is or for each value of one keyword swept; the pins' editors ask
-what a route can pin and, for a pinned value, every root solprop finds. Like
+what a route can pin. Like
 :mod:`solprop.service.handlers`, this module runs only in the kernel process and
 computes nothing of its own.
 """
@@ -27,7 +27,6 @@ __all__ = [
     "DESIGN_HANDLERS",
     "PRESSURE_ZDW_KEYWORDS",
     "modes",
-    "pin_roots",
     "pin_targets",
     "zdw_chart",
 ]
@@ -183,32 +182,6 @@ def pin_targets(payload: Payload) -> dict[str, list[dict[str, object]]]:
     return found
 
 
-def pin_roots(payload: Payload) -> dict[str, object]:
-    """Return every root of one pin's target (``Recipe.pin_roots``).
-
-    Parameters
-    ----------
-    payload : Mapping
-        ``text``, optionally ``base``, and ``path``, the pinned path.
-
-    Returns
-    -------
-    dict
-        ``roots`` (ascending, in the keyword's unit), ``search``, ``quantity`` (what
-        ``attainable`` measures) and ``attainable`` (the range of it reached when no
-        root is found, or ``None``).
-    """
-    found = read_recipe(payload).pin_roots(str(payload["path"]))
-    return {
-        "roots": [float(root) for root in found.roots],
-        "search": [float(end) for end in found.search],
-        "quantity": found.quantity,
-        "attainable": (
-            None if found.attainable is None else [float(v) for v in found.attainable]
-        ),
-    }
-
-
 PRESSURE_ZDW_KEYWORDS = ("temperature", "model", "cladding", "materials")
 """The capillary's keywords that ``tools.pressure_zdw`` also takes, by name."""
 
@@ -295,7 +268,6 @@ def zdw_chart(payload: Payload) -> dict[str, object]:
 
 DESIGN_HANDLERS = {
     "modes": modes,
-    "pin_roots": pin_roots,
     "pin_targets": pin_targets,
     "zdw_chart": zdw_chart,
 }

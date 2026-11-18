@@ -373,7 +373,7 @@ def test_filled_mode_refuses_varying_material_and_has_no_attribution():
     np.testing.assert_array_equal(
         mixed.absorption_by_species(np.array([2e15])), np.zeros((2, 1))
     )
-    assert "Mixture" in repr(mixed)
+    assert "Ar+Ne 1 bar" in repr(mixed)
 
 
 def test_table_modes_never_evaluate_silica(monkeypatch):

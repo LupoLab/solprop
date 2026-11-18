@@ -38,7 +38,7 @@ from tests.tdse_archive_cases import (
     writer,
 )
 
-from solprop.exceptions import OutputError, TDSEArchiveError
+from solprop.exceptions import OutputError, OutputRequestError, TDSEArchiveError
 from solprop.output import TDSEArchive, open_tdse_archive
 from solprop.output.tdse_archive import (
     ARCHIVE_METADATA_CACHE_BYTES,
@@ -73,11 +73,11 @@ def test_the_request_adopts_a_path_and_validates_its_selection():
     # checks are what a production caller meets.
     init = inspect.unwrap(TDSEArchive.__init__)
     blank = object.__new__(TDSEArchive)
-    with pytest.raises(TypeError, match="path or a string"):
+    with pytest.raises(OutputRequestError, match="path or a string"):
         init(blank, 3)
-    with pytest.raises(ValueError, match="empty"):
+    with pytest.raises(OutputRequestError, match="empty"):
         TDSEArchive("")
-    with pytest.raises(ValueError, match="'full' or 'required'"):
+    with pytest.raises(OutputRequestError, match="'full' or 'required'"):
         init(blank, "a.h5", outputs="all")
     with pytest.raises(TypeError):
         TDSEArchive("a.h5", "full")  # pyright: ignore[reportCallIssue] - keyword only

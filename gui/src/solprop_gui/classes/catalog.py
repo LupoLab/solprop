@@ -45,7 +45,6 @@ _SPECTROGRAM = AnalysisPage("spectrogram", "Spectrogram", ("fields",))
 _ALONG = AnalysisPage("along", "Along z", ("statistics",))
 _MODES = AnalysisPage("modes", "Modes", ("fields", "modes"))
 _COMPRESS = AnalysisPage("compress", "Compress", ("fields",), "compression")
-_NOISE = AnalysisPage("noise", "Noise and coherence", ("fields", "ensemble"))
 _HEALTH = AnalysisPage("health", "Run health")
 
 _PULSE = Section(
@@ -316,7 +315,7 @@ GNLSE: Final = ProblemClass(
     numbers="fibre_sheet",
     curve="fibre_curve",
     preview="Group-velocity dispersion against wavelength",
-    pages=(_OVERVIEW, _PLANE, _SPECTROGRAM, _ALONG, _COMPRESS, _NOISE, _HEALTH),
+    pages=(_OVERVIEW, _PLANE, _SPECTROGRAM, _ALONG, _COMPRESS, _HEALTH),
     statistics=("energy",),
 )
 

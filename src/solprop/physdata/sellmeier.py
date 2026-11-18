@@ -765,7 +765,7 @@ class OptmatSusceptibility(GasSusceptibility):
             wavelength = wavelength[inside]
         state = f"{density:.6g} m^-3 and {temperature:g} K"
         # Beside a pole of the law 1 + chi can fall below zero, in optmat's refractivity
-        # and in the comparison below; the error there is NaN, as before, without a
+        # and in the comparison below; the error there is NaN, without a
         # RuntimeWarning at every sample of a pressure search.
         with (
             np.errstate(invalid="ignore"),
@@ -779,8 +779,7 @@ class OptmatSusceptibility(GasSusceptibility):
         ):
             # optmat's ideal-gas state of this density: its law then takes N = p /
             # (k_B T), which is `density` to one rounding, and the refractivity
-            # virial still enters. Its real-gas inverse is not needed (and before
-            # optmat 0.1.1 it failed for Ar, N2 and CH4 below about 255-284 K).
+            # virial still enters. Its real-gas inverse is not needed.
             ideal = State(density * K_B * temperature, temperature)
             exact = np.asarray(
                 model.refractivity(wavelength, ideal, ideal=True, warn=False)
@@ -932,15 +931,32 @@ def _one_plus_chi(
     - Raises :class:`MaterialError` at or below -1 for ``chi1``, which happens only
       when a model is extrapolated onto a pole.
     """
-    values = np.asarray(
-        1.0 + chi1(gas, omega, pressure=pressure, temperature=temperature)
+    return np.asarray(1.0 + _checked_chi(gas, omega, pressure, temperature))
+
+
+def _checked_chi(
+    gas: Gas | str,
+    omega: ArrayLike | float | int,
+    pressure: float,
+    temperature: float,
+) -> Float[np.ndarray, "*shape"]:
+    """Return ``chi1``, checked to exceed -1 so that the index is real.
+
+    - ``omega``: angular frequency in rad/s.
+    - ``pressure``: absolute pressure in bar.
+    - ``temperature``: temperature in K.
+    - Raises :class:`MaterialError` at or below -1, which happens only when a model is
+      extrapolated onto a pole.
+    """
+    susceptibility = np.asarray(
+        chi1(gas, omega, pressure=pressure, temperature=temperature)
     )
-    if np.any(values <= 0.0):
+    if np.any(susceptibility <= -1.0):
         raise MaterialError(
             f"the index model for {as_gas(gas).value} gives a non-positive dielectric "
             "constant here; it has been extrapolated onto a pole of the expansion"
         )
-    return values
+    return susceptibility
 
 
 def refractive_index(
@@ -1028,8 +1044,8 @@ def refractive_index_minus_one(
     >>> f"{float(refractive_index_minus_one(Gas.Ar, 2.356e15, pressure=1.0)):.6e}"
     '2.570726e-04'
     """
-    values = _one_plus_chi(gas, omega, pressure, temperature)
-    return np.asarray((values - 1.0) / (1.0 + np.sqrt(values)))
+    susceptibility = _checked_chi(gas, omega, pressure, temperature)
+    return np.asarray(susceptibility / (1.0 + np.sqrt(1.0 + susceptibility)))
 
 
 def drefractive_index_domega(

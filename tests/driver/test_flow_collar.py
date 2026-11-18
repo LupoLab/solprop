@@ -347,9 +347,7 @@ def test_a_coupled_flow_keeps_its_collar_in_every_stage(transient, name, monkeyp
 
 @pytest.mark.medium
 @pytest.mark.parametrize("name", BACKENDS)
-def test_a_seeded_collar_no_longer_grows_towards_a_frozen_section_s_end(
-    transient, name
-):
+def test_a_seeded_collar_does_not_grow_towards_a_frozen_section_s_end(transient, name):
     """The collar transient of a long frozen section, reproduced in ten steps, and gone.
 
     At the end of a long frozen section the collar's residual reaches 7.3e3 1/m at

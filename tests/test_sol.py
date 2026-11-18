@@ -165,7 +165,6 @@ EXCLUDED = {
         "as_profile",
     },
 }
-RENAMED = {("plotting", "energy"): "plot_energy", ("plotting", "stats"): "plot_stats"}
 HOMES = {
     "plotting": plotting,
     "processing": processing,
@@ -233,9 +232,8 @@ def test_nothing_public_in_a_home_module_is_forgotten(home):
         if name in EXCLUDED[home]:
             assert name not in sol.__all__, f"{home}.{name} is excluded and exported"
             continue
-        exported = RENAMED.get((home, name), name)
-        assert exported in sol.__all__, f"{home}.{name} is missing from solprop.sol"
-        assert getattr(sol, exported) is getattr(module, name)
+        assert name in sol.__all__, f"{home}.{name} is missing from solprop.sol"
+        assert getattr(sol, name) is getattr(module, name)
 
 
 def test_the_exclusions_name_things_that_exist():

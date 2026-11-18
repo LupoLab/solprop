@@ -462,7 +462,7 @@ void GeneralWorkspace::upload_trial(const TrialScalars& scalars,
   stage_staging_next_ = (stage_staging_next_ + 1) % stage_staging_.size();
   if (staged)
     // A device's staging buffer starts from the last values uploaded, so that a view
-    // this trial does not set keeps them, as the separate copies did.
+    // this trial does not set keeps them.
     std::copy(previous.data(), previous.data() + staging.size(), staging.data());
   const auto fill_slot = [&](const std::size_t slot, const TrialScalars& values) {
     double* const base = staging.data() + slot * stage_slot_size_;

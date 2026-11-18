@@ -95,6 +95,12 @@ A job takes its own allocation's row. Without one, it takes the workspace settin
 the row with the same layout and the nearest smaller core count, and otherwise the
 built-in table.
 
+A row is replaced only by a calibration of the same level or a higher one. A quick or
+standard calibration of an allocation that already has a thorough row (or a quick one
+over a standard row) publishes nothing: it reports `kept`, with the settings of the row
+the store keeps, which are the ones later runs apply. To replace it with a lower level's
+row, clear the store first with `solprop calibrate --clear`.
+
 The same directory keeps the **FFT plans runs measure**, in `wisdom.json` beside the
 machine and build's profiles. The first run of a transform shape measures its plan in
 place, inside its own workspace, and stores it; every later run of that shape, in any
@@ -216,4 +222,4 @@ fitted under spinning threads give way to the built-in table when you make the t
 sleep.
 
 The design and its measurements are in
-[SEP 46](../../dev/seps/archive/sep-0046-machine-calibration.md).
+[SEP 46](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0046-machine-calibration.md).

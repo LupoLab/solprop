@@ -136,7 +136,6 @@ from solprop.translate.tdse_source import (
 )
 from solprop.translate.transverse import checked_design, resolve_transverse
 from solprop.translate.validation import (
-    _INPUT_NOISE_ADMITTED,
     DEFAULT_FLOW_CONDITION_LIMIT,
     MOVING_FLOW_CERTIFICATE,
     _Assembly,
@@ -146,6 +145,7 @@ from solprop.translate.validation import (
     _check_tdse_assembly_route,
     _refuse_a_wall_off_the_capillary_route,
     _refuse_carrier_removing_frame,
+    _refuse_modified_noise,
     _refuse_planes_at_jumps,
     _refuse_split_crossing,
     _validated,
@@ -558,14 +558,7 @@ def _general_flow(
       n_modes, n_omega)``.
     - ``grid``: the run's grid, whose coarse axis the leaf is tabulated on.
     """
-    if build.noise_model == "modified":
-        msg = (
-            "a split block's coupled flow refuses the 'modified' noise model: its "
-            "draw is transported by the unitary phase of a diagonal flow, and the "
-            "transport of a draw through a nonunitary coupled flow is not measured "
-            "in this package; the backend refuses it too. " + _INPUT_NOISE_ADMITTED
-        )
-        raise TranslationError(msg)
+    _refuse_modified_noise(build.noise_model, "a split block's coupled flow")
     exponent = float(build.dz_max) * float(np.max(abs(coupled)))
     if exponent > MAX_GENERAL_FLOW_EXPONENT:
         worst = int(np.argmax(np.max(abs(coupled), axis=(0, 1))))
@@ -796,14 +789,7 @@ def _moving_flow(
     flow's sections are the maps' here, which is natural and not required: the
     stage bundle carries the two weight rows separately (kernel schema 14).
     """
-    if build.noise_model == "modified":
-        msg = (
-            "a moving guide's coupled flow refuses the 'modified' noise model: its "
-            "draw is transported by the unitary phase of a diagonal flow, and its "
-            "transport through a moving guide's coupled flow is not measured in "
-            "this package; the backend refuses it too. " + _INPUT_NOISE_ADMITTED
-        )
-        raise TranslationError(msg)
+    _refuse_modified_noise(build.noise_model, "a moving guide's coupled flow")
     assert route.moving_generator is not None
     return frozen_residual_flow(
         grid.omega,
@@ -869,7 +855,7 @@ def _general_prefactor(
     Re n_eff)`` with the crop scale folded in. On the general route that factor is
     replaced by the record's own ``source_frequency_factor`` and by the reciprocal
     normalisation inside Q, so what is left for this row is the crop scale
-    ``n_t / n_to`` -- which stays here, where it has always been, because the
+    ``n_t / n_to`` -- which stays here, as on every other route, because the
     projection is frequency dependent and folding a grid convention into it would
     hide it. It is real, and it is exactly zero outside the
     active band as every other route's prefactor is, so no unnormalised
@@ -938,12 +924,23 @@ def _stepper_settings(
 
     SEP 14 phase 1 relaxes the step limits on the diagonal-flow routes only. A coupled
     flow's error lies outside the embedded estimate, and a reject-free run cannot undo
-    an overshoot, so both keep the version-16 policy: the interval cap and no start-up
-    rule.
+    an overshoot, so both keep the interval cap and no start-up rule.
 
-    - ``interval_cap``: the interval cap asked for; ``None`` takes the route's.
+    - ``interval_cap``: the interval cap asked for; ``None`` takes the route's. The
+      Adams march caps by its method's own ``interval_cap`` (ADR-037), which is what
+      is recorded; a different request is refused.
     """
     restrained = linear.coupled_flow is not None or controller.reject_free
+    method = fields.get("integrator")
+    if isinstance(method, Multistep):
+        if interval_cap is not None and interval_cap != method.interval_cap:
+            msg = (
+                f"interval_cap={interval_cap} would be ignored: Multistep() caps its "
+                f"steps by its own interval_cap. Use "
+                f"Multistep(interval_cap={interval_cap}), or leave interval_cap unset"
+            )
+            raise TranslationError(msg)
+        interval_cap = method.interval_cap
     return StepperSettings(
         controller=controller,
         interval_cap=restrained if interval_cap is None else interval_cap,
@@ -1083,6 +1080,8 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
     interval_cap : bool or None, optional
         Whether a step is capped at its operator-table interval's width. ``None`` caps
         it only for a coupled flow or a reject-free controller (SEP 14 section 4.1).
+        An Adams `integrator` caps by its own ``interval_cap``, which ``None`` takes and
+        a different value is refused.
     auto_init : bool, optional
         Whether the start-up rule chooses the step after the first; `dz_init` is the
         first. Default ``False``, the convenience interfaces' choice when no `dz_init`
@@ -1436,7 +1435,7 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
         grids=build_masks(
             grid,
             polarisation_taper=polarisation_taper,
-            region=getattr(settings.controller, "region", "active"),
+            region=settings.controller.region,
             harmonic_carrier=compiled.harmonic_carrier,
         ),
         linear=linear,

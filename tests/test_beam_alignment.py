@@ -76,7 +76,7 @@ def test_every_frequency_of_a_tilted_beam_leaves_at_the_one_angle():
     centroid = (space.k_x @ power[:, carried]) / np.sum(power[:, carried], axis=0)
     # Towards +x is the spectrum's -k_x side, as Alignment's tilt has it.
     angle = np.arcsin(-centroid / wavenumber)
-    assert np.allclose(angle, tilt, rtol=1e-3)
+    assert np.allclose(angle, tilt, rtol=1e-3, atol=0.0)
 
 
 @pytest.mark.parametrize(

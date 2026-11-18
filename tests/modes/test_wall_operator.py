@@ -111,7 +111,7 @@ def test_the_trace_vector_is_the_basis_derivative_at_the_wall():
         / step
         for zero in zeros
     ]
-    assert np.allclose(operator.trace_vector, np.array(measured), rtol=1e-4)
+    assert np.allclose(operator.trace_vector, np.array(measured), rtol=1e-4, atol=0.0)
 
 
 @pytest.mark.parametrize("count", [10, 20, 40])
@@ -574,7 +574,7 @@ def test_the_amplitude_map_is_one_positive_scale_for_every_channel():
         for mode in modes
     ]
     expected = radius * math.sqrt(math.pi * EPS0 * C)
-    assert np.allclose(np.array(ratios, dtype=float), expected, rtol=1e-14)
+    assert np.allclose(np.array(ratios, dtype=float), expected, rtol=1e-14, atol=0.0)
 
 
 def test_the_square_root_and_paraxial_generators_agree_where_the_model_is_valid():

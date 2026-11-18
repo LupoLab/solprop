@@ -15,7 +15,6 @@ compared to :data:`RECORD_RTOL`, each with its array's FFT floor.
 import hashlib
 import json
 from pathlib import Path
-from typing import cast
 
 import numpy as np
 
@@ -106,92 +105,3 @@ def assert_record_numbers(numbers, floors, stored: Path) -> None:
     limit = RECORD_RTOL * np.abs(expected[finite]) + floors[finite]
     outside = np.abs(numbers[finite] - expected[finite]) > limit
     assert not outside.any(), f"{int(outside.sum())} numbers outside their bound"
-
-
-def without_sep21_absorber(
-    record: dict, *, bare: bool = False, spatial: bool = False
-) -> dict:
-    """Return a hashed record as it was before SEP 21 recorded its absorber.
-
-    SEP 21 records ``Absorber.spatial``, and a later change ``Absorber.user_rate``; the
-    projection drops both. A run that declared
-    no absorber recorded ``None`` before and now records the bare boundaries that stand
-    for it (``tests/legacy_geometry.py``); with `bare` the projection restores ``None``.
-    A spatial run that named no collar scheme now records ``"split_step"``, its route's
-    default; with `spatial` the projection restores the former ``"nonlinear"``.
-
-    Parameters
-    ----------
-    record : dict
-        A record from ``RunMetadata.hashed``.
-    bare : bool, optional
-        Whether the run's absorber stands for the former ``None``.
-    spatial : bool, optional
-        Whether the run is a spatial one that named no collar scheme.
-
-    Returns
-    -------
-    dict
-        The projected record; `record` is not modified.
-    """
-    configuration = dict(record["configuration"])
-    collar = configuration.get("absorber")
-    if bare:
-        configuration["absorber"] = None
-    elif isinstance(collar, dict):
-        configuration["absorber"] = {
-            key: value
-            for key, value in collar.items()
-            if key not in ("spatial", "user_rate")
-        }
-    if spatial and configuration.get("absorber_scheme") == "split_step":
-        configuration["absorber_scheme"] = "nonlinear"
-    return {**record, "configuration": configuration}
-
-
-def with_former_names(value: object) -> object:
-    """Return a record with the names that later renames changed restored.
-
-    A reference state's ``pressure`` was ``pressure_bar``, and a hollow mode's
-    ``alpha`` and ``loss_scale`` were one ``loss``: the model's own loss, which these
-    records' modes declare, was ``loss=True``. A recorded pulse's Taylor coefficients,
-    ``phases``, were its ``phase``.
-
-    Parameters
-    ----------
-    value : object
-        A record, or any part of one, as JSON-like values.
-
-    Returns
-    -------
-    object
-        The projected record; `value` is not modified.
-    """
-    if isinstance(value, list):
-        return [with_former_names(item) for item in value]
-    if not isinstance(value, dict):
-        return value
-    if "alpha" in value and "loss_scale" in value:
-        assert value["alpha"] is None and value["loss_scale"] == 1.0
-        value = {
-            key: child
-            for key, child in value.items()
-            if key not in ("alpha", "loss_scale")
-        } | {"loss": True}
-    pulse = value.get("pulse")
-    if isinstance(pulse, dict) and "phases" in pulse:
-        value = value | {
-            "pulse": {
-                ("phase" if name == "phases" else name): item
-                for name, item in cast("dict[str, object]", pulse).items()
-            }
-        }
-    if "reference_state" in value and isinstance(value["reference_state"], dict):
-        state = value["reference_state"]
-        value = value | {
-            "reference_state": {
-                ("pressure_bar" if name == "pressure" else name): item
-                for name, item in state.items()
-            }
-        }
-    return {key: with_former_names(child) for key, child in value.items()}

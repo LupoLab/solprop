@@ -8,6 +8,13 @@ Its workspaces support multimode scalar and two-component propagation, Kerr, pla
 time-domain Raman, weighted control and statistics. Native states remain resident in
 their execution space between calls; observations are owning host ``complex128``
 arrays.
+
+The import starts the Kokkos runtime and its OpenMP thread pool. Start child processes
+after it with the ``spawn`` start method, not ``fork``: a forked child inherits the
+initialised runtime without its threads, and GNU's OpenMP runtime then usually hangs at
+the child's first parallel region. ``forkserver`` forks from a server that imports the
+main module, so it inherits the runtime too when that module imports this package.
+solprop's own scans and service spawn their processes.
 """
 
 from __future__ import annotations

@@ -10,9 +10,8 @@ cubic), the same pair in a circular basis, a delayed silica tensor, the split TE
 block and a graded-index guide of two LP modes, each launched with random phases in
 every channel and scaled to a nonlinear scale ``Phi = 0.5`` over the millimetre:
 
-- ``source``: one evaluation of the whole stage source at the launch (from
-  ``test_native_general_source_bound.py``);
-- ``steps``: the field after the case's ten fixed Runge-Kutta steps (the same module);
+- ``source``: one evaluation of the whole stage source at the launch;
+- ``steps``: the field after the case's ten fixed Runge-Kutta steps;
 - the pair under the split temporal collar, launched with content outside the active
   band, on either march (from ``test_native_general_split.py``, which keeps the
   out-of-band bins' exact zeros on both backends);
@@ -331,6 +330,25 @@ def without_source(name: str) -> Callable[[PropagationProblem], PropagationProbl
     return switch
 
 
+def without_delayed(problem: PropagationProblem) -> PropagationProblem:
+    """Return the problem whose regions' delayed (Raman) tensor is zero.
+
+    The instantaneous Kerr term is kept, so a guard built on this switch measures the
+    Raman term's share alone rather than the whole source's.
+    """
+    regional = problem.responses.regional_responses
+    assert regional is not None
+    delayed = np.zeros_like(regional.delayed_tensor)
+    delayed.setflags(write=False)
+    return dataclasses.replace(
+        problem,
+        responses=dataclasses.replace(
+            problem.responses,
+            regional_responses=dataclasses.replace(regional, delayed_tensor=delayed),
+        ),
+    )
+
+
 def without_regional_cubic(problem: PropagationProblem) -> PropagationProblem:
     """Return the problem whose regions' third-order susceptibility is zero.
 
@@ -409,7 +427,11 @@ def rows() -> tuple[Row, ...]:
             "one-stage count times the projected sum's measured conditioning, and its "
             "ten-step carry at the launch's nonlinear scale.",
             build=partial(case, name),
-            switch_off=without_source(name),
+            # The Raman case's guard drops its delayed term alone: dropping the whole
+            # source would let its Kerr term satisfy the guard by itself. Measured on
+            # numpy_ref, Raman alone moves the source and the ten steps by 9.4e11 and
+            # 3.0e11 bounds.
+            switch_off=without_delayed if name == "raman" else without_source(name),
             rungs={
                 "source": one_stage(name),
                 "steps": ten_steps(name),

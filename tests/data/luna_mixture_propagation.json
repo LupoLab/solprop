@@ -26364,6 +26364,7 @@
  },
  "provenance": {
   "generated": "2026-09-11T00:46:50.611870+00:00",
+  "generated_by": "tests/data/generate_luna_mixture_propagation.py",
   "julia_version": "julia version 1.12.6",
   "luna_commit": "de9db7c9a3b6e37fc71bb657540abab177242883",
   "luna_path": "~/.julia/dev/Luna",

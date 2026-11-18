@@ -9,8 +9,7 @@ preserve the selected backend and reject unsupported contracts explicitly.
 The executors (`solprop.driver.executors`) are `Local` (sequentially, in the calling
 process, reusing one backend where it can), `Pool` (spawned worker processes), and the
 durable file `Queue` with its `Slurm` emitter, which runs queue or chunk modes as array
-tasks. A fixed-schedule `Batch` executor ran compatible points as one group until
-SEP 52 removed it: on native it built a backend per member for no gain in speed.
+tasks.
 
 ## Why the standard library
 
@@ -62,6 +61,12 @@ Different output layouts have their own arrays and global-index mappings. A poin
 results are staged and checked before its status becomes done; failed and unfinished
 points are masked by readers. Periodic statistics use exact CSR values and offsets.
 
+A `Local` or `Pool` controller holds the scan file's exclusive lock for its whole
+session, so a `running` mark it finds was left by a controller that has gone: it claims
+that point at once, with no lease age. Whatever ends a scan early (a stop, a refused
+admission, a conflict, an interrupt), the controller gives every point it claimed but
+did not commit back as it was, so a rerun computes it.
+
 Queue ownership follows the refreshed per-point leases of
 [Luna PR 441](https://github.com/LupoLab/Luna.jl/pull/441): elapsed run duration alone
 does not establish abandonment. An ownership token prevents a late worker from
@@ -78,7 +83,8 @@ bytes change, and no second identity contract is introduced to work around it.
 
 ## Durable executor implementation
 
-The queue manifest is immutable. A persistent `flock` file serialises state updates;
+The queue manifest is immutable. A recipe scan's recipe is kept beside it once, outside
+the scan identity, and collection records it in the scan file. A persistent `flock` file serialises state updates;
 its inode is never removed. Active point rows contain a controller UUID, host, PID,
 process creation identity, claim token and refreshed wall-clock lease. Local liveness
 wins over elapsed age; remote takeover requires lease expiry. The controller heartbeat

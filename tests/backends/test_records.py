@@ -283,7 +283,7 @@ def test_a_low_storage_replay_carries_its_flows_and_its_operator_s_origin():
     records = run_records(problem, request, _entrance(problem))
     assert isinstance(records.policy, RungeKuttaPolicy)
     assert records.low_storage == LowStorageSettings(
-        flows=low_storage_flows(problem, stepper, "native"),
+        flows=low_storage_flows(problem, stepper),
         separable=False,
         origin=float(problem.linear.z_span[0]),
     )

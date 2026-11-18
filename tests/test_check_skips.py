@@ -39,9 +39,9 @@ def test_an_expected_reason_and_a_pass_are_clean(tmp_path, capsys):
     assert "0 unexpected" in capsys.readouterr().out
 
 
-def test_a_commit_hash_varies_and_nothing_else_does(tmp_path):
-    good = skip("93e8ee6a2376 is not in this checkout (squashed or rebased)")
-    bad = skip("93e8ee6a is not in this checkout (squashed or rebased)")
+def test_a_pattern_s_variable_part_varies_and_nothing_else_does(tmp_path):
+    good = skip("the scripted executor does not run a multistep march")
+    bad = skip("the scripted executor cannot run a multistep march")
     path = junit(tmp_path, ("good", good), ("bad", bad))
     assert [name for name, _ in check_skips.unexpected_skips(path)] == [
         "tests.test_x::test_bad"

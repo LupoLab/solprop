@@ -35,6 +35,7 @@ import numpy as np
 from jaxtyping import Float
 from numpy.typing import ArrayLike
 
+from solprop._validation import positive
 from solprop.exceptions import MaterialError, MaterialRangeWarning
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.ionisation import MAX_RATE, RateConvention
@@ -113,14 +114,6 @@ within a few ulps (1e-16 relative) of the maximum field it was built to.
 _LOWEST_FIELD: Final = 1e-3
 """Field in V/m below which a threshold search gives up: no strong-field rate is
 above a negligible value there, so a model that is is refused rather than tabulated."""
-
-
-def _validate_positive(name: str, value: float) -> float:
-    """Return a positive finite number, or refuse it by name."""
-    if isinstance(value, bool) or not (math.isfinite(value) and value > 0):
-        msg = f"OptmatRate: {name} must be positive and finite, got {value!r}"
-        raise MaterialError(msg)
-    return float(value)
 
 
 def _is_rate_model(value: object) -> bool:
@@ -339,10 +332,20 @@ class OptmatRate:
         """Resolve the model, its threshold and the energy per event."""
         if isinstance(self.source, Gas):
             object.__setattr__(self, "source", self.source.value)
-        _validate_positive("negligible_rate", self.negligible_rate)
-        _validate_positive("maximum", self.maximum)
+        positive(
+            self.negligible_rate,
+            "OptmatRate: negligible_rate",
+            MaterialError,
+            reject_bool=True,
+        )
+        positive(self.maximum, "OptmatRate: maximum", MaterialError, reject_bool=True)
         if self.reference_field is not None:
-            _validate_positive("reference_field", self.reference_field)
+            positive(
+                self.reference_field,
+                "OptmatRate: reference_field",
+                MaterialError,
+                reject_bool=True,
+            )
         if self.field_range is not None:
             low, high = (float(v) for v in self.field_range)
             if not (math.isfinite(high) and 0.0 < low < high):
@@ -371,7 +374,12 @@ class OptmatRate:
                     "its rate is evaluated at"
                 )
                 raise MaterialError(msg)
-            wavelength = _validate_positive("wavelength", self.wavelength)
+            wavelength = positive(
+                self.wavelength,
+                "OptmatRate: wavelength",
+                MaterialError,
+                reject_bool=True,
+            )
             return _resolve(self.source, wavelength, self.model)
         if not _is_rate_model(self.source):
             msg = (
@@ -830,7 +838,7 @@ class OptmatRate:
         Raises
         ------
         MaterialError
-            If the field is not finite.
+            If the field is not finite, or optmat's rate for it is NaN.
         """
         values = np.asarray(np.abs(np.asarray(field_amplitude, dtype=np.float64)))
         if not np.all(np.isfinite(values)):
@@ -859,8 +867,17 @@ class OptmatRate:
                         "rate is held at its value there",
                     ),
                 )
+        # The ceiling clips an infinite rate; a NaN (or a negative infinity) within
+        # the fitted range is a defect in the model, never a full-strength rate.
         np.minimum(rate, self.maximum, out=rate)
-        rate[~np.isfinite(rate)] = self.maximum
+        broken = ~np.isfinite(rate)
+        if bool(np.any(broken)):
+            field = float(np.minimum(flat[broken][0], self.maximum_field))
+            msg = (
+                f"{self.species_identity}: optmat's rate {rate[broken][0]} at "
+                f"{field:.4g} V/m is not finite"
+            )
+            raise MaterialError(msg)
         return rate.reshape(values.shape)
 
 

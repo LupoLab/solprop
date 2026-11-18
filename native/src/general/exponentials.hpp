@@ -38,7 +38,7 @@ KOKKOS_INLINE_FUNCTION void cosine_sine(const double theta, double& cosine,
 // A flow's magnitude: on a lossless bin `exp(+-0)`, exactly one, taken without a
 // binary64 `exp` per element. Out of line on a host, whose call to its library was out
 // of line already: inlined there, this branch took the tabulated fold's whole kernel
-// past the compiler's inlining limit, 40 % slower (solprop's docs/dev/benchmarks.md).
+// past the compiler's inlining limit, 40 % slower.
 #if defined(__GNUC__) && !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
 [[gnu::noinline]]
 #endif

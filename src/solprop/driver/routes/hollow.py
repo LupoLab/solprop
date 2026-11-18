@@ -167,7 +167,7 @@ class _HollowRequest:
     - ``length``: capillary length, m.
     - ``gas``: Built-in gas, mole fractions keyed by species name, or ordered
       populations carrying their own density paths. A mapping uses total pressure.
-    - ``pressure``: None uses one bar for a gas or fractions. Omit pressure beside a
+    - ``pressure``: required beside a built-in gas or fractions. Omit it beside a
       Mixture; every explicit pressure is refused because it already carries its
       paths. Fill pressure in **bar**: a number for a constant fill, a pair ``(p_in,
       p_out)`` for the steady-flow gradient of
@@ -312,8 +312,10 @@ class _HollowRequest:
     - ``dz_init``: first step, m; ``None`` takes ``length * 1e-4``.
     - ``integrator``: the method that steps the run
       (``docs/guide/numerics/choosing-a-stepper.md``). ``None``, the default, takes
-      ``Multistep()``: the low-call exponential Adams method, one response
-      evaluation per step. ``RungeKutta()`` is the interaction-picture DOPRI5 march,
+      the `route`'s row of :data:`~solprop.driver.defaults.ROUTE_DEFAULTS`:
+      ``Multistep()`` on a capillary, the low-call exponential Adams method, one
+      response evaluation per step, and ``RungeKutta()`` on a gas-filled waveguide.
+      ``RungeKutta()`` is the interaction-picture DOPRI5 march,
       for a cheap response or a state too large for the Adams history.
       ``LowStorageRungeKutta()`` replays `schedule` in three registers (SEP 24).
     - ``route``: the interface building the run, whose row of
@@ -805,7 +807,7 @@ class _TDSEEntry:
     execution : TDSEExecution
         Atomic runtime resources.
     backend : str
-        The resolved backend, ``numpy_ref``.
+        The resolved backend (``"auto"`` resolves to ``native``).
     step_planes : int
         Resolved natural-step save interval.
     n_save : int or None

@@ -20,6 +20,7 @@ from solprop.output.memory import MemoryOutput
 from solprop.output.metadata import _example_metadata
 from solprop.output.records import GridRecord, SavedPlane
 from solprop.output.scan import PointResult, ScanWriter
+from solprop.output.store import FieldRetention
 from solprop.processing import scans
 from solprop.processing.axes import grid_from_record
 from solprop.processing.fields import get_spectral_density
@@ -55,6 +56,26 @@ def test_spatial_reductions_retain_existing_statistics():
             value = reducer(output)
             assert value.shape == reducer.shape(metadata)
             np.testing.assert_array_equal(value, output[f"stats/{reducer.name}"][-1])
+
+
+def test_field_reduction_reads_a_run_that_kept_its_field_on_some_planes():
+    metadata = _example_metadata()
+    shape = (1, 1, grid_from_record(metadata.grid).n_omega)
+    rng = np.random.default_rng(3)
+    first, kept = (rng.standard_normal(shape) + 0j for _ in range(2))
+    with MemoryOutput() as full, MemoryOutput() as output:
+        full.open(metadata)
+        full.save(SavedPlane(z=0.0, field=first))
+        full.save(SavedPlane(z=0.1, field=kept))
+        output.open(metadata)
+        output.retain(FieldRetention("planes", (1,)), shape)
+        output.save(SavedPlane(z=0.0, field=None))
+        output.save(SavedPlane(z=0.1, field=kept))
+        # The same plane stored the same way: equality is the contract.
+        expected = full.fields()[1]
+        assert np.max(np.abs(expected)) > 0.0
+        np.testing.assert_array_equal(scans.field_at_plane(1)(output), expected)
+        np.testing.assert_array_equal(scans.field_at_plane()(output), expected)
 
 
 @pytest.mark.parametrize(

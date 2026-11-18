@@ -444,6 +444,30 @@ def test_tdse_is_refused_by_name_before_integrator_or_native_setup(
         NativeBackend(requested, requested_request, grid=grid)
 
 
+def test_a_constructor_failing_after_the_workspace_closes_it(
+    phase_a_case: PhaseACase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A failure after the workspace is built (here the last step, the host BLAS
+    # hold) closes the workspace rather than leaving it to the garbage collector.
+    problem, run_request, grid = phase_a_case
+    built: list[_core.Workspace] = []
+    workspace_type = _core.Workspace
+
+    def recorded(lowered: _core.Problem) -> _core.Workspace:
+        built.append(workspace_type(lowered))
+        return built[-1]
+
+    def failing(*_arguments: object, **_keywords: object) -> NoReturn:
+        raise RuntimeError("host BLAS hold failed")
+
+    monkeypatch.setattr(_core, "Workspace", recorded)
+    monkeypatch.setattr("solprop_native._host_blas.hold", failing)
+    with pytest.raises(RuntimeError, match="host BLAS hold failed"):
+        NativeBackend(problem, run_request, grid=grid)
+    assert built
+    assert all(workspace.closed for workspace in built)
+
+
 def _resumed(problem: PropagationProblem, ledgers: dict[str, object]) -> Start:
     """Return the problem's launch as a start that restores `ledgers`."""
     return Start(

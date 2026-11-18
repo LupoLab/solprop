@@ -70,6 +70,7 @@ from solprop.stats import analytic_field
 from solprop.translate.linop import power_weight_at
 from solprop.translate.masks import noise_spectrum
 from solprop.translate.problem import (
+    Flags,
     PropagationProblem,
     _held_block,
     _held_state,
@@ -472,8 +473,8 @@ def _with_noise(
     """Return `problem` carrying `noise`, every other leaf shared by identity.
 
     A realisation reaches a translation only through the initial record and the
-    ``has_noise`` flag; what else consults it is a refusal keyed on the model, and a
-    replacement that changes the model is checked by its caller.
+    ``has_noise`` flag, re-derived here; what else consults it is a refusal keyed on the
+    model, and a replacement that changes the model is checked by its caller.
 
     - ``noise``: the realisation in true sqrt(W) on a modal route, or ``None`` for no
       noise.
@@ -485,15 +486,15 @@ def _with_noise(
         noise0 = power_amplitude(
             noise0, power_weight_at(problem, problem.initial.z), inverse=True
         )
-    return dataclasses.replace(
-        problem,
-        initial=dataclasses.replace(
-            problem.initial,
-            noise0=noise0,
-            noise_model="none" if noise is None else noise.model,
-        ),
-        flags=dataclasses.replace(problem.flags, has_noise=noise0 is not None),
+    initial = dataclasses.replace(
+        problem.initial,
+        noise0=noise0,
+        noise_model="none" if noise is None else noise.model,
     )
+    flags = Flags.from_content(
+        problem.shape, problem.linear, problem.transform, problem.responses, initial
+    )
+    return dataclasses.replace(problem, initial=initial, flags=flags)
 
 
 def _redrawable(

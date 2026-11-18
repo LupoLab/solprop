@@ -174,9 +174,6 @@ class NullBackend:
     def memory_ledger(self):
         return {}
 
-    def available_device_memory(self):
-        return None
-
     def close(self):
         pass
 

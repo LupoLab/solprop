@@ -145,15 +145,16 @@ def _calibrate(
         # No native backend, or one without the calibration's modules: selecting it
         # fails, or runs on its own table, on its own terms.
         return None
-    if not _allowed(environ):
-        return None
     from solprop import calibration  # noqa: PLC0415 - imports this module's package
     from solprop.calibration.controller import LEVELS, calibrate  # noqa: PLC0415
 
+    found = calibration.choice(environ) if _allowed(environ) else None
+    if found is None or found.fingerprint is None:
+        # Not a process that measures, or its store could not be read (choice has
+        # warned): the built-in table runs.
+        return None
     machine = _native.topology.read_topology()
     allocation = _native.allocation.classify(machine, cpus, _process.cgroup_cpus())
-    found = calibration.choice(environ)
-    assert found.fingerprint is not None  # "auto" always fingerprints
     digest = found.fingerprint.digest
     store = _native.store.Store(calibration.store_directory(environ))
     key = (digest, allocation.key(), level)

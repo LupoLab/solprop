@@ -31,8 +31,8 @@ from typing import Final
 
 from solprop._process import batch_script, child_environment
 from solprop.service.messages import ServiceError
-from solprop.service.record import process_stamp, set_aside, write_json
-from solprop.service.worker import SPEC, RunSpec, spec_value
+from solprop.service.record import clear_stop, process_stamp, set_aside, write_json
+from solprop.service.worker import OUTPUT, SCAN_OUTPUT, SPEC, RunSpec, spec_value
 
 __all__ = [
     "JOB_OUTPUT",
@@ -82,20 +82,27 @@ def prepare(spec: RunSpec) -> Path:
     Raises
     ------
     solprop.service.messages.ServiceError
-        If the folder already holds a run that has not been continued.
+        If the folder already holds a run's or a scan's results and the run is not
+        a continuation.
 
     Notes
     -----
     A continued run's earlier record is set aside
-    (:func:`~solprop.service.record.set_aside`).
+    (:func:`~solprop.service.record.set_aside`), and a stop file already in the folder
+    is removed, so a stop file found by the run when it starts is a Stop pressed while
+    it waited, and is obeyed.
     """
     folder = Path(spec.folder).expanduser()
     folder.mkdir(parents=True, exist_ok=True)
-    if spec.resume is None and (folder / "run.h5").exists():
+    if spec.resume is None and any(
+        (folder / name).exists() for name in (OUTPUT, SCAN_OUTPUT)
+    ):
         msg = f"{folder} already holds a run; a new run needs a folder of its own"
         raise ServiceError(msg)
     if spec.resume is not None:
         set_aside(folder)
+    else:
+        clear_stop(folder)
     write_json(folder / SPEC, spec_value(spec))
     return folder
 
@@ -303,7 +310,7 @@ def slurm_script(
     >>> resources = SlurmResources(cpus=4)
     >>> script = slurm_script(Path("/runs/r1"), "/env/bin/python", resources)
     >>> "#SBATCH --cpus-per-task=4" in script, script.splitlines()[-1]
-    (True, 'exec /env/bin/python -m solprop.service.job /runs/r1')
+    (True, 'exec /env/bin/python -m solprop.service.job --slurm /runs/r1')
     """
     name = re.sub(r"[^A-Za-z0-9_.-]", "_", folder.name)[:40]
     posix = folder.as_posix()  # a cluster's path, whatever this computer writes
@@ -324,7 +331,7 @@ def slurm_script(
         *(line for line in resources.setup if line.strip()),
     ]
     budget = str(threads) if threads is not None else "${SLURM_CPUS_PER_TASK:-1}"
-    command = shlex.join([python, "-m", "solprop.service.job", posix])
+    command = shlex.join([python, "-m", "solprop.service.job", "--slurm", posix])
     return batch_script(
         directives, [f"export SOLPROP_THREADS={budget}", f"exec {command}"], site=site
     )
@@ -415,18 +422,28 @@ class SlurmState:
     reason: str = ""
 
 
-def slurm_states(jobs: Sequence[str]) -> dict[str, SlurmState]:
+def slurm_states(jobs: Sequence[str], *, strict: bool = False) -> dict[str, SlurmState]:
     """Return the states of Slurm jobs: from the queue, else from the accounts.
 
     Parameters
     ----------
     jobs : Sequence of str
         The jobs.
+    strict : bool, optional
+        Whether a job the scheduler could not be asked about is an error: ``squeue``
+        failed for another reason than not knowing it, and ``sacct`` gave no state.
 
     Returns
     -------
     dict
         Each job's state, by job; a job neither command knows is left out.
+
+    Raises
+    ------
+    solprop.service.messages.ServiceError
+        If a command is not on this machine or does not answer in time, and with
+        `strict` for a job the scheduler could not be asked about, with what
+        ``squeue`` said.
     """
     if not jobs:
         return {}
@@ -457,6 +474,17 @@ def slurm_states(jobs: Sequence[str]) -> dict[str, SlurmState]:
                 if len(parts) == 2 and parts[0] in missing:
                     # "CANCELLED by 1234" names who cancelled it.
                     found[parts[0]] = SlurmState(parts[1].split()[0])
+    said = (queue.stderr or queue.stdout).strip() or f"status {queue.returncode}"
+    unasked = [job for job in jobs if job not in found]
+    # squeue refuses a job it no longer holds with "Invalid job id": an answer.
+    if (
+        strict
+        and unasked
+        and queue.returncode != 0
+        and "invalid job id" not in said.lower()
+    ):
+        msg = f"Slurm could not be asked about job {', '.join(unasked)}: {said}"
+        raise ServiceError(msg)
     return found
 
 

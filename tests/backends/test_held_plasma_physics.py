@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 from scipy.integrate import quad_vec
 from scipy.special import erf
-from tests.backends.test_held_plasma import EPS, grid_case, rounding_budget, source
 
+from backends.test_held_plasma import EPS, grid_case, rounding_budget, source
 from solprop.translate.plasma_integration import design_running_integral
 
 

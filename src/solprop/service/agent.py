@@ -47,6 +47,7 @@ __all__ = [
     "FOLLOW_PERIOD",
     "LIVENESS_PERIOD",
     "REQUESTS",
+    "SLURM_LIVENESS_PERIOD",
     "Agent",
     "hello",
     "main",
@@ -57,6 +58,11 @@ FOLLOW_PERIOD: Final = 0.5
 
 LIVENESS_PERIOD: Final = 2.0
 """How often a followed run with a quiet record is checked for having gone, s."""
+
+SLURM_LIVENESS_PERIOD: Final = 60.0
+"""How often a followed Slurm run with a quiet record is checked for having gone, s:
+each check asks the scheduler (``squeue``), which sites ask not to be polled often, and
+a queued job is quiet for as long as it waits."""
 
 FOLLOW_LIMITS: Final = (0.02, 5.0)
 """The shortest and longest period a window may ask a record to be read at, s."""
@@ -189,7 +195,10 @@ class Agent:
         Raises
         ------
         solprop.service.messages.ServiceError
-            For a launcher that is not known.
+            For a launcher that is not known, a continuation of a run that has not
+            ended or whose Slurm job the scheduler cannot be asked about, or a run
+            that could not be launched (a continued run's folder is then left as it
+            was).
         """
         from dataclasses import replace  # noqa: PLC0415 - light
 
@@ -199,21 +208,36 @@ class Agent:
             start_direct,
             submit_slurm,
         )
+        from solprop.service.record import _aside_number, put_back  # noqa: PLC0415
         from solprop.service.runs import summarise  # noqa: PLC0415 - light
 
         spec = spec_from_value(body["spec"])
         spec = replace(spec, folder=str(Path(spec.folder).expanduser()))
-        folder = prepare(spec)
-        python = str(Path(str(body.get("python") or sys.executable)).expanduser())
         launcher = body.get("launcher", "direct")
-        if launcher == "direct":
-            start_direct(folder, python)
-        elif launcher == "slurm":
-            resources = SlurmResources.from_value(body.get("resources") or {})
-            submit_slurm(folder, python, resources, threads=spec.threads)
-        else:
+        if launcher not in {"direct", "slurm"}:
             msg = f"no launcher {launcher!r}: 'direct' or 'slurm'"
             raise ServiceError(msg)
+        aside = None
+        if spec.resume is not None:
+            state = _scheduled(Path(spec.folder), "continued")["state"]
+            if state in _GOING:
+                msg = f"{Path(spec.folder).name} is {state}: continue it once it ends"
+                raise ServiceError(msg)
+            aside = _aside_number(Path(spec.folder))  # where prepare sets it aside
+        python = str(Path(str(body.get("python") or sys.executable)).expanduser())
+        try:
+            folder = prepare(spec)
+            if launcher == "direct":
+                start_direct(folder, python)
+            else:
+                resources = SlurmResources.from_value(body.get("resources") or {})
+                submit_slurm(folder, python, resources, threads=spec.threads)
+        except Exception:
+            if aside is not None:
+                # Not launched: the earlier part's record, its ending included, is
+                # the run's again, and the failure goes to the window.
+                put_back(Path(spec.folder), aside)
+            raise
         return summarise(folder)
 
     def follow(self, body: Mapping[str, Any]) -> int:
@@ -261,13 +285,18 @@ class Agent:
         A run that has gone without recording an ending (its process killed, out of
         memory, its job cancelled) is said ``lost``, from its state
         (:func:`~solprop.service.runs.summarise`) checked every
-        :data:`LIVENESS_PERIOD` seconds while its record stays quiet.
+        :data:`LIVENESS_PERIOD` seconds while its record stays quiet, or every
+        :data:`SLURM_LIVENESS_PERIOD` seconds for a Slurm run.
 
         The terminal event is sent only once the run's summary records its ending
         (:mod:`solprop.service.record`), so a window that hears a run has ended finds
         it ended in a list of runs and can continue it at once; a run that goes
-        between the two has its terminal event sent as it wrote it.
+        between the two has its terminal event sent as it wrote it, and one whose
+        record could not take its terminal event has it sent from its summary.
         """
+        from solprop.service.runs import slurm_jobs  # noqa: PLC0415 - light
+
+        liveness = SLURM_LIVENESS_PERIOD if slurm_jobs([folder]) else LIVENESS_PERIOD
         checked = time.monotonic()
         while not done.is_set():
             try:
@@ -282,7 +311,7 @@ class Agent:
                 )
                 return
             held = any(e.terminal for e in events) and not _ending_recorded(folder)
-            if held and time.monotonic() - checked >= LIVENESS_PERIOD:
+            if held and time.monotonic() - checked >= liveness:
                 checked = time.monotonic()
                 held = _lost(folder) is None
             if held:
@@ -304,15 +333,30 @@ class Agent:
                 )
                 if any(event.terminal for event in events):
                     return
-            elif time.monotonic() - checked >= LIVENESS_PERIOD:
+            elif time.monotonic() - checked >= liveness:
                 checked = time.monotonic()
+                ending = _summary_ending(folder, offset)
+                if ending is not None:
+                    self.send(
+                        {
+                            "kind": "events",
+                            "folder": key,
+                            "offset": offset,
+                            "events": [ending],
+                        }
+                    )
+                    return
                 lost = _lost(folder)
                 if lost is not None:
                     # Gone without an ending: killed, out of memory, cancelled.
                     lost_event = {
                         "run_id": folder.name,
                         "kind": "lost",
-                        "data": {"exitcode": None, "message": lost},
+                        "data": {
+                            "message": str(lost["detail"]),
+                            "output": lost["output"],
+                            "scan": lost["scan"],
+                        },
                     }
                     self.send(
                         {
@@ -350,9 +394,11 @@ class Agent:
     def cancel(self, body: Mapping[str, Any]) -> None:
         """End a run's job: ``scancel``, or ``SIGTERM`` to its process (``cancel``).
 
-        Either way solprop writes where the run stood, so it can be resumed. With
-        ``force``, a process of this machine is killed outright (``SIGKILL``), for a run
-        that does not end on ``SIGTERM``; its file may then hold no restart state.
+        Only the Slurm job solprop submitted the run as is cancelled; a run started
+        directly is signalled, even inside a Slurm allocation, which goes on. Either
+        way solprop writes where the run stood, so it can be resumed. With ``force``, a
+        process of this machine is killed outright (``SIGKILL``), for a run that does
+        not end on ``SIGTERM``; its file may then hold no restart state.
 
         Parameters
         ----------
@@ -362,10 +408,15 @@ class Agent:
         Raises
         ------
         solprop.service.messages.ServiceError
-            If the run has no job this machine can end.
+            If the run has no job this machine can end, or its process's start was
+            not recorded, so that its number cannot be told from a later process's.
         """
-        from solprop.service.launch import cancel_slurm  # noqa: PLC0415 - light
-        from solprop.service.record import alive, read_job  # noqa: PLC0415 - light
+        from solprop.service.launch import SUBMITTED, cancel_slurm  # noqa: PLC0415
+        from solprop.service.record import (  # noqa: PLC0415 - light
+            _read_json,
+            alive,
+            read_job,
+        )
         from solprop.service.runs import summarise  # noqa: PLC0415 - light
 
         folder = _folder(body)
@@ -374,10 +425,25 @@ class Agent:
             cancel_slurm(str(summary["slurm_job"]))
             return
         job = read_job(folder)
-        if job is not None and job.host == socket.gethostname():
-            if alive(job.pid, job.stamp):
-                hard = getattr(signal, "SIGKILL", signal.SIGTERM)
-                os.kill(job.pid, hard if body.get("force") else signal.SIGTERM)
+        if job is not None:
+            host, pid, stamp = job.host, job.pid, job.stamp
+        else:
+            # Started and not yet recorded: the process its launcher started.
+            submitted = _read_json(folder / SUBMITTED) or {}
+            host = submitted.get("host")
+            pid, stamp = int(submitted.get("pid", -1)), submitted.get("stamp")
+        if host == socket.gethostname():
+            if not alive(pid, stamp):
+                return  # gone: nothing to end
+            if stamp is None:
+                # Its number alone may by now be another process's.
+                msg = (
+                    f"{folder.name}'s process {pid} cannot be told from another with "
+                    "its number, as its start was not recorded: end it by hand"
+                )
+                raise ServiceError(msg)
+            hard = getattr(signal, "SIGKILL", signal.SIGTERM)
+            os.kill(pid, hard if body.get("force") else signal.SIGTERM)
             return
         msg = f"{folder.name} has no process or job on this machine to end"
         raise ServiceError(msg)
@@ -393,13 +459,12 @@ class Agent:
         Raises
         ------
         solprop.service.messages.ServiceError
-            If the run has not ended, or the folder holds no run.
+            If the run has not ended or its Slurm job the scheduler cannot be asked
+            about, or the folder holds no run.
         """
-        from solprop.service.runs import summarise  # noqa: PLC0415 - light
-
         folder = _folder(body)
-        summary = summarise(folder)
-        if summary["state"] in {"queued", "starting", "running"}:
+        summary = _scheduled(folder, "removed")
+        if summary["state"] in _GOING:
             msg = f"{folder.name} is {summary['state']}: stop or cancel it first"
             raise ServiceError(msg)
         if not any((folder / name).exists() for name in ("recipe.toml", "spec.json")):
@@ -572,20 +637,72 @@ def _ending_recorded(folder: Path) -> bool:
     return "ending" in (read_status(folder) or {})
 
 
-def _lost(folder: Path) -> str | None:
-    """Return why a run that recorded no ending has gone, or ``None`` while it lives.
+def _summary_ending(folder: Path, offset: int) -> dict[str, Any] | None:
+    """Return the ending a run's summary records and its record lacks, as an event.
 
-    - Returns: the reason, as the run's summary gives it; ``None`` for a run queued,
-      starting, running or ended with its own record.
+    The record misses the terminal event only when it could not be written (and the
+    record not cut back to its whole frames); the summary, written after it, still
+    has the ending.
+
+    - ``offset``: where the record has been read to, bytes.
+    - Returns: the terminal event; ``None`` without a recorded ending, or with
+      events in the record still to be read (the terminal one among them).
+    """
+    status = read_status(folder) or {}
+    ending = status.get("ending")
+    if not isinstance(ending, Mapping) or read_events(folder, offset)[0]:
+        return None
+    return {
+        "run_id": str(status.get("run_id") or folder.name),
+        "kind": str(ending.get("kind")),  # pyright: ignore[reportUnknownMemberType]
+        "data": dict(ending.get("data") or {}),  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+    }
+
+
+_GOING: Final = frozenset({"queued", "starting", "running"})
+"""The states of a run that has not ended."""
+
+
+def _summary(folder: Path) -> dict[str, Any]:
+    """Return a run's summary, with the scheduler's word on its own Slurm job.
+
+    One query names that job alone; a run with no Slurm job of its own, or whose
+    ending is recorded, asks nothing.
+
+    - Raises: :class:`ServiceError` where the scheduler cannot be asked about the
+      run's job.
     """
     from solprop.service.launch import slurm_states  # noqa: PLC0415 - light
     from solprop.service.runs import slurm_jobs, summarise  # noqa: PLC0415 - light
 
     jobs = slurm_jobs([folder])
+    return summarise(folder, slurm_states(jobs, strict=True) if jobs else None)
+
+
+def _scheduled(folder: Path, doing: str) -> dict[str, Any]:
+    """Return a run's summary (:func:`_summary`) before it is ``doing``, or refuse.
+
+    - ``doing``: what is refused, as ``"removed"``.
+    - Raises: :class:`ServiceError` where the scheduler cannot be asked, saying so.
+    """
+    try:
+        return _summary(folder)
+    except ServiceError as error:
+        msg = f"{folder.name} is not {doing}: {error}"
+        raise ServiceError(msg) from error
+
+
+def _lost(folder: Path) -> dict[str, Any] | None:
+    """Return the summary of a run that has gone without an ending, or ``None``.
+
+    - Returns: its summary, whose ``detail`` says why (empty when it gives none);
+      ``None`` for a run queued, starting, running or ended with its own record, and
+      while the scheduler cannot be asked.
+    """
     with contextlib.suppress(ServiceError):
-        summary = summarise(folder, slurm_states(jobs) if jobs else None)
+        summary = _summary(folder)
         if summary["state"] == "lost":
-            return str(summary["detail"] or "its process ended without saying how")
+            return summary
     return None
 
 

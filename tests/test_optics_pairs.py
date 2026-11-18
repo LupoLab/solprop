@@ -353,21 +353,21 @@ def test_pair_phase_frame_is_order_independent(pair):
 
 
 @pytest.mark.parametrize(
-    "bad",
+    ("bad", "message"),
     [
-        np.array([np.nan]),
-        np.array([np.inf]),
-        np.array([1 + 1j]),
-        np.ones((1, 1)),
-        np.array(1.0),
-        ["bad"],
+        (np.array([np.nan]), "must be finite and one-dimensional"),
+        (np.array([np.inf]), "must be finite and one-dimensional"),
+        (np.array([1 + 1j]), "angular frequencies must be real"),
+        (np.ones((1, 1)), "must be finite and one-dimensional"),
+        (np.array(1.0), "must be finite and one-dimensional"),
+        (["bad"], "angular frequencies must be a real array"),
     ],
 )
 @pytest.mark.parametrize("pair", [grating(), prism()])
-def test_pair_frequency_domain_errors(pair, bad):
-    with pytest.raises(MaterialError):
+def test_pair_frequency_domain_errors(pair, bad, message):
+    with pytest.raises(MaterialError, match=message):
         pair(bad)
-    with pytest.raises(MaterialError):
+    with pytest.raises(MaterialError, match=message):
         pair.phase(bad)
 
 
@@ -395,20 +395,20 @@ def test_fixed_band_selects_without_tracing_outside(pair):
 
 
 @pytest.mark.parametrize(
-    "settings",
+    ("settings", "message"),
     [
-        {"line_density": 0.0},
-        {"line_density": math.inf},
-        {"order": 0},
-        {"order": True},
-        {"separation": -1.0},
-        {"separation": math.nan},
-        {"incidence_angle": math.pi / 2},
-        {"incidence_angle": math.nan},
+        ({"line_density": 0.0}, "line_density must be finite and positive"),
+        ({"line_density": math.inf}, "line_density must be finite and positive"),
+        ({"order": 0}, "order must be a nonzero signed integer"),
+        ({"order": True}, "order must be a nonzero signed integer"),
+        ({"separation": -1.0}, "separation must be finite and nonnegative"),
+        ({"separation": math.nan}, "separation must be finite and nonnegative"),
+        ({"incidence_angle": math.pi / 2}, "incidence_angle must lie strictly"),
+        ({"incidence_angle": math.nan}, "incidence_angle must lie strictly"),
     ],
 )
-def test_grating_parameter_errors(settings):
-    with pytest.raises(MaterialError):
+def test_grating_parameter_errors(settings, message):
+    with pytest.raises(MaterialError, match=message):
         grating(**settings)
 
 
@@ -430,20 +430,23 @@ def test_grating_order_boundaries_and_endpoint_checks():
 
 
 @pytest.mark.parametrize(
-    "settings",
+    ("settings", "message"),
     [
-        {"separation": -1.0},
-        {"insertion": -1.0},
-        {"first_face_distance": 0.0},
-        {"first_face_distance": math.inf},
-        {"apex_angle": math.pi},
-        {"apex_angle": math.nan},
-        {"incidence_angle": 0.0},
-        {"incidence_angle": math.pi / 2},
+        ({"separation": -1.0}, "separation must be finite and nonnegative"),
+        ({"insertion": -1.0}, "insertion must be finite and nonnegative"),
+        ({"first_face_distance": 0.0}, "first_face_distance must be positive"),
+        ({"first_face_distance": math.inf}, "first_face_distance must be finite"),
+        ({"apex_angle": math.pi}, "apex_angle must lie strictly between zero and pi"),
+        ({"apex_angle": math.nan}, "apex_angle must lie strictly between zero and pi"),
+        ({"incidence_angle": 0.0}, "incidence_angle must lie strictly between zero"),
+        (
+            {"incidence_angle": math.pi / 2},
+            "incidence_angle must lie strictly between zero",
+        ),
     ],
 )
-def test_prism_geometry_parameter_errors(settings):
-    with pytest.raises(MaterialError):
+def test_prism_geometry_parameter_errors(settings, message):
+    with pytest.raises(MaterialError, match=message):
         replace(prism().geometry, **settings)
 
 

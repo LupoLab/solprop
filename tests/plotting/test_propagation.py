@@ -6,6 +6,7 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from matplotlib.collections import QuadMesh
 
 from solprop._validation import choice
 from solprop.constants import C
@@ -138,6 +139,37 @@ def test_prop_2d_puts_the_peak_at_zero_decibels(single):
     mesh = figures[0].axes[0].collections[0]
     assert float(np.max(np.asarray(mesh.get_array()))) == pytest.approx(0.0, abs=1e-12)
     assert mesh.get_clim() == (-60.0, 0.0)
+
+
+CARRIER = 800e-9
+"""The example run's carrier wavelength, m."""
+
+
+@pytest.mark.parametrize(
+    ("axis", "carrier"),
+    [
+        ("wavelength", CARRIER * 1e9),
+        ("f", C / CARRIER * 1e-15),
+        ("omega", 2.0 * np.pi * C / CARRIER * 1e-15),
+    ],
+)
+def test_prop_2d_draws_the_light_where_its_spectrum_is(single, axis, carrier):
+    ax = propagation.prop_2d(single, axis)[0].axes[0]
+    mesh = ax.collections[0]
+    assert isinstance(mesh, QuadMesh)
+    edges = np.asarray(mesh.get_coordinates())[0, :, 0]
+    centres = 0.5 * (edges[:-1] + edges[1:])
+    decibels = np.asarray(mesh.get_array()).reshape(-1, centres.size)
+    spacing = float(np.max(np.abs(np.diff(centres))))
+    low, high = ax.get_xlim()
+    # The carrier sits far from the middle of the drawn band, so a map drawn
+    # mirrored would put the light at low + high - carrier, tens of bins away.
+    assert low < carrier < high
+    assert abs(low + high - 2.0 * carrier) > 10.0 * spacing
+    # Pure dispersion leaves the spectrum as launched: on every plane the brightest
+    # bin is the carrier's, to within the coarsest bin of the axis.
+    brightest = centres[np.argmax(decibels, axis=1)]
+    assert np.all(np.abs(brightest - carrier) <= spacing)
 
 
 def test_prop_2d_honours_the_decibel_floor(single):
@@ -299,6 +331,19 @@ def test_energy_draws_a_conversion_efficiency_axis(single):
     assert values[-1] == pytest.approx(values[0], rel=1e-9)
 
 
+def test_energy_draws_the_run_s_energy_in_microjoules(single):
+    figure = propagation.plot_energy(single)
+    left, right = figure.axes
+    z, values = (np.asarray(data, dtype=float) for data in left.lines[0].get_data())
+    assert left.get_ylabel() == "Energy (uJ)"
+    assert np.array_equal(z, single["z"] * 100.0)  # cm, a plain scaling
+    # The example launches 1 uJ and only disperses it, so every plane holds 1 uJ: a
+    # sum over a few hundred bins, read back to a few eps (2e-16 measured).
+    np.testing.assert_allclose(values, 1.0, rtol=1e-12, atol=0.0)
+    # And 1 uJ on the left is 100 % on the right.
+    assert right.get_ylim()[1] / left.get_ylim()[1] == pytest.approx(100.0, rel=1e-9)
+
+
 def test_energy_scales_the_efficiency_by_the_input(single):
     figure = propagation.plot_energy(single)
     left, right = figure.axes
@@ -329,6 +374,27 @@ def test_a_scalar_position_and_a_sequence_agree(single):
         single, [0.05]
     )
     assert propagation._plane_indices(single, None) == [single.n_saved - 1]
+
+
+@pytest.mark.parametrize("plot", ["time_1d", "spec_1d"])
+def test_a_slice_selects_planes_by_index_as_by_position(single, plot):
+    draw = getattr(propagation, plot)
+    by_index = draw(single, plane=[0, -1]).axes[0].lines
+    by_position = draw(single, [0.0, 0.1]).axes[0].lines
+    assert [line.get_label() for line in by_index] == [
+        line.get_label() for line in by_position
+    ]
+    for one, other in zip(by_index, by_position, strict=True):
+        # The same plane read twice; a logarithmic slice masks its zeros as NaN.
+        drawn = np.asarray(one.get_ydata())
+        assert np.array_equal(drawn, np.asarray(other.get_ydata()), equal_nan=True)
+    assert len(draw(single, plane=2).axes[0].lines) == 1
+
+
+@pytest.mark.parametrize("plot", ["time_1d", "spec_1d"])
+def test_a_slice_refuses_a_plane_and_a_position_together(single, plot):
+    with pytest.raises(ProcessingError, match="not both"):
+        getattr(propagation, plot)(single, 0.05, plane=2)
 
 
 def test_a_two_mode_run_labels_its_sum():

@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The scan editor, the scan browser and a scan run from its stage, offscreen."""
+"""The scan editor and a scan run from its stage, offscreen."""
 
 from pathlib import Path
 
@@ -17,7 +17,6 @@ from solprop_gui.model.recipe import RecipeModel
 from solprop_gui.ui.scan_editor import ScanEditor
 from solprop_gui.ui.scan_stage import ScanStage
 from solprop_gui.ui.workflow_window import WorkflowWindow
-from solprop_gui.views.scan_browser import ScanView
 from test_design import SCAN
 from test_ui import WAIT_MS, private_settings, shot  # noqa: F401 - a fixture
 
@@ -66,44 +65,6 @@ def test_the_scan_editor_writes_the_scan_table(qtbot: QtBot):
     editor.set_value(None)
     assert not editor.enabled.isChecked() and editor.table() is None
     editor.enabled.setChecked(False)
-
-
-def test_the_scan_browser_draws_a_line_or_a_map(qtbot: QtBot, tmp_path: Path):
-    view = ScanView()
-    qtbot.addWidget(view)
-    view.resize(700, 450)
-    line = {
-        "variables": [{"name": "pressure", "values": [0.5, 1.0, 1.5]}],
-        "shape": [3],
-        "status": ["done", "failed", "done"],
-        "results": {
-            "stats/energy": {
-                "summary": "Energy.",
-                "units": "J",
-                "values": np.array([1e-4, np.nan, 0.9e-4]),
-            }
-        },
-    }
-    view.set_scan(line)
-    assert "1 failed" in view.status.text()
-    xs = np.asarray(view.failed.getData()[0], dtype=float)
-    assert list(xs) == [1.0]
-    shot(view, tmp_path, "scan-line")
-    grid = {
-        "variables": [
-            {"name": "pressure", "values": [0.5, 1.0]},
-            {"name": "energy", "values": [1e-4, 2e-4, 3e-4]},
-        ],
-        "shape": [2, 3],
-        "status": [["done"] * 3] * 2,
-        "results": {
-            "stats/energy": {"summary": "", "units": "J", "values": np.ones((2, 3))}
-        },
-    }
-    view.set_scan(grid)
-    assert view.image.isVisible()
-    view.show_error("no scan")
-    assert view.status.text() == "no scan" and view.result.count() == 0
 
 
 def test_a_scan_set_up_on_its_stage_runs_and_shows_its_results(  # noqa: PLR0915 - one story
@@ -166,6 +127,44 @@ def test_a_scan_set_up_on_its_stage_runs_and_shows_its_results(  # noqa: PLR0915
     window._pending[-8] = "scan point"
     window._on_reply(Reply("scan_point", -8, 0, error="gone"))
     assert window.document.model is opened
+    window.close()
+
+
+def test_a_scan_stopped_before_it_starts_leaves_scan_mode(
+    qtbot: QtBot, tmp_path: Path
+) -> None:
+    window = WorkflowWindow(workspace=tmp_path / "workspace")
+    qtbot.addWidget(window)
+    window.show()
+    window.document.confirm = lambda _title, _text: "discard"
+    window.document.set_model(RecipeModel(SCAN), base=None)
+    qtbot.waitUntil(lambda: window.stage is Stage.SETUP, timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: "pressure" in window.scans.editor.paths, timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: window.progress().can_run, timeout=WAIT_MS)
+    window.show_stage(Stage.SCAN)
+    assert window.primary.isEnabled()
+    ended: list[str] = []
+    window.run_panel.ended.connect(ended.append)
+    window.primary.click()
+
+    def submitted() -> bool:
+        return any((tmp_path / "workspace").rglob("submitted.json"))
+
+    # Started, and its job still importing solprop (about a second): Stop now is
+    # found by the job when it starts.
+    qtbot.waitUntil(submitted, timeout=WAIT_MS)
+    window.run_panel.stop()
+    qtbot.waitUntil(lambda: bool(ended), timeout=WAIT_MS)
+    (folder,) = (tmp_path / "workspace").iterdir()
+    assert window.run_panel.state_label.text().endswith("stopped")
+    # Nothing written, so nothing opened, and the window has left scan mode: the
+    # next Run from the sheet runs the setup once, not the scan.
+    written = folder / SCAN_OUTPUT
+    assert not written.exists()  # stopped before it started
+    assert ended == [""]
+    assert window.session.path is None and window.stage is Stage.SCAN
+    assert not window._scanning
+    assert "[scan]" not in window._run_recipe()[0]
     window.close()
 
 

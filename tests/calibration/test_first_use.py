@@ -122,6 +122,16 @@ def test_a_single_cpu_is_never_measured(
     assert auto == []
 
 
+def test_an_unreadable_store_leaves_the_built_in_table(
+    auto: list[tuple[str, tuple[int, ...]]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # What choice() returns, having warned, when reading the store raises OSError.
+    unread = _native.profile.Choice(mode="auto", note="the store is unreadable")
+    monkeypatch.setattr(calibration, "choice", lambda environ=None: unread)
+    assert first_use.ensure() is None
+    assert auto == []
+
+
 def test_a_device_build_is_left_to_its_own_calibration(
     auto: list[tuple[str, tuple[int, ...]]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -236,13 +246,20 @@ def test_selecting_native_and_admitting_a_scan_ask_for_a_calibration(
     class StopError(Exception):
         pass
 
-    def stop(*args: object) -> None:
+    def stop(*args: object, **kwargs: object) -> None:
         raise StopError
 
+    simulation = problems.build("gnlse")
+    problem, request = simulation.translate(), simulation.run_request()
+    # A refusal of the required device comes first, and nothing is calibrated for it.
     monkeypatch.setattr(registry, "_check_required_device", stop)
     with pytest.raises(StopError):
-        simulation = problems.build("gnlse")
-        registry.select("native", simulation.translate(), simulation.run_request())
+        registry.select("native", problem, request)
+    assert asked == []
+    monkeypatch.setattr(registry, "_check_required_device", lambda name: None)
+    monkeypatch.setattr(registry, "_construct", stop)
+    with pytest.raises(StopError):
+        registry.select("native", problem, request)
     assert asked == ["ensure"]
     monkeypatch.setattr(first_use, "for_workers", lambda cpus: asked.append("workers"))
     monkeypatch.setattr(pool, "_spawn", stop)

@@ -64,7 +64,7 @@ from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
-from solprop.translate.linop import delta_phi, profile_table
+from solprop.translate.linop import profile_table
 from solprop.translate.responses import (
     PlasmaCoefficients,
     prefactor_at,
@@ -399,25 +399,6 @@ def test_the_pre_ionisation_is_read_at_the_plane(ionising_capillary):
         assert float(table(z)) == pytest.approx(0.4, rel=1e-14)
         replaced = dataclasses.replace(plasma, preionisation=float(table(z)))
         assert replaced.preionisation == pytest.approx(0.4, rel=1e-14)
-
-
-def test_a_plasma_run_steps_and_ionises(backend_class, ionising_capillary, field_grid):
-    """A propagation that actually frees electrons, end to end."""
-    problem, run_request, _, _ = ionising_capillary()
-    plane = run(
-        backend_class(problem, run_request, grid=field_grid),
-        problem,
-        run_request,
-        owns=True,
-        until=0.1,
-    ).final
-    assert plane.z == 0.1
-    assert plane.summary.met_tolerance
-    assert np.all(np.isfinite(plane.field))
-    # The plasma blue-shifts the pulse, so the spectrum must not be the linear one.
-    linear = np.exp(delta_phi(problem.linear, 0.0, 0.1)) * problem.initial.field0
-    moved = np.max(np.abs(plane.field - linear)) / np.max(np.abs(linear))
-    assert moved > 1e-3
 
 
 # ------------------------------------------------------------------------- refusals

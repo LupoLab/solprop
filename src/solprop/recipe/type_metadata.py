@@ -495,9 +495,15 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
     "PressureGradient.two_point": _gradient(
         _keyword("length", _LENGTH, "basic", "Length of the fill.", display="m"),
         _keyword(
-            "start_bar", _PRESSURE, "basic", "Pressure at the entrance.", display="bar"
+            "start_pressure",
+            _PRESSURE,
+            "basic",
+            "Pressure at the entrance.",
+            display="bar",
         ),
-        _keyword("end_bar", _PRESSURE, "basic", "Pressure at the exit.", display="bar"),
+        _keyword(
+            "end_pressure", _PRESSURE, "basic", "Pressure at the exit.", display="bar"
+        ),
     ),
     "PressureGradient.from_stages": _gradient(
         _keyword(
@@ -652,7 +658,7 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
     "FieldGrid.from_limits": _grid(
         _keyword(
             "ffac",
-            _number(minimum=2.0),
+            _number(minimum=2.2),
             "advanced",
             "Fine-grid oversampling factor; 6 resolves a cubic response.",
         ),
@@ -1032,12 +1038,6 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
             "advanced",
             "Carrier wavelength the carrier coefficients are evaluated at.",
             display="nm",
-        ),
-        _keyword(
-            "energy_loss",
-            _choice("peak-weighted"),
-            "advanced",
-            "The plasma energy-loss convention.",
         ),
         _keyword(
             "raman_shift",

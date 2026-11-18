@@ -18,7 +18,7 @@ from hatchling.metadata.plugin.interface import MetadataHookInterface
 
 
 class NativePinHook(MetadataHookInterface):
-    """Write the dependencies, with native pinned, and the two extras."""
+    """Write the dependencies, with native pinned, and the gui extra."""
 
     PLUGIN_NAME = "custom"
 

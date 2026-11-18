@@ -17,6 +17,7 @@ The machines themselves are kept in the window's settings (:class:`MachineStore`
 import contextlib
 import json
 import threading
+import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -30,6 +31,10 @@ from solprop.service.messages import Event, Reply, Request, ServiceError
 __all__ = ["MachineHub", "MachineRun", "MachineStore"]
 
 _KEY = "machines"
+
+_CLOSE_SECONDS = 10.0
+"""How long closing waits for the machines' sessions to end, together, s: one stuck
+session's own stop and the wait for its reader."""
 
 
 def _read_marker(path: Path) -> dict[str, object] | None:
@@ -135,7 +140,7 @@ class MachineStore:
 
 
 class MachineRun:
-    """A run on a machine, as a run panel holds a worker's handle.
+    """A run on a machine, as a run panel follows it.
 
     Stop writes the run's stop file; Kill ends its job (``scancel``, or ``SIGTERM``),
     which still leaves a resumable file.
@@ -160,16 +165,6 @@ class MachineRun:
     def stop(self) -> None:
         """Ask the run to stop at its next step."""
         self.hub.call(self.machine, "stop", {"folder": self.folder})
-
-    def subscribe(self, from_plane: int = 0) -> None:
-        """Do nothing: a run's record drops no rows, so none need replaying.
-
-        Parameters
-        ----------
-        from_plane : int, optional
-            The first plane wanted.
-        """
-        del from_plane
 
     def cancel(self) -> None:
         """End the run's job (``SIGTERM``, ``scancel``); solprop saves where it was."""
@@ -236,12 +231,17 @@ class MachineHub(QObject):
         kernel.
     answered : Signal
         Emitted with a call's token and its value, or the error it raised.
+    copied : Signal
+        Emitted from a copying thread with a fetch's token, the bytes copied and the
+        total, to reach its progress on the window's thread.
     """
 
     state_changed = Signal(str, str, object)
     run_event = Signal(object)
     replied = Signal(object)
     answered = Signal(int, object, object)
+    # Sizes as objects: a results file can exceed what a C int holds.
+    copied = Signal(int, object, object)
 
     def __init__(
         self, parent: QObject | None = None, *, askpass: str | None = None
@@ -259,8 +259,10 @@ class MachineHub(QObject):
         )
         self._tokens = iter(range(1, 1 << 62))
         self._callbacks: dict[int, Callable[[object, object], None]] = {}
+        self._progress: dict[int, Callable[[int, int], None]] = {}
         self._closed = False
         self.answered.connect(self._answer)
+        self.copied.connect(self._copied)
 
     # -------------------------------------------------------------- connections
 
@@ -474,9 +476,41 @@ class MachineHub(QObject):
         error : object
             Its error's text, or ``None``.
         """
+        self._progress.pop(token, None)
         done = self._callbacks.pop(token, None)
         if done is not None:
             done(value, error)
+
+    def _piece_copied(self, token: int, have: int, total: int) -> None:
+        """Hand a fetch's progress to the window's thread, unless the hub has closed.
+
+        Parameters
+        ----------
+        token : int
+            The fetch.
+        have : int
+            The bytes copied.
+        total : int
+            The file's size, bytes.
+        """
+        if not self._closed:
+            self.copied.emit(token, have, total)
+
+    def _copied(self, token: int, have: int, total: int) -> None:
+        """Hand a fetch's progress to whoever asked, on the window's thread.
+
+        Parameters
+        ----------
+        token : int
+            The fetch.
+        have : int
+            The bytes copied.
+        total : int
+            The file's size, bytes.
+        """
+        progress = self._progress.get(token)
+        if progress is not None:
+            progress(have, total)
 
     def kernel(self, name: str, request: Request) -> None:
         """Send a request to a machine's kernel; its reply comes as :attr:`replied`.
@@ -610,7 +644,8 @@ class MachineHub(QObject):
         local : pathlib.Path
             Where the copy goes.
         progress : Callable
-            Called, from the copying thread, with the bytes copied and the total.
+            Called on the window's thread with the bytes copied and the total, as
+            each piece arrives.
         done : Callable
             Called on the window's thread with the copy's path and ``None``, or
             ``None`` and the error's text.
@@ -622,6 +657,7 @@ class MachineHub(QObject):
         """
         token = next(self._tokens)
         self._callbacks[token] = done
+        self._progress[token] = progress
         cancelled = threading.Event()
 
         def copy() -> None:
@@ -656,7 +692,7 @@ class MachineHub(QObject):
                             break
                         stream.write(data)
                         have += len(data)
-                        progress(have, total)
+                        self._piece_copied(token, have, total)
                 if cancelled.is_set():
                     msg = "the copy was cancelled"
                     raise ServiceError(msg)
@@ -717,9 +753,21 @@ class MachineHub(QObject):
         self._pool.submit(copy)
 
     def close(self) -> None:
-        """Close every connection, now; the machines' runs go on."""
+        """Close every connection, now; the machines' runs go on.
+
+        The connections close together, each on a thread of its own, within one
+        deadline: a stuck session waits for its process to stop and its reader to
+        end, and closed one after another the waits would add up machine by machine.
+        """
         self._closed = True
-        for connection in self.connections.values():
-            connection.close()
+        closers = [
+            threading.Thread(target=connection.close, daemon=True)
+            for connection in self.connections.values()
+        ]
+        for closer in closers:
+            closer.start()
+        deadline = time.monotonic() + _CLOSE_SECONDS
+        for closer in closers:
+            closer.join(max(0.0, deadline - time.monotonic()))
         self.connections.clear()
         self._pool.shutdown(wait=False, cancel_futures=True)

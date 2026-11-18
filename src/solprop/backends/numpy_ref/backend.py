@@ -269,7 +269,6 @@ class NumpyRefBackend:
                     host,
                     schedule=schedule,
                     proposal=stepper.dz_init,
-                    lag=stepper.controller.lag,
                     name=self.name,
                 )
             )
@@ -346,7 +345,6 @@ class NumpyRefBackend:
             interpolate=interpolate,
             shape=self._problem.shape,
             proposal=stepper.dz_init,
-            lag=stepper.controller.lag,
             name=self.name,
         )
         dense = AdamsDense(self._workspace, engine, march) if interpolate else None
@@ -437,9 +435,10 @@ class NumpyRefBackend:
 
         The start's field, noise, position and resume flag are loaded as a session
         loads them; its method history, ledgers and monitor continuation are not read.
-        A Runge-Kutta trial leaves the loaded state alone; a low-storage march's step
-        advances the discarded registers in place, so a backend probed so is closed
-        afterwards (SEP 47 section 6.6).
+        An Adams run is probed with a Runge-Kutta trial of its tableau, as the
+        protocol states. A Runge-Kutta trial leaves the loaded state alone; a
+        low-storage march's step advances the discarded registers in place, so a
+        backend probed so is closed afterwards (SEP 47 section 6.6).
 
         Parameters
         ----------
@@ -478,16 +477,6 @@ class NumpyRefBackend:
             else self._runge_kutta(self._workspace)
         )
         return _TrialProbe(self, engine, position, cursor, low_storage=False)
-
-    def available_device_memory(self) -> int | None:
-        """Return None for host execution.
-
-        Returns
-        -------
-        int or None
-            None: the reference runs on the host.
-        """
-        return None
 
     def metadata(self) -> dict[str, object]:
         """Return what this execution was, for the run's record.

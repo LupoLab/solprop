@@ -208,6 +208,11 @@ def test_a_childs_environment_drops_the_users_settings() -> None:
         "SOLPROP_THREADS": "4",
         "OMP_WAIT_POLICY": "active",
         "SOLPROP_FFTW_WISDOM": "/w",
+        # Kernel-form and pool overrides change what is timed, and no row records them.
+        "SOLPROP_NATIVE_BAND_TILES": "0",
+        "SOLPROP_NATIVE_FORWARD_PACK": "0",
+        "SOLPROP_BLAS_THREADS": "2",
+        "SOLPROP_OVERSUBSCRIBE": "1",
         "HOME": "/h",
     }
     built = Candidate().environment(base)
@@ -322,6 +327,34 @@ def test_no_winner_publishes_the_built_in_rules(
     assert report.chosen == report.builtin
     assert report.reason.startswith("the built-in rules kept")
     assert "validation" not in report.evidence
+
+
+def test_a_lower_level_reports_the_higher_row_the_store_keeps(
+    scripted: tuple[type[_Scripted], dict[str, str]],
+) -> None:
+    script, environ = scripted
+    script.factor = staticmethod(lambda name, call: 0.8 if name == "spin/4" else 1.0)
+    first = calibrate("standard", environ=environ, cpus=range(8))
+    assert first.status == "published" and first.path is not None
+    published = first.path.read_text(encoding="utf-8")
+    # A quick run that would choose the built-in rules leaves the standard row.
+    script.factor = staticmethod(lambda name, call: 1.0)
+    report = calibrate("quick", environ=environ, cpus=range(8))
+    assert report.status == "kept"
+    assert report.chosen == {"threads": 4, "wait": "spin"}
+    assert report.path is None
+    assert "standard row" in report.reason
+    assert "calibration (quick): kept" in report.describe()
+    # Nothing is published: the store's generation, wisdom included, is the first.
+    rows = _rows(environ)
+    assert len(rows) == 1
+    assert rows[0]["level"] == "standard"
+    assert rows[0]["process"] == {"threads": 4, "wait": "spin"}
+    current = next((Path(environ["SOLPROP_CACHE_DIR"]) / "machines").glob("*/current"))
+    assert current.parent / (current.read_text(encoding="utf-8").strip() + ".json") == (
+        first.path
+    )
+    assert first.path.read_text(encoding="utf-8") == published
 
 
 def test_a_winner_that_fails_validation_is_dropped(

@@ -48,7 +48,7 @@ from solprop.output import (
     TDSEArchive,
     open_file,
     open_tdse_archive,
-    resume,
+    read_resume_state,
 )
 from solprop.output import tdse_archive as archive_module
 from solprop.output.tdse_archive import TDSE_ARCHIVE_SCHEMA
@@ -191,7 +191,7 @@ def test_the_optical_file_records_the_archive_and_reads_without_it(fake, tmp_pat
         assert record["run_uuid"] == run_uuid
         assert record["path"] == "../side/run.tdse.h5"
         assert saved.n_saved > 2 and np.all(np.isfinite(saved.fields(convention="fft")))
-    final = resume(optical)
+    final = read_resume_state(optical)
     assert final.outcome is not None and final.outcome.status == "complete"
     closing = plain(final.outcome.execution)["tdse"]["archive"]
     assert closing["run_uuid"] == run_uuid and closing["evaluations"] > 0
@@ -205,7 +205,7 @@ def test_a_resume_appends_a_session_under_the_same_run_uuid(fake, tmp_path):
     sidecar = tmp_path / "run.tdse.h5"
     with pytest.raises(ResponseBudgetError):
         _run(_limited(30), optical, tdse_archive=TDSEArchive(sidecar))
-    stopped = resume(optical)
+    stopped = read_resume_state(optical)
     assert stopped.outcome is not None and stopped.outcome.status == "budget_exhausted"
     with open_tdse_archive(sidecar) as reader:
         first_count = len(list(reader.evaluations()))
@@ -227,7 +227,7 @@ def test_a_resume_appends_a_session_under_the_same_run_uuid(fake, tmp_path):
         assert all(item.role != "diagnostic" for item in resumed)
         # A fresh startup restarts the history after the resume.
         assert resumed[0].role == "startup" and resumed[0].trial == 0
-    final = resume(optical)
+    final = read_resume_state(optical)
     assert final.outcome is not None and final.outcome.status == "complete"
     assert plain(final.outcome.execution)["tdse"]["archive"]["session"] == 1
 
@@ -241,7 +241,7 @@ def test_an_archive_first_requested_by_a_resume_starts_its_own_file(fake, tmp_pa
     with open_tdse_archive(sidecar) as reader:
         assert [session.kind for session in reader.sessions] == ["resume"]
         run_uuid = reader.run_uuid
-    final = resume(optical)
+    final = read_resume_state(optical)
     assert final.outcome is not None
     # The resumed execution's record names the archive it started.
     assert plain(final.outcome.execution)["tdse"]["archive"]["run_uuid"] == run_uuid
@@ -271,10 +271,15 @@ def test_an_existing_unrelated_file_is_refused_before_any_atomic_work(
     assert not optical.exists()
 
 
-def test_archive_requests_the_run_cannot_honour_are_refused(fake, tmp_path):
+def test_archive_requests_the_run_cannot_honour_are_refused(
+    fake, tmp_path, monkeypatch
+):
     optical = tmp_path / "run.h5"
     with pytest.raises(DriverError, match="must differ from the optical"):
         _run(natural_simulation(), optical, tdse_archive=TDSEArchive(optical))
+    # The refusal is the run's own, so the suite's runtime type check is set aside on
+    # the two methods the argument passes through.
+    monkeypatch.setattr(Simulation, "_execute", inspect.unwrap(Simulation._execute))
     with pytest.raises(DriverError, match="TDSEArchive"):
         inspect.unwrap(Simulation._run)(
             natural_simulation(), progress="none", tdse_archive="x.h5"
@@ -317,7 +322,7 @@ def test_a_failed_write_stops_the_run_at_its_last_checkpoint(
         _run(natural_simulation(), optical, tdse_archive=TDSEArchive(sidecar))
     # The failing write followed the provider call it records; nothing came after.
     assert len(fake.calls) == written[-1]
-    stopped = resume(optical)
+    stopped = read_resume_state(optical)
     assert stopped.outcome is not None and stopped.outcome.status == "failed"
     assert "TDSEArchiveError" in stopped.outcome.message
     assert stopped.checkpoint is not None or stopped.n_saved >= 1

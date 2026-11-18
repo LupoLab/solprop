@@ -4,15 +4,15 @@ This page records the CPU performance work on the compiled backend. It lists wha
 adopted, what was measured and rejected, and what remains open. The aim is that nobody
 repeats an experiment without knowing its result. Each entry gives the result in one or
 two lines and, where they are summarised, links to its measurements in
-[benchmarks](benchmarks.md#indicative-results) or to
-[SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md). The open items are in the
+[benchmarks](benchmarks.md#current-performance) or to
+[SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md). The open items are in the
 [issues](https://github.com/LupoLab/solprop/issues?q=is%3Aopen+label%3Aperformance+label%3A%22area%3A+native%22).
 
 Timings follow the [benchmark rules](benchmarks.md#rules). They are short, bounded
 windows: fresh processes, same machine, interleaved arms. Results are compared within
 SEP 25's rounding bounds, never bitwise. A ratio "against `numba_cpu`" is that backend's
 time divided by the native backend's: above 1, the native backend is faster. `numba_cpu`
-was retired by [SEP 43](seps/archive/sep-0043-retire-numba-cpu.md); such ratios record what was
+was retired by [SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md); such ratios record what was
 measured while it existed.
 
 ## Build and libraries
@@ -24,7 +24,7 @@ measured while it existed.
   coupled-wall and modal capillary cases 10 to 75 times slower on a 32-core AVX-512
   x86-64 server, and similarly on Windows and aarch64. With one runtime the backend is 2
   to 7 times faster than `numba_cpu` on those cases at full width, and level with it at
-  one thread ([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md)).
+  one thread ([SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md)).
   - At start-up the backend fits a host OpenBLAS to its own pool, unless the user sets
     `OPENBLAS_NUM_THREADS`, `GOTO_NUM_THREADS` or `OMP_NUM_THREADS`.
     - A pthreads OpenBLAS is held to one thread. This covers a local build against a
@@ -34,16 +34,16 @@ measured while it existed.
       to every logical CPU.
 - **Accelerate on macOS.** It matched or beat both OpenBLAS variants and native GEMM,
   except at one thread on the TE/TM wall, where it is the fastest option.
-- **NEON FFTW on both Arm wheels**, in both precisions, with the Arm cycle counter.
+- **NEON FFTW on both Arm wheels**, in double precision (a wheel carrying a single-precision
+  FFTW fails `native/ci/smoke.py`), with the Arm cycle counter.
   On Apple silicon it keeps the M1 baseline and deployment target, and FFTW and Kokkos
   share one OpenMP runtime. This enables FFTW's explicit codelets; compiler
   vectorisation alone does not select them
   ([build recipe](../guide/performance/building-native.md)).
   - Linux aarch64 (the manylinux wheel, Neoverse N1 baseline), measured on 16-core
     Google Axion (Neoverse V2) and Ampere Altra (Neoverse N1) machines. FFTW's own
-    benchmark, 1 thread: 1.16–1.18× faster in double precision and 1.9× in single
-    (geometric means over 22 one- and two-dimensional problems); at 16 threads
-    1.07× and 1.2×.
+    benchmark, 1 thread: 1.16–1.18× faster in double precision (geometric means over 22
+    one- and two-dimensional problems); at 16 threads 1.07×.
   - solprop A/B, same wheels otherwise, five FFT-heavy cases with both steppers: no
     case slower beyond its round-to-round range, and a geometric-mean time of 0.95
     (V2) and 0.96 (N1) at 1 thread, 0.96 and 0.98 at 16 threads. The Raman and RK
@@ -62,7 +62,7 @@ measured while it existed.
   ([#334](https://github.com/LupoLab/solprop/issues/334)). The same tree built both ways,
   with the same FFTW, OpenBLAS and SLEEF's AVX2 route in each; `benchmarks ab`, the
   tracking set at a quarter length, three rounds; the same steps and fields to rounding
-  ([ledger](benchmarks.md)).
+  ([measurements](benchmarks.md#builds-and-libraries)).
   - On an Intel Xeon Gold 6240 (18 cores of one socket, exclusive), `-march=cascadelake`
     (v4 with VNNI): geometric mean 0.984. The largest gains are at one thread
     (`argon_blueshift` 0.909, `ctc` 0.924, `grin_nonlinear` 0.943); at 16 threads none
@@ -108,7 +108,7 @@ measured while it existed.
   threshold runs serially; a medium one runs on four threads; a large one runs at full
   width. The thresholds are a per-workspace record (`CpuExecution`), filled from the
   built-in table in `native/src/solprop_native/_execution.py`, which holds their reasons,
-  or from a machine calibration ([SEP 46](seps/archive/sep-0046-machine-calibration.md)). The
+  or from a machine calibration ([SEP 46](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0046-machine-calibration.md)). The
   global thread setting is a cap, and explicitly set pools force their (clamped) widths.
   The small cases became 2.0 times faster than one thread (geometric mean) on an
   18-core arm64 laptop and on a two-socket, 36-core AVX-512 server.
@@ -213,7 +213,7 @@ measured while it existed.
     transform planned within the stage's share), and so still does this one without
     patient plans: the stage needs more of the levels' time than it gets.
     Timed alone, the measured threaded plans ran 0.53–1.05 of estimate's time
-    (medians 0.74 on the EPYC 7763, 0.91 on the Xeon, about 0.95 on the M5 Max), and
+    (medians 0.74 on the EPYC 7763, 0.91 on the Xeon Gold 6240, about 0.95 on the M5 Max), and
     estimate's serial plans 1.06–2.8 of measure's. Those timings ran outside the native
     wait scope, so LLVM's runtime woke its idle threads at each loop; the timing alone
     now runs inside it, as a step's transforms do (on the M5 Max a 4 × 10240 plan took
@@ -346,7 +346,7 @@ measured while it existed.
   the per-element form. The other per-element transcendentals
   [#338](https://github.com/LupoLab/solprop/issues/338) listed (the envelope and
   trapezoid plasma columns, two-component magnitudes, the Adams corrector and dense
-  observation) were negligible in one-thread profiles of the tracked cases on the Xeon.
+  observation) were negligible in one-thread profiles of the tracked cases on the Xeon Gold 6240.
   The largest left is the lossy planar medium's complex square root (`hypot`), about 7 %
   of `planar`'s one-thread march.
 - **A pooled allocator.** Allocation service in the warmed propagation window is below
@@ -406,8 +406,11 @@ Each has an issue:
     comparison is done (v4 against v3, above): wider vectors gained at most 9 % on an
     AVX-512 Xeon and on Zen 5, so it gives no case for explicit SIMD on its own.
   - A broad conversion to SIMD types is not justified.
-- **A subnormal count on long runs** ([#340](https://github.com/LupoLab/solprop/issues/340)) and **reduced precision** ([#342](https://github.com/LupoLab/solprop/issues/342)).
+- **A subnormal count on long runs** ([#340](https://github.com/LupoLab/solprop/issues/340)).
+  Reduced precision is not pursued: solprop is binary64 only (ADR-077).
   The value-safe flags (`-fno-math-errno`, `-fno-trapping-math`) were measured together in
   [#59](https://github.com/LupoLab/solprop/pull/59), with no net gain; [#334](https://github.com/LupoLab/solprop/issues/334) keeps that record.
-- **SLEEF on Linux aarch64, and AVX-512 against AVX2**, unmeasured end to end
-  ([#339](https://github.com/LupoLab/solprop/issues/339)).
+- **SLEEF's AVX-512 against its AVX2 variant**, unmeasured end to end
+  ([#339](https://github.com/LupoLab/solprop/issues/339)). SLEEF on Linux aarch64 was
+  measured level (1.00 on a Neoverse V2), so AUTO keeps the system libm there
+  (`native/cmake/VectorMath.cmake`, ADR-072).

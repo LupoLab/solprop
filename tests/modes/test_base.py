@@ -10,8 +10,8 @@ import pytest
 from witness_materials import borzsonyi
 
 from solprop.constants import C
-from solprop.exceptions import MaterialRangeWarning, ModeError
-from solprop.modes import MarcatiliMode
+from solprop.exceptions import MaterialRangeWarning, ModeError, NoZeroDispersionError
+from solprop.modes import MarcatiliMode, StepIndexMode
 from solprop.modes.base import (
     BETA2_RELATIVE_STEP,
     aeff,
@@ -25,6 +25,7 @@ from solprop.modes.base import (
     transmission,
     zdw,
 )
+from solprop.nonlinear.gnlse import SpecifiedMode
 from solprop.physdata.glasses import fused_silica
 from solprop.profiles import Linear, PressureGradient
 
@@ -211,8 +212,208 @@ def test_zdw_refuses_a_bad_window(mode, wavelength_range):
         zdw(mode, wavelength_limits=wavelength_range)
 
 
-def test_the_default_window_is_lunas():
-    """Kept for comparability; it does make the material models warn, honestly."""
+@pytest.mark.parametrize("near", [0.0, -800e-9, math.inf, math.nan])
+def test_zdw_refuses_a_bad_reference_wavelength(mode, near):
+    with pytest.raises(ModeError, match="near must be a positive"):
+        zdw(mode, wavelength_limits=(150e-9, 900e-9), near=near)
+
+
+def two_zero_mode():
+    """``beta2 = -1e-26 + 1e-54 (omega - 2e15)^2`` s^2/m: zeros at 1.9e15 and 2.1e15."""
+    omega0 = 2e15
+    return SpecifiedMode.from_taylor(
+        [omega0 / C, 1.0 / C, -1e-26, 0.0, 2e-54], omega0, aeff=1e-10
+    )
+
+
+TWO_ZERO_WINDOW = (2.0 * math.pi * C / 2.2e15, 2.0 * math.pi * C / 1.8e15)
+
+
+@pytest.mark.parametrize("knot", [100, 255, 256, 300])
+def test_zdw_finds_a_zero_that_falls_exactly_on_a_sample(knot):
+    """``beta2 = 1e-41 (omega - 2^51)`` s^2/m, with its zero on a sample of the search.
+
+    Powers of two make the sample and the differenced ``beta2`` there exact, so the
+    products of neighbouring signs are zero on both sides and not negative.
+    """
+    omega0, spacing, samples = 2.0**51, 2.0**40, 512
+    mode = SpecifiedMode.from_taylor(
+        [omega0 / C, 1.0 / C, 0.0, 1e-41], omega0, aeff=1e-10
+    )
+    lower = omega0 - knot * spacing
+    upper = omega0 + (samples - 1 - knot) * spacing
+    limits = (2.0 * math.pi * C / upper, 2.0 * math.pi * C / lower)
+    # The search's own grid, from the limits as it converts them.
+    grid = np.linspace(
+        2.0 * math.pi * C / limits[1], 2.0 * math.pi * C / limits[0], samples
+    )
+    assert grid[knot] == omega0
+    assert beta2(mode, grid)[knot] == 0.0
+    found = zdw(mode, wavelength_limits=limits)
+    assert found == pytest.approx(2.0 * math.pi * C / omega0, rel=1e-12)
+
+
+def test_zdw_does_not_take_a_touch_of_zero_for_a_sign_change():
+    """``beta2 = 1e-54 (omega - 2e15)^2`` touches zero and keeps its sign."""
+    omega0 = 2e15
+    mode = SpecifiedMode.from_taylor(
+        [omega0 / C, 1.0 / C, 0.0, 0.0, 2e-54], omega0, aeff=1e-10
+    )
+    with pytest.raises(NoZeroDispersionError, match="does not change sign"):
+        zdw(mode, wavelength_limits=TWO_ZERO_WINDOW)
+
+
+def test_zdw_names_every_zero_when_the_window_holds_several():
+    # The ends of the window have one sign, and both zeros are real.
+    with pytest.raises(ModeError, match=r"2 zeros .* 897\.0, 991\.4 nm"):
+        zdw(two_zero_mode(), wavelength_limits=TWO_ZERO_WINDOW)
+
+
+@pytest.mark.parametrize(("near", "omega"), [(900e-9, 2.1e15), (1000e-9, 1.9e15)])
+def test_zdw_returns_the_zero_nearest_a_reference(near, omega):
+    found = zdw(two_zero_mode(), wavelength_limits=TWO_ZERO_WINDOW, near=near)
+    # beta1 is a cubic, so the Richardson difference is exact but for rounding (1e-37
+    # s^2/m against a slope of 2e-40 s^3/m per rad/s): the root to 1e-12, read at 1e-9.
+    assert found == pytest.approx(2.0 * math.pi * C / omega, rel=1e-9)
+
+
+def krypton():
+    """A 14 um capillary at 15 bar of krypton: its resonances near 120 nm flip the
+    sign of the differenced ``beta2`` sixteen times between 100 and 124 nm."""
+    return MarcatiliMode(14e-6, "Kr", 15.0)
+
+
+GAS_WINDOW = (100e-9, 3e-6)
+"""A window reaching below the gas lines, the default before the noble gases' lines
+were left out of it."""
+
+
+@pytest.mark.parametrize("near", [800e-9, 200e-9])
+def test_zdw_finds_a_zero_past_the_sign_changes_of_a_gas_resonance(near):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MaterialRangeWarning)
+        found = zdw(krypton(), wavelength_limits=GAS_WINDOW, near=near)
+    # The single zero of the qualified band (125 nm up), searched there alone.
+    reference = zdw(krypton(), wavelength_limits=(125e-9, 3e-6))
+    # Other samples, so other brackets: both stop on the noise of the differenced
+    # beta2 (5e-9, BETA2_RELATIVE_STEP).
+    assert found == pytest.approx(reference, rel=1e-8)
+    assert reference == pytest.approx(770.5167e-9, rel=1e-6)
+
+
+def test_zdw_does_not_cross_a_gas_line_to_a_nearer_zero():
+    # From 150 nm, krypton's own zero at 108.9 nm (between its 104 and 116.5 nm
+    # lines) is nearer in frequency than 770.5 nm, but the 116.5 and 123.6 nm lines
+    # lie between: their group delay diverges or drops to the evanescent floor.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MaterialRangeWarning)
+        found = zdw(krypton(), wavelength_limits=GAS_WINDOW, near=150e-9)
+    # The noise of the differenced beta2, as above.
+    assert found == pytest.approx(770.5167e-9, rel=1e-6)
+
+
+@pytest.mark.parametrize(
+    ("near", "expected"),
+    [(123.47e-9, 119.8786e-9), (124e-9, 770.5167e-9)],
+    ids=["on", "beside"],
+)
+def test_zdw_from_a_reference_on_a_gas_line_is_blocked_on_neither_side(near, expected):
+    # Krypton's 123.6 nm line changes sign between the samples at 123.33 and 123.62 nm
+    # (512 over GAS_WINDOW). A reference between them is on neither side of the line,
+    # so it blocks neither: the zero at 119.9 nm, between the 116.5 and 123.6 nm lines,
+    # is the nearest. From 124 nm the line lies between, and the answer is 770.5 nm.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MaterialRangeWarning)
+        found = zdw(krypton(), wavelength_limits=GAS_WINDOW, near=near)
+    # The noise of the differenced beta2, as above.
+    assert found == pytest.approx(expected, rel=1e-6)
+
+
+@pytest.mark.parametrize(
+    ("radius", "pressure", "near", "expected"),
+    [
+        # The zero at 105.9 nm lies past argon's 106.7 nm line from 120 nm.
+        (14e-6, 15.0, 120e-9, 644.0787e-9),
+        # Without a reference: the 105.9 nm zero beside the lines is clustered with
+        # their sign changes, so it is no zero-dispersion point.
+        (125e-6, 1.0, None, 967.8074e-9),
+    ],
+)
+def test_zdw_of_an_argon_capillary_is_its_zero_above_the_lines(
+    radius, pressure, near, expected
+):
+    mode = MarcatiliMode(radius, "Ar", pressure)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MaterialRangeWarning)
+        found = zdw(mode, wavelength_limits=GAS_WINDOW, near=near)
+    # The noise of the differenced beta2 (5e-9) and the 7 digits pinned.
+    assert found == pytest.approx(expected, rel=1e-6)
+
+
+def test_zdw_does_not_report_a_resonance_artefact_as_a_zero():
+    # 121-125 nm holds the floored plateau above krypton's 123.6 nm line, where the
+    # differenced beta2 changes sign while the group delay is constant.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MaterialRangeWarning)
+        with pytest.raises(NoZeroDispersionError, match="none is a zero"):
+            zdw(krypton(), wavelength_limits=(121e-9, 125e-9))
+
+
+def silica_fibre():
+    """A standard single-mode fibre: 4.1 um core radius, NA 0.12, on optmat's silica,
+    whose OH absorption bands flip the sign of beta2 four times between 1.36 and
+    1.40 um and twice near 2.7 um."""
+    return StepIndexMode.from_numerical_aperture(
+        4.1e-6, 0.12, profile_wavelength=1.3e-6
+    )
+
+
+FIBRE_ZDW = 1295.83467e-9
+"""The fibre's zero-dispersion wavelength, m."""
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize(
+    ("window", "near"),
+    [
+        ((100e-9, 3e-6), 1550e-9),
+        ((700e-9, 2.5e-6), 1550e-9),
+        ((1e-6, 2e-6), 1550e-9),
+        (None, 1030e-9),
+        (None, 800e-9),
+        ((150e-9, 2.5e-6), None),
+    ],
+)
+def test_zdw_of_a_silica_fibre_does_not_depend_on_the_window(window, near):
+    """The OH band at 1.38 um lies between a 1550 nm pump and the 1.3 um zero: its
+    clustered zeros are passed over, and it does not block the search like a line."""
+    limits = {} if window is None else {"wavelength_limits": window}
+    found = zdw(silica_fibre(), near=near, **limits)
+    # Other windows, so other brackets: each stops on the noise of the differenced
+    # beta2 (5e-9); they agree to 2e-10, and with the 9 digits pinned to 1e-9.
+    assert found == pytest.approx(FIBRE_ZDW, rel=1e-8)
+
+
+@pytest.mark.medium
+def test_a_plain_zdw_of_a_silica_fibre_names_its_zeros_above_the_ultraviolet():
+    """Not silica's zeros in the vacuum ultraviolet, where a lossless solve takes it
+    as transparent: the default window starts above them. Past the OH band at 2.7 um,
+    beta2 is normal from 2.85 to 2.91 um, a regime 2 % wide."""
+    with pytest.raises(
+        ModeError, match=r"3 zeros over 150-3000 nm, at 1295\.8, 2846\.1, 2906\.9 nm"
+    ):
+        zdw(silica_fibre())
+
+
+@pytest.mark.medium
+def test_zdw_passes_over_the_clustered_zeros_of_an_absorption_band():
+    # beta2 changes sign four times here, through the OH overtone of the silica.
+    with pytest.raises(NoZeroDispersionError, match=r"4 times .* none is a zero"):
+        zdw(silica_fibre(), wavelength_limits=(1.36e-6, 1.40e-6))
+
+
+def test_the_default_window_finds_lunas_helium_zero():
+    """The default window starts at 150 nm, not Luna's 100 nm; the answer is Luna's."""
     # Luna's mode, with every input stated (``docs/dev/testing.md``): the cladding and
     # the temperature are solprop's own, deliberately -- optmat's silica and 293.15 K
     # against Luna's table and 294 K -- and the 1 nm gate absorbs both.
@@ -228,13 +429,22 @@ def test_the_default_window_is_lunas():
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        # Deliberately the default window: that it is Luna's is what is tested.
+        # Deliberately the default window.
         wavelength = zdw(mode)
     # Luna test_capillary.jl asserts |zdw(MarcatiliMode(125e-6, :HeB, 0.4)) - 379 nm|
     # < 1 nm for the same model and the same helium source, Börzsönyi's (:HeB),
     # supplied explicitly (``witness_materials``). The remaining difference
     # is the cladding data, which moves it by well under a nanometre.
     assert abs(wavelength * 1e9 - 379.0) < 1.0
+
+
+def test_the_default_window_leaves_out_the_gas_lines():
+    """A plain call on krypton is not refused for the gas's own zeros near 110 nm."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MaterialRangeWarning)
+        found = zdw(krypton())
+    # The noise of the differenced beta2, as above.
+    assert found == pytest.approx(770.5167e-9, rel=1e-6)
 
 
 # ------------------------------------------------------- loss-derived quantities

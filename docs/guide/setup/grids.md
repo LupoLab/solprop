@@ -157,8 +157,10 @@ $\omega_{\max}^{\mathrm{win}}=1.1\omega_{\max}$.
 1. The fine spacing is $\delta t_{\mathrm{fine}}=2\pi/(\mathtt{ffac}\,\omega_{\max})$,
    or the requested `dt` if that is finer. The default is `ffac=6`, providing
    sampling for the third-harmonic content of a cubic response. `ffac=4` suffices
-   for a response without that content. The allowed minimum is 2; at that minimum
-   the upper collar is truncated rather than fully represented.
+   for a response without that content. The allowed minimum is 2.2, which puts the
+   fine Nyquist frequency $\mathtt{ffac}\,\omega_{\max}/2$ at the collar's upper edge
+   $1.1\omega_{\max}$; a smaller value is refused, because the coarse Nyquist bin
+   would then lie inside the collar and keep field.
 2. The fine size `n_to` is an allowed transform size at least
    `trange/((1 - 2 f_c) dt_fine)`, the request widened to hold the temporal collar
    outside it ($f_c$ below). The realised duration is $T=n_{to}\delta t_{\mathrm{fine}}$,
@@ -382,8 +384,10 @@ the original real signal, following {py:func}`scipy.signal.hilbert`.
 The field spectral-density formula above uses the interior-bin prefactor. For an
 arbitrary array with nonzero endpoint bins, summing that density over all bins
 therefore differs from the exact energy formula. Use
-{py:func}`~solprop.fourier.energy_omega` for exact discrete energy. Normal
-propagation grids suppress those endpoints through their spectral window.
+{py:func}`~solprop.fourier.energy_omega` for exact discrete energy. On a field grid
+both endpoints lie outside the spectral collar, where its window is exactly zero, so a
+windowed spectrum carries nothing there; {py:meth}`~solprop.grid.TimeGrid.validate`
+refuses a field grid whose collar reaches either endpoint.
 
 ## Check a sampled pulse
 

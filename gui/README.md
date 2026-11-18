@@ -35,7 +35,7 @@ sudo apt install libegl1 libxkbcommon0 libxcb-cursor0
   for it (a soliton order, a zero-dispersion wavelength) and a preview plot. A number can
   be typed as a target, and solprop solves for the input that gives it.
 - **Run** shows the spectrum and the pulse growing along the waveguide, and can stop and
-  resume. A service process can keep runs going after the window closes.
+  resume. A run goes on after the window closes, unless it is tied to the window.
 - **Analyse** reads the results on pages of the class, all at one plane, with zoom,
   readouts, widths at half maximum and publication figures drawn by `solprop.plotting`.
 - **Scans** run a setup over a grid of its parameters, and any point opens as a setup.

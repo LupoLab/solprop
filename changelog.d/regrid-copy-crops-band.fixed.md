@@ -1,0 +1,1 @@
+Fixed `coupling.regrid(..., crop_band=True)` between two grids that share a lattice but not an active band (an explicit `dt=`, or limit pairs with the same short-wavelength end): it now removes the light outside the target's band, as its `RegridReport` says, instead of copying it and leaving `couple` to refuse the plane.

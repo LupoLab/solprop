@@ -915,7 +915,7 @@ def test_optmats_tracker_ids_are_dropped_from_a_range_warning_and_its_record():
     text = "of N2 Q (100-300 K): their mixing is not modelled"
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        warnings.warn(f"{text} (TC-527, TC-688)", ModelRangeWarning, stacklevel=1)
+        warnings.warn(f"{text} (TC-1, TC-2)", ModelRangeWarning, stacklevel=1)
     with (
         bridge.material_context() as log,
         pytest.warns(MaterialRangeWarning) as raised,

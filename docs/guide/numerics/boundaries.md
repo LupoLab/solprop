@@ -108,7 +108,7 @@ represent it as a rate:
 - {py:func}`solprop.boundaries.nonlinear_absorber_term` — add `−α(t)E(t)/2` inside every
   stage, with its own modal transform, masked to the active band. **This is the default on
   the modal routes** (capillary, waveguide and GNLSE).
-- {py:func}`solprop.boundaries.apply_split_step` — multiply the modal time-domain field by
+- the split step — the backend multiplies the modal time-domain field by
   `exp(−α(t)h/2)` once per accepted step, followed by the hard band limit, because the
   product in time spreads content into every bin (on a field grid, chiefly the DC). One
   batched transform pair per step; the factors telescope, so the total is a rate
@@ -302,7 +302,7 @@ since by the Planck taper's symmetry `W(x) + W(w − x) = 1` each edge of width 
 window, and a packet re-enters the flat region only after crossing both. With
 `Γ = log(10³)`, the condition {py:func}`~solprop.boundaries.warn_walkoff` checks, the default
 strength `A·boundary_N = 252` stops a drift of `252 w/(2Γ) = 18.2 w`
-([SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md) §4.2).
+([SEP 21](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md) §4.2).
 
 ```python
 drift = 1.5e-12  # s, over the grid's length
@@ -336,7 +336,7 @@ The sizing assumes a steady drift over the run, as `warn_walkoff` does. Walk-off
 late, after fission or as a soliton decelerates, crosses faster than the mean and is absorbed
 less, so the [monitor](#watching-the-windows-edges) stays the measurement. The default
 strength stays what it is for that reason: weak light that walks far needs its margin
-([SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md), decision D3).
+([SEP 21](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md), decision D3).
 
 ```{eval-rst}
 .. plot::
@@ -345,7 +345,7 @@ strength stays what it is for that reason: weak light that walks far needs its m
    import numpy as np
    import matplotlib.pyplot as plt
 
-   from solprop.boundaries import absorber, split_step_factor
+   from solprop.boundaries import absorber
    from solprop.grid import FieldGrid
 
    grid = FieldGrid.from_limits(1.5, 800e-9, (90e-9, 4e-6), 400e-15)
@@ -379,7 +379,7 @@ strength stays what it is for that reason: weak light that walks far needs its m
    distance = 0.3
    counts = np.array([1, 2, 5, 10, 20, 50, 100, 200, 500, 1000])
    as_a_rate = [
-       float(np.prod(split_step_factor(np.array([alpha]), distance / n) ** n))
+       float(np.exp(-0.5 * alpha * distance / n) ** n)
        for n in counts
    ]
    ax_steps.loglog(counts, as_a_rate, "o-", label="as a rate")
@@ -406,7 +406,7 @@ method can take ([the stable step](#the-two-temporal-schemes)). A measurement th
 a strong spectral absorber should not pay for it in steps.
 
 So {py:class}`~solprop.boundaries.Absorber` carries two lengths
-([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §4.6):
+([SEP 22](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §4.6):
 
 - `reference_length`, `ℓ`, sets the spectral rate and its ceiling `60/ℓ`;
 - `collar_length`, `ℓ_c`, sets the in-stage temporal collar — its largest rate is
@@ -423,10 +423,10 @@ and the collars do not.
 `collar_length` is whatever sets the temporal collar's strength: `walkoff`, when
 [it is given](#sizing-the-collar-from-a-walk-off), or else `boundary_N` or `boundary_length`.
 Nothing but the temporal collar reads it. A free-space run's real-space collar, which
-[SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md) and
-[SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) expected to share
+[SEP 21](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md) and
+[SEP 22](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) expected to share
 this length, is designed from its own protected band
-([SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)), so a walk-off
+([SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)), so a walk-off
 moves no transverse strength.
 
 ### A custom spectral absorber
@@ -662,20 +662,20 @@ pair, and the first-same-as-last stage recycled. `absorber_scheme` is still reco
 applies to nothing, and its refusal of interpolated planes does not fire. The grid is
 unchanged. Measured on a Cartesian envelope grid of 192 × 192 × 300 with a spectral-only
 collar, the pass that compiling away removes cost 1.2–1.6 times a step on native CPU
-([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §3; the phase-1
+([SEP 22](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §3; the phase-1
 re-measurement is in its
-[implementation record](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md#phase-1-report--driver-output-and-absorber)). Under the in-stage
+[implementation record](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0022-memory-lean-spatial-execution.md#phase-1-report--driver-output-and-absorber)). Under the in-stage
 scheme the zero rate only added zeros, so a run is unchanged; under the split it differs
 by the transform pair's rounding.
 
 A spectral-only collar is passed as `absorber=absorber(grid, temporal=False)`; a keyword
 that turns both soft collars off on the fibre entry points is
-[SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md)'s.
+[SEP 21](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md)'s.
 
 ### The transverse boundary
 
 The collars above act on time and frequency. A free-space run's transverse boundary is
-its own ([SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)): a wall or a
+its own ([SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)): a wall or a
 wrap at the grid's outer size, a safety ramp in the transverse **wavenumber** on every
 geometry, which rides the linear operator exactly like the spectral rate, the monitor's
 transverse edge, and, on request, a designed real-space collar,
@@ -708,7 +708,7 @@ The spatial routes apply the temporal collar by the split scheme unless the sett
 a scheme or interpolate their planes, which the split refuses: on the spatial cases of the
 performance-tracking suite the in-stage collar took 1.2 to 4.6 times the steps of the
 split one, at equal or worse accuracy inside the requested window
-([SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md)). The split is unconditionally
+([SEP 21](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md)). The split is unconditionally
 stable, so a fixed schedule on a spatial route keeps its collar, within the split's
 [crossing limit](#the-two-temporal-schemes).
 
@@ -727,7 +727,7 @@ through `SimulationSettings.boundary_check`). At the launch and at every committ
 measures the share of the field's energy in the outer 5 % of the realised window at each
 edge, the guards, and in the collar. The energy is the time-domain density summed over
 modes, polarisations and transverse columns with their quadrature weights, the proxy of
-[SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md) section 4.6: exact for
+[SEP 21](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md) section 4.6: exact for
 modal true-power amplitudes, and on the spatial routes the quadrature-weighted field norm
 rather than the admittance-weighted flux. Every reading is a share, so the proxy's scale
 cancels.
@@ -837,7 +837,7 @@ and the floor's expected removal (`floor_removed_fraction`), so that a resume co
 from the same numbers the whole run would hold.
 
 On a free-space run the monitor also watches the **transverse edge**
-([SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)): the energy in the
+([SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)): the energy in the
 outer 5 % of the grid's outer size above its launch value with no collar, and what
 returns with a requested one, at `BoundaryCheck`'s levels or its own `transverse_budget`,
 which relaxes the transverse edge without relaxing time. Its reads are spaced as a ceiling
@@ -854,13 +854,13 @@ does, has an error floor of its own that is not the boundary's. Light the Kerr e
 generates at the low-frequency edge of the band sits where the spectral collar and the
 band mask are sampled on frequency bins, and those bins move with the bin spacing, so
 two runs on different windows differ at first order in the window factor even when no
-light reaches an edge. [SEP 21's phase 0a](../../dev/seps/archive/sep-0021-absorbing-boundaries.md#phase-0a--decisions-and-interim-findings)
+light reaches an edge. [SEP 21's phase 0a](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md#phase-0a--decisions-and-interim-findings)
 measured it (figures not re-run since):
 
 - widening the band from 1.6 to 3.2 µm cut the energy at its edge from 2.5e-3 to 1.4e-6,
   and the term about threefold;
 - it floors a comparison between requested windows at order 1e-5, 1.9e-5 on that
-  study's canonical case ([findings](../../dev/seps/archive/sep-0021-absorbing-boundaries.md#phase-0a-report--2026-10-25), item 1);
+  study's canonical case ([findings](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md#phase-0a-report--2026-10-25), item 1);
 - field errors near 1e-4 between smooth windows were this term, not the boundary.
 
 Under `fft_size="auto"` neighbouring requests realise different sizes
@@ -873,7 +873,7 @@ $2F(2M) - F(M)$ for a window factor $M$, as SEP 21 did.
 
 ```{code-block} python
 import numpy as np
-from solprop.boundaries import absorber, apply_band_mask, apply_split_step, warn_walkoff
+from solprop.boundaries import absorber, warn_walkoff
 from solprop.grid import FieldGrid
 
 grid = FieldGrid.from_limits(1.5, 800e-9, (90e-9, 4e-6), 400e-15)
@@ -883,10 +883,10 @@ boundary = absorber(grid, boundary_N=20)
 # is applied to the time-domain field once per accepted step: the `split_step` scheme,
 # which `absorber_scheme="split_step"` selects (the default applies it in every stage).
 field = np.ones((1, 1, grid.n_t))
-field = apply_split_step(field, boundary.temporal_rate, step=0.01)
+field = field * np.exp(-0.5 * boundary.temporal_rate * 0.01)
 
 # The hard band limit is a separate, idempotent multiply on the spectrum.
-spectrum = apply_band_mask(np.ones((1, 1, grid.n_omega)), boundary.band_mask)
+spectrum = np.where(boundary.band_mask, np.ones((1, 1, grid.n_omega)), 0.0)
 
 # And the run says so if the absorber is too weak for the walk-off it will produce.
 warn_walkoff(grid, group_delay_span=1e-12)   # SolpropWarning: widen trange, or ...

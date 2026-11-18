@@ -14,6 +14,7 @@ import pytest
 from numpy.testing import assert_allclose
 from scipy.special import j0
 
+from builders import live_nyquist
 from hankel_oracles import gamma, gaussian_bound
 from solprop.constants import EPS0, C
 from solprop.exceptions import GridError, OutputError
@@ -27,8 +28,10 @@ from solprop.spatial import (
     SpatialMedium,
     beam_radius,
     fwhm_r,
+    node_spectrum,
     on_axis_intensity,
     on_axis_spectrum,
+    on_axis_trace,
     radial_fluence_widths,
     spatial_energy,
     spatial_fluence,
@@ -136,6 +139,46 @@ def test_bessel_energy_and_on_axis_spectral_fluence(grid, bessel_case):
         rtol=bound,
         atol=0,
     )
+
+
+def test_the_spectral_fluences_integrate_exactly_with_live_end_bins():
+    """The densities weigh the end bins as the analytic signal does, a quarter of 4.
+
+    Both end bins carry field here; DC has no admittance, so the Nyquist bin, made
+    active by widening the collar past it, is the one that tells the weights apart.
+    """
+    grid = live_nyquist(FieldGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15))
+    assert grid.active_mask[-1]
+    space = RadialGrid(6e-4, 16)
+    flux = _vacuum(grid, space)
+    rng = np.random.default_rng(155)
+    shape = (space.n_r, 2, grid.n_omega)
+    state = rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
+    # The end bins of a real field are real.
+    state[..., [0, -1]] = np.real(state[..., [0, -1]])
+    d_omega = grid.d_omega
+
+    nodes = node_spectrum(state, flux)
+    fluence = spatial_fluence(state, flux)
+    # Each node's sum runs over n_pol n_omega products of a transverse synthesis of
+    # n_r columns, in any order: a few units per term of the summed magnitudes.
+    bound = gamma(16 * (2 * grid.n_omega + space.n_r)) * float(
+        np.max(np.abs(nodes).sum(axis=1)) * d_omega
+    )
+    assert_allclose(nodes.sum(axis=1) * d_omega, fluence, rtol=0, atol=bound)
+    # Non-vacuous: weighing the Nyquist bin as an interior one, 4 for 1, moves the sum
+    # by three times its term, far beyond the bound.
+    assert 3 * np.max(np.abs(nodes[:, -1])) * d_omega > 1e3 * bound
+
+    axis = on_axis_spectrum(state, flux)
+    # The time integral of the on-axis flux: temporal Parseval with the analytic
+    # signal's exact weights, an independent route to the on-axis fluence.
+    expected = float(np.sum(on_axis_trace(state, flux)) * grid.dt)
+    bound = gamma(
+        16 * (2 * grid.n_omega + space.n_r) + 64 * int(np.log2(grid.n_t))
+    ) * float(np.sum(np.abs(axis)) * d_omega)
+    assert abs(float(axis.sum()) * d_omega - expected) <= bound
+    assert 3 * abs(axis[-1]) * d_omega > 1e3 * bound
 
 
 def test_gaussian_inverse_against_the_dual_hankel_remainder(grid):

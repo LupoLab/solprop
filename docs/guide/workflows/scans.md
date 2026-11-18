@@ -49,13 +49,8 @@ Four executors, all in `solprop.driver.executors`, run the points:
 | `Queue(path)` | a durable queue on a shared filesystem, drained by one or more controllers |
 | `Slurm(script, ...)` | prepares a queue and submits a Slurm array job that drains it |
 
-The `Batch` executor of earlier releases, which ran groups of compatible points in
-lockstep, is removed ([SEP 52](../../dev/seps/archive/sep-0052-backend-shape.md)): it
-held a complete run per member and was no faster. Use `Local()` in its place, or `Pool()`
-with as many workers as the group had members.
-
 A builder's omitted `backend` resolves to the native backend, as described in
-[running a simulation](../performance/resources.md#backend-choice-and-scan-workers), and
+[backend choice and scan workers](../performance/resources.md#backend-choice-and-scan-workers), and
 every executor keeps that concrete choice.
 
 ## Reuse a translated simulation
@@ -216,10 +211,10 @@ can watch them.
 bar and the per-point lines. `scan_started(n_points)` is called once with the number of
 selected points, `point_started(index, point)` and `point_finished(index, status, wall)`
 once for each point dispatched or collected, and `scan_finished()` once when the scan
-returns. The status is `"done"`, `"failed"`, `"skipped"` (complete in the file),
-`"conflict"` (complete, with a stored record that agrees but for rounding, and kept) or
-`"stopped"` (below); `wall` is the point's build and run time in seconds as its worker
-measured it. `point_reporter(index)` is asked, before each point runs, for a
+returns. The status is `"done"`, `"failed"`, `"skipped"` (complete in the file) or
+`"stopped"` (below); a completed point whose rebuilt record differs from the stored one
+aborts the scan with an `OutputError` naming the differing fields. `wall` is the point's
+build and run time in seconds as its worker measured it. `point_reporter(index)` is asked, before each point runs, for a
 {py:class}`~solprop.log.ProgressReporter` that receives that point's own run
 ([writing your own](../performance/progress.md#writing-your-own)), or `None` for none.
 Subclass {py:class}`~solprop.log.NullScanReporter` and override what you need; the rest
@@ -282,7 +277,9 @@ for one being retried), and a rerun of the same call computes them, skipping the
 complete ones as usual. `run_scan` returns normally after a stop, logs at `INFO` that the
 caller's flag stopped it with the counts of collected and stopped points, and tells a
 scan reporter `"stopped"` for each stopped point; a watched point's reporter is told
-through `interrupted`, with a `StopRequested` error that carries the caller's flag. The design is [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md),
+through `interrupted`, with a `StopRequested` error that carries the caller's flag. A
+`Pool` point whose own worker is interrupted, by Ctrl-C (which a terminal sends to every
+worker) or SIGTERM, is a stopped point in the same way, never a failed one. The design is [SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md),
 S4 and S17.
 
 ## Noise and repeatability
@@ -318,7 +315,7 @@ saved-plane indices, including negative indices. `fields="all"` retains every sa
 plane. A field reduction can retain one field independently of field-history storage.
 
 The worker keeps only the fields the scan reads
-([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md)): the planes `fields`
+([SEP 22](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0022-memory-lean-spatial-execution.md)): the planes `fields`
 retains, the target plane of each built-in reduction that reads a field, and, while a
 custom reduction reads fields, every plane of the run it is handed. The other planes are
 run as statistics-only planes
@@ -374,9 +371,10 @@ its own objects, so its optmat models and policies are frozen for that run and d
 depend on what another point resolved. A model whose numbers changed, a changed policy
 or another optmat version is refused by name
 ([output](../results/provenance.md#the-material-manifest)). Failed points require
-`retry_failed=True`. A stale `running` point becomes eligible after `stale_age` seconds
-(600 by default). Queue ownership protection uses the live-owner and refreshed-lease rules
-described below.
+`retry_failed=True`. A point an earlier scan left `running`, because it was stopped,
+interrupted or ended by an error, is computed again: one controller holds the file at a
+time, so no other can still be running it. Queue ownership protection uses the
+live-owner and refreshed-lease rules described below.
 
 Uniform scans expose rectangular `stats/`, `reduced/` and optional `fields/` datasets.
 Different shapes have separate `layouts/<digest>/` groups with global-point mappings.
@@ -407,9 +405,8 @@ scan.
 
 For several controllers sharing a filesystem, choose `Queue("pressure_energy.queue")`.
 A queue keeps exact identities: its manifest hashes the builder's code and refuses a
-change, and each point and collected artifact is checked by its configuration hash, so
-the tolerance of a local rerun does not apply to it; `Slurm` drains a queue and
-behaves alike.
+change, and each point and collected artifact is checked by its configuration hash, as a
+local rerun is; `Slurm` drains a queue and behaves alike.
 Each controller runs a memory-sized spawned `Pool`. Point artifacts are fsynced before
 publication; the collected file is written under one exclusive controller lock.
 Readers take the corresponding shared lock. The filesystem must support coherent
@@ -417,6 +414,10 @@ advisory locks, atomic renames and directory fsync across the participating host
 The queue is tested on local disks (APFS and ext4); network and parallel filesystems
 (NFS, Lustre, GPFS) differ in their locking guarantees, so check yours with a small
 scan before relying on it.
+
+`Queue` and `Slurm` need a POSIX system and refuse to start on Windows, where `Local` and
+`Pool` run. On Windows a scan's readers take its lock one at a time, where POSIX lets them
+read together, so concurrent reads of one scan file wait for each other.
 
 ```bash
 uv run python -m solprop.scan pressure_energy.py --queue pressure_energy.queue --workers 4
@@ -433,8 +434,10 @@ Artifacts are JSON and numerical HDF5 datasets, never executable pickle payloads
 Failed artifacts keep their error and available provenance; collection rejects
 numerical arrays attached to a failed artifact.
 
-A controller refreshes each active claim's lease. A live local PID with matching
-creation identity remains protected even after `stale_age`; a remote owner remains
+A controller refreshes each active claim's lease, `Queue(stale_age=...)` seconds long
+(600 by default; `--stale-age` on the command line, which a Slurm submission passes to
+its tasks). A live local PID with matching creation identity remains protected even
+after its lease has expired; a remote owner remains
 protected while its lease is refreshed. A dead local owner or expired remote lease
 can be replaced. Unique claim tokens reject late results from superseded workers.
 Failed points require `retry_failed=True` in the script. `.nowork` means the invocation
@@ -445,14 +448,17 @@ a live lock file would create a second lock inode and defeat mutual exclusion.
 ```{note}
 Recovery has known limits. A live but wedged owner on the same host holds its point
 indefinitely, because the lease age is not consulted while its process is alive: stop
-that process to release the point. A `Local` or `Pool` scan interrupted by a signal or a
-crash, rather than stopped by its `stop=` flag, skips its `running` points for
-`stale_age` seconds on restart. A rerun that commits no point leaves the consolidated
+that process to release the point. A rerun that commits no point leaves the consolidated
 `layouts` as they are, and adds only its row to `executions`, a few kilobytes. A rerun
 that commits points rebuilds `layouts`, a copy of every completed point's arrays, and
 HDF5 does not reclaim the space of the copy it replaces, so the file grows by about the
 size of all the completed points' arrays as well as the new points' own: with 32 points
 of 256 kB of fields each, a rerun that committed one point grew the file by 8.7 MB.
+A `Local` or `Pool` scan updates its one HDF5 file in place, flushing after each write,
+and HDF5 does not guarantee a consistent file after a crash: a power loss or a kill while
+a write is in flight can leave the file unreadable, every committed point with it. A
+queue keeps each point as its own artifact, fsynced and renamed into place, from which
+`collect` builds the collected file again, so run long or precious scans with `Queue`.
 ```
 
 Inspect a generated Slurm script before submission:
@@ -489,4 +495,4 @@ Slurm memory uses `--mem`, while a direct `Pool` or queue accepts `--memory-limi
 bytes.
 
 Scan progress, the stop flag and scans from a recipe were proposed and carried out by
-[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+[SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md).

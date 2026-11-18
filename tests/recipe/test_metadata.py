@@ -193,7 +193,8 @@ def test_the_capillary_s_rules_follow_the_envelope_and_the_tdse():
     assert _resolve(table, "thg", {}).value is True
     assert _resolve(table, "plasma", {"envelope": True}).value is False
     assert _resolve(table, "step_planes", {"tdse": object()}).value == 1
-    assert _resolve(table, "pressure", {}).value == 1.0
+    # A gas fill needs its pressure, so no rule supplies one.
+    assert table["pressure"].resolver is None
     assert _resolve(table, "dz_max", {"length": 0.4}).value == 0.2
     assert _resolve(table, "dz_init", {}).value is None
     assert _resolve(table, "raman", {}).value is None

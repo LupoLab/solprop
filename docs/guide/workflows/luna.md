@@ -80,7 +80,7 @@ Four conventions change what the numbers mean:
 | what | Luna | solprop |
 |---|---|---|
 | Raman response of a molecular fill | on for N₂, H₂, D₂, N₂O, CH₄ and SF₆ | optmat's response, on for every species whose response is validated: N₂, O₂, H₂, D₂, CH₄, SF₆ (and air through N₂ and O₂); N₂O's is provisional, so it warns and runs without unless `MaterialSelection(raman="provisional")` admits it |
-| ionisation rate of a molecule | ADK for H₂, D₂, N₂O, CH₄, SF₆; PPT for N₂ and O₂ | optmat's recommended rate model of every gas ([SEP 3](../../dev/seps/archive/sep-0003-optmat-materials.md)) |
+| ionisation rate of a molecule | ADK for H₂, D₂, N₂O, CH₄, SF₆; PPT for N₂ and O₂ | optmat's recommended rate model of every gas ([SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md)) |
 | barrier-suppression correction | none in released Luna (the pull request that proposes one uses Zhang's) | optmat's atomic rates carry Tong and Lin's correction, its molecular ones their own ([ionisation](../media/ionisation.md#rates-from-optmat)) |
 | a pressure gradient to vacuum | reaches zero pressure, where $dp/dz$ diverges | the steady flow is **choked** at the exit, at the pressure where the laminar throughput is sonic; `vacuum_end="floor"` with `pressure_floor=0.0` reproduces a true vacuum |
 | the fill of a taper | the uniform-bore law | the steady flow follows the bore ($p^2$ linear in $\int a^{-4}\,dz$), with a flow-regime check |
@@ -124,12 +124,12 @@ has no plasma response on an envelope grid; solprop has a separate cycle-average
 response there. Luna forms the column's three running integrals with the cumulative
 trapezoid, which is 9 % short per integral at $\omega_{\max}$ on a default grid, and 11 %
 short at the top of the active band, $1.1\,\omega_{\max}$. solprop
-offers a band-exact rule ([SEP 18](../../dev/seps/archive/sep-0018-band-exact-plasma-integrals.md),
+offers a band-exact rule ([SEP 18](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0018-band-exact-plasma-integrals.md),
 `integration="band"`) and keeps the trapezoid, `integration="trapezoid"`, which every
 comparison with Luna states among its frozen inputs.
 solprop's field-grid plasma holds the post-pulse current through
 `DFT[gJ]/(i omega) - DFT[g'J]/(i omega)**2`
-([SEP 27](../../dev/seps/archive/sep-0027-held-plasma-current.md)); Luna's gated polarisation
+([SEP 27](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0027-held-plasma-current.md)); Luna's gated polarisation
 switches off both the residual current and polarisation at the temporal collar. No
 stored Luna run computes the held current, so the propagation comparisons whose exit
 spectra carry a plasma were dropped with the private gated source they ran: the reduced
@@ -174,17 +174,17 @@ model's loss has one arithmetic kernel (Luna's cached path had its sign reversed
 $n_\text{eff} - 1$ is formed directly, gaining five digits at a gas fill. The azimuthal
 order is never negative, and frequency zero is refused.
 
-**Antiresonant fibres (Vincetti model).** Four terms follow the papers or the physics
+**Antiresonant fibres (Vincetti model).** Three terms follow the papers or the physics
 rather than Luna's (and pyJCMwave's) form; the legacy form is available as
 `solprop.modes.antiresonant.LEGACY_CONVENTIONS`. For the tutorial fibre (15 µm core,
 six 9 µm tubes with 180 nm walls) in argon:
 
 | term | solprop | Luna | effect |
 |---|---|---|---|
-| effective-radius coefficient | $3 + 10\lambda/a$ (as printed) | 20 | $n_\text{eff}$ −1.7×10⁻⁶ and $\beta_2$ −7.7 fs²/m (1.7 %) at 800 nm; area −1.0 % |
 | waveguide decrement | $D_0/n_g$ | $D_0/n_g^2$ | at 30 bar, $\beta_2$ +8.9 fs²/m (1.7 %) at 1030 nm |
 | effective-area prefactor | $1/n_g$ | none | at 30 bar, area −0.8 % |
 | normalised frequency | $\sqrt{n_t^2 - n_g^2}$ | $\sqrt{n_t^2 - 1}$ | at 30 bar, the first loss peak 2.5 nm shorter; loss ×0.74 at 400 nm |
+| effective-radius coefficient | $3 + 20\lambda/a$ (Rosa 2021 eq. 10 as printed) | $3 + 20\lambda/a$ | the same |
 | dispersion width $\gamma_d$ | 0.03 | 0.03 | the same (the paper prints 0.003; 0.03 fits finite-element solutions better) |
 
 The loss is $c\alpha/(2\omega)$ (Luna's `imag(neff)` carries twice the loss in its
@@ -212,7 +212,8 @@ row of per-mode powers). The first-order coherence $g_{12}$ excludes the $i = j$
 so it tends to zero for independent fields (Luna's tends to $1/N$). The ellipse
 orientation is $\tfrac12\operatorname{atan2}(U, Q)$ (Luna's is always zero). The
 zero-dispersion search is stateless and raises when there is no zero (Luna returns a
-missing value and seeds the next search from it). `lambda_rdw` returns the longest root
+missing value and seeds the next search from it); its default window starts at 150 nm,
+above the noble gases' lines, where Luna's starts at 100 nm. `lambda_rdw` returns the longest root
 and raises when there is none.
 
 **Stepper.** `atol` is additive to the scaled error (Luna's weak norm uses it as a floor
@@ -242,7 +243,7 @@ and the launch is the projected amplitudes as they are. The energy the modes do 
 capture is not restored by renormalising to the requested energy (nor is it in Luna),
 and the coupling report states the incident, captured and uncaptured energies. A field taken from another run is coupled at its own
 physical scale ([coupling simulations](coupling.md),
-[SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md)).
+[SEP 31](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0031-simulation-coupling.md)).
 
 ## More accurate numerics, the same physics
 

@@ -8,9 +8,9 @@ Everything here is a function of a :class:`~solprop.modes.protocol.Mode`, not a 
 on one, so a new mode family gets them for nothing: the propagation constant and
 power loss (:func:`beta`, :func:`alpha`, :func:`loss_length`, :func:`db_per_m`,
 :func:`transmission`), the dispersion orders (:func:`beta1`, :func:`beta2`,
-:func:`beta3`), the zero-dispersion wavelength (:func:`zdw`, which brackets its root)
-and the effective area (:func:`aeff`). The conversions are the package's
-(``docs/dev/conventions.md`` section 2):
+:func:`beta3`), the zero-dispersion wavelength (:func:`zdw`, a sampled search of
+``beta_2``'s sign) and the effective area (:func:`aeff`). The conversions are the
+package's (``docs/dev/conventions.md`` section 2):
 :math:`\beta = (\omega/c)\,\mathrm{Re}\,n_{\rm eff}` and
 :math:`\alpha = (2\omega/c)\,\mathrm{Im}\,n_{\rm eff}`, so a positive imaginary
 index is loss and ``alpha`` is a power loss coefficient per metre.
@@ -24,15 +24,20 @@ co-moving frame rides on it (``docs/dev/stepper.md`` section 5); :func:`beta2` a
 
 import logging
 import math
+import warnings
 from typing import Final
 
 import numpy as np
 from jaxtyping import Float
 from scipy.integrate import quad_vec
-from scipy.optimize import brentq
 
 from solprop.constants import C
-from solprop.exceptions import ModeError, NoZeroDispersionError
+from solprop.exceptions import (
+    DiluteScalingWarning,
+    MaterialRangeWarning,
+    ModeError,
+    NoZeroDispersionError,
+)
 from solprop.modes.protocol import Mode
 
 __all__ = [
@@ -83,6 +88,51 @@ relative step of 3e-3, 1.5e-6 at 4e-3 and 4.8e-7 at 8e-3. A helium-filled capill
 
 _DECIBEL_PER_NEPER: Final = 10.0 / math.log(10.0)
 """Conversion from a power loss coefficient in 1/m to dB/m."""
+
+_ZDW_SAMPLES: Final = 512
+"""Samples, evenly spaced in frequency, on which :func:`zdw` reads the sign of
+``beta_2``: 2.3e13 rad/s apart across its default window."""
+
+_ZDW_REFINE_ROUNDS: Final = 5
+"""Rounds of array samples that refine a sign change of the dispersion. Five take a
+bracket of 2.3e13 rad/s to 2.2e7 rad/s, where interpolating linearly reaches the noise
+of the differenced ``beta2``."""
+
+_ZDW_REFINE_SAMPLES: Final = 17
+"""Samples of each refinement round: 16 intervals, so each round narrows 16-fold. A
+mode solved point by point (a step-index fibre) pays per sample, so fewer samples in
+more rounds reach the same bracket for less."""
+
+_ZDW_STENCIL_RATIO: Final = (2.0, 8.0)
+"""Bounds on the rise of ``beta1`` from a candidate zero at a full step of the
+``beta2`` stencil over its rise at a half step, on each side. A resolved extremum
+gives 4; see :func:`_is_zero`."""
+
+_ZDW_LINE_SPREAD: Final = 0.1
+"""Spread of ``beta1`` across the ``beta2`` stencil, as a fraction of its value at the
+change, beyond which a sign change that is not a zero is a line (:func:`_is_line`).
+At a gas line the group delay diverges or drops to the evanescent floor, and every
+such change of krypton and argon fills spreads by 1 or more; a smooth feature
+spreads by far less: 1e-4 at silica's OH overtone near 1.38 um, 2e-2 at its
+fundamental near 2.7 um, 6e-3 at an antiresonant wall's resonance. A tenth is five
+times the largest smooth spread and a tenth of the smallest at a line."""
+
+_ZDW_ISOLATION: Final = 1.5e-2
+"""Relative frequency distance on each side of a zero of ``beta2`` over which it must
+be the only sign change to be a zero-dispersion point (:func:`_is_isolated`): the
+narrowest dispersion regime :func:`zdw` resolves, five times the ``beta2`` stencil.
+Narrower regimes are the fine structure of an absorption band, whose zeros come in
+clusters: fused silica's OH bands (optmat's ``fit/SiO2``) give zeros 0.2-0.8 % apart
+near 1.38 um and 0.9 % apart near 2.2 and 2.7 um. An antiresonant wall's resonance
+is broader: the normal dispersion beside it, which bounds the band's zeros, spans
+2.1-2.4 % before the resonance's inner zeros, which are 0.5-2.5 % apart. A standard
+fibre's zero near 1.3 um lies 5.5 % from the nearest other sign change."""
+
+_ZDW_ISOLATION_SAMPLES: Final = 32
+"""Samples of ``beta1`` on each side of a zero across :data:`_ZDW_ISOLATION`: 4.7e-4
+apart in relative frequency, finer than the ``beta2`` stencil. Beside a standard
+fibre's zero ``beta1`` changes by 1.7e-17 s/m between samples, a million times its
+noise."""
 
 
 def _as_omega(omega: Float[np.ndarray, " n_omega"]) -> Float[np.ndarray, " n_omega"]:
@@ -204,9 +254,9 @@ def beta2(
     Departs from the analytic derivatives elsewhere in this module, and says so: the
     second derivative of a gas susceptibility is not part of the material interface,
     so this is a Richardson-extrapolated central difference of :func:`beta1` at a
-    relative step of :data:`BETA2_RELATIVE_STEP`. It reaches about 1e-10 relative,
-    against the 1e-6 of differencing ``beta`` twice, and only the co-moving frame
-    needs better -- which uses ``beta1``, not this.
+    relative step of :data:`BETA2_RELATIVE_STEP`, whose documentation gives the
+    measured accuracy. Only the co-moving frame needs better -- which uses
+    ``beta1``, not this.
 
     Parameters
     ----------
@@ -323,13 +373,206 @@ def _second_difference(
     return np.asarray((above - 2.0 * centre + below) / step**2)
 
 
+def _refine_zero(mode: Mode, low: float, high: float, z: float) -> float:
+    """Return a sign change of the dispersion inside a bracket, by array samples.
+
+    A mode's index models evaluate an array at about the cost of one point, so each
+    round narrows the bracket 16-fold for the cost of one Brent step, where a scalar
+    search costs a glass model evaluation per iterate. The rounds stop short of a pole
+    of the differenced ``beta2``, which a scalar search converges onto until the model
+    returns NaN.
+
+    - ``low``, ``high``: the bracket, rad/s, whose ends have ``beta2`` of opposite
+      signs.
+    - ``z``: position along the waveguide, m.
+    - Returns: the first sign change upwards in frequency, rad/s, linearly interpolated
+      in the last bracket; or NaN when samples that are not finite separate the signs.
+    """
+    first = last = math.nan
+    for _ in range(_ZDW_REFINE_ROUNDS):
+        grid = np.linspace(low, high, _ZDW_REFINE_SAMPLES)
+        sampled = beta2(mode, grid, z)
+        crossing = np.flatnonzero(np.sign(sampled[:-1]) * np.sign(sampled[1:]) <= 0.0)
+        if crossing.size == 0:
+            return math.nan
+        i = int(crossing[0])
+        low, high = float(grid[i]), float(grid[i + 1])
+        # The first change has a nonzero sample below it, so the two cannot be equal.
+        first, last = float(sampled[i]), float(sampled[i + 1])
+    return low - first * (high - low) / (last - first)
+
+
+def _stencil_delays(mode: Mode, omega: float, z: float) -> Float[np.ndarray, " 5"]:
+    """Return the analytic `beta1` across the stencil of `beta2` at a frequency.
+
+    The five frequencies ``omega (1 + s h)`` for ``s`` in -1, -1/2, 0, 1/2, 1 and
+    ``h`` :data:`BETA2_RELATIVE_STEP` that span the difference behind :func:`beta2`;
+    s/m.
+    """
+    offsets = BETA2_RELATIVE_STEP * np.array([-1.0, -0.5, 0.0, 0.5, 1.0])
+    return beta1(mode, omega * (1.0 + offsets), z)
+
+
+def _is_zero(delays: Float[np.ndarray, " 5"]) -> bool:
+    """Whether a refined sign change of the differenced `beta2` is a zero of it.
+
+    - ``delays``: ``beta1`` across the stencil at the change (:func:`_stencil_delays`).
+
+    At a zero of ``beta_2`` that the difference resolves, ``beta1`` is strictly
+    extremal there and its Taylor series converges across the stencil, so its rise
+    from the centre is quadratic: four times as large at a full step as at a half
+    step, on each side. A factor of two either way (:data:`_ZDW_STENCIL_RATIO`) admits
+    a cubic term up to two thirds of the quadratic one at the full step. Each artefact
+    of a resonance fails it: a pole at the change (``beta1`` diverges, its rise does not
+    grow with the step), a stencil point on or across a line (the rise is lopsided, or
+    one-signed through the centre so ``beta1`` is monotone), and the evanescent floor
+    (``beta1`` constant, no rise). So does a feature narrower than the stencil. A
+    non-finite ``beta1`` fails every comparison.
+    """
+    rise = delays - delays[2]
+    half, full = rise[[1, 3]], rise[[0, 4]]
+    if not half[0] * half[1] > 0.0:
+        return False
+    ratio = full / half
+    low, high = _ZDW_STENCIL_RATIO
+    return bool(np.all((ratio >= low) & (ratio <= high)))
+
+
+def _is_line(delays: Float[np.ndarray, " 5"]) -> bool:
+    """Whether a sign change that is not a zero lies at a line, which blocks the search.
+
+    - ``delays``: ``beta1`` across the stencil at the change (:func:`_stencil_delays`).
+
+    At a line the group delay is not finite, or diverges, or drops to the evanescent
+    floor: it spreads across the stencil by more than :data:`_ZDW_LINE_SPREAD` of its
+    value at the change. A smooth feature, the dispersion of an absorption band or of
+    an antiresonant wall, leaves it finite and continuous, and light crosses it.
+    """
+    spread = np.max(np.abs(delays - delays[2]))
+    return not spread <= _ZDW_LINE_SPREAD * abs(float(delays[2]))
+
+
+def _is_isolated(mode: Mode, omega: float, z: float) -> bool:
+    """Whether a zero of `beta2` is its only one within the resolution scale.
+
+    The analytic ``beta1`` is read at :data:`_ZDW_ISOLATION_SAMPLES` frequencies on
+    each side, out to a relative distance :data:`_ZDW_ISOLATION`, on a grid fixed
+    relative to the zero, so the answer does not depend on the search window. The zero
+    is isolated when ``beta1`` rises (or falls) monotonically from it on both sides:
+    an extremum with no other sign change of ``beta_2`` beside it. A value that is not
+    finite fails it.
+    """
+    reach = _ZDW_ISOLATION * np.linspace(0.0, 1.0, _ZDW_ISOLATION_SAMPLES + 1)
+    delays = beta1(mode, omega * (1.0 + np.concatenate([-reach[::-1], reach[1:]])), z)
+    middle = _ZDW_ISOLATION_SAMPLES
+    # Steps outwards from the zero on each side, all of one sign at an extremum.
+    steps = np.concatenate([-np.diff(delays[: middle + 1]), np.diff(delays[middle:])])
+    return bool(np.all(steps > 0.0) or np.all(steps < 0.0))
+
+
+def _zero_frequencies(
+    mode: Mode, z: float, lower: float, upper: float, near: float | None
+) -> tuple[list[float], int]:
+    """Return the zeros of `beta2` in a frequency window, and its sign changes there.
+
+    ``beta2`` is sampled at :data:`_ZDW_SAMPLES` frequencies evenly spaced across the
+    window and each sign change is refined (:func:`_refine_zero`); a sample that is
+    exactly zero between samples of opposite signs is a change too. A change is a zero
+    if ``beta1`` has a resolved extremum there (:func:`_is_zero`) and no other change
+    lies within the resolution scale (:func:`_is_isolated`). A change that is not a
+    zero is a line if ``beta1`` is not finite or not continuous across it
+    (:func:`_is_line`, or a bracket the refinement finds no finite change in);
+    anything else -- an unresolved or clustered change of a smooth feature -- is
+    passed over. With a reference frequency ``near``, the changes are taken outwards
+    from it and only the nearest zero is returned; the changes beyond a line on that
+    side are not taken: light at the reference cannot cross the line to reach them. A
+    change further than the best zero so far cannot beat it, which spares the dozens an
+    antiresonant fibre's resonances give.
+
+    - ``lower``, ``upper``: the window, rad/s.
+    - ``near``: reference frequency, rad/s, or ``None`` for every zero.
+    - Returns: the zeros in rad/s, increasing, and the number of sign changes sampled.
+    """
+    grid = np.linspace(lower, upper, _ZDW_SAMPLES)
+    zeros: list[float] = []
+    # The nearest lines found below and above the reference, rad/s.
+    below, above = -math.inf, math.inf
+    # The window is probed, not answered: a model's range and dilute-scaling warnings
+    # are left to the caller's evaluation at the answer. The refinement converges onto
+    # a pole as readily as onto a zero, and a model may divide by zero exactly there.
+    with (
+        warnings.catch_warnings(),
+        np.errstate(divide="ignore", invalid="ignore"),
+    ):
+        warnings.simplefilter("ignore", MaterialRangeWarning)
+        warnings.simplefilter("ignore", DiluteScalingWarning)
+        sampled = beta2(mode, grid, z)
+        # A sample that is exactly zero takes the sign of the last nonzero sample below
+        # it, so a zero that falls on a sample is a change in the interval above it and
+        # not two products of zero. One that only touches zero changes nothing.
+        signs = np.sign(sampled)
+        last = np.maximum.accumulate(np.where(signs != 0.0, np.arange(signs.size), 0))
+        signs = signs[last]
+        changes = np.flatnonzero(signs[:-1] * signs[1:] < 0.0)
+        if near is not None:
+            # How near each bracket can bring a zero: 0 for one holding the reference.
+            reach = np.maximum.reduce(
+                [grid[changes] - near, near - grid[changes + 1], np.zeros(changes.size)]
+            )
+            changes = changes[np.argsort(reach, kind="stable")]
+        for i in changes:
+            low, high = float(grid[i]), float(grid[i + 1])
+            if near is not None:
+                best = min((abs(zero - near) for zero in zeros), default=math.inf)
+                if max(low - near, near - high) >= best:
+                    break
+                if high <= below or low >= above:
+                    continue
+            root = _refine_zero(mode, low, high, z)
+            delays = None if math.isnan(root) else _stencil_delays(mode, root, z)
+            if delays is None or not _is_zero(delays):
+                if near is not None and (delays is None or _is_line(delays)):
+                    if low >= near:
+                        above = low
+                    elif high <= near:
+                        below = high
+                continue
+            if _is_isolated(mode, root, z):
+                zeros.append(root)
+    if near is not None:
+        # The nearest; of two as near, the one found first.
+        zeros = sorted(zeros, key=lambda zero: abs(zero - near))[:1]
+    return sorted(zeros), int(changes.size)
+
+
 def zdw(
     mode: Mode,
     z: float = 0.0,
     *,
-    wavelength_limits: tuple[float, float] = (100e-9, 3e-6),
+    wavelength_limits: tuple[float, float] = (150e-9, 3e-6),
+    near: float | None = None,
 ) -> float:
     """Return the zero-dispersion wavelength of a mode.
+
+    A sampled search (``docs/guide/waveguides/mode-sets.md``): ``beta_2`` is read at
+    512 frequencies evenly spaced across the window and each sign change is refined.
+    A change is a **zero** when the analytic group delay ``beta_1`` has an extremum
+    there that the difference behind ``beta_2`` resolves (its rise grows
+    quadratically across the difference's stencil, :data:`BETA2_RELATIVE_STEP` either
+    side) and when ``beta_1`` is monotone from it for 1.5 % in frequency on either
+    side, so that ``beta_2`` keeps each sign that far. A change that is not a zero is
+    a **line** when ``beta_1`` is not finite or not continuous across it -- it
+    diverges, or drops to the evanescent floor, by more than a tenth across the
+    stencil -- as at a gas resonance. Every other change is passed over, neither zero
+    nor line: a change the stencil does not resolve, or one of the clustered zeros of
+    a narrow feature that leaves ``beta_1`` finite and continuous, such as fused
+    silica's OH absorption bands near 1.38 and 2.7 um or the inside of an
+    antiresonant wall's resonance. So the search resolves dispersion regimes 1.5 %
+    wide and more, and its answer does not depend on the window, as long as the
+    window holds the zero. Two limits remain: two genuine zeros closer than 1.5 % (or
+    a zero within 1.5 % of another sign change) are passed over, and a zero and
+    another sign change inside one sample interval restore the sign and are both
+    missed.
 
     Parameters
     ----------
@@ -338,10 +581,17 @@ def zdw(
     z : float, optional
         Position along the waveguide, m.
     wavelength_limits : tuple of float, optional
-        Shortest and longest wavelength in m to bracket the root in. Defaults to
-        100 nm to 3 um. A bracket wider than the validity range of a
-        material model behind the mode makes that model warn, once per evaluation:
-        the ends are only probes, but they are still extrapolation.
+        Shortest and longest wavelength in m to search. Defaults to 150 nm to 3 um:
+        above the vacuum-ultraviolet lines of the noble gases (the longest, xenon's,
+        at 147 nm) and the absorption edge of fused silica, where a lossless solve
+        takes silica as transparent and finds zeros with no meaning. The window is
+        probed silently; the zero found is evaluated again, so one that lies outside
+        the validity range of a material model behind the mode warns.
+    near : float, optional
+        Reference wavelength in m, > 0, typically the pump's. The zero nearest it in
+        frequency is returned, among those no line separates from it: light at the
+        reference cannot cross a line to reach a zero beyond. ``None`` (the default)
+        takes every zero in the window, and refuses several.
 
     Returns
     -------
@@ -351,11 +601,13 @@ def zdw(
     Raises
     ------
     ModeError
-        If the range is not ordered and positive.
+        If the range is not ordered and positive, if `near` is not a positive finite
+        wavelength, or if the window holds several zeros and `near` is ``None``: the
+        message lists them.
     NoZeroDispersionError
-        If ``beta_2`` does not change sign across it: a mode with no zero-dispersion
-        point in the window is a fact the caller has to see, not a missing value to
-        propagate.
+        If the search finds no zero in the window (on the side of the lines that
+        holds `near`, when it is given): a mode with no zero-dispersion point there is
+        a fact the caller has to see, not a missing value to propagate.
 
     Examples
     --------
@@ -370,26 +622,45 @@ def zdw(
         raise ModeError(
             f"wavelength_limits must be positive and ordered, got {wavelength_limits}"
         )
-    lower = 2.0 * math.pi * C / longest
-    upper = 2.0 * math.pi * C / shortest
-
-    def _dispersion(value: float) -> float:
-        """Return beta2 at one angular frequency, for the root finder.
-
-        - ``value``: angular frequency in rad/s.
-        - Returns: ``beta_2`` in s^2/m.
-        """
-        return float(beta2(mode, np.array([value]), z)[0])
-
-    at_lower, at_upper = _dispersion(lower), _dispersion(upper)
-    if at_lower * at_upper > 0.0:
+    if near is not None and not (math.isfinite(near) and near > 0.0):
+        raise ModeError(f"near must be a positive, finite wavelength in m, got {near}")
+    window = f"{shortest * 1e9:.4g}-{longest * 1e9:.4g} nm"
+    zeros, changes = _zero_frequencies(
+        mode,
+        z,
+        2.0 * math.pi * C / longest,
+        2.0 * math.pi * C / shortest,
+        None if near is None else 2.0 * math.pi * C / near,
+    )
+    if not zeros:
+        sampled = f"{_ZDW_SAMPLES} samples over {window}"
+        if changes == 0:
+            found = f"beta2 does not change sign between the {sampled}"
+        elif near is None:
+            found = (
+                f"beta2 changes sign {changes} times between the {sampled}, but none "
+                "is a zero: each is a line, an artefact of the differenced beta2 at "
+                "one, or one of the clustered zeros of a narrow feature"
+            )
+        else:
+            found = (
+                f"beta2 changes sign {changes} times between the {sampled}, but none "
+                f"is a zero between the lines nearest {near * 1e9:.4g} nm"
+            )
         raise NoZeroDispersionError(
-            f"beta2 does not change sign over {shortest * 1e9:.4g}-"
-            f"{longest * 1e9:.4g} nm (it is {at_lower:.4g} and {at_upper:.4g} s^2/m at "
-            "the ends), so there is no zero-dispersion wavelength in that window"
+            f"{found}, so the search found no zero-dispersion wavelength there"
         )
-    root = brentq(_dispersion, lower, upper)
-    return 2.0 * math.pi * C / float(root)
+    if len(zeros) > 1:
+        listed = ", ".join(
+            f"{2.0 * math.pi * C / root * 1e9:.1f}" for root in reversed(zeros)
+        )
+        raise ModeError(
+            f"beta2 has {len(zeros)} zeros over {window}, at {listed} nm; pass near= "
+            "a reference wavelength to choose the nearest, or narrow wavelength_limits"
+        )
+    # Outside the probing, so a zero beyond a material model's range warns.
+    beta(mode, np.array([zeros[0]]), z)
+    return 2.0 * math.pi * C / zeros[0]
 
 
 def loss_length(

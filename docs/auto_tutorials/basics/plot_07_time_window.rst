@@ -307,11 +307,11 @@ needs 3 ps.
  .. code-block:: none
 
      window   points   wall (s)   removed   exit energy against 8 ps
-      0.5 ps     384       0.12   8.4e-01   -8.7e-01
-      1.0 ps     768       0.16   2.5e-03   -2.6e-03
-      2.0 ps    1536       0.35   1.6e-03   -1.6e-03
-      3.0 ps    2048       0.36   1.5e-07   -1.6e-07
-      4.0 ps    3072       0.52   3.5e-12   -3.6e-12
+      0.5 ps     384       0.10   8.4e-01   -8.7e-01
+      1.0 ps     768       0.15   2.5e-03   -2.6e-03
+      2.0 ps    1536       0.27   1.6e-03   -1.6e-03
+      3.0 ps    2048       0.24   1.5e-07   -1.6e-07
+      4.0 ps    3072       0.33   3.5e-12   -3.7e-12
 
 
 
@@ -367,7 +367,7 @@ check, ``absorber=False`` the collar.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 3.565 seconds)
+   **Total running time of the script:** (0 minutes 2.347 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_basics_plot_07_time_window.py:

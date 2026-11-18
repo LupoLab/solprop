@@ -17,7 +17,7 @@ examples and rate options are in
 [strong-field ionisation](ionisation.md#envelope-plasma-sources), and the
 [carrier/envelope tutorial](../../auto_tutorials/capillaries/plot_05_envelope_plasma.rst)
 compares a complete envelope run with a carrier-resolved one. The field-grid plasma
-response it is compared against is on [nonlinear responses](field-plasma.md#the-plasma-response).
+response it is compared against is the [carrier-resolved plasma response](field-plasma.md#the-plasma-response).
 
 ## 1. Three separate choices make a plasma model
 

@@ -36,6 +36,7 @@ EXPECTED: tuple[str, ...] = (
     r"a read-only directory mode is not enforced on Windows",
     r"Slurm is faked with POSIX shell scripts",
     r"a machine's setup script runs in a POSIX shell",
+    r"the remote shell is POSIX; the check runs it here",
     r"a machine's helper hosts its kernel on Linux and macOS, not Windows",
     r"the CI change filter runs in Linux Bash",
     # A platform's own branch, on the other platforms.
@@ -69,8 +70,6 @@ EXPECTED: tuple[str, ...] = (
     r"this build does not fuse a product and a sum, so the witness proves nothing",
     # Settings of the lane: ci.yml's coverage lane runs the type checks.
     r"the runtime type checks are off \(SOLPROP_TEST_TYPECHECK=0\)",
-    # A record cites a commit that a squash removed from the history.
-    r"[0-9a-f]{12} is not in this checkout \(squashed or rebased\)",
     # pytest-xdist's report for a collected module with nothing to run.
     r"collection skipped",
 )

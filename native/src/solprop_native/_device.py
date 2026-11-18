@@ -94,7 +94,7 @@ def device_node_chunk(
     otherwise the largest that does, and never fewer nodes than the host plan's chunk
     at the route's default budget. It is consulted only for an automatic plan: an
     explicit budget or chunk always wins. It runs at backend construction, after the
-    translation, so no device runtime starts before a scan forks.
+    translation, so no device runtime starts before a scan spawns its workers.
 
     Parameters
     ----------
@@ -165,13 +165,11 @@ def _low_storage_flows(
     The flows solprop's estimate counts (solprop kernel schema 32) -- except that a
     device build recomputes under ``"auto"``, where the estimate's CPU count
     over-states it by the table. A device's input crosses the state's layout through
-    tiles (``docs/dev/benchmarks.md``); a CPU's has its own.
+    tiles; a CPU's has its own.
     """
     if not isinstance(stepper.integrator, LowStorageRungeKutta):
         return None
-    return _resident_flows(
-        low_storage_flows(problem, stepper, "native"), stepper, device=device
-    )
+    return _resident_flows(low_storage_flows(problem, stepper), stepper, device=device)
 
 
 def _resident_flows(flows: int, stepper: StepperSettings, *, device: bool) -> int:

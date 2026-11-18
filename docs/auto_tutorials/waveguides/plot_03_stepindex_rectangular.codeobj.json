@@ -62,7 +62,7 @@
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.modes.fill",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.fill",
    "name": "GasFillMixin"
   },
   {
@@ -576,7 +576,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.modes.base",
-   "module_short": "solprop.modes.base",
+   "module_short": "solprop.modes",
    "name": "beta2"
   }
  ],
@@ -592,7 +592,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.modes.base",
-   "module_short": "solprop.modes.base",
+   "module_short": "solprop.modes",
    "name": "db_per_m"
   }
  ],
@@ -1200,8 +1200,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.fields"
   },
   {
@@ -1288,7 +1288,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.modes.base",
-   "module_short": "solprop.modes.base",
+   "module_short": "solprop.modes",
    "name": "zdw"
   }
  ],

@@ -15,9 +15,7 @@ and the ``VALIDATED_*`` ranges of the fibres they were validated on.
 Where the printed papers and earlier published implementations of them, pyJCMwave
 among them, differ, ``CONVENTIONS`` names the choice and ``LEGACY_CONVENTIONS`` the
 form those implementations share, so that a test can assemble the latter from the same
-building blocks. The 2016 paper's equations were read from a degraded text extraction
-and have not been checked against the typeset page. The manual page is
-``docs/guide/waveguides/antiresonant.md``.
+building blocks. The manual page is ``docs/guide/waveguides/antiresonant.md``.
 """
 
 import logging
@@ -70,12 +68,12 @@ implementations carry 0.03, which fits the FEM index near the resonances 3.2 (va
 and 1.9 (argon) times better.
 """
 
-RADIUS_COEFFICIENT: Final = 10.0
+RADIUS_COEFFICIENT: Final = 20.0
 """Coefficient of ``wavelength / core_radius`` in the effective radius.
 
-The gap-penetration term of Rosa 2021 eq. 10 as printed; earlier implementations carry
-20. The factor is empirical: no derivation decides between 10 and 20, and no erratum or
-author confirmation has been found.
+The gap-penetration term of Rosa, Melli and Vincetti (2021) eq. 10, whose typeset
+bracket is ``3 + 2 * 10 wavelength / R_co``; Melli et al. (2025) eq. 7 writes ``3 + 20
+wavelength / R_co``, and earlier implementations carry 20 too. The factor is empirical.
 """
 
 MINIMUM_LOSS_PREFACTOR: Final = 3e-4
@@ -113,13 +111,14 @@ VALIDATED_TUBE_INDEX: Final = (1.44, 2.42)
 
 @dataclass(frozen=True)
 class _Conventions:
-    """Name the four choices in which the papers and earlier implementations differ.
+    """Name the form of the fits: the radius coefficient and three disputed choices.
 
     Attributes
     ----------
     radius_coefficient : float
-        Coefficient of ``wavelength / core_radius`` in the effective radius: 10 in
-        Rosa 2021 eq. 10, 20 in earlier implementations.
+        Coefficient of ``wavelength / core_radius`` in the effective radius,
+        ``RADIUS_COEFFICIENT`` in both forms; a field so that its effect can be
+        evaluated.
     single_power_decrement : bool
         True divides the waveguide decrement ``(u c / (omega R_eff))^2 / 2`` by the
         gas index once, the first-order expansion of ``beta = sqrt(n_g^2 k^2 -
@@ -147,7 +146,7 @@ class _Conventions:
 CONVENTIONS: Final = _Conventions(RADIUS_COEFFICIENT, True, True, True)
 # The form earlier published implementations share, for the witness tests only;
 # production code never passes it.
-LEGACY_CONVENTIONS: Final = _Conventions(20.0, False, False, False)
+LEGACY_CONVENTIONS: Final = _Conventions(RADIUS_COEFFICIENT, False, False, False)
 
 
 def _tube_angle(n_tubes: int) -> float:
@@ -928,14 +927,9 @@ class VincettiMode(MarcatiliMode):
             Ar 1 bar, loss=model)``; a gradient shows its pressure at ``z = 0``.
         """
         radius = float(self.core_radius(np.array([0.0]))[0])
-        if self.gas is None:
-            fill = "evacuated" if self.mixture is None else "mixture"
-        else:
-            pressure = float(as_profile(self.pressure)(np.array([0.0]))[0])
-            fill = f"{self.gas} {pressure:g} bar"
         return (
             f"VincettiMode({self.kind}{self.n}{self.m}, a={radius * 1e6:g} um, "
             f"t={self.lattice.wall_thickness * 1e9:g} nm, "
             f"r_ext={self.lattice.tube_radius * 1e6:g} um, "
-            f"N={self.lattice.n_tubes}, {fill}, loss={self._loss_text()})"
+            f"N={self.lattice.n_tubes}, {self._fill_text()}, loss={self._loss_text()})"
         )

@@ -18,10 +18,9 @@ import math
 
 import numpy as np
 
-from bounds import EPS, assert_within, departure, step_budget
+from bounds import EPS, step_budget
 from legacy_geometry import with_collar_rate
 from sessions.runs import run
-from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions, Start
 from solprop.boundaries import absorber
 from solprop.driver import Simulation
@@ -190,52 +189,6 @@ def replay(
         return field
     finally:
         backend.close()
-
-
-def assert_compiled(
-    backend_class, problem, run_request, grid, limit, *, what="march", **replaying
-):
-    """Replay on the reference and `backend_class`; assert it within `limit`.
-
-    Returns the departure measured.
-    """
-    expected = replay(NumpyRefBackend, problem, run_request, grid, **replaying)
-    got = replay(backend_class, problem, run_request, grid, **replaying)
-    assert_within(
-        got, expected, limit, what=f"{backend_class.name} against numpy_ref, {what}"
-    )
-    return departure(got, expected)
-
-
-def assert_parity(
-    backend_class,
-    problem,
-    run_request,
-    grid,
-    *,
-    modes=None,
-    noise=None,
-    options=None,
-    **bound,
-):
-    """Replay on both backends and assert the states within :func:`parity_bound`.
-
-    `options` are both backends' execution options, an exact node chunk among them.
-    """
-    limit = parity_bound(problem, run_request, **bound)
-    return (
-        assert_compiled(
-            backend_class,
-            problem,
-            run_request,
-            grid,
-            limit,
-            modes=modes,
-            noise=noise,
-            options=options,
-        ),
-        limit,
-    )
 
 
 def uniform(length, steps=STEPS, **planes):

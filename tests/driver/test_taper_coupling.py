@@ -16,6 +16,7 @@ quarter.
 
 import itertools
 import math
+import re
 import warnings
 from typing import cast
 
@@ -552,6 +553,21 @@ def test_a_lossy_block_over_a_long_step_is_refused_naming_the_opt_out():
     with pytest.raises(TranslationError, match="taper_coupling=False"):
         varying(dz_max=0.1, schedule=None).translate()
     assert varying(dz_max=1e-2, schedule=None).translate().linear.coupled_flow
+
+
+def test_the_conditioning_refusal_names_the_largest_step_it_admits():
+    """The bound is ``exp(dz_max spread)``, so the cap it names is exact: admitted."""
+    with pytest.raises(TranslationError) as refusal:
+        varying(dz_max=0.1, schedule=None).translate()
+    found = re.search(r"dz_max of at most ([0-9.e+-]+) m", str(refusal.value))
+    assert found is not None, str(refusal.value)
+    cap = float(found.group(1))
+    # Below the refused step, and above the 1e-2 m the test above admits.
+    assert 1e-2 <= cap < 0.1
+    assert varying(dz_max=cap, schedule=None).translate().linear.coupled_flow
+    # Three significant digits, rounded down: one more unit in the last is refused.
+    with pytest.raises(TranslationError, match="inverse conditioning reaches"):
+        varying(dz_max=cap * 1.01, schedule=None).translate()
 
 
 def test_a_second_field_component_beside_the_coupling_is_refused():

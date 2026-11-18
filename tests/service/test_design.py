@@ -38,6 +38,41 @@ def ask(kind: str, payload: Mapping[str, object]) -> Any:
     return handlers.HANDLERS[kind](payload)
 
 
+@pytest.mark.medium
+def test_the_modes_of_a_setup_are_plain_arrays():
+    four_modes = """\
+[recipe]
+format = 1
+route = "capillary"
+
+[build]
+radius = "125 um"
+length = "1 m"
+gas = "He"
+pressure = "1 bar"
+modes = 4
+wavelength = "800 nm"
+fwhm = "10 fs"
+energy = "100 uJ"
+wavelength_limits = ["150 nm", "4 um"]
+trange = "400 fs"
+"""
+    reply = ask("modes", {"text": four_modes})
+    assert reply["pump"] == pytest.approx(800e-9) and reply["sweep"] is None
+    (only,) = reply["sets"]
+    assert only["value"] is None and only["z"] == 0.0
+    labels = [mode["label"] for mode in only["modes"]]
+    assert labels == [f"HE1,{m}:even" for m in range(1, 5)]
+    first = only["modes"][0]
+    names = ("neff_minus_one", "beta1", "beta2", "beta3", "alpha", "gamma")
+    for name in (*names, "phase_mismatch"):
+        assert first[name].shape == only["omega"].shape
+    assert 4e-7 < first["zdw"] < 6e-7 and first["aeff"] > 0
+    # Each mode's wave phase-matched to the soliton in the first: bluer in higher ones.
+    rdw = [mode["rdw"][0] for mode in only["modes"][:3]]
+    assert rdw == sorted(rdw, reverse=True) and 1.5e-7 < rdw[-1] < rdw[0] < 2.1e-7
+
+
 def test_a_sweep_gives_one_mode_set_per_value_and_says_which_fail():
     payload = {
         "text": TINY,
@@ -75,7 +110,7 @@ def test_a_route_without_modes_or_a_pump_says_so():
     assert ask("modes", {"text": unsolvable})["pump"] is None
 
 
-def test_pins_are_described_and_their_roots_found():
+def test_pins_are_described_and_solved():
     assert set(ask("pin_targets", {"route": "capillary"})["pressure"][0]) == {
         "target",
         "stage",
@@ -85,14 +120,11 @@ def test_pins_are_described_and_their_roots_found():
     by_name = {entry["name"]: entry for entry in description["parameters"]}
     assert [pin["target"] for pin in by_name["energy"]["pins"]] == ["soliton_order"]
     assert by_name["gas"]["pins"] == []
-    found = ask("pin_roots", {"text": PINNED, "path": "pressure"})
-    assert len(found["roots"]) >= 1 and found["attainable"] is None
-    none = ask(
-        "pin_roots", {"text": PINNED.replace('"500 nm"', '"50 nm"'), "path": "pressure"}
-    )
-    assert none["roots"] == [] and "wavelength" in none["quantity"]
+    assert "pin_roots" not in handlers.HANDLERS  # roots are not offered
+    found = Recipe.loads(PINNED).pin_roots("pressure")
     summary = ask("summarise", {"text": PINNED})
-    assert summary["pinned"]["pressure"] == pytest.approx(found["roots"][0])
+    # The chosen root of the same target, each solved to the root finder's tolerance.
+    assert summary["pinned"]["pressure"] == pytest.approx(found.roots[0], rel=1e-6)
 
 
 def test_a_multimode_run_with_a_launch_streams_rows(tmp_path: Path):

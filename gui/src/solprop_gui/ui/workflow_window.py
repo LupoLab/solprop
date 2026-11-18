@@ -6,15 +6,15 @@
 
 A problem class decides what is on screen, so nothing here asks which class it is
 drawing. The window holds a :class:`~solprop_gui.ui.document.SetupDocument` for the open
-setup and moves between the stages; each stage only shows. It is built beside the step
-window, which stays runnable until every route has moved here.
+setup and moves between the stages; each stage only shows.
 """
 
 import contextlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 
-from PySide6.QtCore import Qt, QTimer, QUrl
+from pyqtgraph.util.garbage_collector import GarbageCollector
+from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -47,7 +47,7 @@ from solprop_gui.classes.problem import ProblemClass
 from solprop_gui.classes.workflow import Progress, Stage, primary_action, stage_open
 from solprop_gui.model.recipe import RecipeModel
 from solprop_gui.model.scans import profile_points
-from solprop_gui.model.workspace import DEFAULT_WORKSPACE, list_runs, slug
+from solprop_gui.model.workspace import DEFAULT_WORKSPACE, slug
 from solprop_gui.registry.pages import label
 from solprop_gui.registry.routes import card_of
 from solprop_gui.ui.analyse import AnalyseStage
@@ -67,7 +67,7 @@ from solprop_gui.ui.scan_stage import ScanStage
 from solprop_gui.ui.sheet import SheetStage
 from solprop_gui.ui.theme import STYLE, app_settings, load_font, named_label, repolish
 
-__all__ = ["WorkflowWindow"]
+__all__ = ["WorkflowWindow", "collect_between_events"]
 
 _RECENT_SETUPS = "recent-setups"
 """The setting that lists recent setups."""
@@ -106,7 +106,12 @@ class WorkflowWindow(QMainWindow):
         Whether a run has been started from the open setup.
     has_results : bool
         Whether a results file is open.
+    runs_listed : Signal
+        Emitted when Home has listed this computer's runs afresh.
     """
+
+    runs_listed = Signal()
+    _listed = Signal(int, object)
 
     def __init__(  # noqa: PLR0915 - the window's parts
         self,
@@ -133,6 +138,8 @@ class WorkflowWindow(QMainWindow):
         self._own_run = False
         self._failed = False
         self._pending: dict[int, str] = {}
+        self._listing = 0
+        self._follow_going = False
         saved = self.settings.value("workspace")
         self.workspace = workspace or (Path(str(saved)) if saved else DEFAULT_WORKSPACE)
 
@@ -243,6 +250,7 @@ class WorkflowWindow(QMainWindow):
         self.session.setup_found.connect(self._file_has_setup)
         self.bridge.kernel_lost.connect(self._kernel_lost)
         self.bridge.replied.connect(self._on_reply)
+        self._listed.connect(self._runs_listed)
 
         self.setWindowTitle("solprop")
         self.resize(1280, 800)
@@ -252,12 +260,11 @@ class WorkflowWindow(QMainWindow):
         self._ask_kernel("gases", {}, "gases")
         self._ask_kernel("run_options", {}, "run options")
         self._show_machines(str(self.settings.value("machine") or LOCAL))
-        self.refresh_home()
-        self.show_stage(Stage.HOME)
         # This computer's helper, warm before the first run; then a run the last
-        # window left going is taken over, found from its record.
+        # window left going is taken over, found from its record by Home's listing.
         self.bridge.hub.ensure(Machine(LOCAL))
-        self._find_going_run()
+        self._follow_going = True
+        self.show_stage(Stage.HOME)
 
     # ------------------------------------------------------------------ the frame
 
@@ -602,7 +609,7 @@ class WorkflowWindow(QMainWindow):
         """
         self._pending[self.bridge.request(kind, payload, key=purpose)] = purpose
 
-    def _on_reply(self, reply: Reply) -> None:
+    def _on_reply(self, reply: Reply) -> None:  # noqa: PLR0912 - one per purpose
         """Take a kernel reply to one of the window's requests.
 
         Parameters
@@ -611,7 +618,11 @@ class WorkflowWindow(QMainWindow):
             The reply; replies to other requests are ignored.
         """
         purpose = self._pending.pop(reply.request_id, None)
-        if purpose == "examples" and reply.ok:
+        asked = _asked_for(purpose)
+        if asked is not None and reply.error is not None:
+            # A superseded reply has no error: a newer request answers instead.
+            self.notify(f"solprop could not give {asked}: {reply.error}")
+        elif purpose == "examples" and reply.ok:
             self._examples_arrived(reply.value)  # pyright: ignore[reportArgumentType]
         elif purpose is not None and purpose.startswith("warm-") and reply.ok:
             self._ask_kernel("check", {"text": str(reply.value)}, f"warmed-{purpose}")
@@ -842,19 +853,13 @@ class WorkflowWindow(QMainWindow):
             self.open_setup(chosen)
 
     def open_setup(self, path: str) -> None:
-        """Open a setup file; a route that is no class's goes to the step window.
+        """Open a setup file; a route that is no class's opens on the generic form.
 
         Parameters
         ----------
         path : str
             The file.
         """
-        try:
-            model = RecipeModel.load(path)
-        except (OSError, ValueError) as error:
-            self._say(f"Cannot open {path}: {error}")
-            return
-        del model
         self.document.open_recipe(path)
 
     def choose_results(self) -> None:
@@ -1111,10 +1116,48 @@ class WorkflowWindow(QMainWindow):
         self.refresh_home()
 
     def refresh_home(self) -> None:
-        """List the recent runs and setups on Home."""
-        self.home.show_runs(list_runs(self.run_panel.workspace))
+        """List the recent setups on Home, and this computer's runs, read on a thread.
+
+        The first listing after the window opens also follows the newest run on this
+        computer still going (:meth:`_find_going_run`).
+        """
+        import threading  # noqa: PLC0415 - only here
+
+        from solprop.service.runs import list_runs  # noqa: PLC0415 - light
+
         saved = self.settings.value(_RECENT_SETUPS) or []
         self.home.show_setups([saved] if isinstance(saved, str) else list(saved))  # pyright: ignore[reportArgumentType, reportCallIssue]
+        self._listing += 1
+        listing = self._listing
+        workspace = self.run_panel.workspace.expanduser()
+
+        def look() -> None:
+            """List the workspace's runs, and hand them to the window's thread."""
+            runs: list[dict[str, object]] = []
+            with contextlib.suppress(OSError, ValueError):
+                runs = list_runs(workspace, None)
+            with contextlib.suppress(RuntimeError):  # the window has been deleted
+                self._listed.emit(listing, runs)
+
+        threading.Thread(target=look, daemon=True).start()
+
+    def _runs_listed(self, listing: int, runs: list[dict[str, object]]) -> None:
+        """Show a listing of this computer's runs on Home, unless a newer one is coming.
+
+        Parameters
+        ----------
+        listing : int
+            Which listing it is; an older one than the last asked for is dropped.
+        runs : list of dict
+            The runs' summaries, newest first.
+        """
+        if listing != self._listing:
+            return
+        self.home.show_runs(runs)
+        if self._follow_going:
+            self._follow_going = False
+            self._find_going_run(runs)
+        self.runs_listed.emit()
 
     # ------------------------------------------------------------------ runs
 
@@ -1160,18 +1203,27 @@ class WorkflowWindow(QMainWindow):
         Parameters
         ----------
         path : str
-            Its results file.
+            Its results file; empty where it wrote none.
         """
+        # Every ending of a scan leaves scan mode, so the next Run runs the setup once.
+        scanning, self._scanning = self._scanning, False
         if self._leaving_run:
             # A run stopped to open something else: it is listed, and not shown.
             self._leaving_run = False
-            self._scanning = False
             self.refresh_home()
             self._refresh()
             return
-        if Path(path).name == SCAN_OUTPUT:
-            self._scanning = False
-            self.open_scan(path)
+        if scanning or Path(path).name == SCAN_OUTPUT:
+            if path:
+                self.open_scan(path)
+            else:
+                self.scans.progress.setText("The scan ended before it wrote anything.")
+            self.refresh_home()
+            self._refresh()
+            return
+        if not path:
+            # Nothing to open: the run ended before it wrote its file.
+            self.overview.end_of_run()
             self.refresh_home()
             self._refresh()
             return
@@ -1227,40 +1279,23 @@ class WorkflowWindow(QMainWindow):
             self.document.set_model(model, base=str(Path(path).parent))
             self.has_results = True
 
-    def _find_going_run(self) -> None:
-        """Look, on a thread, for a run on this computer still going, and follow it."""
-        import threading  # noqa: PLC0415 - only here
+    def _find_going_run(self, runs: list[dict[str, object]]) -> None:
+        """Follow the newest run on this computer that is still going, if any.
 
-        from solprop.service.runs import list_runs  # noqa: PLC0415 - light
-
-        workspace = self.run_panel.workspace.expanduser()
-        found: list[list[dict[str, object]]] = []
-
-        def look() -> None:
-            """List the workspace's runs."""
-            with contextlib.suppress(OSError, ValueError):
-                found.append(list_runs(workspace, None))
-
-        thread = threading.Thread(target=look, daemon=True)
-        thread.start()
-
-        def check() -> None:
-            """Take over the newest run still going, once the list is read."""
-            if thread.is_alive():
-                QTimer.singleShot(100, check)
-                return
-            runs = found[0] if found else []
-            going = [
-                run
-                for run in runs
-                if run.get("state") in {"starting", "running"} and run.get("record")
-            ]
-            if going and self.run_panel.attach_on(Machine(LOCAL), going[0]):
-                self.has_run = True
-                self.show_stage(Stage.RUN)
-                self.notify(f"Following {going[0]['run_id']}, still going.")
-
-        QTimer.singleShot(100, check)
+        Parameters
+        ----------
+        runs : list of dict
+            This computer's runs' summaries, newest first.
+        """
+        going = [
+            run
+            for run in runs
+            if run.get("state") in {"starting", "running"} and run.get("record")
+        ]
+        if going and self.run_panel.attach_on(Machine(LOCAL), going[0]):
+            self.has_run = True
+            self.show_stage(Stage.RUN)
+            self.notify(f"Following {going[0]['run_id']}, still going.")
 
     # ------------------------------------------------------------------ machines
 
@@ -1530,6 +1565,22 @@ class WorkflowWindow(QMainWindow):
         event.accept()
 
 
+def collect_between_events() -> GarbageCollector:
+    """Have Python's garbage collected on a timer, between Qt's events.
+
+    Whatever hosts a :class:`WorkflowWindow` calls this before making it, and keeps
+    the collector while the window lives. Automatic collection is turned off: a plot
+    dropped while its scene still had an event queued could otherwise be freed inside
+    that event's handler, deleting the scene under Qt's feet.
+
+    Returns
+    -------
+    pyqtgraph.util.garbage_collector.GarbageCollector
+        The collector; stop its ``timer`` once the window has closed.
+    """
+    return GarbageCollector(interval=1.0)
+
+
 _WARM_EXAMPLES = ("rdw", "filament")
 """Examples checked once as the window opens: a route's first check costs the most
 (about 0.9 s on the capillary and 0.5 s on the radial route), and is then the
@@ -1541,9 +1592,26 @@ _CLOSING = "Closing with a run going"
 _NOTICE_MS = 20_000
 """How long a passing notice stays, in milliseconds."""
 
+_ASKED = {
+    "examples": "the examples",
+    "gases": "the list of gases",
+    "run options": "the run options",
+    "curve": "the curve",
+    "template": "the class's example",
+}
+"""What the window's own requests ask for, by purpose, as the foot of the window names
+it when one fails."""
+
+
+def _asked_for(purpose: str | None) -> str | None:
+    """Return what a request asked for, as its failure names it, or ``None``."""
+    if purpose is not None and purpose.startswith("warm-"):
+        return f"the example {purpose.removeprefix('warm-')}"
+    return _ASKED.get(purpose or "")
+
 
 def _class_of(model: RecipeModel) -> ProblemClass:
-    """Return a recipe's class: one of the four, or Other geometry's for its route.
+    """Return a recipe's class: a catalogued one, or Other geometry's for its route.
 
     Parameters
     ----------
@@ -1559,5 +1627,5 @@ def _class_of(model: RecipeModel) -> ProblemClass:
     found = class_of(model.route, build)
     if found is not None:
         return found
-    card = card_of(model.route, build, enabled_only=False)
+    card = card_of(model.route, build)
     return other_class(model.route, model.route if card is None else card.title, build)

@@ -141,8 +141,7 @@ installs it and solprop uses it automatically; your scripts do not change.
 
 `numpy_ref`, the plain NumPy backend that native is tested against, is the numerical
 reference. It is unthreaded and roughly 6 to 40 times slower than threaded native, so it
-is for checking a result and for the few supported features native does not run yet, the
-TDSE response among them
+is for checking a result, and for a problem a GPU build of native refuses
 ([which backend to use](https://solprop.readthedocs.io/en/stable/guide/performance/backends.html#which-backend-to-use)). See
 [The native backend](https://solprop.readthedocs.io/en/stable/guide/performance/native.html) and
 [Performance tuning](https://solprop.readthedocs.io/en/stable/guide/performance/tuning.html).

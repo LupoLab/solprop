@@ -407,7 +407,8 @@ void seed_fftw_wisdom(const ExecutionSpace& space, Complex* input, Complex* outp
   auto* const seeded = fftw_plan_many_dft(
       static_cast<int>(extents.size()), extents.data(), howmany, in, nullptr, 1,
       input_distance, out, nullptr, 1, output_distance, sign, *chosen);
-  // The policy has always tolerated a plane it cannot seed; a profile records it.
+  // Under the plan policy a plane that cannot be seeded stays unseeded rather than
+  // refused; under a profile's planning the outcome is recorded (`end_seed`).
   if (seeded == nullptr && (*chosen & FFTW_WISDOM_ONLY) == 0U &&
       (detail::planning == nullptr ||
        detail::planning->mode == FftPlanning::Mode::policy)) {

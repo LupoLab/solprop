@@ -8,7 +8,7 @@ integral over the *field scale*, what
 the effective-area (mode-averaged) model is in those terms and what it gets wrong for
 ionisation, how the field-scale rules compare with the default, and how to choose. The
 rules and their qualification are described in
-[SEP 19](../../dev/seps/archive/sep-0019-field-scale-quadrature.md), which also records
+[SEP 19](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0019-field-scale-quadrature.md), which also records
 the evidence.
 
 ## The radial integral is an integral over the field scale

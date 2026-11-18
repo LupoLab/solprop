@@ -12,7 +12,6 @@ anything is allocated.
 
 import copy
 import dataclasses
-import warnings
 
 import numpy as np
 import pytest
@@ -20,7 +19,7 @@ import pytest
 from capability_routes import ROUTES
 from solprop.backends import available
 from solprop.driver import Simulation
-from solprop.exceptions import BackendError, HostMarchWarning
+from solprop.exceptions import BackendError
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 
@@ -59,10 +58,8 @@ def on_route(route: str, integrator) -> Simulation:
         "radial",
     ],
 )
-def test_the_default_march_is_native_without_a_warning(route):
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", HostMarchWarning)
-        backend = built(on_route(route, Multistep()))
+def test_the_default_march_is_native(route):
+    backend = built(on_route(route, Multistep()))
     try:
         assert backend.metadata()["adams_march"] == "native"
     finally:
@@ -70,9 +67,7 @@ def test_the_default_march_is_native_without_a_warning(route):
 
 
 def test_the_fused_method_is_native():
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", HostMarchWarning)
-        backend = built(on_route("gnlse", Multistep(formulation="interaction")))
+    backend = built(on_route("gnlse", Multistep(formulation="interaction")))
     try:
         assert backend.metadata()["adams_march"] == "native"
     finally:
@@ -90,9 +85,7 @@ def test_a_replayed_schedule_is_native():
         save_planes=np.asarray(stepper.save_planes).tolist(),
     )
     simulation.settings = dataclasses.replace(simulation.settings, schedule=schedule)
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", HostMarchWarning)
-        backend = built(simulation)
+    backend = built(simulation)
     try:
         assert backend.metadata()["adams_march"] == "native"
     finally:
@@ -132,9 +125,7 @@ def test_a_representation_the_stage_tables_do_not_read_is_refused_at_admission(
     "route", ["general guide (moving)", "capillary (coherent wall)", "radial"]
 )
 def test_moving_maps_and_coupled_flows_are_native(route):
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", HostMarchWarning)
-        backend = built(on_route(route, Multistep()))
+    backend = built(on_route(route, Multistep()))
     try:
         assert backend.metadata()["adams_march"] == "native"
     finally:
@@ -162,9 +153,7 @@ def test_the_carrier_frame_is_native():
     from backends.carrier_frame_cases import capillary  # noqa: PLC0415
     from backends.test_carrier_frame import SCALAR  # noqa: PLC0415 - a heavy module
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", HostMarchWarning)
-        backend = built(capillary(SCALAR))
+    backend = built(capillary(SCALAR))
     try:
         assert backend.metadata()["adams_march"] == "native"
         assert backend._adams._policy.carrier

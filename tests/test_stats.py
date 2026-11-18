@@ -16,7 +16,7 @@ from solprop import fourier, stats
 from solprop.constants import C
 from solprop.exceptions import ModeError, OutputError, ProcessingError, SolpropWarning
 from solprop.grid import EnvelopeGrid, FieldGrid
-from solprop.modes import MarcatiliMode
+from solprop.modes import MarcatiliMode, StepIndexMode
 from solprop.output.records import SavedPlane
 from solprop.profiles import Constant, PressureGradient
 from solprop.pulses import GaussianPulse
@@ -39,6 +39,7 @@ from solprop.stats import (
     profile_value,
     zdw,
 )
+from solprop.stats.definitions import _whitened
 
 WAVELENGTH = 800e-9
 FWHM = 30e-15
@@ -337,9 +338,9 @@ def test_inband_wavelengths_are_the_grid_limits(envelope_grid):
 def test_zdw_finds_the_zero_of_the_group_velocity_dispersion(capillary):
     value = zdw([capillary], 0.0, wavelength_limits=(150e-9, 900e-9))
     assert value.shape == (1,)
-    # The same root the mode's own accessor reports; see tests/modes/test_base.py.
-    # 376.4 nm on optmat's helium since SEP 3's Phase 4a (364.8 nm on the registry's),
-    # at 294 K; 376.7 nm since the default temperature became 293.15 K.
+    # The same root the mode's own accessor reports (tests/modes/test_base.py): the
+    # zero of the group-velocity dispersion of this capillary on optmat's helium at
+    # 0.4 bar and the default 293.15 K.
     assert_allclose(value[0], 376.7e-9, rtol=1e-4)
 
 
@@ -358,6 +359,32 @@ def test_collect_records_nan_when_the_band_holds_no_zero(capillary):
         )
     assert values["zdw"].shape == (1,)
     assert np.isnan(values["zdw"]).all()
+
+
+def test_collect_records_a_zero_past_the_sign_changes_of_a_gas_resonance():
+    """Krypton's lines near 120 nm flip the sign of beta_2 in the band, many times."""
+    grid = EnvelopeGrid.from_limits(1.0, 800e-9, (110e-9, 2e-6), 1e-12)
+    field = gaussian(grid, energy_j=ENERGY)
+    krypton = MarcatiliMode(14e-6, "Kr", 15.0)
+    values = collect(StatsSpec(names=("zdw",)), grid, plane_of(field), modes=[krypton])
+    # The zero nearest the grid's 800 nm reference, the capillary's only one above the
+    # lines; the noise of the differenced beta_2 (5e-9) sets the tolerance.
+    assert_allclose(values["zdw"], [770.5167e-9], rtol=1e-6)
+
+
+@pytest.mark.medium
+def test_collect_records_a_telecom_fibres_zero_past_the_oh_band():
+    """Silica's OH band at 1.38 um flips beta_2's sign between a 1550 nm reference
+    and the fibre's 1.3 um zero, and does not block the search."""
+    grid = EnvelopeGrid.from_limits(1.0, 1550e-9, (1e-6, 2e-6), 1e-12)
+    field = gaussian(grid, energy_j=ENERGY)
+    fibre = StepIndexMode.from_numerical_aperture(
+        4.1e-6, 0.12, profile_wavelength=1.3e-6
+    )
+    values = collect(StatsSpec(names=("zdw",)), grid, plane_of(field), modes=[fibre])
+    # The fibre's zero on any window that holds it (tests/modes/test_base.py), to
+    # the noise of the differenced beta_2 (5e-9).
+    assert_allclose(values["zdw"], [1295.8347e-9], rtol=1e-6)
 
 
 def test_collect_records_each_modes_zero_on_its_own(capillary):
@@ -649,19 +676,10 @@ def two_channel(grid):
 
 
 @pytest.mark.parametrize("name", sorted(METRIC_WEIGHTED_STATISTICS))
-def test_no_metric_is_the_identity_and_is_what_it_was(field_grid, name):
-    """`metric=None` is the fast path and changes no existing number.
-
-    The default is ``metric=None``, so both calls run one computation: an explicitly
-    exact no-op, compared exactly.
-    """
+def test_the_identity_metric_is_the_default_s_number(field_grid, name):
+    """An identity metric weighs every channel as ``metric=None``, the default, does."""
     field = two_channel(field_grid)
     function = getattr(stats, name)
-    assert np.array_equal(
-        np.asarray(function(field_grid, field)),
-        np.asarray(function(field_grid, field, metric=None)),
-        equal_nan=True,
-    )
     identity = np.broadcast_to(
         np.eye(2, dtype=complex)[:, :, None], (2, 2, field_grid.n_omega)
     ).copy()
@@ -703,7 +721,7 @@ def test_the_metric_weighted_energy_is_the_quadratic_form(field_grid):
 def test_the_whitening_is_the_positive_definite_square_root(field_grid):
     field = two_channel(field_grid)
     metric = metric_of(2, field_grid.n_omega)
-    whitened = stats._whitened(field, metric)
+    whitened = _whitened(field, metric)
     assert_allclose(
         np.einsum("mpk,mpk->k", whitened.conj(), whitened).real,
         np.einsum("mpk,mnk,npk->k", field.conj(), metric, field).real,

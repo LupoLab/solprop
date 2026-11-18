@@ -13,6 +13,7 @@ from solprop.exceptions import ToolsError
 from solprop.modes.base import beta1, beta2, beta3, zdw
 from solprop.recipe import Recipe, RecipeError
 from solprop.recipe.preview import _phase_matching, _pump
+from solprop.stats.evaluation import _zdw_or_nan
 from solprop.tools import (
     lambda_rdw_all,
     nonlinear_coefficient,
@@ -148,6 +149,56 @@ def test_a_mode_without_a_zero_in_the_band_has_none():
     document["build"]["wavelength_limits"] = ["700 nm", "900 nm"]
     preview = Recipe.from_dict(document).modes()
     assert preview.modes[0].zdw is None
+
+
+def _krypton_capillary():
+    """A krypton capillary whose band reaches its own zero at 108.9 nm."""
+    document = Recipe.example("rdw").to_dict()
+    document["build"].update(
+        radius="14 um",
+        gas="Kr",
+        pressure="15 bar",
+        wavelength_limits=["100 nm", "2000 nm"],
+        modes=1,
+    )
+    return document
+
+
+def _silica_strand():
+    """A 0.6 um silica strand in air, with zeros at 588.3 and 1496.9 nm in band."""
+    document = Recipe.example("step_index_fibre").to_dict()
+    document["build"].update(
+        fibre={
+            "type": "StepIndexMode",
+            "radius": "0.6 um",
+            "profile_wavelength": "800 nm",
+        },
+        wavelength="800 nm",
+        wavelength_limits=["450 nm", "1600 nm"],
+        trange="0.5 ps",
+    )
+    return document
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        pytest.param(_krypton_capillary, marks=pytest.mark.medium),
+        # A step-index fibre is solved point by point: a minute under the type hooks.
+        pytest.param(_silica_strand, marks=pytest.mark.slow),
+    ],
+)
+def test_the_mode_preview_shows_the_zero_the_statistic_records(document):
+    """Of several zeros in the band, the one nearest the reference, as a run records."""
+    recipe = Recipe.from_dict(document())
+    preview = recipe.modes()
+    simulation = recipe.build()
+    recorded = _zdw_or_nan(list(simulation.modes), 0.0, simulation.grid)
+    assert preview.modes[0].zdw is not None
+    # The preview's window ends at the outermost in-band bins, the statistic's at the
+    # band's limits: other brackets, each stopping on the noise of the differenced
+    # beta2 (5e-9, BETA2_RELATIVE_STEP).
+    assert preview.modes[0].zdw == pytest.approx(recorded[0], rel=1e-8)
 
 
 def test_each_mode_is_phase_matched_to_the_launch_soliton():

@@ -36,10 +36,10 @@ Restrict a long job to one CPU family, for example with a scheduler constraint.
 driver's to decide:
 
 ```{code-block} python
-from solprop.output import check_cache, resume
+from solprop.output import check_cache, read_resume_state
 
 if check_cache("run.h5", metadata):        # False when there is no file
-    state = resume("run.h5")               # metadata, last plane, step history
+    state = read_resume_state("run.h5")    # metadata, last plane, step history
     start_from(state.plane)                # already back in the FFT convention
 ```
 
@@ -81,11 +81,11 @@ snapshot and a scan row compare it too.
 The record holds the schema version, the grid, the modes, the configuration, the noise,
 the stepper settings, the material manifest's identities and policies, the stepping
 method when the Adams integrator
-([SEP 13](../../dev/seps/archive/sep-0013-expensive-response-steppers.md),
+([SEP 13](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0013-expensive-response-steppers.md),
 [the Adams integrator](../numerics/adams.md)) stepped the run instead of the tableau,
 named with its formulation, and the region the error norm scores. A run whose field
 plasma integrates by the band rule
-([SEP 18](../../dev/seps/archive/sep-0018-band-exact-plasma-integrals.md)) records the
+([SEP 18](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0018-band-exact-plasma-integrals.md)) records the
 rule in its configuration as `plasma_integration`. The record holds the policy, `K`,
 $\theta_b$, the taps at full precision, the certified error, and the boundary and
 exposure policies. A resume that would integrate the plasma differently is therefore
@@ -97,13 +97,13 @@ limit and taper counts are part of the identity; the measured certificate is exe
 evidence under `backend.settings.plasma_source`, outside the hash. A resolved modal run
 records its transverse rule in `quadrature` and in the key -- the family
 (`radial_rule`), the requested and realised counts, the nodes and the physical weights
-([SEP 19](../../dev/seps/archive/sep-0019-field-scale-quadrature.md)) -- so a resume on
+([SEP 19](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0019-field-scale-quadrature.md)) -- so a resume on
 another rule is refused. A run on the plain trapezoid records none of these, and a
 response's `integration` is left out of the key when it is `"trapezoid"`.
 The key also includes the absolute launch position, the scientific TDSE descriptor, the
 interval-cap and start-up rules, interpolation of save planes (`interpolate_planes`) and
 saving of accepted-step endpoints (`step_planes`)
-([SEP 14](../../dev/seps/archive/sep-0014-stepper-efficiency.md)). It is *not* Python's
+([SEP 14](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0014-stepper-efficiency.md)). It is *not* Python's
 `hash`, which is salted per interpreter,
 so the same run digests to the same string in every process — a test runs it in a
 subprocess with a different `PYTHONHASHSEED` and compares.
@@ -115,7 +115,8 @@ and its breakpoints, so a run never resumes under another gate or window
 Four things are deliberately outside it: the wall-clock start time, the package
 versions, the git provenance and the backend record. An unrelated commit or a change of
 backend does not refuse to resume a run that is otherwise the same run, and nor does a
-library upgrade, as long as it moves no number the record holds. So is the boundary
+library upgrade other than optmat's, whose version the material manifest records, as long
+as it moves no number the record holds. So is the boundary
 check's budget and guard width: a run stopped at the time window's
 edge may be resumed under a relaxed check, and its monitor's record continues across the
 resume ([watching the window's edges](../numerics/boundaries.md#watching-the-windows-edges)).
@@ -130,7 +131,9 @@ A call without `seed=` draws fresh operating-system entropy each time it is buil
 ([reproducibility](../media/noise.md#reproducibility)). So that re-running the same call
 with `resume=True` continues its own file, a realisation the constructor drew without a
 seed is drawn again from the seed the file recorded before the hashes are compared,
-and the run logs that it did. This covers the default noise of `prop_gnlse`,
+and the run logs that it did. The redraw belongs to the resumed run alone: the
+`Simulation` keeps its own realisation, so a later fresh `run` of it is not the file's
+again. This covers the default noise of `prop_gnlse`,
 `prop_capillary`, `prop_waveguide` and `prop_free` on a radial grid, and an explicit `noise="input"` or
 `"modified"` given without a seed. A seed the call gives, or a realisation it passes in,
 is never replaced: a resume that differs in it is refused, and the refusal names the
@@ -161,6 +164,11 @@ their hashes, and it does not choose its own limit: its `node_budget` is ignored
 yours applies. Opening an
 HDF5 file at all exposes the HDF5 library to it.
 
+A file resumes on its own only if it holds every data file its recipe refers to. A run
+embeds its data files up to 16 MiB in all (`solprop.recipe.provenance.EMBED_LIMIT`) and
+records any beyond that by name and digest only; the file alone then cannot rebuild the
+run, and resuming it is refused with a {py:class}`~solprop.recipe.errors.RecipeError`.
+
 ### What a file allows
 
 {py:func}`solprop.output.resumable.resumability` answers three questions about a file without
@@ -187,27 +195,29 @@ is tried.
 ### Stopping a run
 
 `Simulation.run(..., stop=flag)` takes any object with an `is_set()` method, such as a
-{py:class}`threading.Event`. The run polls it before its first step, then before every
-trial step, so it answers within one step. When it is set, the run writes its state as
-SIGTERM would, tells the reporter through `interrupted`, and **returns** the handler: a
-requested stop is not an error, and the outcome's message says the caller's flag stopped
-it. `resume=True` continues the file. A front end sets the flag from any thread, on any
-platform, with no signals; each run polls its own. `solprop run` and `solprop resume` set
+{py:class}`threading.Event`. On `numpy_ref` the run polls it before its first step, then
+before every trial step, so it answers within one step. When it is set, the run writes its
+state as SIGTERM would, tells the reporter through `interrupted`, and **returns** the
+handler: a requested stop is not an error, and the outcome's message says the caller's
+flag stopped it. `resume=True` continues the file. A front end sets the flag from any
+thread, on any platform, with no signals; each run polls its own. `solprop run` and `solprop resume` set
 it on Ctrl-C, SIGTERM and, on Windows, Ctrl-Break, and exit with the usual status; a
 second Ctrl-C interrupts at once. A signal that comes too late to stop anything, with the file
 already complete, exits with status zero and says so. One that comes while a recipe is
 building waits for the build to finish, since the flag is only polled once a march is running,
 so a large grid's build can take most of a batch system's grace period.
 
-The exception is the native backend's `Multistep()` march, which runs many attempts in
-one native call, where the flag cannot be read. The run polls before each call instead,
-and a call returns after at most 256 attempts or 0.1 s of wall time, read after each
-attempt, whichever comes first. So a stop waits for that bound and the attempt in flight:
+The exception is the native backend, which runs many attempts in one native call, where
+the flag cannot be read. The run polls before each call instead, and a call returns
+after at most 256 attempts or 0.1 s of wall time, read after each attempt, whichever
+comes first. So a stop waits for that bound and the attempt in flight:
 256 attempts on a small problem, about 0.1 s on a larger one, one attempt where an attempt
 takes longer than 0.1 s. A call also returns at a save plane, a statistics row or a
 boundary check. Where a call returns changes nothing the run computes. SIGTERM and Ctrl-C
 in a script's `Simulation.run` wait for the same return, since Python runs a signal's
-handler only then.
+handler only then. A flag that the run's own progress reporter sets lands up to one such
+batch later on either backend, since the reporter hears the attempts a batch at a time
+([progress](../performance/progress.md#writing-your-own)).
 
 ## Completion status and terminal checkpoints
 
@@ -227,19 +237,19 @@ dense observation can instead retain that interpolated field. It is separate fro
 `handler["field"]` and the per-plane statistics keep their original meanings.
 Checkpoint creation uses available observations and histories and makes no new
 material-statistics request. An interpolated checkpoint is labelled as such:
-`resume(path)` reads it, while restarting requires the explicit
+`read_resume_state(path)` reads it, while restarting requires the explicit
 `Simulation.run(..., resume="interpolated")` policy. Ordinary `resume=True`
 refuses it. TDSE uses landed save planes.
 
 ```{code-block} python
-from solprop.output import open_file, resume
+from solprop.output import open_file, read_resume_state
 
 with open_file("run.h5") as stored:
     status = stored.outcome.status if stored.outcome is not None else "unrecorded"
     checkpoint = stored.terminal_checkpoint
     regular_planes = stored.n_saved
 
-state = resume("run.h5")
+state = read_resume_state("run.h5")
 restart_z = state.plane.z
 ```
 
@@ -261,7 +271,7 @@ history neither repeats nor loses a step. A later saved plane supersedes it. A
 low-storage step abandoned in flight cannot be checkpointed; the file then falls back
 to its latest running checkpoint, or to the checkpoint the run resumed from, and only
 without one to its last saved plane
-([SEP 47](../../dev/seps/archive/sep-0047-run-ownership.md)).
+([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md)).
 
 ### What a restart keeps and restores
 
@@ -313,7 +323,7 @@ last flushed state and `running` status rather than a manufactured completion re
 **A run that keeps no field at its planes** (`fields="none"` or `"planes"`,
 [output](output.md#statistics-only-planes-which-planes-keep-their-field)) continues only
 from a plane that carries a field
-([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md)). The terminal
+([SEP 22](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0022-memory-lean-spatial-execution.md)). The terminal
 checkpoint always carries the field, whatever the run keeps at its planes: it costs one
 observation when the run stops, and a run stopped by an error, a signal or a call budget
 resumes from it. A file whose last regular plane kept no field and which holds
@@ -505,4 +515,4 @@ Independent resumed computations meet the repository's accuracy-envelope policy;
 stored copies, history arrays and structural identifiers remain exact.
 
 Resuming a run from its file and the recipe it records were proposed and carried out by
-[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).
+[SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md).

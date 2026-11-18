@@ -213,7 +213,7 @@ public:
       keys come from. Its march state, history and monitor are not read. */
   std::unique_ptr<Probe> probe(const RunStart& start);
 
-  // -- what the old seam's accessors read
+  // -- what `Run` and the `_testing` bindings read
   [[nodiscard]] const std::optional<stage::Tables>& stage_tables() const noexcept {
     return stage_tables_;
   }

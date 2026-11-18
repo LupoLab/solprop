@@ -96,8 +96,16 @@ class _Provider(Protocol):
 
 def _load_provider() -> _Provider:
     """Load the optional package, in the worker only."""
+    # Pyroraptor's package declares Python 3.14 alone (requires-python >=3.14,<3.15),
+    # though solprop's own floor admits later interpreters: another one is refused by
+    # name here, before its native extension is imported.
     if sys.version_info[:2] != (3, 14):
-        raise BackendError("the pinned TDSE provider requires Python 3.14")
+        major, minor = sys.version_info[:2]
+        msg = (
+            "the TDSE provider, Pyroraptor, supports Python 3.14 only, and this is "
+            f"Python {major}.{minor}: run a TDSE response under Python 3.14"
+        )
+        raise BackendError(msg)
     try:
         return cast("_Provider", importlib.import_module("pyroraptor"))
     except (ImportError, OSError) as error:

@@ -5,8 +5,8 @@
 """Where solprop's manual explains a keyword (design 12.4).
 
 solprop's metadata gives each keyword an anchor: a page under ``docs/`` with an
-optional section. The front end opens it in the online manual of the installed
-version's series; the bundled manual comes with the installers (milestone M8).
+optional section. The front end opens it in the online manual of the newest release
+(:data:`MANUAL`).
 """
 
 from typing import Final

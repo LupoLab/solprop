@@ -36,7 +36,7 @@ from solprop.modes.material import MaterialKerr, quantised_measurement
 from solprop.modes.protocol import ChannelLabel
 from solprop.modes.tables import DEFAULT_GRAM_ATOL
 from solprop.output import HDF5Output
-from solprop.output.hdf5 import check_cache, open_file, resume
+from solprop.output.hdf5 import check_cache, open_file, read_resume_state
 from solprop.output.memory import MemoryOutput
 from solprop.output.metadata import SCHEMA_VERSION, RunMetadata, _example_metadata
 from solprop.output.records import ModeRecord, SavedPlane
@@ -142,8 +142,8 @@ def written(guide, grid, tmp_path_factory):
 
 def test_the_record_carries_every_modal_identity(written, guide):
     """Labels, tables, metric, responses, guide, frame, band, noise and accessors."""
-    stored = resume(written).metadata
-    assert stored.schema_version == SCHEMA_VERSION == 4
+    stored = read_resume_state(written).metadata
+    assert stored.schema_version == SCHEMA_VERSION == 3
     modal = stored.modal
     assert modal is not None
     assert set(modal) == {
@@ -190,7 +190,7 @@ def test_the_measured_entries_of_the_key_are_quantised_and_the_declared_are_not(
     declared `chi3`, a radius and a knot enter exactly, because a caller who
     changes one means to.
     """
-    stored = resume(written).metadata
+    stored = read_resume_state(written).metadata
     measured = {
         "modal.metric.defect": at(stored.modal, "metric", "defect"),
         "modal.guide.sampling.profile_error": at(
@@ -225,7 +225,7 @@ def test_the_measured_entries_of_the_key_are_quantised_and_the_declared_are_not(
 
 def test_the_labels_round_trip_through_the_file(written):
     """`ChannelLabel.as_mapping` out, `ChannelLabel.from_mapping` back."""
-    stored = resume(written).metadata
+    stored = read_resume_state(written).metadata
     labels = [
         ChannelLabel.from_mapping(dict(one.label))
         for one in stored.modes
@@ -238,7 +238,7 @@ def test_the_labels_round_trip_through_the_file(written):
 
 def test_the_whole_record_survives_json_and_hashes_the_same(written):
     """A record read back from the file hashes to the digest the file was stamped."""
-    stored = resume(written).metadata
+    stored = read_resume_state(written).metadata
     again = RunMetadata.from_json(stored.to_json())
     assert again.modal == stored.modal
     assert [one.label for one in again.modes] == [one.label for one in stored.modes]
@@ -255,7 +255,7 @@ def test_the_printed_block_prints_every_modal_identity_field_with_its_value(writ
     412-character JSON document on this one-channel fixture and filled the row
     with the opening of a serialised mapping before.
     """
-    stored = resume(written).metadata
+    stored = read_resume_state(written).metadata
     block = str(stored)
     modal = stored.modal
     assert modal is not None
@@ -278,7 +278,7 @@ def test_the_printed_block_prints_every_modal_identity_field_with_its_value(writ
         assert value in block, (line, value)
     # The long `model_id` itself is on the record, and not in the printed row.
     assert str(at(modal, "tables", "model_id")) not in block
-    assert "schema 4" in block
+    assert "schema 3" in block
     # Twelve rows for thirteen fields: the basis row carries `n_components` too.
     printed = {key for key, _ in stored._describe()[1]}
     assert len(printed & MODAL_ROWS) == len(MODAL_ROWS)
@@ -313,7 +313,7 @@ def test_the_printed_block_survives_a_record_it_cannot_read(
     says so rather than raising while a reader is trying to find out what the file
     is. Nothing here is a route solprop writes -- it is what a reader survives.
     """
-    stored = resume(written).metadata
+    stored = read_resume_state(written).metadata
     modal = dict(cast("dict[str, object]", stored.modal))
     modal[entry] = value
     assert expected in str(dataclasses.replace(stored, modal=modal))
@@ -351,7 +351,7 @@ def test_the_published_accessor_list_is_recorded_and_hashed(written):
     whose list differs, shorter or longer, has another configuration hash, and the
     difference is named by the list.
     """
-    stored = resume(written).metadata
+    stored = read_resume_state(written).metadata
     assert stored.modal is not None
     published = at(stored.modal, "accessors")
     assert published == sorted(GENERAL_MODAL_ACCESSORS)
@@ -372,7 +372,7 @@ def test_a_file_with_another_accessor_list_is_refused(written, tmp_path):
     Shorter, longer or absent, the list is compared as every other hashed entry is,
     and the refusal names it.
     """
-    metadata = resume(written).metadata
+    metadata = read_resume_state(written).metadata
     assert metadata.modal is not None
     published = at(metadata.modal, "accessors")
     assert check_cache(_written_with(tmp_path / "same.h5", metadata), metadata) is True
@@ -484,7 +484,10 @@ def test_the_same_schedule_resumes_onto_the_same_march(guide, grid, tmp_path):
         exact=("z", "step_history/z", "step_history/h"),
     )
     # And the resumed file still says which guide produced it.
-    assert resume(part).metadata.modal == resume(whole).metadata.modal
+    assert (
+        read_resume_state(part).metadata.modal
+        == read_resume_state(whole).metadata.modal
+    )
 
 
 @pytest.mark.parametrize(
@@ -495,7 +498,7 @@ def test_a_changed_guide_table_or_material_refuses_by_the_field_that_moved(
     guide, grid, written, what, field
 ):
     """A resume names the mismatching field, not "the hash does not agree"."""
-    stored = resume(written).metadata
+    stored = read_resume_state(written).metadata
     if what == "radius":
         other = general_guide(grid=grid, radius=1.6e-6)
     elif what == "chi3":
@@ -510,7 +513,7 @@ def test_a_changed_guide_table_or_material_refuses_by_the_field_that_moved(
 
 
 def test_a_reordered_mode_axis_is_a_different_run(grid):
-    """The reviewer's trap: the same two channels, declared the other way round."""
+    """The same two channels declared the other way round are a different run."""
     one = general_guide(
         descriptors=(("HE", 1, 1, "even"), ("HE", 1, 1, "odd")),
         blocks=((0, 1),),
@@ -565,7 +568,7 @@ def test_the_noise_realisation_is_recorded_and_reconstructed_on_resume(
     path = tmp_path / "noisy.h5"
     simulation = build(guide, grid, noise="input", seed=17)
     simulation.run(path, progress="none")
-    stored = resume(path).metadata
+    stored = read_resume_state(path).metadata
     assert stored.noise is not None
     assert stored.noise.seed == 17
     assert at(stored.modal, "noise_reference_basis") == "orthonormal true power"
@@ -590,7 +593,7 @@ def test_the_memory_handler_writes_the_same_file_afterwards(guide, grid, tmp_pat
     output = cast("MemoryOutput", build(guide, grid).run(progress="none"))
     path = tmp_path / "from_memory.h5"
     output.to_file(path)
-    stored = resume(path)
+    stored = read_resume_state(path)
     assert stored.metadata.modal is not None
     last = output.planes()[-1].field
     assert stored.plane.field is not None and last is not None
@@ -617,8 +620,8 @@ def test_a_scan_point_writes_its_spool_and_reads_the_identity_back(
     build(guide, grid).run(capture, progress="none")
     results = capture.results()
     assert float(results["reduced/spooled_flux"]) > 0.0
-    stored = resume(capture.custom_path).metadata
-    assert stored.schema_version == SCHEMA_VERSION == 4
+    stored = read_resume_state(capture.custom_path).metadata
+    assert stored.schema_version == SCHEMA_VERSION == 3
     assert stored.modal is not None
     assert at(stored.modal, "basis") == "general_modal"
     assert [one.label for one in stored.modes] != [None]
@@ -671,7 +674,7 @@ def test_a_file_in_one_basis_refuses_to_resume_in_another(grid, basis_pair, tmp_
     """Four independent paths, each naming itself; the digest moves with them."""
     path = tmp_path / "circular.h5"
     build(basis_pair["circular"], grid).run(path, progress="none")
-    stored = resume(path).metadata
+    stored = read_resume_state(path).metadata
     other = build(basis_pair["plain"], grid).metadata()
     changed = stored.differences(other)
     for field in (
@@ -696,7 +699,7 @@ def test_a_file_without_a_basis_refuses_to_resume_with_one(grid, basis_pair, tmp
     """
     path = tmp_path / "plain.h5"
     build(basis_pair["plain"], grid).run(path, progress="none")
-    stored = resume(path).metadata
+    stored = read_resume_state(path).metadata
     other = build(basis_pair["circular"], grid).metadata()
     changed = stored.differences(other)
     assert any(one.startswith("modal.metric.gauge_id") for one in changed), changed

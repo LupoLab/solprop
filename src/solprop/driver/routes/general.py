@@ -74,8 +74,6 @@ class _GeneralRequest:
 
     - ``length``: guide length, m.
     - ``channel``: which channel the pulse enters; ``None`` takes the first.
-    - ``observable_rtol``, ``observable_atol``: accepted only as ``None``, which
-      means the solver's own tolerances.
     - ``fwhm``, ``width``, ``shape``, ``energy``, ``peak_power``, ``phases``,
       ``pulses``: the input pulse, as :func:`_shaped_pulse` takes it.
     - ``absorber``: the collar rates; ``None`` builds the grid's default collar, and
@@ -83,8 +81,9 @@ class _GeneralRequest:
     - ``absorber_scheme``: how the temporal collar is applied; ``None`` is the
       default scheme.
     - ``stats``: which statistics to record; ``None`` takes :func:`_general_stats`.
-    - ``integrator``: the method that steps the run; ``None`` takes ``Multistep()``,
-      and ``LowStorageRungeKutta()`` replays `schedule` in three registers.
+    - ``integrator``: the method that steps the run; ``None`` takes the waveguide row
+      of :data:`~solprop.driver.defaults.ROUTE_DEFAULTS`, ``RungeKutta()``, and
+      ``LowStorageRungeKutta()`` replays `schedule` in three registers.
     - ``step_planes``: also save the end of every `step_planes`-th accepted step;
       ``None`` is ``0``.
     - ``refused``: every gas-filled keyword, by name; each is refused when it is
@@ -98,8 +97,6 @@ class _GeneralRequest:
     incident: SpatialPulse | None
     coupling: CouplingModel | None
     kerr_form: KerrForm
-    observable_rtol: float | None
-    observable_atol: float | None
     wavelength: float
     wavelength_limits: tuple[float, float] | None
     trange: float | None
@@ -149,21 +146,6 @@ def _from_general(cls: type["Simulation"], request: _GeneralRequest) -> "Simulat
         provider,
         MaterialSelection() if request.materials is None else request.materials,
     )
-    for name, value in (
-        ("observable_rtol", request.observable_rtol),
-        ("observable_atol", request.observable_atol),
-    ):
-        if value is not None:
-            msg = (
-                f"{name}={value!r}: a general modal run's observables are its "
-                "channel amplitudes in a basis orthonormal in true power, so "
-                "the controller's own rtol and atol already bound them, and "
-                "the separate allocation a different number would ask for -- "
-                "over the table's frequency interpolation, the transverse rule "
-                "and the step -- is not implemented. Pass None, and set rtol "
-                "and atol"
-            )
-            raise DriverError(msg)
     working = _capillary_grid(
         request.grid,
         request.length,

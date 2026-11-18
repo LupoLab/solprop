@@ -20,6 +20,7 @@ from solprop.modes.collection import (
 )
 from solprop.modes.quadrature import mode_matrix, transverse_quadrature
 from solprop.modes.slab import SlabMode
+from solprop.modes.stepindex import StepIndexMode
 from solprop.profiles import Linear
 
 RADIUS = 125e-6
@@ -300,14 +301,14 @@ def test_a_collection_is_an_ordered_sequence():
             lambda: overlap(
                 MarcatiliMode(RADIUS, "He", 1.0), MarcatiliMode(2 * RADIUS, "He", 1.0)
             ),
-            "needs one cross-section",
+            "share a cross-section",
         ),
         (lambda: overlap(DummyMode(), DummyMode()), "provides no normalisation"),
         (
             lambda: orthonormality(
                 [MarcatiliMode(RADIUS, "He", 1.0), MarcatiliMode(2 * RADIUS, "He", 1.0)]
             ),
-            "needs one cross-section",
+            "share a cross-section",
         ),
         (lambda: orthonormality([]), "at least one mode"),
         (lambda: polarisation_pairs([DummyMode()]), "orthogonal polarisation"),
@@ -349,7 +350,7 @@ def test_a_collection_catches_a_disagreement_that_only_appears_along_z():
         ]
     )
     assert collection.dimlimits(0.0)[2][0] == pytest.approx(RADIUS)
-    with pytest.raises(ModeError, match="disagree about the cross-section"):
+    with pytest.raises(ModeError, match="share a cross-section at z = 1 m"):
         collection.dimlimits(1.0)
 
 
@@ -460,3 +461,53 @@ def test_he1m_matches_the_modes_built_by_hand():
     omega = np.array([2.356e15])
     for one, other in zip(got, by_hand, strict=True):
         np.testing.assert_array_equal(one.neff(omega), other.neff(omega))
+
+
+# ----------------------------------------------------- step-index channels of one guide
+
+
+def stepindex_pair(numerical_aperture=False):
+    """HE11 and HE12 of one fibre: each bounds the cladding at its own outer radius."""
+    if numerical_aperture:
+        return [
+            StepIndexMode.from_numerical_aperture(
+                10e-6, 0.12, m=m, profile_wavelength=1e-6
+            )
+            for m in (1, 2)
+        ]
+    return [
+        StepIndexMode(10e-6, core=1.46, cladding=1.44, m=m, profile_wavelength=1e-6)
+        for m in (1, 2)
+    ]
+
+
+@pytest.mark.parametrize("numerical_aperture", [False, True])
+def test_step_index_channels_of_one_guide_form_a_collection(numerical_aperture):
+    modes = stepindex_pair(numerical_aperture)
+    assert modes[0].dimlimits()[2][0] != modes[1].dimlimits()[2][0]
+    assert modes[0].same_guide(modes[1])
+    collection = ModeCollection(modes)
+    # The widest disc, over which both channels' fields are exact.
+    widest = max(mode.dimlimits()[2][0] for mode in modes)
+    assert collection.dimlimits()[2][0] == widest
+
+
+def test_step_index_channels_of_one_guide_have_overlaps_on_the_widest_disc():
+    modes = stepindex_pair()
+    got = ModeCollection(modes).orthonormality()
+    # Each channel normalised to itself, to the integration tolerance (1e-12); the
+    # off-diagonal is the vector modes' small non-orthogonality (step-index guide).
+    np.testing.assert_allclose(np.diag(got), 1.0, rtol=0.0, atol=1e-10)
+    assert got[0, 1] == got[1, 0]
+    assert 0.0 < abs(got[0, 1]) < 1e-2
+    assert overlap(modes[0], modes[1]) == pytest.approx(got[0, 1], abs=1e-12)
+    rule = transverse_quadrature(modes, n_r=48)
+    assert mode_matrix(modes, rule, components=("x",)).synthesis.shape[1] == 2
+
+
+def test_step_index_channels_of_different_guides_are_refused():
+    first = StepIndexMode(10e-6, core=1.46, cladding=1.44, profile_wavelength=1e-6)
+    other = StepIndexMode(10e-6, core=1.46, cladding=1.43, m=2, profile_wavelength=1e-6)
+    assert not first.same_guide(other)
+    with pytest.raises(ModeError, match="share a cross-section"):
+        ModeCollection([first, other])

@@ -107,7 +107,10 @@ def test_energy_fluence_and_power_agree() -> None:
     assert np.sum(power) * grid.dt == pytest.approx(energy, rel=1e-12)
     assert grid.dt * np.sum(intensity, axis=-1) == pytest.approx(fluence, rel=1e-10)
     axis = np.sum(on_axis_spectrum(spectrum, flux)) * grid.d_omega
-    assert axis == pytest.approx(fluence[0], rel=1e-3)  # first node off axis
+    # The first node is off axis, where the beam's fluence exp(-2 r^2 / w^2) is 7e-3
+    # below its value on axis; corrected for that, the two agree to 3e-9.
+    on_axis = fluence[0] * np.exp(2.0 * (space.r[0] / 2e-4) ** 2)
+    assert axis == pytest.approx(on_axis, rel=1e-6)
 
 
 def test_oversampled_power_and_intensity_lie_on_the_fine_time_axis() -> None:

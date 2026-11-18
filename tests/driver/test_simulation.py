@@ -8,6 +8,7 @@ import contextlib
 import dataclasses
 import math
 import pickle
+import re
 import subprocess
 import sys
 import warnings
@@ -130,6 +131,21 @@ def test_settings_assigned_after_the_first_translation_are_refused(
             settings, dz_max=1e-4, save_planes=[1.234e-4], backend="native"
         )
     assert simulation.settings is settings
+
+
+def test_the_execution_settings_change_after_translation_and_the_refusal_names_them(
+    build_simulation,
+):
+    simulation = build_simulation(n_save=2)
+    simulation.translate()
+    simulation.settings = dataclasses.replace(simulation.settings, node_budget=2**20)
+    assert simulation.settings.node_budget == 2**20
+    allowed = (
+        "only backend, node_budget, resume_history, tdse_execution, fields, "
+        "field_planes and boundary_check may change after translation"
+    )
+    with pytest.raises(DriverError, match=re.escape(allowed)):
+        simulation.settings = dataclasses.replace(simulation.settings, dz_max=1e-4)
 
 
 @pytest.mark.parametrize("name", sorted(simulation_module._FIXED_INPUTS))

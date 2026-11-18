@@ -1,20 +1,22 @@
 # Testing
 
-All code is tested, to 100 % of statements and branches (the coverage lane fails below
-it), in lanes, with several kinds of test
-per feature (ADR-022). This page fixes the taxonomy, the lanes, the reference problems, the
+solprop's package is tested to 100 % of statements and branches (the coverage lane fails
+below it), and so are the front end's modules outside its Qt layer (`gui/pyproject.toml`
+omits `ui/`, `views/`, `app.py`, `__main__.py` and `askpass.py`); the native package has
+no coverage gate, only a weekly report of its C++ source coverage (`native-deep.yml`).
+Tests run in lanes, with several kinds of test per feature (ADR-022). This page fixes the taxonomy, the lanes, the reference problems, the
 tolerance policy and the layout. `AGENTS.md` carries the short rules; this is the long form.
 
 ## Documentation-only changes
 
-Adding or editing a SEP, its index or roadmap entry, or making other documentation-only
+Adding or editing a SEP or its index, or making other documentation-only
 changes does **not** require `uv run poe check`, the full test suite, `uv run poe test-slow`
 or `uv run poe cov` before completion, commit or merge. This includes prose, links,
 documentation assets, contributor instructions and prose-only docstring edits. Select
 checks that cover what changed:
 
 - Run `git diff --check` and `uv run codespell <changed-files>`.
-- For SEP content, status, index or roadmap entries, run `uv run pytest tests/test_seps.py`.
+- For SEP content, status or index entries, run `uv run pytest tests/test_seps.py`.
 - For Sphinx content, links or assets, run `uv run poe docs` (warnings remain errors).
 - For docstring prose, run the relevant docstring validation and documentation build.
 
@@ -39,7 +41,7 @@ do not launch the full suite merely because a SEP is being committed or merged.
 | reference problem | the ladder in [stepper.md §11](stepper.md#11-verification-ladder-for-solprops-solver-tests): P0 linear, P1 N-soliton with phase, P2 analytic z-varying loss and dispersion, P3 cross-scheme Richardson | solver work |
 | target simulation | RDW VUV and CtC against solprop's own converged references, and their inputs and plasma against stored Luna results (§8) | the named problems M2, M3, M4 |
 | doctest | every `Examples` section runs | all docstrings |
-| smoke | import time budget; a run of every gallery example in reduced size | package, docs |
+| smoke | the top-level import loads no heavy module; a gallery script that an example recipe mirrors builds the recipe's simulation, up to its first run (`tests/recipe/test_examples.py`); CI's docs job executes every lesson and tutorial at full size, and the worked examples run only by hand | package, docs |
 
 ## 2. Tiers and lanes
 
@@ -78,16 +80,16 @@ instead of a tier marker:
 
 | lane | command | what it selects |
 |---|---|---|
-| default | `uv run poe test` | fast **and** medium, compiled kernels, random order (`pytest-randomly`), warnings as errors, doctests included, under xdist with every thread pool at one thread per worker. Step 8 of `poe check`. Plain `uv run pytest` runs the same selection serially (`addopts` carries no `-n`), for one file or test and for debugging. |
+| default | `uv run poe test` | fast **and** medium, compiled kernels, random order (`pytest-randomly`), warnings as errors, doctests included, under xdist with every thread pool at one thread per worker. The `test` step of `poe check`. Plain `uv run pytest` runs the same selection serially (`addopts` carries no `-n`), for one file or test and for debugging. |
 | medium alone | `uv run poe test-medium` | the medium tier, timed against its budget |
 | slow | `uv run poe test-slow` | the slow tier under xdist, one worker per core, `--dist loadgroup`, every thread pool pinned to one thread per worker |
-| coverage | `uv run poe cov` | the fast and medium tiers under xdist with one thread per worker; 100 % of the package (`coverage-cpu.ini`) |
+| coverage | `uv run poe cov` | the fast and medium tiers under xdist with one thread per worker; 100 % of the package (`[tool.coverage]` in `pyproject.toml`) |
 | gpu | `uv run poe test-gpu` | the `gpu`-marked tests of solprop and of solprop-native, against an installed CUDA or HIP build that sees a device; it fails on a CPU build rather than skipping every test |
 | benchmark | by hand, per docstring; `uv run poe bench` for `benchmarks/` | see [benchmarks.md](benchmarks.md) |
 
 Hypothesis properties use the `solprop` profile loaded by `tests/conftest.py`.
 Their example count bounds the work; the per-example wall-clock deadline is disabled
-because imports, JIT compilation and contention on shared machines can exceed it
+because imports and contention on shared machines can exceed it
 without indicating a correctness failure.
 
 Parallel lanes use `--dist loadgroup`. The collection hook groups a test with its
@@ -153,34 +155,29 @@ For native development, a plain `uv sync` builds `native/` and installs it
 editable into the repository's environment before a lane runs; how, and when a build
 must be rebuilt, is
 [Building the native backend](../guide/performance/building-native.md#a-development-build).
-`uv run poe check-native` runs the native package's own gate and `uv run poe check-all`
-both gates. What the backend does not support it refuses by name
+`uv run poe check-native` runs the native package's own gate, and a native change runs it
+after `uv run poe check` ([tooling](tooling.md#the-gate-uv-run-poe-check)). What the
+backend does not support it refuses by name
 ([backends.md](backends.md)).
 The `gpu` lane checks build coherence, one complete device step and same-card
 repeats within a rounding bound on an accelerator build; host thread-count tests skip on a
 device build by design, and fixed-geometry same-card repeats stand in for them. The slow equivalence and
 M2/CtC witnesses are selected by node id so one marker remains one tier. With the build
-installed, the lanes run as:
+installed, the lanes' poe tasks hold every thread pool, the native one included, at one
+thread per worker, since eighteen xdist workers each initialising an eighteen-thread
+Kokkos pool would oversubscribe the machine. The full gate, slow and coverage lanes run in
+CI on the pull request, not locally (`AGENTS.md`, "Definition of done"). On an
+accelerator build (the task sets `SOLPROP_TEST_BACKEND=native`):
 
 ```console
-SOLPROP_NATIVE_THREADS=1 OMP_PROC_BIND=false uv run poe check
-SOLPROP_NATIVE_THREADS=1 OMP_PROC_BIND=false uv run poe test-slow
-SOLPROP_NATIVE_THREADS=1 OMP_PROC_BIND=false uv run poe cov
-SOLPROP_TEST_BACKEND=native SOLPROP_NATIVE_THREADS=1 uv run poe test-slow
-
-# On an accelerator build (the task sets SOLPROP_TEST_BACKEND=native):
 uv run poe test-gpu
 ```
-
-The two thread settings matter: eighteen xdist workers each initialising an
-eighteen-thread Kokkos pool oversubscribe the machine, and OpenMP binding pins each
-worker's threads to the same first cores.
 
 ### Shared code and out-of-process providers
 
 Parity between the backends checks what each computes independently. It cannot check
 code both call: a defect in the TDSE response's source assembly
-(`solprop.backends.tdse_source`, [SEP 49](seps/archive/sep-0049-tdse-on-native.md)) is the same
+(`solprop.backends.tdse_source`, [SEP 49](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0049-tdse-on-native.md)) is the same
 on both. That module's tests state their expectations independently of it, analytic or
 manufactured (`tests/backends/test_tdse_source.py`, `tests/edge_source_cases.py`), and a
 deliberate defect in each term is shown to fail one of them; parity then covers what each
@@ -196,7 +193,7 @@ Pyroraptor is not tested in CI; it is checked by hand (SEP 49, section 7.4).
 
 Step control, the session lifecycle and the service loop are tested with their numerical
 outcomes scripted, never by substituting the code under test. A scripted engine replaces
-the engine under the real march and the real session ([SEP 52](seps/archive/sep-0052-backend-shape.md)
+the engine under the real march and the real session ([SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md)
 §6.3), as native's scripted engines test its compiled marches:
 
 - `tests/scripted_driver.py`'s `HostScriptedDriver` is the reference backend whose
@@ -245,9 +242,7 @@ tier's total, the sum of its tests' times over the lane's shards, is held to a r
 `max_total` in `tests/tier_budget.toml`, which may only go down. Lower it when medium
 tests are trimmed or moved to slow; never raise it to let a change through. It was reset
 once, when the first baseline turned out to be one low run (#792). Time a new medium test
-(`uv run pytest <file> --durations=0`) before adding it. Most of the default lane's time is the compiled-kernel tests, which
-compile one kernel per parametrisation, so parametrise a compiled test only over what the
-kernel actually branches on.
+(`uv run pytest <file> --durations=0`) before adding it.
 
 The budgets are read from the lanes' JUnit reports. The collection hook in
 `tests/conftest.py` writes each test's tier into its report as the property `tier`
@@ -284,7 +279,7 @@ rounding budget (Higham's `γ_n` bound for a reduction of length `n`, the transf
 `B_fft`, operation counts per step, with a stated margin); discretisation error of the grid
 or step; the accuracy of a reference (a table's stated accuracy, an experimental figure, a
 Luna result's own convergence). Independent floating-point computations are compared by
-numerical error, never by bits ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)):
+numerical error, never by bits ([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)):
 no comparison requires bitwise agreement across backends, builds, machines, thread counts,
 scan execution or repeated runs. Every comparison belongs to one of five
 classes, and `tests/bounds.py` holds the reusable parts of their bounds.
@@ -311,6 +306,16 @@ against nontrivial reference fields, so a zeros-returning backend cannot pass:
 the observed margin. A result that is mathematically zero but reached through inexact
 arithmetic gets a justified absolute tolerance; a zero that is a structural contract
 (a hard mask, a disabled term) stays exact.
+
+**No default absolute tolerance.** Many of the suite's quantities are SI values far below
+pytest's default absolute tolerance of 1e-12 or NumPy's 1e-8 (times of 1e-15 s, nonlinear
+indices of 1e-25 m²/W), which would accept any result for them. So in the suite
+`pytest.approx` has no absolute tolerance unless the test gives `abs=`, whether it gives
+`rel=` or compares with a nonzero number bare (the test conftests wrap it; a bare
+`approx` of zero or of a sequence keeps pytest's defaults), and every `np.allclose` or
+`np.isclose` states its `atol`, 0.0 for a relative comparison
+(`tests/test_tolerance_defaults.py` checks). A test that needs an absolute tolerance, an
+expected zero among them, gives it explicitly.
 
 **Accuracy envelopes** (class T) are set per case, in a comment: the run's error against
 a reference at a tighter tolerance, or against an existing stored converged reference,
@@ -359,7 +364,7 @@ reproducible.
 
 **Fixtures and the defaults.** Most tests pass `noise=None`, so that a run compares
 deterministically; noise is tested where it is the subject. Some pin the time-window
-geometry of before [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md) through
+geometry of before [SEP 21](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md) through
 `tests/legacy_geometry.py` (`LEGACY_GRID`, `bare_absorber`). Pin it only where a stored
 measurement depends on it (a convergence record, a Luna witness, a frozen cross-backend
 comparison) and say which in a comment: it is the one compatibility option solprop keeps
@@ -429,6 +434,11 @@ these records.
 The mechanism (`tests/convergence_records.py`), how a record is compared or written, the
 tolerance each column carries and the commands are in [accuracy.md, "Regenerating the numbers"](accuracy.md#9-regenerating-the-numbers).
 
+Each record names the commit it was written at, and a test requires that commit to be in
+the repository's history. A pull request that regenerates a record is therefore merged
+with a merge commit, never squashed or rebased: squashing discards the recorded commit
+and the test then fails on `main`.
+
 ## 6. Layout and naming
 
 `tests/` mirrors `src/solprop/` (`tests/modes/test_capillary.py` ↔ `solprop/modes/capillary.py`);
@@ -469,7 +479,7 @@ parity case is a row, not a new ladder.
 
 Two tests read the documentation rather than the package: `tests/test_guide_snippets.py`
 runs the user guide's code, and `tests/test_seps.py` keeps each enhancement proposal's
-header, folder, index row and roadmap link consistent with its status
+header, folder and index row consistent with its status
 ([SEP 0](seps/sep-0000-process.md)).
 
 ## 7. Definition of done for a pull request
@@ -505,5 +515,5 @@ Tests, records and benchmarks refer to these by name.
 | **P0–P3** | the solver's verification ladder: linear only (P0), N-soliton recurrence with phase (P1), analytic z-varying loss and dispersion (P2), full UPPE against a Richardson reference (P3); see [stepper.md](stepper.md) §11 |
 | **M1** | N = 6 soliton recurrence through `prop_gnlse`: GNLSE, envelope grid, mode-averaged, checked against the analytic solution with its phase |
 | **M2**, **RDW** | resonant dispersive-wave emission into the VUV in a hollow capillary: 125 µm core radius, 1.5 m, helium from 0.8 bar to vacuum, four HE₁ₘ modes, a 7.5 fs 275 µJ pulse, field grid, Kerr and plasma; full and reduced sizes, against solprop's own converged reference, with its inputs against a stored Luna witness ([accuracy.md](accuracy.md) §5) |
-| **M3** | the M2 case on a compiled backend (`numba_cpu` when it was recorded): against `numpy_ref` at equal achieved error; the whole-run benchmark rows |
+| **M3** | the M2 case on native: against `numpy_ref` at equal achieved error; the whole-run benchmark rows |
 | **M4**, **CtC** | the comb-to-continuum supercontinuum: 16 µm core radius, 0.2 m of hydrogen at 40 bar, six HE₁ₘ modes, a 400 fs pulse at 515 nm on a 4 ps field grid, Raman and plasma; full and reduced sizes, with the reduced case's inputs and plasma against a stored Luna witness ([accuracy.md](accuracy.md) §6) |

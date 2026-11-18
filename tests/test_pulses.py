@@ -15,6 +15,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from numpy.testing import assert_allclose
 
+from runtime_types import unchecked
 from solprop import _process, fourier
 from solprop.constants import C
 from solprop.exceptions import PulseError
@@ -367,6 +368,40 @@ def test_a_taylor_phase_gives_the_group_delay_it_asks_for(grid_name, request):
     # The group delay is read back with a second-order finite difference on the bin
     # spacing, whose leading error on a quadratic phase is a few parts in a thousand.
     assert_allclose(measured, gdd, rtol=5e-3, atol=0.0)
+
+
+@pytest.mark.parametrize("grid_name", GRIDS)
+def test_third_and_fourth_order_phases_give_the_group_delay_they_ask_for(
+    grid_name, request
+):
+    grid = request.getfixturevalue(grid_name)
+    # About 0.2 ps of group delay at the band's edge from each term: well inside the
+    # 2 ps window, and under a radian of phase between neighbouring bins to unwrap.
+    tod, fod = 20000e-45, 3e5 * 1e-60
+    spectrum = GaussianPulse(
+        wavelength=WAVELENGTH,
+        fwhm=FWHM,
+        energy=ENERGY,
+        phases=(0.0, 0.0, 0.0, tod, fod),
+    ).build(grid)[0, 0]
+    optics = fourier.spectrum_to_optics(spectrum, kind=grid.kind)
+    band = np.abs(spectrum) > 0.05 * np.abs(spectrum).max()
+    order = np.argsort(grid.omega[band])
+    omega = grid.omega[band][order]
+    delay = np.gradient(np.unwrap(np.angle(optics[band][order])), omega)[1:-1]
+    detuning = omega[1:-1] - 2.0 * np.pi * C / WAVELENGTH
+    reach = float(np.max(np.abs(detuning)))
+    cubic = np.polynomial.Polynomial.fit(
+        detuning / reach, delay, 3, domain=[-1, 1], window=[-1, 1]
+    ).coef
+    # The group delay of c3 x^3/3! + c4 x^4/4! is c3 x^2/2 + c4 x^3/6. A central
+    # difference of a quartic phase is exact in those two coefficients (its error
+    # adds only h^2 c3/6 and h^2 c4 x/6), so the fit recovers them to rounding: a few
+    # eps of 20 rad of phase over 2h ~ 5e12 rad/s is ~1e-27 s, under 1e-14 of the
+    # 0.3 ps delay at the edge (1e-15 measured); 1e-10 leaves the fit's conditioning
+    # ample room and is far below the factor 6 or 24 of a wrong factorial.
+    assert_allclose(cubic[2], tod / 2 * reach**2, rtol=1e-10, atol=0.0)
+    assert_allclose(cubic[3], fod / 6 * reach**3, rtol=1e-10, atol=0.0)
 
 
 @pytest.mark.parametrize("grid_name", GRIDS)
@@ -1315,3 +1350,73 @@ def test_a_large_launch_is_the_same_on_any_number_of_threads(
     budget = dataclasses.replace(_process.thread_budget(), threads=workers)
     monkeypatch.setattr(_process, "thread_budget", lambda: budget)
     assert pulse.build(grid, space, medium=medium).tobytes() == serial.tobytes()
+
+
+@pytest.mark.parametrize("m", [1.5, True, 2.0], ids=["fraction", "bool", "float"])
+def test_a_gaussian_pulse_refuses_an_order_that_is_not_an_integer(m):
+    # The same integer check as SpatialPulse's, naming the same parameter. The test
+    # session's annotation check would refuse a float before the constructor's own
+    # check runs; a user's session has none, so the constructor is called past it.
+    pulse = object.__new__(GaussianPulse)
+    with pytest.raises(PulseError, match="m must be a super-Gaussian order") as caught:
+        unchecked(GaussianPulse.__init__)(
+            pulse, wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, m=m
+        )
+    assert caught.value.parameter == "m"
+
+
+@pytest.mark.parametrize("kind", ["temporal", "spatial"])
+def test_a_numpy_integer_is_a_super_gaussian_order(kind):
+    """An order from ``np.arange`` is taken, and kept as a Python int."""
+    from solprop.pulses import SpatialPulse  # noqa: PLC0415
+
+    # The test session's annotation check refuses a NumPy integer for `int`; a user's
+    # session has none, so the constructor is called past it.
+    pulse = object.__new__(GaussianPulse)
+    unchecked(GaussianPulse.__init__)(
+        pulse, wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, m=np.int64(2)
+    )
+    if kind == "spatial":
+        temporal, pulse = pulse, object.__new__(SpatialPulse)
+        unchecked(SpatialPulse.__init__)(pulse, temporal, 1e-3, m=np.int64(2))
+    assert type(pulse.m) is int
+    assert pulse.m == 2
+
+
+def test_a_pulse_sum_refuses_a_beam_as_a_temporal_member():
+    from solprop.pulses import PulseSum, SpatialPulse, SpatialPulseSum  # noqa: PLC0415
+
+    temporal = GaussianPulse(wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY)
+    beam = SpatialPulse(temporal, 1e-3)
+    for member in (beam, SpatialPulseSum((beam,))):
+        with pytest.raises(PulseError, match="member 1 of the PulseSum is a"):
+            PulseSum((temporal, member))  # pyright: ignore[reportArgumentType]
+
+
+def test_a_spatial_pulse_refuses_a_beam_as_its_temporal_pulse():
+    from solprop.pulses import SpatialPulse, SpatialPulseSum  # noqa: PLC0415
+
+    temporal = GaussianPulse(wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY)
+    beam = SpatialPulse(temporal, 1e-3)
+    for inner in (beam, SpatialPulseSum((beam,))):
+        with pytest.raises(PulseError, match="temporal pulse") as caught:
+            SpatialPulse(inner, 1e-3)  # pyright: ignore[reportArgumentType]
+        assert caught.value.parameter == "temporal"
+
+
+def test_a_planar_launch_is_described_by_its_real_keywords():
+    # The keyword is waist, as PlanarPulse(temporal, waist, waist_x=...) takes it.
+    from solprop.modes import PlanarGrid, SlabMode  # noqa: PLC0415
+    from solprop.pulses import PlanarPulse, SpatialPulse  # noqa: PLC0415
+    from solprop.spatial import SpatialMedium  # noqa: PLC0415
+
+    temporal = GaussianPulse(wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY)
+    planar = PlanarPulse(temporal, 400e-6, waist_x=40e-6)
+    assert "waist=400 um" in repr(planar)
+    assert "waist_y" not in repr(planar)
+    grid = EnvelopeGrid.from_limits(1e-4, WAVELENGTH, LIMITS, TRANGE)
+    space = PlanarGrid([SlabMode(63.5e-6, "Ar", 1.0)], 1e-3, 8)
+    with pytest.raises(PulseError, match=r"PlanarPulse\(temporal, waist, waist_x="):
+        SpatialPulse(temporal, 400e-6).build(
+            grid, space, medium=SpatialMedium("Ar", 1.0)
+        )

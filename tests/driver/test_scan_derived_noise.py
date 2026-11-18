@@ -413,8 +413,10 @@ def test_a_derived_run_resumes_from_its_file_after_a_new_draw(tmp_path):
     # A new draw: the same call in a new process.
     again = fibre().with_input(field)
     assert drawn(again).seed != seed
+    # Refused as another run unless the resume draws again from the recorded seed,
+    # which it does on a copy: the caller keeps its own draw.
     again.run(path, resume=True, progress="none")
-    assert drawn(again).seed == seed
+    assert drawn(again).seed != seed
 
 
 def test_an_explicit_realisation_is_still_refused_by_a_resume(tmp_path):

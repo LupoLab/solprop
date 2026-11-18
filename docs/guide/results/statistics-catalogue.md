@@ -335,7 +335,7 @@ without plasma and the TDSE route (which never evaluates an atom for a statistic
 Every backend uses the same host routine for an extra axis scan, or reuses a Radau
 axis row from its own node scan. CPU parity is qualified. A GPU build of the native backend brings
 only that row's spectrum to the host; GPU qualification remains follow-up work
-([SEP 19](../../dev/seps/archive/sep-0019-field-scale-quadrature.md)). A multimode
+([SEP 19](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0019-field-scale-quadrature.md)). A multimode
 field's largest density need not lie on the axis, so the node maxima keep their
 meaning beside them.
 

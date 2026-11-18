@@ -1,1 +1,0 @@
-The native C++ checks: every tracked C++ file is formatted, clang-tidy is pinned to LLVM 23.1 and enables whole check families, the sources compile with stronger warnings, the sanitizer build stops at the first report and checks Kokkos view bounds, and `uv run poe fmt-native` and `uv run poe tidy-native` format and tidy native files locally.

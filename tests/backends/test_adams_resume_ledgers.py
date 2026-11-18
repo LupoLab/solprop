@@ -17,7 +17,7 @@ from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, ResponseBudgetError
-from solprop.output import resume
+from solprop.output import read_resume_state
 from solprop.stepper.multistep import Multistep
 
 
@@ -47,7 +47,7 @@ def test_saved_adams_resume_preserves_exhausted_call_budget(backend_name, tmp_pa
     path = tmp_path / "stopped.h5"
     with pytest.raises(ResponseBudgetError, match="budget of 4"):
         simulation.run(path, progress="none")
-    stopped = resume(path)
+    stopped = read_resume_state(path)
     assert stopped.outcome is not None
     assert stopped.outcome.status == "budget_exhausted"
     assert CallLedger.from_record(stopped.outcome.logical_calls).total == 4
@@ -55,7 +55,7 @@ def test_saved_adams_resume_preserves_exhausted_call_budget(backend_name, tmp_pa
     assert 0.0 < stopped.plane.z < 1e-5
     with pytest.raises(ResponseBudgetError, match="budget of 4"):
         simulation.run(path, resume=True, progress="none")
-    again = resume(path)
+    again = read_resume_state(path)
     assert again.outcome is not None
     assert again.outcome.logical_calls == stopped.outcome.logical_calls
     assert again.plane.z == stopped.plane.z

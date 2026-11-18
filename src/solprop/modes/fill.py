@@ -95,6 +95,54 @@ _FD_RELATIVE_STEP: Final = 1e-5
 """Relative step of the Richardson difference used for a loss curve with no slope."""
 
 
+def _alpha_values(
+    alpha: float | LossFunction, omega: Float[np.ndarray, " n_omega"]
+) -> tuple[Float[np.ndarray, " n_omega"], Float[np.ndarray, " n_omega"]]:
+    """Return a mode's absolute power attenuation and its frequency slope, checked.
+
+    The one evaluation of a declared ``alpha`` for every mode family that takes one.
+    A number is constant and was checked when the mode was built. A callable's values
+    are refused unless finite, non-negative (a negative attenuation is gain) and of
+    the shape of `omega`; its slope is its ``derivative`` attribute when it has one,
+    and otherwise a Richardson-extrapolated central difference at a relative step of
+    :data:`_FD_RELATIVE_STEP`, with a relative floor near 1e-10.
+
+    - ``omega``: positive angular frequencies in rad/s.
+    - Returns: the attenuation in 1/m and its slope in s/(rad m).
+    """
+    if not callable(alpha):
+        return (
+            np.full_like(omega, float(alpha), dtype=float),
+            np.zeros_like(omega, dtype=float),
+        )
+    attenuation = np.asarray(alpha(omega), dtype=float)
+    if (
+        attenuation.shape != omega.shape
+        or not np.all(np.isfinite(attenuation))
+        or np.any(attenuation < 0.0)
+    ):
+        raise ModeError(
+            "alpha callable must return finite non-negative coefficients with the "
+            "shape of omega"
+        )
+    analytic = getattr(alpha, "derivative", None)
+    if callable(analytic):
+        slope = np.asarray(analytic(omega), dtype=float)
+    else:
+        step = _FD_RELATIVE_STEP * omega
+        wide = (np.asarray(alpha(omega + step)) - np.asarray(alpha(omega - step))) / (
+            2.0 * step
+        )
+        half = step / 2.0
+        narrow = (np.asarray(alpha(omega + half)) - np.asarray(alpha(omega - half))) / (
+            2.0 * half
+        )
+        slope = np.asarray((4.0 * narrow - wide) / 3.0, dtype=float)
+    if slope.shape != omega.shape or not np.all(np.isfinite(slope)):
+        raise ModeError("alpha derivative must be finite with the shape of omega")
+    return attenuation, slope
+
+
 class GasFillMixin(Displayed):
     """Provide material and loss methods for frozen hollow-mode dataclasses.
 
@@ -112,7 +160,7 @@ class GasFillMixin(Displayed):
     """
 
     gas: Gas | str | None
-    pressure: float | ZProfile
+    pressure: float | ZProfile | None
     temperature: float | ZProfile | None
     susceptibility: GasSusceptibility | None
     mixture: Mixture | None
@@ -121,6 +169,11 @@ class GasFillMixin(Displayed):
     loss_scale: float
     model: Literal["full", "reduced"]
     _gain_warned: bool
+
+    @property
+    def _pressure_profile(self) -> ZProfile:
+        """The fill pressure in bar along z; never ``None`` once constructed."""
+        return as_profile(cast("float | ZProfile", self.pressure))
 
     @property
     def _lossless(self) -> bool:
@@ -158,7 +211,7 @@ class GasFillMixin(Displayed):
             return f"{labels} {float(shared(entrance)[0]):g} bar"
         if self.gas is None:
             return "evacuated"
-        return f"{self.gas} {float(as_profile(self.pressure)(entrance)[0]):g} bar"
+        return f"{self.gas} {float(self._pressure_profile(entrance)[0]):g} bar"
 
     def _check_fill_arguments(self) -> None:
         """Check the fill declaration and loss specification."""
@@ -190,13 +243,23 @@ class GasFillMixin(Displayed):
 
         if self.mixture is not None and (
             self.gas is not None
-            or self.pressure != 0.0
+            or (self.pressure is not None and self.pressure != 0.0)
             or self.susceptibility is not None
         ):
             raise ModeError(
                 "mixture carries its gas, pressure and susceptibility; "
                 "omit those arguments"
             )
+        if self.pressure is None:
+            if self.gas is not None:
+                msg = (
+                    f"a gas fill needs its pressure: pass pressure= in bar beside "
+                    f"gas={self.gas!r}, or omit the gas for an evacuated guide"
+                )
+                raise ModeError(msg, parameter="pressure")
+            # No gas: an evacuated guide, or a mixture's own paths. No pressure
+            # applies, and the field holds zero bar.
+            object.__setattr__(self, "pressure", 0.0)
 
     def _check_loss_arguments(self) -> None:
         """Check ``loss_scale`` and ``alpha``, alone and against each other."""
@@ -245,7 +308,7 @@ class GasFillMixin(Displayed):
             object.__setattr__(
                 self, "susceptibility", default_species(self.gas).susceptibility
             )
-        pressure = as_profile(self.pressure)
+        pressure = self._pressure_profile
         temperature = cast("float | ZProfile", self.temperature)
         # The gas whose equation of state, and whose flow weight, the fill takes.
         material: Species | None = (
@@ -309,9 +372,10 @@ class GasFillMixin(Displayed):
         Raises
         ------
         ModeError
-            If omega is non-positive or non-finite, or the mode declares an
+            If omega is non-positive or non-finite, the mode declares an
             ``alpha``, whose total attenuation cannot be assigned to individual
-            species.
+            species, or a single gas's susceptibility is absorbing (a mixture
+            component attributes it).
         """
         if np.any(omega <= 0) or not np.all(np.isfinite(omega)):
             raise ModeError("species absorption requires positive finite omega")
@@ -336,10 +400,18 @@ class GasFillMixin(Displayed):
                     scale * density * omega * np.imag(model.susceptibility(omega)) / C
                 )
             return result
-        if self.susceptibility is None:
-            return np.zeros((1, omega.size))
-        # The single-gas slot carries a real GasSusceptibility. Absorbing supplied
-        # optical tables belong to explicit Species components of a mixture.
+        # Per-species attribution is the mixture's: an absorbing law in the
+        # single-gas slot puts loss into neff, which this row would not show.
+        if (
+            scale != 0
+            and self.susceptibility is not None
+            and self.susceptibility.absorbing
+        ):
+            msg = (
+                "an absorbing susceptibility on a single gas has no species "
+                "attribution; declare the gas as a component of a Mixture"
+            )
+            raise ModeError(msg)
         return np.zeros((1, omega.size))
 
     def _fill_paths(self) -> Mapping[str, ZProfile]:
@@ -541,12 +613,7 @@ class GasFillMixin(Displayed):
         # An absolute power loss coefficient: alpha = 2 omega Im(n) / c, so
         # Im n = c alpha / (2 omega) and its derivative follows by the quotient rule.
         # Only the imaginary part is replaced; beta and beta_1 stay analytic.
-        if callable(self.alpha):
-            alpha = np.asarray(self.alpha(omega), dtype=float)
-            dalpha = self._loss_derivative(self.alpha, omega)
-        else:
-            alpha = np.full_like(omega, float(self.alpha), dtype=float)
-            dalpha = np.zeros_like(omega, dtype=float)
+        alpha, dalpha = _alpha_values(self.alpha, omega)
         extinction = 0.5 * C * alpha / omega
         dextinction = 0.5 * C * (dalpha * omega - alpha) / omega**2
         return (
@@ -588,30 +655,6 @@ class GasFillMixin(Displayed):
             ),
             np.asarray(np.where(gain, np.real(derivative), derivative), dtype=complex),
         )
-
-    def _loss_derivative(
-        self, curve: LossFunction, omega: Float[np.ndarray, " n_omega"]
-    ) -> Float[np.ndarray, " n_omega"]:
-        """Return the frequency derivative of an attenuation supplied as a callable.
-
-        - ``curve``: the loss curve ``alpha(omega)`` in 1/m.
-        - ``omega``: angular frequencies in rad/s.
-        - Returns: ``d(alpha)/d(omega)`` in 1/(m rad/s), analytic when the callable
-          carries a ``derivative`` attribute and otherwise a Richardson-extrapolated
-          central difference with a relative floor near 1e-10.
-        """
-        analytic = getattr(curve, "derivative", None)
-        if callable(analytic):
-            return np.asarray(analytic(omega), dtype=float)
-        step = _FD_RELATIVE_STEP * omega
-        wide = (np.asarray(curve(omega + step)) - np.asarray(curve(omega - step))) / (
-            2.0 * step
-        )
-        half = step / 2.0
-        narrow = (np.asarray(curve(omega + half)) - np.asarray(curve(omega - half))) / (
-            2.0 * half
-        )
-        return np.asarray((4.0 * narrow - wide) / 3.0, dtype=float)
 
     def _floored(
         self,

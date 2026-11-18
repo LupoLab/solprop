@@ -1165,8 +1165,11 @@ def test_a_declared_basis_transforms_the_reference_and_composes_its_gauge():
     assert turned.basis is basis
     assert composed_gauge("g", None) == "g"
     # The declared basis leaves the sampled Gram defect exactly where it was: the
-    # spectral norm is unitarily invariant.
-    assert turned.gram_defect == pytest.approx(plain.gram_defect, rel=1e-12)
+    # spectral norm is unitarily invariant. G - I is formed from entries near one, so
+    # the defect carries their absolute rounding, a few eps, not a relative one.
+    assert turned.gram_defect == pytest.approx(
+        plain.gram_defect, rel=1e-12, abs=8 * EPS
+    )
 
 
 def test_a_declared_basis_puts_a_held_out_solve_in_the_same_coordinates():

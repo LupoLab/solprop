@@ -41,7 +41,7 @@
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.modes.fill",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.fill",
    "name": "GasFillMixin"
   },
   {
@@ -94,6 +94,34 @@
    "module": "solprop",
    "module_short": "solprop",
    "name": "NullReporter"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.log",
+   "module_short": "solprop.log",
+   "name": "ProgressReporter"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "ProgressReporter"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "typing",
+   "module_short": "typing",
+   "name": "Protocol"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "typing",
+   "module_short": "typing",
+   "name": "Generic"
   },
   {
    "is_class": false,
@@ -194,7 +222,7 @@
    "is_class": true,
    "is_explicit": false,
    "module": "solprop.modes.fill",
-   "module_short": "solprop.modes",
+   "module_short": "solprop.modes.fill",
    "name": "GasFillMixin"
   },
   {
@@ -808,7 +836,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.modes.base",
-   "module_short": "solprop.modes.base",
+   "module_short": "solprop.modes",
    "name": "beta2"
   }
  ],
@@ -856,7 +884,7 @@
    "is_class": false,
    "is_explicit": false,
    "module": "solprop.modes.base",
-   "module_short": "solprop.modes.base",
+   "module_short": "solprop.modes",
    "name": "db_per_m"
   }
  ],

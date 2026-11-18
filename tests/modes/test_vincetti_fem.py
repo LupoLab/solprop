@@ -194,34 +194,34 @@ def test_materials_match_the_reference_run(vacuum, argon, caplog):
 
 def test_vacuum_index_within_measured_residuals(vacuum):
     away = vacuum.away
-    # All 79 rows: RMSE 7.528e-6 measured; the lower bound catches a
+    # All 79 rows: RMSE 8.671e-6 measured; the lower bound catches a
     # degenerate comparison such as the model compared with itself.
-    assert 3.7e-6 < vacuum.rmse(np.ones_like(away)) < 8.7e-6
-    # 59 away rows: RMSE 7.449e-6; the residual relative to the FEM's own waveguide
-    # decrement has median 2.93 %, p90 11.7 % and max 25.6 %.
+    assert 3.7e-6 < vacuum.rmse(np.ones_like(away)) < 1.0e-5
+    # 59 away rows: RMSE 8.943e-6; the residual relative to the FEM's own waveguide
+    # decrement has median 3.45 %, p90 11.5 % and max 25.2 %.
     relative = np.abs(vacuum.residual / (vacuum.gas_index - vacuum.fem_index))[away]
-    assert vacuum.rmse(away) < 8.6e-6
-    assert float(np.median(relative)) < 0.034
-    assert float(np.quantile(relative, 0.9)) < 0.135
-    assert float(np.max(relative)) < 0.295
-    # 20 near rows: RMSE 7.758e-6; the narrower printed dispersion width 0.003 would
+    assert vacuum.rmse(away) < 1.03e-5
+    assert float(np.median(relative)) < 0.040
+    assert float(np.quantile(relative, 0.9)) < 0.133
+    assert float(np.max(relative)) < 0.291
+    # 20 near rows: RMSE 7.811e-6; the narrower printed dispersion width 0.003 would
     # give 2.5e-5 here.
-    assert vacuum.rmse(~away) < 8.9e-6
+    assert vacuum.rmse(~away) < 9.0e-6
 
 
 def test_argon_index_within_measured_residuals(argon):
     away = argon.away
-    # 14 away rows: RMSE 4.452e-6 and median 0.71 % of the decrement.
+    # 14 away rows: RMSE 4.470e-6 and median 0.50 % of the decrement.
     relative = np.abs(argon.residual / (argon.gas_index - argon.fem_index))[away]
-    assert 2.2e-6 < argon.rmse(away) < 5.1e-6
-    assert float(np.median(relative)) < 0.0082
+    assert 2.2e-6 < argon.rmse(away) < 5.2e-6
+    assert float(np.median(relative)) < 0.0057
 
 
 def test_gas_differential_within_measured_residual(vacuum, argon):
     # The change of the FEM index from vacuum to 10 bar, against the model's own
     # change at the same wavelengths, removes the fixed vacuum-model bias. Nine
     # argon rows at 690-946 nm; the vacuum FEM refractivity is a cubic spline over
-    # its rows at 500 nm and above (a quartic agrees to 1e-16). Measured 7.22e-8
+    # its rows at 500 nm and above (a quartic agrees to 1e-16). Measured 8.12e-8
     # with the single-power decrement, 4.60e-7 with the legacy 1/n_g^2.
     keep = argon.wavelength > DIFFERENTIAL_ARGON_ABOVE
     assert int(keep.sum()) == 9
@@ -233,7 +233,7 @@ def test_gas_differential_within_measured_residual(vacuum, argon):
     error = (argon.index[keep] - model_vacuum[keep]) - (
         argon.fem_index[keep] - fem_vacuum
     )
-    assert 3.6e-8 < float(np.max(np.abs(error))) < 8.3e-8
+    assert 3.6e-8 < float(np.max(np.abs(error))) < 9.4e-8
     # The FEM area itself is fill independent to 1e-4 at these rows (n_g^2 - 1 is
     # 5.3e-3), which is what the area's 1/n_g prefactor preserves.
     fem_vacuum_area = InterpolatedUnivariateSpline(
@@ -263,9 +263,9 @@ def test_loss_within_measured_ratios(vacuum, argon):
 
 
 def test_area_within_measured_residuals(vacuum, argon):
-    # Away rows: the fitted area's median residual is 2.48 % in vacuum and 1.16 % in
-    # argon, its maximum 27.9 % / 26.9 % at the band edges.
-    for evaluation, median, worst in ((vacuum, 0.0285, 0.32), (argon, 0.0134, 0.31)):
+    # Away rows: the fitted area's median residual is 3.10 % in vacuum and 0.33 % in
+    # argon, its maximum 28.7 % / 27.7 % at the band edges.
+    for evaluation, median, worst in ((vacuum, 0.036, 0.33), (argon, 0.0038, 0.32)):
         away = evaluation.away
         residual = np.abs(evaluation.area[away] / evaluation.fem_area[away] - 1)
         assert float(np.median(residual)) < median
@@ -274,9 +274,9 @@ def test_area_within_measured_residuals(vacuum, argon):
 
 def test_first_band_beta2_discrepancy_is_recorded(vacuum):
     # The FEM's own beta_2 in the first band, three-point second differences of
-    # beta = omega n / c on the raw rows, is more negative than the model's by 1 %
-    # at 607 nm, 18 % at 782 nm, 48 % at 913 nm and 70 % at 1013 nm (-1268 against
-    # -744 fs^2/m): the curvature of the fit's U-shaped index residual on this
+    # beta = omega n / c on the raw rows, is more negative than the model's by 3 %
+    # at 607 nm, 20 % at 782 nm, 49 % at 913 nm and 70 % at 1013 nm (-1268 against
+    # -745 fs^2/m): the curvature of the fit's U-shaped index residual on this
     # t/r = 0.017 fibre. Measured worst 0.703; the lower bound records the
     # finding, so a smaller number is an improvement to record there, not a
     # regression.

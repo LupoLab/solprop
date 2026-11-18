@@ -15,7 +15,7 @@ Public simulation settings default to `backend="auto"`. `resolve_name` probes th
 native package without importing it, resolves to `"native"` if it is installed and the
 processor is at or above a build's baseline, and otherwise raises `BackendError`, saying what
 to do; it stores that name before execution or worker transfer. `auto` has no fallback.
-Native being installed is a packaging policy ([SEP 43](seps/archive/sep-0043-retire-numba-cpu.md) §5),
+Native being installed is a packaging policy ([SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) §5),
 so a run does not have to prove that native could execute here, and nothing loads a runtime to
 enforce it. A TDSE response's `auto` resolves to `native` like every other run (SEP 49, ADR-078).
 Explicit names are preserved, so `backend="numpy_ref"` runs where
@@ -39,17 +39,16 @@ class Backend(Protocol):
     @property
     def request(self) -> RunRequest: ...  # the run request it was built for
     def prepare(self, problem, request) -> PreparedExecution: ...  # a run's session
-    def timing_probe(self, start: Start) -> TimingProbe: ...  # commits nothing
-    def edge_memory(self, space: object) -> int: ...
     def metadata(self) -> dict[str, object]: ...  # what the execution was
+    def edge_memory(self, space: object) -> int: ...
+    def timing_probe(self, start: Start) -> TimingProbe: ...  # commits nothing
     def memory_ledger(self) -> dict[str, int]: ...
-    def available_device_memory(self) -> int | None: ...
     def close(self) -> None: ...  # idempotent
     @property
     def closed(self) -> bool: ...  # a failure can close a backend
 ```
 
-That is the whole protocol ([SEP 52](seps/archive/sep-0052-backend-shape.md) §5.1): a run goes through the backend's session
+That is the whole protocol ([SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md) §5.1): a run goes through the backend's session
 (`prepare(...).start(...)`, SEP 47 §5.2), which loads the start, schedules the run,
 reports its events and exports its fields, on both backends. Each backend has the same
 five parts behind it: a lowering, a workspace that holds the state and does every
@@ -70,11 +69,12 @@ are traced against, and the exponential coefficients and the preparation refusal
 once per run by shared code; native's cross the seam by field table (§4).
 
 The listing is abbreviated; `solprop/backends/protocol.py` holds the exact signatures and
-docstrings, in the order of [architecture.md §9](architecture.md#9-backends-in-one-page).
+docstrings, in this order, which [architecture.md §9](architecture.md#9-backends-in-one-page)
+follows.
 
 Rules: a backend is constructed from a validated `PropagationProblem`
 ([kernel-contract.md](kernel-contract.md)), the `RunRequest` that carries the run's
-policy ([SEP 47](seps/archive/sep-0047-run-ownership.md) §5.2; it checks the two with
+policy ([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) §5.2; it checks the two with
 `validate_run` before it allocates) and host arrays, and returns host arrays; its
 buffers, layout and plans are private; the state is never a parameter of anything a
 session is asked; the numbers are the contract — a backend is correct when it reproduces the
@@ -92,11 +92,10 @@ the reference as `solprop.backends.numpy_ref.NumpyRefBackend` and the native bac
 as `solprop_native.NativeBackend`, each called as
 `factory(problem, request, *, grid, modes, profiles, tdse_binding, options)`, importing
 each only when
-it is selected. Before a native construction it runs SEP 46's first-use calibration;
-`SOLPROP_REQUIRE_DEVICE` reads the installed native build's `build_info()` (the
-reference is refused a required device by name); and `statistics_refusal` reads the
-far-field statistics `NativeBackend.far_field_statistics` declares. `auto` is
-`registry.AUTO`, `native`, with no fallback.
+it is selected. `SOLPROP_REQUIRE_DEVICE` is checked first, against the installed
+native build's `build_info()` (the reference is refused a required device by name);
+only then, before a native construction, does it run SEP 46's first-use calibration.
+`auto` is `registry.AUTO`, `native`, with no fallback.
 
 **Periodic statistics are the session's.** Each session decides which accepted steps
 produce rows and keeps them between events: the reference's in a host buffer it drains at
@@ -117,15 +116,13 @@ through `warnings.warn` as before. Both sessions report their execution facts th
 interface. A fixed-schedule `Batch` executor and its groups (`GroupSession`,
 `prepare_group`, the reference's lockstep `HostGroup` and `NumpyBatchBackend`, and the
 native group session) were removed by SEP 52: on native a group built a complete backend
-per member and fused nothing. `available_device_memory()` returns free device bytes or
-`None` on hosts, so that a scan's admission needs no backend-specific array library in
-the driver.
+per member and fused nothing.
 
 **Three things every backend owes, beyond the protocol's members.**
 
 **1. Reductions to the error bound.** The error norm and every statistic a backend reduces
 are compared by numerical error, not bits
-([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)): a reduction may be ordered,
+([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)): a reduction may be ordered,
 chunked and threaded however measures fastest, provided its rounding bound, `γ_n` of the
 sum of the magnitudes for a reduction of length `n`, is the one its tests assume. The norm
 is *control flow*: it decides whether a step is accepted and what the next proposal is, so
@@ -148,7 +145,7 @@ thread against many on a fixed schedule within the step's rounding bound.
 small bundle of host scalars (`translate.stage.scalars`) against a fixed set of arrays
 uploaded once (`translate.stage.terms`); `ΔΦ` is one linear combination of the terms over
 the bundle's floats and nothing about the representation reaches the backend
-([kernel-contract.md §3](kernel-contract.md)). The contract's z-table fallback has no such
+([kernel-contract.md §1](kernel-contract.md#1-identity-and-validation)). The contract's z-table fallback has no such
 split, so `PropagationProblem.device_ready` is false for it. NumPy evaluates the general
 representation directly. The native CPU build gives the table the split itself (SEP 29 section 6.6): its coefficients
 cross once, in the workspace's `Problem` (its `z_tables`, uploaded where the workspace is
@@ -214,7 +211,7 @@ operation (SEP 52 §5.1). The backend builds a fresh march and engines for each 
 | `HostAdamsMarch._replay_to` | Adams on a fixed schedule | the same engine |
 | `HostLowStorageMarch.replay_to`, in `backends/numpy_ref/marches/low_storage.py` | low-storage, always on a schedule | a `RungeKuttaEngine` with a destructive trial: `NumpyLowStorage` |
 | the native session's Adams march, `native/src/march/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine (`engines::ResidentEngine`, a `march::Engine`), the march's state from the run record (`_NativeAdamsMarch.start_state`) |
-| the native session's Runge-Kutta march, `native/src/march/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)) | the staged trial and native norm |
+| the native session's Runge-Kutta march, `native/src/march/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0045-native-rk-march.md)) | the staged trial and native norm |
 | the native session's low-storage replay | low-storage, always on a schedule | one in-place native step a schedule step |
 
 The reference's Runge-Kutta march is the reference for the compiled Runge-Kutta march,
@@ -308,7 +305,7 @@ reads the state's energy per walk-off bucket at each check, in the same reductio
 histogram per thread and no atomics, which is why its bucket count has a compiled limit. The
 input-noise floor is read on the host, once, at the launch.
 
-**Export into a destination** ([SEP 47](seps/archive/sep-0047-run-ownership.md) §5.4) is how a
+**Export into a destination** ([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) §5.4) is how a
 session's field reaches the output. A session's `export(ticket, recipe, out=None)` fills a
 host destination with the pending observation's field converted by an `ExportRecipe`
 (`backends/export.py`): the true-power weight's square root on a modal route (a spatial
@@ -347,8 +344,10 @@ array crosses it.
 
 ## 2. `numpy_ref`: the oracle
 
-Plain NumPy and `scipy.fft`, one function per pass, no fusion, no in-place tricks, no
-threading beyond what `scipy.fft` does with `workers=1`. It exists to be read and to be right:
+Plain NumPy and `scipy.fft`, one function per pass, no fusion, no threading beyond what
+`scipy.fft` does with `workers=1`, and in-place updates only where the algorithm is defined
+by them: the low-storage engine's registers and the Adams history's transport
+(`AdamsKernels.transport`), which multiplies the stored rows in place. It exists to be read and to be right:
 every step of the anatomy in [architecture.md §8](architecture.md) is a named function with a
 docstring stating the formula. It is slow (tens of separate array operations per stage) and
 that is acceptable; it is the reference against which every other backend is validated, and
@@ -366,7 +365,7 @@ stages, with `raman_spectrum` beside them), `plasma.py` (`ionisation_rate`,
 `plasma_scan` and the plasma currents, cycle-averaged on an envelope grid) and
 `stepping.py` (the step around the stage). Field plasma returns ungated current
 separately; `held_plasma_spectrum` assembles its two products with the analytic collar
-derivative ([SEP 27](seps/archive/sep-0027-held-plasma-current.md)), while the
+derivative ([SEP 27](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0027-held-plasma-current.md)), while the
 physical-polarisation helpers retain their independent oracle role. The transform and
 response passes serve every march, the interaction-picture trial and the Adams,
 exponential and low-storage engines alike. The backend also owns the once-per-step
@@ -467,9 +466,10 @@ It consumes the contract only through `linop.delta_phi`, `linop.unitary_phase`,
 `responses.prefactor_at` and the scalar tables `responses.density`,
 `transform.taper_scale`, `transform.aeff`, the plasma group's `preionisation` and the Raman
 decay rates, so a change of the operator's representation cannot reach it. It refuses, by
-name and with `BackendError`: a spectral response other than
-the compiled envelope-plasma assembly; scalar-only Raman on a two-component
-problem; general z-dependent response data; and a transform and a state that
+name and with `BackendError`, only a route variant it does not know and what an Adams march
+does not step (`_refuse_unsupported`, `refuse_adams`). The problem's own validation refuses
+the rest with `TranslationError` before any backend sees it: scalar-only Raman on a
+two-component problem (`PropagationProblem._check_raman`), and a transform and a state that
 would both carry the transverse components.
 
 Measured on the verification ladder: P0 exact to 4.8e-16 for a constant operator and
@@ -500,7 +500,7 @@ the shock term and Raman on is conserved exactly while the energy falls by 7.2e-
 
 **Selection.** `backends/registry.py`: `available()` detects with
 `importlib.util.find_spec` and never caches; `select(name, problem, request, *, grid,
-modes, profiles)` builds one, for the problem and the request it is run with: the
+modes, profiles, tdse_binding, options)` builds one, for the problem and the request it is run with: the
 request's method, error control, itinerary and planes are lowered once, here (the native
 session lowers its statistics as it starts, from profile tables cached per problem), and
 a run's session serves that request adapted to one run (`RunRequest.for_run`); a
@@ -545,9 +545,9 @@ reads the polarisation ellipse, so on a one-component transform whose modes have
 axis the two rows go to a row of their own, which the envelope scan reads as a node of two components
 (`numpy_ref.passes.plasma.envelope_populations` on the host's row). The native row
 agrees with the host's scan to the node scans' parity tolerance (`1e-10`), and is the same bits where
-both read a Radau rule's axis node. The three keyword arguments of `select` (`grid`, `modes`, `profiles`) are what the statistics need and the kernel contract does not carry.
+both read a Radau rule's axis node. Three keyword arguments of `select` (`grid`, `modes`, `profiles`) are what the statistics need and the kernel contract does not carry; the other two are a TDSE run's binding (`tdse_binding`) and the execution options (`options`).
 
-**Spatial statistics measure the medium's flux** ([SEP 34](seps/archive/sep-0034-medium-flux.md)).
+**Spatial statistics measure the medium's flux** ([SEP 34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md)).
 The shared spatial statistics, `backends.spatial.collect_spatial`, read the plane's
 coefficients through `problem.route.flux.at(z)` (the spatial route's plane measure) (kernel schema 35): energy and the far-field
 spectra weight each column and bin by the real admittance `c Re k_z/omega` of that root,
@@ -558,12 +558,14 @@ refuse a fluence negative beyond its rounding budget. The helper
 as one; its end-of-plane log is retired, and the boundary monitor's transverse edge
 (SEP 40) judges the boundary instead. A backend whose own statistics do not apply this measure refuses the problem.
 
-**The transverse edge is read where the state lives** ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md), [SEP 44](seps/archive/sep-0044-native-edge-read.md)).
-Every backend reads the edge: it hands the monitor's `TransverseEdge` an `_EdgeReading` from `NumpyWorkspace.edge_reading` at the edge's reads, at saved planes, and with a
-requested collar at every committed step. The reading is numbers and never the field: region sums, each
+**The transverse edge is read where the state lives** ([SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md), [SEP 44](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0044-native-edge-read.md)).
+Every backend reads the edge at the edge's reads, at saved planes, and with a requested
+collar at every committed step; the reference's session hands the monitor's `TransverseEdge`
+an `_EdgeReading` from `NumpyWorkspace.edge_reading`. The reading is numbers and never the field: region sums, each
 column's energy and any collar's strip and current. The default forms them with `_HostEdgeReduction` on a host copy,
 the reference, which `numpy_ref` uses. `native` forms them on its own state against
-the edge's `_EdgeTables`, four regions' weights on the nodes, so it holds no face, mask or judgement, and a
+the edge's tables (`_EdgeTables`, four regions' weights on the nodes, packed once when the run
+starts), and its session judges them natively (below), and a
 field-free run crosses no state (`tests/backends/test_native_edge_reading.py`). A requested collar's lines are described
 once, as `_edge_lines`, for both reductions (`tests/backends/test_native_edge_collar.py`): native takes each strip's padded
 transform in batches of planes under `_STRIP_BATCH_BYTES`, on buffers listed in the `transverse_edge` ledger row, and the
@@ -577,12 +579,13 @@ reads stay at most a spacing apart without shortening the steps between them (la
 each read cost 10-35 % more steps on the suite's line and planar cases). `numpy_ref`
 keeps its state on the host and steps from there, under the session's ceiling. The native Adams march
 takes the next read and the spacing as the call's `read_at` and `read_spacing` bounds:
-an adaptive step is capped at the spacing, and the call returns at the committed
-position from which the next step would pass the read, so the host reads the state
-there. With a collar the host step is one, so the march returns at every committed step.
+an adaptive step is capped at the spacing, and the call returns to the native session at
+the committed position from which the next step would pass the read, so the session reads
+the state there. With a collar the edge is read at every committed step, so the march
+returns to the session at each one.
 A saved plane reads the edge unless the step that reached it already did (`TransverseEdge.wants_read`), as a second read at one position records nothing.
 
-**Under the native execution session the judgement is native too** ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.4).
+**Under the native execution session the judgement is native too** ([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) §6.4).
 `NativeSession` hands no reading to a Python edge: `transverse::Edge`
 (`native/include/solprop_native/session/transverse.hpp`, a strict translation unit) owns the edge's every decision and record
 -- the launch's judgements, the spacing and its ceiling, each read's ledgers and verdict, a collar's current and return,
@@ -678,11 +681,11 @@ rule (§3.12), the statistics column's fraction and peak rate, two runs of `nati
 thread against many, a same-backend resume — is a rounding bound fixed from its operation
 counts (the running sums by the prefix bound of their signed increments;
 [kernel-contract.md](kernel-contract.md)), and a resume of an adaptive run is held to its
-accuracy envelope ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)). With
+accuracy envelope ([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)). With
 the kernels contracting (§3.2), native's products round once where the reference's may
 round twice, and that is within the bound.
 
-**Held field current** ([SEP 27](seps/archive/sep-0027-held-plasma-current.md)). The
+**Held field current** ([SEP 27](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0027-held-plasma-current.md)). The
 trapezoid column writes non-plasma polarisation and total physical current separately. The
 band column writes current after its second running integral. The engine owns the current,
 its two collared products, the projected rows, the spectra and all forward plans at
@@ -714,7 +717,7 @@ inside a step loop: re-synthesising every node into a buffer of megabytes evicts
 own working set. Measured on the retired `numba_cpu` backend, on the reduced M2 case at
 `period = 1`, the electron density alone cost 14 % of a step through that path and 1.3 %
 through the stash, and the whole default subset went from 15.8 % to 2.5 %. The predicate for
-reading it (`stash_plasma` in the adapter) is `first_same_as_last` — the seventh stage's
+reading it (`_stash_plasma` in `_lowering.py`) is `first_same_as_last` — the seventh stage's
 *input* is the accept pass's own result, so the last column evaluation of an accepted step
 scanned exactly the state the run adopted — which is also false for the `split_step`
 absorber, where the finish changes the state after the stages have run, and beside a
@@ -796,7 +799,7 @@ mask and the in-stage absorber preserve it, and the measured saving are
   already apply.
 - Reductions (error norm, statistics) are two-stage: per-column partials, then a sum over
   the columns. Their order is free
-  ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)), and repeats and thread
+  ([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)), and repeats and thread
   counts are tested against the reduction's rounding bound, not for identical bits.
 - No allocation, planning, logging, Python call or unplanned fence in a trial step; every
   persistent buffer is allocated at construction and named by `memory_ledger()`. No
@@ -833,7 +836,8 @@ measured planning may write over both its buffers, so plans must be built before
 is filled.
 
 Threads are a property of the plan, chosen at construction: a plan of fewer real-side samples
-than `default_threaded_fft_min_samples` runs on one thread (§4), and the others take their
+than the execution record's `fft_threshold` (`BuildInfo.threaded_fft_min_samples`) runs on
+one thread (§4), and the others take their
 width from the size rules of §3.4, within the process's thread budget (ADR-052: the affinity
 mask, the cgroup CPU quota on the process's own path rounded down, and `SOLPROP_THREADS`;
 never `os.cpu_count()`). The plans runs measure are kept by default, per machine and
@@ -846,9 +850,11 @@ build (ADR-076, §4).
 | compact problem | one column on one node, fewer than 65 536 fine samples | kernels on a team of at most eight threads, transforms on that team, products on one BLAS thread | independent scans: Local, or spawned processes through Pool |
 | sized problem | the rest | each operation's width chosen from its own element count at construction: stage, response, dense product, FFT, Raman, copy, flow, modal and Adams | one process per problem |
 
-The widths are constants of `include/solprop_native/runtime/cpu_execution.hpp` (`operation_threads`, with
-their calibration in
-[benchmarks.md](benchmarks.md#kokkos-cpu-operation-size-threading)), and `SOLPROP_NATIVE_*_THREADS`
+The widths come from the built-in table (`builtin()` in
+`native/src/solprop_native/_execution.py`, with the measurements behind it in
+[benchmarks.md](benchmarks.md#kokkos-cpu-operation-size-threading)) or a machine
+calibration (§3.4a); native code holds no values for them
+(`include/solprop_native/runtime/cpu_execution.hpp`), and `SOLPROP_NATIVE_*_THREADS`
 overrides a pool ([Performance tuning](../guide/performance/tuning.md)). The stage boundary
 and the threaded-FFT boundary differ on macOS (§4). Three things motivate the policy. They
 say the regime cannot be inherited from the environment, and that a few settings matter more
@@ -996,7 +1002,7 @@ absorber's transform pair for a state that is thrown away.
 
 Under Runge–Kutta the reference's march is the reference, and on `native` one call executes all
 seven stages of a trial (§4), its rows formed natively from the uploaded stage tables and its
-norm reduced natively ([SEP 45](seps/archive/sep-0045-native-rk-march.md) phase 2). An earlier
+norm reduced natively ([SEP 45](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0045-native-rk-march.md) phase 2). An earlier
 measurement on the retired `numba_cpu` backend found the loop's Python cheap (about 50 calls a
 step cost 1.69 % of a step at 1024 bins on the GNLSE soliton), but the host's whole per-step
 work, the stage scalars and the packing with the loop, came to about 200 µs a step on an Intel
@@ -1019,8 +1025,8 @@ The native backend's host kernels form these exponentials, the exponential Adams
 method's flows, phi-function exponentials and compensation factors, and the plasma's
 rates and fractions in passes over blocks of elements through one vector-maths layer
 (`native/include/solprop_native/runtime/vmath.hpp`): SLEEF's 1.0 ulp vector functions on x86-64
-builds, the system libm, with each element's own calls, on Arm and on devices
-([ADR-059](decisions.md)).
+and macOS arm64 builds, the system libm, with each element's own calls, on Linux aarch64 and
+on devices (`native/cmake/VectorMath.cmake`; [ADR-059, ADR-072](decisions.md)).
 
 **In a fused backend the answer is a property of the fusion.** Both signs are consumed by
 the stage that formed them — the forward in pass 1 and the inverse in pass 7 — so
@@ -1059,17 +1065,19 @@ the low-storage march holds flows (§8).
 `native` executes the general modal route — `transform.modal_tables`, `linear.modal_metric`
 and `responses.regional_responses` — in the combinations solprop's problem validation
 admits (`solprop.translate.admission.check_general_route`), which it runs where it is
-built, so a refusal there is a refusal on both backends, raised once. It adds one limit of its own: a delayed response must be the
-six channels of the silica tensor Raman model on three components (§4,
-`_refuse_native_route`). `linear.coupled_flow` is §3.9. The route is a **second execution
+built, so a refusal there is a refusal on both backends, raised once. The delayed response's
+limit is part of the same translation for both backends: it must be the two delayed
+channels of the silica tensor Raman model on three Cartesian components
+(`solprop.translate.responses.DELAYED_TERMS`, `MAX_N_COMPONENTS`), refused otherwise with a
+`TranslationError`. `linear.coupled_flow` is §3.9. The route is a **second execution
 path** (`src/response/general_modal.cpp`, `GeneralModalSource`) beside the fused pipeline and not an
 extension of it, for the reason §3.1a's three families make plain: those are one real
 transverse matrix in the time domain, and this route's synthesis is a complex
 frequency-dependent map of three Cartesian components.
 
-- **Maps.** Derived by the reference's own functions in
-  `solprop.backends.numpy_ref.general_modal`, so the two backends cannot read a record
-  differently: the per-node `chi3 T`, the form from `model_id`, and the delayed response's
+- **Maps.** Derived by the shared functions of `solprop.translate.general`
+  (`node_kerr_tensor`, `node_kerr_form`, `node_delayed_maps`), which the reference uses
+  too, so the two backends cannot read a record differently: the per-node `chi3 T`, the form from `model_id`, and the delayed response's
   owners, tensors and weighted kernel spectra.
 - **Plans.** Per node chunk, a complex inverse of the doubled one-sided spectrum (the analytic
   signal) and a real forward of the polarisation; on the host the real form reads its field
@@ -1078,7 +1086,7 @@ frequency-dependent map of three Cartesian components.
   histories. A partial last chunk has its own plans on views of the same buffers. Built once;
   nothing is planned or allocated inside a stage.
 - **Kernels.** Team kernels with every sum in a fixed order, held to their rounding bounds
-  ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)): the synthesis over
+  ([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)): the synthesis over
   channels, the real cubic's symmetric contraction (its coefficients formed once per node,
   then ten monomials a sample), the analytic form's dense contraction, the delayed contraction,
   and the projection over nodes and components into the source. Each is diagonal in the bin or
@@ -1221,7 +1229,7 @@ modified noise draw, and every statistic.
 
 ### 3.11 The dispersive electronic response
 
-`native` executes [SEP 6](seps/archive/sep-0006-dispersive-nonlinearity.md)'s
+`native` executes [SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md)'s
 `responses.dispersive_kerr` on every route `numpy_ref` runs it -- the fused node path
 (mode-averaged, multimode and radial), Cartesian free space and the line, the hybrid
 planar route and the general modal route -- on field and envelope grids, with both
@@ -1272,7 +1280,7 @@ Everywhere the multipliers move off the nodes, to wherever the route already hol
 - **Mixtures.** The symmetric evaluator forms one product per mixture -- per region on the general
   route -- under the filter of the mixture's own Kerr diagonal,
   `g_mix = [Σ_s f_s g_s⁴ / Σ_s f_s]^(1/4)` with `f_s = ε₀ γ₀,s ρ_s`
-  ([SEP 6](seps/archive/sep-0006-dispersive-nonlinearity.md)). `DispersiveWeights` rebuilds a
+  ([SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md)). `DispersiveWeights` rebuilds a
   mixture's filter (`O(n_omega × n_species)` and two square roots per bin) only when the densities
   differ from the last rebuild's: a fill of constant composition builds it once, a composition
   varying along z at every stage. Its arithmetic is `mixture_filter`'s, so the two backends' filters
@@ -1309,7 +1317,7 @@ Everywhere the multipliers move off the nodes, to wherever the route already hol
 
 ### 3.12 The plasma column's band rule
 
-[SEP 18](seps/archive/sep-0018-band-exact-plasma-integrals.md)'s band rule filters each of the
+[SEP 18](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0018-band-exact-plasma-integrals.md)'s band rule filters each of the
 column's population and free-current integrands with the problem's $2K+1$ taps before its running
 sum, reading $K$ samples ahead, so the fused one-sample traversal cannot carry it.
 
@@ -1341,7 +1349,7 @@ sum, reading $K$ samples ahead, so the fused one-sample traversal cannot carry i
 **Verification.**
 - **Against the reference.** The column agrees with `plasma_scan` and `plasma_current` within an
   absolute budget carried through the whole chain
-  ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)): the stencil's $\gamma_{2K+2}$
+  ([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)): the stencil's $\gamma_{2K+2}$
   bound, the prefix bound of each scan's signed increments, and the fraction, guard, currents and
   density between them (`native/tests/plasma_bounds.py`). The stress set
   (`native/tests/test_band_stress.py`) is a preionised field whose rate is identically zero, a field
@@ -1370,7 +1378,7 @@ build defaults to its own: direct reads on CUDA, staging on HIP
 
 ### 3.13 The far-field statistics' banded pass
 
-[SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md)'s six far-field statistics and
+[SEP 23](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0023-far-field-aperture-spectra.md)'s six far-field statistics and
 `on_axis_spectrum` are one native pass over the stored state on the Cartesian and line kinds
 (`GeneralState::aperture_statistics`, `native/include/solprop_native/response/far_field.hpp`,
 `FarFieldPass`), in place of the shared host pass `spatial.aperture_statistics` that `numpy_ref`
@@ -1417,13 +1425,11 @@ image's distance from the origin (and the radius too when they share a centre). 
 and the shared radius are gated on the layout's aperture slot: apertures declared in the spec but no
 aperture statistic asked for (a periodic `beam_spectrum` sample) evaluate no weight.
 
-The native `Problem` carries the stored axes `spatial_k_x` and `spatial_k_y` and the slot count of
-the problem's own request (`spatial_far_field_slots`), which sizes the band partials at construction
+The native `Problem` carries the stored axes `spatial.k_x` and `spatial.k_y` and the slot count of
+the problem's own request (`spatial.far_field_slots`), which sizes the band partials at construction
 (`far_field_partials` in the ledger). The call carries the tables, `(n_apertures, 11 + n_omega)` rows
 of the host-formed constants and scale row and `(n_regions, 4)` boxes, which the native
-`far_field_tables` row holds with the axes and the packed output. A build declares the names it
-forms in `NativeBackend.far_field_statistics`; solprop's registry admits them by it and refuses them
-by name on an older build, before it is built (`registry.statistics_refusal`). The device path
+`far_field_tables` row holds with the axes and the packed output. The device path
 compiles but is not qualified: its partials live in global memory, not in registers. Measured cost:
 about 2.3–2.6 % of one Runge–Kutta step at the sizes of
 [benchmarks.md](benchmarks.md#far-field-statistics-pass), paid at save planes and periodic rows only.
@@ -1432,15 +1438,15 @@ about 2.3–2.6 % of one Runge–Kutta step at the sizes of
 statistic by the medium's axial flux, as `collect_spatial` defines it, and reads the admittance
 `c k_z / omega` from the root the operator uses, per element, with no column-by-frequency table. A
 Cartesian, line or planar run's plane measure is its own separable operator (the adapter refuses
-another); a radial run packs the entrance's material and transverse squares (`flux_k_squared`,
-`flux_kperp_sq` and their residuals) and, for a medium that varies along z, uploads the material
+another); a radial run packs the entrance's material and transverse squares (the `Problem.flux`
+record's `k_squared` and `kperp_sq`, and their residuals `k_squared_low` and `kperp_sq_low`) and, for a medium that varies along z, uploads the material
 square as a `"flux"` z table of `n_omega` values, which `spatial_statistics(flags, factor, z)`
 evaluates at the statistic's plane. Energy weighs each column and bin by `Re eta`; the on-axis
 spectrum pairs the coherent axis amplitude with its closure; the on-axis intensity, peak intensity
 and fluence synthesise the closure `G` beside `E` -- on the radial kind through the dense synthesis
 of a closure time volume (`statistics_weighted_time`), on the separable kinds through a second
-transverse volume (`flux_closure_transverse`, one state's bytes, the estimate's
-`flux_closure_memory`) and, for the intensities, the chunk's closure time rows. The largest magnitude
+transverse volume (`flux_closure_transverse`, one state's bytes, a row of
+`memory_ledger()`) and, for the intensities, the chunk's closure time rows. The largest magnitude
 over the nodes fixes the width refusal's normwise budget (`backends.spatial.fluence_budget`). The
 closure buffers are allocated at construction when the problem's own request has a local statistic
 and, outside any step, when a later request first needs one.
@@ -1464,7 +1470,7 @@ per ring cross, and solprop keeps the rule: `solprop.spatial._fluence_rings` fix
 and its angles, which depend on the axes alone, are formed once at lowering
 (`solprop.spatial._ring_angles`).
 
-**The widths are finished natively** ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.4).
+**The widths are finished natively** ([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) §6.4).
 `beam_radius` and `fwhm_r` are statistics of the native plan (`Stat::beam_radius`,
 `Stat::fwhm_r`), so the native session takes them with no Python finishing,
 at planes (neither is periodic-capable). The plan runs the same fluence passes the host finishing
@@ -1495,8 +1501,8 @@ The backend depends on solprop's seam: the `PropagationProblem` and `RunRequest`
 the stage bundles and the march policy, all frozen by `tests/backends/test_driver.py`. A change
 to any of them rewrites those tables in the same commit and adds a release-note fragment. The
 two packages are released together, and solprop's metadata pins this one to its own version.
-`check_build` looks the descriptor and bundle fields and contract tuples the adapter relies on
-up by name. Since SEP 47 phase 5 the native backend is a resource holder: it lowers the problem,
+`check_build` checks the build's facts and, in an editable checkout, its source digest; it
+looks no seam member up, and the binding reads each record through its field table. Since SEP 47 phase 5 the native backend is a resource holder: it lowers the problem,
 loads a start (`solprop_native._load`), keeps its Adams march's record and times its trials
 (`timing_probe`, `solprop_native._probe`) itself, inherits no step driver, and serves every run
 through its session.
@@ -1522,7 +1528,7 @@ ctest reaches them. Test-only entry points are in the private `_core._testing` s
 which promises nothing; `_testing.engines(workspace)` exposes the workspace's engines,
 which the tests wrap in solprop's engine protocols (`tests/engine_pairs.py`). The whole
 stub, `_core.pyi` with `_core_testing.pyi`, is generated by nanobind's `stubgen`
-(`native/scripts/problem_stub.py`, checked by the native gate).
+(`native/scripts/stubs.py`, checked by the native gate).
 
 In an editable
 checkout it also recomputes the digest of `native/CMakeLists.txt`, its modules in `native/cmake`
@@ -1537,8 +1543,8 @@ coupled flow, the moving guide and the others) are executed by both backends in 
 combinations, and the problem's own validation refuses every other by name
 ({py:func}`~solprop.translate.admission.check_general_route`), so neither backend repeats
 the list. A change that
-touches `native/` is complete only when the gates (`poe check-all`) and solprop's lanes
-are green with the current build installed.
+touches `native/` is complete only when the gates (`poe check`, `poe check-native`) and
+solprop's lanes are green with the current build installed.
 
 **The fused route.** The backend runs the three field families, the Kerr variants, both
 noise and absorber schemes, adaptive/replay/resume, FSAL and hard masking, multimode scalar
@@ -1575,7 +1581,7 @@ alone, in `wisdom.json` in the calibration store's directory of the machine and 
 in memory for its later workspaces either way. A run's own planning (the policy's, or
 the profile's) is offered the stored plans (`FftPlanning::stored`) and asked to keep
 what it measures (`keep`). In `begin_seed` a key the profile holds is planned from the
-profile's wisdom, as before; any other seeded above estimate plans *alone*: the
+profile's wisdom; any other seeded above estimate plans *alone*: the
 workspace's accumulated wisdom is exported and forgotten, only that key's known wisdom
 imported (stored, or measured earlier in this workspace, so a key seeded twice is
 measured once; a key to measure starts from what the workspace measured so far, whose
@@ -1602,7 +1608,8 @@ Contiguous Raman transforms use the same planning policy, including long doubled
 rows and partial chunks. On macOS, NEON FFTW handles serial and long Raman rows;
 short parallel power-of-two rows (at most 16384 samples) retain Accelerate. Selection
 uses the linked FFTW's codelet family and the plan's dimensions and thread width at
-construction. A local FFTW without NEON retains the previous short-serial FFTW rule.
+construction. With a local FFTW without NEON, FFTW takes only serial rows of at most 16384
+samples and Accelerate the other power-of-two rows (`transforms/raman_fft.hpp`).
 The full-chunk Raman provider and task counts, planning seconds, and plan heap growth remain
 in execution metadata. General-modal tail views add no field buffers. These choices preserve
 explicit transform scaling and the device paths. See the multimode CPU measurements
@@ -1642,8 +1649,8 @@ field, independently of the field-plasma accepted-state stash. The
 the ordering and memory ownership.
 
 KokkosKernels 5.2.0 supplies ordinary GEMM—not Batched GEMM—for the skinny-by-wide node
-transforms. The backend keeps custom, TPL-free KokkosBlas, vendor-TPL and measured hybrid
-build variants. Hybrid builds use Accelerate for eligible real transforms on macOS;
+transforms. Every build uses the hybrid GEMM provider (`build_info().gemm_provider` is
+`"HYBRID"`). Hybrid builds use Accelerate for eligible real transforms on macOS;
 OpenBLAS builds additionally use persistent preconverted complex matrices for eligible
 envelope transforms. Vendor and Kokkos/FFTW pools are recorded separately and are never
 changed inside the extension.
@@ -1738,7 +1745,7 @@ Adams trial's rate weights) live in one packed buffer of two slots and cross in 
 trial from a ring of eight pinned host buffers (`Kokkos::SharedHostPinnedSpace`), the ring's
 reuse waiting for the space to drain; an Adams trial's step scalars fill slot 0 and its
 sample's slot 1, and the stage views turn to slot 1 for the source
-([SEP 39](seps/archive/sep-0039-native-adams-march.md) §6.7). A radial analytic field's node
+([SEP 39](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0039-native-adams-march.md) §6.7). A radial analytic field's node
 chunks take the interleaved real GEMM on a device as on the host, and a square radial
 analytic map synthesises its retained spectrum there too (the gather and the pad a thread
 per element, the chunk's padded rows zeroed first): the product covers `n_omega` complex
@@ -1758,9 +1765,10 @@ that order for the stage too. The state crosses the seam once
 at a load and once at an observation, straight between the memory space and the NumPy
 buffer.
 
-The backend refuses scalar-only declarations on vector Raman problems, spectral responses other than
-the compiled envelope-plasma assembly, and, on a device build, z-tabulated operators or
-prefactors, before field-sized allocation (the CPU build runs them, §1). Supported mixture density, pre-ionisation and Raman decay paths
+Scalar-only declarations on vector Raman problems are refused by the problem's own
+validation (`TranslationError`) before any backend sees them. The backend refuses, on a
+device build, z-tabulated operators or prefactors and the TDSE response, before field-sized
+allocation (the CPU build runs them, §1). Supported mixture density, pre-ionisation and Raman decay paths
 cross as stage scalars; z dependence alone is not a refusal.
 
 **The general modal route** is a second execution path beside the node pipeline
@@ -1816,8 +1824,8 @@ stage's nonzero `flow_weights` over the held terms, minus the step's frozen bloc
 the drive back by the inverse action and accumulates; the accepted update takes `U(h)` of
 the state, the solution and the error sum, the old norm on the unmixed state. A zero stage
 fraction is flagged and not applied; FSAL is off on a flow. The `flow_*` rows join
-`memory_ledger()`, zero on every other route. Admission is solprop's shared list under the
-name `native` plus one native limit (the delayed response's three components).
+`memory_ledger()`, zero on every other route. Admission is solprop's shared translation
+check, the delayed response's limit included; native adds none of its own.
 
 **The hybrid planar kind** runs on the same engine: columns `(p, k_y)` go to `(p, y)` rows
 by a one-axis y FFT, a node chunk holds whole y rows, and the slab rule synthesises and
@@ -1827,7 +1835,7 @@ subtracts its channel's `kappa_sq` last. Ten fixed steps agree with `numpy_ref` 
 those bounds.
 
 **The dispersive electronic response** (`src/response/dispersive.cpp`, `DispersiveResponse`;
-[SEP 6](seps/archive/sep-0006-dispersive-nonlinearity.md)) runs on every route
+[SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md)) runs on every route
 `numpy_ref` runs it, with the structure of §3.11 route by route: the fused node
 path (one or two components), `SeparableDispersive` on the Cartesian free-space, line and
 planar routes, and `GeneralDispersive`, held by `GeneralModalSource`, on the general modal
@@ -1883,8 +1891,10 @@ at most:
   the thread count (a two-column 256-point inverse took radix 4 with 64-point leaves at
   three and four threads and radix 8 with 32-point leaves at others), which moves ten
   realistic steps by at most 8 u: within the transform's rounding bound, so it constrains
-  nothing. This threshold and the stage threshold switch only on `__APPLE__`
-  (`include/solprop_native/runtime/cpu_execution.hpp`): Windows and linux-aarch64 builds take the values
+  nothing. This threshold and the stage threshold switch only on the operating system
+  (`builtin()` in `native/src/solprop_native/_execution.py`, keyed on `platform.system()`
+  being `"Darwin"`, where a spinning team of at most `SPIN_MAX_TEAM` threads divides them by
+  `SPIN_DIVISOR`, ADR-073): Windows and linux-aarch64 builds take the values
   measured on x86-64 Linux (Cascade Lake and Zen 3), which have not been measured on
   those platforms ([#328](https://github.com/LupoLab/solprop/issues/328)).
 - **One stage phase.** `sum_t dPhi_t Phi_t` is needed three times per stage (the
@@ -1932,17 +1942,17 @@ machine-specific code) is the gate's tidy and sanitizer build. `build_info()` re
 and a CPU target may contract multiply-adds, so the builds' answers agree to rounding, not
 bitwise, and every build is held to the same parity bounds against `numpy_ref` and the same
 rounding bounds between repeats and thread counts. No build carries numerical pins
-([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)): `REFERENCE` keeps its name for
+([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)): `REFERENCE` keeps its name for
 its tidy and sanitizer role only. A rename of a seam member the adapter reads is caught by
 solprop's frozen tables (`tests/backends/test_driver.py`), which move with the seam.
 
 ## 4a. `mlx`: retired
 
-[SEP 33](seps/archive/sep-0033-single-precision-mlx.md)'s experimental single-precision
+[SEP 33](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0033-single-precision-mlx.md)'s experimental single-precision
 backend for Apple GPUs was retired, unused, by
-[SEP 47](seps/archive/sep-0047-run-ownership.md) §6.6, before the driver hierarchy it inherited
+[SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) §6.6, before the driver hierarchy it inherited
 was restructured. `backend="mlx"` raises `BackendError`, as any name that is neither
-backend does. Single precision went with it (ADR-077): every backend computes in binary64. SEP 33 and the benchmark ledger keep what it measured.
+backend does. Single precision went with it (ADR-077): every backend computes in binary64. SEP 33 keeps what it measured.
 
 ## 5. JAX: evaluated, not adopted
 
@@ -1977,16 +1987,16 @@ Every backend reports `memory_ledger()`: buffer name → bytes, including transf
 A test asserts which entries are field-sized, that everything is named even when empty, and
 that the total is within the documented budget for the standard cases.
 
-**The native Adams march** (ADR-060, [SEP 39](seps/archive/sep-0039-native-adams-march.md)).
+**The native Adams march** (ADR-060, [SEP 39](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0039-native-adams-march.md)).
 `native` steps `Multistep()` itself, in either formulation, and replayed schedules: the
 record `_NativeAdamsMarch` hands the native state solprop's `MarchPolicy` (and a replay's
 schedule) once, and the session's native march runs attempts on the resident engine --
 stage scalars and tables evaluated natively from the run's uploaded expansions, the
 trial, the decision, the accept, and the boundary monitor's checks
-([SEP 45](seps/archive/sep-0045-native-rk-march.md) §4.8) -- to each event, the session
+([SEP 45](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0045-native-rk-march.md) §4.8) -- to each event, the session
 holding the march's state natively (SEP 47). The decisions are compiled without contraction in their own translation unit,
 so that they round as solprop's do; within one build the two marches take the same
-steps. The host marches are no longer execution modes ([SEP 47](seps/archive/sep-0047-run-ownership.md)
+steps. The host marches are no longer execution modes ([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md)
 §6.3): the environment variables `SOLPROP_ADAMS_MARCH`, `SOLPROP_RK_MARCH` and
 `SOLPROP_RK_ROWS`, the backend's `adams_march` keyword and, in phase 5, the test
 interface that replaced them (`_ADAMS_MARCH`, `_RK_MARCH`, `_RK_ROWS`) and the
@@ -2020,7 +2030,7 @@ maps on a constant guide on every backend (`native` holds two natively; the othe
 are the Python-owned record). The user-facing account is
 [Execution resources](../guide/performance/resources.md#memory).
 
-**The low-storage march** ([SEP 24](seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md))
+**The low-storage march** ([SEP 24](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md))
 holds no stage, accumulator or propagator-pair row: `numpy_ref`'s ledger
 (`reference_base_memory`, method-aware) names the state, `register_accumulator` and
 `register_stage`, the transverse scratch on the free kinds and, tabulating, the flow
@@ -2044,7 +2054,8 @@ constant operator's table it has not built since the field was loaded (solprop's
 never ask for any of them).
 
 **The far-field pass** (§3.13) holds `far_field_partials` on the native backend, the band
-partials, `8 n_bands n_slots n_omega` bytes; the estimate counts them to the byte in `base`.
+partials, `8 n_bands n_slots n_omega` bytes, which its `memory_ledger()` counts and so
+`Simulation.estimate` with it.
 `numpy_ref`'s reference pass allocates per call.
 
 **Statistics.** The modal power weight enters the statistics alone: `numpy_ref` evaluates
@@ -2063,9 +2074,10 @@ that execution space.
 | fibre: mode-averaged and multimode, field and envelope grids, Kerr, scalar and tensor Raman, field and envelope plasma, noise, both absorber schemes | yes | yes | qualified |
 | an operator or prefactor that took the z table (not `device_ready`) | yes | yes: the coefficients resident, evaluated natively into term slots | refused, naming the table's size |
 | radial and Cartesian free space (including a line, `n_y = 1`) | yes | yes | qualified (CUDA) |
-| the hybrid planar kind (`"slab"`) | yes | yes | held field-plasma source qualified on HIP (under CUDA, below); one short planar Kerr case run on an NVIDIA H100 NVL and an AMD MI325X ([SEP 34](seps/archive/sep-0034-medium-flux.md#device-qualification-report--cuda-and-hip), 2026-10-23); other combinations not qualified |
-| general modal route (modal tables, metric, regional responses) | yes | yes; a delayed response only as the six silica tensor channels on three components | qualified |
+| the hybrid planar kind (`"slab"`) | yes | yes | held field-plasma source qualified on HIP (under CUDA, below); one short planar Kerr case run on an NVIDIA H100 NVL and an AMD MI325X ([SEP 34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md#device-qualification-report--cuda-and-hip), 2026-10-23); other combinations not qualified |
+| general modal route (modal tables, metric, regional responses; a delayed response only as the silica tensor model's two channels on three components, refused at translation) | yes | yes | qualified |
 | coupled flow: constant-Schur and frozen-residual sections | yes | yes | qualified |
+| the TDSE response (`ModalRoute.tdse`, SEP 49) | yes | yes | refused by name |
 | the dispersive electronic response (`responses.dispersive_kerr`) | every route | every route | qualified on one AMD Instinct device (HIP) and one NVIDIA Hopper device (CUDA) |
 | the low-call Adams integrator (`StepperSettings.integrator`), both formulations | yes | every route, the history resident; beside a coupled flow the exponential formulation alone, on constant-Schur and frozen-residual sections, the history resident at any width and on either route of each bin (the eigenbasis or the augmented exponential), in the native session | beside a coupled flow the history resident at any width and on either route of each bin, in the native session (past 16 channels or off the eigenbasis route: run on an NVIDIA A40, not yet qualified); qualified |
 | the Adams carrier frame (`Multistep(carrier_frame="scalar")`, SEP 35) | every guided route; free space refused | CPU builds, resident, on every representation of the operator (a z table's chord carried as its own scalar table, #255); device builds refused | refused by name |
@@ -2078,7 +2090,7 @@ that execution space.
 | materials from optmat: gas Raman leaves of many rows on gradients, rate tables, optmat walls, the silica bundles | yes | yes | not qualified |
 | coupling between runs (`field_plane`, `regrid`, `couple`, `Outcouple`, `transport`, `with_input`; SEP 31) | host-side: any source and receiving backend | host-side | receiving runs not qualified |
 
-**Materials from optmat** ([SEP 3](seps/archive/sep-0003-optmat-materials.md), a run under
+**Materials from optmat** ([SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md), a run under
 `MaterialSelection`) reach the backends as the arrays any other run carries: index and
 wall tables, carrier Kerr coefficients, rate tables, and Raman rows with their decay
 paths. No backend reads optmat. The native CPU build is qualified on them against
@@ -2096,7 +2108,7 @@ views sized from the problem. A fill whose populations follow independent densit
 paths takes the z table, which `numpy_ref` and native's CPU build run;
 a shared pressure path does not. Device builds are not qualified on these runs.
 
-**Coupling between runs** ([SEP 31](seps/archive/sep-0031-simulation-coupling.md)) never crosses
+**Coupling between runs** ([SEP 31](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0031-simulation-coupling.md)) never crosses
 the seam: a field plane is read from a run's stored output and its record, coupled and
 transported in NumPy and SciPy on the host, and installed in the receiving run as its
 initial state through `with_input`. A source and a receiver may therefore run on
@@ -2111,23 +2123,21 @@ dependencies. The native backend's device builds
 are qualified on a data-centre NVIDIA GPU (CUDA 13) and an AMD Instinct GPU (a ROCm 7
 prerelease stack): the native tests, the native pytest suite, solprop's device lane and its
 slow lane on `native` pass, repeats agree within
-[SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)'s rounding bounds, and the
+[SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)'s rounding bounds, and the
 CUDA sanitizers (memcheck, racecheck, initcheck, synccheck) are clean. Thread-count probes
 are the only tests skipped on a device, which has no thread count to vary.
 
 **Field plasma on a device.** The held field-plasma source
-([SEP 27](seps/archive/sep-0027-held-plasma-current.md)) is qualified under HIP — native
+([SEP 27](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0027-held-plasma-current.md)) is qualified under HIP — native
 execution, the native and solprop GPU lanes, the held-current ladders and bounded timings on
 modal, radial, Cartesian, line and planar routes under both integration rules, on an AMD
-MI325X (2026-10-19). The committed records hold no `native_hip` rows for its Cartesian
-ladder and statistics, and a missing row is a `RecordError`, so the record-comparing
-tests of `tests/backends/test_free_ladders.py` under field plasma cannot pass on a HIP
-build until those rows are written. Under CUDA it
+MI325X (2026-10-19); the committed records hold its `native_hip` rows for the Cartesian
+ladder and statistics (`tests/data/convergence/spatial_accuracy.json`). Under CUDA it
 has run without that pass: its Cartesian ladder on an NVIDIA H200 (2026-10-20), whose
 `native_cuda` rows are in the records
-([SEP 28](seps/archive/sep-0028-free-space-evaluation.md#phases-1-and-2-report--the-separable-core-on-both-cpu-backends));
+([SEP 28](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0028-free-space-evaluation.md#phases-1-and-2-report--the-separable-core-on-both-cpu-backends));
 solprop's device lane on an NVIDIA A40 and an H200 (2026-10-29, 63 passed,
-[SEP 39](seps/archive/sep-0039-native-adams-march.md#phase-5--report-cuda-on-nvidia-a40s-hip-to-come)),
+[SEP 39](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0039-native-adams-march.md#phase-5--report-cuda-on-nvidia-a40s-hip-to-come)),
 which by reading holds a one-evaluation held-current parity test on every route under
 both rules; and the `argon_blueshift` capillary benchmark on both, timed only. The
 held-current ladders on the other routes and the bounded timings have not run under CUDA.
@@ -2179,7 +2189,7 @@ Which backend and build to choose for a run is the user guide's
 - A device answer on the general route agrees with the CPU build's to rounding (the device
   projection's summation order), and the local and distribution native builds' answers agree
   with the reference build's to rounding: which is all any comparison requires
-  ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)).
+  ([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
 - No native build runs on Intel macOS, ppc64le, Arm below Neoverse N1 or Windows before 10
   version 2004, nor on x86-64 below x86-64-v2, and solprop doesn't support them. With no
   wheel the installer refuses; where a wheel installs, `auto` and `native` refuse on the

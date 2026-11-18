@@ -1,0 +1,1 @@
+`OptmatRate` raises `MaterialError`, naming the species and the field, when optmat returns a NaN ionisation rate, instead of replacing it silently with the model's maximum rate; an infinite rate is still clipped to the maximum.

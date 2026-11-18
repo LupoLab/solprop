@@ -184,7 +184,7 @@ def test_worker_refuses_cached_configuration_mismatch(point):
 
 def test_uninstrumented_retention_validation_rejects_unknown_fields():
     with pytest.raises(DriverError, match="fields must be"):
-        _scan_run._validate_options("unknown", (), "none", 10.0, ())
+        _scan_run._validate_options("unknown", (), "none", ())
 
 
 def test_probe_does_not_charge_noise_or_periodic_retention_when_disabled(point):
@@ -217,7 +217,8 @@ def test_worker_incomplete_output_never_publishes_done(
             run_scan(
                 scan, lambda point: simulation, output=destination, progress="none"
             )
-        assert scans.ScanOutput(destination).status.tolist() == ["running"]
+        # The aborted scan gives its claim back: a rerun computes the point.
+        assert scans.ScanOutput(destination).status.tolist() == ["todo"]
 
 
 def test_execution_provenance_handles_uninspectable_builder(tmp_path, monkeypatch):

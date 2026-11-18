@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from solprop import fourier, optics, pulses
+from solprop import optics
 from solprop.constants import C
 from solprop.exceptions import MaterialError, MaterialRangeWarning
 from solprop.optics import Chain, ChirpedMirror, Material, TaylorPhase, stored_factor
@@ -193,28 +193,6 @@ def test_a_chirp_built_into_a_pulse_is_removed_by_the_opposite_taylor_phase():
     )
 
 
-def test_the_pulse_phase_factor_is_what_it_was():
-    coefficients, delay = np.array([0.3, 0.0, 250e-30, -4000e-45]), 12e-15
-    for kind in ("field", "envelope"):
-        grid = example_grid(kind)
-        # The loop the builders carried before the formula moved to solprop.optics.
-        detuning = grid.omega - OMEGA0
-        phase = grid.omega * delay
-        for order, coefficient in enumerate(coefficients):
-            phase = phase + coefficient * detuning**order / math.factorial(order)
-        expected = fourier.to_internal(np.exp(1j * phase))
-        # The same sum of five terms, in whatever order the helper forms it: a few
-        # roundings of the largest phase (16 eps of it), then one complex exponential
-        # of unit modulus (a few ulps), compared absolutely, the peak being one.
-        bound = 16 * np.finfo(float).eps * float(np.max(np.abs(phase)))
-        np.testing.assert_allclose(
-            pulses._phase_factor(grid, coefficients, delay, OMEGA0),
-            expected,
-            rtol=0,
-            atol=bound + 8 * np.finfo(float).eps,
-        )
-
-
 def test_stored_factor_is_the_conjugate_on_the_active_band_and_one_elsewhere():
     grid = example_grid("field")
     element = TaylorPhase((0.2, 1e-15, 80e-30), WAVELENGTH)
@@ -291,8 +269,11 @@ def test_the_group_delay_at_the_reference_is_zero_and_the_gdd_is_silicas():
     # A central difference of a phase whose third derivative is ~1e-43 s^3/mm: the
     # residual delay is step^2/6 of that, 1e-19 s, against a group delay of 5e-12 s.
     assert abs(delay) < 1e-18
-    # 36.16 fs^2/mm, the textbook figure for fused silica at 800 nm.
-    assert gdd == pytest.approx(36.16e-30, rel=1e-3)
+    # The textbook 36.16 fs^2/mm for fused silica at 800 nm is Malitson's expansion
+    # taken as it is published, relative to air in air wavelengths. Made absolute in
+    # standard air (Peck and Reeder 1972), as optmat makes it, the same expansion gives
+    # 36.23 fs^2/mm.
+    assert gdd == pytest.approx(36.23e-30, rel=1e-3)
     infrared = 2.0 * math.pi * C / 1550e-9
     assert phase_derivatives(Material(silica, 1e-3, 1550e-9), infrared, step)[1] < 0.0
 
@@ -354,23 +335,46 @@ def test_a_glass_name_is_resolved_and_a_range_is_still_warned_about():
 
 
 @pytest.mark.parametrize(
-    "build",
+    ("build", "message"),
     [
-        lambda: Material(WINDOW, math.inf),
-        lambda: Material(WINDOW, 1e-3, -800e-9),
-        lambda: Material("Ar", 1.0),
-        lambda: Material(WINDOW, 1e-3, pressure=1.0),
-        lambda: Material(WINDOW, 1e-3, temperature=500.0),
-        lambda: Material("SiO2", 1e-3, temperature=500.0),
-        lambda: Material(
-            Mixture.fill({"Ar": 1.0}, 1.0, temperature=350.0), 1.0, temperature=500.0
+        (lambda: Material(WINDOW, math.inf), "thickness must be finite"),
+        (
+            lambda: Material(WINDOW, 1e-3, -800e-9),
+            "reference wavelength must be positive",
         ),
-        lambda: TaylorPhase((0.0, math.nan), WAVELENGTH),
-        lambda: TaylorPhase((0.0,), 0.0),
+        (lambda: Material("Ar", 1.0), "needs its pressure in bar"),
+        (
+            lambda: Material(WINDOW, 1e-3, pressure=1.0),
+            "pressure is for a built-in gas only",
+        ),
+        (
+            lambda: Material(WINDOW, 1e-3, temperature=500.0),
+            "temperature is for a built-in gas only",
+        ),
+        (
+            lambda: Material("SiO2", 1e-3, temperature=500.0),
+            "temperature is for a built-in gas only",
+        ),
+        (
+            lambda: Material(
+                Mixture.fill({"Ar": 1.0}, 1.0, temperature=350.0),
+                1.0,
+                temperature=500.0,
+            ),
+            "temperature is for a built-in gas only",
+        ),
+        (
+            lambda: TaylorPhase((0.0, math.nan), WAVELENGTH),
+            "Taylor coefficients must be finite",
+        ),
+        (
+            lambda: TaylorPhase((0.0,), 0.0),
+            "reference wavelength must be positive",
+        ),
     ],
 )
-def test_unusable_elements_are_refused(build):
-    with pytest.raises(MaterialError):
+def test_unusable_elements_are_refused(build, message):
+    with pytest.raises(MaterialError, match=message):
         build()
 
 
@@ -537,49 +541,70 @@ def test_a_shipped_set_has_a_band_a_name_and_a_physical_reflectivity(name):
 
 
 @pytest.mark.parametrize(
-    "build",
+    ("build", "message"),
     [
-        lambda: ChirpedMirror.lookup("HD60"),
-        lambda: ChirpedMirror(
-            np.array([4.0, 3.0, 2.0, 1.0]) * 1e15,
-            np.zeros(4),
-            np.empty(0),
-            np.empty(0),
-            (600e-9, 650e-9, 950e-9, 1000e-9),
+        (lambda: ChirpedMirror.lookup("HD60"), "unknown chirped mirror 'HD60'"),
+        (
+            lambda: ChirpedMirror(
+                np.array([4.0, 3.0, 2.0, 1.0]) * 1e15,
+                np.zeros(4),
+                np.empty(0),
+                np.empty(0),
+                (600e-9, 650e-9, 950e-9, 1000e-9),
+            ),
+            "at least four phase samples on an ascending frequency axis",
         ),
-        lambda: synthetic(group_delay=np.zeros(801)),
-        lambda: ChirpedMirror.from_data(
-            np.linspace(600e-9, 1000e-9, 11),
-            None,
-            reference_wavelength=WAVELENGTH,
-            band=(650e-9, 950e-9),
+        (
+            lambda: synthetic(group_delay=np.zeros(801)),
+            "exactly one of gdd and group_delay",
         ),
-        lambda: synthetic(reflectivity=np.full(801, 1.2)),
-        lambda: ChirpedMirror.from_data(
-            np.array([700e-9, 800e-9, 750e-9, 900e-9, 950e-9]),
-            None,
-            gdd=np.zeros(5),
-            reference_wavelength=WAVELENGTH,
-            band=(720e-9, 900e-9),
+        (
+            lambda: ChirpedMirror.from_data(
+                np.linspace(600e-9, 1000e-9, 11),
+                None,
+                reference_wavelength=WAVELENGTH,
+                band=(650e-9, 950e-9),
+            ),
+            "exactly one of gdd and group_delay",
         ),
-        lambda: ChirpedMirror.from_data(
-            np.linspace(700e-9, 900e-9, 3),
-            None,
-            gdd=np.zeros(3),
-            reference_wavelength=WAVELENGTH,
-            band=(720e-9, 880e-9),
+        (
+            lambda: synthetic(reflectivity=np.full(801, 1.2)),
+            r"power reflectivity lies outside \[0, 1\]",
         ),
-        lambda: ChirpedMirror.from_data(
-            np.linspace(700e-9, 900e-9, 9),
-            np.full(8, 0.9),
-            gdd=np.zeros(9),
-            reference_wavelength=WAVELENGTH,
-            band=(720e-9, 880e-9),
+        (
+            lambda: ChirpedMirror.from_data(
+                np.array([700e-9, 800e-9, 750e-9, 900e-9, 950e-9]),
+                None,
+                gdd=np.zeros(5),
+                reference_wavelength=WAVELENGTH,
+                band=(720e-9, 900e-9),
+            ),
+            "wavelength axis must be positive and monotonic",
+        ),
+        (
+            lambda: ChirpedMirror.from_data(
+                np.linspace(700e-9, 900e-9, 3),
+                None,
+                gdd=np.zeros(3),
+                reference_wavelength=WAVELENGTH,
+                band=(720e-9, 880e-9),
+            ),
+            "3 dispersion samples cannot carry a fit of order 5",
+        ),
+        (
+            lambda: ChirpedMirror.from_data(
+                np.linspace(700e-9, 900e-9, 9),
+                np.full(8, 0.9),
+                gdd=np.zeros(9),
+                reference_wavelength=WAVELENGTH,
+                band=(720e-9, 880e-9),
+            ),
+            "data column and its wavelength axis differ in length",
         ),
     ],
 )
-def test_unusable_mirror_data_are_refused(build):
-    with pytest.raises(MaterialError):
+def test_unusable_mirror_data_are_refused(build, message):
+    with pytest.raises(MaterialError, match=message):
         build()
 
 

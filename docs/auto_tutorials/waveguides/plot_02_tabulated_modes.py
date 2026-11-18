@@ -47,6 +47,7 @@ import numpy as np
 
 from solprop.constants import C
 from solprop.driver import Simulation, prop_gnlse
+from solprop.exceptions import NoZeroDispersionError
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
 from solprop.modes import IndexTable, TabulatedHollowMode, TabulatedMode
@@ -117,6 +118,10 @@ figure.tight_layout()
 # %%
 # Bracket each root locally; broad endpoints can have the same sign even when
 # two roots lie inside. All probes stay inside the vacuum table and gas fit.
+# ``zdw`` returns a zero only where it bounds a dispersion regime at least 1.5 % wide
+# in frequency: the evacuated fibre's ``beta_2`` ripples through zero twice within
+# 3 nm near 455 nm, which is fine structure of the interpolant and no zero-dispersion
+# wavelength, so the search refuses it and the loop passes over it.
 probe_wavelength = np.linspace(450e-9, 990e-9, 200)
 root_pressures = []
 root_wavelengths = []
@@ -132,17 +137,18 @@ for pressure in np.arange(0.0, 31.0, 2.0):
     curvature = beta2(mode, 2 * np.pi * C / probe_wavelength)
     brackets = np.flatnonzero(curvature[:-1] * curvature[1:] < 0)
     for index in brackets:
-        root_pressures.append(pressure)
-        root_wavelengths.append(
-            zdw(
+        try:
+            root = zdw(
                 mode,
                 wavelength_limits=(
                     float(probe_wavelength[index]),
                     float(probe_wavelength[index + 1]),
                 ),
             )
-            * 1e9
-        )
+        except NoZeroDispersionError:
+            continue
+        root_pressures.append(pressure)
+        root_wavelengths.append(root * 1e9)
 figure, axis = plt.subplots(figsize=(6, 3.5))
 axis.scatter(root_pressures, root_wavelengths, s=22)
 axis.set(

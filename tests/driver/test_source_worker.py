@@ -164,6 +164,24 @@ def test_the_worker_environment_drops_native_s_own_wait_settings_only():
     assert kept["GOMP_SPINCOUNT"] == "5" and "KMP_BLOCKTIME" not in kept
 
 
+@pytest.mark.skipif(sys.flags.safe_path, reason="no script directory is on the path")
+def test_the_worker_import_path_leaves_out_a_script_s_own_directory(
+    monkeypatch, tmp_path
+):
+    # A script's directory may hold a module named like a standard-library one, which
+    # the worker's -P keeps off its path; handing it over in PYTHONPATH would undo that.
+    script = tmp_path / "script.py"
+    script.write_text("", encoding="utf-8")
+    site = str(tmp_path / "site-packages")
+    monkeypatch.setattr(sys, "argv", [str(script)])
+    monkeypatch.setattr(sys, "path", [str(tmp_path), site])
+    assert worker_environment({}, {})["PYTHONPATH"] == site
+    # Run without a script (``python -c``), the path is handed over whole.
+    monkeypatch.setattr(sys, "argv", ["-c"])
+    expected = os.pathsep.join([str(tmp_path), site])
+    assert worker_environment({}, {})["PYTHONPATH"] == expected
+
+
 @pytest.mark.medium
 def test_the_native_wait_settings_are_solprop_native_s_own(monkeypatch):
     """The worker removes exactly what solprop-native sets (ADR-071)."""

@@ -6,12 +6,12 @@
 
 - :class:`HDF5Output` streams a run to one file, kept open between optional snapshot
   transactions; it preallocates the planes the run reserved, writes the saved-plane
-  count ``n_saved`` last so a hard stop leaves a readable file, follows the run's field
-  retention, and with ``append=True`` continues a file it wrote earlier.
+  count ``n_saved`` last so that it never covers a partly written plane, follows the
+  run's field retention, and with ``append=True`` continues a file it wrote earlier.
 - :func:`check_cache` is the resume gate: the file's configuration hash must equal the
-  requested one (ADR-066); :func:`resume` returns a :class:`ResumeState`: the record,
-  the terminal checkpoint or else the last plane, back in the internal convention, the
-  whole step history, the outcome and any Adams march snapshot.
+  requested one (ADR-066); :func:`read_resume_state` returns a :class:`ResumeState`: the
+  record, the terminal checkpoint or else the last plane, back in the internal
+  convention, the whole step history, the outcome and any Adams march snapshot.
 - :func:`open_file` opens a finished run read-only through the same protocol, which is
   how :mod:`solprop.processing` reads it; :func:`read_recipe` and :func:`write_recipe`
   read and write the recipe group (SEP 41).
@@ -53,7 +53,7 @@ from solprop.output.records import (
     StoredField,
     TerminalCheckpoint,
 )
-from solprop.output.serialisation import JsonValue
+from solprop.output.serialisation import JsonValue, _rebuild
 from solprop.output.store import (
     FieldRetention,
     FieldsChoice,
@@ -69,7 +69,7 @@ __all__ = [
     "check_cache",
     "open_file",
     "read_recipe",
-    "resume",
+    "read_resume_state",
     "write_recipe",
 ]
 
@@ -85,12 +85,13 @@ _COLUMN_CHUNK = 256
 """Entries per chunk of a one-dimensional column; one per plane would be wasteful."""
 
 _METADATA_KEY = "meta/json"
+"""Dataset holding the whole run record as JSON."""
+
 _RECORD_ARRAYS_KEY = "meta/arrays"
 """The group of the record's arrays, named by digest, dtype and shape (#309)."""
 
 _ANNOTATIONS_KEY = "meta/annotations"
 """Group of the post-run annotations, one JSON string dataset each; optional."""
-"""Dataset holding the whole run record as JSON."""
 
 _OUTCOME_KEY = "meta/outcome"
 _CHECKPOINT_KEY = "terminal_checkpoint"
@@ -101,15 +102,23 @@ _MARCH_KEY = "march_snapshot"
 def _read_outcome(file: h5py.File) -> RunOutcome | None:
     """Read the execution status a file records, if it records one.
 
+    Read as the record is (:func:`~solprop.output.serialisation._rebuild`), so that
+    another build's status reads: an entry this build lacks is dropped and an absent
+    one takes its default.
+
     - Returns: validated execution status; ``None`` when the file records none.
     """
     if _OUTCOME_KEY not in file:
         return None
-    stored = _dataset(file, _OUTCOME_KEY)[()]
-    text = stored.decode("utf-8") if isinstance(stored, bytes) else str(stored)
-    record = json.loads(text)
-    record["previous_executions"] = tuple(record["previous_executions"])
-    return RunOutcome(**record)
+    try:
+        record = json.loads(_text(_dataset(file, _OUTCOME_KEY)[()]))
+        if not isinstance(record, dict):
+            raise OutputError("it is not a JSON object")
+        record["previous_executions"] = tuple(record.get("previous_executions", ()))
+        return _rebuild(RunOutcome, record, ("outcome",))
+    except (ValueError, TypeError, OutputError) as error:
+        msg = f"{file.filename}: cannot read the execution status it records: {error}"
+        raise OutputError(msg) from error
 
 
 def _overwrite(group: h5py.Group, name: str, data: np.ndarray) -> None:
@@ -426,11 +435,19 @@ def _write_record(file: h5py.File, metadata: RunMetadata) -> None:
 
 
 def _read_record(file: h5py.File) -> RunMetadata:
-    """Return the run record of an open file, with the arrays beside it."""
+    """Return the run record of an open file, with the arrays beside it.
+
+    A record that cannot be read, or declares another output schema, is refused with the
+    file's name.
+    """
+    text = _read_json(file)
     held = file.get(_RECORD_ARRAYS_KEY)
-    return RunMetadata.from_json(
-        _read_json(file), held if isinstance(held, h5py.Group) else None
-    )
+    try:
+        return RunMetadata.from_json(
+            text, held if isinstance(held, h5py.Group) else None
+        )
+    except OutputError as error:
+        raise OutputError(f"{file.filename}: {error}") from error
 
 
 _RECIPE_KEY = "recipe"
@@ -522,8 +539,7 @@ def _read_annotations(file: h5py.File) -> dict[str, JsonValue]:
     found: dict[str, JsonValue] = {}
     group = _group(file, _ANNOTATIONS_KEY)
     for name in group:
-        stored = _dataset(group, str(name))[()]
-        text = stored.decode("utf-8") if isinstance(stored, bytes) else str(stored)
+        text = _text(_dataset(group, str(name))[()])
         found[str(name)] = cast("JsonValue", json.loads(text))
     return found
 
@@ -536,8 +552,7 @@ def _read_json(file: h5py.File) -> str:
             "solprop output file"
         )
         raise OutputError(msg)
-    stored = _dataset(file, _METADATA_KEY)[()]
-    return stored.decode("utf-8") if isinstance(stored, bytes) else str(stored)
+    return _text(_dataset(file, _METADATA_KEY)[()])
 
 
 def _current_checkpoint(
@@ -554,7 +569,7 @@ def _current_checkpoint(
     (SEP 47 section 5.5): a process killed between the two leaves a checkpoint behind
     the last plane, or one the ``running`` outcome does not name. That state is stale,
     not inconsistent, and is ignored. A closing (non-running) record that disagrees
-    with its checkpoint is refused, as before.
+    with its checkpoint is refused.
     """
     if checkpoint is None:
         return None
@@ -689,11 +704,11 @@ class HDF5Output(PlaneStore):
         Level for ``'gzip'``, 0 to 9; not accepted for the other choices.
     append : bool, optional
         Continue the run the file already holds instead of replacing the file: the
-        resume path, after :func:`resume` has handed the driver the last plane. The
-        record given to ``open`` is refused when its configuration hash differs from
-        the file's; the file's own record is kept, creation time included, and becomes
-        the handler's ``metadata``, and the run's layout is read from the file so that
-        the next plane is checked against the ones already there.
+        resume path, after :func:`read_resume_state` has handed the driver the last
+        plane. The record given to ``open`` is refused when its configuration hash
+        differs from the file's; the file's own record is kept, creation time
+        included, and becomes the handler's ``metadata``, and the run's layout is read
+        from the file so that the next plane is checked against the ones already there.
     readonly : bool, optional
         Open the file at once, for reading only: the handler comes back open, with
         the file's own record as its ``metadata``, and refuses ``open`` and ``save``.
@@ -842,12 +857,15 @@ class HDF5Output(PlaneStore):
     def save(self, plane: SavedPlane) -> None:
         """Store one saved plane and flush it to disk; refused on a read-only handler.
 
-        The flush is what makes a hard stop -- a SIGKILL, an out-of-memory kill, a lost
-        node -- lose at most the plane being written: the plane's data is flushed before
-        the file's ``n_saved`` count is raised, so a plane cut off half-way is not
-        counted, and readers do not see it. An ordinary interruption
-        (``KeyboardInterrupt``, an error) never needed it: the run loop closes the
-        handler in a ``finally`` and closing writes everything. One flush per plane
+        The flush keeps the file's ``n_saved`` count consistent through a hard stop --
+        a SIGKILL, an out-of-memory kill, a lost node: the plane's data is flushed
+        before the count is raised, so a plane cut off half-way is not counted, and
+        readers do not see it. The flush does not sync to disk and the file is not
+        opened in SWMR mode, so HDF5 does not promise that a file stopped mid-write
+        can be opened at all; ``snapshots=`` on a run publishes synced, checksummed
+        copies that a hard stop cannot damage. An ordinary interruption
+        (``KeyboardInterrupt``, an error) never needed the flush: the run loop closes
+        the handler in a ``finally`` and closing writes everything. One flush per plane
         costs nothing against the steps between planes.
 
         Parameters
@@ -933,13 +951,13 @@ class HDF5Output(PlaneStore):
             raise OutputError(msg) from error
         try:
             self._metadata = _read_record(file)
-        except OutputError:
+            self._adopt_state(file)
+            self._annotations = _read_annotations(file)
+            self._recipe = read_recipe(file)
+        except BaseException:
             file.close()
             raise
         self._file = file
-        self._adopt_state(file)
-        self._annotations = _read_annotations(file)
-        self._recipe = read_recipe(file)
 
     def _open_file(self) -> h5py.File:
         """Open the file once: fresh, or read-write to continue what it holds."""
@@ -979,7 +997,6 @@ class HDF5Output(PlaneStore):
             return file
         if self._path.exists():
             logger.warning("replacing the existing output file %s", self._path)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
         return h5py.File(self._path, "w")
 
     def suspend(self) -> None:
@@ -1125,7 +1142,9 @@ class HDF5Output(PlaneStore):
 
         A finished handler opens its file read-only for the one read and closes it
         again, so a closed run stays readable without holding a handle; a suspended
-        writer keeps refusing, because its run still owns the file.
+        writer keeps refusing, because its run still owns the file. A file that no
+        longer holds the run as the handler closed it is refused, since its counts
+        and record would describe another file's rows.
         """
         if self._file is not None or not self._closed:
             yield self._require_file()
@@ -1136,7 +1155,27 @@ class HDF5Output(PlaneStore):
             msg = f"cannot read the output file {self._path}: {error}"
             raise OutputError(msg) from error
         with file:
+            self._refuse_changed(file)
             yield file
+
+    def _refuse_changed(self, file: h5py.File) -> None:
+        """Refuse a file another run replaced, or continued, since this one closed."""
+        metadata = self._require_metadata()
+        # A run's record keeps its creation time across a resume, so the time and the
+        # hash name the run, and the counts how much of it the file holds.
+        if (
+            str(file.attrs.get("created", "")) == metadata.created
+            and str(file.attrs.get("configuration_hash", ""))
+            == metadata.configuration_hash()
+            and (_stored_counts(file) if "z" in file else (0, 0, 0))
+            == (self._n_saved, self._history_length, self._step_stats_length)
+        ):
+            return
+        msg = (
+            f"{self._path} has changed since this handler closed: another run wrote "
+            "it or continued the run in it; open it again with open_file to read it"
+        )
+        raise OutputError(msg)
 
     def _write_metadata(self, metadata: RunMetadata) -> None:
         """Open the file if it is not open yet, and write the run record.
@@ -1722,7 +1761,7 @@ def _last_step_stats(file: h5py.File, index: int) -> StepStats:
     )
 
 
-def resume(path: Path | str | Output) -> ResumeState:
+def read_resume_state(path: Path | str | Output) -> ResumeState:
     """Read a file's resumable state and cumulative work, preferring its checkpoint.
 
     The last plane comes back in the **internal** FFT convention, through
@@ -1762,7 +1801,7 @@ def resume(path: Path | str | Output) -> ResumeState:
     >>> from pathlib import Path
     >>> from solprop.grid import EnvelopeGrid
     >>> from solprop.output import HDF5Output
-    >>> from solprop.output.hdf5 import resume
+    >>> from solprop.output.hdf5 import read_resume_state
     >>> from solprop.output.metadata import _example_metadata
     >>> from solprop.output.records import SavedPlane
     >>> metadata = _example_metadata()
@@ -1772,7 +1811,7 @@ def resume(path: Path | str | Output) -> ResumeState:
     ...     handler.open(metadata)
     ...     handler.save(SavedPlane(z=0.25, field=np.ones((1, 1, n_omega), complex)))
     ...     handler.close()
-    ...     state = resume(Path(folder) / "run.h5")
+    ...     state = read_resume_state(Path(folder) / "run.h5")
     >>> state.n_saved, state.plane.z
     (1, 0.25)
 
@@ -1787,10 +1826,10 @@ def resume(path: Path | str | Output) -> ResumeState:
     ...     again.open(metadata)
     ...     again.save(SavedPlane(z=0.5, field=np.ones((1, 1, n_omega), complex)))
     ...     again.close()
-    ...     resume(Path(folder) / "run.h5").n_saved
+    ...     read_resume_state(Path(folder) / "run.h5").n_saved
     2
     """
-    path = _file_path(path, "resume")
+    path = _file_path(path, "read_resume_state")
     metadata, _ = _stored_metadata(path)
     with h5py.File(path, "r") as file:
         outcome = _read_outcome(file)
@@ -1872,8 +1911,8 @@ def open_file(path: Path | str) -> HDF5Output:
     ``stat_names``, ``n_saved`` and ``metadata`` answer from the file, ``open`` and
     ``save`` are refused, and ``close`` releases the file -- a ``with`` block does that
     on the way out. It is how :mod:`solprop.processing` reads a file after the run that
-    wrote it has ended; :func:`resume` reads the last plane only, and a handler built
-    with ``append=True`` opens the file read-write to continue the run.
+    wrote it has ended; :func:`read_resume_state` reads the last plane only, and a
+    handler built with ``append=True`` opens the file read-write to continue the run.
 
     Parameters
     ----------

@@ -46,7 +46,7 @@ from solprop.monitor import (
 )
 from solprop.nonlinear.responses import KerrResponse
 from solprop.output import MemoryOutput, open_file, records
-from solprop.output.hdf5 import resume
+from solprop.output.hdf5 import read_resume_state
 from solprop.output.records import RunOutcome, TerminalCheckpoint
 from solprop.output.scan import read_point
 from solprop.output.store import CheckpointOutput, Output, PlaneStore
@@ -491,7 +491,7 @@ class _StopAfterFirstPlane(NullReporter):
 
 def _file_record(path: Path) -> tuple[dict[str, Any], int]:
     """Return a run file's monitor record and how many executions it holds."""
-    outcome = resume(path).outcome
+    outcome = read_resume_state(path).outcome
     record = _monitor_record(outcome)
     assert outcome is not None and record is not None
     return record, len(outcome.previous_executions) + 1
@@ -586,11 +586,17 @@ def test_a_running_record_restores_the_totals_without_rows() -> None:
         for name, value in first.summary().items()
         if name not in ("planes", "resumed_at")
     }
+    # The earlier execution's worst guard occupancies, far above the resumed
+    # state's (about 1e-33 in each guard): the record keeps them, not the state's.
     running |= {
         "removed_fraction": 0.25,
         "removed_signed": 0.25,
         "raw_removed_fraction": 0.25,
         "steps": 7,
+        "guard_low_max": 0.03,
+        "guard_high_max": 0.04,
+        "guard_low_at": 0.2,
+        "guard_high_at": 0.4,
     }
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
     monitor.resume(running, plane=False)
@@ -599,39 +605,15 @@ def test_a_running_record_restores_the_totals_without_rows() -> None:
     assert summary["launch_energy"] == first.summary()["launch_energy"]
     assert summary["removed_fraction"] == 0.25
     assert summary["steps"] == 7
+    # Copied numbers, compared exactly.
+    assert summary["guard_low_max"] == 0.03
+    assert summary["guard_high_max"] == 0.04
+    assert summary["guard_low_at"] == 0.2
+    assert summary["guard_high_at"] == 0.4
     assert summary["resumed_at"] == [0.5]
     planes = summary["planes"]
     assert isinstance(planes, dict)
     assert planes["z"] == []
-
-
-def test_a_record_from_before_the_signed_removal_still_resumes() -> None:
-    # A record that predates `removed_signed` and `floor_removed_fraction` gives the
-    # floor's expectation back as the raw removal less the reported one.
-    grid, spectrum = _two_pulses(0.0, 0.95)
-    first = BoundaryMonitor.build(grid, None, BoundaryCheck())
-    first.launch(first.energies(spectrum), 0.0)
-    old = {
-        name: value
-        for name, value in first.summary().items()
-        if name
-        not in (
-            "planes",
-            "removed_signed",
-            "floor_removed_fraction",
-            "quiet_checks",
-            "collar_quiet",
-            "unwatched",
-        )
-    }
-    old |= {"removed_fraction": 0.25, "raw_removed_fraction": 0.25}
-    monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
-    monitor.resume(old, plane=False)
-    monitor.launch(monitor.energies(spectrum), 0.5)
-    summary = monitor.summary()
-    assert summary["removed_fraction"] == 0.25
-    assert summary["floor_removed_fraction"] == 0.0
-    assert summary["unwatched"] == []
 
 
 def test_a_resume_lists_the_stretches_run_without_a_monitor() -> None:
@@ -1350,7 +1332,7 @@ def test_a_stretch_without_a_monitor_keeps_the_totals_and_is_listed(
             build(None).run(path, resume=True, progress=_CrashAtPlane(3))
         build(_RELAXED).run(path, resume=True, progress="none")
     record, executions = _file_record(path)
-    outcome = resume(path).outcome
+    outcome = read_resume_state(path).outcome
     assert outcome is not None
     first_end, middle_end = (
         float(cast("float", one["z"])) for one in outcome.previous_executions

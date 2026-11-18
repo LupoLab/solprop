@@ -1,5 +1,7 @@
-Dropped optmat's internal tracker ids, such as `(TC-688)`, from the optmat warnings
-solprop passes on as `MaterialRangeWarning` and from the run's material record; the
-rest of each message is unchanged. A Raman response used outside its density or
-temperature range, hydrogen at 0.5 bar for example, no longer ends its warning with a
-reference users cannot look up ([#166](https://github.com/LupoLab/solprop/issues/166)).
+Dropped optmat's internal tracker ids, references users cannot look up, from every
+optmat text solprop passes on: its range and absorption warnings (`MaterialRangeWarning`),
+the status reason of each material record (`MaterialRecord.status_reason`, and so the
+run's material manifest and `solprop.capabilities.species`) and the
+`MaterialStatusWarning` built from it, which also no longer doubles the reason's full
+stop. The rest of each text is unchanged
+([#166](https://github.com/LupoLab/solprop/issues/166)).

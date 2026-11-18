@@ -2,21 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""A free-space plane measured: in the kernel, in a run's worker, and in the views."""
+"""A free-space beam in the Overview view, offscreen."""
 
 import warnings
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pytest
 from pytestqt.qtbot import QtBot
-from solprop.service import handlers
 
-from solprop_gui.model.plot_options import PlotOptions
 from solprop_gui.views.live import OverviewView
-from solprop_gui.views.plane import PlaneView
 from test_ui import shot
 
 
@@ -25,10 +21,6 @@ def _quiet() -> Iterator[None]:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         yield
-
-
-def ask(kind: str, body: Mapping[str, object]) -> Any:
-    return handlers.HANDLERS[kind](body)
 
 
 def row(index: int) -> dict[str, object]:
@@ -70,18 +62,11 @@ def test_the_overview_maps_a_beam_across_its_centre(qtbot: QtBot, tmp_path: Path
     assert not view.spatial and view.profile_map.plot not in view.maps.ci.items
 
 
-def test_the_plane_view_draws_a_beam_s_intensity_slice(qtbot: QtBot):
-    view = PlaneView()
+def test_the_overview_names_a_beam_s_readings(qtbot: QtBot):
+    view = OverviewView()
     qtbot.addWidget(view)
-    view.resize(1000, 600)
-    t = np.linspace(-5e-14, 5e-14, 20)
-    x = np.linspace(-1e-3, 1e-3, 11)
-    data = {"t": t, "x": x, "axis": "x", "values": np.ones((11, 20))}
-    view.show_spectrogram(data)
-    plot = view.spectrogram
-    assert plot.plot.getAxis("left").labelText == "x (mm)"
-    assert "across the beam" in plot.plot.titleLabel.text
-    hit = plot.lookup(0.0, 0.5)  # mm
-    assert hit is not None
-    view.apply_options(PlotOptions(axis="f", spectral_limits=(1e14, 2e14)))
-    assert plot.plot.getViewBox().viewRange()[1][1] == pytest.approx(1.0, abs=0.2)
+    view.set_spatial(True)
+    assert "Axial power" in view.power_map.plot.titleLabel.text
+    assert "Energy per bin" in view.spectrum_map.plot.titleLabel.text
+    view.set_spatial(False)
+    assert view.power_line.titleLabel.text == "Power at z"

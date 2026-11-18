@@ -74,9 +74,9 @@ class CallbackOutput:
     :meth:`fields`, :meth:`plane_field`) raises
     :class:`~solprop.exceptions.OutputError`, and a handler that has served a run
     refuses another, which would continue it. A resume needs a file
-    (:func:`~solprop.output.hdf5.check_cache`, :func:`~solprop.output.hdf5.resume`,
-    ``resume=True``), as does a TDSE run's ledger. A stopped run returns the handler
-    with no state written.
+    (:func:`~solprop.output.hdf5.check_cache`,
+    :func:`~solprop.output.hdf5.read_resume_state`, ``resume=True``), as does a TDSE
+    run's ledger. A stopped run returns the handler with no state written.
 
     A run with an optmat ionisation rate reads its peak rates back from its output to
     report the peak field and warn past the rate's range

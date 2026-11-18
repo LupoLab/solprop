@@ -810,27 +810,26 @@ def _retained(simulation: Simulation, capture: _Capture) -> Simulation:
     return retained
 
 
-def _jobs(  # noqa: PLR0917 - called positionally
+def _jobs(
     scan: Scan,
     writer: ScanWriter,
     retry: bool,
-    age: float,
     stop: StopFlag | None,
     claims: dict[int, tuple[str, float]],
 ) -> Iterator[_Job]:
     """Claim eligible points lazily as dispatch capacity becomes available.
 
-    - ``age``: positive abandonment interval, s.
+    A ``running`` point is claimed whatever its age: the writer holds the file's lock
+    for its whole session, so that mark was left by a controller that has gone.
+
     - ``claims``: filled with each claimed point's state and update time before the
-      claim, so that a stopped point is given back as it was (`_release`).
+      claim, so that a point not committed is given back as it was (`_release`).
     """
     for point in scan.points():
         if stop is not None and stop.is_set():
             return
         state, digest, updated = writer.state(point.index)
         if state == "failed" and not retry:
-            continue
-        if state == "running" and time.time() - updated < age:
             continue
         if state != "done":
             claims[point.index] = state, updated
@@ -839,10 +838,10 @@ def _jobs(  # noqa: PLR0917 - called positionally
 
 
 def _release(writer: ScanWriter, index: int, claim: tuple[str, float]) -> None:
-    """Give a stopped point back as it was before this scan claimed it.
+    """Give a point not committed back as it was before this scan claimed it.
 
-    A stopped point is not committed, so a rerun computes it again: left ``running``,
-    a rerun would skip it for ``stale_age``.
+    A stopped point, or one still claimed when the scan raises, is not committed, so
+    the file shows it as it was and a rerun computes it again.
 
     - ``claim``: its state and update time before the claim.
     """
@@ -850,6 +849,44 @@ def _release(writer: ScanWriter, index: int, claim: tuple[str, float]) -> None:
     _dataset(writer.file, "points/status")[index] = state
     _dataset(writer.file, "points/updated")[index] = updated
     writer.file.flush()
+
+
+def _release_uncommitted(
+    writer: ScanWriter | None, claims: Mapping[int, tuple[str, float]]
+) -> None:
+    """Give back every point still claimed when the scan ends, whatever ended it.
+
+    - ``writer``: local controller writer, or None for a durable queue, whose claims
+      are leases.
+    """
+    if writer is not None:
+        for index, claim in claims.items():
+            _release(writer, index, claim)
+
+
+def _end_execution(
+    executor: Executor,
+    build: Callable[[ScanPoint], Simulation],
+    writer: ScanWriter | None,
+    output: Path | str,
+    claims: Mapping[int, tuple[str, float]],
+    *,
+    failing: bool,
+) -> None:
+    """Give back the uncommitted claims, then record provenance and close the writer.
+
+    The writer, and the lock it holds, are closed whatever the release did. A scan
+    already failing, most likely on the same file, reports its own error rather than
+    the release's, which follows from it and is logged.
+    """
+    try:
+        _release_uncommitted(writer, claims)
+    except Exception:
+        if not failing:
+            raise
+        logger.exception("the failing scan could not give back its claimed points")
+    finally:
+        _finish_execution(executor, build, writer, output)
 
 
 def execute_scan(
@@ -863,7 +900,6 @@ def execute_scan(
     field_planes: Sequence[int],
     stats: str | Sequence[str],
     retry_failed: bool,
-    stale_age: float,
     progress: ProgressChoice | ScanReporter,
     stop: StopFlag | None = None,
     recipe: RecipeRecord | None = None,
@@ -871,9 +907,8 @@ def execute_scan(
     """Validate, dispatch and commit a scan through one writer.
 
     - ``executor``: execution policy; None selects the CLI policy or Local.
-    - ``stale_age``: positive abandonment interval, s.
     """
-    _validate_options(fields, field_planes, stats, stale_age, reductions)
+    _validate_options(fields, field_planes, stats, reductions)
     if progress not in _PROGRESS_CHOICES and not isinstance(
         progress, ScanReporter
     ):  # pragma: no cover - refused by the annotation where it is checked
@@ -919,17 +954,22 @@ def execute_scan(
     writer = None
     claims: dict[int, tuple[str, float]] = {}
     if isinstance(executor, (Queue, Slurm)):
-        executor.prepare(ScanRequest(scan, settings, output, work, retry_failed))
+        executor.prepare(
+            ScanRequest(scan, settings, output, work, retry_failed, recipe)
+        )
         jobs = (_Job(point) for point in scan.points())
     else:
         writer = ScanWriter(output, scan, settings)
         writer.record_recipe(recipe)
-        jobs = _jobs(scan, writer, retry_failed, stale_age, stop, claims)
+        jobs = _jobs(scan, writer, retry_failed, stop, claims)
     counts = dict.fromkeys(("finished", "stopped"), 0)
+    completed = False
     try:
         events.reporter.scan_started(len(scan))
         for result in executor.run(jobs, work):
-            _collect(result, writer, claims.pop(result.index, None))
+            _collect(result, writer, claims.get(result.index))
+            # Only once committed: a point whose commit raised is given back below.
+            claims.pop(result.index, None)
             counts["stopped" if result.status == "stopped" else "finished"] += 1
             events.finish(result)
         if stop is not None and stop.is_set():
@@ -942,11 +982,12 @@ def execute_scan(
                 counts["stopped"],
             )
         events.reporter.scan_finished()
+        completed = True
     finally:
         work.close()
         if display is not None:
             display.close()
-        _finish_execution(executor, build, writer, output)
+        _end_execution(executor, build, writer, output, claims, failing=not completed)
     return ScanOutput(output)
 
 
@@ -1009,8 +1050,10 @@ def _finish_execution(
         policy["script_hash"] = hashlib.sha256(Path(source).read_bytes()).hexdigest()
         policy["script"] = source
     if writer is not None:
-        writer.record_execution(type(executor).__qualname__, policy)
-        writer.close()
+        try:
+            writer.record_execution(type(executor).__qualname__, policy)
+        finally:
+            writer.close()
     elif isinstance(executor, Queue) and executor.path is not None:
         collect(executor.path, output)
     elif isinstance(executor, Slurm) and executor.queue_path is not None:
@@ -1021,18 +1064,12 @@ def _validate_options(
     fields: str,
     field_planes: Sequence[int],
     stats: str | Sequence[str],
-    stale_age: float,
     reductions: Sequence[Reduction],
 ) -> None:
-    """Reject ambiguous retention controls before opening the output.
-
-    - ``stale_age``: positive abandonment interval, s.
-    """
+    """Reject ambiguous retention controls before opening the output."""
     refusal = field_retention_refusal(fields, field_planes)
     if refusal is not None:
         raise DriverError(refusal)
-    if not math.isfinite(stale_age) or stale_age <= 0:
-        raise DriverError("stale_age must be positive and finite")
     if isinstance(stats, str) and stats not in ("all", "none"):
         raise DriverError("stats must be all, none or a sequence of names")
     names = [r.name for r in reductions]

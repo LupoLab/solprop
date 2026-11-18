@@ -101,7 +101,8 @@ def test_the_kronrod_extension_is_a_proper_embedded_pair(n):
     np.testing.assert_allclose(nodes[1::2], gauss_nodes, rtol=0.0, atol=1e-14)
     np.testing.assert_allclose(coarse[1::2], gauss_weights, rtol=0.0, atol=0.0)
     np.testing.assert_array_equal(coarse[0::2], 0.0)
-    assert float(weights.sum()) == pytest.approx(2.0, rel=1e-15)
+    # A sum of 2n + 1 positive weights: twice Higham's gamma_{2n+1} of the summation.
+    assert float(weights.sum()) == pytest.approx(2.0, rel=nodes.size * EPS)
     assert float(coarse.sum()) == pytest.approx(2.0, rel=1e-14)
 
 

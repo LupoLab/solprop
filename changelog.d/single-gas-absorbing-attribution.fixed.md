@@ -1,0 +1,1 @@
+`absorption_by_species` of a gas-filled mode raises `ModeError` for a single gas whose `susceptibility=` law is absorbing, instead of reporting zero absorption while the law's loss is in `neff`; declaring the gas as a component of a `Mixture` attributes it.

@@ -6,6 +6,7 @@
 
 import hashlib
 import json
+import re
 from typing import Any
 
 import h5py
@@ -46,26 +47,29 @@ def pair(fake, tmp_path):
     return next(controller._directory.glob("snapshot-*"))
 
 
+# Each row names the message of the check it guards, so a row fails when its own check
+# goes rather than passing on a later one. An archive with no sessions left is refused
+# by the identity check, which needs a session to compare the run's UUID with.
 @pytest.mark.parametrize(
-    "change",
+    ("change", "message"),
     [
-        "omitted",
-        "relative",
-        "filename",
-        "uuid",
-        "sessions",
-        "session_index",
-        "session_uuid",
-        "closed",
-        "counters",
-        "configuration",
-        "provider",
-        "evaluations",
-        "decision",
-        "incomplete",
+        ("omitted", "snapshot omits the referenced TDSE archive"),
+        ("relative", "requires a relative TDSE archive reference"),
+        ("filename", "archive filename does not match the optical reference"),
+        ("uuid", "archive UUID mismatch"),
+        ("sessions", "archive UUID mismatch"),
+        ("session_index", "archive session mismatch"),
+        ("session_uuid", "archive session mismatch"),
+        ("closed", "archive session mismatch"),
+        ("counters", "archive counters mismatch"),
+        ("configuration", "configuration/provider identity mismatch"),
+        ("provider", "configuration/provider identity mismatch"),
+        ("evaluations", "incomplete or mismatched evaluations/trials"),
+        ("decision", "incomplete or mismatched evaluations/trials"),
+        ("incomplete", "incomplete or mismatched evaluations/trials"),
     ],
 )
-def test_mixed_pair_is_rejected_even_with_recomputed_checksums(pair, change):
+def test_mixed_pair_is_rejected_even_with_recomputed_checksums(pair, change, message):
     manifest_path = pair / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     optical, archive = [pair / row["path"] for row in manifest["files"]]
@@ -89,7 +93,7 @@ def test_mixed_pair_is_rejected_even_with_recomputed_checksums(pair, change):
         )
     manifest_path.chmod(0o600)
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    with pytest.raises(OutputError):
+    with pytest.raises(OutputError, match=re.escape(message)):
         read_snapshot(pair)
 
 

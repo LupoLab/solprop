@@ -228,12 +228,11 @@ class _Builtin:
         if self.operation == "modes":
             return np.asarray(energy(output, plane=plane))
         if self.operation in ("field", "on_axis_intensity", "beam_radius"):
-            values = (
-                output.fields()
+            return np.asarray(
+                output.plane_field(plane)
                 if self.operation == "field"
-                else output[f"stats/{self.operation}"]
+                else output[f"stats/{self.operation}"][plane]
             )
-            return np.asarray(values[plane])
         raise ProcessingError(f"unknown reduction {self.operation}")
 
 

@@ -192,7 +192,7 @@ def test_scalar_reduction():
     assert fibre(Constant(ENTRANCE_AREA)).z_constant
 
 
-def test_a_constant_area_is_still_frozen_where_it_always_was():
+def test_a_constant_area_is_frozen_and_a_path_s_area_follows_it():
     mode = fibre(ENTRANCE_AREA)
     assert mode.aeff() == mode.aeff(0.5) == ENTRANCE_AREA
     assert mode.radius(1.0) == mode.radius()

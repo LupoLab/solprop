@@ -179,7 +179,10 @@ def test_an_interface_changes_the_plane_medium_and_metric():
     plane = _plane(grid, RadialGrid(4e-3, 64), air)
     inside, report = transport(plane, [PlanarInterface(air, glass)])
     assert inside.medium is glass
-    assert inside.energy() == pytest.approx(0.96 * ENERGY, rel=1e-7)
+    # The normal-incidence factor on every angular column raises an oblique column's
+    # flux by cos(theta_t) / cos(theta_i): (1 - 1/n^2) <theta^2> / 2 = 1.0e-7 of the
+    # energy for this 0.3 mm waist, which the report counts as approximation error.
+    assert inside.energy() == pytest.approx(0.96 * ENERGY, rel=2e-7)
     assert report.specified_loss == pytest.approx(0.04 * ENERGY, rel=1e-7)
 
 

@@ -107,6 +107,8 @@ class SlabMode(_WallPairFill):
         The fill gas; None means vacuum unless a mixture is supplied.
     pressure : float or ZProfile
         Absolute fill pressure in **bar**, non-negative, or a path of it along z.
+        Required beside `gas`: a gas without it is refused. Without a gas it is
+        omitted, and holds 0 once the mode is built.
     order : int
         Mode order ``p >= 1``; odd orders are symmetric about the mid-plane, so a
         centred launch couples only to them.
@@ -168,7 +170,7 @@ class SlabMode(_WallPairFill):
 
     half_gap: float | ZProfile
     gas: Gas | str | None = None
-    pressure: float | ZProfile = 0.0
+    pressure: float | ZProfile | None = None
     _: KW_ONLY
     order: int = 1
     polarisation: SlabPolarisation = "te"

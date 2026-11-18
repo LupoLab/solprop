@@ -284,7 +284,8 @@ def steady_current_certificate(
     )
 
 
-@functools.cache
+# Bounded as the descriptor's own memos are: one configuration per run.
+@functools.lru_cache(maxsize=16)
 def _steady_current_certificate(
     descriptor: TDSEDescriptor, omega: bytes, active: bytes
 ) -> float:

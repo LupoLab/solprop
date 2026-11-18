@@ -890,7 +890,7 @@ def test_a_taper_and_a_gradient_expand_in_both_parameters(field_grid):
     )
 
 
-def test_the_expansion_is_smaller_and_faster_to_evaluate_than_the_z_table(
+def test_the_expansion_is_smaller_than_the_z_table(
     field_grid, gradient_mode, gradient_table
 ):
     """The point of the representation, on the case that motivated it.

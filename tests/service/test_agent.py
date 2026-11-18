@@ -264,6 +264,42 @@ def test_a_session_that_cannot_start_is_retried(monkeypatch: pytest.MonkeyPatch)
     broken.close()
 
 
+def test_a_missing_python_is_refused_and_a_passing_not_found_retried(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(machines, "RECONNECT_PAUSES", (0.01,))
+
+    def session_saying(text: str):
+        command = [sys.executable, "-c", f"import sys; sys.exit({text!r})"]
+        return lambda machine: (command, dict(os.environ))
+
+    # The shell's word that the machine's Python is not there: refused for good.
+    missing = Window()
+    absent = Connection(
+        Machine("lab", "me@lab", python="~/env/bin/python"),
+        missing.on_frame,
+        missing.on_state,
+        command=session_saying("bash: /home/me/env/bin/python: No such file"),
+    )
+    absent.open()
+    missing.wait(lambda: "refused" in missing.kinds())
+    assert "has no solprop at ~/env/bin/python" in str(dict(missing.states)["refused"])
+    absent.close()
+    # Any other file not found, as a network filesystem may say in passing: retried.
+    passing = Window()
+    flaky = Connection(
+        Machine("lab", "me@lab", python="~/env/bin/python"),
+        passing.on_frame,
+        passing.on_state,
+        command=session_saying("OSError: [Errno 2] No such file: '/nfs/me/x'"),
+    )
+    flaky.open()
+    passing.wait(lambda: passing.kinds().count("down") >= 2)
+    assert "refused" not in passing.kinds()
+    assert "/nfs/me/x" in str(dict(passing.states)["down"])
+    flaky.close()
+
+
 def test_a_helper_that_says_something_else_is_refused():
     window = Window()
     command = [
@@ -342,7 +378,8 @@ def test_the_ssh_command_and_its_environment():
         askpass="/opt/askpass",
     )
     assert command[0] == "ssh" and command[command.index("-p") :][:2] == ["-p", "2222"]
-    assert command[-1] == "exec ~/env/bin/python -m solprop.service.agent"
+    assert command[-3:-1] == ["--", "me@lab"]  # a host is never read as an option
+    assert command[-1] == 'exec "$HOME"/env/bin/python -m solprop.service.agent'
     assert environment["SSH_ASKPASS"] == "/opt/askpass"
     assert environment["SSH_ASKPASS_REQUIRE"] == "force"
     local, _ = agent_command(Machine(LOCAL))
@@ -354,6 +391,38 @@ def test_the_ssh_command_and_its_environment():
     machine = Machine("lab", "me@lab", resources={"cpus": 4})
     value = {**machine.value(), "future": 1}
     assert Machine.from_value(value) == machine
+
+
+@pytest.mark.parametrize(
+    ("python", "remote"),
+    [
+        ("~/my envs/bin/python", "\"$HOME\"'/my envs/bin/python'"),
+        ("~", '"$HOME"'),
+        ("/opt/a b/python", "'/opt/a b/python'"),
+        ("python3", "python3"),
+        ("/env/bin/python; rm -rf ~", "'/env/bin/python; rm -rf ~'"),
+    ],
+)
+def test_the_helper_s_python_is_quoted_for_the_remote_shell(python, remote):
+    if sys.platform == "win32":
+        pytest.skip("the remote shell is POSIX; the check runs it here")
+    import subprocess  # noqa: PLC0415 - only here
+
+    command, _ = agent_command(Machine("lab", "-oProxyCommand=x", python=python))
+    assert command[-3:] == [
+        "--",
+        "-oProxyCommand=x",
+        f"exec {remote} -m solprop.service.agent",
+    ]
+    # The remote shell reads it back as the one path given, with ~ expanded.
+    said = subprocess.run(
+        ["sh", "-c", f"printf %s {remote}"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**os.environ, "HOME": "/home/me"},
+    ).stdout
+    assert said == python.replace("~", "/home/me", 1 if python.startswith("~") else 0)
 
 
 def test_hosts_are_read_from_the_ssh_configuration_and_its_includes(tmp_path: Path):
@@ -424,7 +493,8 @@ def test_a_direct_run_is_cancelled_by_its_signal(tmp_path: Path):
 
     sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     try:
-        job = Job("r1", "direct", socket.gethostname(), sleeper.pid, None, None, 0.0)
+        stamp = process_stamp(sleeper.pid)
+        job = Job("r1", "direct", socket.gethostname(), sleeper.pid, stamp, None, 0.0)
         write_job(tmp_path, job)
         Agent(io.BytesIO()).cancel({"folder": str(tmp_path)})
         assert sleeper.wait(timeout=WAIT) != 0
@@ -444,19 +514,144 @@ def test_a_direct_run_is_cancelled_by_its_signal(tmp_path: Path):
         sleeper.wait()
 
 
+@pytest.mark.parametrize("recorded", ["job", "submitted"])
+def test_a_process_whose_start_was_not_recorded_is_not_signalled(
+    tmp_path: Path, recorded: str
+):
+    """Its number may belong to another process by now: Kill refuses, saying why."""
+    import subprocess  # noqa: PLC0415 - only here
+
+    from solprop.service.launch import SUBMITTED  # noqa: PLC0415 - only here
+    from solprop.service.record import Job, write_job, write_json  # noqa: PLC0415
+
+    here = socket.gethostname()
+    # This stands in for a later process that has the run's number.
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        if recorded == "job":
+            write_job(tmp_path, Job("r1", "direct", here, sleeper.pid, None, None, 0))
+        else:
+            write_json(
+                tmp_path / SUBMITTED,
+                {"launcher": "direct", "host": here, "pid": sleeper.pid, "stamp": None},
+            )
+        with pytest.raises(ServiceError, match="its start was not recorded"):
+            Agent(io.BytesIO()).cancel({"folder": str(tmp_path), "force": True})
+        assert sleeper.poll() is None  # not signalled
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+
+
+def _recording_scancel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Put a ``scancel`` first on the path that records its arguments; return where."""
+    if sys.platform == "win32":
+        pytest.skip("Slurm is faked with POSIX shell scripts")
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    calls = tmp_path / "scancel-calls"
+    (bin_ / "scancel").write_text(
+        f'#!/bin/sh\necho "$*" >> "{calls}"\n', encoding="utf-8"
+    )
+    (bin_ / "scancel").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_}{os.pathsep}{os.environ['PATH']}")
+    return calls
+
+
+@pytest.mark.medium
+def test_a_direct_run_inside_an_allocation_is_cancelled_by_its_signal_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A run started directly is no Slurm job, though the helper sits in one."""
+    calls = _recording_scancel(tmp_path, monkeypatch)
+    monkeypatch.setenv("SLURM_JOB_ID", "4242")  # the allocation, not the run's
+    from solprop.service.record import read_events  # noqa: PLC0415 - only here
+
+    # Long enough (several seconds) to be cancelled well before its end.
+    slow = TINY.replace('length = "5 cm"', 'length = "200 cm"').replace(
+        "n_save = 6", "n_save = 200"
+    )
+    workspace = tmp_path / "runs"
+    folder = workspace / "r1"
+    helper = Agent(io.BytesIO())
+    spec = spec_value(RunSpec("r1", str(folder), recipe=slow))
+    helper.start({"spec": spec, "launcher": "direct"})
+
+    def summary() -> dict[str, Any]:
+        return helper.list_runs({"workspace": str(workspace)})[0]
+
+    def marching() -> bool:  # a row recorded: SIGTERM now leaves it stopped
+        events = read_events(folder)[0] if (folder / "events.bin").exists() else []
+        return any(event.kind == "row" for event in events)
+
+    deadline = time.monotonic() + WAIT
+    while not marching():
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    assert summary()["state"] == "running" and summary()["slurm_job"] is None
+    helper.cancel({"folder": str(folder)})
+    deadline = time.monotonic() + WAIT
+    while summary()["state"] in {"running", "starting"}:
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    assert summary()["state"] == "stopped"  # its process had SIGTERM
+    assert not calls.exists()
+    helper.close()
+
+
+@pytest.mark.parametrize("submitted", [True, False])
+def test_a_direct_run_s_record_naming_an_allocation_is_cancelled_by_its_signal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, submitted: bool
+):
+    """Only the job solprop submitted a run as is cancelled, whatever ``job.json`` says.
+
+    A run started directly inside an allocation could record that allocation as its
+    job, with or without the starter's ``submitted.json``.
+    """
+    import subprocess  # noqa: PLC0415 - only here
+
+    from solprop.service.launch import SUBMITTED  # noqa: PLC0415 - only here
+    from solprop.service.record import (  # noqa: PLC0415 - only here
+        Job,
+        process_stamp,
+        write_job,
+        write_json,
+    )
+
+    calls = _recording_scancel(tmp_path, monkeypatch)
+    here = socket.gethostname()
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        stamp = process_stamp(sleeper.pid)
+        if submitted:
+            write_json(
+                tmp_path / SUBMITTED,
+                {"launcher": "direct", "host": here, "pid": sleeper.pid},
+            )
+        write_job(tmp_path, Job("r1", "slurm", here, sleeper.pid, stamp, "4242", 0.0))
+        Agent(io.BytesIO()).cancel({"folder": str(tmp_path)})
+        assert sleeper.wait(timeout=WAIT) != 0
+        assert not calls.exists()
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+
+
 def test_slurm_runs_through_the_helper(tmp_path: Path, monkeypatch):
     if sys.platform == "win32":
         pytest.skip("Slurm is faked with POSIX shell scripts")
     bin_ = tmp_path / "bin"
     bin_.mkdir()
+    cancelled = tmp_path / "cancelled"
     for name, script in (
         ("sbatch", 'echo "77"\n'),
         ("squeue", 'echo "77|PENDING|Resources"\n'),
-        ("scancel", "exit 0\n"),
+        ("scancel", f'echo "$*" >> "{cancelled}"\n'),
     ):
         (bin_ / name).write_text("#!/bin/sh\n" + script, encoding="utf-8")
         (bin_ / name).chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("SLURM_JOB_ID", "4242")  # the helper sits in an allocation
     helper = Agent(io.BytesIO())
     folder = tmp_path / "runs" / "s1"
     spec = spec_value(RunSpec("s1", str(folder), recipe=TINY))
@@ -467,10 +662,175 @@ def test_slurm_runs_through_the_helper(tmp_path: Path, monkeypatch):
     listed = helper.list_runs({"workspace": str(tmp_path / "runs")})
     assert listed[0]["detail"] == "Resources"
     helper.cancel({"folder": str(folder)})
+    assert cancelled.read_text(encoding="utf-8").splitlines() == ["77"]
     with pytest.raises(ServiceError, match="is queued"):
         helper.remove({"folder": str(folder)})
     with pytest.raises(ServiceError, match="no launcher"):
         helper.start({"spec": spec, "launcher": "nowhere"})
+
+
+def _queued_long_ago(folder: Path) -> None:
+    """Make a folder whose Slurm job was submitted well beyond the staleness window."""
+    from solprop.service.launch import SUBMITTED  # noqa: PLC0415 - only here
+    from solprop.service.record import write_json  # noqa: PLC0415 - only here
+    from solprop.service.runs import STALE  # noqa: PLC0415 - only here
+
+    folder.mkdir(parents=True)
+    (folder / "run.h5").write_bytes(b"earlier part")
+    (folder / "spec.json").write_text("{}", encoding="utf-8")
+    submitted = time.time() - 10 * STALE
+    write_json(
+        folder / SUBMITTED,
+        {"launcher": "slurm", "slurm_job": "77", "submitted": submitted},
+    )
+
+
+def _slurm_bin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **scripts: str) -> Path:
+    """Put fake Slurm commands first on the path; return where ``sbatch`` records."""
+    if sys.platform == "win32":
+        pytest.skip("Slurm is faked with POSIX shell scripts")
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    submitted = tmp_path / "sbatch-calls"
+    scripts.setdefault("sbatch", f'echo "$*" >> "{submitted}"\necho 78\n')
+    for name, script in scripts.items():
+        (bin_ / name).write_text("#!/bin/sh\n" + script, encoding="utf-8")
+        (bin_ / name).chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_}{os.pathsep}{os.environ['PATH']}")
+    return submitted
+
+
+def test_a_slurm_run_queued_long_is_neither_continued_nor_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    submitted = _slurm_bin(tmp_path, monkeypatch, squeue='echo "77|PENDING|Priority"\n')
+    folder = tmp_path / "runs" / "s1"
+    _queued_long_ago(folder)
+    helper = Agent(io.BytesIO())
+    spec = spec_value(RunSpec("s1", str(folder), resume=True))
+    with pytest.raises(ServiceError, match="s1 is queued: continue it once it ends"):
+        helper.start({"spec": spec, "launcher": "slurm"})
+    assert (folder / "spec.json").read_text(encoding="utf-8") == "{}"
+    assert not submitted.exists()  # no second job on the folder
+    with pytest.raises(ServiceError, match="s1 is queued: stop or cancel it first"):
+        helper.remove({"folder": str(folder)})
+    assert folder.exists()
+
+
+def test_a_slurm_run_the_scheduler_cannot_be_asked_about_is_left_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    down = 'echo "slurm_load_jobs error: Unable to contact slurm controller" >&2\n'
+    submitted = _slurm_bin(
+        tmp_path, monkeypatch, squeue=down + "exit 1\n", sacct=down + "exit 1\n"
+    )
+    folder = tmp_path / "runs" / "s1"
+    _queued_long_ago(folder)
+    helper = Agent(io.BytesIO())
+    spec = spec_value(RunSpec("s1", str(folder), resume=True))
+    with pytest.raises(ServiceError, match=r"s1 is not continued: .*slurm controller"):
+        helper.start({"spec": spec, "launcher": "slurm"})
+    assert not submitted.exists()
+    with pytest.raises(ServiceError, match=r"s1 is not removed: .*slurm controller"):
+        helper.remove({"folder": str(folder)})
+    assert folder.exists()
+
+
+def test_a_slurm_run_whose_job_has_gone_is_continued_and_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    submitted = _slurm_bin(
+        tmp_path,
+        monkeypatch,
+        squeue='echo "slurm_load_jobs error: Invalid job id specified" >&2\nexit 1\n',
+        sacct='echo "77|TIMEOUT"\necho "78|CANCELLED by 1234"\n',
+    )
+    folder = tmp_path / "runs" / "s1"
+    _queued_long_ago(folder)
+    helper = Agent(io.BytesIO())
+    spec = spec_value(RunSpec("s1", str(folder), resume=True))
+    summary = helper.start({"spec": spec, "launcher": "slurm"})
+    assert summary["slurm_job"] == "78" and submitted.exists()
+    # The continuation's job, cancelled in the queue, has gone too.
+    helper.remove({"folder": str(folder)})
+    assert not folder.exists()
+
+
+@pytest.mark.parametrize(
+    ("launcher", "resume", "refused"),
+    [
+        ("direct", True, "could not be started"),
+        ("slurm", True, "Slurm refused the job"),
+        # A new run is refused the folder before anything is set aside.
+        ("direct", False, "already holds a run"),
+    ],
+    ids=["continued-direct", "continued-slurm", "new"],
+)
+def test_a_start_that_cannot_be_launched_leaves_the_run_as_it_was(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    launcher: str,
+    resume: bool,
+    refused: str,
+):
+    from solprop.service.launch import SUBMITTED  # noqa: PLC0415 - only here
+    from solprop.service.messages import Event  # noqa: PLC0415 - only here
+    from solprop.service.record import (  # noqa: PLC0415 - only here
+        EventLog,
+        Job,
+        read_events,
+        write_json,
+    )
+    from solprop.service.runs import summarise  # noqa: PLC0415 - only here
+
+    _slurm_bin(
+        tmp_path,
+        monkeypatch,
+        sbatch='echo "sbatch: error: invalid partition specified: x" >&2\nexit 1\n',
+    )
+    folder = tmp_path / "runs" / "r1"
+    folder.mkdir(parents=True)
+    # A run that was stopped cleanly, its process gone.
+    here = socket.gethostname()
+    write_json(folder / SUBMITTED, {"launcher": "direct", "host": here, "pid": 0})
+    log = EventLog(folder, "r1", job=lambda: Job.here("r1", "direct"))
+    log.put(Event("r1", "stopped", {"path": "run.h5", "message": "by its stop flag"}))
+    log.close()
+    (folder / "run.h5").write_bytes(b"earlier part")
+    before = summarise(folder)
+    assert (before["state"], before["detail"]) == ("stopped", "by its stop flag")
+    helper = Agent(io.BytesIO())
+    run = (
+        RunSpec("r1", str(folder), resume=True)
+        if resume
+        else RunSpec("r1", str(folder), recipe=TINY)
+    )
+    spec = spec_value(run)
+    with pytest.raises(ServiceError, match=refused):
+        helper.start(
+            {"spec": spec, "launcher": launcher, "python": str(tmp_path / "none")}
+        )
+    after = summarise(folder)
+    assert (after["state"], after["detail"]) == ("stopped", "by its stop flag")
+    assert (after["started"], after["ended"]) == (before["started"], before["ended"])
+    assert [e.kind for e in read_events(folder)[0]] == ["stopped"]
+
+
+def test_a_run_that_has_not_ended_is_not_continued(tmp_path: Path):
+    from solprop.service.record import Job, process_stamp, write_job  # noqa: PLC0415
+
+    folder = tmp_path / "r1"
+    folder.mkdir()
+    # This process stands in for the run's own, alive and recorded, with no ending.
+    pid = os.getpid()
+    here = socket.gethostname()
+    write_job(folder, Job("r1", "direct", here, pid, process_stamp(pid), None, 0.0))
+    (folder / "run.h5").write_bytes(b"")
+    helper = Agent(io.BytesIO())
+    spec = spec_value(RunSpec("r1", str(folder), resume=True))
+    with pytest.raises(ServiceError, match="r1 is running: continue it once it ends"):
+        helper.start({"spec": spec, "launcher": "direct"})
+    assert (folder / "job.json").exists()  # its record is not set aside
 
 
 def test_the_hosted_kernel_in_this_process(monkeypatch):
@@ -706,7 +1066,96 @@ def test_a_followed_run_that_goes_without_an_ending_is_said_lost(
     (event,) = frames[-1]["events"]
     assert event["kind"] == "lost" and event["run_id"] == "gone"
     assert "before it started" in event["data"]["message"]
+    assert event["data"]["output"] is None  # no results file to open
     helper.close()
+
+
+def test_a_continued_run_still_starting_is_followed_and_cancelled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import subprocess  # noqa: PLC0415 - only here
+
+    from solprop.service.launch import SUBMITTED, prepare  # noqa: PLC0415
+    from solprop.service.record import (  # noqa: PLC0415 - only here
+        Job,
+        process_stamp,
+        write_job,
+        write_json,
+    )
+
+    monkeypatch.setattr(agent, "LIVENESS_PERIOD", 0.0)
+    here = socket.gethostname()
+    folder = tmp_path / "r1"
+    folder.mkdir()
+    # The earlier part ended, its process gone; the folder is continued.
+    write_job(folder, Job("r1", "direct", here, 0, None, None, 0.0, ended=1.0))
+    (folder / "run.h5").write_bytes(b"")
+    prepare(RunSpec("r1", str(folder), resume=True))
+    # Started (this sleeper stands in for the new part's process), not yet recorded.
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        write_json(
+            folder / SUBMITTED,
+            {
+                "launcher": "direct",
+                "host": here,
+                "pid": sleeper.pid,
+                "stamp": process_stamp(sleeper.pid),
+            },
+        )
+        output = io.BytesIO()
+        helper = Agent(output)
+        helper.follow({"folder": str(folder), "offset": 0, "period": 0.02})
+        time.sleep(0.3)
+        assert b"lost" not in output.getvalue()
+        helper.cancel({"folder": str(folder)})
+        assert sleeper.wait(timeout=WAIT) != 0
+        helper.close()
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+
+
+def test_a_followed_queued_slurm_run_asks_the_scheduler_seldom(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from solprop.service.launch import SUBMITTED  # noqa: PLC0415 - only here
+    from solprop.service.record import write_json  # noqa: PLC0415 - only here
+
+    if sys.platform == "win32":
+        pytest.skip("Slurm is faked with POSIX shell scripts")
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    calls = tmp_path / "calls"
+    (bin_ / "squeue").write_text(
+        f'#!/bin/sh\necho x >> "{calls}"\necho "77|PENDING|Priority"\n',
+        encoding="utf-8",
+    )
+    (bin_ / "squeue").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setattr(agent, "LIVENESS_PERIOD", 0.0)
+    folder = tmp_path / "s1"
+    folder.mkdir()
+    write_json(
+        folder / SUBMITTED,
+        {"launcher": "slurm", "slurm_job": "77", "submitted": time.time()},
+    )
+
+    def asked(period: float) -> int:
+        """Return how often following the queued job for 0.5 s asked squeue."""
+        monkeypatch.setattr(agent, "SLURM_LIVENESS_PERIOD", period)
+        calls.unlink(missing_ok=True)
+        output = io.BytesIO()
+        helper = Agent(output)
+        helper.follow({"folder": str(folder), "offset": 0, "period": 0.02})
+        time.sleep(0.5)
+        helper.close()
+        time.sleep(0.1)  # the follow's last check ends
+        assert b"lost" not in output.getvalue()
+        return len(calls.read_text().splitlines()) if calls.exists() else 0
+
+    assert asked(agent.SLURM_LIVENESS_PERIOD) == 0
+    assert asked(0.0) >= 3  # asked on every quiet read: what a short period costs
 
 
 def test_a_folder_held_open_is_removed_once_let_go(
@@ -810,4 +1259,31 @@ def test_a_followed_run_gone_before_recording_its_ending_has_it_sent(
         time.sleep(0.02)
     (sent,) = [f for f in answers(output) if f.get("kind") == "events"]
     assert [e["kind"] for e in sent["events"]] == ["stopped"]
+    helper.close()
+
+
+def test_a_followed_run_whose_ending_reached_only_its_summary_is_ended(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from solprop.service.record import EVENTS, STATUS, write_json  # noqa: PLC0415
+
+    monkeypatch.setattr(agent, "LIVENESS_PERIOD", 0.0)
+    folder = tmp_path / "r1"
+    folder.mkdir()
+    # The record could not take the terminal event (a full disk), the summary could.
+    frame = {"run_id": "r1", "kind": "row", "data": {"index": 0}}
+    (folder / EVENTS).write_bytes(encode(frame))
+    ending = {"kind": "stopped", "data": {"path": "run.h5", "message": "stop flag"}}
+    write_json(folder / STATUS, {"run_id": "r1", "ending": ending})
+    output = io.BytesIO()
+    helper = Agent(output)
+    helper.follow({"folder": str(folder), "offset": 0, "period": 0.02})
+    deadline = time.monotonic() + 10
+    while b"stopped" not in output.getvalue():
+        assert time.monotonic() < deadline
+        time.sleep(0.02)
+    sent = [f for f in answers(output) if f.get("kind") == "events"]
+    events = [event for frame in sent for event in frame["events"]]
+    assert [e["kind"] for e in events] == ["row", "stopped"]
+    assert events[-1] == {"run_id": "r1", **ending}
     helper.close()

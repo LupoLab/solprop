@@ -6,28 +6,18 @@
 
 Each run has its own folder, ``<date>-<title>``, holding ``run.h5``, ``recipe.toml``
 and ``run.log``. The folder is the truth: the list of runs is read from the disk each
-time, and copying a run's folder elsewhere loses nothing.
+time (:func:`solprop.service.runs.list_runs`), and copying a run's folder elsewhere
+loses nothing. This module names new run folders.
 """
 
 import re
-from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path, PurePosixPath
 
-__all__ = [
-    "DEFAULT_WORKSPACE",
-    "RunEntry",
-    "list_runs",
-    "new_run_folder",
-    "remote_run_folder",
-    "slug",
-]
+__all__ = ["DEFAULT_WORKSPACE", "new_run_folder", "remote_run_folder", "slug"]
 
 DEFAULT_WORKSPACE = Path.home() / "solprop-runs"
 """The workspace when the user has chosen none."""
-
-_OUTPUT = "run.h5"
-_RECIPE = "recipe.toml"
 
 
 def slug(title: str | None) -> str:
@@ -85,40 +75,6 @@ def new_run_folder(root: Path, title: str | None, today: date | None = None) -> 
         return candidate
 
 
-@dataclass(frozen=True)
-class RunEntry:
-    """One run folder of the workspace.
-
-    Attributes
-    ----------
-    folder : pathlib.Path
-        The folder.
-    output : pathlib.Path or None
-        Its results file, if it has one.
-    recipe : pathlib.Path or None
-        Its recipe, if it has one.
-    modified : float
-        When its results file, or else the folder, last changed (seconds since the
-        epoch).
-    """
-
-    folder: Path
-    output: Path | None
-    recipe: Path | None
-    modified: float
-
-    @property
-    def name(self) -> str:
-        """Return the run's name, its folder's.
-
-        Returns
-        -------
-        str
-            The folder's name.
-        """
-        return self.folder.name
-
-
 def remote_run_folder(
     workspace: str, home: str, title: str | None, now: datetime | None = None
 ) -> str:
@@ -155,42 +111,3 @@ def remote_run_folder(
         base = home.rstrip("/") + base[1:]
     name = f"{when:%Y-%m-%d}-{slug(title)}-{when:%H%M%S}"
     return str(PurePosixPath(base) / name)
-
-
-def list_runs(root: Path) -> list[RunEntry]:
-    """List the run folders of a workspace, newest first.
-
-    Parameters
-    ----------
-    root : pathlib.Path
-        The workspace.
-
-    Returns
-    -------
-    list of RunEntry
-        Every folder holding a results file or a recipe; empty when the workspace
-        does not exist.
-    """
-    if not root.is_dir():
-        return []
-    entries: list[RunEntry] = []
-    for folder in root.iterdir():
-        if not folder.is_dir():
-            continue
-        output = folder / _OUTPUT
-        recipe = folder / _RECIPE
-        has_output = output.is_file()
-        has_recipe = recipe.is_file()
-        if not (has_output or has_recipe):
-            continue
-        modified = (output if has_output else folder).stat().st_mtime
-        entries.append(
-            RunEntry(
-                folder,
-                output if has_output else None,
-                recipe if has_recipe else None,
-                modified,
-            )
-        )
-    entries.sort(key=lambda entry: (entry.modified, entry.name), reverse=True)
-    return entries

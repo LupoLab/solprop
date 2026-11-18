@@ -628,7 +628,11 @@ def test_the_two_propagator_modes_agree(soliton_problem, soliton_grid):
 def test_the_envelope_third_harmonic_term_is_executed(
     backend_class, thg_problem, thg_grid
 ):
-    """The one compiled Kerr path nothing else exercises; the carrier is built here."""
+    """The harmonic switch reaches the run's Kerr term and leaves the pump's peak.
+
+    How much harmonic the term radiates is held against the weak-conversion estimate on
+    both backends (``tests/driver/test_envelope_harmonic.py``).
+    """
     with_harmonic, with_harmonic_request = thg_problem(thg=True)
     without, without_request = thg_problem(thg=False)
     assert with_harmonic.responses.kerr_coefficients.harmonic_factor == 0.25
@@ -638,7 +642,7 @@ def test_the_envelope_third_harmonic_term_is_executed(
     difference = np.max(np.abs(first.field - second.field))
     assert difference > 0.0
     # The harmonic is radiated near 3 omega_0, far outside the band the fundamental
-    # occupies, so it must show up above the pump's own bins there and nowhere else.
+    # occupies, so the pump's peak stays where it was.
     assert np.max(np.abs(first.field)) == pytest.approx(
         np.max(np.abs(second.field)), rel=1e-3
     )
@@ -693,7 +697,7 @@ def test_the_alarm_is_weighted_at_the_stage_it_was_scored_from(
     # which lands on the plane rather than sitting at the entrance.
     assert stage_z == pytest.approx(0.1, abs=1e-12)
     weight = prefactor_at(problem.responses, stage_z)
-    assert not np.allclose(weight, prefactor_at(problem.responses, 0.0))
+    assert not np.allclose(weight, prefactor_at(problem.responses, 0.0), atol=0.0)
     backend.close()
 
 

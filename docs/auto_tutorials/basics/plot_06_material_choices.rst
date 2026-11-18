@@ -23,7 +23,8 @@ Compare material choices
 
 The default material data for gases, solids, Raman responses and ionisation
 rates come from the curated library optmat
-(`SEP 3 <../../dev/seps/archive/sep-0003-optmat-materials.html>`_): a run
+(`SEP 3 <https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md>`_):
+a run
 with no ``materials=`` takes ``MaterialSelection()``, optmat's recommended model of
 each family. This tutorial shows how to see what a run resolved, how to declare a
 different material, and how to tell which part of the physics a change touches.
@@ -39,7 +40,7 @@ response, ionisation rate and solid index -- by reading the runs' material manif
 The guide is far too short to be a physical prediction; it ranks the changes. See
 :doc:`/guide/media/materials` for the full selection guide.
 
-.. GENERATED FROM PYTHON SOURCE LINES 27-47
+.. GENERATED FROM PYTHON SOURCE LINES 28-48
 
 .. code-block:: Python
 
@@ -70,7 +71,7 @@ The guide is far too short to be a physical prediction; it ranks the changes. Se
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 48-54
+.. GENERATED FROM PYTHON SOURCE LINES 49-55
 
 What optmat resolves
 --------------------
@@ -79,7 +80,7 @@ and a SHA-256 digest that changes whenever the model's numbers can. The status s
 how far optmat vouches for it (``validated``, ``provisional``, ``untested``,
 ``comparison`` for a curated alternative, ``user`` for a caller's override).
 
-.. GENERATED FROM PYTHON SOURCE LINES 54-68
+.. GENERATED FROM PYTHON SOURCE LINES 55-69
 
 .. code-block:: Python
 
@@ -106,8 +107,8 @@ how far optmat vouches for it (``validated``, ``provisional``, ``untested``,
  .. code-block:: none
 
     gas_refractive           fit/Ar                   validated  f0efa785e42d
-    equation_of_state        eos/Ar                   validated  85ee5c2688ac
-    transport                transport/Ar             validated  1054ed95ba27
+    equation_of_state        eos/Ar                   validated  15a9b124e6ee
+    transport                transport/Ar             validated  314ba33bd217
     gas_hyperpolarizability  hyperpolarizability/Ar   validated  d15700d61f7a
     solid                    fit/SiO2                 validated  93e901d77368
 
@@ -117,7 +118,7 @@ how far optmat vouches for it (``validated``, ``provisional``, ``untested``,
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 69-75
+.. GENERATED FROM PYTHON SOURCE LINES 70-76
 
 A quick experiment
 ------------------
@@ -126,7 +127,7 @@ result is status ``user``, lists what changed and keeps the digest of the model 
 started from, so a run's record says exactly what was declared. Here argon's rate
 with two effective electrons in place of one: twice the rate, at every field.
 
-.. GENERATED FROM PYTHON SOURCE LINES 75-83
+.. GENERATED FROM PYTHON SOURCE LINES 76-84
 
 .. code-block:: Python
 
@@ -152,7 +153,7 @@ with two effective electrons in place of one: twice the rate, at every field.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 84-90
+.. GENERATED FROM PYTHON SOURCE LINES 85-91
 
 One short run, four material choices
 ------------------------------------
@@ -161,7 +162,7 @@ A 50 um-radius, 0.4 mm argon capillary at 1 bar with a 30 fs, 100 uJ pulse at
 witness. The absorbing collar is lengthened, as the witness's was, because the
 default collar of so short a guide is too stiff for ten fixed steps.
 
-.. GENERATED FROM PYTHON SOURCE LINES 90-136
+.. GENERATED FROM PYTHON SOURCE LINES 91-137
 
 .. code-block:: Python
 
@@ -218,7 +219,7 @@ default collar of so short a guide is too stiff for ten fixed steps.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 137-144
+.. GENERATED FROM PYTHON SOURCE LINES 138-145
 
 Which family each change touched
 --------------------------------
@@ -228,7 +229,7 @@ kind by kind says which family a change reached, whatever the change was declare
 as. The other columns are the change of the output: the spectrum's relative change
 in norm, and the ionised fraction and peak power at the exit.
 
-.. GENERATED FROM PYTHON SOURCE LINES 144-202
+.. GENERATED FROM PYTHON SOURCE LINES 145-203
 
 .. code-block:: Python
 
@@ -312,7 +313,7 @@ in norm, and the ionised fraction and peak power at the exit.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 203-210
+.. GENERATED FROM PYTHON SOURCE LINES 204-211
 
 The rate dominates: twice the rate raises the ionised fraction at the exit by
 three quarters and changes the spectrum by more than ten per cent. Another gas index
@@ -322,7 +323,7 @@ reaches the wall of a 50 um core in 0.4 mm.
 
 The figure compares the exit spectra.
 
-.. GENERATED FROM PYTHON SOURCE LINES 210-234
+.. GENERATED FROM PYTHON SOURCE LINES 211-235
 
 .. code-block:: Python
 
@@ -363,12 +364,12 @@ The figure compares the exit spectra.
 
  .. code-block:: none
 
-    run time 5.5 s
+    run time 0.5 s
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 235-242
+.. GENERATED FROM PYTHON SOURCE LINES 236-243
 
 Related reading
 ---------------
@@ -381,7 +382,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 5.566 seconds)
+   **Total running time of the script:** (0 minutes 0.567 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_basics_plot_06_material_choices.py:

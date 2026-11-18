@@ -395,7 +395,7 @@ to change it. The scan's second moment, read as a Gaussian's width, recovers it.
 
     correlation FWHM: 61.1 fs (predicted 61.2 fs)
 
-    <matplotlib.legend.Legend object at 0x1278927b0>
+    <matplotlib.legend.Legend object at 0x117b9e120>
 
 
 
@@ -509,7 +509,7 @@ A relaxed check lets the coarse runs finish, so that what they hold can be read.
     BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
     2 μm, ramp: energy fraction within K0/4 of +-2 K0: 1.37e-05
 
-    <matplotlib.legend.Legend object at 0x127550590>
+    <matplotlib.legend.Legend object at 0x117f246e0>
 
 
 
@@ -629,7 +629,7 @@ about a part in a million and shows the rate alone.
     BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
     BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.41e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
     largest departure of the transmission from exp(-alpha L): 7.2e-07
-    tutorial run time: 12.6 s
+    tutorial run time: 3.6 s
 
 
 
@@ -642,12 +642,12 @@ Related reading
 statistics-only planes, :doc:`/guide/numerics/boundaries` the custom absorber and
 the two lengths of a collar, and :doc:`/guide/free-space/cartesian` the one-half rule
 and the transverse safety ramp. The design is
-:doc:`SEP 22 </dev/seps/archive/sep-0022-memory-lean-spatial-execution>`.
+`SEP 22 <https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0022-memory-lean-spatial-execution.md>`_.
 
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 12.755 seconds)
+   **Total running time of the script:** (0 minutes 3.608 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_06_four_wave_mixing_scan.py:

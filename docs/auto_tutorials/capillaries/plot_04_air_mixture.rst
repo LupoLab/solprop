@@ -119,7 +119,7 @@ The default fractions are divided by 0.9996 because carbon dioxide is omitted.
 
  .. code-block:: none
 
-    MaterialRangeWarning: N2+O2+Ar: optmat's Raman response raman_response/N2+O2+Ar@300K,800nm is used outside its validated density range (5.396 to 5.396 amagat). optmat: density above 2.07 amagat, where the lines overlap: their mixing is not modelled (TC-527, TC-688)
+    MaterialRangeWarning: N2+O2+Ar: optmat's Raman response raman_response/N2+O2+Ar@300K,800nm is used outside its validated density range (5.396 to 5.396 amagat). optmat: density above 2.07 amagat, where the lines overlap: their mixing is not modelled
 
 
 
@@ -186,9 +186,9 @@ with_mixture rebuilds those coefficients while sharing rates, geometry and input
 
  .. code-block:: none
 
-    MaterialRangeWarning: N2+O2+Ar: optmat's Raman response raman_response/N2+O2+Ar@300K,800nm is used outside its validated density range (5.396 to 5.396 amagat). optmat: density above 2.07 amagat, where the lines overlap: their mixing is not modelled (TC-527, TC-688)
-    MaterialRangeWarning: N2+O2+Ar: optmat's Raman response raman_response/N2+O2+Ar@300K,800nm is used outside its validated density range (5.396 to 5.396 amagat). optmat: density above 2.07 amagat, where the lines overlap: their mixing is not modelled (TC-527, TC-688)
-    MaterialRangeWarning: N2+O2+Ar: optmat's Raman response raman_response/N2+O2+Ar@300K,800nm is used outside its validated density range (5.396 to 5.396 amagat). optmat: density above 2.07 amagat, where the lines overlap: their mixing is not modelled (TC-527, TC-688)
+    MaterialRangeWarning: N2+O2+Ar: optmat's Raman response raman_response/N2+O2+Ar@300K,800nm is used outside its validated density range (5.396 to 5.396 amagat). optmat: density above 2.07 amagat, where the lines overlap: their mixing is not modelled
+    MaterialRangeWarning: N2+O2+Ar: optmat's Raman response raman_response/N2+O2+Ar@300K,800nm is used outside its validated density range (5.396 to 5.396 amagat). optmat: density above 2.07 amagat, where the lines overlap: their mixing is not modelled
+    MaterialRangeWarning: N2+O2+Ar: optmat's Raman response raman_response/N2+O2+Ar@300K,800nm is used outside its validated density range (5.396 to 5.396 amagat). optmat: density above 2.07 amagat, where the lines overlap: their mixing is not modelled
 
 
 
@@ -229,8 +229,8 @@ Its units follow P_R(t) = eps0 rho_N2 E(t) integral h(t-t') E(t')^2 dt'.
  .. code-block:: none
 
     Oxygen Raman omitted by the explicit raman=('N2',) selection.
-    with_mixture translation times (s): [0.11414074990898371, 0.10931341699324548, 0.11484987498261034]
-    Complete example and three-point sweep: 2.126 s
+    with_mixture translation times (s): [0.12389149994123727, 0.11254504101816565, 0.11838695802725852]
+    Complete example and three-point sweep: 1.813 s
 
 
 
@@ -247,7 +247,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 2.202 seconds)
+   **Total running time of the script:** (0 minutes 1.890 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_capillaries_plot_04_air_mixture.py:

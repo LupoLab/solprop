@@ -785,21 +785,20 @@ class ScalarModeBasis:
                     "holds a step-index fibre's HE1m (LP0m) modes only"
                 )
                 raise CouplingError(msg)
+            # Not dimlimits: each channel bounds its cladding at its own radius.
             if (
                 mode.profile_wavelength != first.profile_wavelength
-                or mode._core != first._core
-                or mode._cladding != first._cladding
-                or mode.dimlimits(z)[2] != first.dimlimits(z)[2]
+                or not first.same_guide(mode)
             ):
                 msg = "step-index modes of one scalar basis share one fibre and profile"
                 raise CouplingError(msg)
         radius = float(first._radius(z))
-        omega_p = 2.0 * math.pi * 299792458.0 / first.profile_wavelength
+        omega_p = 2.0 * math.pi * C / first.profile_wavelength
         core_p = float(real_index_and_slope(first._core, np.array([omega_p]))[0][0])
         cladding_p = float(
             real_index_and_slope(first._cladding, np.array([omega_p]))[0][0]
         )
-        v = omega_p / 299792458.0 * radius * math.sqrt(core_p**2 - cladding_p**2)
+        v = omega_p / C * radius * math.sqrt(core_p**2 - cladding_p**2)
         parameters = [_lp_parameter(v, mode.m) for mode in modes]
         live = grid.active_mask & (grid.omega > 0)
         core = np.zeros(grid.n_omega)

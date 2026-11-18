@@ -767,20 +767,11 @@ class BoundaryMonitor:
         ]
         self._collar_max = _number(record, "collar_max", 0.0)
         self._raw_removed = _number(record, "raw_removed_fraction", 0.0)
-        # The floor's expected removal, uncapped; a record from before it was kept
-        # gives it back from the signed or the reported removal.
-        judged = _number(record, "removed_signed", math.nan)
-        if not math.isfinite(judged):
-            judged = _number(record, "removed_fraction", 0.0)
-        self._floor_removed = _number(
-            record, "floor_removed_fraction", self._raw_removed - judged
+        self._floor_removed = _number(record, "floor_removed_fraction", 0.0)
+        self._restored_quiet = (
+            _count(_number(record, "quiet_checks", 0.0), "quiet_checks"),
+            bool(record.get("collar_quiet", False)),
         )
-        quiet_checks = _number(record, "quiet_checks", math.nan)
-        if math.isfinite(quiet_checks):
-            self._restored_quiet = (
-                _count(quiet_checks, "quiet_checks"),
-                bool(record.get("collar_quiet", False)),
-            )
         self._raw_guard_max = _number(record, "raw_guard_max", 0.0)
         self._steps = _count(_number(record, "steps", 0.0), "steps")
         self._skipped = _count(_number(record, "skipped", 0.0), "skipped")
@@ -983,7 +974,7 @@ class BoundaryMonitor:
         """
         if self._busy or self._since_check + 1 >= CADENCE:
             return True
-        return self._last is None or z - self._last[0] >= self.interval
+        return self._last is None or bool(z - self._last[0] >= self.interval)
 
     def skip(self, z: float) -> None:
         """Count a committed step that is not checked.
@@ -1045,6 +1036,8 @@ class BoundaryMonitor:
 
     def watch_state(self) -> dict[str, object]:
         """Return what a compiled march's predictions read and change of this monitor.
+
+        For tests: the native march keeps its own copy, which they compare with this.
 
         Returns
         -------

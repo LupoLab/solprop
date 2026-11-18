@@ -71,19 +71,20 @@ Envelope plasma with THG is refused. The native CPU/CUDA/HIP paths
 have their own qualification. The [running guide](../guide/setup/running.md)
 and [backends.md](backends.md) record the qualified scope.
 
-**Optional atomic response** ([SEP 12](seps/archive/sep-0012-tdse-nonlinear-response.md)).
+**Optional atomic response** ([SEP 12](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0012-tdse-nonlinear-response.md)).
 A scalar helium `TDSEGasResponse` owns
 the gas nonlinearity. Its immutable specification becomes a `TDSEDescriptor`;
 the driver lazily owns native plans and stable radial chunks and passes a narrow
 host binding explicitly to NumPy. The optical march uses Adams. Atomic device
-execution is independent of the optical backend. The native backend refuses this
-response by name. The kernel schema includes separate polarisation and current
+execution is independent of the optical backend. The native CPU build executes this
+response ([SEP 49](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0049-tdse-on-native.md)); native device builds
+refuse it by name. The kernel schema includes separate polarisation and current
 factors: current enters with `-1/(2 epsilon_0 c Re(n_eff))`, without division by
 frequency. The provider's raw discrete shadows are subtracted before density
 and calibration. Native retention subtracts only the first-order current and
 applies its explicitly declared positive scale to the whole nonlinear current;
 its polarisation contribution is zero. Its source is always gated and edge-free
-([SEP 26](seps/archive/sep-0026-edge-free-tdse-source.md)): the backend multiplies the already subtracted remainder by its gate,
+([SEP 26](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0026-edge-free-tdse-source.md)): the backend multiplies the already subtracted remainder by its gate,
 `grids.t_window_fine` or the atomic window's, before source projection/FFT, and
 subtracts the gate's edge term `F[g' S]/(i omega)` on the active bins. The raw provider result, atomic
 drive and separate in-stage field absorber are unchanged. This is a recorded
@@ -101,7 +102,7 @@ the window and the atomic cut error are unresolved
 saved output has a schema version and the kernel contract has none
 ([kernel contract](kernel-contract.md), ADR-068).
 
-**haCC helium** ([SEP 20](seps/archive/sep-0020-hacc-helium-tdse.md)). The same route carries a second atomic model, the
+**haCC helium** ([SEP 20](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0020-hacc-helium-tdse.md)). The same route carries a second atomic model, the
 two-electron haCC atom (`TDSEGasResponse.model="hacc"` with a `HaccBasis`), at a
 fixed current scale of one. Its descriptor may carry an atomic window
 whose gate replaces the grid collar as the source gate; the binding slices and
@@ -122,7 +123,7 @@ belong to the driver/binding, which runs the provider in a worker process of its
 provider's adapter): framed pipes, no pickle, cancellation while waiting; modal synthesis to the nodes, the assembly of the
 macroscopic sources and their projection belong to `backends/tdse_source.py`, which
 imports neither backend and which a backend calls from its source evaluation
-([SEP 49](seps/archive/sep-0049-tdse-on-native.md)). See the [TDSE manual](../guide/media/tdse.md).
+([SEP 49](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0049-tdse-on-native.md)). See the [TDSE manual](../guide/media/tdse.md).
 
 Geometry: mode-averaged propagation is the single-node case of multimode propagation (the
 effective-area normalisation replaces the quadrature); the GNLSE is the mode-averaged
@@ -156,7 +157,7 @@ request itself is T (`translate.run_request`), built from these records.
 
 **Rules are built in P.** `modes/quadrature.py` constructs its transverse rules
 numerically -- Laurie's Kronrod recursion, and the field-scale rules of
-[SEP 19](seps/archive/sep-0019-field-scale-quadrature.md) by the Lanczos
+[SEP 19](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0019-field-scale-quadrature.md) by the Lanczos
 process and the Golub–Welsch eigenvalue method, certified on construction -- once per
 problem, and caches them, and it holds the Chebyshev–Lobatto points and coefficients
 that both a guide's sampling and T's tables are built on. A guide samples its provider
@@ -180,6 +181,14 @@ package keeps its local hold and imports no solprop code. Construction excludes 
 native backend's own BLAS and does not import a backend; an already loaded native
 package supplies its library identity through `build_info`. See the
 [BLAS guide](../guide/performance/tuning.md#blas-and-vendor-libraries).
+
+**Threaded passes over large arrays.** One performance measure is allowed in P: a NumPy
+pass over an array of 64 MiB or more (`_process.PARALLEL_BYTES`) may split its rows over
+threads within the thread budget through `_process.parallel_rows`, the pass's rows being
+independent and NumPy's ufuncs releasing the GIL. `SpatialPulse.build` uses it for a large
+beam launch (with its first touch per thread and its column norms reused), and so do the
+host reduction of a state's energy into the boundary's split-rate buckets (`boundaries.py`) and the plane measure's admittance
+(`spatial.py`). Smaller arrays run in one call, and nothing in P threads per step.
 
 **Deliberate upward edges.** A handful of imports climb a layer, each for a reason
 recorded here and in the allowlist of `tests/test_layers.py`, which checks every import
@@ -248,7 +257,7 @@ NumPy/SciPy/h5py/matplotlib. A value type in P may carry what T
 designed and apply it with NumPy alone: the plasma column's
 `nonlinear.ionisation.RunningIntegral` holds taps that `translate.plasma_integration`
 fits and certifies, and filters and sums with them
-([SEP 18](seps/archive/sep-0018-band-exact-plasma-integrals.md)).
+([SEP 18](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0018-band-exact-plasma-integrals.md)).
 
 ## 4. Package layout
 
@@ -267,18 +276,18 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `linear.py`, `boundaries.py`, `spatial_absorber.py`, `monitor.py`, `transverse_monitor.py`, `nonlinear/` | Linear assembly; absorbing rates, in time and at a spatial grid's edge, and the monitors that read what a boundary absorbs (the time window's and the transverse edge's, under one `BoundaryCheck` policy); response definitions, ionisation, Raman, normalisation and the GNLSE mapping | P |
 | `translate/` | Validated `PropagationProblem` (`translate/problem.py`) and its route union (`translate/routes.py`), assembled by `assemble` (`translate/assembly.py`), with a capillary's coherent wall and taper coupling in `translate/walls.py` and the refusals and advisories assembly applies in `translate/validation.py`; parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); what the general route and the coupled flow execute, checked once (`translate/admission.py`); response tables, masks and stage bundles | T |
 | `backends/` | Registry and protocols (`registry.py`, `protocol.py`); the session contract, its events and the run layer's one door to a backend's sessions (`session.py`, `events.py`, `sessions.py`), and export into a destination (`export.py`); the run records both backends read (`records.py`, SEP 52); the engine protocols the marches call (`engines.py`) and the march controllers native is traced against (`rk_core.py`, `adams_core.py`, `low_storage.py`); the exponential Adams weights (`exponential.py`); the Adams call ledger both backends keep (`ledger.py`); node chunks and the byte counts of the memory ledgers (`node_chunk.py`, `memory.py`); spatial and population statistics (`spatial.py`, `populations.py`); and the TDSE response's host source assembly (`tdse_source.py`) | B |
-| `backends/numpy_ref/` | Reference execution: the passes (`passes/`), the workspace with its stage source, statistics and coupled flow, the engines, the Adams engine, kernels and tables, and the reference's own run session (`session.py`, composed of `session_parts.py`) with its Runge-Kutta, Adams and low-storage marches (`marches/`, [SEP 47](seps/archive/sep-0047-run-ownership.md) phase 2) | B |
+| `backends/numpy_ref/` | Reference execution: the passes (`passes/`), the workspace with its stage source, statistics and coupled flow, the engines, the Adams engine, kernels and tables, and the reference's own run session (`session.py`, composed of `session_parts.py`) with its Runge-Kutta, Adams and low-storage marches (`marches/`, [SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) phase 2) | B |
 | `stepper/`, `stats/`, and in `output/`: `records.py`, `serialisation.py`, `provenance.py`, `metadata.py`, `store.py`, `capability.py` | The run specification: tableaux, controllers and schedules, and the stepper section of a run request (`stepper/settings.py`); the statistics definitions, catalogue, specification and their collection; and the run record: serialising configuration objects, what executed a run, the record types of a saved run and its planes, `RunMetadata` and the resume key, the save protocol with `PlaneStore` and field retention, and what a saved basis can be asked for | S |
 | `driver/`, `driver/routes/`, `driver/executors/`, `scan.py` | The `Simulation` object (`simulation.py`) with its settings and their admission (`settings.py`), its input, launch, noise and peak field (`inputs.py`), its run record (`metadata.py`), resume (`resume.py`), many-input runner (`runner.py`) and TDSE run glue (`tdse_run.py`), with the TDSE response's binding and diagnostics (`tdse.py`) and its consistency check (`tdse_consistency.py`); the run loop over save planes and the service loop that serves a session's events (`run.py`, `session_loop.py`), a run's fill and its material records (`mixtures.py`, `material_output.py`), the printed summary, cost estimate and defaults (`summary.py`, `estimate.py`, `defaults.py`) and the view of an observed plane (`plane_view.py`); the keyword routes behind its constructors, one module per family (`routes/`: GNLSE, hollow guides, general modal guides, spatial grids, and the material selection and keyword attribution they share); the convenience interfaces, scan orchestration, Local/Pool/Queue/Slurm execution and the scan command line | D |
 | `recipe/`, `cli.py` | A run written as a TOML recipe: its document format and upgrades, quantities with units, parameter paths and pins, the registry that decodes configuration objects, the route and type metadata a front end shows (`metadata.py`, `type_metadata.py`), previews, provenance and export to Python; and the `solprop` command line (`run`, `check`, `resume`, `calibrate`) | D |
-| `calibration/` | The native backend's machine calibration ([SEP 46](seps/archive/sep-0046-machine-calibration.md)): reading, showing, exporting, importing and clearing profiles in the per-user store, through solprop-native's standard-library modules loaded by path so that the native runtime never starts (`calibration/_native.py`), the measuring controller, its child processes, the synthetic problems they time, the operation-grain candidates and the selection rule (`calibration/controller.py`, `child.py`, `problems.py`, `grain.py`, `selection.py`), the refinement of one simulation (`calibration/refine.py`, stage 2, which `Simulation.calibrate` runs), the first-use check that a native run has a profile (`calibration/first_use.py`), and the `solprop calibrate` command (`calibration/command.py`). It imports `solprop_native` directly, below the seam (section 3) | D |
+| `calibration/` | The native backend's machine calibration ([SEP 46](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0046-machine-calibration.md)): reading, showing, exporting, importing and clearing profiles in the per-user store, through solprop-native's standard-library modules loaded by path so that the native runtime never starts (`calibration/_native.py`), the measuring controller, its child processes, the synthetic problems they time, the operation-grain candidates and the selection rule (`calibration/controller.py`, `child.py`, `problems.py`, `grain.py`, `selection.py`), the refinement of one simulation (`calibration/refine.py`, stage 2, which `Simulation.calibrate` runs), the first-use check that a native run has a profile (`calibration/first_use.py`), and the `solprop calibrate` command (`calibration/command.py`). It imports `solprop_native` directly, below the seam (section 3) | D |
 | `output/` (the handlers) | Memory, HDF5 and callback outputs (`memory.py`, `hdf5.py`, `callback.py`), the TDSE archive, snapshots and resumability (`tdse_archive.py`, `snapshots.py`, `resumable.py`), scan storage and per-point artifacts (`scan.py`, `scan_artifacts.py`) and the writer and scan locks; the record types they write are S, above | D |
 | `processing/`, `plotting/`, `sol.py`, `capabilities.py` | Field, spectrum, time, coherence, compression, mixture and scan analysis; a saved plane read back as a field plane or a fluence map (`processing/planes.py`), and a field plane's file form (`processing/plane_file.py`); propagation/statistics plots and spectrograms; the interactive session namespace, the one module whose import has side effects; and the capability report of what a route, species or saved output supports (`capabilities.py`) | X |
 | `service/` | Front-end support, above every other layer: the messages between a front end and solprop, the kernel process that answers a front end's checks, previews and readings of a results file as plain data, each run as a job that keeps its record in its folder, and the helper and connection that reach a machine's runs over SSH ([the front end's design](gui/design.md), sections 13.3 and 13.4). Not part of the user API and outside the stability promise; nothing else in solprop imports it | X |
 
 `solprop-native` is the backend's second distribution, built from `native/` in this
 repository at solprop's own version, and a required dependency of solprop pinned to that
-version ([SEP 43](seps/archive/sep-0043-retire-numba-cpu.md)). It depends on the seam,
+version ([SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md)). It depends on the seam,
 which has no version number: the pin and `check_build` guard it (ADR-068).
 
 `solprop-gui`, the desktop front end, is the third, built from `gui/` at solprop's
@@ -369,7 +378,8 @@ driver does not do is as much a part of the design as what it does:
 - It **never conjugates a spectrum**. The backend works in the FFT convention, the output
   layer's recipe converts on the way to disk -- applied by the session as it exports a kept
   field into the store ([backends.md §1](backends.md#1-the-seam), "Export into a
-  destination") -- and those are the only two places a sign changes.
+  destination"). Where the sign changes is listed once, in
+  [conventions.md §2](conventions.md#2-fourier-transform-and-the-sign-of-propagation-adr-017).
 - It **never touches the state between planes**. Everything between two save planes
   happens inside the backend's march.
 - It **never computes physics**. The mapping from `gamma` to a susceptibility is
@@ -393,9 +403,9 @@ ModalProvider  ->  DenseModalTable  ->  ModalTransformTables  ->  PropagationPro
 
 `FieldGrid` and `EnvelopeGrid` implement one protocol: time axis `t` (`n_t` points, spacing
 `δt`), coarse frequency axis `omega` (`n_omega`: `n_t/2+1` for the field grid, `n_t` for the
-envelope grid in FFT order), the oversampled fine axes `t_fine`/`omega_fine` (factor `ffac`:
-6 for a cubic field response with third-harmonic content, 4 for `|E|²E`, 1 or 2 for
-envelopes), the in-band mask (physical frequencies inside the wavelength limits), the
+envelope grid in FFT order), the oversampled fine axes `t_fine`/`omega_fine` (factor `ffac`,
+at least 2: by default 6 on the field grid, and on the envelope grid 6 with third-harmonic
+content and 2 without), the in-band mask (physical frequencies inside the wavelength limits), the
 spectral and temporal collar profiles, and the reference frequency `ω₀`. The temporal collar
 lies outside the requested window: the realised window is at least
 `trange / (1 − 2 collar_fraction)`, `collar_fraction` 0.1 by default (ADR-057). Sizes are even
@@ -414,7 +424,8 @@ model allows; a validated finite-difference fallback otherwise, ADR-006), `field
 (transverse field components at points), `dimlimits(z)`, `aeff(z)`, and the traits
 `z_constant`, `scale_invariant`, `azimuthal_order`. Derived quantities (β, α, β₁, β₂, ZDW,
 loss length) are protocol-level functions. `MarcatiliMode` (hollow capillary, full and reduced
-models, loss as a Boolean, scale factor or callable of ω) shares gas-fill machinery
+models, the model's loss scaled by `loss_scale` or replaced by an absolute `alpha`, a number or
+callable of ω) shares gas-fill machinery
 with the tabulated and rectangular hollow modes; the core index is a
 `ZProfile`-aware object so gradients and tapers are ordinary cases. `n_eff − 1` is computed
 directly, never as `(1 + x) − 1`.
@@ -428,8 +439,9 @@ exact on pieces certified monotone. An arbitrary callable must declare its turni
 points to have one; sampling is not an enclosure. The adiabatic certificate
 (`adiabatic.py`, SEP 34 §4.5) builds on it. Pressure gradients use the steady-flow
 profile `p(z) = sqrt(p₀² + (z/L)(p₁² − p₀²))`; fills must not start or end at exactly zero
-pressure (a vacuum-terminated fill caps every scheme at order ~3, [stepper.md](stepper.md)
-§10; the interface substitutes a small floor and logs it). A steady-flow fill of a
+pressure (a vacuum-terminated fill caps every scheme at low order, 1.4 to 1.6 measured,
+[accuracy.md §5](accuracy.md#5-milestone-m2-the-rdw-example-four-modes-15-m-gradient) and
+[stepper.md](stepper.md) §10; the interface substitutes a small floor and logs it). A steady-flow fill of a
 hollow fibre (`gasflow.py`) follows the bore and chokes at its vacuum end (ADR-032).
 
 `modes/quadrature.py` builds the fixed transverse rules (Gauss–Legendre radial with Kronrod
@@ -444,7 +456,7 @@ transform, and only `mode_averaged_transform` makes `Transform.kind == "mode_ave
 
 ### 6.3 Materials (`physdata/`)
 
-solprop keeps no material database of its own ([SEP 3](seps/archive/sep-0003-optmat-materials.md)).
+solprop keeps no material database of its own ([SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md)).
 Every built-in material is optmat's, adapted at the boundary: a gas's polarizability
 (`OptmatSusceptibility`), equation of state and transport (`OptmatGas`) and electronic
 Kerr model at the carrier (`OptmatKerr`), its first ionisation energy, and the solids'
@@ -546,7 +558,7 @@ shared groups are common to every route; what differs between routes is one vari
 closed union, `problem.route` (`translate/routes.py`: `ModalRoute`, `GeneralRoute` or
 `SpatialRoute` of kind radial, Cartesian, planar or line), each with the fields its
 executor needs, which every backend visits explicitly and refuses by name before it
-allocates ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.2). Beside the problem it
+allocates ([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) §6.2). Beside the problem it
 returns the run's `RunRequest` (`translate/run_request.py`): the stepper settings with
 the route's defaults filled and the collars' limits applied, the save planes and the
 statistics, which are how the problem is run and not what it means (SEP 47 §5.2;
@@ -579,7 +591,14 @@ changes.
 
 ## 8. The solver, in one page
 
-Details and evidence are in [stepper.md](stepper.md). The anatomy of one stage `i` of the
+Details and evidence are in [stepper.md](stepper.md). There are three integrators
+([stepper.md §2](stepper.md)): `Multistep()`, the exponential Adams method, one source
+evaluation per accepted step, the default on the capillary, radial and planar routes and
+for settings built by hand; `RungeKutta()`, interaction-picture DOPRI5, the default on the
+GNLSE, waveguide, slab and Cartesian and line free-space routes
+(`solprop.driver.defaults.ROUTE_DEFAULTS`); and the replay-only `LowStorageRungeKutta()`.
+Every one evaluates the same source passes (2 to 6 below); the Adams and low-storage
+engines evaluate them at a lab-frame field. The anatomy of one stage `i` of the
 interaction-picture DOPRI5 step from anchor `z_n`, for a multimode field-grid problem, as the
 backend executes it (each numbered line is one pass over its data; the FFT counts are the
 cost metric):
@@ -597,11 +616,11 @@ two temporal transforms to that modal route. Radial propagation instead transfor
 combines the three streams per node, crops, then projects once in frequency. Cartesian
 and line propagation combine before the transverse FFT; planar propagation projects
 in x before the temporal transforms and combines before the y transform. These orders
-and their buffer budgets are part of [SEP 27](seps/archive/sep-0027-held-plasma-current.md).
+and their buffer budgets are part of [SEP 27](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0027-held-plasma-current.md).
 
 These are passes over data, not launches.
 
-Per step: six new nonlinear evaluations with FSAL (seven without it), with the modal
+Per Runge–Kutta step: six new nonlinear evaluations with FSAL (seven without it), with the modal
 batched transforms above plus the doubled-grid pairs for Raman, 6 `exp(ΔΦ_i)`
 evaluations (or 5 with FSAL and memoisation), one controller decision (lagged, with rejection allowed by default;
 `reject_free` is explicit), one accept pass (`y ← exp(ΔΦ)·(y + h·acc_sol)` — the stages live in the interaction variable anchored at the step start, so the whole sum is carried by one exponential, and the embedded difference takes the same factor — rebase the FSAL stage, apply
@@ -628,7 +647,7 @@ are counted separately in the backend ledger. Examples:
 | RDW VUV: n_t 4096, 4 modes | 0.13 MB | ~2 MB | ~3 MB | ~8 MB |
 | CtC: n_t 32768, 6 modes, Raman | 1.6 MB | ~20 MB | ~45 MB | ~210 MB |
 
-**The low-storage march** ([SEP 24](seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md),
+**The low-storage march** ([SEP 24](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md),
 ADR-050) is RK4 in the midpoint interaction picture, replay-only and accepted in place:
 each slope is folded into a running sum as it is produced, so a step holds the state, an
 accumulator and a stage register beside the evaluation's scratch, plus the half-step flow
@@ -649,12 +668,16 @@ propagated state*, never at the array-namespace level
 class Backend(Protocol):
     name: str
 
+    @property
+    def request(self) -> RunRequest: ...  # the run request it was built for
     def prepare(self, problem, request) -> PreparedExecution: ...  # a run's session
-    def timing_probe(self, start) -> TimingProbe: ...  # an estimate's trial
     def metadata(self) -> dict[str, object]: ...  # what the execution was
-    def available_device_memory(self) -> int | None: ...
+    def edge_memory(self, space) -> int: ...
+    def timing_probe(self, start) -> TimingProbe: ...  # an estimate's trial
     def memory_ledger(self) -> dict[str, int]: ...
     def close(self) -> None: ...
+    @property
+    def closed(self) -> bool: ...
 
     # Nothing else: a run is its session's on both backends (SEP 52). Behind the
     # protocol each backend has a lowering, a workspace, engines, marches and a
@@ -667,20 +690,21 @@ class Backend(Protocol):
 - `native` (the `solprop-native` distribution, `native/`): C++20/Kokkos kernels and persistent Kokkos-FFT plans
   behind nanobind. It runs mode-averaged and multimode scalar/two-component problems,
   Kerr, plasma and declared tensor Raman, weighted control, embedded quadrature and
-  backend-owned statistics with one native call per trial, and on its CPU build also the
-  general modal route and the coupled flow. Raman uses doubled-grid plans, actual-width
+  backend-owned statistics with one native call per trial, and also the general modal
+  route and the coupled flow, on its CPU and device builds
+  ([backends.md §9](backends.md#9-what-runs-where)). Raman uses doubled-grid plans, actual-width
   tails and memoisation by decay rates and mixture amplitude densities. KokkosKernels
   supplies the portable GEMM seam; measured local builds may dispatch eligible whole
   transforms to Accelerate, OpenBLAS or cuBLAS. The CUDA build uses time-parallel
   response teams, deterministic plasma scans and device reductions and is qualified on
-  data-centre NVIDIA GPUs; the HIP build is qualified on AMD Instinct GPUs, with the HIP
-  sanitizer run still outstanding. The private state is read only by the backend's own
+  data-centre NVIDIA GPUs, with the CUDA sanitizers clean; the HIP build is qualified on AMD
+  Instinct GPUs, for which ROCm ships no device sanitizer. The private state is read only by the backend's own
   session and timing probe. The binding is small (SEP 52, ADR-079): a `_core.Workspace`
   built from one `_core.Problem`, a run started from one run record (`start(run)`), the
   probe (`probe(start)`) and one `diagnostics()` record; every record crosses by its
   field table, the binding only marshals, and test-only entry points live in the
   private `_core._testing`. Its floating-point licence is
-  [SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)'s: contraction by default,
+  [SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)'s: contraction by default,
   strict opt-outs for the protected helpers (stable increments, small-argument functions,
   defects, compensated sums), reassociation only on the loops of a kernel that asks for it,
   and no other fast-math flag ([backends.md §3.2](backends.md)).
@@ -707,7 +731,7 @@ A TDSE run may also write its raw provider evaluations to a separate archive
 (`output/tdse_archive.py`, schema `solprop.tdse-archive.v1`), which the optical record
 references and never needs ([the archive page](../guide/media/tdse.md)).
 
-A kept field reaches a store once, already converted ([SEP 47](seps/archive/sep-0047-run-ownership.md)
+A kept field reaches a store once, already converted ([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md)
 §5.4): the run's session exports it in the stored form straight into the room the store
 gives (`PlaneStore.field_destination`) -- `MemoryOutput`'s own block row, or a new array
 that `HDF5Output` writes as it is -- and `PlaneStore.save_exported` stores the plane. The
@@ -803,7 +827,7 @@ its execution space.
   `HDF5Output` ([backends.md §1](backends.md#1-the-seam), "Export into a destination").
 - A run keeps its fields on every plane, the named planes or none
   (`FieldRetention`,
-  [SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md)): a plane without its field is not copied, converted or
+  [SEP 22](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0022-memory-lean-spatial-execution.md)): a plane without its field is not copied, converted or
   stored, the stores allocate field storage for the kept planes only, and the admission
   charges those alone (its `output` group). The backend is asked for the field only on
   the kept planes: a field-free observation transfers nothing from a device,
@@ -823,7 +847,7 @@ its execution space.
   its load. A caller that identifies its input states that instead (`StatedInput`), and
   nothing digests it.
 - Φ tables are shared where possible; the constant-D fast path stores one array.
-- Fine-grid buffers use the smallest `ffac` the declared responses need.
+- Fine-grid buffers are sized by the grid's `ffac` (§6.1), not by the declared responses.
 
 ## 14. Logging and progress
 
@@ -902,8 +926,8 @@ section of the operator table's breakpoints, in one of two ways:
   the generator — its z variation and the connection — as an explicit residual that the
   Runge–Kutta source carries, so the embedded pair sees its error.
 
-The coupled flow runs on `numpy_ref` and the native CPU build, which forms
-the per-bin flow actions in its own kernels and agrees with the reference to a derived
+The coupled flow runs on `numpy_ref` and on native, whose CPU and device builds form
+the per-bin flow actions in their own kernels and agree with the reference to a derived
 rounding bound; a certificate records each flow's conditioning. A multimode capillary
 taper carries the taper coupling by default; `taper_coupling=False` is the explicit
 opt-out to the adiabatic route

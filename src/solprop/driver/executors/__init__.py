@@ -27,7 +27,16 @@ __all__ = ["Executor", "Local", "Pool", "Queue", "Slurm"]
 
 @runtime_checkable
 class Executor(Protocol):
-    """Run point work while preserving the identity carried by every result."""
+    """Run point work while preserving the identity carried by every result.
+
+    :func:`~solprop.driver.scan.run_scan` needs only :meth:`run`, and calls a
+    ``validate(work)`` method before it writes anything where an executor has one. The
+    rest of what it does is decided by the four executors' classes, a closed set: an
+    executor of any other class runs as ``Local`` and ``Pool`` do, its points' results
+    written by the calling process, without the backend ``Local`` keeps between
+    points, or the stop refusal, durable preparation and collection of ``Queue`` and
+    ``Slurm``.
+    """
 
     def run[T, R](self, points: Iterable[T], work: Callable[[T], R]) -> Iterator[R]:
         """Execute work for each point.

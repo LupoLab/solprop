@@ -28,10 +28,10 @@ reduced CtC archive's own plane zero to 1.2e-11.
 term at first order in the window factor, whatever the boundary does: Kerr-generated
 content at the band's low-frequency edge, where the spectral collar and the mask are
 sampled on bins that move with the bin spacing. [SEP 21's phase
-0a](seps/archive/sep-0021-absorbing-boundaries.md#phase-0a--decisions-and-interim-findings) measured it, and no test holds it:
+0a](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md#phase-0a--decisions-and-interim-findings) measured it, and no test holds it:
 widening the band from 1.6 to 3.2 µm cut the edge energy from 2.5e-3 to 1.4e-6 and the
 term about threefold; it floors every requested-window comparison at order 1e-5 (1.9e-5
-on the canonical case, [findings](seps/archive/sep-0021-absorbing-boundaries.md#phase-0a-report--2026-10-25) item 1); and
+on the canonical case, [findings](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md#phase-0a-report--2026-10-25) item 1); and
 field errors near 1e-4 on smooth windows are this term, not the boundary (item 13).
 A boundary is therefore measured with and without temporal absorption at equal window,
 or against references extrapolated as $2F(2M) - F(M)$, whose uncertainty there was 4e-6
@@ -48,7 +48,7 @@ to 5e-5 per case ([the boundaries guide](../guide/numerics/boundaries.md#watchin
 | the parameter expansion against the z table | 9.8e-10 on the RDW capillary and 4.9e-9 on the reduced M2 case, each two orders inside the tolerance both are built to | `tests/translate/test_linop.py` |
 | ionisation rate tables | relative error falls at fourth order as the knots double; 1e-6 relative at 257 knots for optmat's PPT form of every noble gas | `tests/translate/test_ionisation_tables.py` |
 | the plasma column's cumulative trapezoid | second order in the sample spacing on a constant field: 9.9e-5 at 8193 samples, falling by four at each doubling; a pre-ionised tone has the Drude susceptibility times the two integrals' multiplier, $((\theta/2)\cot(\theta/2))^2$, to round-off — 3.7e-8 short of it at $\theta = 4.7\times10^{-4}$, 0.8225 of it at the default grid's $\omega_{\max}$ and 0.7866 at $1.1\,\omega_{\max}$ (below) | `tests/nonlinear/test_plasma.py` |
-| the plasma column's band rule ([SEP 18](seps/archive/sep-0018-band-exact-plasma-integrals.md)) | the composite multiplier within a certified $10^{-5}$ of one across the active band; on ionising fields $\le 6.5\times10^{-6}$ per band against an independent reference, and over ten propagation steps $\le 4.2\times10^{-6}$ (below) | `tests/nonlinear/test_plasma_band*.py`, `tests/driver/test_plasma_band_propagation.py` |
+| the plasma column's band rule ([SEP 18](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0018-band-exact-plasma-integrals.md)) | the composite multiplier within a certified $10^{-5}$ of one across the active band; on ionising fields $\le 6.5\times10^{-6}$ per band against an independent reference, and over ten propagation steps $\le 4.2\times10^{-6}$ (below) | `tests/nonlinear/test_plasma_band*.py`, `tests/driver/test_plasma_band_propagation.py` |
 | the Raman kernel's normalisation | analytic against quadrature; the dephasing-capped decay exponent; the window residual reported at debug level | `tests/nonlinear/test_raman.py` |
 ```{eval-rst}
 .. plot::
@@ -105,7 +105,7 @@ the default `ffac = 6`. A physical-polarisation evaluation applies the rule thre
 $\int fE$ gives $J_{\rm free}$, and $\int(J_{\rm free} + J_{\rm loss})$ gives $P$. The loss
 current goes through one integral and the Drude term through two. The production
 column stops at the current and forms the held source in frequency
-([SEP 27](seps/archive/sep-0027-held-plasma-current.md)): its interior Drude multiplier
+([SEP 27](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0027-held-plasma-current.md)): its interior Drude multiplier
 has one integration factor, and its loss current has none. The two-integral values
 below qualify the direct physical response:
 
@@ -119,7 +119,7 @@ below qualify the direct physical response:
 The two-integral identity on a pre-ionised tone is exact to round-off and held by
 `tests/nonlinear/test_plasma.py`. That is the trapezoid rule, `integration="trapezoid"`,
 which the comparisons with Luna use. The band rule of
-[SEP 18](seps/archive/sep-0018-band-exact-plasma-integrals.md) filters each integrand with taps
+[SEP 18](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0018-band-exact-plasma-integrals.md) filters each integrand with taps
 designed for the grid ([field plasma](../guide/media/field-plasma.md#how-the-current-integrals-are-formed)).
 It brings the composite multiplier to within a certified $10^{-5}$ of one across the
 active band: $K = 4$ and $4.92\times10^{-6}$ at `ffac = 6`, $K = 7$ at `ffac = 4`. It is
@@ -286,7 +286,7 @@ were of the reduced case (two modes, 1 m: the fundamental's shape and content, t
 100–140 nm band and its arrival, the second mode's energy) and the full case (four
 modes, 1.5 m, against production Luna at `rtol = 1e-6` and a converged Luna at
 `rtol = 1e-9`), and each ran a private, test-only copy of the time-domain gated plasma
-source that Luna steps. Since [SEP 27](seps/archive/sep-0027-held-plasma-current.md)
+source that Luna steps. Since [SEP 27](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0027-held-plasma-current.md)
 solprop's plasma is the held current, which no stored Luna run computes, so with that
 gated source removed nothing compares like with like, and the comparisons and their
 field archives went with it. What stays compared with Luna is what such a comparison
@@ -318,7 +318,7 @@ was the boundary's (SEP 21, D2).
 The installed native backend against `numpy_ref`, bounds derived from summation lengths
 and then measured; the measured values are the native CPU build's unless a row names
 another. No comparison is bitwise
-([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)): independent
+([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)): independent
 floating-point computations are compared by numerical error — numpy's complex multiply
 can contract into a fused multiply-add where a compiled kernel's does not — so every
 round-off bound is a multiple of ε. The ladder has two kinds of row, and the criterion
@@ -471,7 +471,7 @@ field's contraction pragma removed
 
 - **Accepted-step counts.** Luna's are not reproducible across machines (4856 against 4851
   on one case); solprop's were identical on both when measured, an observation rather
-  than a requirement ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)).
+  than a requirement ([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
   solprop takes 58 % fewer steps than Luna on the M2 case at the same nominal tolerance,
   because the two norms mean different things. On the reduced CtC case (one mode, 2 ps)
   it takes 3163 accepted steps to Luna's 205; that gap is recorded and not yet explained.
@@ -573,9 +573,9 @@ SOLPROP_WRITE_RECORDS=1 SOLPROP_NATIVE_THREADS=1 OMP_PROC_BIND=false \
 **A write run is not a green run**: it says at the end which files it wrote, and those
 are what is committed. And because a stored number is a regression witness, a genuine
 *improvement* fails its comparison — the order is to commit the code with the records
-red, regenerate, and commit the records. `uv run poe docs-clean` before `poe docs` if a
-figure looks stale: the plot directive decides from the page's own timestamp, not the
-record's.
+red, regenerate, and commit the records. `uv run poe docs-clean`, which removes the build
+output under `docs/_build`, before `poe docs` if a figure looks stale: the plot directive
+decides from the page's own timestamp, not the record's.
 
 ## 10. Free space, tabulated, step-index and rectangular modes
 
@@ -753,7 +753,7 @@ that comparison, not a general estimate for a changing basis.
 
 ## 12. Coupling between simulations
 
-A coupling ([SEP 31](seps/archive/sep-0031-simulation-coupling.md),
+A coupling ([SEP 31](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0031-simulation-coupling.md),
 [the manual's chapter](../guide/workflows/coupling.md)) joins two runs that each have
 their own accuracy envelope; the coupling adds its own, and the three are kept apart
 rather than folded into one number.

@@ -20,6 +20,10 @@ steps = output["step_history/counts"]    # attempts belonging to each plane
 rows = output["step_stats/energy"]       # (n_rows, n_modes, n_pol), with a periodic spec
 ```
 
+From a {py:class}`~solprop.output.memory.MemoryOutput` these arrays are read-only views of
+the stored run: writing through one raises `ValueError`, so take `.copy()` of an array to
+change it.
+
 Stored spectra are in the **optics convention** and the file says so
 (`spectral_convention = "optics"`): a spectral phase read out of one is referenced to
 `t = 0` and has the sign a textbook gives it ([conventions.md](../../dev/conventions.md)
@@ -148,7 +152,7 @@ the last bit. An adaptive Adams run -- the default -- continues from the march's
 the output keeps at each plane and checkpoint, and on every backend
 continues the uninterrupted run's computation, agreeing with it to rounding while the steps are the same
 ([the Adams integrator](../numerics/adams.md)). No resume promises identical bits
-([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
+([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
 
 For a resume to work in a *new process*, everything in the configuration has to hash the
 same way twice. Objects that carry their data — the pulses, the profiles, the responses,

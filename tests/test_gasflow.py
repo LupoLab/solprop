@@ -491,7 +491,7 @@ def test_the_throughput_is_the_poiseuille_law():
     assert taper == pytest.approx(expected, rel=1e-12)
     with pytest.raises(TranslationError, match="length"):
         throughput("N2", 1e-4, 0.0, 1.0, 0.0)
-    with pytest.raises(TranslationError, match="start_bar"):
+    with pytest.raises(TranslationError, match="start_pressure"):
         throughput("N2", 1e-4, 1.0, -1.0, 0.0)
 
 

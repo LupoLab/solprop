@@ -10,7 +10,7 @@ table's chord is that element's column of the table; the native stage tables car
 imaginary part as a scalar Chebyshev table of its own and read it with the Clenshaw
 helper solprop's tables use, so the shift the native march forms is the one solprop's
 march formed on the host. Before, the backend stepped such a run with its Python march
-(a ``HostMarchWarning``) and the session left it to the transitional bridge.
+and the session left it to the transitional bridge.
 
 The case is a capillary of three gases on independent density ramps, which takes the z
 table for both the operator and the prefactor. It is held to ``numpy_ref``: on the

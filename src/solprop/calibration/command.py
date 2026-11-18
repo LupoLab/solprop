@@ -276,4 +276,4 @@ def run(arguments: argparse.Namespace) -> int:
         progress=lambda line: sys.stderr.write(f"solprop calibrate: {line}\n"),
     )
     sys.stdout.write(report.describe())
-    return 0 if report.status == "published" else 1
+    return 0 if report.status in {"published", "kept"} else 1

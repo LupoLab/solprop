@@ -22,7 +22,13 @@ from typing import Protocol
 
 from solprop.backends.engines import AcceptRecord
 
-__all__ = ["MarchHost", "MarchState", "in_flight_refusal"]
+__all__ = [
+    "MarchHost",
+    "MarchState",
+    "in_flight_refusal",
+    "replay_divergence",
+    "replay_shortfall",
+]
 
 
 @dataclass(eq=False)
@@ -38,8 +44,8 @@ class MarchState:
     cursor : int
         A replay's next step: how many steps of the schedule are consumed.
     norms : collections.deque
-        The accepted steps' norms the controller reads, oldest first, at most its
-        lag and two more.
+        The accepted steps' norms the adaptive Runge-Kutta controller reads, oldest
+        first, at most its lag and two more; the other marches leave it empty.
     """
 
     z: float
@@ -172,4 +178,50 @@ def in_flight_refusal(name: str, z: float, dz: float) -> str:
         "abandoned in flight, and the state it was accepting in place holds "
         "neither end of the step; start a new session from the last saved plane "
         "before observing or propagating again"
+    )
+
+
+def replay_divergence(step: str, norm: float) -> str:
+    """Return why a replayed step whose error norm is not finite stops the run.
+
+    Parameters
+    ----------
+    step : str
+        The step, as the march names it, beginning with the backend's name.
+    norm : float
+        The step's error norm.
+
+    Returns
+    -------
+    str
+        The message.
+    """
+    return (
+        f"{step} has a non-finite error norm ({norm!r}): the field has diverged. A "
+        "replayed schedule takes its steps as given and cannot reject one, so a step "
+        "beyond an explicit stability limit -- the in-stage temporal collar's or a "
+        "coupled flow's advisory step -- grows until it overflows; the translation "
+        "refuses a declared step past the collar's limit and warns on one past the "
+        "flow's. Take shorter steps, or let the controller choose them"
+    )
+
+
+def replay_shortfall(z_end: float, target: float) -> str:
+    """Return why a replayed schedule that ends short of a target stops the run.
+
+    Parameters
+    ----------
+    z_end : float
+        Where the schedule ends, m.
+    target : float
+        The position it was asked to reach, m.
+
+    Returns
+    -------
+    str
+        The message.
+    """
+    return (
+        f"the replayed schedule ends at {z_end:.6g} m and cannot reach "
+        f"z = {target:.6g} m"
     )

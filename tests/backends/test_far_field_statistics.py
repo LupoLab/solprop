@@ -5,9 +5,8 @@
 """The far-field statistics in a run: the operator's two, the doors and the host path.
 
 SEP 23 section 7, items 8 (the axial flux) and 9 (the absorbed power) on
-``numpy_ref``, the backend-level refusals of item 12, the solprop-side admission that
-refuses the native backend until its native pass, the native statistics of a launch
-beside the reference's, and the slots and bands every pass shares.
+``numpy_ref``, the backend-level refusals of item 12, the native statistics of a
+launch beside the reference's, and the slots and bands every pass shares.
 """
 
 import dataclasses
@@ -23,10 +22,8 @@ from bounds import EPS, assert_within, gamma
 from builders import grid_at
 from legacy_geometry import bare_absorber
 from sessions.runs import launch_statistics
-from solprop.backends import registry, select
+from solprop.backends import select
 from solprop.backends import spatial as backend_spatial
-from solprop.backends.registry import statistics_refusal
-from solprop.backends.session import Start
 from solprop.backends.spatial import (
     FarFieldLayout,
     FarFieldTables,
@@ -38,10 +35,8 @@ from solprop.backends.spatial import (
 from solprop.boundaries import SpatialAbsorber, absorber, custom_absorber
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation, SimulationSettings
-from solprop.driver.run import run_problem
 from solprop.exceptions import (
     BackendError,
-    DriverError,
     OutputError,
     TranslationError,
 )
@@ -695,72 +690,6 @@ def test_radial_and_planar_geometry_are_refused_before_any_step(grid):
     for name in ("numpy_ref", "native") if native else ("numpy_ref",):
         with pytest.raises(OutputError, match="hybrid planar"):
             select(name, problem, run_request, grid=planar_grid)
-
-
-def test_an_older_native_build_is_refused_the_far_field_statistics_by_name(
-    grid, monkeypatch
-):
-    native = pytest.importorskip("solprop_native")
-    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0.1)
-    simulation = free_simulation(grid, space, gaussian(60e-6))
-    problem = simulation.translate()
-    run_request = simulation.run_request()
-    # A build that declares none of them, as every build before SEP 23's third phase:
-    # the refusal precedes the native build and names the backend that forms them.
-    monkeypatch.setattr(native.NativeBackend, "far_field_statistics", frozenset())
-    with pytest.raises(BackendError, match="or run them on numpy_ref"):
-        select("native", problem, run_request, grid=grid)
-    assert statistics_refusal("native", ["energy"]) is None
-    assert statistics_refusal("numpy_ref", list(ALL_SIX)) is None
-    # A build that declares some of them is refused the others, by name.
-    monkeypatch.setattr(
-        native.NativeBackend, "far_field_statistics", frozenset({"beam_spectrum"})
-    )
-    refusal = statistics_refusal("native", ["beam_spectrum", "region_spectrum"])
-    assert refusal is not None
-    assert "['region_spectrum']" in refusal
-    assert statistics_refusal("native", ["beam_spectrum"]) is None
-    monkeypatch.setattr(native.NativeBackend, "far_field_statistics", frozenset())
-
-    plain = free_simulation(
-        grid, space, gaussian(60e-6), spec=StatsSpec(names=("energy",))
-    )
-    problem = plain.translate()
-    owner = select("numpy_ref", problem, run_request, grid=grid)
-    try:
-        monkeypatch.setattr(owner, "name", "native")
-        # The run loop's door, for a spec handed to it rather than the problem's own.
-        with pytest.raises(DriverError, match="far-field statistics"):
-            run_problem(
-                problem,
-                owner,
-                MemoryOutput(),
-                start=Start.entrance(problem),
-                metadata=plain.metadata(),
-                stats_spec=far_spec(),
-            )
-    finally:
-        owner.close()
-
-
-def test_the_native_probe_reads_what_the_installed_build_declares(monkeypatch):
-    # Not installed: no refusal here, and selecting it reports the missing package.
-    monkeypatch.setattr(registry, "_native_installed", lambda: False)
-    assert statistics_refusal("native", ["beam_spectrum"]) is None
-    monkeypatch.undo()
-    assert statistics_refusal("numpy_ref", list(ALL_SIX)) is None
-    if importlib.util.find_spec("solprop_native") is None:
-        pytest.skip("solprop-native is not installed")
-    # The package is imported only after its availability check.
-    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        NativeBackend,
-    )
-
-    assert statistics_refusal("native", list(ALL_SIX)) is None
-    # A build that declares none is refused every one, naming numpy_ref.
-    monkeypatch.setattr(NativeBackend, "far_field_statistics", frozenset())
-    refusal = statistics_refusal("native", list(ALL_SIX))
-    assert refusal is not None and "numpy_ref" in refusal
 
 
 def test_the_host_pass_refuses_what_it_was_not_given(grid):

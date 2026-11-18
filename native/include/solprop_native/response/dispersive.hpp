@@ -45,7 +45,7 @@ namespace solprop_native {
 //    transform, and one batched inverse transform gives every filtered modal field;
 // 2. the filtered fields are synthesised at a chunk's nodes by the same real matrix as
 //    the bare field, and the products are formed there in the leaf's sector, the
-//    collar multiplying each (`G[w (G E)^3]`, decided 2026-10-08);
+//    collar multiplying each (`G[w (G E)^3]`, the reference's operator);
 // 3. each product is projected onto the modal columns (and onto the embedded rule's);
 // 4. one batched forward transform, and the products' stage multipliers -- the output
 //    multipliers times the channels' `eps0 gamma0 rho` -- land them in the stage's own

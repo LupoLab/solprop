@@ -15,8 +15,10 @@ register. It has no embedded error estimate; its accuracy is calibrated from out
 on the measured observable, by :func:`~solprop.stepper.schedule.calibrate`
 (``docs/guide/numerics/fixed-schedules.md``).
 
-This module holds the specification a run carries. The march and its register passes
-are in :mod:`solprop.backends.low_storage`.
+This module holds the specification a run carries. The reference's march is
+:mod:`solprop.backends.numpy_ref.marches.low_storage` and its register passes are
+:class:`solprop.backends.numpy_ref.engines.NumpyLowStorage`; the table keys both
+backends share are in :mod:`solprop.backends.low_storage`.
 
 References
 ----------

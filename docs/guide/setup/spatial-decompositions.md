@@ -299,7 +299,7 @@ with {class}`~solprop.modes.antiresonant.VincettiMode` supplying the index.
 $r$, wall $t$, $N$ of them, clear gap $\delta = 2[(a+r)\sin(\pi/N) - r]$ — enter only
 through the fitted $n_{\rm eff}(\omega)$ and loss of Vincetti (2016), Vincetti and Rosa
 (2019) and Rosa, Melli and Vincetti (2021), in the form set out in
-[the five conventions](../waveguides/antiresonant.md#the-five-conventions).
+[the four conventions](../waveguides/antiresonant.md#the-four-conventions).
 
 **Propagation.** Exactly the capillary's. The field normalisation and the protocol's
 `aeff` are Marcatili's. The fitted area `effective_area(omega)` is a
@@ -435,7 +435,7 @@ agreement is where the scalar routes on this page are the same physics.
 **Not valid when** the route refuses it; the refusals are not approximations:
 `peak_intensity` and the scalar-route power names (use `analytic_flux`), `quadrature_error`
 (no embedded rule), a nonorthogonal basis, a guide that does not span the active band,
-`n_pol` > 1, and numeric `observable_rtol` ([declared, refused,
+and `n_pol` > 1 ([declared, refused,
 recorded](../waveguides/general-modal.md#declared-refused-recorded)).
 
 **Entry point.** `prop_waveguide((), length, provider=guide, ...)` and

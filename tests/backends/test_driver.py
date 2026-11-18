@@ -16,7 +16,6 @@ compiled backend is built against are frozen here too (``docs/dev/kernel-contrac
 import dataclasses
 import io
 import logging
-import sys
 import typing
 from typing import Any, cast
 
@@ -360,7 +359,7 @@ def test_the_modified_noise_model_keeps_its_realisation_apart(
             made.workspace.noise_at(made.workspace.stage_scalars(0.0, LENGTH / 2))
         )
         # Dispersion yes, loss and gain no: the magnitude is untouched by the advance.
-        assert np.allclose(np.abs(advanced), np.abs(drawn))
+        assert np.allclose(np.abs(advanced), np.abs(drawn), atol=0.0)
         assert not np.array_equal(advanced, drawn)
         assert present(made.workspace.noise_phase(0.0)).shape == problem.shape
 
@@ -946,7 +945,6 @@ def test_the_bundles_a_compiled_backend_packs_are_frozen():
 
 
 BACKEND_MEMBERS = (
-    "available_device_memory",
     "close",
     "closed",
     "edge_memory",
@@ -960,29 +958,6 @@ BACKEND_MEMBERS = (
 complete (SEP 52 section 5.1): its one attribute is ``name``. A change here changes the
 seam, in the same commit."""
 
-RETIRED_MEMBERS = (
-    "attach_monitor",
-    "drain_attempts",
-    "halt_ahead",
-    "march_export_refusal",
-    "march_snapshot",
-    "march_snapshot_nbytes",
-    "observe",
-    "propagate_to",
-    "reads_transverse_edge",
-    "request_halt",
-    "restore_call_ledgers",
-    "restore_march",
-    "set_halt_check",
-    "set_initial",
-    "set_progress",
-    "set_stop",
-    "stats",
-)
-"""The members the seam dropped: the host stepping seam SEP 52 deleted, every run
-being a session's, which schedules it and reads the state through the workspace, and
-the answers every backend gave alike."""
-
 REFERENCE_ATTRIBUTES = ("name",)
 """The class attributes the NumPy reference backend sets."""
 
@@ -995,9 +970,6 @@ def test_the_backend_surface_the_reference_implements_is_frozen():
     assert isinstance(NumpyRefBackend.__dict__["request"], property)
     for name in (*BACKEND_MEMBERS, *REFERENCE_ATTRIBUTES):
         assert hasattr(NumpyRefBackend, name), name
-    retired = [name for name in RETIRED_MEMBERS if hasattr(NumpyRefBackend, name)]
-    assert retired == []
-    assert not hasattr(sys.modules["solprop.backends.protocol"], "HostStepping")
 
 
 def test_separable_operator_fields_are_frozen_with_the_driver_seam():

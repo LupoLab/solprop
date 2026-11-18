@@ -24,6 +24,7 @@ from solprop.linear import Frame
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.stepper import PIController, RungeKutta
+from solprop.translate.problem import LOG_DBL_MAX
 from solprop.translate.routes import transverse_of
 from solprop.translate.transverse import band_wavenumbers, resolve_transverse
 
@@ -89,6 +90,24 @@ def test_the_default_is_the_safety_ramp_alone(route: str) -> None:
     ramp = problem.linear.separable.kperp_rate
     assert ramp is not None
     assert np.array_equal(ramp, design.ramp_rate)
+
+
+@pytest.mark.parametrize("length", [LENGTH, 1.0])
+def test_the_safety_ramp_alone_holds_the_longest_step_to_its_exponent_budget(
+    length: float,
+) -> None:
+    # With no collar, nothing else holds an adaptive run's longest step: the ramp's
+    # inverse factor exp(alpha_s h / 2) stays within half binary64's range only if
+    # h <= log(DBL_MAX) / alpha_s, about 7 mm here, whatever the run's length.
+    simulation = suite(0.0, None, length=length)
+    design = transverse_of(simulation.translate().route)
+    assert design is not None and not design.has_collar
+    budget = LOG_DBL_MAX / design.ramp_strength
+    assert budget < LENGTH  # the clamp binds on the requested dz_max = length
+    stepper = simulation.run_request().stepper
+    # Exact: the clamp is a min() of the requested step and the budget.
+    assert stepper.dz_max == budget
+    assert stepper.dz_init <= budget
 
 
 def test_the_radial_ramp_rides_the_dense_operator_exactly() -> None:

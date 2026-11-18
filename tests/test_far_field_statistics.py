@@ -252,7 +252,10 @@ def test_profile_and_correction_refusals():
     # check is what a caller outside it meets.
     with pytest.raises(OutputError, match="unknown aperture profile"):
         check_aperture_profile("square")
-    with pytest.raises(OutputError, match="unknown aperture weighting"):
+    # The choices of a spec's apertures are refused as a malformed spec.
+    with pytest.raises(ProcessingError, match="unknown aperture profile"):
+        check_aperture_choices("square", "amplitude")
+    with pytest.raises(ProcessingError, match="unknown aperture weighting"):
         check_aperture_choices("tanh", "intensity")
     check_aperture_choices("hard", "amplitude")
     with pytest.raises(OutputError, match="half-width"):
@@ -806,11 +809,11 @@ def test_a_slit_on_a_line_and_its_refusals(grid):
     assert_within(values["aperture_spectrum"][0], values["beam_spectrum"], 1e-12)
     assert_within(values["region_spectrum"][0], values["beam_spectrum"], gamma(256))
     off_axis = ApertureSet(centres=[[0.0, 1e-3]], diameters=[1e-3], distances=[0.25])
-    with pytest.raises(OutputError, match="y centre must be zero"):
+    with pytest.raises(ProcessingError, match="y centre must be zero"):
         aperture_tables(
             StatsSpec(names=("aperture_spectrum",), apertures=off_axis), grid, space
         )
-    with pytest.raises(OutputError, match="would select nothing"):
+    with pytest.raises(ProcessingError, match="would select nothing"):
         aperture_tables(
             StatsSpec(
                 names=("region_spectrum",),
@@ -873,7 +876,7 @@ def apertures(**changes):
     ],
 )
 def test_an_aperture_set_refuses_by_name(changes, message):
-    with pytest.raises(OutputError, match=message):
+    with pytest.raises(ProcessingError, match=message):
         apertures(**changes)
 
 
@@ -1571,12 +1574,12 @@ RECTANGLE = {
     ],
 )
 def test_a_shaped_set_refuses_by_name(options, message):
-    with pytest.raises(OutputError, match=message):
+    with pytest.raises(ProcessingError, match=message):
         ApertureSet(**options)
 
 
 def test_a_mixed_set_refuses_an_edge_on_a_hard_row_and_a_circle_without_a_diameter():
-    with pytest.raises(OutputError, match="give zero on its row"):
+    with pytest.raises(ProcessingError, match="give zero on its row"):
         ApertureSet(
             centres=[[0.0, 0.0]] * 2,
             diameters=[1e-3] * 2,
@@ -1584,14 +1587,14 @@ def test_a_mixed_set_refuses_an_edge_on_a_hard_row_and_a_circle_without_a_diamet
             edges=[1e-4, 1e-4],
             profiles=("hard", "rcos"),
         )
-    with pytest.raises(OutputError, match="positive"):
+    with pytest.raises(ProcessingError, match="positive"):
         ApertureSet(
             centres=[[0.0, 0.0]] * 2,
             diameters=[0.0, 0.0],
             distances=[DISTANCE] * 2,
             shapes=("circle", "half_plane_x_ge"),
         )
-    with pytest.raises(OutputError, match="needs edges"):
+    with pytest.raises(ProcessingError, match="needs edges"):
         ApertureSet(
             centres=[[0.0, 0.0]] * 2,
             diameters=[1e-3] * 2,
@@ -1675,5 +1678,5 @@ def test_line_routes_refuse_what_has_no_meaning_uniform_in_y(grid, shape, extent
         names=("aperture_spectrum",),
         apertures=set_of((shape,), [[0.0, 0.0]], extents=extents),
     )
-    with pytest.raises(OutputError, match="has no meaning there"):
+    with pytest.raises(ProcessingError, match="has no meaning there"):
         aperture_tables(spec, grid, space)

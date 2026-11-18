@@ -785,16 +785,18 @@ def first_moment_of_silica():
     return float(np.trapezoid(delays * shape, dx=dt) / np.trapezoid(shape, dx=dt))
 
 
-def test_the_soliton_self_frequency_shift_matches_gordons_rate(
-    selected_backend_name,
-):
+@pytest.mark.medium
+def test_the_soliton_self_frequency_shift_matches_gordons_rate(backend_name):
     """A fundamental soliton red-shifts at ``-8 |beta2| T_R / (15 T0^4)``.
 
     Gordon's rate, from first-order perturbation theory with the delayed response
     linearised about zero frequency, so it holds for a soliton long enough that the
     Raman gain is linear across its bandwidth. Measured against it here at 800 fs, where
     the pulse has covered 1.1 dispersion lengths and the shift is 1.8e-4 of its own
-    bandwidth: the centroid is what resolves it, not the spectrum's shape.
+    bandwidth: the centroid is what resolves it, not the spectrum's shape. On each
+    backend, so that the reference's Raman term answers to the closed form and not only
+    to native's agreement with it. Medium: sixty metres of fibre, about 2 s on the
+    reference.
     """
     tau0, length = 800e-15, 60.0
     peak = abs(SSFS_BETA2) / (SSFS_GAMMA * tau0**2)
@@ -814,7 +816,7 @@ def test_the_soliton_self_frequency_shift_matches_gordons_rate(
         n_save=3,
         rtol=1e-9,
         atol=1e-22,
-        backend=selected_backend_name,
+        backend=backend_name,
         noise=None,
     )
     z = handler["z"]
@@ -830,7 +832,7 @@ def test_the_soliton_self_frequency_shift_matches_gordons_rate(
     assert rate == pytest.approx(gordon, rel=3e-2)
 
 
-def test_a_run_without_raman_does_not_shift_its_centroid(selected_backend_name):
+def test_a_run_without_raman_does_not_shift_its_centroid(backend_name):
     """The same fibre with Raman off: a soliton keeps its centre frequency."""
     tau0, length = 800e-15, 60.0
     peak = abs(SSFS_BETA2) / (SSFS_GAMMA * tau0**2)
@@ -849,7 +851,7 @@ def test_a_run_without_raman_does_not_shift_its_centroid(selected_backend_name):
         n_save=3,
         rtol=1e-9,
         atol=1e-22,
-        backend=selected_backend_name,
+        backend=backend_name,
         noise=None,
     )
     centroid = handler["stats/omega0"][:, 0, 0]
@@ -878,7 +880,7 @@ def photon_number_and_energy(handler, grid):
 
 @pytest.mark.parametrize("raman", [True, False], ids=["raman", "kerr"])
 def test_the_shock_term_conserves_photon_number_and_raman_costs_energy(
-    photon_grid, raman, selected_backend_name
+    photon_grid, raman, backend_name
 ):
     """With the ``omega`` prefactor in place the equation conserves photon number.
 
@@ -907,7 +909,7 @@ def test_the_shock_term_conserves_photon_number_and_raman_costs_energy(
         n_save=5,
         rtol=1e-12,
         atol=1e-26,
-        backend=selected_backend_name,
+        backend=backend_name,
         noise=None,
     )
     photons, energy = photon_number_and_energy(handler, photon_grid)

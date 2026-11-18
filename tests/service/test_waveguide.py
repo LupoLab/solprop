@@ -130,7 +130,11 @@ def test_a_pulse_changes_the_phase_mismatch() -> None:
     given: dict[str, Any] = waveguide_curves(
         {**CAPILLARY, "quantity": "mismatch", "pulse": True}
     )
-    assert not np.allclose(bare["curves"][0]["y"], given["curves"][0]["y"])
+    assert not np.allclose(
+        bare["curves"][0]["y"],
+        given["curves"][0]["y"],
+        atol=1e-5 * np.max(np.abs(bare["curves"][0]["y"])),
+    )
 
 
 def test_numbers_need_no_pulse() -> None:

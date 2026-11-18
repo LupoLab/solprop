@@ -16,7 +16,6 @@ of :mod:`solprop.backends.low_storage`'s module documentation.
 
 import logging
 import math
-from collections import deque
 from typing import cast
 
 from solprop._interrupts import committing
@@ -25,6 +24,7 @@ from solprop.backends.numpy_ref.marches.host import (
     MarchHost,
     MarchState,
     in_flight_refusal,
+    replay_shortfall,
 )
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -55,15 +55,13 @@ class HostLowStorageMarch:
         The schedule it replays.
     proposal : float
         The proposal it keeps, m, which a replay never updates.
-    lag : int, optional
-        The lag of the controller whose norms the replay keeps.
     name : str, optional
         The backend's name, for messages.
 
     Attributes
     ----------
     state : solprop.backends.numpy_ref.marches.host.MarchState
-        The march's position, proposal, cursor and accepted norms.
+        The march's position, proposal and cursor.
     source_evaluations : int
         Source evaluations of the committed steps since the state was last loaded,
         four a step: a physical count, never a logical response call (SEP 24 section
@@ -88,7 +86,6 @@ class HostLowStorageMarch:
         *,
         schedule: FixedSchedule,
         proposal: float,
-        lag: int = 1,
         name: str = "numpy_ref",
     ) -> None:
         """Hold the engine; the march stands at the entrance."""
@@ -100,7 +97,7 @@ class HostLowStorageMarch:
         self._warned = False
         # The step whose trial the engine left in flight, while it is.
         self._pending: tuple[float, float] | None = None
-        self.state = MarchState(z=0.0, proposal=proposal, norms=deque(maxlen=lag + 2))
+        self.state = MarchState(z=0.0, proposal=proposal)
         self.source_evaluations = 0
 
     @property
@@ -174,26 +171,19 @@ class HostLowStorageMarch:
             host.poll_stop()
             dz = float(schedule.steps[state.cursor])
             end = float(edges[state.cursor + 1])
-            norm = self.replay_step(dz, end, slack)
+            norm = self.replay_step(dz, end)
             state.cursor += 1
             host.record(end, dz, norm, accepted=True)
-            state.norms.append(norm)
             host.stepped()
             if host.natural_stop(target):
                 return
         if state.z < target - slack:
-            msg = (
-                f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
-                f"cannot reach z = {target:.6g} m"
-            )
-            raise BackendError(msg)
+            raise BackendError(replay_shortfall(float(schedule.z_end), target))
 
-    def replay_step(self, dz: float, end: float, slack: float) -> float:
+    def replay_step(self, dz: float, end: float) -> float:
         """Take one prescribed step from the march's position and accept it.
 
-        The unit a replay advances by, with
-        :meth:`solprop.backends.numpy_ref.marches.adams.HostAdamsMarch.replay_step`'s
-        signature.
+        The unit a replay advances by.
 
         Parameters
         ----------
@@ -201,9 +191,6 @@ class HostLowStorageMarch:
             The step, m.
         end : float
             The schedule's edge it ends on, m.
-        slack : float
-            How far an edge may sit from a target it lands on, m; unused, since the
-            march restarts nothing at a kink.
 
         Returns
         -------
@@ -218,7 +205,6 @@ class HostLowStorageMarch:
             If the accepted state is not finite: the field has diverged, and a replay
             cannot reject the step. Raised in flight, so the state is lost with it.
         """
-        del slack
         refusal = self.refusal()
         if refusal is not None:
             raise BackendError(refusal)

@@ -22,6 +22,7 @@ from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.responses import KerrResponse
 from solprop.profiles import Constant
+from solprop.translate import envelope_plasma
 from solprop.translate.envelope_plasma import (
     AngularRule,
     CycleIntegralData,
@@ -125,7 +126,12 @@ def test_envelope_plasma_contract_fields_are_frozen():
 
 
 def test_cycle_data_are_validated_owned_readonly_and_cached(cycle):
-    assert cycle is build_cycle_integrals(
+    # Built again here, not compared with the module's fixture: the memo is bounded,
+    # and other tests may have pushed the fixture's entry out.
+    again = build_cycle_integrals(
+        EnvelopePlasmaResponse("Ar", adk_oracle("Ar")), (1e9, 1e11)
+    )
+    assert again is build_cycle_integrals(
         EnvelopePlasmaResponse("Ar", adk_oracle("Ar")), (1e9, 1e11)
     )
     assert cycle.rate.field_min < 1e9
@@ -252,6 +258,18 @@ def test_rate_model_identity_changes_cycle_cache():
         (1e9, 1e11),
     )
     assert first.identity != second.identity
+
+
+def test_the_cycle_memo_keeps_only_the_newest_entries(monkeypatch):
+    """An energy scan builds one cycle per field range; the memo is bounded."""
+    monkeypatch.setattr(envelope_plasma, "_CYCLES", {})
+    monkeypatch.setattr(envelope_plasma, "_CYCLES_KEPT", 1)
+    response = EnvelopePlasmaResponse("Ar", adk_oracle("Ar"))
+    first = build_cycle_integrals(response, (1e9, 1e11))
+    second = build_cycle_integrals(response, (1e9, 2e11))
+    assert first.identity != second.identity
+    assert list(envelope_plasma._CYCLES) == [second.identity]
+    assert build_cycle_integrals(response, (1e9, 2e11)) is second
 
 
 def test_invalid_cycle_data_and_domains_fail(cycle):

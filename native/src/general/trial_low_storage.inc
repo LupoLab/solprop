@@ -41,10 +41,10 @@ constexpr int term_absorber = 2;
 constexpr std::size_t low_storage_rows[4] = {0, 1, 1, 2};
 
 // One evaluation's fold into the registers at one element: solprop's
-// `bodies.low_storage_fold`, the finish column of SEP 24 section 4.3. A pass that
-// evaluates twice -- the material response, then the in-stage absorber's term, from the
-// same input -- folds the first at the exchange (pass 3's C left unflowed) and the
-// second after it, whose sum is the pass's.
+// `numpy_ref.engines.NumpyLowStorage._step`, the finish column of SEP 24 section 4.3.
+// A pass that evaluates twice -- the material response, then the in-stage absorber's
+// term, from the same input -- folds the first at the exchange (pass 3's C left
+// unflowed) and the second after it, whose sum is the pass's.
 KOKKOS_INLINE_FUNCTION void
 low_storage_fold(const int stage, const int mode, const double step,
                  const Complex source, Complex& state, Complex& accumulator,

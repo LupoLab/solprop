@@ -56,6 +56,14 @@ from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule, replay_toleran
 from solprop.stepper.settings import PropagatorMode
 from solprop.translate.masks import AbsorberScheme
 
+# The refusal of fields='planes' beside step_planes, shared with the run's own check
+# (solprop.driver.run.field_retention).
+_FIELDS_BESIDE_STEP_PLANES = (
+    "fields='planes' names saved planes by index, and step_planes saves the march's "
+    "own steps as well, so the plane count is not known in advance; keep fields='all' "
+    "or 'none' beside step_planes"
+)
+
 __all__ = [
     "DEFAULT_N_SAVE",
     "LOOSE_ADAMS_RTOL",
@@ -199,7 +207,9 @@ class SimulationSettings(Displayed):
         reject-free controller.
     interval_cap : bool or None
         Whether a step is capped at the width of its operator-table interval. ``None``
-        caps it only for a coupled flow or a reject-free controller (SEP 14).
+        caps it only for a coupled flow or a reject-free controller (SEP 14). An Adams
+        integrator caps by its own ``Multistep(interval_cap=...)``; a different value
+        here is refused.
     interpolate_planes : bool
         Observe the save planes inside accepted steps instead of landing on them (SEP
         14 phase 3): through the Adams march's own polynomial or, with
@@ -212,14 +222,15 @@ class SimulationSettings(Displayed):
         saves the requested planes only. Not in scans.
     integrator : Multistep, RungeKutta, LowStorageRungeKutta or None
         The method that steps the run (``docs/guide/numerics/choosing-a-stepper.md``).
-        ``None``, the default, takes ``Multistep()``, or ``RungeKutta()`` where the
-        interface's builder sets it
-        (:meth:`~solprop.driver.simulation.Simulation.from_gnlse`,
-        :meth:`~solprop.driver.simulation.Simulation.from_waveguide` and
-        :meth:`~solprop.driver.simulation.Simulation.from_free`;
-        ``docs/guide/numerics/choosing-a-stepper.md``); the stored value is the resolved
-        method. ``Multistep()`` is the low-call exponential Adams method, which
-        ``numpy_ref`` and ``native`` execute for supported configurations;
+        ``None``, the default, takes the route's method in every ``Simulation.from_*``
+        constructor (:data:`~solprop.driver.defaults.ROUTE_DEFAULTS`: ``RungeKutta()``
+        for :meth:`~solprop.driver.simulation.Simulation.from_gnlse`,
+        :meth:`~solprop.driver.simulation.Simulation.from_waveguide` and a Cartesian or
+        line :meth:`~solprop.driver.simulation.Simulation.from_free`, ``Multistep()``
+        for the others) and ``Multistep()`` on a
+        :class:`~solprop.driver.simulation.Simulation` built directly; the stored
+        value is the resolved method. ``Multistep()`` is the low-call exponential Adams
+        method, which ``numpy_ref`` and ``native`` execute for supported configurations;
         ``RungeKutta()`` is the interaction-picture DOPRI5 march, which every backend
         executes and which holds a third of the Adams history's memory.
         ``LowStorageRungeKutta()`` replays `schedule` with RK4 in three registers and no
@@ -345,8 +356,8 @@ class SimulationSettings(Displayed):
         along z must meet (SEP 34 section 4.5). ``None``, the default, is
         ``AdiabaticAccuracy()``, both 1e-4; a path exceeding them is refused.
     tdse_execution : solprop.nonlinear.tdse.TDSEExecution or None
-        Explicit atomic runtime resources for a TDSE response. Requires an explicit
-        ``backend="numpy_ref"`` and a Multistep integrator. Execution resources are
+        Explicit atomic runtime resources for a TDSE response. Requires a Multistep
+        integrator. Execution resources are
         outside the scientific resume identity; attempted-call budgets are cumulative.
     boundary_check : solprop.monitor.BoundaryCheck or None
         How the run watches its time window's edges (SEP 21): guard and collar
@@ -556,13 +567,8 @@ class SimulationSettings(Displayed):
             raise DriverError(msg, parameter="resume_history")
         self._resolve_defaults()
         if self.fields == "planes" and self.step_planes:
-            msg = (
-                "fields='planes' names saved planes by index, and step_planes saves "
-                "the march's own steps as well, so the plane count is not known in "
-                "advance; keep fields='all' or 'none' beside step_planes"
-            )
             raise DriverError(
-                msg,
+                _FIELDS_BESIDE_STEP_PLANES,
                 parameter=("fields", "step_planes"),
                 rule="fields-planes-step-planes",
             )
@@ -572,15 +578,14 @@ class SimulationSettings(Displayed):
         # checked at run time, as in the test suite.
         if not isinstance(
             self.integrator, Multistep | RungeKutta | LowStorageRungeKutta
-        ):  # pragma: no cover
+        ):  # pragma: no cover - its annotation refuses it first
             msg = (
                 "integrator must be Multistep(), RungeKutta() or "
                 f"LowStorageRungeKutta(), got {self.integrator!r}"
             )
             raise DriverError(msg, parameter="integrator")
         if isinstance(self.integrator, LowStorageRungeKutta):
-            backend = _admit_low_storage(self.integrator, self.backend, self)
-            object.__setattr__(self, "backend", backend)
+            _admit_low_storage(self.integrator, self)
         # An Adams integrator resolves "auto" as the Runge-Kutta march does: every
         # backend steps the exponential formulation on every route, and the
         # interaction one on every route but a coupled flow, which it refuses by name
@@ -901,13 +906,13 @@ integrator (:func:`solprop.backends.registry.resolve_name`: the native backend).
 
 
 def _admit_low_storage(
-    integrator: LowStorageRungeKutta, backend: str, settings: SimulationSettings
-) -> str:
+    integrator: LowStorageRungeKutta, settings: SimulationSettings
+) -> None:
     """Refuse what the low-storage march cannot run, before translation (SEP 24 5).
 
     The march replays a prescribed schedule, lands on its edges and accepts every
     step, so it needs a schedule and has no interpolated planes. Every registered
-    backend executes it (:data:`LOW_STORAGE_BACKENDS`), so the backend passes as asked.
+    backend executes it (:data:`LOW_STORAGE_BACKENDS`).
     """
     if settings.schedule is None:
         msg = (
@@ -927,7 +932,6 @@ def _admit_low_storage(
             parameter=("integrator", "interpolate_planes"),
             rule="low-storage-no-interpolation",
         )
-    return backend
 
 
 def _same_setting(old: object, new: object) -> bool:

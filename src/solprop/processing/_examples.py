@@ -139,7 +139,7 @@ def example_output(
 
     Examples
     --------
-    >>> from solprop.processing._examples import example_output
+    >>> from solprop.processing import example_output
     >>> output = example_output(n_modes=2)
     >>> output.n_saved, output["field"].shape[1:3]
     (5, (2, 1))

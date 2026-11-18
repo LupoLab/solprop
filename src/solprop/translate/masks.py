@@ -281,6 +281,11 @@ def build_masks(
     Grids
         Section 2 of the kernel contract, with read-only arrays.
 
+    Raises
+    ------
+    TranslationError
+        If `region` is neither ``"active"`` nor ``"band"``.
+
     Examples
     --------
     >>> import numpy as np
@@ -300,6 +305,9 @@ def build_masks(
     >>> masks.carrier_2w0 is None
     True
     """
+    if region not in {"active", "band"}:
+        msg = f"the error norm's region {region!r} is not 'active' or 'band'"
+        raise TranslationError(msg)
     # The grid evaluates its masks and windows afresh at every access, so each is
     # this group's own: held in place rather than copied again by the group. The
     # frequency axis is the grid's, which it already holds.

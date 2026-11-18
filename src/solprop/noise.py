@@ -368,10 +368,9 @@ def transformed_noise(
     **What is conserved and what is not.** ``sum_m |d_m|^2 = c.H U U.H c = sum_n
     |c_n|^2`` for a unitary ``U``, so the **total** photon number in each bin is
     exactly what it was; the per-channel numbers are redistributed, and the moduli
-    are no longer all equal. That is the physics the A2 companion names -- "fixed
-    modulus random phases are not invariant in distribution under arbitrary unitary
-    mixing" -- and it is why the draw is made once, in the basis it is defined in,
-    rather than again in each basis a run chooses.
+    are no longer all equal: fixed-modulus random phases are not invariant in
+    distribution under an arbitrary unitary mixing. That is why the draw is made once,
+    in the basis it is defined in, rather than again in each basis a run chooses.
 
     Parameters
     ----------

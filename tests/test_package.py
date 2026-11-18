@@ -58,13 +58,12 @@ def test_top_level_import_does_not_load_heavy_modules():
     assert out.stdout.strip() == "[]"
 
 
-def test_no_removed_device_backend_survives_in_the_package_or_its_imports():
-    # The in-tree device backend has been removed. The check is by substring rather
-    # than by the deleted name so that it also catches a reintroduction under a
-    # neighbouring spelling, and the import runs in a subprocess because what matters
-    # is what importing the seam pulls in -- no device runtime, ever. The subprocess
-    # measures what the import *adds*, because an interpreter may already carry an
-    # unrelated redirector module installed by a wheel this package never asked for.
+def test_importing_the_backends_starts_no_device_runtime():
+    # No backend module or attribute is a device backend, and importing the seam pulls
+    # in no device runtime. The check is by substring, so it catches any spelling. The
+    # import runs in a subprocess, which measures what the import *adds*, because an
+    # interpreter may already carry an unrelated redirector module installed by a
+    # wheel this package never asked for.
     on_disk = [module.name for module in pkgutil.iter_modules(backends.__path__)]
     assert on_disk and not [name for name in on_disk if "cuda" in name.lower()]
     assert not [name for name in dir(backends) if "cuda" in name.lower()]
@@ -134,6 +133,9 @@ def test_exception_hierarchy_roots_at_solprop_error():
     assert issubclass(exceptions.BackendError, RuntimeError)
     # A scan executor or its machine failing is a runtime failure, not a refusal.
     assert issubclass(exceptions.ExecutorError, RuntimeError)
+    # A refused argument to an output request is a refused value, not a failed write.
+    assert issubclass(exceptions.OutputRequestError, ValueError)
+    assert not issubclass(exceptions.OutputRequestError, exceptions.OutputError)
 
 
 def test_warning_hierarchy_roots_at_solprop_warning():

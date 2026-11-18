@@ -119,7 +119,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.093 seconds)
+   **Total running time of the script:** (0 minutes 0.079 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_04_vector_mode_providers.py:

@@ -5,8 +5,8 @@ Copy this file to docs/dev/seps/sep-NNNN-short-slug.md, with the next free numbe
 the index, and replace every placeholder. Keep the headings: the parts and their order
 are the same in every SEP. Delete the italic guidance as you write each section. The
 process is SEP 0 (sep-0000-process.md); read it first.
-Add the draft to the SEP index and its toctree, and to the roadmap's Draft enhancement
-proposals section after the accepted proposals. Keep these entries current when the scope or status changes;
+Add the draft to the SEP index's Open table and its toctree. Keep its row current when the
+status changes;
 work this proposal gives back goes in an issue. Open the SEP's tracking issue (SEP 0) and
 name it in Part III.
 -->
@@ -105,7 +105,8 @@ differences page.*
 
 ### 11. Phases
 
-*The proposed phases, each independently mergeable with a green gate. numpy_ref and the
+*The proposed phases, each independently qualified and reported, as commits on the SEP's
+one branch (SEP 0 §6, Implementation). numpy_ref and the
 native CPU build come in either order, each with tests, and the manual page with whichever
 lands first. For each phase: its deliverables and what it must verify.*
 
@@ -122,13 +123,12 @@ lands first. For each phase: its deliverables and what it must verify.*
 
 ## Part II — Implementation record
 
-*One report per phase, appended in the pull request that merges the phase (SEP 0 §8).
+*One report per phase, appended on the SEP's branch when the phase is complete (SEP 0 §8).
 Copy the skeleton below for each phase.*
 
 ### Phase 1 report — short title
 
-- **Scope:** phase, date, implementer, branch, merge commits (solprop, and solprop-kokkos
-  when changed).
+- **Scope:** phase, date, implementer, branch and the phase's commits.
 - **Delivered:** modules, tests and pages added or changed, as paths.
 - **Deviations from the proposal:** each, with why it was necessary.
 - **Decisions:** choices the proposal left open, with ADR numbers where one was written.

@@ -20,9 +20,11 @@ Choose **Run → Machines…**, or **Machines…** at the end of the list on the
 
 For each machine, say:
 
-- **solprop's Python there**: the Python that has solprop, as the machine's shell
-  finds it (`~/env/bin/python`, say). **Set up solprop there…** installs one for you
-  (below).
+- **solprop's Python there**: the Python that has solprop, as one path
+  (`~/env/bin/python`, say, where `~/` is your home folder there) or a command the
+  machine's shell finds on its `PATH` (`python3`). It is taken as written: a variable
+  (`$SCRATCH`) or `~user` is not expanded, so write the path out in full, and it takes
+  no options. **Set up solprop there…** installs one for you (below).
 - **Runs go in**: the folder of its runs on that machine (`~/solprop-runs` by default).
   On a cluster, choose a folder the compute nodes can reach.
 - **Runs start** **directly**, as a process of their own, or **as Slurm jobs**. For
@@ -70,7 +72,8 @@ They come from the run's record on the machine, so nothing is lost while you are
 - A Slurm job waiting in the queue shows **queued**, with Slurm's reason (`Priority`,
   `Resources`).
 - **Stop** asks the run to stop at its next step. Its file can be resumed, as for a run
-  on your computer.
+  on your computer. A run stopped while it is queued or starting ends as soon as it
+  starts, before it computes anything.
 - A Slurm job is sent `SIGTERM` two minutes before its time limit, so solprop writes
   where the run stood. **Resume** then continues it as a new job.
 

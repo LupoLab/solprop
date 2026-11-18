@@ -398,6 +398,41 @@ def test_threads_stay_unbound_unless_the_user_placed_them(
     assert environ.get("OMP_PROC_BIND") == binding
 
 
+@pytest.mark.parametrize(
+    ("environ", "expected", "marked"),
+    [
+        # A process started from one whose import set the binding inherits both.
+        ({"OMP_PROC_BIND": "false", _bind.MARKER: "false"}, "false", True),
+        # The same value without the marker is the user's.
+        ({"OMP_PROC_BIND": "false"}, "environment: OMP_PROC_BIND=false", False),
+        # A placement added beside an inherited binding is the user's.
+        (
+            {"OMP_PROC_BIND": "false", "OMP_PLACES": "cores", _bind.MARKER: "false"},
+            "environment: OMP_PROC_BIND=false",
+            False,
+        ),
+        # A marker left behind after the user changed the binding.
+        (
+            {"OMP_PROC_BIND": "spread", _bind.MARKER: "false"},
+            "environment: OMP_PROC_BIND=spread",
+            False,
+        ),
+    ],
+)
+def test_an_inherited_binding_is_reported_as_set_by_the_import(
+    environ: dict[str, str], expected: str, marked: bool
+) -> None:
+    """The marker beside ``OMP_PROC_BIND=false`` tells the import's from a user's."""
+    assert _bind.proc_bind(environ) == expected
+    assert (_bind.MARKER in environ) is marked
+
+
+def test_the_binding_set_by_the_import_carries_the_marker() -> None:
+    environ: dict[str, str] = {}
+    assert _bind.proc_bind(environ) == "false"
+    assert environ == {"OMP_PROC_BIND": "false", _bind.MARKER: "false"}
+
+
 def test_the_first_native_import_prints_no_binding_notice() -> None:
     """Kokkos's four-line ``OMP_PROC_BIND`` notice is not printed by default."""
     completed = subprocess.run(

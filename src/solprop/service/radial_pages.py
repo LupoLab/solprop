@@ -21,11 +21,18 @@ from solprop.processing import (
     far_field,
     fluence_along,
     fluence_map,
+    grid_of,
     on_axis_power,
     on_axis_spectra,
     on_axis_spectrogram,
     radial_intensity,
     radial_spectrum,
+)
+from solprop.processing.fields import (
+    DEFAULT_GATE_POSITIONS,
+    default_gate_fwhm,
+    real_field_oversampling,
+    time_axis,
 )
 from solprop.service._payload import Payload
 from solprop.service.reduce import TIME_OVERSAMPLING, even_rows
@@ -139,21 +146,27 @@ def beam_on_axis(payload: Payload) -> dict[str, object]:
     path = str(payload["path"])
     axis = str(payload.get("axis") or "wavelength")
     index = int(payload["index"])  # pyright: ignore[reportArgumentType]
-    gate = payload.get("gate_fwhm")
+    given = payload.get("gate_fwhm")
     with open_file(path) as output:
         t, power = on_axis_power(output, plane=index, oversampling=TIME_OVERSAMPLING)
         kept = np.asarray(output["field_planes"])
         x, rows = on_axis_spectra(output, axis)  # pyright: ignore[reportArgumentType]
         spectrum = rows[int(np.flatnonzero(kept == index)[0])]
+        if given is None:
+            # solprop's default, asked of solprop and passed on: the gate reported is
+            # the gate used.
+            grid = grid_of(output)
+            gate = default_gate_fwhm(time_axis(grid, real_field_oversampling(grid)))
+        else:
+            gate = float(given)  # pyright: ignore[reportArgumentType]
         map_t, map_x, values = on_axis_spectrogram(
             output,
             axis,  # pyright: ignore[reportArgumentType]
             plane=index,
-            gate_fwhm=None if gate is None else float(gate),  # pyright: ignore[reportArgumentType]
-            positions=int(payload.get("positions") or 256),  # pyright: ignore[reportArgumentType]
+            gate_fwhm=gate,
+            positions=int(payload.get("positions") or DEFAULT_GATE_POSITIONS),  # pyright: ignore[reportArgumentType]
         )
     bins, image = even_rows(map_x, values, _window(path, axis, map_x, values), _ROWS)
-    span = float(map_t[-1] - map_t[0])
     # In arbitrary units, and a field in V/m squares beyond single precision.
     image = image / (float(image.max()) or 1.0)
     return {
@@ -166,7 +179,7 @@ def beam_on_axis(payload: Payload) -> dict[str, object]:
             "t": map_t,
             "x": bins,
             "values": image.astype(np.float32),
-            "gate_fwhm": float(gate) if gate is not None else span / 20.0,  # pyright: ignore[reportArgumentType]
+            "gate_fwhm": gate,
         },
     }
 

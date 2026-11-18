@@ -319,11 +319,8 @@ def _refine(
     base = opened[0]
     try:
         sizing = cast(dict[str, object], base.backend.metadata()["execution_sizing"])
-        key = native._profile.descriptor(  # pyright: ignore[reportPrivateUsage]
-            # The store's key keeps the four-axis shape it has always been written
-            # with, so that refinements recorded before the batch axis left the
-            # problem (SEP 47 section 6.2) are found again.
-            shape=(1, *problem.shape),
+        key = native._profile.descriptor(
+            shape=problem.shape,
             grid_kind=problem.grid_kind,
             integrator=type(simulation.run_request().stepper.integrator).__name__,
             sizing=sizing,

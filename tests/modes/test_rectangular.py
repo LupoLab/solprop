@@ -20,7 +20,7 @@ from scipy.integrate import dblquad
 from witness_materials import borzsonyi
 
 from solprop.constants import EPS0, C
-from solprop.exceptions import GrazingIncidenceWarning, MaterialRangeWarning, ModeError
+from solprop.exceptions import GrazingIncidenceWarning, ModeError
 from solprop.modes import ModeCollection, RectMode
 from solprop.modes.base import beta, db_per_m, zdw
 from solprop.modes.quadrature import (
@@ -221,8 +221,9 @@ def test_rectangular_fem_checked_values_from_luna_test_file():
         susceptibility=borzsonyi("Ar"),
         temperature=293.15,
     )
-    with pytest.warns(MaterialRangeWarning, match="borzsonyi"):
-        wavelength = zdw(filled, wavelength_limits=(400e-9, 800e-9))
+    # The window reaches below the fit's range, but the search probes it silently and
+    # the zero itself lies inside the range, so nothing warns.
+    wavelength = zdw(filled, wavelength_limits=(400e-9, 800e-9))
     assert abs(wavelength - 563.5e-9) < 1e-9
 
 

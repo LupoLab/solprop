@@ -226,8 +226,8 @@ _GRID_UNITS: Final[Mapping[str, UnitSpec]] = {
 }
 _GRADIENT_UNITS: Final[Mapping[str, UnitSpec]] = {
     "length": "m",
-    "start_bar": "bar",
-    "end_bar": "bar",
+    "start_pressure": "bar",
+    "end_pressure": "bar",
     "floor": "bar",
     "radius": "m",
     "positions": "m",
@@ -723,8 +723,9 @@ def plane_parameter(error: DriverError) -> str | None:
 def refuse_plane_count(key: str, value: object, path: str) -> None:
     """Refuse a bare integer given as ``save_planes``, naming ``n_save`` (SEP 51).
 
-    A recipe once read ``save_planes = 80`` as one plane at 80 m (#533); positions and
-    a count have one name each, so the integer is refused with the fix.
+    A bare number is ambiguous between a count of planes and one plane's position in
+    m; positions and a count have one name each, so the integer is refused with the
+    fix.
 
     Parameters
     ----------

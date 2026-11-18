@@ -284,7 +284,7 @@ continue with :doc:`/guide/free-space/beams` and :doc:`/guide/free-space/hankel`
  .. code-block:: none
 
     exit energy / input energy: 0.919089
-    3.8 s; backend native
+    3.3 s; backend native
 
 
 
@@ -292,7 +292,7 @@ continue with :doc:`/guide/free-space/beams` and :doc:`/guide/free-space/hankel`
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 3.877 seconds)
+   **Total running time of the script:** (0 minutes 3.348 seconds)
 
 
 .. _sphx_glr_download_introduction_lessons_plot_03_filament.py:

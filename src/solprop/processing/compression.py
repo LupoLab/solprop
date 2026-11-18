@@ -36,7 +36,7 @@ from scipy.optimize import differential_evolution, minimize_scalar
 from solprop import fourier
 from solprop._display import Displayed, engineering, line, phase_text
 from solprop.constants import C
-from solprop.exceptions import OpticsGeometryError, ProcessingError
+from solprop.exceptions import ModeError, OpticsGeometryError, ProcessingError
 from solprop.grid import TimeGrid
 from solprop.optics import (
     Chain,
@@ -51,7 +51,13 @@ from solprop.optics import (
 from solprop.output.capability import capability_of, compression_refusal
 from solprop.output.store import Output
 from solprop.processing import spectra, time
-from solprop.processing.axes import _keep_index, _plane_field, _plane_index, grid_of
+from solprop.processing.axes import (
+    _check_mode_index,
+    _keep_index,
+    _plane_field,
+    _plane_index,
+    grid_of,
+)
 from solprop.processing.fields import _fft_norm, _to_time
 
 __all__ = [
@@ -388,12 +394,10 @@ def _select_modes(
     if modes is None:
         return stored
     chosen = [modes] if isinstance(modes, int) else list(modes)
-    if not chosen or any(
-        not -stored.shape[0] <= index < stored.shape[0] for index in chosen
-    ):
-        raise ProcessingError(
-            f"modes={modes!r} does not select from the {stored.shape[0]} modes saved"
-        )
+    if not chosen:
+        raise ModeError(f"modes={modes!r} selects no mode")
+    for index in chosen:
+        _check_mode_index(index, stored.shape[0])
     return stored[chosen]
 
 
@@ -489,6 +493,8 @@ def apply_transfer(
     ------
     solprop.exceptions.ProcessingError
         If the plane is named both by index and by position.
+    solprop.exceptions.ModeError
+        If `modes` selects no mode, or a mode the output does not hold.
 
     Examples
     --------
@@ -552,6 +558,11 @@ def transform_limit(
         Full width at half maximum of the transform-limited power, s.
     peak_power : float
         Its peak power, W.
+
+    Raises
+    ------
+    solprop.exceptions.ModeError
+        If `modes` selects no mode, or a mode the output does not hold.
 
     Examples
     --------
@@ -692,6 +703,8 @@ def compress_taylor(
     solprop.exceptions.ProcessingError
         If `order` is below two, `bound_factor` is not positive, or the input forms
         are mixed.
+    solprop.exceptions.ModeError
+        If `modes` selects no mode, or a mode the output does not hold.
 
     Examples
     --------
@@ -828,6 +841,8 @@ def compress_material(
     ------
     solprop.exceptions.ProcessingError
         If the thickness range is not ordered, or the input forms are mixed.
+    solprop.exceptions.ModeError
+        If `modes` selects no mode, or a mode the output does not hold.
 
     Examples
     --------
@@ -953,6 +968,8 @@ def compress_mirrors(
     solprop.exceptions.ProcessingError
         If `max_reflections` is below one, a medium is given without a range or a
         range without a medium, or the input forms are mixed.
+    solprop.exceptions.ModeError
+        If `modes` selects no mode, or a mode the output does not hold.
 
     Examples
     --------
@@ -1396,6 +1413,8 @@ def compress_gratings(
     ProcessingError
         If bounds, inputs or selection are invalid, the output is spatial or general
         modal, or no feasible setting is found by the scan.
+    ModeError
+        If `modes` selects no mode, or a mode the output does not hold.
     MaterialError
         If the optical or material inputs are invalid.
     """
@@ -1486,6 +1505,8 @@ def compress_prisms(
     ProcessingError
         If no range is supplied, bounds or inputs are invalid, the output is spatial
         or general modal, selection is empty, or no feasible setting is found.
+    ModeError
+        If `modes` selects no mode, or a mode the output does not hold.
     MaterialError
         If an optical input or material model is invalid; material errors propagate.
     """

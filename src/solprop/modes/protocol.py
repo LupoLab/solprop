@@ -510,7 +510,7 @@ class ParameterisedMode(Mode, Protocol):
     A mode whose declared paths are **not** the whole of its z dependence says so with
     the optional ``parameters_own_z`` trait, which
     :func:`solprop.translate.linop.parameters_own_z` reads by name. It defaults to
-    ``True`` -- what every mode written before the trait existed implied -- and a mode
+    ``True`` -- the declared paths are the mode's whole z dependence -- and a mode
     that reports ``False`` keeps the translation layer on the z table instead of an
     expansion its parameters cannot reproduce. The case is a
     :class:`solprop.nonlinear.gnlse.SpecifiedMode` whose dispersion follows a path

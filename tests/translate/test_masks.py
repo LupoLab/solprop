@@ -118,6 +118,21 @@ def test_the_in_band_region_is_inside_the_active_band(grid):
     )
 
 
+@pytest.mark.parametrize(
+    ("region", "mask"), [("active", "active_mask"), ("band", "inband_mask")]
+)
+def test_the_norm_mask_is_the_region_s_mask(grid, region, mask):
+    masks = build_masks(grid, region=region)
+    np.testing.assert_array_equal(masks.norm_mask, getattr(masks, mask))
+
+
+def test_an_unknown_norm_region_is_refused(grid):
+    with pytest.raises(
+        TranslationError, match=r"region 'inband' is not 'active' or 'band'"
+    ):
+        build_masks(grid, region="inband")
+
+
 # ------------------------------------------------------------------ temporal absorber
 
 

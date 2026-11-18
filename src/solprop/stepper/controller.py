@@ -121,8 +121,7 @@ def weighted_norm_scale(
     .. note::
        Provisional. Which weighting actually serves weak observables best -- fixed
        per-band weights, per-mode weights or a rolling per-bin scale -- has not been
-       measured: it is the open question "Error norms for observables far below the
-       pump" in ``docs/dev/open-questions.md`` (solprop issue #259).
+       measured: it is solprop issue #259.
 
     Parameters
     ----------

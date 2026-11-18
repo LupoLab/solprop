@@ -101,7 +101,9 @@ def test_ten_steps_of_a_nitrogen_capillary_under_a_selection():
     (entry,) = manifest.raman
     assert entry["groups"] == 43
     assert entry["shift_phase_bound_rad"] is None
-    assert entry["window_s"] == pytest.approx(400e-15, rel=0.1)
+    # The grid's realised window, which from_limits rounds up from the 400 fs asked.
+    window = simulation.grid.n_t * simulation.grid.dt
+    assert entry["window_s"] == pytest.approx(window, rel=1e-10)
 
 
 @pytest.mark.medium

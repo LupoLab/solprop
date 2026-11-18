@@ -39,8 +39,8 @@ from solprop.output import (
     CallbackOutput,
     MemoryOutput,
     check_cache,
+    read_resume_state,
     resumability,
-    resume,
     serialisation,
 )
 from solprop.output.metadata import PEAK_FIELDS_ANNOTATION, _example_metadata
@@ -569,10 +569,10 @@ def test_a_resume_is_refused_by_name(choice):
     ("reader", "name"),
     [
         (lambda handler: check_cache(handler, _example_metadata()), "check_cache"),
-        (resume, "resume"),
+        (read_resume_state, "read_resume_state"),
         (resumability, "resumability"),
     ],
-    ids=["check_cache", "resume", "resumability"],
+    ids=["check_cache", "read_resume_state", "resumability"],
 )
 @pytest.mark.parametrize("build", [opened, MemoryOutput], ids=["callback", "memory"])
 def test_a_check_against_a_handler_is_refused_by_name(reader, name, build):

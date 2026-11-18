@@ -56,6 +56,21 @@ def test_a_single_gas_and_vacuum_have_one_zero_absorption_row():
         )
 
 
+def test_an_absorbing_single_gas_law_is_refused_attribution(monkeypatch):
+    omega = np.array([2 * np.pi * C / 800e-9])
+    mode = MarcatiliMode(30e-6, "He", 1.0)
+    assert mode.susceptibility is not None
+    monkeypatch.setattr(
+        type(mode.susceptibility), "absorbing", property(lambda self: True)
+    )
+    with pytest.raises(ModeError, match="component of a Mixture"):
+        mode.absorption_by_species(omega)
+    # With the loss removed there is nothing to attribute.
+    np.testing.assert_array_equal(
+        replace(mode, loss_scale=0.0).absorption_by_species(omega), np.zeros((1, 1))
+    )
+
+
 def test_zero_population_contributes_no_attributed_loss():
     mixture, grid, mode, _, _ = mixture_case()
     mixture = mixture.with_densities({label: Constant(0) for label in mixture.labels})

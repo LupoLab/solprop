@@ -1681,6 +1681,7 @@ gui-test = [{ name = "pytest-qt", specifier = ">=4.5" }]
 name = "solprop-gui"
 source = { editable = "gui" }
 dependencies = [
+    { name = "numpy" },
     { name = "pyqtgraph" },
     { name = "pyside6-essentials" },
     { name = "solprop" },
@@ -1688,6 +1689,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "numpy", specifier = ">=2.5" },
     { name = "pyqtgraph", specifier = ">=0.14" },
     { name = "pyside6-essentials", specifier = ">=6.10.1" },
     { name = "solprop", editable = "." },

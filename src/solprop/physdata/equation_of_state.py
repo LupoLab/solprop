@@ -18,6 +18,7 @@ module load. The manual page is ``docs/guide/media/materials.md``, "Density".
 
 import functools
 import logging
+import math
 import numbers
 
 from solprop.constants import BAR, K_B, ROOM_TEMPERATURE
@@ -70,8 +71,24 @@ def _check_temperature(temperature: object) -> None:
             f"{type(temperature).__name__}: a temperature path along z reaches the "
             "density through solprop.profiles.DensityPath, not a single state"
         )
-    if not float(temperature) > 0.0:
-        raise MaterialError(f"temperature must be positive, got {temperature} K")
+    value = float(temperature)
+    if not (math.isfinite(value) and value > 0.0):
+        raise MaterialError(
+            f"temperature must be finite and positive, got {temperature} K"
+        )
+
+
+def _check_state(quantity: str, value: float, unit: str, temperature: object) -> None:
+    """Refuse a state the ideal law would turn into NaN or infinity, on every path.
+
+    - ``quantity``: what ``value`` is, for the message: a pressure or a number density.
+    - ``unit``: the unit of ``value`` as the message prints it (``" bar"``, or empty).
+    """
+    if not (math.isfinite(value) and value >= 0.0):
+        raise MaterialError(
+            f"{quantity} must be finite and non-negative, got {value}{unit}"
+        )
+    _check_temperature(temperature)
 
 
 def ideal_gas_density(pressure: float, temperature: float = ROOM_TEMPERATURE) -> float:
@@ -94,7 +111,8 @@ def ideal_gas_density(pressure: float, temperature: float = ROOM_TEMPERATURE) ->
     Raises
     ------
     MaterialError
-        If the pressure is negative or the temperature is not positive.
+        If the pressure is negative or not finite, or the temperature is not positive
+        and finite.
 
     Examples
     --------
@@ -104,9 +122,7 @@ def ideal_gas_density(pressure: float, temperature: float = ROOM_TEMPERATURE) ->
     >>> f"{ideal_gas_density(1.01325, 273.15):.6e}"
     '2.686780e+25'
     """
-    if pressure < 0.0:
-        raise MaterialError(f"pressure must not be negative, got {pressure} bar")
-    _check_temperature(temperature)
+    _check_state("pressure", pressure, " bar", temperature)
     return pressure * BAR / (K_B * temperature)
 
 
@@ -140,8 +156,9 @@ def density(
     Raises
     ------
     MaterialError
-        If the gas is unknown, the pressure is negative, the temperature is not
-        positive, or the state lies outside the equation of state's domain.
+        If the gas is unknown, the pressure is negative or not finite, the
+        temperature is not positive and finite, or the state lies outside the
+        equation of state's domain; the ideal law refuses the same states.
 
     Notes
     -----
@@ -158,9 +175,7 @@ def density(
     0.0
     """
     species = as_gas(gas)
-    if pressure < 0.0:
-        raise MaterialError(f"pressure must not be negative, got {pressure} bar")
-    _check_temperature(temperature)
+    _check_state("pressure", pressure, " bar", temperature)
     if pressure == 0.0:
         return 0.0
     if ideal:
@@ -198,8 +213,9 @@ def pressure(
     Raises
     ------
     MaterialError
-        If the gas is unknown, the density is negative, the temperature is not
-        positive, or the state lies outside the equation of state's domain.
+        If the gas is unknown, the density is negative or not finite, the
+        temperature is not positive and finite, or the state lies outside the
+        equation of state's domain; the ideal law refuses the same states.
 
     Examples
     --------
@@ -208,11 +224,7 @@ def pressure(
     '5.000000'
     """
     species = as_gas(gas)
-    if number_density < 0.0:
-        raise MaterialError(
-            f"number density must not be negative, got {number_density}"
-        )
-    _check_temperature(temperature)
+    _check_state("number density", number_density, " m^-3", temperature)
     if number_density == 0.0:
         return 0.0
     if ideal:

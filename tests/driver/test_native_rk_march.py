@@ -4,20 +4,22 @@
 
 """The native Runge-Kutta march on real fields (SEP 45 sections 4.9, 7.3; SEP 47).
 
-Until SEP 47's phase 5 these runs were held bit for bit to solprop's Python loop on the
-same build, selected by a private switch that phase retired with the loop's forcing
-hooks (SEP 47 section 6.3). That comparison's diagnostic purpose is kept by two
-independent checks: the march's decisions reproduce the recorded identical-input traces
-exactly (``tests/backends/test_native_rk_traces.py``, ``tests/backends/rk_traces.py``),
-and here each route's native session is the same run twice -- its steps, norms, fields
-and boundary-monitor record bit for bit on one thread, where the reductions' order is
-fixed -- and is held to ``numpy_ref``'s run of the same problem within a hundred times
-the controller's relative tolerance of the field's peak. The two adaptive runs take
-their own steps (SEP 25 class T), and each keeps its local error within the tolerance;
-a hundred covers the error's growth over these short runs (measured at most 4.2e-8 of
-the peak, against tolerances of 1e-6 and looser). The replays on a fixed schedule are
-held to the reference by the catalogue's rows ``rk replay ...``
-(``backends/driver_rows.py``); here they take the schedule's steps exactly.
+Each route's native session is run twice and is the same run -- its steps, norms,
+fields and boundary-monitor record bit for bit on one thread, where the reductions'
+order is fixed -- and is held to ``numpy_ref``'s run of the same problem within a
+hundred times the controller's relative tolerance of the field's peak. The two adaptive
+runs take their own steps (SEP 25 class T), and each keeps its local error within the
+tolerance; a hundred covers the error's growth over these short runs (measured at most
+4.2e-8 of the peak, against tolerances of 1e-6 and looser).
+
+That bound shows the native march runs each route and stays near the reference; it is
+not a parity check of the physics: on these short probes the Kerr phase can move the
+field by less than the bound, so a wrong nonlinear term may pass here. The terms are
+held by the parity catalogue's guarded rows
+(``tests/backends/test_parity_catalogue.py``), the replays on a fixed schedule by its
+rows ``rk replay ...`` (``backends/driver_rows.py``), and the march's decisions by the
+recorded identical-input traces (``tests/backends/test_native_rk_traces.py``,
+``tests/backends/rk_traces.py``).
 """
 
 from __future__ import annotations
@@ -35,7 +37,7 @@ from tests.driver.test_native_z_table import walk_off
 from rk_route_cases import replayed, runge_kutta_route
 from sessions.runs import load_native, native_trial
 from solprop.backends import available
-from solprop.exceptions import BoundaryWarning, HostMarchWarning
+from solprop.exceptions import BoundaryWarning
 from solprop.monitor import BoundaryCheck
 from solprop.stepper.controller import PIController
 from solprop.stepper.runge_kutta import RungeKutta
@@ -73,7 +75,6 @@ def _run(build, backend: str = "native") -> dict[str, Any]:
     rtol = simulation.run_request().stepper.controller.rtol
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)
-        warnings.simplefilter("error", HostMarchWarning)
         run = simulation.run(progress="none")
     outcome = run.outcome
     assert outcome is not None and outcome.execution is not None

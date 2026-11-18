@@ -931,7 +931,7 @@ def _assemble(
     if entry.status == "provisional" and request.selection.raman != "provisional":
         msg = (
             f"{request.where}: optmat's Raman response {entry.name} is provisional "
-            f"({entry.status_reason}). It is admitted only with "
+            f"({entry.status_reason.rstrip('.')}). It is admitted only with "
             "MaterialSelection(raman='provisional'), which warns once and is recorded "
             "(SEP 3, D13)"
         )

@@ -10,7 +10,7 @@ import pytest
 from solprop.grid import EnvelopeGrid
 from solprop.service.messages import PROTOCOL, Event, Reply, Request
 from solprop.service.reduce import Display, Reducer, bin_max
-from solprop.service.states import ACTIVE, ExecutionState, advance
+from solprop.service.states import ACTIVE, ExecutionState, advance, failure_advice
 
 # ---------------------------------------------------------------------- messages
 
@@ -94,6 +94,23 @@ def test_the_state_machine_follows_a_run():
     assert advance(ExecutionState.RUNNING, "lost") == ExecutionState.LOST
     assert advance(ExecutionState.STARTING, "failed") == ExecutionState.FAILED
     assert ExecutionState.COMPLETE not in ACTIVE
+    assert ExecutionState.LOST == "lost"
+
+
+@pytest.mark.parametrize(
+    ("message", "said", "hinted"),
+    [
+        ("out of memory", "(out of memory)", True),
+        ("timeout", "(timeout)", False),
+        ("it ended before it started", "(it ended before it started)", False),
+        ("", "ended without recording how.", False),
+    ],
+)
+def test_a_lost_run_is_explained_by_its_reason(message, said, hinted):
+    advice = failure_advice("lost", message)
+    assert advice.startswith("The run's process ended without recording how")
+    assert said in advice
+    assert ("LowStorageRungeKutta" in advice) == hinted
 
 
 # ---------------------------------------------------------------------- workspace
