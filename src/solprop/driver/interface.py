@@ -92,32 +92,6 @@ _RUN_CONTROLS: Final = (
 )
 """The keywords of a ``prop_*`` function that are :meth:`Simulation.run`'s."""
 
-_RUN_CONTROLS_DOC: Final = """\
-output : solprop.output.store.Output or pathlib.Path or str or None, optional
-    Where the run goes: a handler, a path to stream an HDF5 file to, or ``None`` for
-    a :class:`solprop.output.memory.MemoryOutput`.
-snapshots : solprop.output.SnapshotController or None, optional
-    Immutable local checkpoints at committed accepted steps, each after every
-    interpolated plane its step crossed; requires HDF5 and ``fields='all'``
-    (:meth:`~solprop.driver.simulation.Simulation.run`).
-resume : bool or {'interpolated'}, optional
-    Continue the file at `output` when its record and this run's have one
-    configuration hash; otherwise it is refused, naming what changed. Only a
-    path can be resumed. ``"interpolated"`` also continues from a plane
-    interpolated inside a step
-    (:meth:`solprop.driver.simulation.Simulation.run`).
-progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None, optional
-    Where progress goes; ``None`` takes the process default: a bar on a terminal
-    or in a notebook, log lines otherwise (:func:`solprop.driver.run.run_problem`).
-progress_period : float, optional
-    Seconds between the default reporter's periodic lines, s; ``0`` leaves only the
-    plane and closing lines. Ignored when `progress` is given.
-tdse_archive : solprop.output.TDSEArchive or None, optional
-    Archive every raw provider evaluation of `tdse` in a separate HDF5 file
-    (:meth:`~solprop.driver.simulation.Simulation.run`); refused without `tdse`.
-"""
-"""The run controls' parameter entries, in :data:`_RUN_CONTROLS` order."""
-
 _SECTION = re.compile(r"^(\w[\w ]*)\n-{3,}\n", re.MULTILINE)
 """A numpydoc section header: its title, then its underline."""
 
@@ -134,8 +108,12 @@ def _parameters(doc: str) -> str:
 
 
 def _run_controls(names: Sequence[str]) -> str:
-    """Return the entries of the run controls among `names`, in their order."""
-    entries = re.split(r"\n(?=\S)", _RUN_CONTROLS_DOC.strip("\n"))
+    """Return :meth:`Simulation.run`'s entries for the run controls among `names`.
+
+    In the order of `names`; each control is documented once, on the method.
+    """
+    run_doc = inspect.getdoc(Simulation.run) or ""
+    entries = re.split(r"\n(?=\S)", _parameters(run_doc).strip("\n"))
     by_name = {entry.split(" :", 1)[0]: entry for entry in entries}
     return "".join(by_name[name] + "\n" for name in names if name in by_name)
 
