@@ -319,7 +319,7 @@ def _refine(
     base = opened[0]
     try:
         sizing = cast(dict[str, object], base.backend.metadata()["execution_sizing"])
-        key = native._profile.descriptor(  # pyright: ignore[reportPrivateUsage]
+        key = native._profile.descriptor(
             shape=problem.shape,
             grid_kind=problem.grid_kind,
             integrator=type(simulation.run_request().stepper.integrator).__name__,
