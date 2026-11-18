@@ -11,7 +11,6 @@ Phase 4b deleted its rates). This is a numerical interface acceptance case, not 
 qualification of the air data in the ultraviolet.
 """
 
-import json
 from dataclasses import replace
 from itertools import pairwise
 
@@ -110,6 +109,7 @@ def connected_simulation(ffac=6.0, *, passive=False):
 
 
 def assert_saved_accounting(simulation, output):
+    """Check a run's saved ionisation and absorption records; return its new ions."""
     problem = simulation.translate()
     grid = simulation.grid
     # Each independent exposure is a non-negative trapezoid sum. The backend
@@ -176,7 +176,7 @@ def assert_saved_accounting(simulation, output):
         output["stats/species_electron_density"], expected_electrons, rtol=bound, atol=0
     )
     np.testing.assert_array_equal(fractions[:, 2:], 0.0)
-    omega, absorbed = processing.absorbed_spectral_energy(output, species="absorber")
+    _, absorbed = processing.absorbed_spectral_energy(output, species="absorber")
     _, spectral = processing.get_spectral_density(output, axis="omega", band="active")
     np.testing.assert_allclose(absorbed[:, 0], 1e-4 * spectral, rtol=bound, atol=0)
     fluence = processing.node_fluence(output)
@@ -184,16 +184,11 @@ def assert_saved_accounting(simulation, output):
     np.testing.assert_allclose(
         fluence, expected_fluence, rtol=bound, atol=bound * np.max(fluence)
     )
-    return {
-        "rounding_bound": bound,
-        "omega_points": omega.size,
-        "inventory_J_per_m": inventory.tolist(),
-        "new_ions_per_m": np.sum(new_source * weights, axis=-1).tolist(),
-    }
+    return np.sum(new_source * weights, axis=-1)
 
 
 @pytest.mark.slow
-def test_connected_air_saved_source_and_spectrum_converge(tmp_path):
+def test_connected_air_saved_source_converges_with_the_fine_spacing():
     # Refining the fine temporal spacing halves the exposure trapezoid's h^2
     # defect. Compare successive differences on the unchanged coarse spectral
     # grid: the asymptotic ratio is 1/4; 1/2 allows the next-order remainder.
@@ -201,11 +196,6 @@ def test_connected_air_saved_source_and_spectrum_converge(tmp_path):
     # comparison floor. This is a convergence test, not a physical UV error bar.
     ratio_bound = 0.5
     floor = 100 * 1e-7
-    budgets: dict[str, object] = {
-        "difference_ratio_bound": ratio_bound,
-        "controller_floor": floor,
-    }
-    (tmp_path / "bounds.json").write_text(json.dumps(budgets, indent=2))
     outputs = []
     records = []
     for ffac in (6.0, 12.0, 24.0):
@@ -213,23 +203,25 @@ def test_connected_air_saved_source_and_spectrum_converge(tmp_path):
         output = simulation.run()
         records.append(assert_saved_accounting(simulation, output))
         outputs.append((simulation, output))
+    sources = [record[:, :2] for record in records]
+    scale = np.linalg.norm(sources[-1])
+    errors = [
+        float(np.linalg.norm(right - left) / scale) for left, right in pairwise(sources)
+    ]
+    # Measured 7.1e-4 and 2.6e-8: the coarse difference stands clear of the floor, so
+    # the refinement's gain is not met by the floor alone.
+    assert errors[0] > 10 * floor, errors
+    assert errors[1] <= ratio_bound * errors[0] + floor, errors
+    # The saved spectrum does not move with the fine spacing here (measured 3.5e-13
+    # and 5.2e-13 between levels), so it carries no convergence claim; the floor
+    # admits adaptive runs that place their steps differently.
     spectra = [
         processing.get_spectral_density(output, axis="omega", band="active")[1]
         for _, output in outputs
     ]
-    sources = [np.array(record["new_ions_per_m"])[:, :2] for record in records]
-    for name, values in (("spectrum", spectra), ("source", sources)):
-        scale = np.linalg.norm(values[-1])
-        errors = [
-            float(np.linalg.norm(right - left) / scale)
-            for left, right in pairwise(values)
-        ]
-        budgets[name] = errors
-        (tmp_path / "measurements.json").write_text(
-            json.dumps(budgets | {"records": records}, indent=2)
-        )
-        # Each refinement must at least halve the error, to a floor of 1e-5.
-        assert errors[1] <= ratio_bound * errors[0] + floor, (name, errors, budgets)
+    scale = np.linalg.norm(spectra[-1])
+    for left, right in pairwise(spectra):
+        assert np.linalg.norm(right - left) / scale <= floor
 
 
 @pytest.mark.slow
