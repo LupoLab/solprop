@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""What translation refuses, and what it warns about, before a problem is returned.
+"""The route policy translation refuses or warns on before a problem is returned.
 
 The policy :func:`solprop.translate.assembly.assemble` applies to its arguments and to
 the problem it assembled: the refusals of a route's settings (a wall off the capillary
@@ -14,7 +14,10 @@ fixed-schedule limit and the coupled flow's advisory step
 :meth:`solprop.translate.problem.PropagationProblem.validate` and
 :func:`solprop.translate.problem.validate_run`, which also refuses dense observation
 where its interpolant is not the run's field, so a request changed after assembly is
-refused there too.
+refused there too. The checks that the arguments agree with one another (the state's
+layout with the mode set, a spatial grid with its medium, the save planes' range) stay
+inline in :func:`~solprop.translate.assembly.assemble` and the builders it calls,
+beside the code that reads them.
 """
 
 import math
