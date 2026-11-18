@@ -277,7 +277,9 @@ for one being retried), and a rerun of the same call computes them, skipping the
 complete ones as usual. `run_scan` returns normally after a stop, logs at `INFO` that the
 caller's flag stopped it with the counts of collected and stopped points, and tells a
 scan reporter `"stopped"` for each stopped point; a watched point's reporter is told
-through `interrupted`, with a `StopRequested` error that carries the caller's flag. The design is [SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md),
+through `interrupted`, with a `StopRequested` error that carries the caller's flag. A
+`Pool` point whose own worker is interrupted, by Ctrl-C (which a terminal sends to every
+worker) or SIGTERM, is a stopped point in the same way, never a failed one. The design is [SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md),
 S4 and S17.
 
 ## Noise and repeatability
