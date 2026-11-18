@@ -330,6 +330,25 @@ def without_source(name: str) -> Callable[[PropagationProblem], PropagationProbl
     return switch
 
 
+def without_delayed(problem: PropagationProblem) -> PropagationProblem:
+    """Return the problem whose regions' delayed (Raman) tensor is zero.
+
+    The instantaneous Kerr term is kept, so a guard built on this switch measures the
+    Raman term's share alone rather than the whole source's.
+    """
+    regional = problem.responses.regional_responses
+    assert regional is not None
+    delayed = np.zeros_like(regional.delayed_tensor)
+    delayed.setflags(write=False)
+    return dataclasses.replace(
+        problem,
+        responses=dataclasses.replace(
+            problem.responses,
+            regional_responses=dataclasses.replace(regional, delayed_tensor=delayed),
+        ),
+    )
+
+
 def without_regional_cubic(problem: PropagationProblem) -> PropagationProblem:
     """Return the problem whose regions' third-order susceptibility is zero.
 
@@ -408,7 +427,11 @@ def rows() -> tuple[Row, ...]:
             "one-stage count times the projected sum's measured conditioning, and its "
             "ten-step carry at the launch's nonlinear scale.",
             build=partial(case, name),
-            switch_off=without_source(name),
+            # The Raman case's guard drops its delayed term alone: dropping the whole
+            # source would let its Kerr term satisfy the guard by itself. Measured on
+            # numpy_ref, Raman alone moves the source and the ten steps by 9.4e11 and
+            # 3.0e11 bounds.
+            switch_off=without_delayed if name == "raman" else without_source(name),
             rungs={
                 "source": one_stage(name),
                 "steps": ten_steps(name),
