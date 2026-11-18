@@ -776,7 +776,7 @@ class RunPanel(QWidget):
         if event.kind == "finished":
             self._progress(1000)
         if self.folder is not None and event.data.get("scan"):
-            # A scan's points are run again with retry_failed, not resumed.
+            # A scan is never continued: its file opens as it ended, unchecked.
             self.ended.emit(str(event.data["path"]))
         elif self.folder is not None:
             path = (

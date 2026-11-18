@@ -85,6 +85,11 @@ def test_a_prepared_folder_holds_the_spec_and_refuses_a_second_run(tmp_path):
     (folder / "run.h5").write_bytes(b"")
     with pytest.raises(ServiceError, match="already holds a run"):
         prepare(spec)
+    # A scan's folder too: a new start would append to its record.
+    scan = RunSpec("s1", str(tmp_path / "s1"), recipe=TINY)
+    (prepare(scan) / "scan.h5").write_bytes(b"")
+    with pytest.raises(ServiceError, match="already holds a run"):
+        prepare(scan)
 
 
 def test_the_batch_script_asks_for_what_the_template_says(tmp_path):
