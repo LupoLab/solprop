@@ -101,8 +101,10 @@ single bracket over 100 nm to 3 µm can see the same sign at both ends and find 
 The design tools call {py:func}`~solprop.modes.base.zdw` with the pump as its `near`
 reference: the dispersion is sampled, each sign change refined, the changes that are not
 zeros discarded (at a zero $\beta_1$ has a resolved extremum; through a pole, beside a
-line or on the evanescent floor it does not), and the zero nearest the pump on its side
-of the resonances reported. When there is none the field is `nan` and the block says
+line or on the evanescent floor it does not), and so are the clustered zeros of fine
+structure narrower than 1.5 % in frequency, such as silica's OH bands; the zero nearest
+the pump on its side of the lines is reported
+([mode sets](../waveguides/mode-sets.md)). When there is none the field is `nan` and the block says
 so. The `zdw` statistic searches the same way, with the grid's reference wavelength as
 its reference.
 

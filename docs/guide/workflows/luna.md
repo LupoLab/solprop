@@ -212,7 +212,8 @@ row of per-mode powers). The first-order coherence $g_{12}$ excludes the $i = j$
 so it tends to zero for independent fields (Luna's tends to $1/N$). The ellipse
 orientation is $\tfrac12\operatorname{atan2}(U, Q)$ (Luna's is always zero). The
 zero-dispersion search is stateless and raises when there is no zero (Luna returns a
-missing value and seeds the next search from it). `lambda_rdw` returns the longest root
+missing value and seeds the next search from it); its default window starts at 150 nm,
+above the noble gases' lines, where Luna's starts at 100 nm. `lambda_rdw` returns the longest root
 and raises when there is none.
 
 **Stepper.** `atol` is additive to the scaled error (Luna's weak norm uses it as a floor
