@@ -128,6 +128,11 @@ jobs:
       - name: The tests that read the documentation
         run: |
           uv run --no-sync pytest -n 4 $(grep -lE '"docs"|"docs/|"(CHANGELOG|README|AGENTS)\.md"|\.md"\)|/ "[a-z0-9-]+\.md"' tests/test_*.py tests/*/test_*.py)
+      # Every python block of docs/guide/ runs (AGENTS.md): the slow-tier test that
+      # executes them, in the slow lane's configuration, so a documentation-only change
+      # cannot merge a broken snippet.
+      - name: The guide's snippets
+        run: uv run --no-sync poe test-slow tests/test_guide_snippets.py
 
   # The definition-of-done gate of AGENTS.md (`poe check`), split into jobs that run in
   # parallel: the static checks, the documentation, and the default lane, sharded, with
@@ -373,7 +378,10 @@ jobs:
       - run: uv python install 3.14
       - run: uv sync --locked --no-install-package solprop-native
       - run: uv pip install --no-deps wheelhouse/*.whl
-      - run: uv run --no-sync poe test-slow
+      - run: uv run --no-sync poe test-slow --junitxml=junit.xml
+      - name: No unexpected skips
+        if: ${{ !cancelled() }}
+        run: uv run --no-sync python -I native/ci/check_skips.py junit.xml
 
   # The slow lane on macOS, with the native wheel installed.
   slow-macos:
@@ -398,7 +406,10 @@ jobs:
       - run: uv python install 3.14
       - run: uv sync --locked --no-install-package solprop-native
       - run: uv pip install --no-deps wheelhouse/*.whl
-      - run: uv run --no-sync poe test-slow
+      - run: uv run --no-sync poe test-slow --junitxml=junit.xml
+      - name: No unexpected skips
+        if: ${{ !cancelled() }}
+        run: uv run --no-sync python -I native/ci/check_skips.py junit.xml
 
   # The coverage lane (`poe cov`) as parallel jobs, on Linux with the native wheel
   # installed and the driver tests on it (solprop's native paths are part of the 100 %):
