@@ -115,4 +115,4 @@ page's **Export** menu has *Copy as Python* too: the code that draws that page f
 results file, with {py:mod}`solprop.processing` and {py:mod}`solprop.plotting`.
 
 The design of the two forms of the saved planes is
-[SEP 51](../../dev/seps/archive/sep-0051-save-planes.md).
+[SEP 51](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0051-save-planes.md).

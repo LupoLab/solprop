@@ -64,7 +64,7 @@ build, transform plan or device can change floating-point summation order, so
 cross-backend agreement need not be bitwise. Nor is a repeat on the same build:
 solprop promises numerical accuracy, not identical bits, across backends, builds,
 machines, thread counts, batches and repeated runs
-([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)), and a rounding
+([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)), and a rounding
 difference can change an adaptive run's steps. Small differences can also grow in
 noise-sensitive propagation: compare the physical observable and numerical
 convergence, not only an array digest. Record the backend, build and thread
@@ -87,27 +87,15 @@ a general waiver: a new feature still lands on both `numpy_ref` and `native`
 ([SEP 0](../../dev/seps/sep-0000-process.md)), and joins the list only as an accepted
 exception.
 
-## Retired backends
-
-solprop has exactly two backends, `native` and `numpy_ref`, and will have no other. It once
-had two more: `numba_cpu`, a third double-precision backend whose last release is 0.1.0,
-and `mlx`, an experimental single-precision backend for Apple GPUs. Naming either now
-raises {py:class}`~solprop.exceptions.BackendError`, naming `native` and `numpy_ref`, as
-any name that is neither does, so a script or recipe that selects one needs
-`backend="native"`, or no `backend=` at all. A run started on a release that had the
-backend finishes on that release.
-
-The settings of `numba_cpu` are gone too: `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`,
-`SOLPROP_FFTW_THREADS`, `SOLPROP_TRANSVERSE_FFTW_THREADS`, `SOLPROP_PASS_TIMERS`,
-`NUMBA_DISABLE_JIT` and `NUMBA_NUM_THREADS` no longer do anything.
-
 ## Which backend to use
 
-Use the native backend. `numpy_ref` is unthreaded and roughly 6 to 40 times slower than
-threaded native, so it is for checking a result and for a problem a GPU build refuses; the
+solprop has exactly two backends, `native` and `numpy_ref`; any other name raises
+{py:class}`~solprop.exceptions.BackendError`, naming the two. Use the native backend.
+`numpy_ref` is unthreaded and roughly 6 to 40 times slower than threaded native, so it is
+for checking a result and for a problem a GPU build refuses; the
 [performance history](../../dev/benchmarking.md) records the native backend's own timings.
 The measurements behind the advice below are in the
-[indicative results](../../dev/benchmarks.md#indicative-results); time your own problem for
+[current results](../../dev/benchmarks.md#current-performance); time your own problem for
 ten steps before committing a long campaign to one backend.
 
 - **Which native build.** Build the native backend on the machine that runs it, or install a

@@ -2,12 +2,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Keep the enhancement proposals consistent with their index, folders and roadmap.
+"""Keep the enhancement proposals consistent with their index and folders.
 
 Each SEP under ``docs/dev/seps/`` carries its status in its header table, and the
-status decides where the SEP lives (the open folder or ``archive/``), how the index
-lists it and whether the roadmap links it (SEP 0, ``docs/dev/seps/sep-0000-process.md``,
-section 4). These tests check that the four agree, that every header is complete, that
+status decides where the SEP lives (the open folder or ``archive/``) and how the index
+lists it: in its open or archived table, an archived SEP by its file on GitHub, since
+the archive is not built into the manual (SEP 0, ``docs/dev/seps/sep-0000-process.md``,
+section 4). These tests check that the three agree, that every header is complete, that
 the review status agrees with the recorded reviewers and that nothing is accepted
 without a human and an AI review (SEP 0 section 6, *Review*), and that no SEP refers to
 local files or to the private development archive: a SEP stands alone (SEP 0 section 7).
@@ -22,7 +23,8 @@ import pytest
 DOCS = Path(__file__).resolve().parents[1] / "docs"
 SEPS = DOCS / "dev" / "seps"
 ARCHIVE = SEPS / "archive"
-ROADMAP = DOCS / "dev" / "roadmap.md"
+# Where the index links an archived SEP: its file on GitHub, on main.
+GITHUB_SEPS = "https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/"
 
 FIELDS = (
     "SEP",
@@ -59,10 +61,9 @@ FIELD = re.compile(r"^\| \*\*(.+?)\*\* \| (.*?) \|$", re.MULTILINE)
 DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 REVIEWER = re.compile(r"(.+?) \((human|AI)\)")
 INDEX_ROW = re.compile(
-    r"^\| \[(\d+)\]\(((?:archive/)?sep-[^)]+\.md)\) \| (.+?) \| (.+?) \| (.+?) \|$",
+    r"^\| \[(\d+)\]\(([^)]*sep-[^)]+\.md)\) \| (.+?) \| (.+?) \| (.+?) \|$",
     re.MULTILINE,
 )
-ROADMAP_LINK = re.compile(r"\(seps/((?:archive/)?sep-\d{4}-[^)#]+\.md)")
 # Absolute or home-relative paths, and links to development records that are not part of
 # the public tree (an old repository-root dev/ directory).
 LOCAL_REFERENCE = re.compile(
@@ -170,13 +171,16 @@ def test_sep_numbers_are_unique():
     assert len(numbers) == len(set(numbers))
 
 
-def test_the_index_lists_every_sep_with_its_header():
-    rows = {
-        path: (int(number), title, status, kind)
-        for number, path, title, status, kind in INDEX_ROW.findall(
-            (SEPS / "index.md").read_text()
-        )
+def index_rows(text: str) -> dict[str, tuple[int, str, str, str]]:
+    """Return an index table's rows by the SEP's path relative to ``docs/dev/seps``."""
+    return {
+        link.removeprefix(GITHUB_SEPS): (int(number), title, status, kind)
+        for number, link, title, status, kind in INDEX_ROW.findall(text)
     }
+
+
+def test_the_index_lists_every_sep_with_its_header():
+    rows = index_rows((SEPS / "index.md").read_text())
     assert sorted(rows) == sorted(IDS)
     for page in SEP_FILES:
         fields = header(page)
@@ -188,25 +192,29 @@ def test_the_index_lists_every_sep_with_its_header():
         ), relative(page)
 
 
+def test_the_index_links_an_archived_sep_on_github_and_an_open_one_here():
+    links = [link for _, link, *_ in INDEX_ROW.findall((SEPS / "index.md").read_text())]
+    assert len(links) == len(SEP_FILES)
+    for link in links:
+        if "archive/" in link:
+            assert link.startswith(f"{GITHUB_SEPS}archive/"), link
+        else:
+            assert FILENAME.fullmatch(link), link
+
+
 @pytest.mark.parametrize(
     ("section", "statuses"),
-    [
-        ("Accepted enhancement proposals", {"Accepted", "In progress"}),
-        ("Draft enhancement proposals", {"Draft"}),
-    ],
+    [("Open", OPEN_STATUSES), ("Archived", ARCHIVED_STATUSES)],
 )
-def test_the_roadmap_links_exactly_the_seps_with_each_status(section, statuses):
-    text = ROADMAP.read_text()
-    accepted = text.index("\n## Accepted enhancement proposals\n")
-    drafts = text.index("\n## Draft enhancement proposals\n")
-    assert accepted < drafts
+def test_each_index_table_lists_exactly_the_seps_with_its_statuses(section, statuses):
+    text = (SEPS / "index.md").read_text()
     start = text.index(f"\n## {section}\n")
     end = text.find("\n## ", start + 1)
-    linked = set(ROADMAP_LINK.findall(text[start:end]))
+    listed = set(index_rows(text[start : end if end != -1 else None]))
     expected = {
         relative(page) for page in SEP_FILES if header(page)["Status"] in statuses
     }
-    assert linked == expected
+    assert listed == expected
 
 
 @pytest.mark.parametrize(

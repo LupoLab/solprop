@@ -27,7 +27,7 @@ physics or numerics rather than style, ask rather than guess.
 | Backends | `native` (required; `auto`; CPU and GPU; implements every feature, the TDSE response on CPU builds only) and `numpy_ref` (the numerical reference). No other backend. Binary64 only (ADR-077), with one method set on both |
 | Type checker | `basedpyright`, pinned exactly in the dev group |
 | Materials | [optmat](https://github.com/LupoLab/optmat), the curated optical-materials package |
-| Planned work | [GitHub issues](https://github.com/LupoLab/solprop/issues), not the roadmap, which lists only SEPs (ADR-062); [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write and label one |
+| Planned work | [GitHub issues](https://github.com/LupoLab/solprop/issues) (ADR-062); [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write and label one |
 | Enhancement proposals | `docs/dev/seps/` — process in SEP 0 (`sep-0000-process.md`), form in `template.md` |
 
 ## Commands
@@ -53,8 +53,8 @@ in `addopts` and selects the slow tier too. Select by path or `-k` instead.
 ## Definition of done
 
 **Documentation-only changes**, SEPs included: `git diff --check` and codespell on the
-changed files, `uv run pytest tests/test_seps.py` when proposals, their index or the
-roadmap change, and `uv run poe docs` when Sphinx content or links change (`testing.md`).
+changed files, `uv run pytest tests/test_seps.py` when proposals or their index
+change, and `uv run poe docs` when Sphinx content or links change (`testing.md`).
 
 **Other changes:** develop first, test towards the end. Run the fast checks (ruff check
 with `--fix`, ruff format, ruff check, basedpyright) and the modules that exercise what
@@ -99,7 +99,7 @@ validity range is cited to its primary source; say what you verified and what yo
 - **Report failure honestly:** a failed check, an untested path, an invented assumption.
 - **The public tree stands alone.** No local paths, host names, private notes or links to
   them, and no development-register identifiers, in code, tests, docs or the changelog.
-  The hardware a benchmark ran on is part of its ledger entry.
+  The hardware a benchmark ran on is part of its record.
 
 ## Code
 
@@ -215,7 +215,7 @@ The long form is [`backends.md`](docs/dev/backends.md).
 - **The seam has no version number** (ADR-068). A change to the `PropagationProblem` or
   `RunRequest` fields or the stage bundles of `translate/stage.py` rewrites the frozen
   tables in `tests/backends/test_driver.py` in the same commit, with a release-note fragment.
-- A hot-path change comes with a benchmark ledger entry ([`benchmarks.md`](docs/dev/benchmarks.md))
+- A hot-path change comes with a benchmark measurement ([`benchmarks.md`](docs/dev/benchmarks.md))
   from `python -m benchmarks ab` on about ten steps or a short `--length` window; report the
   window, never extrapolate it.
 

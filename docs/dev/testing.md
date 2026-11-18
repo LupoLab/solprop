@@ -7,14 +7,14 @@ tolerance policy and the layout. `AGENTS.md` carries the short rules; this is th
 
 ## Documentation-only changes
 
-Adding or editing a SEP, its index or roadmap entry, or making other documentation-only
+Adding or editing a SEP or its index, or making other documentation-only
 changes does **not** require `uv run poe check`, the full test suite, `uv run poe test-slow`
 or `uv run poe cov` before completion, commit or merge. This includes prose, links,
 documentation assets, contributor instructions and prose-only docstring edits. Select
 checks that cover what changed:
 
 - Run `git diff --check` and `uv run codespell <changed-files>`.
-- For SEP content, status, index or roadmap entries, run `uv run pytest tests/test_seps.py`.
+- For SEP content, status or index entries, run `uv run pytest tests/test_seps.py`.
 - For Sphinx content, links or assets, run `uv run poe docs` (warnings remain errors).
 - For docstring prose, run the relevant docstring validation and documentation build.
 
@@ -181,7 +181,7 @@ worker's threads to the same first cores.
 
 Parity between the backends checks what each computes independently. It cannot check
 code both call: a defect in the TDSE response's source assembly
-(`solprop.backends.tdse_source`, [SEP 49](seps/archive/sep-0049-tdse-on-native.md)) is the same
+(`solprop.backends.tdse_source`, [SEP 49](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0049-tdse-on-native.md)) is the same
 on both. That module's tests state their expectations independently of it, analytic or
 manufactured (`tests/backends/test_tdse_source.py`, `tests/edge_source_cases.py`), and a
 deliberate defect in each term is shown to fail one of them; parity then covers what each
@@ -197,7 +197,7 @@ Pyroraptor is not tested in CI; it is checked by hand (SEP 49, section 7.4).
 
 Step control, the session lifecycle and the service loop are tested with their numerical
 outcomes scripted, never by substituting the code under test. A scripted engine replaces
-the engine under the real march and the real session ([SEP 52](seps/archive/sep-0052-backend-shape.md)
+the engine under the real march and the real session ([SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md)
 §6.3), as native's scripted engines test its compiled marches:
 
 - `tests/scripted_driver.py`'s `HostScriptedDriver` is the reference backend whose
@@ -285,7 +285,7 @@ rounding budget (Higham's `γ_n` bound for a reduction of length `n`, the transf
 `B_fft`, operation counts per step, with a stated margin); discretisation error of the grid
 or step; the accuracy of a reference (a table's stated accuracy, an experimental figure, a
 Luna result's own convergence). Independent floating-point computations are compared by
-numerical error, never by bits ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)):
+numerical error, never by bits ([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)):
 no comparison requires bitwise agreement across backends, builds, machines, thread counts,
 scan execution or repeated runs. Every comparison belongs to one of five
 classes, and `tests/bounds.py` holds the reusable parts of their bounds.
@@ -370,7 +370,7 @@ reproducible.
 
 **Fixtures and the defaults.** Most tests pass `noise=None`, so that a run compares
 deterministically; noise is tested where it is the subject. Some pin the time-window
-geometry of before [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md) through
+geometry of before [SEP 21](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md) through
 `tests/legacy_geometry.py` (`LEGACY_GRID`, `bare_absorber`). Pin it only where a stored
 measurement depends on it (a convergence record, a Luna witness, a frozen cross-backend
 comparison) and say which in a comment: it is the one compatibility option solprop keeps
@@ -480,7 +480,7 @@ parity case is a row, not a new ladder.
 
 Two tests read the documentation rather than the package: `tests/test_guide_snippets.py`
 runs the user guide's code, and `tests/test_seps.py` keeps each enhancement proposal's
-header, folder, index row and roadmap link consistent with its status
+header, folder and index row consistent with its status
 ([SEP 0](seps/sep-0000-process.md)).
 
 ## 7. Definition of done for a pull request

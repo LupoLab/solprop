@@ -2,7 +2,7 @@
 
 solprop is released as three distributions from one repository, at one version taken from
 the `v*` git tag; no other tag affects it
-([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md)):
+([SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md)):
 
 - **`solprop`**, pure Python: a source distribution and one universal wheel.
 - **`solprop-native`**, the compiled backend built from `native/`: **wheels only**, one
@@ -123,6 +123,12 @@ copy, so the native package raises at import when pyFFTW is already loaded
 that says what to do. The test jobs' second coexistence check installs pyFFTW and Numba
 as outside packages and runs `native/ci/coexistence.py` among them, so that guard meets a
 real pyFFTW on every platform but Windows on Arm, which has no pyFFTW wheel.
+The guard stays until a replacement is shown safe in fresh processes, in both import
+orders, with interleaved short runs (SEP 29): importing solprop does not load
+`solprop_native`, so nothing in solprop can decide the order. Run by hand on macOS with
+pyFFTW installed, `python -I native/ci/coexistence.py --bypass-guard` adds a scenario that
+hides pyFFTW from the guard and reports what happens, without failing; it is the evidence a
+change to the rule would start from.
 
 **solprop's distributions.** The `solprop-dist` job builds solprop's sdist and wheel and
 installs each from the file in a fresh environment, outside the checkout, beside this run's
@@ -341,4 +347,4 @@ The actions in the workflows are pinned by commit; when updating one, take the c
 its release tag and keep the version in the trailing comment.
 
 The release recipe on this page was set up and qualified by
-[SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md).
+[SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md).

@@ -10,7 +10,7 @@ given machine comes from [calibrating solprop to it](calibration.md), once, with
 
 To measure a change's performance, or to see roughly what each backend and method
 costs, read the developer pages: [Benchmarks](../../dev/benchmarks.md) gives the
-measurement rules and indicative results, and
+measurement rules and current results, and
 [Running the benchmarks](../../dev/benchmarking.md) is the manual for
 `uv run poe bench`.
 

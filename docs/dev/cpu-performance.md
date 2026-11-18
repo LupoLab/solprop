@@ -4,15 +4,15 @@ This page records the CPU performance work on the compiled backend. It lists wha
 adopted, what was measured and rejected, and what remains open. The aim is that nobody
 repeats an experiment without knowing its result. Each entry gives the result in one or
 two lines and, where they are summarised, links to its measurements in
-[benchmarks](benchmarks.md#indicative-results) or to
-[SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md). The open items are in the
+[benchmarks](benchmarks.md#current-performance) or to
+[SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md). The open items are in the
 [issues](https://github.com/LupoLab/solprop/issues?q=is%3Aopen+label%3Aperformance+label%3A%22area%3A+native%22).
 
 Timings follow the [benchmark rules](benchmarks.md#rules). They are short, bounded
 windows: fresh processes, same machine, interleaved arms. Results are compared within
 SEP 25's rounding bounds, never bitwise. A ratio "against `numba_cpu`" is that backend's
 time divided by the native backend's: above 1, the native backend is faster. `numba_cpu`
-was retired by [SEP 43](seps/archive/sep-0043-retire-numba-cpu.md); such ratios record what was
+was retired by [SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md); such ratios record what was
 measured while it existed.
 
 ## Build and libraries
@@ -24,7 +24,7 @@ measured while it existed.
   coupled-wall and modal capillary cases 10 to 75 times slower on a 32-core AVX-512
   x86-64 server, and similarly on Windows and aarch64. With one runtime the backend is 2
   to 7 times faster than `numba_cpu` on those cases at full width, and level with it at
-  one thread ([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md)).
+  one thread ([SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md)).
   - At start-up the backend fits a host OpenBLAS to its own pool, unless the user sets
     `OPENBLAS_NUM_THREADS`, `GOTO_NUM_THREADS` or `OMP_NUM_THREADS`.
     - A pthreads OpenBLAS is held to one thread. This covers a local build against a
@@ -62,7 +62,7 @@ measured while it existed.
   ([#334](https://github.com/LupoLab/solprop/issues/334)). The same tree built both ways,
   with the same FFTW, OpenBLAS and SLEEF's AVX2 route in each; `benchmarks ab`, the
   tracking set at a quarter length, three rounds; the same steps and fields to rounding
-  ([ledger](benchmarks.md)).
+  ([measurements](benchmarks.md#builds-and-libraries)).
   - On an Intel Xeon Gold 6240 (18 cores of one socket, exclusive), `-march=cascadelake`
     (v4 with VNNI): geometric mean 0.984. The largest gains are at one thread
     (`argon_blueshift` 0.909, `ctc` 0.924, `grin_nonlinear` 0.943); at 16 threads none
@@ -108,7 +108,7 @@ measured while it existed.
   threshold runs serially; a medium one runs on four threads; a large one runs at full
   width. The thresholds are a per-workspace record (`CpuExecution`), filled from the
   built-in table in `native/src/solprop_native/_execution.py`, which holds their reasons,
-  or from a machine calibration ([SEP 46](seps/archive/sep-0046-machine-calibration.md)). The
+  or from a machine calibration ([SEP 46](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0046-machine-calibration.md)). The
   global thread setting is a cap, and explicitly set pools force their (clamped) widths.
   The small cases became 2.0 times faster than one thread (geometric mean) on an
   18-core arm64 laptop and on a two-socket, 36-core AVX-512 server.

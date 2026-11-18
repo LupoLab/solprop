@@ -152,7 +152,7 @@ the last bit. An adaptive Adams run -- the default -- continues from the march's
 the output keeps at each plane and checkpoint, and on every backend
 continues the uninterrupted run's computation, agreeing with it to rounding while the steps are the same
 ([the Adams integrator](../numerics/adams.md)). No resume promises identical bits
-([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
+([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
 
 For a resume to work in a *new process*, everything in the configuration has to hash the
 same way twice. Objects that carry their data — the pulses, the profiles, the responses,

@@ -20,12 +20,12 @@ Highlights:
   as a third distribution at solprop's own version (`pip install "solprop[gui]"`): it
   sets up, runs, scans and reads simulations without a script.
 - **Recipes, the command line and design solvers**
-  ([SEP 41](docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md)): a TOML recipe
+  ([SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md)): a TOML recipe
   for every route, the `solprop` command, pins that set a radius or a pressure from a
   zero-dispersion wavelength, a dispersive-wave wavelength or a soliton order, chosen
   launch modes, displaced and tilted beams, and parameter metadata for front ends.
 - **The native backend is required**
-  ([SEP 43](docs/dev/seps/archive/sep-0043-retire-numba-cpu.md)): `numba_cpu` and the
+  ([SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md)): `numba_cpu` and the
   numba and pyFFTW dependencies are gone, `pip install solprop` installs
   `solprop-native`, and new wheels cover Windows on Arm and x86-64 processors without
   AVX2.
@@ -36,11 +36,11 @@ Highlights:
   keeps its phase, large record arrays are stored beside the record's JSON, and a file
   no longer grows with the square of its planes. Read a 0.1.0 file with 0.1.0.
 - **Transverse absorbing boundaries**
-  ([SEP 40](docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)): every
+  ([SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)): every
   free-space run carries a safety ramp by default, a designed real-space collar on
   request, and a boundary monitor that warns or stops when light reaches the edge; that
   edge is now read where the state lives
-  ([SEP 44](docs/dev/seps/archive/sep-0044-native-edge-read.md)), so a device run
+  ([SEP 44](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0044-native-edge-read.md)), so a device run
   copies no state to check it.
 - **MLX performance**: compiled stages run a trial 1.5 to 2.6 times faster on an Apple
   GPU, single precision admits the Adams integrator, and single-precision grids are
@@ -51,7 +51,7 @@ Highlights:
 #### The native backend replaces numba
 
 - The `numba_cpu` backend, and the `numba` and `pyfftw` dependencies, are removed
-  ([SEP 43](docs/dev/seps/archive/sep-0043-retire-numba-cpu.md), ADR-064).
+  ([SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md), ADR-064).
   `backend="numba_cpu"` raises `BackendError`, naming `native` and `numpy_ref`. A file
   written by 0.1.0 is refused by its output schema, as every file of another schema is:
   read it with `solprop==0.1.0`, which is also the rollback. To migrate, pass
@@ -63,7 +63,7 @@ Highlights:
   `SOLPROP_FFTW_PLAN`, `SOLPROP_FFTW_WISDOM` and `SOLPROP_BLAS_THREADS` stay.
 - `solprop-native` is a required dependency, with no extra: `pip install solprop`
   installs it, and solprop is supported where it installs
-  ([SEP 43](docs/dev/seps/archive/sep-0043-retire-numba-cpu.md)). On any other platform,
+  ([SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md)). On any other platform,
   including Intel macOS, ppc64le, musl and macOS before 14, the installer reports that no
   matching distribution exists; the installation page explains that and how to report a
   platform. The `native` extra is gone: install `solprop`, not `solprop[native]`.
@@ -143,7 +143,7 @@ Highlights:
 #### Free-space transverse boundaries
 
 - A free-space run's transverse boundary is a `SpatialAbsorber`
-  ([SEP 40](docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)), given as
+  ([SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)), given as
   `SimulationSettings.spatial_absorber` or the `spatial_absorber` keyword of
   `prop_radial`, `prop_free`, `prop_planar` and their `Simulation.from_*` builders. By
   default every radial, Cartesian, line and planar run carries a designed safety ramp on
@@ -159,7 +159,7 @@ Highlights:
   `collar_fraction` that leaves it room.
 - Every spatial grid takes `collar_fraction` in place of `window_factor`, default 0, and
   puts the room it asks for **outside** the requested size on every geometry
-  ([SEP 40](docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)).
+  ([SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)).
   `RadialGrid`'s `radius` is now the requested aperture, the Dirichlet boundary is at
   `outer_radius = radius * (1 + collar_fraction)`, and `n_r` counts every sample; the
   transform, the nodes and the effective area use the outer radius. Fractions of 1 and
@@ -170,7 +170,7 @@ Highlights:
   `collar_fraction=c`.
 - A free-space run whose light reaches its transverse boundary now warns or stops, where
   it used to log and carry on
-  ([SEP 40](docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)). The
+  ([SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)). The
   boundary monitor reads the outer 5 % of the grid on every backend. It warns above 1e-6
   of the launch energy and stops at 1e-4, naming a size and a sample count to try, and
   `BoundaryCheck.transverse_budget` sets those levels apart from the time window's. The
@@ -276,7 +276,7 @@ Highlights:
 
 #### Recipes and the command line
 
-- Recipes ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)):
+- Recipes ([SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md)):
   `solprop.recipe.Recipe` reads a TOML description of a run, with quantities in their
   units (`"125 um"`, `"1.2 bar"`), checks it (`check()`, each issue at its parameter
   path), builds and runs it, saves it and exports it as the Python script it stands for
@@ -312,7 +312,7 @@ Highlights:
   stopped point is not committed and a rerun computes it; Queue and Slurm refuse it.
   `run_scan(progress=)` accepts a `solprop.log.ScanReporter` (and a
   `WatchingScanReporter` for each point's run, relayed from Pool workers).
-- Design solvers for any guide ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)):
+- Design solvers for any guide ([SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md)):
   `solprop.tools.solve_parameter` finds every value of a guide or fill parameter
   (a radius, a pressure, a core size, a wall thickness) that meets a target, `ZDW`,
   `RDW` or `SolitonOrder`, discarding sign changes through a wall resonance, and
@@ -385,7 +385,7 @@ with the plain `prop_*` interface:
   phase column is unwrapped only where the power is above a noise floor, a phase in
   the FFT sign convention of a Luna.jl file is read with `phase_convention="fft"`, and
   a wrapped column sampled too coarsely to unwrap is warned on
-  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)).
+  ([SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md)).
 - `prop_capillary`, `prop_waveguide` and their `Simulation` constructors take `launch=`,
   which puts each pulse into chosen modes with a share and an optional phase:
   `launch={"HE1,1": 0.9, "HE1,2": {"share": 0.1, "phase": 1.57}}`, or a list with one
@@ -394,14 +394,14 @@ with the plain `prop_*` interface:
   split scaled to the pulse's energy under the flux metric. The run records the launch
   as `configuration["modal_launch"]`, which a resume compares; a run without one
   records nothing
-  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)).
+  ([SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md)).
 - `SpatialPulse` takes `displacement=(d_x, d_y)` and `tilt=(theta_x, theta_y)`, as
   `coupling.Alignment` defines them, applied at the launch plane on a Cartesian grid
   with the energy set after them; a tilt the grid's band, window or time window cannot
   carry is refused, and so is either on a radial grid, a y component on a line grid, a
   `PlanarPulse` and a guide's incident beam. A record without them reads as an unmoved
   beam
-  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)).
+  ([SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md)).
 - `pulses.SpatialPulseSum` launches several beams together on the free-space routes, the
   sum of its `SpatialPulse` members' fields, each built and scaled as it would be alone:
   two beams crossing at an angle, a pump beside a probe. Recipes hold it
@@ -420,7 +420,7 @@ with the plain `prop_*` interface:
   `polarisation_taper`, as `prop_gnlse` does; `step_planes` defaults to `None` on
   every interface that takes it, which on `prop_gnlse` behaves as its `0` did. The
   guide lists the deliberate differences between the routes' keywords
-  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)).
+  ([SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md)).
 - `Simulation.from_radial`, `from_free` and `from_planar` take `absorber` and
   `absorber_scheme`, as `prop_radial`, `prop_free` and `prop_planar` and the modal
   `from_*` do.
@@ -518,7 +518,7 @@ with the plain `prop_*` interface:
 #### Plotting
 
 - Cross-section drawings in the library
-  ([SEP 41](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0041-recipes-and-front-ends.html)):
+  ([SEP 41](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0041-recipes-and-front-ends.md)):
   `solprop.plotting.geometry.outline` gives the outline of a capillary, antiresonant,
   step-index, graded-index, rectangular or planar guide, or of a radial, Cartesian, line
   or planar grid, as shapes in metres; `draw(ax, guide, palette=...)` paints it in
@@ -812,7 +812,7 @@ with the plain `prop_*` interface:
   numbers cross, so a field-free run on a device copies no state at all, and on the CPU
   a free-space Kerr beam's check costs less. A resumed run with a requested collar now
   restores its current, baselines and peaks, so it no longer judges against zero.
-  ([SEP 44](docs/dev/seps/archive/sep-0044-native-edge-read.md), #385, #512)
+  ([SEP 44](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0044-native-edge-read.md), #385, #512)
 - The default boundary check no longer does work that nothing uses. A saved plane the
   step that reached it already read takes no second read, which on a device was a copy
   of the whole state. A fixed schedule's reads of the transverse edge now follow its next
@@ -1044,7 +1044,7 @@ break the API, the output schema or the resume key, and lists every such break u
   diffraction operator; planar guides can be resolved across their width. Launches,
   shot noise, energies, fluences and intensities measure the medium's axial Poynting
   flux at the plane, so a requested energy is the physical energy there
-  ([SEP 34](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0034-medium-flux.html)).
+  ([SEP 34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md)).
   Far-field and aperture statistics.
 - **Media and responses.**
   - Gases, gas mixtures, glasses and metals from the [optmat](https://github.com/LupoLab/optmat)
@@ -1054,7 +1054,7 @@ break the API, the output schema or the resume key, and lists every such break u
     envelope grids.
   - Rotational and vibrational Raman responses, scalar and vector.
   - Quantum shot noise, on by default
-    ([SEP 37](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0037-noise-and-stepper-defaults.html)):
+    ([SEP 37](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0037-noise-and-stepper-defaults.md)):
     one photon per mode with a random phase, added to the input field (`noise="input"`)
     and recorded with its seed. A resumed run draws the same realisation again, and a
     scan draws each point's from a seed of its own.
@@ -1078,10 +1078,10 @@ break the API, the output schema or the resume key, and lists every such break u
   - `Multistep(carrier_frame="scalar")`, an opt-in carrier frame for the Adams history
     that is the fastest method measured on dense, multimode, Raman-active runs such as
     a comb-to-continuum capillary
-    ([SEP 35](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.html)).
+    ([SEP 35](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md)).
   - Backends agree with each other to bounded, rounding-level differences.
 - **Time-window boundaries**
-  ([SEP 21](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0021-absorbing-boundaries.html)).
+  ([SEP 21](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0021-absorbing-boundaries.md)).
   Every interface absorbs at the edges of the time window and of the spectrum. The
   temporal collar lies outside the requested window: the grid widens to
   `trange / (1 - 2 collar_fraction)` (`collar_fraction` 0.1), so the whole request is
@@ -1092,7 +1092,7 @@ break the API, the output schema or the resume key, and lists every such break u
   then stops the run (`BoundaryError`) when light above the shot-noise floor reaches
   the window's edge, and records the energy the collar removed.
 - **Coupling simulations**
-  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0031-simulation-coupling.html)).
+  ([SEP 31](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0031-simulation-coupling.md)).
   `solprop.coupling` hands a field from one simulation to the next. A `FieldPlane`
   holds a coherent field at one plane with its reference and provenance; `couple` maps
   it into another simulation's `InputPort` under a declared `CouplingModel` and returns
@@ -1112,15 +1112,15 @@ break the API, the output schema or the resume key, and lists every such break u
     installs a precompiled CPU wheel on macOS on Apple silicon, Linux on x86-64 and
     aarch64, and Windows on x86-64. `backend="auto"` selects it when installed, except
     on a processor below the wheel's CPU baseline, where it uses `numba_cpu` and warns
-    once ([SEP 29](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0029-compiled-backend-distribution.html)).
+    once ([SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md)).
     On the native backend the exponential Adams march runs in compiled code, many steps
     per call
-    ([SEP 39](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0039-native-adams-march.html)).
+    ([SEP 39](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0039-native-adams-march.md)).
   - One thread budget per process, which every pool of both CPU backends stays within:
     the smallest of the CPU affinity mask, the physical cores that hold it, the
     control group's CPU quota and `SOLPROP_THREADS` (ADR-052).
   - Single precision
-    ([SEP 33](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0033-single-precision-mlx.html)):
+    ([SEP 33](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0033-single-precision-mlx.md)):
     `precision="single"` holds the state, the transforms and the responses in binary32,
     with the controller in binary64. `numpy_ref` runs it as the reference, and the `mlx`
     backend (`pip install "solprop[mlx]"`) on the Apple GPU. A
@@ -1145,7 +1145,7 @@ break the API, the output schema or the resume key, and lists every such break u
   - Pulse compressors: Taylor phase, chirped mirrors, materials, gratings and prisms.
   - An interactive session through `import solprop.sol as sol`.
 - **Performance tracking** for developers
-  ([SEP 38](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0038-performance-tracking.html)):
+  ([SEP 38](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0038-performance-tracking.md)):
   `python -m benchmarks track` times about a dozen representative workloads, with each
   interface's defaults, at one thread and at the production width, and records them by
   hardware; `python -m benchmarks ab` compares two builds.
@@ -1191,7 +1191,7 @@ Nothing was released before 0.1.0. For scripts and files from a development chec
   (an absorber given to a spatial run, `Absorber.spatial`) removes only part of the light that reaches it, at a large cost
   in steps, and the boundary monitor watches the time window only. Size the transverse
   window so that the light stays clear of its edge.
-  [SEP 40](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.html)
+  [SEP 40](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)
   (a draft) rebuilds these boundaries.
 - **A run is resumed by the release that wrote it.** A run's configuration hash covers
   every recorded field, so a release that adds one changes every hash, and within 0.x

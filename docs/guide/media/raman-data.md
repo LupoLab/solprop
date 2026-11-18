@@ -5,7 +5,7 @@ The response strengths, line positions, damping and collision partners must desc
 ## Raman responses from optmat
 
 Every built-in gas's Raman response is optmat's
-([SEP 3](../../dev/seps/archive/sep-0003-optmat-materials.md),
+([SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md),
 [materials from optmat](material-selection.md#materials-from-optmat)). optmat's gas Raman
 responses are its per-line models of N₂, O₂, H₂, D₂, CH₄, SF₆ and N₂O, and of their
 mixtures, with the available gain and revival evidence recorded per response.

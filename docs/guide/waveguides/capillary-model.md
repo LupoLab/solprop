@@ -52,7 +52,7 @@ empty = MarcatiliMode(125e-6)  # evacuated: gas=None, pressure 0
 The defaults are `kind="HE"`, `n=1`, `m=1`, `model="full"`, the model's own loss
 (`alpha=None`, `loss_scale=1.0`), a fused-silica
 cladding and a fill at 293.15 K. A gas named here is the built-in gas, optmat's
-([SEP 3](../../dev/seps/archive/sep-0003-optmat-materials.md)): its polarisability and its
+([SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md)): its polarisability and its
 equation of state (one species per gas, shared by every mode that names it), as in a
 run's fill. `phi` rotates the mode about the axis
 ([normalisation and effective area](#normalisation-and-effective-area)),

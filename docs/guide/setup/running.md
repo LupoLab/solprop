@@ -550,7 +550,7 @@ that once. {py:meth}`~solprop.driver.simulation.Simulation.runner` translates (o
 the cached translation) and constructs one backend; each
 {py:meth}`~solprop.driver.runner.SimulationRunner.run` then loads one input into it
 and runs the save-plane loop
-([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §5.2):
+([SEP 22](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §5.2):
 
 ```{code-block} python
 import dataclasses
@@ -650,7 +650,7 @@ instructions, and it refuses a bad input before it is loaded.
 **The boundary check on a free-space scan.** The default
 [`boundary_check`](../numerics/boundaries.md) reads a free-space run's transverse edge at the
 launch, at every plane and at every read, and a requested collar's at every committed step. `native` does it where the
-state lives, with only numbers crossing, even on a device ([SEP 44](../../dev/seps/archive/sep-0044-native-edge-read.md)). `numpy_ref` reads a host copy of the state
+state lives, with only numbers crossing, even on a device ([SEP 44](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0044-native-edge-read.md)). `numpy_ref` reads a host copy of the state
 instead, and transform it out of place: on a device, a whole state's copy at each read. On native
 CPU at 256 × 256 × 48, with sixteen steps and two planes at sixteen threads, the check took a point from 1.8 to 2.0 s and
 from 1.5 to 2.1 volumes above the level before the run. A scan whose window is already settled can
@@ -739,4 +739,4 @@ range ({py:class}`~solprop.exceptions.MaterialRangeWarning`). Read `peak_ionisat
 in the callable where that matters.
 
 The length and the saved planes were proposed and implemented by
-[SEP 51](../../dev/seps/archive/sep-0051-save-planes.md).
+[SEP 51](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0051-save-planes.md).

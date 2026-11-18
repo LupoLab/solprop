@@ -765,7 +765,7 @@ Related reading
 weightings and what each backend computes; :doc:`/guide/free-space/model` gives the
 far-zone and Fourier-plane conditions and the paraxial error;
 :doc:`/guide/results/output` describes statistics-only planes. The design is
-:doc:`SEP 23 </dev/seps/archive/sep-0023-far-field-aperture-spectra>`.
+`SEP 23 <https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0023-far-field-aperture-spectra.md>`_.
 
 
 .. rst-class:: sphx-glr-timing

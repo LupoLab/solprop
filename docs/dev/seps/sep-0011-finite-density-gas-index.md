@@ -12,7 +12,7 @@
 | **Type** | Change |
 | **Created** | 2026-09-29 |
 | **Resolution** | — |
-| **Requires** | [SEP 3](archive/sep-0003-optmat-materials.md): optmat polarizabilities and material identities |
+| **Requires** | [SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md): optmat polarizabilities and material identities |
 | **Supersedes** | — |
 | **Superseded-by** | — |
 | **Implementation** | — |
@@ -28,7 +28,7 @@ applied once to the whole mixture. The selected upstream pair terms retain their
 curated, estimated or unknown status. Against the finite-density model, the dilute-law
 difference is about 0.02–0.05 % of $n-1$ at 1 bar, but 0.2–0.6 % at
 10 bar and more above, comparable to the data improvements
-[SEP 3](archive/sep-0003-optmat-materials.md) brings.
+[SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md) brings.
 
 Because the new law is nonlinear in density, it changes solprop's frequency-only
 per-particle caches, the fast paths that multiply them by density, mode freezing,
@@ -413,7 +413,7 @@ No implementation phases have started.
   shared response state and cache invalidation, and retained explicit questions for
   the standalone acceptance review. This is not a completed full review of SEP 11.
 - 2026-11-01: Tracking issue [#121](https://github.com/LupoLab/solprop/issues/121).
-- 2026-11-02: [SEP 43](archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
+- 2026-11-02: [SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
   proposal names Numba or `numba_cpu`, it was written before that: such a phase or check falls
   away, and the feature goes on `numpy_ref` and the native backend (SEP 0).
 

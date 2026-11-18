@@ -5,8 +5,8 @@ Copy this file to docs/dev/seps/sep-NNNN-short-slug.md, with the next free numbe
 the index, and replace every placeholder. Keep the headings: the parts and their order
 are the same in every SEP. Delete the italic guidance as you write each section. The
 process is SEP 0 (sep-0000-process.md); read it first.
-Add the draft to the SEP index and its toctree, and to the roadmap's Draft enhancement
-proposals section after the accepted proposals. Keep these entries current when the scope or status changes;
+Add the draft to the SEP index's Open table and its toctree. Keep its row current when the
+status changes;
 work this proposal gives back goes in an issue. Open the SEP's tracking issue (SEP 0) and
 name it in Part III.
 -->

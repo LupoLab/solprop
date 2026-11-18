@@ -642,7 +642,7 @@ Related reading
 statistics-only planes, :doc:`/guide/numerics/boundaries` the custom absorber and
 the two lengths of a collar, and :doc:`/guide/free-space/cartesian` the one-half rule
 and the transverse safety ramp. The design is
-:doc:`SEP 22 </dev/seps/archive/sep-0022-memory-lean-spatial-execution>`.
+`SEP 22 <https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0022-memory-lean-spatial-execution.md>`_.
 
 
 .. rst-class:: sphx-glr-timing

@@ -12,7 +12,7 @@
 | **Type** | Feature |
 | **Created** | 2026-09-29 |
 | **Resolution** | — |
-| **Requires** | [SEP 3](archive/sep-0003-optmat-materials.md); [SEP 1](sep-0001-raman-response.md), the common execution contract and exact shifted-line reference from phase 1 |
+| **Requires** | [SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md); [SEP 1](sep-0001-raman-response.md), the common execution contract and exact shifted-line reference from phase 1 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
 | **Implementation** | Not started |
@@ -93,7 +93,7 @@ For optmat mixtures, strengths already contain mole fractions and the response u
 the summed density of its labels. Do not multiply fractions twice. Supplied component
 amplitudes and collision-density paths retain their separate meanings.
 
-[SEP 6](archive/sep-0006-dispersive-nonlinearity.md) owns electronic dispersion.
+[SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md) owns electronic dispersion.
 Its filters never act on Raman's drive or emitted source. The new
 [Maxwell–Bloch SEP](sep-0032-raman-maxwell-bloch.md) owns evolving molecular states;
 its nonlinear material solver is not compressed by this linear kernel representation.
@@ -454,7 +454,7 @@ No implementation phases have started.
 - 2026-10-22: Reviewed with SEP 1 and revised to use its execution contract, exact
   default, explicit approximation and current material/state semantics.
 - 2026-11-01: Tracking issue [#120](https://github.com/LupoLab/solprop/issues/120).
-- 2026-11-02: [SEP 43](archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
+- 2026-11-02: [SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
   proposal names Numba or `numba_cpu`, it was written before that: such a phase or check falls
   away, and the feature goes on `numpy_ref` and the native backend (SEP 0).
 

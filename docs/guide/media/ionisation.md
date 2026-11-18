@@ -44,7 +44,7 @@ ionisation there.
 [optmat](https://github.com/LupoLab/optmat) curates strong-field rate models for every
 gas solprop ships, checked against all-electron static rates, a time-dependent
 calculation and measured yields. solprop takes them, and keeps no formula of its own
-([SEP 3](../../dev/seps/archive/sep-0003-optmat-materials.md)). The free-space and planar
+([SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md)). The free-space and planar
 routes, whose rates are the caller's, bind an `OptmatRate`'s energy per event to the
 input's peak field as the capillary route does.
 

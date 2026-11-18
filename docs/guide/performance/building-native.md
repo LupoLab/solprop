@@ -50,7 +50,7 @@ them:
 The Python build requirements are scikit-build-core 0.11 and nanobind 3.1.0, pinned. CPU
 builds contract multiply-adds (`-ffp-contract=fast` with GCC,
 `-ffp-contract=fast-honor-pragmas` with Clang, after `-fno-fast-math`) except in a few protected blocks, as
-[SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md) sets out;
+[SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md) sets out;
 `build_info().compiler_flags` and `optimization_policy` record the setting. GPU builds
 follow their compilers' defaults throughout ([GPU builds](#gpu-builds)).
 
@@ -443,7 +443,7 @@ aarch64, where SLEEF measured level on a Neoverse V2, the build keeps the libm a
 element's own calls (`SOLPROP_NATIVE_VECTOR_MATH=SLEEF` selects SLEEF there too). `build_info().vector_math` records the route, for example
 `"SLEEF 3.9.0 u10, AVX2"` or `"scalar libm"`. Results differ between the routes only
 by rounding (the functions' own ulp), within the backend's derived rounding budgets
-([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
+([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
 
 SLEEF is configured and built at build time as its own CMake project, with its own
 `-ffp-contract=off` (its double-double steps need every product and sum rounded) and
@@ -586,28 +586,12 @@ published [pyFFTW](https://github.com/pyFFTW/pyFFTW) wheels, for one, bundle the
 macOS `solprop_native` must then be imported first, and the package raises `RuntimeError`
 at import if pyFFTW is already loaded.
 
-**The rule stays, and this is why.** pyFFTW's macOS wheel carries and initialises its own
-`libomp`, and solprop no longer loads pyFFTW, so nothing in solprop can decide the order for
-you: importing solprop does not load `solprop_native`, which is loaded when a run first uses the
-backend. The refusal is a clear error rather than a wrong result, and a loaded second runtime is
-what it guards against. No replacement has been shown safe, which
-[SEP 29](../../dev/seps/archive/sep-0029-compiled-backend-distribution.md) asks of it in fresh
-processes, in both import orders, with interleaved short runs. So the guard stays until such a
-run exists.
-
 **What to do.** Import `solprop_native` before pyFFTW, or any package that imports it. `import
 solprop` alone is not enough, since it does not load the backend. In a notebook where a cell has
 already loaded pyFFTW, restart the kernel, or do the work in a fresh process. `backend="numpy_ref"`
 does not load `solprop_native`, and is unthreaded and far slower. Import order alone does not remove
 the second runtime, so where it matters pyFFTW is best built from source against the same FFTW and
 OpenMP runtime.
-
-**What would lift it.** `native/ci/coexistence.py` runs both import orders in fresh processes, starts each package's thread pool and interleaves short
-native and reference runs. On macOS it expects the refusal. Its `--bypass-guard` flag adds a scenario
-that hides pyFFTW from the guard and reports what happens, without failing the script. Run by hand on
-macOS with pyFFTW installed, with `python -I native/ci/coexistence.py --bypass-guard`, it is the
-evidence a change to this rule would start from. The `Wheels` workflow runs the same script on
-`macos-15`, without the flag.
 
 ## Wheels and redistribution
 
@@ -623,4 +607,4 @@ developer notes ([Releasing and the native wheels](../../dev/releasing.md)). CUD
 HIP builds link the vendors' libraries and are built from source only.
 
 The build profiles, CPU baselines and wheel recipes on this page were proposed and
-qualified by [SEP 29](../../dev/seps/archive/sep-0029-compiled-backend-distribution.md).
+qualified by [SEP 29](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0029-compiled-backend-distribution.md).

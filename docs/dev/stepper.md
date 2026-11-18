@@ -31,7 +31,7 @@ backend is validated against what it produces.
 | 1 | `stage_input` | `u = exp(ΔΦ_i) (y + h Σ_j a_ij k_j) + N₀ exp(i Im Φ(z_i))` |
 | 2 | `to_time` | zero-pad onto the fine grid and inverse transform every modal column |
 | 3 | `synthesise` | `E_ip(t) = τ(z) Σ_m S_ip,m a_m(t)` on a chunk of quadrature nodes, in V/m |
-| 4 | `nonlinear_sources` | the collared local polarisation `P(t)` from the compiled responses and, with field plasma, the ungated plasma current `J(t)`, held separately ([SEP 27](seps/archive/sep-0027-held-plasma-current.md)) |
+| 4 | `nonlinear_sources` | the collared local polarisation `P(t)` from the compiled responses and, with field plasma, the ungated plasma current `J(t)`, held separately ([SEP 27](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0027-held-plasma-current.md)) |
 | 5 | `project` | `P_m(t) = Σ_ip W_m,ip P_ip(t) / τ(z)`, accumulated over the chunks |
 | 6 | `to_frequency` | forward transform every modal column and crop to the coarse grid; a held current's streams join here (`held_plasma_spectrum`) |
 | 7 | `stage_output` | `k_i = exp(−ΔΦ_i) p(ω, z) W(ω) P̃` |
@@ -181,7 +181,7 @@ order conditions are checked for both weight vectors and the propagated solution
 fifth-order one, and the FSAL stage is not recycled before anything that depends on the
 completed step (irrelevant without dense output, but tested).
 
-**Who marches** ([SEP 47](seps/archive/sep-0047-run-ownership.md), [SEP 52](seps/archive/sep-0052-backend-shape.md)).
+**Who marches** ([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md), [SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md)).
 The NumPy reference's session schedules its runs and drives its marches in
 `backends/numpy_ref/`: `HostSession` over `RungeKuttaMarch`, `HostAdamsMarch` and
 `HostLowStorageMarch`. Every native run is its native session's, whose compiled Runge-Kutta, Adams and low-storage
@@ -259,7 +259,7 @@ section takes the section it **closes** in.
 
 ### The low-storage march
 
-The design record is [SEP 24](seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md).
+The design record is [SEP 24](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md).
 
 `stepper/low_storage.py` and `backends/low_storage.py` hold a third integrator,
 `LowStorageRungeKutta()` (ADR-050): classical RK4 in the interaction picture anchored at
@@ -283,7 +283,7 @@ replay: each step's trial (`NumpyLowStorage.trial`) overwrites the state, in fli
 the engine's accept finishes it, and the march moves its position in the same commit
 (SEP 52 §5.2). The native backend holds no such march in Python: a timing probe's
 trial is one step of the workspace's own low-storage engine (`Workspace.probe`, which
-closes the workspace afterwards, SEP 52 §5.5). The native execution session ([SEP 47](seps/archive/sep-0047-run-ownership.md) section 6.3,
+closes the workspace afterwards, SEP 52 §5.5). The native execution session ([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) section 6.3,
 `solprop_native.session`) owns the loop itself: the native Runge-Kutta march replays the
 schedule, and each step is one in-place native step whose stage scalars, the table keys
 of `table_steps` and the flows' increments, the native state forms from its stage
@@ -317,9 +317,9 @@ of `prop_capillary`, `prop_free` on a radial grid and `prop_planar` (ADR-037, AD
 `stepper/runge_kutta.py`'s `RungeKutta` names the tableau's march, the default of
 `prop_gnlse`, `prop_waveguide` and `prop_free`).
 `Multistep` is an Adams march with a derivative history, in the exponential formulation
-by default ([SEP 16](seps/archive/sep-0016-unified-multistep.md)) and in the interaction
+by default ([SEP 16](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0016-unified-multistep.md)) and in the interaction
 picture, transporting the history, on request
-([SEP 13](seps/archive/sep-0013-expensive-response-steppers.md)):
+([SEP 13](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0013-expensive-response-steppers.md)):
 
 - one source call per accepted step (PEC);
 - a corrector one order higher than its predictor;
@@ -343,7 +343,11 @@ so that its flow `exp(x)` is the propagator the interaction formulation would ap
 forms the moments `k! φ_{k+1}(x)` once (`backends/exponential.py`), and applies the
 predictor, the corrector and the neighbouring orders' defects in the monomial basis of
 their interpolants (`ExponentialKernels`): the defects are already at the step's end,
-so no propagator multiplies them. The defect, the norm's scale and the lifecycle are
+so no propagator multiplies them. The moments `φ_0 … φ_{q+2}` are formed for every element by a
+scaled Taylor series and doubling for `|x| ≤ 3` and an upward recurrence beyond, so no
+per-node weight array is formed; checked against augmented matrix exponentials and
+quadrature, each is within a few hundred ulp of its scale, so no term for them enters the
+error norm. The defect, the norm's scale and the lifecycle are
 the transported formulation's; so is the order choice, but for the in-stage collar's
 stability, which it weighs (`adams_core.order_weight`): each order's
 step factor is capped at `COLLAR_STABILITY` times PEC's negative-real interval over
@@ -359,7 +363,7 @@ formed from each sample's flow weights against the step's own section. The lab-f
 source runs without the flow's pipeline on every backend. The interaction formulation
 is refused by name (`backends.exponential.refuse_adams`).
 
-**The carrier frame** ([SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md),
+**The carrier frame** ([SEP 35](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md),
 `Multistep.carrier_frame`, opt-in) changes what an exponential trial interpolates and
 nothing it stores. `HostHistory` holds the run's `CarrierReference`
 (`backends.exponential.carrier_reference`: the active bin nearest the grids' `omega0`,
@@ -411,7 +415,7 @@ the history resident in its native state, always -- beside a coupled flow too, w
 corrector, carry and defect norms are native passes over its resident eigenbasis, a
 frozen-residual flow's generator applied once per sample.
 
-**The native Runge–Kutta march** (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)):
+**The native Runge–Kutta march** (ADR-069, [SEP 45](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0045-native-rk-march.md)):
 `RungeKuttaMarch.march_to`'s decisions are pure functions of a `RungeKuttaPolicy`
 (`backends/rk_core.py`), held to a decision corpus recorded before the refactor
 (`tests/data/rk_traces.json.gz`), and `native` executes them (`native/src/march/rk_march.cpp`) on
@@ -426,7 +430,7 @@ where the march returns to it, as for the Adams march) and a weighted norm
 (ADR-077): defining a subclass raises `StepperError`, so its decisions and its norm are the
 only ones either backend takes.
 
-**The policy and the native march** (ADR-060, [SEP 39](seps/archive/sep-0039-native-adams-march.md)):
+**The policy and the native march** (ADR-060, [SEP 39](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0039-native-adams-march.md)):
 every number the controller reads -- the order and its variability, the safety and
 growth factors, the restart and hysteresis constants, the collar's and the carrier's
 caps, the budget, the floor and ceiling, the landings and the run's end -- is one
@@ -438,7 +442,7 @@ executes `Multistep()` in either formulation and replayed schedules from that re
 native session (`native/src/session/session.cpp`) only at an event: the target reached
 or crossed, an accepted step on which the session has work (a statistics row, a natural
 stop), a boundary check whose verdict the session gives, the call's bound, the budget, the floor or a native error. The march takes the
-boundary monitor's checks itself ([SEP 45](seps/archive/sep-0045-native-rk-march.md) §4.8),
+boundary monitor's checks itself ([SEP 45](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0045-native-rk-march.md) §4.8),
 buffers their readings and predicts the monitor's verdict; a run with a transverse
 edge keeps returning at each check. The run's stop flag is polled before each call
 and a signal's handler runs after it, so the call's bound, 256 attempts or 0.1 s, is
@@ -478,7 +482,7 @@ only at an accepted position with nothing ahead of it.
 the Runge–Kutta replay records it; a hard kink on an edge restarts the history.
 
 The derivation, the stability limits and the measured comparison are in
-[SEP 13](seps/archive/sep-0013-expensive-response-steppers.md) and on the manual page
+[SEP 13](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0013-expensive-response-steppers.md) and on the manual page
 `docs/guide/numerics/adams.md`. Two differences from the Runge–Kutta march are
 deliberate:
 
@@ -529,7 +533,7 @@ factor `safety · norm^(−1/(order+1))` of the order it chose, capped by its ow
   buys 2.4–22.7× better error, so it is neutral to favourable on efficiency. On the CPU the
   default is lag 1 with rejection allowed. The same controller is used on devices;
   `reject_free=True` is an explicit option, not a backend-selected default.
-- **Start-up rule** (`auto_init`, [SEP 14](seps/archive/sep-0014-stepper-efficiency.md)): the first step is `dz_init`, a guess (the
+- **Start-up rule** (`auto_init`, [SEP 14](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0014-stepper-efficiency.md)): the first step is `dz_init`, a guess (the
   convenience interfaces' `1e-4` of the length); the step after it is the deadbeat step its
   own scaled norm implies, `safety · norm^(−1/(q+1))`, at most 100 times the first
   (`PIController.start_factor`), and the history is given the norm the first step would
@@ -565,7 +569,7 @@ factor `safety · norm^(−1/(order+1))` of the order it chose, capped by its ow
   every plane its step crossed observed first -- the end of that step itself when the
   next plane lies beyond it, since with planes closer than the steps every later step
   crosses another plane -- so a checkpoint never needs the extension to reconstruct a
-  plane ([SEP 47](seps/archive/sep-0047-run-ownership.md) section 5.5). After an observation
+  plane ([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) section 5.5). After an observation
   the next step evaluates its first stage afresh rather than recycle the crossing step's
   last (FSAL), in the native session as on the host: a recycled stage once parted the
   two by up to 9e-8 in a norm, and by 2e-10 in the positions after it, under some FFT
@@ -781,7 +785,7 @@ estimated (replayed schedule)" where a ratio would stand.
 
 **What a replay reproduces.** A replay is required to meet the overall accuracy target
 of the run it replays, not to reproduce its bits or every adaptive decision
-([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)). `FixedSchedule` stores
+([SEP 25](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)). `FixedSchedule` stores
 step lengths and a start position, nothing more. The Runge–Kutta replay takes those steps
 with the same fixed-order method; the Adams replay does not repeat the original
 computation: `HostAdamsMarch._replay_to` chooses its orders afresh, by the adaptive rule from
@@ -797,11 +801,13 @@ Recording and replaying every adaptive decision is not provided.
 
 ## 9. Open numerical questions
 
-The solver's open questions — error norms for weak observables, reject-free efficiency at
-matched error, schedule transfer, round-off growth with varying operators, save-plane
-density and FSAL through a coupled flow — are listed with the others under
-[numerical methods](open-questions.md#numerical-methods) in the open questions. None
-blocks the current solver.
+The solver's open questions are issues: error norms for weak observables
+([#259](https://github.com/LupoLab/solprop/issues/259)), reject-free efficiency at
+matched error ([#260](https://github.com/LupoLab/solprop/issues/260)), schedule transfer
+([#261](https://github.com/LupoLab/solprop/issues/261)), round-off growth with varying
+operators ([#262](https://github.com/LupoLab/solprop/issues/262)), save-plane density
+([#263](https://github.com/LupoLab/solprop/issues/263)) and FSAL through a coupled flow
+([#264](https://github.com/LupoLab/solprop/issues/264)). None blocks the current solver.
 
 ## 10. Traps (each silent, each measured)
 

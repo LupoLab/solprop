@@ -146,7 +146,7 @@ columns. Three local physical components do not mean changing that state axis
 to length three. The two wave branches are an internal factorization of each
 local linear block.
 
-[SEP 3](archive/sep-0003-optmat-materials.md) proposes material ownership and identity
+[SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md) proposes material ownership and identity
 through optmat, but its implementation scope is the gases and solids solprop already
 ships, with the principal indices of MgF2 and sapphire as fixed-axis choices. It does
 **not** supply BBO/LBO crystal records or second-order tensors. Those are additional
@@ -157,7 +157,7 @@ observations include BBO, including refractive, absorption and third-order data.
 They do not yet constitute the coherent linear/thermal/quadratic bundle required
 below; no LBO material entry or public second-order tensor model was found.
 
-[SEP 6](archive/sep-0006-dispersive-nonlinearity.md) shares the idea of filtered nonlinear
+[SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md) shares the idea of filtered nonlinear
 products and the need for susceptibility symmetries. It is not a prerequisite:
 this SEP must work with today's electronic response capabilities. Shared filtered
 execution machinery may be consolidated if both proposals are accepted; neither
@@ -1293,7 +1293,7 @@ the transverse negative-wavevector/Fourier-origin convention as well as temporal
 conjugation; tests must cover both, not insert ad hoc sign changes in kernels.
 
 The general spatial vacuum-flux issue on the roadmap is solved here **only
-for the new crystal route**. [SEP 34](archive/sep-0034-medium-flux.md) owns the
+for the new crystal route**. [SEP 34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md) owns the
 uniform isotropic scalar flux correction and its clean breaking change, with
 no legacy normalisation or old-file migration. Its scalar admittance must not
 replace this proposal's anisotropic vector E/H metric or interface solver.
@@ -1576,10 +1576,10 @@ verification is not verification of all coefficients in an article.
   remain separate; no scalar-flux substitution is implied.
 
 - 2026-10-23: Reassigned the shared medium-flux prerequisite to
-  [SEP 34](archive/sep-0034-medium-flux.md) following SEP 31's review and split.
+  [SEP 34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md) following SEP 31's review and split.
   SEP 31 retains field exchange and coupling; the shared flux proposal
   includes admitted radial adiabatic transport and complex local flux.
 - 2026-11-01: Tracking issue [#118](https://github.com/LupoLab/solprop/issues/118).
-- 2026-11-02: [SEP 43](archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
+- 2026-11-02: [SEP 43](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). Where this
   proposal names Numba or `numba_cpu`, it was written before that: such a phase or check falls
   away, and the feature goes on `numpy_ref` and the native backend (SEP 0).

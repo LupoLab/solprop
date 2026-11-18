@@ -15,7 +15,7 @@ response — its total $n_2$, Raman
 fraction and Raman shape — from optmat's silica bundle, each gas's ionisation rate
 ([rates from optmat](ionisation.md#rates-from-optmat)) and a gas fill's Raman response
 ([Raman responses from optmat](raman-data.md#raman-responses-from-optmat)). An omitted selection is `MaterialSelection()`, which takes optmat's recommended
-models. The [material integration proposal](../../dev/seps/archive/sep-0003-optmat-materials.md)
+models. The [material integration proposal](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md)
 records how the data are mapped into solprop.
 
 ## Selecting gases
@@ -109,7 +109,7 @@ n2("Ar", pressure=3.0, wavelength=800e-9, selection=selection)
 ## The dispersive electronic policies
 
 `MaterialSelection(electronic="gas-polynomial")` and `"symmetric-kerr"`, from
-[SEP 6](../../dev/seps/archive/sep-0006-dispersive-nonlinearity.md), evaluate optmat's whole fit,
+[SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md), evaluate optmat's whole fit,
 $\gamma_T=\gamma_0[1+AS_2+BS_2^2+B'S_4]$ over each quartet's four signed vacuum
 wavenumbers, at the absolute frequencies of every quartet the cubic couples, instead of
 one coefficient: the polynomial itself, or a symmetric factorisation of its Kerr
@@ -591,5 +591,5 @@ and carry their own citations.
   recommended model, as `MaterialSelection()` does.
 
 This page documents the functionality proposed and implemented by
-[SEP 3](../../dev/seps/archive/sep-0003-optmat-materials.md); its dispersive electronic
-policies are [SEP 6](../../dev/seps/archive/sep-0006-dispersive-nonlinearity.md)'s.
+[SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md); its dispersive electronic
+policies are [SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md)'s.

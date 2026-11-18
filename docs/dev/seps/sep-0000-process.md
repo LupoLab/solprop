@@ -60,7 +60,7 @@ physics (even when they rename, merge or refuse public parameters, or change whi
 parameters a route takes), documentation, tests, refactoring, tooling and continuous
 integration, dependency updates, small additions to the public interface (a keyword, a
 helper, a statistic), or optimisations that leave results unchanged (they
-still need a benchmark ledger entry, [benchmarks.md](../benchmarks.md)). Those follow the
+still need a measurement in the pull request, [benchmarking.md](../benchmarking.md)). Those follow the
 working agreement of `AGENTS.md`: an issue or a short agreed plan, then a pull request.
 
 When it is unclear whether a change needs a SEP, the maintainers decide; they may ask for
@@ -85,24 +85,27 @@ Draft ──► Accepted ──► In progress ──► Final
 Any status ──► Superseded (by a later SEP)
 ```
 
-| Status | Meaning | Lives in | On the roadmap |
-|---|---|---|---|
-| Draft | Written and under discussion; may change freely | `seps/` | yes, under drafts |
-| Accepted | Agreed by the maintainers; waiting to be picked up | `seps/` | yes |
-| In progress | Being implemented; at least one phase has started | `seps/` | yes |
-| Final | Implemented on `numpy_ref` and the native CPU build, tested and documented | `seps/archive/` | no |
-| Deferred | Not pursued for now; may return to Draft | `seps/` | no |
-| Rejected | Decided against; the reasons are recorded in the SEP | `seps/archive/` | no |
-| Withdrawn | Abandoned by its author | `seps/archive/` | no |
-| Superseded | Replaced by a later SEP, named in the header | `seps/archive/` | no |
-| Active | A Process SEP in force | `seps/` | no |
+| Status | Meaning | Lives in |
+|---|---|---|
+| Draft | Written and under discussion; may change freely | `seps/` |
+| Accepted | Agreed by the maintainers; waiting to be picked up | `seps/` |
+| In progress | Being implemented; at least one phase has started | `seps/` |
+| Final | Implemented on `numpy_ref` and the native CPU build, tested and documented | `seps/archive/` |
+| Deferred | Not pursued for now; may return to Draft | `seps/` |
+| Rejected | Decided against; the reasons are recorded in the SEP | `seps/archive/` |
+| Withdrawn | Abandoned by its author | `seps/archive/` |
+| Superseded | Replaced by a later SEP, named in the header | `seps/archive/` |
+| Active | A Process SEP in force | `seps/` |
+
+The archive, `seps/archive/`, is kept in the repository and is not built into the
+manual: the [index](index.md) and the pages that cite an archived SEP link its file on
+GitHub, on `main`.
 
 A SEP whose design a later decision record replaces, rather than a later SEP, keeps its
 status (a Final SEP stays Final), names the ADR in **Superseded-by** and carries a note
 under its header (*Completion*, §6).
 
-The folder, the [index](index.md) and the roadmap are kept consistent with the status in
-the header; `tests/test_seps.py` checks it. A SEP's tracking issue (ADR-062) stays open
+The folder and the [index](index.md) are kept consistent with the status in the header; `tests/test_seps.py` checks it. A SEP's tracking issue (ADR-062) stays open
 through `Draft`, `Accepted`, `In progress` and `Deferred`, and closes when the SEP reaches
 `Final`, `Rejected`, `Withdrawn` or `Superseded`. A Process SEP has none.
 
@@ -134,8 +137,7 @@ through `Draft`, `Accepted`, `In progress` and `Deferred`, and closes when the S
 2. Fill in the header and Part I: the **Author**, any **Drafting agent**, status `Draft`,
    review status `Not reviewed` and **Reviewers** `—`. Leave Part II empty and start
    Part III with the date drafted.
-3. Add the SEP to the index table, the index's toctree and the *Draft enhancement
-   proposals* section of the [roadmap](../roadmap.md), after the accepted proposals.
+3. Add the SEP to the index's *Open* table and its toctree.
 4. Search the open [issues](https://github.com/LupoLab/solprop/issues) for anything the
    SEP touches, and list what you find in its *Context* section: the issues it will fix,
    those that must be resolved before it, and any others it changes.
@@ -147,9 +149,8 @@ through `Draft`, `Accepted`, `In progress` and `Deferred`, and closes when the S
    documentation and can be discussed.
 
 Revising a draft is free: edit it in place in further pull requests and add a line to
-Part III for each substantial revision. Update its roadmap summary whenever its
-scope changes; work that the revised scope no longer covers goes in an
-issue (ADR-062).
+Part III for each substantial revision. Work that a revised scope no longer covers goes
+in an issue (ADR-062).
 
 ### Review
 
@@ -200,16 +201,14 @@ A SEP is ready to accept when:
 
 The maintainers accept a SEP in a pull request that sets the status to `Accepted`, fills
 in **Resolution** (the date and the pull request or discussion where it was decided), adds
-a line to Part III and moves the SEP from *Draft enhancement proposals* to *Accepted
-enhancement proposals* on the [roadmap](../roadmap.md). A rejection or deferral records
-the reasons in the SEP, removes its proposal listing from the roadmap and opens an issue
-for any still-relevant work that it had replaced (ADR-062). Apply the same update on
+a line to Part III and updates its index row. A rejection or deferral records the
+reasons in the SEP and opens an issue for any still-relevant work that it had replaced (ADR-062). Apply the same update on
 withdrawal; for supersession, reconcile the work with the replacement SEP's scope.
 
 From acceptance, Part I is frozen. A deviation found during implementation is recorded in
 the phase report (§8), not edited into the proposal. A change large enough to invalidate
 the proposal sends the SEP back to `Draft` for re-acceptance, or is made in a new SEP that
-supersedes it. A return to `Draft` moves its roadmap listing back to the draft section.
+supersedes it.
 
 ### Implementation
 
@@ -251,8 +250,10 @@ request sets `Final` only when the evidence for it can exist only after the merg
 of the published artefacts, for example); being documentation alone, it runs only the
 documentation checks in CI. The commit that sets `Final` fills in **Manual pages**,
 moves the file with `git mv` to `docs/dev/seps/archive/`, moves its index row to the
-archived table and its toctree entry to the archive index, fixes the relative links the
-move breaks, removes its roadmap link, and cites the SEP in its `changelog.d/`
+archived table and removes its toctree entry, turns every link to it from a built page
+(the index row among them) into a link to its file on GitHub
+(`https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/<file>`), and cites
+the SEP in its `changelog.d/`
 release-note fragment, collected by the [rolling release PR](../releasing.md#the-rolling-release-pr).
 
 A Final SEP is a historical record. It is not updated to follow later changes to the code;
@@ -344,8 +345,8 @@ assumption that had to be invented are all said plainly.
 | ADR ([decisions.md](../decisions.md)) | A durable decision and its reasons; code comments cite ADRs |
 | Manual (`docs/`) | How the functionality works and how to use it, as it is now |
 | Design pages (`docs/dev/`) | How the code is built, as it is now |
-| [Issues](https://github.com/LupoLab/solprop/issues) | Planned work (ADR-062) |
-| [Roadmap](../roadmap.md) | Accepted and draft SEPs |
+| [Issues](https://github.com/LupoLab/solprop/issues) | Planned work and open questions (ADR-062) |
+| [SEP index](index.md) | Every SEP and its status |
 | `changelog.d/`, collected into `CHANGELOG.md` by the release PR | What changed in each release, citing the SEP |
 
 The theory of a SEP moves into the manual when it is implemented: the manual page carries
@@ -387,7 +388,7 @@ that edits this document and adds a line to its history.
   work isn't divided across a stack, since every pull request and push runs CI's whole
   matrix (maintainer's decision).
 - 2026-11-09: John Travers approved a narrow exception for
-  [SEP 47](archive/sep-0047-run-ownership.md#11-phases): its implementation may merge through
+  [SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md#11-phases): its implementation may merge through
   a small number of coherent phase PRs, each leaving main usable with green required
   CI. Temporary internal adapters are removed by Final, and its Implementation field
   retains the successive milestone branches and PRs. The general one-branch/one-PR
@@ -399,7 +400,7 @@ that edits this document and adds a line to its history.
   even when they change public parameters; a public-interface redesign is no longer on the
   list of changes that require one (maintainer's decision).
 - 2026-11-15: John Travers approved a narrow exception for
-  [SEP 52](archive/sep-0052-backend-shape.md#11-phases): its implementation merges through four
+  [SEP 52](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0052-backend-shape.md#11-phases): its implementation merges through four
   stacked phase pull requests, each based on the one before and each leaving main usable
   with green required CI when it merges, although one agent implements them. Temporary
   internal adapters are removed by Final, and its Implementation field lists the
@@ -410,3 +411,7 @@ that edits this document and adds a line to its history.
   and ADR-077); the seam rule names the run request and drops the driver surface SEP 47
   removed; a SEP is implemented on one branch, and the template's phase reports follow
   that rule.
+- 2026-11-17: Clarifications: the archive stays in the repository but is no longer built
+  into the manual, so pages link an archived SEP's file on GitHub; the roadmap is gone,
+  its lists being the index's; an optimisation's measurement goes in its pull request
+  rather than a ledger page.

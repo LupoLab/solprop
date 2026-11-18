@@ -23,7 +23,7 @@ on the [profiles page](../waveguides/profiles.md).
 susceptibility, real-gas equation of state, transport properties and Kerr model are
 optmat's ([materials from optmat](material-selection.md#materials-from-optmat)), and its
 `IonisationData` is optmat's first ionisation energy. Its rate and Raman response are
-optmat's too, resolved for the run ([SEP 3](../../dev/seps/archive/sep-0003-optmat-materials.md));
+optmat's too, resolved for the run ([SEP 3](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0003-optmat-materials.md));
 a built-in species carries no Raman constants of its own. A custom species carries
 its own data, Raman constants included
 ({class}`~solprop.physdata.raman_types.MolecularRaman`). Missing response data is

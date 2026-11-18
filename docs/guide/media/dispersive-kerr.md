@@ -10,7 +10,7 @@ which mixes widely separated colours, therefore uses a coefficient that is right
 some of its processes and wrong for others.
 
 This page describes the two **dispersive electronic policies** of
-[SEP 6](../../dev/seps/archive/sep-0006-dispersive-nonlinearity.md), which evaluate optmat's whole
+[SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md), which evaluate optmat's whole
 fit of a gas's hyperpolarisability at the absolute frequencies of every quartet the
 cubic couples, in one broadband polarisation. It is for readers who want to know which
 polarisation such a run computes, what each of the two evaluators approximates and what
@@ -416,7 +416,7 @@ factorisation's own departure from the polynomial, 0.9 % and 1.3 %: as an approx
 of the polynomial the mixture's filter is as good as the exact sum. In a 3 cm, 150 µJ
 capillary run the exit field's nonlinear change departs from the polynomial's by 0.29 %
 (helium and argon) and 0.36 % (air), against 0.27 % and 0.29 % for the exact sum and
-5–6 % for the carrier policy ([SEP 6](../../dev/seps/archive/sep-0006-dispersive-nonlinearity.md)).
+5–6 % for the carrier policy ([SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md)).
 
 A supplied species, which carries no optmat model, is refused under a dispersive policy
 by name rather than given a borrowed curve; air resolves through its populations.
@@ -644,4 +644,4 @@ spectrum from it.
   Hopper device (CUDA).
 
 This page documents the functionality proposed and implemented by
-[SEP 6](../../dev/seps/archive/sep-0006-dispersive-nonlinearity.md).
+[SEP 6](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0006-dispersive-nonlinearity.md).

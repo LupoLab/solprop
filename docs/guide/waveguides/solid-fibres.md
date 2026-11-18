@@ -388,4 +388,4 @@ The ones a user meets first:
   kink (above).
 
 The design of the incident-beam launch into a fibre and its coupling budget is
-[SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md).
+[SEP 31](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0031-simulation-coupling.md).

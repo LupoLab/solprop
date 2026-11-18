@@ -109,7 +109,7 @@ transform's sign, and the boundary does not conjugate it. A beam travelling towa
 with physical transverse wave number `κ_x > 0` carries `e^{+iκ_x x}` in the optics
 convention and so `e^{−iκ_x x}` on the internal samples: it is stored at **negative**
 `k_x`, and a stored column's axis is `k^{(s)} = −κ` (`spatial.mask_plane_offsets`,
-[SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md) §4.1). A **positive
+[SEP 23](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0023-far-field-aperture-spectra.md) §4.1). A **positive
 displacement** `d_x` moves the beam towards +x, `E(x) → E(x − d_x)`, which multiplies the
 stored spectrum by `e^{−i k_x d_x}`. A **positive tilt** `θ_x` makes the beam propagate
 towards +x: the screen `e^{+i k x sin θ_x}` in the optics convention
@@ -248,7 +248,7 @@ mode per active bin, fixed modulus and random phase. Its field-grid modulus is
 `sqrt(hbar omega/domega) sqrt(2 pi)/dt`. The internal draw is divided by the entrance
 square root. It is not a circular-Gaussian draw.
 
-**Spatial geometry** ([SEP 34](seps/archive/sep-0034-medium-flux.md)). Radial, Cartesian and
+**Spatial geometry** ([SEP 34](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0034-medium-flux.md)). Radial, Cartesian and
 line states retain physical V/m or V m units and have no modal power-weight row. They are
 measured with the scalar axial admittance of the medium at the plane,
 `Y_c = eps0 c² k_z/omega` per transverse column and bin, zero on nonpropagating,
@@ -273,7 +273,7 @@ admitted only when every propagating column meets the adiabatic certificate:
 `delta* = expm1(Lambda tanh Lambda)` within `AdiabaticAccuracy` (default 1e-4 each;
 `solprop.adiabatic`).
 
-**Field planes and coupling** ([SEP 31](seps/archive/sep-0031-simulation-coupling.md)). A
+**Field planes and coupling** ([SEP 31](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0031-simulation-coupling.md)). A
 `FieldPlane` holds a stored spectrum exactly as the output does: the optics-convention
 raw DFT of each column, referenced to the window centre, in √W (ordinary and general
 modal coordinates), V m (the Hankel spectrum of a radial field) or V/m (the DFT of a
