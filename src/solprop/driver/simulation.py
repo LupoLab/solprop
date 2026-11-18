@@ -1546,8 +1546,9 @@ class Simulation(Displayed):
         )
         if self.frame is not None:
             configuration["frame"] = self.frame
-        # The operator settings of SEP 22 phase 2, recorded only where set, so
-        # every earlier run keeps its digest; a collar as its two numbers.
+        # The operator settings of SEP 22 phase 2, recorded only where set: unset,
+        # each is its documented default, which its absence implies, so the record
+        # stays short. A collar as its two numbers.
         if self.settings.evanescent_rate is not None:
             configuration["evanescent_rate"] = self.settings.evanescent_rate
         if self.settings.spatial_absorber is not None:

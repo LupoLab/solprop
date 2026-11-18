@@ -218,8 +218,8 @@ def metadata_for(
     if measure != "area":
         # A run uniform in y reports its powers per metre of y; processing and
         # plotting label them from this key (RunMetadata.transverse_measure). It is
-        # written only where it is not the default, so every area run keeps the
-        # digest it was stamped with.
+        # written only where it is not the default, "area", which a reader assumes
+        # where it is absent, so the record stays short.
         record["transverse_measure"] = measure
     if problem.responses.envelope_plasma is not None:
         record["statistic_rate_conventions"] = {
