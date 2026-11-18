@@ -23,6 +23,7 @@ from solprop.driver.executors.queue import Queue
 from solprop.driver.executors.slurm import Slurm
 from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import DriverError, ExecutorError
+from solprop.output.records import RecipeFile, RecipeRecord
 from solprop.processing.scans import ScanOutput
 from solprop.scan import current_executor, main
 
@@ -382,6 +383,36 @@ def test_slurm_submission_route_collects_pending_manifest(tmp_path, monkeypatch)
     assert output.status.tolist() == ["todo"]
     assert policy._queue is not None
     assert policy._queue.chunk is None
+
+
+def test_a_slurm_scan_file_records_the_recipe_the_scan_was_built_from(
+    tmp_path, monkeypatch
+):
+    # A task's in-process body: its chunk holds no point, so the scan runs no worker,
+    # and what is checked is the recipe's path through the Slurm executor's inner
+    # queue into the file the task writes and the one `collect` writes.
+    recipe = RecipeRecord(
+        1,
+        "[recipe]\nformat = 1\n",
+        "[recipe]\nformat = 1\nseed = 3\n",
+        {"data-0.npy": RecipeFile("data.npy", "0" * 64, b"\x00\x01")},
+    )
+    monkeypatch.setenv("SOLPROP_SLURM_WORKER", "1")
+    monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "2")
+    queue = tmp_path / "queue"
+    policy = Slurm(tmp_path / "scan.py", ntasks=2, mode="chunk", queue_path=queue)
+    output = run_scan(
+        Scan("recipe", power=[1.0]),
+        build,
+        executor=policy,
+        output=tmp_path / "scan.h5",
+        progress="none",
+        recipe=recipe,
+    )
+    assert output.recipe == recipe
+    collected = tmp_path / "collected.h5"
+    assert main(["collect", str(queue), "--output", str(collected)]) == 0
+    assert ScanOutput(collected).recipe == recipe
 
 
 def test_cli_help_documents_the_collect_mode(capsys):
