@@ -24,7 +24,7 @@ module splits them in two, so a backend knows nothing of the representation:
 A z table has no such split
 (:attr:`~solprop.translate.problem.PropagationProblem.device_ready`), and
 :func:`require_device_ready` is the refusal an accelerator build raises. The design is
-``docs/dev/kernel-contract.md`` section 3, "How a stage is evaluated"; the bundles are
+``docs/dev/kernel-contract.md`` section 1, "Identity and validation"; the bundles are
 frozen by ``tests/backends/test_driver.py``.
 """
 

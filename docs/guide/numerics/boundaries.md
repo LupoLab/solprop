@@ -889,5 +889,5 @@ field = field * np.exp(-0.5 * boundary.temporal_rate * 0.01)
 spectrum = np.where(boundary.band_mask, np.ones((1, 1, grid.n_omega)), 0.0)
 
 # And the run says so if the absorber is too weak for the walk-off it will produce.
-warn_walkoff(grid, group_delay_span=1e-12)   # SolpropWarning: widen trange, or ...
+warn_walkoff(grid, group_delay_span=1e-11)   # SolpropWarning: widen trange, or ...
 ```
