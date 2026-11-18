@@ -1,0 +1,1 @@
+The transverse edge's `unwatched` status is gone, every backend reading the edge: `TransverseStatus` no longer lists it and `TransverseEdge.launch` no longer takes `reads=`; drop `reads=` from a call. The boundary monitor's `unwatched` stretches, left by an execution run with `boundary_check=None`, are unchanged.

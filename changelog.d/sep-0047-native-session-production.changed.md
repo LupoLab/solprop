@@ -1,1 +1,31 @@
-Runs on the native backend's CPU build now go through the native execution session ([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md)), the only native executor once the transitional driver session it replaced was removed, with the same steps, fields, statistics, step records and call ledgers as before. The session also runs resumed runs, carrying the Adams history and the call ledgers, the input and modified noise models (also on a propagator stored as a z table, and the input noise beside a free-space run's transverse edge), the boundary monitor (including a free-space run's transverse edge), dense output and the low-storage replay, and it exports the Adams history beside each saved plane and checkpoint. A signal during a run is still handled once the native call returns, within 256 attempts or 0.1 s; the run's checkpoint then includes every attempt made. Comparison methods, controllers that override `PIController`'s methods and TDSE responses are refused by name on native (see the reference-only entries). The four on-axis plasma statistics (`on_axis_electron_density`, `on_axis_peak_ionisation_rate` and their species forms) no longer send a run to the backend's own march: the session scans the axis row natively, agreeing with the earlier host scan to the node scans' parity tolerance (1e-10 relative). A spatial run's `beam_radius` and `fwhm_r` are now finished natively, so the default statistics of a radial or free-space run no longer leave the native session, and so is `zdw`, read from a table of each mode's zero-dispersion wavelength along z made once before the run (exact for a mode that does not vary along z, otherwise within 1e-6 of the wavelength, with the measured error in the run's execution record under `statistics_tables`); the native backend records `nan` where the band holds no zero, as `numpy_ref` does, instead of raising. The native backend refuses by name the metric statistics of a general modal basis whose metric varies inside one of its intervals. Statistics a problem does not carry are refused by name before the run starts, on every backend, instead of at the first saved plane: a modal statistic such as `omega0` on a spatial run, a spatial statistic such as `beam_radius` or `absorbed_power` on a modal run (where `numpy_ref` used to return the peak ionisation rate as `absorbed_power`), the plasma integration diagnostics without a field-grid plasma column, and the electron density or peak ionisation rate without a plasma response. On a CPU build, a coupled flow wider than 16 channels or with bins off its eigenbasis route now runs on the native Adams march in the session rather than on solprop's Python march: a bin off the route takes its matrix functions from the scaled Taylor series and squaring of the augmented exponential rather than SciPy's `expm`, a difference at the rounding level, and a step whose exponent there would need more than 30 squarings is refused by name.
+The native backend runs every run it admits in its own compiled session, with no Python
+step loop
+([SEP 45](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0045-native-rk-march.md),
+[SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md)).
+Beside the Adams march it already had, it now steps the adaptive Runge–Kutta loop of
+`RungeKutta()` and the low-storage replay (`LowStorageRungeKutta`) natively, and the
+session also runs resumed runs (carrying the Adams history and the call ledgers, and
+exporting the Adams history beside each saved plane and checkpoint), the input and
+modified noise models (also on a propagator stored as a z table), dense output
+(`interpolate_planes`, interpolated where the state lives for Adams and the embedded
+Runge–Kutta tableaux alike), the temporal boundary monitor and a free-space run's
+transverse edge (launch judgement, read spacing, reads, a requested collar's current and
+return, warnings, stops and records), the Adams carrier frame
+(`Multistep(carrier_frame="scalar")`) on an operator stored as a z table (#255), and
+coupled flows wider than 16 channels or with bins off their eigenbasis route, which 0.2.0
+stepped with solprop's Python march. Such a bin takes its matrix functions from the
+scaled Taylor series and squaring of the augmented exponential rather than SciPy's
+`expm`, and a step whose exponent there would need more than 30 squarings is refused by
+name. A run's backend metadata says which loop stepped it (`adams_march`, `rk_march`),
+and no built-in configuration issues `HostMarchWarning` any more; the class stays
+importable for warning filters. Some results move at the rounding level: the
+Runge–Kutta error norm, weighted or not, and the split collar's crossing limit now sum in
+one sequential order on both backends (in a near-tie a split-scheme run's collar bucket
+can move one place), and the transverse edge's safety-ramp shares are summed natively in
+another order, within a rounding bound that accumulates across reads, so a warning or
+stop may differ from `numpy_ref`'s for a share within that bound of its threshold. A
+signal during a run is handled once the native call returns, within 256 attempts or
+0.1 s, and the run's checkpoint includes every attempt made; under warning filters that
+raise a boundary warning, the run fails at that endpoint with its field available for
+the checkpoint, and a failure partway through a low-storage step is recorded against the
+latest running checkpoint.

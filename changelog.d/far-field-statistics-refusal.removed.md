@@ -1,1 +1,0 @@
-`solprop.backends.registry.statistics_refusal` and `NativeBackend.far_field_statistics` are gone: solprop-native is installed at solprop's own version and forms every far-field statistic, so the refusal could never fire.
