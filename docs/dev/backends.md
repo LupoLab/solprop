@@ -344,8 +344,10 @@ array crosses it.
 
 ## 2. `numpy_ref`: the oracle
 
-Plain NumPy and `scipy.fft`, one function per pass, no fusion, no in-place tricks, no
-threading beyond what `scipy.fft` does with `workers=1`. It exists to be read and to be right:
+Plain NumPy and `scipy.fft`, one function per pass, no fusion, no threading beyond what
+`scipy.fft` does with `workers=1`, and in-place updates only where the algorithm is defined
+by them: the low-storage engine's registers and the Adams history's transport
+(`AdamsKernels.transport`), which multiplies the stored rows in place. It exists to be read and to be right:
 every step of the anatomy in [architecture.md §8](architecture.md) is a named function with a
 docstring stating the formula. It is slow (tens of separate array operations per stage) and
 that is acceptable; it is the reference against which every other backend is validated, and
