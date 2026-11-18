@@ -2264,18 +2264,23 @@ def frozen_residual_flow(
     reached = float(conditioning[:, worst].max())
     if reached > float(condition_limit):
         # The bound is exp(dz_max spread), so the step it admits follows exactly;
-        # printed rounded down, so that the printed value is admitted too.
-        cap = float(dz_max) * math.log(float(condition_limit)) / math.log(reached)
-        unit = 10.0 ** (math.floor(math.log10(cap)) - 2)
+        # printed rounded down, so that the printed value is admitted too. A limit of
+        # one admits no positive step against any spread.
+        admitted = "a limit of one admits no positive step"
+        if float(condition_limit) > 1.0:
+            cap = float(dz_max) * math.log(float(condition_limit)) / math.log(reached)
+            unit = 10.0 ** (math.floor(math.log10(cap)) - 2)
+            admitted = (
+                f"a dz_max of at most {math.floor(cap / unit) * unit:.3g} m is admitted"
+            )
         msg = (
             f"a frozen-residual flow's inverse conditioning reaches "
             f"{reached:.4g} over a step of "
             f"{float(dz_max):.4g} m at {float(np.asarray(omega)[worst]):.6g} rad/s, "
             f"above the {float(condition_limit):.4g} this flow admits: the "
             "interaction picture's inverse action would amplify the nonlinear source "
-            "by that factor. Cap dz_max (a dz_max of at most "
-            f"{math.floor(cap / unit) * unit:.3g} m is admitted), divide the sections, "
-            "retain fewer channels, or raise the limit deliberately"
+            f"by that factor. Cap dz_max ({admitted}), divide the sections, retain "
+            "fewer channels, or raise the limit deliberately"
         )
         raise TranslationError(msg)
     return CoupledFlowTables(

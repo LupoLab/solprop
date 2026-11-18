@@ -345,6 +345,26 @@ def test_the_constructor_refuses_a_conditioning_bound_it_cannot_meet():
         )
 
 
+def test_a_condition_limit_of_one_is_refused_by_name_not_by_a_domain_error():
+    """One is the least limit a flow takes, and it admits no step against a spread."""
+    block = np.zeros((2, 1, 2, 2, 3), dtype=complex)
+    block[:, 0, 0, 0], block[:, 0, 1, 1], block[:, 0, 0, 1] = -1.0, -3.0, 50.0
+    with pytest.raises(
+        TranslationError, match="a limit of one admits no positive step"
+    ):
+        frozen_residual_flow(
+            np.linspace(1e15, 2e15, 3),
+            np.array([0.0, 5e-4, 1e-3]),
+            block,
+            None,
+            dz_max=1e-1,
+            condition_limit=1.0,
+            representation_error=0.0,
+            gauge_id="lab",
+            certificate_id="frozen-residual",
+        )
+
+
 def test_the_constructor_checks_its_own_arguments():
     """A bad generator shape, dz_max or limit is named before anything is decomposed."""
     omega = np.array([2.3e15, 2.4e15])
