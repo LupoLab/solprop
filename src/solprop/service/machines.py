@@ -134,8 +134,10 @@ class Machine:
     port : int or None
         A port other than the configuration's.
     python : str
-        The Python with solprop on the machine, as its shell finds it (``~`` is
-        expanded there).
+        The Python with solprop on the machine: one path, a leading ``~/`` standing
+        for the home folder there, or a command its shell finds on its ``PATH``
+        (``"python3"``). It is quoted whole, so variables, ``~user`` and options
+        are not read.
     workspace : str
         The folder of its runs, on the machine.
     launcher : str
@@ -296,7 +298,10 @@ def agent_command(
 
 
 def _shell_path(path: str) -> str:
-    """Return a path quoted for a POSIX shell, a leading ``~`` still the home folder."""
+    """Return a path quoted whole for a POSIX shell, a leading ``~/`` still the home.
+
+    Nothing else in it is read by the shell: no variable, ``~user`` or option.
+    """
     if path == "~" or path.startswith("~/"):
         return '"$HOME"' + shlex.quote(path[1:]) if path != "~" else '"$HOME"'
     return shlex.quote(path)
