@@ -3319,9 +3319,10 @@ class Simulation(Displayed):
         three-component
         E and H at quadrature nodes, whose material regions own their responses and
         whose channels are Poynting-normalised, so that a channel amplitude is a
-        true-power amplitude by construction. It is qualified on ``numpy_ref`` and the
-        native CPU backend, a declared split block's coupled
-        flow included, and propagates constant geometry on a **field** grid.
+        true-power amplitude by construction. It runs on ``numpy_ref`` and the
+        native backend, its CPU build and its CUDA and HIP device builds alike, a
+        declared split block's coupled flow included, on a **field** grid, for a
+        guide of constant geometry or a solid guide whose geometry moves along z.
         Every gas keyword is refused by name beside a provider, because a guide's
         materials are its regions' and not a fill.
 
