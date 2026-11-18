@@ -36,6 +36,7 @@ import traceback
 import weakref
 from collections import deque
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from pathlib import Path
 from types import SimpleNamespace
 from typing import IO, Any, Protocol, cast, runtime_checkable
 
@@ -352,6 +353,26 @@ def write_message(
 # ---------------------------------------------------------------------- the parent
 
 
+def _import_path() -> list[str]:
+    """Return this process's import path, less the directory a script put first.
+
+    The worker starts with ``-P`` so that a directory holding a module named like a
+    standard-library one cannot shadow it there; the directory of the script this
+    process runs, which Python puts first on the path, would undo that.
+    """
+    script = Path(sys.argv[0] if sys.argv else "")
+    path = sys.path
+    if (
+        not sys.flags.safe_path
+        and path
+        and path[0]
+        and script.is_file()
+        and Path(path[0]).resolve() == script.resolve().parent
+    ):
+        path = path[1:]
+    return [entry for entry in path if entry]
+
+
 def worker_environment(
     environ: Mapping[str, str], explicit: Mapping[str, str]
 ) -> dict[str, str]:
@@ -359,11 +380,11 @@ def worker_environment(
 
     The OpenMP wait variables solprop-native set for itself (ADR-071), which its marker
     names, are removed so that the provider's runtime keeps its own defaults; a user's
-    own settings pass through. The worker imports from this process's import path.
-    ``explicit`` (the thread count, the device) wins.
+    own settings pass through. The worker imports from this process's import path
+    (:func:`_import_path`). ``explicit`` (the thread count, the device) wins.
     """
     environment = child_environment(environ)
-    environment["PYTHONPATH"] = os.pathsep.join(entry for entry in sys.path if entry)
+    environment["PYTHONPATH"] = os.pathsep.join(_import_path())
     settings = _NATIVE_WAIT_SETTINGS.get(environment.get(_NATIVE_WAIT_MARKER, ""), {})
     if settings:
         for name, value in settings.items():
