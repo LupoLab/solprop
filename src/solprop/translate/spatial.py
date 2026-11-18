@@ -977,10 +977,11 @@ def aperture_tables(
     Raises
     ------
     OutputError
-        For a radial or planar-hybrid geometry or none at all; and on a line, for an
-        aperture whose centre is off ``y = 0``, a half-plane bounded in y or an ellipse,
-        which have no meaning uniform in y, or a region whose ``kappa_y`` interval
-        excludes zero, which would select nothing.
+        For a radial or planar-hybrid geometry or none at all.
+    ProcessingError
+        On a line, for an aperture whose centre is off ``y = 0``, a half-plane bounded
+        in y or an ellipse, which have no meaning uniform in y, or a region whose
+        ``kappa_y`` interval excludes zero, which would select nothing.
     """
     if not set(spec.names) & set(FAR_FIELD_STATISTICS):
         return None

@@ -869,7 +869,7 @@ def far_field_tables(
 
     Raises
     ------
-    OutputError
+    ProcessingError
         On a line, for an aperture whose centre is off ``y = 0``, a half-plane bounded
         in y or an ellipse, which have no meaning uniform in y, or a region whose
         ``kappa_y`` interval excludes zero, which would select nothing.
@@ -883,7 +883,7 @@ def far_field_tables(
                 "on a line uniform in y an aperture is a slit along x, so its y centre "
                 "must be zero"
             )
-            raise OutputError(msg)
+            raise ProcessingError(msg)
         if apertures is not None:
             _refuse_off_line(apertures)
         excluded = np.flatnonzero(~((regions[:, 2] <= 0) & (regions[:, 3] > 0)))
@@ -893,7 +893,7 @@ def far_field_tables(
                 f"{excluded.tolist()}, whose kappa_y interval excludes zero, would "
                 "select nothing"
             )
-            raise OutputError(msg)
+            raise ProcessingError(msg)
     if apertures is None:
         empty = np.empty(0)
         return ApertureTables(
@@ -939,7 +939,7 @@ def _refuse_off_line(apertures: ApertureSet) -> None:
                 "a circle or a rectangle, each a slit along x, or a half-plane bounded "
                 "in x"
             )
-            raise OutputError(msg)
+            raise ProcessingError(msg)
 
 
 def _outlines(apertures: ApertureSet, *, line: bool) -> list[ApertureOutline]:

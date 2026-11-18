@@ -809,11 +809,11 @@ def test_a_slit_on_a_line_and_its_refusals(grid):
     assert_within(values["aperture_spectrum"][0], values["beam_spectrum"], 1e-12)
     assert_within(values["region_spectrum"][0], values["beam_spectrum"], gamma(256))
     off_axis = ApertureSet(centres=[[0.0, 1e-3]], diameters=[1e-3], distances=[0.25])
-    with pytest.raises(OutputError, match="y centre must be zero"):
+    with pytest.raises(ProcessingError, match="y centre must be zero"):
         aperture_tables(
             StatsSpec(names=("aperture_spectrum",), apertures=off_axis), grid, space
         )
-    with pytest.raises(OutputError, match="would select nothing"):
+    with pytest.raises(ProcessingError, match="would select nothing"):
         aperture_tables(
             StatsSpec(
                 names=("region_spectrum",),
@@ -1678,5 +1678,5 @@ def test_line_routes_refuse_what_has_no_meaning_uniform_in_y(grid, shape, extent
         names=("aperture_spectrum",),
         apertures=set_of((shape,), [[0.0, 0.0]], extents=extents),
     )
-    with pytest.raises(OutputError, match="has no meaning there"):
+    with pytest.raises(ProcessingError, match="has no meaning there"):
         aperture_tables(spec, grid, space)
