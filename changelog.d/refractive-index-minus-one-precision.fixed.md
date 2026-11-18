@@ -1,0 +1,1 @@
+`refractive_index_minus_one` no longer loses precision at low pressure. It formed `n - 1` from `1 + chi1`, the cancellation it exists to avoid, so its relative error grew as the gas thinned: about 1e-12 for helium at 1 bar and up to 3e-7 at 1e-6 bar. It now forms it from `chi1` itself, which scales with the density to rounding.
