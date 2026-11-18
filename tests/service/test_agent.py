@@ -493,7 +493,8 @@ def test_a_direct_run_is_cancelled_by_its_signal(tmp_path: Path):
 
     sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     try:
-        job = Job("r1", "direct", socket.gethostname(), sleeper.pid, None, None, 0.0)
+        stamp = process_stamp(sleeper.pid)
+        job = Job("r1", "direct", socket.gethostname(), sleeper.pid, stamp, None, 0.0)
         write_job(tmp_path, job)
         Agent(io.BytesIO()).cancel({"folder": str(tmp_path)})
         assert sleeper.wait(timeout=WAIT) != 0
@@ -508,6 +509,35 @@ def test_a_direct_run_is_cancelled_by_its_signal(tmp_path: Path):
         )
         write_job(tmp_path, stamped)  # its process has gone: nothing to send
         Agent(io.BytesIO()).cancel({"folder": str(tmp_path)})
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+
+
+@pytest.mark.parametrize("recorded", ["job", "submitted"])
+def test_a_process_whose_start_was_not_recorded_is_not_signalled(
+    tmp_path: Path, recorded: str
+):
+    """Its number may belong to another process by now: Kill refuses, saying why."""
+    import subprocess  # noqa: PLC0415 - only here
+
+    from solprop.service.launch import SUBMITTED  # noqa: PLC0415 - only here
+    from solprop.service.record import Job, write_job, write_json  # noqa: PLC0415
+
+    here = socket.gethostname()
+    # This stands in for a later process that has the run's number.
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        if recorded == "job":
+            write_job(tmp_path, Job("r1", "direct", here, sleeper.pid, None, None, 0))
+        else:
+            write_json(
+                tmp_path / SUBMITTED,
+                {"launcher": "direct", "host": here, "pid": sleeper.pid, "stamp": None},
+            )
+        with pytest.raises(ServiceError, match="its start was not recorded"):
+            Agent(io.BytesIO()).cancel({"folder": str(tmp_path), "force": True})
+        assert sleeper.poll() is None  # not signalled
     finally:
         sleeper.kill()
         sleeper.wait()

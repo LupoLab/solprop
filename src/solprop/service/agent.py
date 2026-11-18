@@ -396,7 +396,8 @@ class Agent:
         Raises
         ------
         solprop.service.messages.ServiceError
-            If the run has no job this machine can end.
+            If the run has no job this machine can end, or its process's start was
+            not recorded, so that its number cannot be told from a later process's.
         """
         from solprop.service.launch import SUBMITTED, cancel_slurm  # noqa: PLC0415
         from solprop.service.record import (  # noqa: PLC0415 - light
@@ -420,9 +421,17 @@ class Agent:
             host = submitted.get("host")
             pid, stamp = int(submitted.get("pid", -1)), submitted.get("stamp")
         if host == socket.gethostname():
-            if alive(pid, stamp):
-                hard = getattr(signal, "SIGKILL", signal.SIGTERM)
-                os.kill(pid, hard if body.get("force") else signal.SIGTERM)
+            if not alive(pid, stamp):
+                return  # gone: nothing to end
+            if stamp is None:
+                # Its number alone may by now be another process's.
+                msg = (
+                    f"{folder.name}'s process {pid} cannot be told from another with "
+                    "its number, as its start was not recorded: end it by hand"
+                )
+                raise ServiceError(msg)
+            hard = getattr(signal, "SIGKILL", signal.SIGTERM)
+            os.kill(pid, hard if body.get("force") else signal.SIGTERM)
             return
         msg = f"{folder.name} has no process or job on this machine to end"
         raise ServiceError(msg)
