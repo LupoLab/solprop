@@ -13,6 +13,7 @@ import contextlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 
+from pyqtgraph.util.garbage_collector import GarbageCollector
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
@@ -66,7 +67,7 @@ from solprop_gui.ui.scan_stage import ScanStage
 from solprop_gui.ui.sheet import SheetStage
 from solprop_gui.ui.theme import STYLE, app_settings, load_font, named_label, repolish
 
-__all__ = ["WorkflowWindow"]
+__all__ = ["WorkflowWindow", "collect_between_events"]
 
 _RECENT_SETUPS = "recent-setups"
 """The setting that lists recent setups."""
@@ -1553,6 +1554,22 @@ class WorkflowWindow(QMainWindow):
         self.document.close()
         self.bridge.close()
         event.accept()
+
+
+def collect_between_events() -> GarbageCollector:
+    """Have Python's garbage collected on a timer, between Qt's events.
+
+    Whatever hosts a :class:`WorkflowWindow` calls this before making it, and keeps
+    the collector while the window lives. Automatic collection is turned off: a plot
+    dropped while its scene still had an event queued could otherwise be freed inside
+    that event's handler, deleting the scene under Qt's feet.
+
+    Returns
+    -------
+    pyqtgraph.util.garbage_collector.GarbageCollector
+        The collector; stop its ``timer`` once the window has closed.
+    """
+    return GarbageCollector(interval=1.0)
 
 
 _WARM_EXAMPLES = ("rdw", "filament")

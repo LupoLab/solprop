@@ -4,6 +4,7 @@
 
 """The workflow window, offscreen: Home, Setup, Run and Analyse, for every class."""
 
+import gc
 import warnings
 from collections.abc import Iterator
 from pathlib import Path
@@ -53,7 +54,7 @@ from solprop_gui.ui.fields import ParameterRow
 from solprop_gui.ui.home import HomePage
 from solprop_gui.ui.quantity import QuantityField, _readable
 from solprop_gui.ui.theme import FONT
-from solprop_gui.ui.workflow_window import WorkflowWindow
+from solprop_gui.ui.workflow_window import WorkflowWindow, collect_between_events
 from solprop_gui.views.cross_section import CrossSection
 
 WAIT_MS = 120_000
@@ -322,6 +323,17 @@ def test_a_lost_run_explains_itself(window: WorkflowWindow, qtbot: QtBot) -> Non
     assert not window.analyse.advice.isHidden()
     assert "(out of memory)" in window.analyse.advice_text.text()
     assert "LowStorageRungeKutta" in window.analyse.advice_text.text()
+
+
+def test_a_host_collects_garbage_on_a_timer_not_automatically(qtbot: QtBot) -> None:
+    del qtbot  # the application, for the collector's timer
+    gc.enable()
+    try:
+        collector = collect_between_events()
+        assert not gc.isenabled() and collector.timer.isActive()
+        collector.timer.stop()
+    finally:
+        gc.disable()  # as the suite keeps it (conftest.py)
 
 
 def test_a_failed_reply_to_the_windows_own_request_is_said(
