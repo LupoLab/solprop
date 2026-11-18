@@ -226,9 +226,9 @@ def beta2(
     Departs from the analytic derivatives elsewhere in this module, and says so: the
     second derivative of a gas susceptibility is not part of the material interface,
     so this is a Richardson-extrapolated central difference of :func:`beta1` at a
-    relative step of :data:`BETA2_RELATIVE_STEP`. It reaches about 1e-10 relative,
-    against the 1e-6 of differencing ``beta`` twice, and only the co-moving frame
-    needs better -- which uses ``beta1``, not this.
+    relative step of :data:`BETA2_RELATIVE_STEP`, whose documentation gives the
+    measured accuracy. Only the co-moving frame needs better -- which uses
+    ``beta1``, not this.
 
     Parameters
     ----------
