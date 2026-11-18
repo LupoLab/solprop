@@ -41,6 +41,11 @@ The documentation covers both:
 - [Performance tuning](https://solprop.readthedocs.io/en/stable/guide/performance/tuning.html):
   threads, BLAS settings and profiling with Kokkos Tools
 
+Importing the package starts its OpenMP runtime: start child processes after it with the
+`spawn` start method. A `fork` child inherits the runtime without its threads and usually
+hangs at its first parallel region; so can a `forkserver` child when the main module
+imports the package.
+
 ## Development
 
 The package is a member of the repository's uv workspace and shares its environment and
