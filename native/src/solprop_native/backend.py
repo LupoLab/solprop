@@ -291,76 +291,84 @@ class NativeBackend:
         # One workspace for the backend's life (solprop SEP 52 section 5.3): the
         # problem and every set-once table, guard and geometry cross once, here.
         self._workspace = _core.Workspace(_lower(problem, request, plan))
-        diagnostics = self._workspace.diagnostics()
-        self._applied_execution = ExecutionRecord.from_native(
-            diagnostics["cpu_execution"]
-        )
-        if cpu_execution is None:
-            # A stage-2 refinement of this very execution (solprop SEP 46 section
-            # 6.6): the workspace is built again with its record.
-            refined = _refined_record(problem, stepper, diagnostics)
-            if refined is not None:
-                stored |= _keep_plans(diagnostics, wisdom)
-                self._workspace.close()
-                self._workspace = _core.Workspace(
-                    _lower(
-                        problem,
-                        request,
-                        dataclasses.replace(
-                            plan,
-                            cpu_execution=refined[0],
-                            fft_planning=_planning(fft_planning, stored),
-                        ),
+        # A failure before the constructor returns closes the workspace, whose device
+        # memory and place in the runtime's close-before-finalise registry the garbage
+        # collector would otherwise hold.
+        try:
+            diagnostics = self._workspace.diagnostics()
+            self._applied_execution = ExecutionRecord.from_native(
+                diagnostics["cpu_execution"]
+            )
+            if cpu_execution is None:
+                # A stage-2 refinement of this very execution (solprop SEP 46 section
+                # 6.6): the workspace is built again with its record.
+                refined = _refined_record(problem, stepper, diagnostics)
+                if refined is not None:
+                    stored |= _keep_plans(diagnostics, wisdom)
+                    self._workspace.close()
+                    self._workspace = _core.Workspace(
+                        _lower(
+                            problem,
+                            request,
+                            dataclasses.replace(
+                                plan,
+                                cpu_execution=refined[0],
+                                fft_planning=_planning(fft_planning, stored),
+                            ),
+                        )
+                    )
+                    diagnostics = self._workspace.diagnostics()
+                    self._execution_source = refined[1]
+                    self._applied_execution = ExecutionRecord.from_native(
+                        diagnostics["cpu_execution"]
+                    )
+            # The workspace's facts that its build fixes, for every metadata record; its
+            # counters are read live (`Workspace.counters`).
+            self._facts: dict[str, Any] = dict(diagnostics)
+            # solprop SEP 49: the TDSE response is the march's host source, handed to
+            # each run and probe; the driver owns the binding and closes it.
+            self._tdse_binding = tdse_binding
+            self._host_source: TDSEHostSource | None = None
+            if tdse_binding is not None:
+                self._host_source = TDSEHostSource(tdse_binding, problem, self._terms)
+            if fft_planning is None:
+                _keep_plans(diagnostics, wisdom)
+            self._wisdom_digest = (
+                _wisdom.digest(
+                    _applied_plans(
+                        diagnostics,
+                        stored,
+                        fft_planning if fft_planning is not None else _package.PLANNING,
                     )
                 )
-                diagnostics = self._workspace.diagnostics()
-                self._execution_source = refined[1]
-                self._applied_execution = ExecutionRecord.from_native(
-                    diagnostics["cpu_execution"]
-                )
-        # The workspace's facts that its build fixes, for every metadata record; its
-        # counters are read live (`Workspace.counters`).
-        self._facts: dict[str, Any] = dict(diagnostics)
-        # solprop SEP 49: the TDSE response is the march's host source, handed to each
-        # run and probe; the driver owns the binding and closes it.
-        self._tdse_binding = tdse_binding
-        self._host_source: TDSEHostSource | None = None
-        if tdse_binding is not None:
-            self._host_source = TDSEHostSource(tdse_binding, problem, self._terms)
-        if fft_planning is None:
-            _keep_plans(diagnostics, wisdom)
-        self._wisdom_digest = (
-            _wisdom.digest(
-                _applied_plans(
-                    diagnostics,
-                    stored,
-                    fft_planning if fft_planning is not None else _package.PLANNING,
-                )
+                if not _on_device()
+                else None
             )
-            if not _on_device()
-            else None
-        )
-        # The native Adams march's record (SEP 39): its policy, ledger and history,
-        # over the resident history the workspace keeps.
-        self._adams: _NativeAdamsMarch | None = (
-            _NativeAdamsMarch(self, integrator, diagnostics["history_rows"])
-            if isinstance(integrator, Multistep)
-            else None
-        )
-        # The low-storage march (SEP 24) is the native session's; its resident
-        # registers' step is a timing probe's trial (`timing_probe`), and the
-        # evaluations the probes make are counted for the metadata.
-        self._low_storage = isinstance(integrator, LowStorageRungeKutta)
-        self._low_storage_evaluations = 0
-        # The open timing probe, which leases the workspace until the next run or probe.
-        self._probe: _core.Probe | None = None
-        # NumPy's own BLAS pool would spin beside the native one while this backend
-        # lives; it is held to one thread until the last native backend closes.
-        self._host_blas = _host_blas.hold(
-            build_info().blas_library,
-            THREAD_BUDGET.threads,
-            acquire=acquire_host_blas,
-        )
+            # The native Adams march's record (SEP 39): its policy, ledger and history,
+            # over the resident history the workspace keeps.
+            self._adams: _NativeAdamsMarch | None = (
+                _NativeAdamsMarch(self, integrator, diagnostics["history_rows"])
+                if isinstance(integrator, Multistep)
+                else None
+            )
+            # The low-storage march (SEP 24) is the native session's; its resident
+            # registers' step is a timing probe's trial (`timing_probe`), and the
+            # evaluations the probes make are counted for the metadata.
+            self._low_storage = isinstance(integrator, LowStorageRungeKutta)
+            self._low_storage_evaluations = 0
+            # The open timing probe, which leases the workspace until the next run or
+            # probe.
+            self._probe: _core.Probe | None = None
+            # NumPy's own BLAS pool would spin beside the native one while this backend
+            # lives; it is held to one thread until the last native backend closes.
+            self._host_blas = _host_blas.hold(
+                build_info().blas_library,
+                THREAD_BUDGET.threads,
+                acquire=acquire_host_blas,
+            )
+        except BaseException:
+            self._workspace.close()
+            raise
 
     @property
     def request(self) -> RunRequest:  # numpydoc ignore=RT01
