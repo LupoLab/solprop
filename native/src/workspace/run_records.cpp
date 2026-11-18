@@ -31,7 +31,7 @@ template <class Slots>
 void numbers_into(const std::map<std::string, double>& numbers, const Slots& known,
                   const char* record) {
   for (const auto& entry : numbers) {
-    // Named references, not a structured binding: Clang 18 does not capture one in a
+    // Named variables, not a structured binding: Clang 18 does not capture one in a
     // lambda of a unit built with OpenMP.
     const std::string& name = entry.first;
     const double value = entry.second;
