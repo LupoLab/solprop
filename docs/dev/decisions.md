@@ -1741,8 +1741,8 @@ Withdrawn (development-process record, not a design decision).
 - **Now:** the reference march is `HostAdamsMarch`
   (`backends/numpy_ref/marches/adams.py`), which `numpy_ref` runs. Native has no Python
   march and refuses by name what its march does not step ([SEP
-  47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) phase 5), so nothing issues
-  `HostMarchWarning`. The native session books a call's attempts
+  47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md) phase 5), so no configuration issues
+  `HostMarchWarning`, and the class was removed in 0.3. The native session books a call's attempts
   (`native/src/session/session.cpp`, as the reference's `HostSession.record` does);
   `StepDriver` was removed.
 
@@ -2107,7 +2107,7 @@ Withdrawn (development-process record, not a design decision).
 - **Now:** `RungeKuttaPolicy` is in `solprop.backends.records`, and the reference march
   is `RungeKuttaMarch` (`backends/numpy_ref/marches/runge_kutta.py`); `StepDriver` and
   its hooks were removed ([SEP 47](https://github.com/LupoLab/solprop/blob/main/docs/dev/seps/archive/sep-0047-run-ownership.md)), and nothing
-  issues `HostMarchWarning`.
+  issues `HostMarchWarning`: the class was removed in 0.3.
 
 ## ADR-070 — On a chip with cores of several kinds, the budget is the fastest kind's cores
 

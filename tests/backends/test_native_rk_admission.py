@@ -20,7 +20,6 @@ from sessions.executors import committed_steps
 from sessions.runs import run
 from solprop.backends import available
 from solprop.backends.events import Outcome
-from solprop.exceptions import HostMarchWarning
 from solprop.stepper.runge_kutta import RungeKutta
 
 pytestmark = pytest.mark.skipif(
@@ -68,13 +67,12 @@ def launched(route: str, **settings):
         *((route, True) for route in ROUTES_NATIVE if route not in FLOWS),
     ],
 )
-def test_the_default_loop_is_native_without_a_warning(route, dense):
-    """The backend's session steps the whole run natively, warning of no host march."""
+def test_the_default_loop_is_native(route, dense):
+    """The backend's session steps the whole run natively."""
     backend, problem, run_request = launched(route, interpolate_planes=dense)
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            warnings.simplefilter("error", HostMarchWarning)
             landed = run(backend, problem, run_request)
         assert landed.terminal.outcome is Outcome.COMPLETED
         assert committed_steps(landed) > 0

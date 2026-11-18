@@ -34,7 +34,6 @@ __all__ = [
     "GeneralModalBasisWarning",
     "GrazingIncidenceWarning",
     "GridError",
-    "HostMarchWarning",
     "MaterialError",
     "MaterialRangeWarning",
     "MaterialStatusWarning",
@@ -431,16 +430,6 @@ class CalibrationNotice(SolpropWarning):
     and allocation runs the quick calibration (about 30 s), saying where the result
     goes and how to choose another level or turn it off. Silence it with the standard
     warnings filters, or with ``SOLPROP_CALIBRATION=use``.
-    """
-
-
-class HostMarchWarning(SolpropWarning):
-    """The native backend steps a run with solprop's Python march.
-
-    No built-in backend issues it since SEP 47's phase 5: the native backend steps
-    every run it admits with its own ``Multistep()`` (SEP 39) and ``RungeKutta()``
-    (SEP 45) marches and refuses the rest by name. The class stays importable for
-    warning filters that name it.
     """
 
 

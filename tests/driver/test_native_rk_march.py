@@ -37,7 +37,7 @@ from tests.driver.test_native_z_table import walk_off
 from rk_route_cases import replayed, runge_kutta_route
 from sessions.runs import load_native, native_trial
 from solprop.backends import available
-from solprop.exceptions import BoundaryWarning, HostMarchWarning
+from solprop.exceptions import BoundaryWarning
 from solprop.monitor import BoundaryCheck
 from solprop.stepper.controller import PIController
 from solprop.stepper.runge_kutta import RungeKutta
@@ -75,7 +75,6 @@ def _run(build, backend: str = "native") -> dict[str, Any]:
     rtol = simulation.run_request().stepper.controller.rtol
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)
-        warnings.simplefilter("error", HostMarchWarning)
         run = simulation.run(progress="none")
     outcome = run.outcome
     assert outcome is not None and outcome.execution is not None

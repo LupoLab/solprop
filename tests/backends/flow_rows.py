@@ -123,7 +123,6 @@ QUIET = (
     # Noise-free launches into time windows kept tight for speed: the boundary monitor
     # warns (SEP 21), and the window's edge is not what these rows hold.
     "ignore::solprop.exceptions.BoundaryWarning",
-    "ignore::solprop.exceptions.HostMarchWarning",
 )
 """The warning filters of the old modules, which every row's run needs."""
 
