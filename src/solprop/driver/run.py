@@ -34,6 +34,7 @@ from solprop._interrupts import handled
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import Backend, BackendHistory, Observation
 from solprop.backends.session import RunSession, Start, statistics_unavailable
+from solprop.driver.settings import _FIELDS_BESIDE_STEP_PLANES
 from solprop.exceptions import (
     BackendError,
     DriverError,
@@ -98,6 +99,9 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+# Refused here and, before the atomic provider is started, by Simulation.run.
+_TDSE_OUTPUT_REFUSAL = "TDSE output must support terminal checkpoints and call ledgers"
 
 
 def history_of(history: BackendHistory) -> StepHistory:
@@ -445,9 +449,7 @@ def run_problem(
     if tdse_descriptor(problem.route) is not None and not isinstance(
         output, CheckpointOutput
     ):
-        raise DriverError(
-            "TDSE output must support terminal checkpoints and call ledgers"
-        )
+        raise DriverError(_TDSE_OUTPUT_REFUSAL)
     if progress is not None and not isinstance(
         progress, str | ProgressReporter
     ):  # pragma: no cover - refused by the annotation where it is checked
@@ -646,12 +648,7 @@ def field_retention(
         raise DriverError(refusal)
     observation = request.observation
     if fields == "planes" and observation.step_planes:
-        msg = (
-            "fields='planes' names saved planes by index, and step_planes saves the "
-            "march's own steps as well, so the plane count is not known in advance; "
-            "keep fields='all' or 'none' beside step_planes"
-        )
-        raise DriverError(msg)
+        raise DriverError(_FIELDS_BESIDE_STEP_PLANES)
     try:
         return FieldRetention(
             cast("FieldsChoice", fields), tuple(int(index) for index in field_planes)

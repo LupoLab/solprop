@@ -121,7 +121,12 @@ from solprop.driver.routes.spatial import (
     _selected_planar,
     _transverse_specification,
 )
-from solprop.driver.run import check_snapshot_request, field_retention, run_problem
+from solprop.driver.run import (
+    _TDSE_OUTPUT_REFUSAL,
+    check_snapshot_request,
+    field_retention,
+    run_problem,
+)
 from solprop.driver.runner import SimulationRunner, _peak_field_reports
 from solprop.driver.settings import (
     _EXECUTION_SETTINGS,
@@ -1979,9 +1984,7 @@ class Simulation(Displayed):
             if tdse_descriptor(problem.route) is not None and not isinstance(
                 handler, CheckpointOutput
             ):
-                raise DriverError(
-                    "TDSE output must support terminal checkpoints and call ledgers"
-                )
+                raise DriverError(_TDSE_OUTPUT_REFUSAL)
             _check_tdse_archive(tdse_archive, problem, handler)
             check_snapshot_request(
                 request,
