@@ -538,8 +538,6 @@ def prop_waveguide(  # numpydoc ignore=PR01
     incident: SpatialPulse | None = None,
     coupling: CouplingModel | None = None,
     kerr_form: KerrForm = "real",
-    observable_rtol: float | None = None,
-    observable_atol: float | None = None,
     pressure_floor: float | None = None,
     vacuum_end: VacuumEnd | None = None,
     wavelength: float,

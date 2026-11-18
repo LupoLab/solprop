@@ -435,7 +435,7 @@ agreement is where the scalar routes on this page are the same physics.
 **Not valid when** the route refuses it; the refusals are not approximations:
 `peak_intensity` and the scalar-route power names (use `analytic_flux`), `quadrature_error`
 (no embedded rule), a nonorthogonal basis, a guide that does not span the active band,
-`n_pol` > 1, and numeric `observable_rtol` ([declared, refused,
+and `n_pol` > 1 ([declared, refused,
 recorded](../waveguides/general-modal.md#declared-refused-recorded)).
 
 **Entry point.** `prop_waveguide((), length, provider=guide, ...)` and

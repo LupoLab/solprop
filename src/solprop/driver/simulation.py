@@ -3247,8 +3247,6 @@ class Simulation(Displayed):
         incident: SpatialPulse | None = None,
         coupling: CouplingModel | None = None,
         kerr_form: KerrForm = "real",
-        observable_rtol: float | None = None,
-        observable_atol: float | None = None,
         pressure_floor: float | None = None,
         vacuum_end: VacuumEnd | None = None,
         wavelength: float,
@@ -3411,14 +3409,6 @@ class Simulation(Displayed):
             dispersive electronic policies a region's gas fill takes the dispersive
             cubic in the matching sector: ``"real"`` its full cubic, ``"analytic"``
             its number-conserving sector. Requires `provider`.
-        observable_rtol, observable_atol : float or None, optional
-            Requested accuracy of the named physical observables of a general modal run.
-            ``None``, the only value accepted, means **the solver's own** `rtol` and
-            `atol`: the route's basis is orthonormal in true power, so the controller's
-            weighted norm on the amplitudes already is a norm on the physical channel
-            powers. A different number is refused by name, because the separate error
-            allocation it would ask for -- over the table's interpolation, the
-            transverse rule and the step -- is not implemented. Require `provider`.
         pressure_floor : float or None, optional
             Lowest pressure the fill is allowed to reach, bar; ``None`` takes
             :data:`solprop.profiles.DEFAULT_PRESSURE_FLOOR_FRACTION` of the highest
@@ -3694,8 +3684,6 @@ class Simulation(Displayed):
             ("incident", incident),
             ("coupling", coupling),
             ("kerr_form", None if kerr_form == "real" else kerr_form),
-            ("observable_rtol", observable_rtol),
-            ("observable_atol", observable_atol),
         ):
             if value is not None:
                 msg = (

@@ -104,9 +104,7 @@ one the pulse enters, by index or by display label. Every gas-filled keyword --
 `gas`, `pressure`, `temperature`, `kerr`, `thg`, `plasma`, `raman`, `n_r`,
 `n_theta`, `radial_rule`, `envelope`, `node_budget` and the rest -- is refused
 **by name** beside a provider when it departs from its default, because the guide owns
-what each of them would set.
-`observable_rtol` and `observable_atol` are accepted as `None`, meaning the
-solver's own `rtol` and `atol`; a number is refused by name. **`kerr_form`**
+what each of them would set. **`kerr_form`**
 chooses the instantaneous cubic the regions respond with: `"real"`, the default,
 is the real-field cubic the field-grid routes above evaluate, third harmonic
 included, and `"analytic"` is the analytic-signal form, which carries the
