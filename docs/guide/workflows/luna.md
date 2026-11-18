@@ -174,17 +174,17 @@ model's loss has one arithmetic kernel (Luna's cached path had its sign reversed
 $n_\text{eff} - 1$ is formed directly, gaining five digits at a gas fill. The azimuthal
 order is never negative, and frequency zero is refused.
 
-**Antiresonant fibres (Vincetti model).** Four terms follow the papers or the physics
+**Antiresonant fibres (Vincetti model).** Three terms follow the papers or the physics
 rather than Luna's (and pyJCMwave's) form; the legacy form is available as
 `solprop.modes.antiresonant.LEGACY_CONVENTIONS`. For the tutorial fibre (15 µm core,
 six 9 µm tubes with 180 nm walls) in argon:
 
 | term | solprop | Luna | effect |
 |---|---|---|---|
-| effective-radius coefficient | $3 + 10\lambda/a$ (as printed) | 20 | $n_\text{eff}$ −1.7×10⁻⁶ and $\beta_2$ −7.7 fs²/m (1.7 %) at 800 nm; area −1.0 % |
 | waveguide decrement | $D_0/n_g$ | $D_0/n_g^2$ | at 30 bar, $\beta_2$ +8.9 fs²/m (1.7 %) at 1030 nm |
 | effective-area prefactor | $1/n_g$ | none | at 30 bar, area −0.8 % |
 | normalised frequency | $\sqrt{n_t^2 - n_g^2}$ | $\sqrt{n_t^2 - 1}$ | at 30 bar, the first loss peak 2.5 nm shorter; loss ×0.74 at 400 nm |
+| effective-radius coefficient | $3 + 20\lambda/a$ (Rosa 2021 eq. 10 as printed) | $3 + 20\lambda/a$ | the same |
 | dispersion width $\gamma_d$ | 0.03 | 0.03 | the same (the paper prints 0.003; 0.03 fits finite-element solutions better) |
 
 The loss is $c\alpha/(2\omega)$ (Luna's `imag(neff)` carries twice the loss in its
