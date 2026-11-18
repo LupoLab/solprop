@@ -288,8 +288,9 @@ def run_problem(
     is no interpolation (``docs/dev/stepper.md`` section 3), unless the request asks
     for dense output. With ``backend.request.observation.step_planes`` the march also
     stops at the end of every ``step_planes``-th accepted step, which is saved too
-    before the same plane is asked for again. A plane whose propagation did not meet its tolerance is logged
-    as a warning naming that plane (``docs/dev/stepper.md`` section 8).
+    before the same plane is asked for again. A plane whose propagation did not meet
+    its tolerance is logged as a warning naming that plane (``docs/dev/stepper.md``
+    section 8).
 
     Parameters
     ----------
