@@ -1250,7 +1250,15 @@ class StepIndexMode(Displayed):
 
     @property
     def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
-        """Azimuthal mode index n."""
+        """Azimuthal mode index n.
+
+        This departs from the :class:`~solprop.modes.protocol.Mode` definition,
+        the highest harmonic of the profile: the Cartesian components of ``HE_nm``
+        and ``EH_nm`` carry harmonics up to ``n + 1``, and those of ``TE_0m`` and
+        ``TM_0m`` up to 1. A rule sized from it alone is too small;
+        :meth:`~solprop.modes.stepindex_vector.StepIndexProvider.node_rule` sizes
+        its own polar rule from ``n + 1``.
+        """
         return self.n
 
     def principal_component(self, z: float = 0.0) -> None:
