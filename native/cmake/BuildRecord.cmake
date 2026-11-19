@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # The build record compiled into the extension: the _core target's definitions, which
-# solprop_native.build_info() reads back (src/bindings/bindings.cpp). Expects the _core
+# solprop_native.build_info() reads back (src/bindings/runtime.cpp). Expects the _core
 # target and the provenance, profile, BLAS, FFT, device and compiler-flag variables set
 # before it; spaces in the quoted values are encoded for nvcc_wrapper.
 
